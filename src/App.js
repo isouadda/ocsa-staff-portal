@@ -83,6 +83,7 @@ export default function OCSAStaffPortal() {
   const [tasks, setTasks] = useState([]);
   const [completedTaskIds, setCompletedTaskIds] = useState(new Set());
   const [issues, setIssues] = useState([]);
+  const [issueTasks, setIssueTasks] = useState([]);
   const [supplies, setSupplies] = useState([]);
   const [supplyLogs, setSupplyLogs] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -192,6 +193,18 @@ export default function OCSAStaffPortal() {
     try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); } catch (err) { console.error(err); }
   };
 
+  const loadIssueTasks = async () => {
+    try { const data = await api("/api/issues/my-tasks", { token }); setIssueTasks(data); } catch (err) { console.error(err); }
+  };
+
+  const resolveIssueTask = async (taskId, status, note) => {
+    try {
+      await api("/api/issues/tasks/" + taskId + "/resolve", { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined }, token });
+      showToast("Task updated to " + status.replace(/_/g, " "));
+      loadIssueTasks();
+    } catch (err) { showToast(err.message, "error"); }
+  };
+
   const submitIssue = async (title, description, zone, severity, photoUrl) => {
     try {
       const data = await api("/api/issues", { method: "POST", body: { siteId: clockStatus.shift.siteId, title, description, zone, severity }, token });
@@ -238,6 +251,7 @@ export default function OCSAStaffPortal() {
   useEffect(() => {
     if (activeTab === "tasks" && clockStatus?.clockedIn) loadTasks();
     if (activeTab === "issues" && clockStatus?.clockedIn) loadIssues();
+    if (activeTab === "issuetasks") loadIssueTasks();
     if (activeTab === "supplies" && clockStatus?.clockedIn) loadSupplies();
     if (activeTab === "chat") loadChannels();
   }, [activeTab, clockStatus?.clockedIn]);
@@ -246,9 +260,12 @@ export default function OCSAStaffPortal() {
     if (activeChannel) loadMessages(activeChannel);
   }, [activeChannel]);
 
+  const WrkIco = (p) => <Ico d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" {...p} />;
+
   const tabs = [
     { id: "clock", label: "Clock", icon: ClockIco },
     { id: "tasks", label: "Tasks", icon: CheckIco },
+    { id: "issuetasks", label: "Assigned", icon: WrkIco },
     { id: "chat", label: "Chat", icon: ChatIco },
     { id: "issues", label: "Issues", icon: AlertIco },
     { id: "supplies", label: "Supplies", icon: BoxIco },
@@ -287,6 +304,7 @@ export default function OCSAStaffPortal() {
           <div style={{ padding: "0 0 80px 0", minHeight: "calc(100vh - 130px)" }}>
             {activeTab === "clock" && <ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} setSelectedSite={setSelectedSite} onClockIn={handleClockIn} onClockOut={handleClockOut} sites={sites} loading={loading} />}
             {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} />}
+            {activeTab === "issuetasks" && <IssueTasksView issueTasks={issueTasks} resolveIssueTask={resolveIssueTask} showToast={showToast} />}
             {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} />}
             {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} />}
             {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} showToast={showToast} />}
@@ -613,6 +631,79 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
           <SendIco sz={16} c={text.trim() ? (isDm ? WHITE : NAVY) : GRAY} />
         </button>
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+// ISSUES VIEW
+// ============================================================
+// ============================================================
+// ISSUE TASKS VIEW (Assigned issues from admin)
+// ============================================================
+function IssueTasksView({ issueTasks, resolveIssueTask, showToast }) {
+  const [resolving, setResolving] = useState(null);
+  const [note, setNote] = useState("");
+  const sevC = { low: GREEN, medium: ORANGE, high: RED };
+
+  if (issueTasks.length === 0) return (
+    <div style={{ padding: "60px 20px", textAlign: "center" }}>
+      <AlertIco sz={40} c={NAVY_LIGHT} />
+      <div style={{ fontSize: 15, color: GRAY, marginTop: 16 }}>No assigned issue tasks right now.</div>
+      <div style={{ fontSize: 12, color: GRAY, marginTop: 4 }}>When an admin assigns an issue to you, it will appear here.</div>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: "16px" }}>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 16, fontWeight: 700 }}>Assigned Issues</div>
+        <div style={{ fontSize: 11, color: GRAY_LIGHT }}>{issueTasks.length} issue{issueTasks.length !== 1 ? "s" : ""} assigned to you</div>
+      </div>
+
+      {issueTasks.map(task => {
+        const isResolving = resolving === task.task_id;
+        return (
+          <div key={task.task_id} style={{ marginBottom: 10, background: NAVY_MID, border: `1px solid ${NAVY_LIGHT}`, borderRadius: 10, borderLeft: `3px solid ${sevC[task.severity] || ORANGE}`, overflow: "hidden" }}>
+            <div style={{ padding: "12px 14px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{task.issue_title}</div>
+                  {task.issue_description && <div style={{ fontSize: 11, color: GRAY_LIGHT, marginTop: 4, lineHeight: 1.4 }}>{task.issue_description}</div>}
+                </div>
+                <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: 4, background: (sevC[task.severity] || ORANGE) + "18", color: sevC[task.severity] || ORANGE, flexShrink: 0, marginLeft: 8 }}>{task.severity}</span>
+              </div>
+              <div style={{ display: "flex", gap: 10, marginTop: 8, fontSize: 10, color: GRAY }}>
+                <span>{task.site_name}</span>
+                <span>{task.issue_zone || task.zone}</span>
+                <span>Reported by {task.reported_by_name}</span>
+              </div>
+
+              {task.photo_url && (
+                <div style={{ marginTop: 8 }}>
+                  <img src={task.photo_url} alt="Issue" style={{ width: "100%", height: 120, objectFit: "cover", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}` }} />
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                {task.resolution_status !== "in_progress" && (
+                  <button onClick={() => resolveIssueTask(task.task_id, "in_progress", null)} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1px solid ${ORANGE}`, background: "transparent", color: ORANGE, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>In Progress</button>
+                )}
+                <button onClick={() => resolveIssueTask(task.task_id, "resolved", null)} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1px solid ${GREEN}`, background: "transparent", color: GREEN, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Resolved</button>
+                <button onClick={() => { setResolving(isResolving ? null : task.task_id); setNote(""); }} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1px solid ${RED}`, background: "transparent", color: RED, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Cannot Resolve</button>
+              </div>
+            </div>
+
+            {isResolving && (
+              <div style={{ padding: "10px 14px", borderTop: `1px solid ${NAVY_LIGHT}`, background: "rgba(231,76,60,0.04)" }}>
+                <div style={{ fontSize: 10, color: RED, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 6 }}>Explain why this cannot be resolved</div>
+                <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Describe the issue preventing resolution..." rows={3} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "rgba(255,255,255,0.04)", color: WHITE, fontSize: 12, outline: "none", resize: "vertical", fontFamily: "'DM Sans',sans-serif", marginBottom: 8 }} />
+                <button onClick={() => { if (!note.trim()) { showToast("Please provide a reason", "error"); return; } resolveIssueTask(task.task_id, "unable_to_resolve", note.trim()); setResolving(null); }} style={{ width: "100%", padding: "10px", borderRadius: 6, border: "none", background: RED, color: WHITE, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Submit</button>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
