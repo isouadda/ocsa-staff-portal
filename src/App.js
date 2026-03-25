@@ -1,6 +1,23 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 const API = process.env.REACT_APP_API_URL || "https://ocsa-api-production.up.railway.app";
+const SUPA_URL = "https://gcgswxyxkbummtgzgusk.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdjZ3N3eHl4a2J1bW10Z3pndXNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NjY0NTcsImV4cCI6MjA5MDA0MjQ1N30.Vbe7ueRmQ6MPZX2sqa0XHIlJD22_J7sDJ65OoQ50LaM";
+
+async function uploadPhoto(file) {
+  const fileName = "issue-" + Date.now() + "-" + Math.random().toString(36).substring(2, 8) + "." + file.name.split(".").pop();
+  const res = await fetch(SUPA_URL + "/storage/v1/object/issue-photos/" + fileName, {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + SUPA_KEY,
+      "apikey": SUPA_KEY,
+      "Content-Type": file.type,
+    },
+    body: file,
+  });
+  if (!res.ok) throw new Error("Photo upload failed");
+  return SUPA_URL + "/storage/v1/object/public/issue-photos/" + fileName;
+}
 const NAVY = "#0A1628";
 const NAVY_MID = "#132240";
 const NAVY_LIGHT = "#1B3058";
@@ -25,6 +42,9 @@ async function api(path, opts = {}) {
   }
   return res.json();
 }
+
+
+
 
 const formatTime = (d) => new Date(d).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 const formatDate = (d) => new Date(d).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -172,9 +192,12 @@ export default function OCSAStaffPortal() {
     try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); } catch (err) { console.error(err); }
   };
 
-  const submitIssue = async (title, description, zone, severity) => {
+  const submitIssue = async (title, description, zone, severity, photoUrl) => {
     try {
-      await api("/api/issues", { method: "POST", body: { siteId: clockStatus.shift.siteId, title, description, zone, severity }, token });
+      const data = await api("/api/issues", { method: "POST", body: { siteId: clockStatus.shift.siteId, title, description, zone, severity }, token });
+      if (photoUrl && data.issue) {
+        await api("/api/issues/" + data.issue.id + "/photos", { method: "POST", body: { photoUrl }, token });
+      }
       showToast("Issue reported");
       loadIssues();
     } catch (err) { showToast(err.message, "error"); }
@@ -599,14 +622,46 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast }) {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState(""); const [desc, setDesc] = useState("");
   const [sev, setSev] = useState("medium"); const [zone, setZone] = useState("");
+  const [photo, setPhoto] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
   const sevs = [{ v: "low", l: "Low", c: GREEN }, { v: "medium", l: "Med", c: ORANGE }, { v: "high", l: "High", c: RED }];
 
   if (!clockStatus?.clockedIn) return <EmptyState icon={AlertIco} text="Clock in to report issues." />;
 
-  const handleSubmit = () => {
+  const handlePhoto = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { showToast("Photo must be under 10MB", "error"); return; }
+    setPhoto(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setPhotoPreview(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  const removePhoto = () => {
+    setPhoto(null);
+    setPhotoPreview(null);
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const handleSubmit = async () => {
     if (!title.trim()) { showToast("Enter issue title", "error"); return; }
-    submitIssue(title.trim(), desc.trim(), zone.trim(), sev);
-    setTitle(""); setDesc(""); setZone(""); setSev("medium"); setShowForm(false);
+    setUploading(true);
+    try {
+      let photoUrl = null;
+      if (photo) {
+        photoUrl = await uploadPhoto(photo);
+      }
+      await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl);
+      setTitle(""); setDesc(""); setZone(""); setSev("medium");
+      setPhoto(null); setPhotoPreview(null);
+      setShowForm(false);
+    } catch (err) {
+      showToast(err.message, "error");
+    }
+    setUploading(false);
   };
 
   return (
@@ -629,7 +684,49 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast }) {
               ))}
             </div>
           </div>
-          <button onClick={handleSubmit} style={{ width: "100%", padding: "12px", borderRadius: 10, border: "none", background: `linear-gradient(135deg,${GOLD},${GOLD_LIGHT})`, color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer", textTransform: "uppercase" }}>Submit Issue</button>
+
+          {/* Photo Upload */}
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelSt}>Photo</label>
+            <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />
+
+            {!photoPreview ? (
+              <button onClick={() => fileRef.current?.click()} style={{
+                width: "100%", display: "flex", alignItems: "center", gap: 10,
+                padding: "12px", background: "rgba(255,255,255,0.03)",
+                border: `1px dashed ${GOLD}`, borderRadius: 8, cursor: "pointer",
+                color: GOLD, fontSize: 12, fontWeight: 600,
+              }}>
+                <CamIco sz={18} c={GOLD} />
+                <div style={{ textAlign: "left" }}>
+                  <div>Take Photo or Choose from Gallery</div>
+                  <div style={{ fontSize: 10, color: GRAY, fontWeight: 400, marginTop: 2 }}>JPG, PNG up to 10MB</div>
+                </div>
+              </button>
+            ) : (
+              <div style={{ position: "relative" }}>
+                <img src={photoPreview} alt="Preview" style={{
+                  width: "100%", height: 160, objectFit: "cover",
+                  borderRadius: 8, border: `1px solid ${NAVY_LIGHT}`,
+                }} />
+                <button onClick={removePhoto} style={{
+                  position: "absolute", top: 6, right: 6,
+                  width: 28, height: 28, borderRadius: "50%",
+                  background: "rgba(0,0,0,0.7)", border: "none",
+                  color: WHITE, fontSize: 16, cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>x</button>
+                <div style={{ fontSize: 10, color: GREEN, marginTop: 4 }}>Photo attached: {photo?.name}</div>
+              </div>
+            )}
+          </div>
+
+          <button onClick={handleSubmit} disabled={uploading} style={{
+            width: "100%", padding: "12px", borderRadius: 10, border: "none",
+            background: `linear-gradient(135deg,${GOLD},${GOLD_LIGHT})`,
+            color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer",
+            textTransform: "uppercase", opacity: uploading ? 0.6 : 1,
+          }}>{uploading ? "Uploading..." : "Submit Issue"}</button>
         </div>
       )}
 
