@@ -121,10 +121,10 @@ export default function OCSAStaffPortal() {
     setLoading(false);
   };
 
-  const handleRegister = async (firstName, lastName, phone, pin) => {
+  const handleRegister = async (firstName, lastName, phone, email, pin) => {
     setLoading(true);
     try {
-      await api("/api/auth/register", { method: "POST", body: { firstName, lastName, phone, pin } });
+      await api("/api/auth/register", { method: "POST", body: { firstName, lastName, phone, email, pin } });
       showToast("Registration submitted. Pending supervisor approval.");
       setScreen("login");
     } catch (err) {
@@ -348,8 +348,8 @@ function LoginScreen({ onLogin, onGoRegister, loading, showToast }) {
       </div>
 
       <div style={{ marginBottom: 16 }}>
-        <label style={labelSt}>Phone Number</label>
-        <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="215-555-0101" type="tel" style={inputSt} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} />
+        <label style={labelSt}>Phone Number or Email</label>
+        <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="2155550101 or name@email.com" style={inputSt} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} />
       </div>
       <div style={{ marginBottom: 24 }}>
         <label style={labelSt}>PIN</label>
@@ -382,19 +382,21 @@ function LoginScreen({ onLogin, onGoRegister, loading, showToast }) {
 // ============================================================
 function RegisterScreen({ onRegister, onBack, loading }) {
   const [fn, setFn] = useState(""); const [ln, setLn] = useState("");
-  const [ph, setPh] = useState(""); const [pin, setPin] = useState(""); const [pin2, setPin2] = useState("");
+  const [ph, setPh] = useState(""); const [em, setEm] = useState("");
+  const [pin, setPin] = useState(""); const [pin2, setPin2] = useState("");
   return (
     <div style={{ padding: "0 24px", minHeight: "100vh", display: "flex", flexDirection: "column", justifyContent: "center" }}>
       <div style={{ textAlign: "center", marginBottom: 32 }}>
         <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 28, fontWeight: 700, color: GOLD }}>OCSA</div>
         <div style={{ fontSize: 12, color: GRAY_LIGHT, letterSpacing: "2px", textTransform: "uppercase", marginTop: 4 }}>New Staff Registration</div>
       </div>
-      <div style={{ marginBottom: 14 }}><label style={labelSt}>First Name</label><input value={fn} onChange={e => setFn(e.target.value)} placeholder="First name" style={inputSt} /></div>
+      <div style={{ marginBottom: 14 }}><label style={labelSt}>First Name *</label><input value={fn} onChange={e => setFn(e.target.value)} placeholder="First name" style={inputSt} /></div>
       <div style={{ marginBottom: 14 }}><label style={labelSt}>Last Name</label><input value={ln} onChange={e => setLn(e.target.value)} placeholder="Last name" style={inputSt} /></div>
-      <div style={{ marginBottom: 14 }}><label style={labelSt}>Phone</label><input value={ph} onChange={e => setPh(e.target.value)} placeholder="215-555-0000" style={inputSt} /></div>
-      <div style={{ marginBottom: 14 }}><label style={labelSt}>PIN (4 digits)</label><input value={pin} onChange={e => setPin(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} /></div>
-      <div style={{ marginBottom: 24 }}><label style={labelSt}>Confirm PIN</label><input value={pin2} onChange={e => setPin2(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} /></div>
-      <button onClick={() => { if (pin !== pin2) return; onRegister(fn, ln, ph, pin); }} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${GOLD}, ${GOLD_LIGHT})`, color: NAVY, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>{loading ? "Registering..." : "Register"}</button>
+      <div style={{ marginBottom: 14 }}><label style={labelSt}>Phone Number *</label><input value={ph} onChange={e => setPh(e.target.value)} placeholder="2155550000 (no dashes needed)" style={inputSt} /></div>
+      <div style={{ marginBottom: 14 }}><label style={labelSt}>Email Address *</label><input value={em} onChange={e => setEm(e.target.value)} placeholder="name@email.com" type="email" style={inputSt} /></div>
+      <div style={{ marginBottom: 14 }}><label style={labelSt}>PIN (4 digits) *</label><input value={pin} onChange={e => setPin(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} /></div>
+      <div style={{ marginBottom: 24 }}><label style={labelSt}>Confirm PIN *</label><input value={pin2} onChange={e => setPin2(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} /></div>
+      <button onClick={() => { if (pin !== pin2) return; onRegister(fn, ln, ph, em, pin); }} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${GOLD}, ${GOLD_LIGHT})`, color: NAVY, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>{loading ? "Registering..." : "Register"}</button>
       <button onClick={onBack} style={{ width: "100%", padding: "12px", marginTop: 12, borderRadius: 10, border: `1px solid ${NAVY_LIGHT}`, background: "transparent", color: GRAY_LIGHT, fontSize: 13, cursor: "pointer" }}>Back to Login</button>
     </div>
   );
