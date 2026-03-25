@@ -233,6 +233,14 @@ export default function OCSAStaffPortal() {
     } catch (err) { showToast(err.message, "error"); }
   };
 
+  const submitSupplyRequest = async (requestType, itemName, description, urgency, supplyId) => {
+    try {
+      const siteId = clockStatus?.shift?.siteId || null;
+      await api("/api/supplies/requests", { method: "POST", body: { requestType, itemName, description, urgency, supplyId, siteId }, token });
+      showToast("Request submitted");
+    } catch (err) { showToast(err.message, "error"); }
+  };
+
   const loadChannels = async () => {
     try { const data = await api("/api/chat/channels", { token }); setChannels(data); } catch (err) { console.error(err); }
   };
@@ -307,7 +315,7 @@ export default function OCSAStaffPortal() {
             {activeTab === "issuetasks" && <IssueTasksView issueTasks={issueTasks} resolveIssueTask={resolveIssueTask} showToast={showToast} />}
             {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} />}
             {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} />}
-            {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} showToast={showToast} />}
+            {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} />}
           </div>
 
           <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 430, background: NAVY_MID, borderTop: `1px solid ${NAVY_LIGHT}`, display: "flex", padding: "6px 0 10px", zIndex: 100 }}>
@@ -847,18 +855,59 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast }) {
 // ============================================================
 // SUPPLIES VIEW
 // ============================================================
-function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, showToast }) {
+function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submitRequest, showToast }) {
   const [scanning, setScanning] = useState(null);
   const [qty, setQty] = useState(1);
+  const [reqForm, setReqForm] = useState(null);
 
   if (!clockStatus?.clockedIn) return <EmptyState icon={BoxIco} text="Clock in to log supply usage." />;
 
+  const handleSubmitReq = () => {
+    if (!reqForm.type) { showToast("Select a request type", "error"); return; }
+    if ((reqForm.type === "new_gear" || reqForm.type === "new_supply") && !reqForm.itemName) { showToast("Enter the item name", "error"); return; }
+    submitRequest(reqForm.type, reqForm.itemName, reqForm.description, reqForm.urgency, reqForm.supplyId);
+    setReqForm(null);
+  };
+
   return (
     <div style={{ padding: "16px" }}>
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 16, fontWeight: 700 }}>Supply Tracking</div>
-        <div style={{ fontSize: 11, color: GRAY_LIGHT }}>Select item to log usage</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div><div style={{ fontSize: 16, fontWeight: 700 }}>Supply Tracking</div><div style={{ fontSize: 11, color: GRAY_LIGHT }}>Log usage or submit a request</div></div>
+        <button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={{ padding: "7px 12px", borderRadius: 8, border: "none", background: GOLD, color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ Request</button>
       </div>
+
+      {reqForm && (
+        <div style={{ padding: 14, marginBottom: 14, background: NAVY_MID, border: `1px solid ${NAVY_LIGHT}`, borderRadius: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Supply/Gear Request</div>
+          <div style={{ marginBottom: 10 }}>
+            <label style={labelSt}>Request Type</label>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {[{ v: "refill", l: "Refill" }, { v: "damage_report", l: "Damage Report" }, { v: "new_gear", l: "New Gear" }, { v: "new_supply", l: "New Supply" }].map(t => (
+                <button key={t.v} onClick={() => setReqForm({ ...reqForm, type: t.v })} style={{ padding: "6px 10px", borderRadius: 6, border: reqForm.type === t.v ? `2px solid ${GOLD}` : `1px solid ${NAVY_LIGHT}`, background: reqForm.type === t.v ? GOLD_DIM : "transparent", color: reqForm.type === t.v ? GOLD : GRAY_LIGHT, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{t.l}</button>
+              ))}
+            </div>
+          </div>
+          {(reqForm.type === "refill" || reqForm.type === "damage_report") && supplies.length > 0 && (
+            <div style={{ marginBottom: 10 }}><label style={labelSt}>Supply Item</label><select value={reqForm.supplyId || ""} onChange={e => setReqForm({ ...reqForm, supplyId: e.target.value || null, itemName: supplies.find(s => s.id === e.target.value)?.name || "" })} style={inputSt}><option value="">Select supply...</option>{supplies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+          )}
+          {(reqForm.type === "new_gear" || reqForm.type === "new_supply") && (
+            <div style={{ marginBottom: 10 }}><label style={labelSt}>Item Name</label><input value={reqForm.itemName} onChange={e => setReqForm({ ...reqForm, itemName: e.target.value })} placeholder="What do you need?" style={inputSt} /></div>
+          )}
+          <div style={{ marginBottom: 10 }}><label style={labelSt}>Details</label><textarea value={reqForm.description} onChange={e => setReqForm({ ...reqForm, description: e.target.value })} placeholder="Describe the request..." rows={2} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={labelSt}>Urgency</label>
+            <div style={{ display: "flex", gap: 6 }}>
+              {[{ v: "low", l: "Low", c: GREEN }, { v: "normal", l: "Normal", c: GRAY_LIGHT }, { v: "high", l: "High", c: ORANGE }, { v: "urgent", l: "Urgent", c: RED }].map(u => (
+                <button key={u.v} onClick={() => setReqForm({ ...reqForm, urgency: u.v })} style={{ flex: 1, padding: "6px", borderRadius: 6, border: reqForm.urgency === u.v ? `2px solid ${u.c}` : `1px solid ${NAVY_LIGHT}`, background: reqForm.urgency === u.v ? u.c + "15" : "transparent", color: u.c, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>{u.l}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setReqForm(null)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${NAVY_LIGHT}`, background: "transparent", color: GRAY_LIGHT, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+            <button onClick={handleSubmitReq} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: `linear-gradient(135deg,${GOLD},${GOLD_LIGHT})`, color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Submit Request</button>
+          </div>
+        </div>
+      )}
 
       {supplies.map(sup => {
         const isOpen = scanning === sup.id;
