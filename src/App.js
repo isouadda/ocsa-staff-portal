@@ -815,7 +815,8 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast }) {
     const title = isIssueLinked ? (task.issue_title || task.label) : task.label;
     const desc = isIssueLinked ? task.issue_description : task.description;
     const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD);
-    const photoUrl = isIssueLinked ? task.issue_photo_url : null;
+    const photoUrl = isIssueLinked ? task.issue_photo_url : (task.media_url || null);
+    const mediaType = isIssueLinked ? "image" : (task.media_type || "image");
     const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name;
     const assignedByLabel = isIssueLinked ? "Reported by" : "Assigned by";
     const locationParts = [task.site_name];
@@ -823,7 +824,7 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast }) {
     if (task.floor_number) locationParts.push("Floor " + task.floor_number);
     locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || "General");
     const locationStr = locationParts.filter(Boolean).join(" > ");
-    return { isIssueLinked, title, desc, borderColor, photoUrl, assignedBy, assignedByLabel, locationStr };
+    return { isIssueLinked, title, desc, borderColor, photoUrl, mediaType, assignedBy, assignedByLabel, locationStr };
   };
 
   if (assignedTasks.length === 0) return (
@@ -886,11 +887,15 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast }) {
               {detail.task_created_at && <div style={{ fontSize: 10, color: GRAY }}>Assigned<div style={{ color: WHITE, fontWeight: 500, marginTop: 2 }}>{new Date(detail.task_created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div></div>}
             </div>
 
-            {/* Photo */}
+            {/* Photo/Video */}
             {info.photoUrl && (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6 }}>Attached Photo</div>
-                <img src={info.photoUrl} alt="Task" style={{ width: "100%", borderRadius: 8, maxHeight: 200, objectFit: "cover", border: `1px solid ${NAVY_LIGHT}` }} />
+                <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6 }}>{info.mediaType === "video" ? "Attached Video" : "Attached Photo"}</div>
+                {info.mediaType === "video" ? (
+                  <video src={info.photoUrl} controls style={{ width: "100%", borderRadius: 8, maxHeight: 240 }} />
+                ) : (
+                  <img src={info.photoUrl} alt="Task" style={{ width: "100%", borderRadius: 8, maxHeight: 200, objectFit: "cover", border: `1px solid ${NAVY_LIGHT}` }} />
+                )}
               </div>
             )}
 
