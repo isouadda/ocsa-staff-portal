@@ -272,7 +272,10 @@ export default function OCSAStaffPortal() {
   }, [activeTab, clockStatus?.clockedIn]);
 
   useEffect(() => {
-    if (activeChannel) loadMessages(activeChannel);
+    if (activeChannel) {
+      loadMessages(activeChannel);
+      setTimeout(() => loadChannels(), 600);
+    }
   }, [activeChannel]);
 
   const WrkIco = (p) => <Ico d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" {...p} />;
@@ -764,6 +767,7 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
 // ASSIGNED TASKS VIEW (unified: issue-linked and standalone)
 // ============================================================
 function AssignedTasksView({ assignedTasks, resolveTask, showToast }) {
+  const [detail, setDetail] = useState(null);
   const [activePanel, setActivePanel] = useState(null);
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState(null);
@@ -793,6 +797,7 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast }) {
       const photoUrl = await uploadPhoto(photo);
       await resolveTask(taskId, "resolved", note.trim(), photoUrl);
       clearForm();
+      setDetail(null);
     } catch (err) { showToast(err.message, "error"); }
     setUploading(false);
   };
@@ -801,6 +806,24 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast }) {
     if (!note.trim()) { showToast("Please provide a reason", "error"); return; }
     await resolveTask(taskId, "unable_to_resolve", note.trim(), null);
     clearForm();
+    setDetail(null);
+  };
+
+  // Helper to get task display info
+  const getTaskInfo = (task) => {
+    const isIssueLinked = !!task.source_issue_id;
+    const title = isIssueLinked ? (task.issue_title || task.label) : task.label;
+    const desc = isIssueLinked ? task.issue_description : task.description;
+    const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD);
+    const photoUrl = isIssueLinked ? task.issue_photo_url : null;
+    const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name;
+    const assignedByLabel = isIssueLinked ? "Reported by" : "Assigned by";
+    const locationParts = [task.site_name];
+    if (task.building_name) locationParts.push(task.building_name);
+    if (task.floor_number) locationParts.push("Floor " + task.floor_number);
+    locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || "General");
+    const locationStr = locationParts.filter(Boolean).join(" > ");
+    return { isIssueLinked, title, desc, borderColor, photoUrl, assignedBy, assignedByLabel, locationStr };
   };
 
   if (assignedTasks.length === 0) return (
@@ -811,6 +834,124 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast }) {
     </div>
   );
 
+  // ---- DETAIL VIEW ----
+  if (detail) {
+    const info = getTaskInfo(detail);
+    const isResolving = activePanel === "resolve";
+    const isCantResolve = activePanel === "cantresolve";
+
+    return (
+      <div style={{ padding: "16px" }}>
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />
+
+        <button onClick={() => { setDetail(null); clearForm(); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", marginBottom: 14, background: "none", border: `1px solid ${NAVY_LIGHT}`, borderRadius: 8, color: GRAY_LIGHT, fontSize: 12, cursor: "pointer" }}>
+          <Ico d="M15 18l-6-6 6-6" sz={14} c={GRAY_LIGHT} /> Back to assigned tasks
+        </button>
+
+        <div style={{ background: NAVY_MID, border: `1px solid ${NAVY_LIGHT}`, borderRadius: 12, borderLeft: `3px solid ${info.borderColor}`, overflow: "hidden" }}>
+          <div style={{ padding: "16px" }}>
+            {/* Title and badges */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, flex: 1 }}>{info.title}</div>
+              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                {info.isIssueLinked && detail.severity && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: 4, background: (sevC[detail.severity] || ORANGE) + "18", color: sevC[detail.severity] || ORANGE }}>{detail.severity}</span>}
+                {!info.isIssueLinked && detail.priority && detail.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: 4, background: (priC[detail.priority] || GOLD) + "18", color: priC[detail.priority] || GOLD }}>{detail.priority}</span>}
+                {info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "rgba(231,76,60,0.1)", color: RED }}>ISSUE</span>}
+              </div>
+            </div>
+
+            {/* Location */}
+            <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12 }}>{info.locationStr}</div>
+
+            {/* Status badge */}
+            {detail.resolution_status && (
+              <div style={{ marginBottom: 12 }}>
+                <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "3px 8px", borderRadius: 4, background: detail.resolution_status === "in_progress" ? ORANGE + "18" : GOLD + "18", color: detail.resolution_status === "in_progress" ? ORANGE : GOLD }}>{detail.resolution_status.replace(/_/g, " ")}</span>
+              </div>
+            )}
+
+            {/* Description */}
+            {info.desc && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6 }}>Description</div>
+                <div style={{ fontSize: 13, color: GRAY_LIGHT, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{info.desc}</div>
+              </div>
+            )}
+
+            {/* Info grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <div style={{ fontSize: 10, color: GRAY }}>{info.assignedByLabel}<div style={{ color: WHITE, fontWeight: 500, marginTop: 2 }}>{info.assignedBy}</div></div>
+              <div style={{ fontSize: 10, color: GRAY }}>Site<div style={{ color: WHITE, fontWeight: 500, marginTop: 2 }}>{detail.site_name}</div></div>
+              {detail.due_date && <div style={{ fontSize: 10, color: GRAY }}>Due Date<div style={{ color: ORANGE, fontWeight: 500, marginTop: 2 }}>{new Date(detail.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}{detail.due_time ? " at " + detail.due_time : ""}</div></div>}
+              {detail.task_created_at && <div style={{ fontSize: 10, color: GRAY }}>Assigned<div style={{ color: WHITE, fontWeight: 500, marginTop: 2 }}>{new Date(detail.task_created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div></div>}
+            </div>
+
+            {/* Photo */}
+            {info.photoUrl && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6 }}>Attached Photo</div>
+                <img src={info.photoUrl} alt="Task" style={{ width: "100%", borderRadius: 8, maxHeight: 200, objectFit: "cover", border: `1px solid ${NAVY_LIGHT}` }} />
+              </div>
+            )}
+
+            {/* Action buttons */}
+            {!isResolving && !isCantResolve && (
+              <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                {detail.resolution_status !== "in_progress" && (
+                  <button onClick={() => { resolveTask(detail.task_id, "in_progress", null, null); setDetail(null); }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${ORANGE}`, background: "transparent", color: ORANGE, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>In Progress</button>
+                )}
+                <button onClick={() => { clearForm(); setActivePanel("resolve"); }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${GREEN}`, background: "transparent", color: GREEN, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Resolved</button>
+                <button onClick={() => { clearForm(); setActivePanel("cantresolve"); }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${RED}`, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cannot Resolve</button>
+              </div>
+            )}
+          </div>
+
+          {/* Resolve panel */}
+          {isResolving && (
+            <div style={{ padding: "12px 14px", borderTop: `1px solid ${NAVY_LIGHT}`, background: "rgba(46,204,113,0.04)" }}>
+              <div style={{ fontSize: 10, color: GREEN, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>Mark as Resolved</div>
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4 }}>What did you do to complete this? *</div>
+                <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Describe the steps you took..." rows={3} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "rgba(255,255,255,0.04)", color: WHITE, fontSize: 12, outline: "none", resize: "vertical", fontFamily: "'DM Sans',sans-serif" }} />
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4 }}>Photo of completed task *</div>
+                {!photoPreview ? (
+                  <button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: "rgba(255,255,255,0.03)", border: `1px dashed ${GREEN}`, borderRadius: 8, cursor: "pointer", color: GREEN, fontSize: 12, fontWeight: 600 }}>
+                    <CamIco sz={18} c={GREEN} />
+                    <div style={{ textAlign: "left" }}><div>Take Photo of Completed Task</div><div style={{ fontSize: 10, color: GRAY, fontWeight: 400, marginTop: 2 }}>Required to verify completion</div></div>
+                  </button>
+                ) : (
+                  <div style={{ position: "relative" }}>
+                    <img src={photoPreview} alt="Preview" style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 8, border: `1px solid ${NAVY_LIGHT}` }} />
+                    <button onClick={() => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; }} style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "none", color: WHITE, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>x</button>
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setActivePanel(null)} style={{ flex: 1, padding: "10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "transparent", color: GRAY_LIGHT, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                <button onClick={() => handleResolve(detail.task_id)} disabled={uploading} style={{ flex: 1, padding: "10px", borderRadius: 6, border: "none", background: GREEN, color: WHITE, fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: uploading ? 0.6 : 1 }}>{uploading ? "Uploading..." : "Submit Resolution"}</button>
+              </div>
+            </div>
+          )}
+
+          {/* Can't resolve panel */}
+          {isCantResolve && (
+            <div style={{ padding: "12px 14px", borderTop: `1px solid ${NAVY_LIGHT}`, background: "rgba(231,76,60,0.04)" }}>
+              <div style={{ fontSize: 10, color: RED, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>Explain why this cannot be completed *</div>
+              <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Describe the issue preventing completion..." rows={3} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "rgba(255,255,255,0.04)", color: WHITE, fontSize: 12, outline: "none", resize: "vertical", fontFamily: "'DM Sans',sans-serif", marginBottom: 8 }} />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setActivePanel(null)} style={{ flex: 1, padding: "10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "transparent", color: GRAY_LIGHT, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                <button onClick={() => handleCantResolve(detail.task_id)} style={{ flex: 1, padding: "10px", borderRadius: 6, border: "none", background: RED, color: WHITE, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Submit</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ---- LIST VIEW ----
   return (
     <div style={{ padding: "16px" }}>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />
@@ -820,107 +961,37 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast }) {
       </div>
 
       {assignedTasks.map(task => {
-        const isIssueLinked = !!task.source_issue_id;
-        const title = isIssueLinked ? (task.issue_title || task.label) : task.label;
-        const desc = isIssueLinked ? task.issue_description : task.description;
-        const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD);
-        const photoUrl = isIssueLinked ? task.issue_photo_url : null;
-        const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name;
-        const assignedByLabel = isIssueLinked ? "Reported by" : "Assigned by";
-        const locationParts = [task.site_name];
-        if (task.building_name) locationParts.push(task.building_name);
-        if (task.floor_number) locationParts.push("Floor " + task.floor_number);
-        locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || "General");
-        const locationStr = locationParts.filter(Boolean).join(" > ");
-
-        const isResolving = activePanel?.taskId === task.task_id && activePanel?.mode === "resolve";
-        const isCantResolve = activePanel?.taskId === task.task_id && activePanel?.mode === "cantresolve";
-        const hasPanel = isResolving || isCantResolve;
-
+        const info = getTaskInfo(task);
         return (
-          <div key={task.task_id} style={{ marginBottom: 10, background: NAVY_MID, border: `1px solid ${NAVY_LIGHT}`, borderRadius: 10, borderLeft: `3px solid ${borderColor}`, overflow: "hidden" }}>
+          <div key={task.task_id} onClick={() => setDetail(task)} style={{ marginBottom: 10, background: NAVY_MID, border: `1px solid ${NAVY_LIGHT}`, borderRadius: 10, borderLeft: `3px solid ${info.borderColor}`, overflow: "hidden", cursor: "pointer" }}>
             <div style={{ padding: "12px 14px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{title}</div>
-                  {desc && <div style={{ fontSize: 11, color: GRAY_LIGHT, marginTop: 4, lineHeight: 1.4 }}>{desc}</div>}
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{info.title}</div>
+                  {info.desc && <div style={{ fontSize: 11, color: GRAY_LIGHT, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{info.desc}</div>}
                 </div>
-                <div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8 }}>
-                  {isIssueLinked && task.severity && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: 4, background: (sevC[task.severity] || ORANGE) + "18", color: sevC[task.severity] || ORANGE }}>{task.severity}</span>}
-                  {!isIssueLinked && task.priority && task.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: 4, background: (priC[task.priority] || GOLD) + "18", color: priC[task.priority] || GOLD }}>{task.priority}</span>}
-                  {isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "rgba(231,76,60,0.1)", color: RED }}>ISSUE</span>}
+                <div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8, alignItems: "center" }}>
+                  {info.isIssueLinked && detail === null && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "rgba(231,76,60,0.1)", color: RED }}>ISSUE</span>}
+                  {!info.isIssueLinked && task.priority && task.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: 4, background: (priC[task.priority] || GOLD) + "18", color: priC[task.priority] || GOLD }}>{task.priority}</span>}
+                  <Ico d="M9 18l6-6-6-6" sz={14} c={GRAY} />
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 8, marginTop: 8, fontSize: 10, color: GRAY, flexWrap: "wrap" }}>
-                <span>{locationStr}</span>
-                <span>{assignedByLabel} {assignedBy}</span>
+              <div style={{ display: "flex", gap: 8, marginTop: 8, fontSize: 10, color: GRAY, flexWrap: "wrap", alignItems: "center" }}>
+                <span>{info.locationStr}</span>
+                <span>{info.assignedByLabel} {info.assignedBy}</span>
+                {task.resolution_status === "in_progress" && <span style={{ fontSize: 9, fontWeight: 600, color: ORANGE, textTransform: "uppercase" }}>In Progress</span>}
               </div>
-
               {task.due_date && (
                 <div style={{ marginTop: 6, fontSize: 10, color: ORANGE }}>Due: {new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}{task.due_time ? " at " + task.due_time : ""}</div>
               )}
-
-              {photoUrl && (
-                <div style={{ marginTop: 8 }}>
-                  <img src={photoUrl} alt="Issue" style={{ width: "100%", height: 120, objectFit: "cover", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}` }} />
-                </div>
-              )}
-
-              {!hasPanel && (
-                <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-                  {task.resolution_status !== "in_progress" && (
-                    <button onClick={() => resolveTask(task.task_id, "in_progress", null, null)} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1px solid ${ORANGE}`, background: "transparent", color: ORANGE, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>In Progress</button>
-                  )}
-                  <button onClick={() => { clearForm(); setActivePanel({ taskId: task.task_id, mode: "resolve" }); }} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1px solid ${GREEN}`, background: "transparent", color: GREEN, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Resolved</button>
-                  <button onClick={() => { clearForm(); setActivePanel({ taskId: task.task_id, mode: "cantresolve" }); }} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1px solid ${RED}`, background: "transparent", color: RED, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Cannot Resolve</button>
-                </div>
-              )}
             </div>
-
-            {isResolving && (
-              <div style={{ padding: "12px 14px", borderTop: `1px solid ${NAVY_LIGHT}`, background: "rgba(46,204,113,0.04)" }}>
-                <div style={{ fontSize: 10, color: GREEN, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>Mark as Resolved</div>
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4 }}>What did you do to complete this? *</div>
-                  <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Describe the steps you took..." rows={3} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "rgba(255,255,255,0.04)", color: WHITE, fontSize: 12, outline: "none", resize: "vertical", fontFamily: "'DM Sans',sans-serif" }} />
-                </div>
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4 }}>Photo of completed task *</div>
-                  {!photoPreview ? (
-                    <button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: "rgba(255,255,255,0.03)", border: `1px dashed ${GREEN}`, borderRadius: 8, cursor: "pointer", color: GREEN, fontSize: 12, fontWeight: 600 }}>
-                      <CamIco sz={18} c={GREEN} />
-                      <div style={{ textAlign: "left" }}><div>Take Photo of Completed Task</div><div style={{ fontSize: 10, color: GRAY, fontWeight: 400, marginTop: 2 }}>Required to verify completion</div></div>
-                    </button>
-                  ) : (
-                    <div style={{ position: "relative" }}>
-                      <img src={photoPreview} alt="Preview" style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 8, border: `1px solid ${NAVY_LIGHT}` }} />
-                      <button onClick={() => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; }} style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "none", color: WHITE, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>x</button>
-                    </div>
-                  )}
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={clearForm} style={{ flex: 1, padding: "10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "transparent", color: GRAY_LIGHT, fontSize: 12, cursor: "pointer" }}>Cancel</button>
-                  <button onClick={() => handleResolve(task.task_id)} disabled={uploading} style={{ flex: 1, padding: "10px", borderRadius: 6, border: "none", background: GREEN, color: WHITE, fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: uploading ? 0.6 : 1 }}>{uploading ? "Uploading..." : "Submit Resolution"}</button>
-                </div>
-              </div>
-            )}
-
-            {isCantResolve && (
-              <div style={{ padding: "12px 14px", borderTop: `1px solid ${NAVY_LIGHT}`, background: "rgba(231,76,60,0.04)" }}>
-                <div style={{ fontSize: 10, color: RED, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>Explain why this cannot be completed *</div>
-                <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Describe the issue preventing completion..." rows={3} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "rgba(255,255,255,0.04)", color: WHITE, fontSize: 12, outline: "none", resize: "vertical", fontFamily: "'DM Sans',sans-serif", marginBottom: 8 }} />
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={clearForm} style={{ flex: 1, padding: "10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "transparent", color: GRAY_LIGHT, fontSize: 12, cursor: "pointer" }}>Cancel</button>
-                  <button onClick={() => handleCantResolve(task.task_id)} style={{ flex: 1, padding: "10px", borderRadius: 6, border: "none", background: RED, color: WHITE, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Submit</button>
-                </div>
-              </div>
-            )}
           </div>
         );
       })}
     </div>
   );
 }
+
 
 // ============================================================
 // ISSUES VIEW
