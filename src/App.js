@@ -844,10 +844,10 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user }) {
     <div style={{ padding: "16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
         <div style={{ fontSize: 16, fontWeight: 700 }}>{isAdmin ? "Issues" : "Report an Issue"}</div>
-        <button onClick={() => setShowForm(!showForm)} style={{ padding: "7px 12px", borderRadius: 8, border: "none", background: showForm ? NAVY_LIGHT : GOLD, color: showForm ? WHITE : NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{showForm ? "Cancel" : "+ Report"}</button>
+        {isAdmin && <button onClick={() => setShowForm(!showForm)} style={{ padding: "7px 12px", borderRadius: 8, border: "none", background: showForm ? NAVY_LIGHT : GOLD, color: showForm ? WHITE : NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{showForm ? "Cancel" : "+ Report"}</button>}
       </div>
 
-      {showForm && (
+      {(showForm || !isAdmin) && (
         <div style={{ padding: 14, marginBottom: 14, background: NAVY_MID, border: `1px solid ${NAVY_LIGHT}`, borderRadius: 12, animation: "fadeIn 0.3s ease" }}>
           <div style={{ marginBottom: 10 }}><label style={labelSt}>Title</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder="Brief description" style={inputSt} /></div>
           <div style={{ marginBottom: 10 }}><label style={labelSt}>Details</label><textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Additional details..." rows={3} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
@@ -906,8 +906,8 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user }) {
         </div>
       )}
 
-      {visibleIssues.length === 0 && !showForm && <div style={{ padding: "32px 20px", textAlign: "center", background: "rgba(255,255,255,0.02)", borderRadius: 12, border: `1px solid ${NAVY_LIGHT}`, fontSize: 13, color: GRAY }}>{isAdmin ? "No issues reported yet." : "You have not reported any issues yet. Tap '+ Report' to submit one."}</div>}
-      {visibleIssues.map(issue => {
+      {isAdmin && visibleIssues.length === 0 && !showForm && <div style={{ padding: "32px 20px", textAlign: "center", background: "rgba(255,255,255,0.02)", borderRadius: 12, border: `1px solid ${NAVY_LIGHT}`, fontSize: 13, color: GRAY }}>No issues reported yet.</div>}
+      {isAdmin && visibleIssues.map(issue => {
         const sc = issue.severity === "high" ? RED : issue.severity === "medium" ? ORANGE : GREEN;
         return (
           <div key={issue.id} style={{ padding: "12px", marginBottom: 6, background: NAVY_MID, border: `1px solid ${NAVY_LIGHT}`, borderRadius: 10, borderLeft: `3px solid ${sc}` }}>
