@@ -197,9 +197,9 @@ export default function OCSAStaffPortal() {
     try { const data = await api("/api/issues/my-tasks", { token }); setIssueTasks(data); } catch (err) { console.error(err); }
   };
 
-  const resolveIssueTask = async (taskId, status, note) => {
+  const resolveIssueTask = async (taskId, status, note, photoUrl) => {
     try {
-      await api("/api/issues/tasks/" + taskId + "/resolve", { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined }, token });
+      await api("/api/issues/tasks/" + taskId + "/resolve", { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token });
       showToast("Task updated to " + status.replace(/_/g, " "));
       loadIssueTasks();
     } catch (err) { showToast(err.message, "error"); }
@@ -270,12 +270,13 @@ export default function OCSAStaffPortal() {
 
   const WrkIco = (p) => <Ico d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" {...p} />;
 
+  const isAdmin = user?.role === "admin" || user?.role === "supervisor";
   const tabs = [
     { id: "clock", label: "Clock", icon: ClockIco },
     { id: "tasks", label: "Tasks", icon: CheckIco },
     { id: "issuetasks", label: "Assigned", icon: WrkIco },
     { id: "chat", label: "Chat", icon: ChatIco },
-    { id: "issues", label: "Issues", icon: AlertIco },
+    ...(isAdmin ? [{ id: "issues", label: "Issues", icon: AlertIco }] : []),
     { id: "supplies", label: "Supplies", icon: BoxIco },
   ];
 
@@ -650,27 +651,64 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
 // ISSUE TASKS VIEW (Assigned issues from admin)
 // ============================================================
 function IssueTasksView({ issueTasks, resolveIssueTask, showToast }) {
-  const [resolving, setResolving] = useState(null);
+  const [activePanel, setActivePanel] = useState(null); // {taskId, mode: "resolve"|"cantresolve"}
   const [note, setNote] = useState("");
+  const [photo, setPhoto] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
   const sevC = { low: GREEN, medium: ORANGE, high: RED };
+
+  const handlePhoto = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { showToast("Photo must be under 10MB", "error"); return; }
+    setPhoto(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setPhotoPreview(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  const clearForm = () => { setActivePanel(null); setNote(""); setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; };
+
+  const handleResolve = async (taskId) => {
+    if (!note.trim()) { showToast("Describe what you did to resolve the issue", "error"); return; }
+    if (!photo) { showToast("A photo of the resolved issue is required", "error"); return; }
+    setUploading(true);
+    try {
+      const photoUrl = await uploadPhoto(photo);
+      await resolveIssueTask(taskId, "resolved", note.trim(), photoUrl);
+      clearForm();
+    } catch (err) { showToast(err.message, "error"); }
+    setUploading(false);
+  };
+
+  const handleCantResolve = async (taskId) => {
+    if (!note.trim()) { showToast("Please provide a reason", "error"); return; }
+    await resolveIssueTask(taskId, "unable_to_resolve", note.trim(), null);
+    clearForm();
+  };
 
   if (issueTasks.length === 0) return (
     <div style={{ padding: "60px 20px", textAlign: "center" }}>
       <AlertIco sz={40} c={NAVY_LIGHT} />
       <div style={{ fontSize: 15, color: GRAY, marginTop: 16 }}>No assigned issue tasks right now.</div>
-      <div style={{ fontSize: 12, color: GRAY, marginTop: 4 }}>When an admin assigns an issue to you, it will appear here.</div>
+      <div style={{ fontSize: 12, color: GRAY, marginTop: 4 }}>When a supervisor assigns an issue to you, it will appear here.</div>
     </div>
   );
 
   return (
     <div style={{ padding: "16px" }}>
+      <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 16, fontWeight: 700 }}>Assigned Issues</div>
         <div style={{ fontSize: 11, color: GRAY_LIGHT }}>{issueTasks.length} issue{issueTasks.length !== 1 ? "s" : ""} assigned to you</div>
       </div>
 
       {issueTasks.map(task => {
-        const isResolving = resolving === task.task_id;
+        const isResolving = activePanel?.taskId === task.task_id && activePanel?.mode === "resolve";
+        const isCantResolve = activePanel?.taskId === task.task_id && activePanel?.mode === "cantresolve";
+        const hasPanel = isResolving || isCantResolve;
         return (
           <div key={task.task_id} style={{ marginBottom: 10, background: NAVY_MID, border: `1px solid ${NAVY_LIGHT}`, borderRadius: 10, borderLeft: `3px solid ${sevC[task.severity] || ORANGE}`, overflow: "hidden" }}>
             <div style={{ padding: "12px 14px" }}>
@@ -693,20 +731,53 @@ function IssueTasksView({ issueTasks, resolveIssueTask, showToast }) {
                 </div>
               )}
 
-              <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-                {task.resolution_status !== "in_progress" && (
-                  <button onClick={() => resolveIssueTask(task.task_id, "in_progress", null)} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1px solid ${ORANGE}`, background: "transparent", color: ORANGE, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>In Progress</button>
-                )}
-                <button onClick={() => resolveIssueTask(task.task_id, "resolved", null)} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1px solid ${GREEN}`, background: "transparent", color: GREEN, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Resolved</button>
-                <button onClick={() => { setResolving(isResolving ? null : task.task_id); setNote(""); }} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1px solid ${RED}`, background: "transparent", color: RED, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Cannot Resolve</button>
-              </div>
+              {!hasPanel && (
+                <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                  {task.resolution_status !== "in_progress" && (
+                    <button onClick={() => resolveIssueTask(task.task_id, "in_progress", null, null)} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1px solid ${ORANGE}`, background: "transparent", color: ORANGE, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>In Progress</button>
+                  )}
+                  <button onClick={() => { clearForm(); setActivePanel({ taskId: task.task_id, mode: "resolve" }); }} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1px solid ${GREEN}`, background: "transparent", color: GREEN, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Resolved</button>
+                  <button onClick={() => { clearForm(); setActivePanel({ taskId: task.task_id, mode: "cantresolve" }); }} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1px solid ${RED}`, background: "transparent", color: RED, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Cannot Resolve</button>
+                </div>
+              )}
             </div>
 
             {isResolving && (
-              <div style={{ padding: "10px 14px", borderTop: `1px solid ${NAVY_LIGHT}`, background: "rgba(231,76,60,0.04)" }}>
-                <div style={{ fontSize: 10, color: RED, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 6 }}>Explain why this cannot be resolved</div>
+              <div style={{ padding: "12px 14px", borderTop: `1px solid ${NAVY_LIGHT}`, background: "rgba(46,204,113,0.04)" }}>
+                <div style={{ fontSize: 10, color: GREEN, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>Mark as Resolved</div>
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4 }}>What did you do to resolve this? *</div>
+                  <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Describe the steps you took..." rows={3} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "rgba(255,255,255,0.04)", color: WHITE, fontSize: 12, outline: "none", resize: "vertical", fontFamily: "'DM Sans',sans-serif" }} />
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4 }}>Photo of resolved issue *</div>
+                  {!photoPreview ? (
+                    <button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: "rgba(255,255,255,0.03)", border: `1px dashed ${GREEN}`, borderRadius: 8, cursor: "pointer", color: GREEN, fontSize: 12, fontWeight: 600 }}>
+                      <CamIco sz={18} c={GREEN} />
+                      <div style={{ textAlign: "left" }}><div>Take Photo of Resolved Issue</div><div style={{ fontSize: 10, color: GRAY, fontWeight: 400, marginTop: 2 }}>Required to verify resolution</div></div>
+                    </button>
+                  ) : (
+                    <div style={{ position: "relative" }}>
+                      <img src={photoPreview} alt="Preview" style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 8, border: `1px solid ${NAVY_LIGHT}` }} />
+                      <button onClick={() => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; }} style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "none", color: WHITE, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>x</button>
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={clearForm} style={{ flex: 1, padding: "10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "transparent", color: GRAY_LIGHT, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                  <button onClick={() => handleResolve(task.task_id)} disabled={uploading} style={{ flex: 1, padding: "10px", borderRadius: 6, border: "none", background: GREEN, color: WHITE, fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: uploading ? 0.6 : 1 }}>{uploading ? "Uploading..." : "Submit Resolution"}</button>
+                </div>
+              </div>
+            )}
+
+            {isCantResolve && (
+              <div style={{ padding: "12px 14px", borderTop: `1px solid ${NAVY_LIGHT}`, background: "rgba(231,76,60,0.04)" }}>
+                <div style={{ fontSize: 10, color: RED, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>Explain why this cannot be resolved *</div>
                 <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Describe the issue preventing resolution..." rows={3} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "rgba(255,255,255,0.04)", color: WHITE, fontSize: 12, outline: "none", resize: "vertical", fontFamily: "'DM Sans',sans-serif", marginBottom: 8 }} />
-                <button onClick={() => { if (!note.trim()) { showToast("Please provide a reason", "error"); return; } resolveIssueTask(task.task_id, "unable_to_resolve", note.trim()); setResolving(null); }} style={{ width: "100%", padding: "10px", borderRadius: 6, border: "none", background: RED, color: WHITE, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Submit</button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={clearForm} style={{ flex: 1, padding: "10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "transparent", color: GRAY_LIGHT, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                  <button onClick={() => handleCantResolve(task.task_id)} style={{ flex: 1, padding: "10px", borderRadius: 6, border: "none", background: RED, color: WHITE, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Submit</button>
+                </div>
               </div>
             )}
           </div>
