@@ -501,12 +501,71 @@ function ClockView({ clockStatus, currentTime, selectedSite, setSelectedSite, on
 // TASKS VIEW
 // ============================================================
 function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask }) {
+  const [detail, setDetail] = useState(null);
+
   if (!clockStatus?.clockedIn) return <EmptyState icon={CheckIco} text="Clock in to view your assigned tasks." />;
   if (tasks.length === 0) return <EmptyState icon={CheckIco} text="Loading tasks..." />;
 
   const zones = [...new Set(tasks.map(t => t.zone))];
   const completed = tasks.filter(t => completedTaskIds.has(t.id)).length;
   const pct = Math.round((completed / tasks.length) * 100);
+
+  if (detail) {
+    const done = completedTaskIds.has(detail.id);
+    return (
+      <div style={{ padding: "16px" }}>
+        <button onClick={() => setDetail(null)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", marginBottom: 14, background: "none", border: `1px solid ${NAVY_LIGHT}`, borderRadius: 8, color: GRAY_LIGHT, fontSize: 12, cursor: "pointer" }}>
+          <Ico d="M15 18l-6-6 6-6" sz={14} c={GRAY_LIGHT} /> Back to checklist
+        </button>
+        <div style={{ background: NAVY_MID, border: `1px solid ${NAVY_LIGHT}`, borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ padding: "16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, flex: 1 }}>{detail.label}</div>
+              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                {detail.priority === "high" && <span style={{ fontSize: 8, color: ORANGE, background: `${ORANGE}15`, padding: "2px 6px", borderRadius: 3, fontWeight: 600 }}>PRIORITY</span>}
+                <span style={{ fontSize: 8, color: GRAY, background: NAVY_LIGHT, padding: "2px 6px", borderRadius: 3 }}>{detail.cims_category}</span>
+              </div>
+            </div>
+            <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12 }}>{detail.zone}</div>
+
+            {detail.description && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6 }}>Instructions</div>
+                <div style={{ fontSize: 13, color: GRAY_LIGHT, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{detail.description}</div>
+              </div>
+            )}
+
+            {detail.media_url && detail.media_type === "video" && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6 }}>Reference Video</div>
+                <video src={detail.media_url} controls style={{ width: "100%", borderRadius: 8, maxHeight: 240 }} />
+              </div>
+            )}
+
+            {detail.media_url && detail.media_type !== "video" && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6 }}>Reference Photo</div>
+                <img src={detail.media_url} alt="Task reference" style={{ width: "100%", borderRadius: 8, maxHeight: 240, objectFit: "cover" }} />
+              </div>
+            )}
+
+            {detail.due_date && (
+              <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: GRAY }}>Due Date: <span style={{ color: WHITE, fontWeight: 500 }}>{new Date(detail.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span></div>
+                {detail.due_time && <div style={{ fontSize: 11, color: GRAY }}>Time: <span style={{ color: WHITE, fontWeight: 500 }}>{detail.due_time}</span></div>}
+              </div>
+            )}
+          </div>
+
+          <button onClick={() => { toggleTask(detail.id); setDetail(null); }} style={{
+            width: "100%", padding: "14px", border: "none",
+            background: done ? "rgba(136,153,170,0.1)" : `linear-gradient(135deg,${GOLD},${GOLD_LIGHT})`,
+            color: done ? GRAY : NAVY, fontSize: 14, fontWeight: 700, cursor: "pointer", textTransform: "uppercase",
+          }}>{done ? "Uncheck Task" : "Mark Complete"}</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: "16px" }}>
@@ -530,22 +589,28 @@ function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask }) {
           <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: 6 }}>{zone}</div>
           {tasks.filter(t => t.zone === zone).map(task => {
             const done = completedTaskIds.has(task.id);
+            const hasInfo = task.has_details || task.description || task.media_url;
             return (
-              <button key={task.id} onClick={() => toggleTask(task.id)} style={{
-                width: "100%", display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 4,
+              <div key={task.id} style={{
+                display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 4,
                 background: done ? "rgba(46,204,113,0.06)" : "rgba(255,255,255,0.02)",
                 border: done ? `1px solid rgba(46,204,113,0.2)` : `1px solid ${NAVY_LIGHT}`,
-                borderRadius: 8, cursor: "pointer", textAlign: "left", color: WHITE,
+                borderRadius: 8,
               }}>
-                <div style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${done ? GREEN : GRAY}`, background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+                <button onClick={() => toggleTask(task.id)} style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${done ? GREEN : GRAY}`, background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1, cursor: "pointer", padding: 0 }}>
                   {done && <CheckIco sz={11} c={WHITE} />}
+                </button>
+                <div onClick={() => hasInfo ? setDetail(task) : toggleTask(task.id)} style={{ flex: 1, cursor: "pointer" }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5 }}>
+                    {task.label}
+                    {hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}
+                  </div>
                 </div>
-                <div style={{ flex: 1, fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1 }}>{task.label}</div>
                 <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>
                   {task.priority === "high" && <span style={{ fontSize: 8, color: ORANGE, background: `${ORANGE}15`, padding: "1px 5px", borderRadius: 3, fontWeight: 600 }}>PRIORITY</span>}
                   <span style={{ fontSize: 8, color: GRAY, background: NAVY_LIGHT, padding: "1px 5px", borderRadius: 3 }}>{task.cims_category}</span>
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
