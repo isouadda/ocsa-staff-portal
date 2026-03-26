@@ -335,8 +335,8 @@ export default function OCSAStaffPortal() {
                 <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
                   <div style={{ position: "relative" }}>
                     <TabIco sz={18} c={active ? GOLD : GRAY} />
-                    {tab.badge !== undefined && (
-  <div style={{ position: "absolute", top: -5, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: tab.badge > 0 ? RED : NAVY_LIGHT, color: tab.badge > 0 ? WHITE : GRAY, fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{tab.badge}</div>
+                    {tab.badge > 0 && (
+  <div style={{ position: "absolute", top: -5, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: RED, color: WHITE, fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{tab.badge}</div>
 )}
                   </div>
                   <span style={{ fontSize: 8, fontWeight: active ? 700 : 500, color: active ? GOLD : GRAY, letterSpacing: "0.3px", textTransform: "uppercase" }}>{tab.label}</span>
