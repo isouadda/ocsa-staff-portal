@@ -103,6 +103,13 @@ export default function OCSAStaffPortal() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
+  const loadIssueTasks = useCallback(async (tkn) => {
+    try {
+      const data = await api("/api/issues/my-tasks", { token: tkn || token });
+      setIssueTasks(data);
+    } catch (err) { console.error(err); }
+  }, [token]);
+
   const handleLogin = async (phone, pin) => {
     setLoading(true);
     try {
@@ -114,6 +121,8 @@ export default function OCSAStaffPortal() {
       const cs = await api("/api/clock/status", { token: data.token });
       setClockStatus(cs);
       if (cs.clockedIn) setSelectedSite(cs.shift.siteId);
+      // Preload assigned tasks for badge count
+      loadIssueTasks(data.token);
       setScreen("main");
       showToast("Welcome, " + me.user.firstName);
     } catch (err) {
@@ -193,10 +202,6 @@ export default function OCSAStaffPortal() {
     try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); } catch (err) { console.error(err); }
   };
 
-  const loadIssueTasks = async () => {
-    try { const data = await api("/api/issues/my-tasks", { token }); setIssueTasks(data); } catch (err) { console.error(err); }
-  };
-
   const resolveIssueTask = async (taskId, status, note, photoUrl) => {
     try {
       await api("/api/issues/tasks/" + taskId + "/resolve", { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token });
@@ -273,10 +278,11 @@ export default function OCSAStaffPortal() {
   const WrkIco = (p) => <Ico d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" {...p} />;
 
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
+  const assignedCount = issueTasks.length;
   const tabs = [
     { id: "clock", label: "Clock", icon: ClockIco },
-    { id: "tasks", label: "Tasks", icon: CheckIco },
-    { id: "issuetasks", label: "Assigned", icon: WrkIco },
+    { id: "tasks", label: "Daily Tasks", icon: CheckIco },
+    { id: "issuetasks", label: "Assigned Tasks", icon: WrkIco, badge: assignedCount },
     { id: "chat", label: "Chat", icon: ChatIco },
     { id: "issues", label: isAdmin ? "Issues" : "Report", icon: AlertIco },
     { id: "supplies", label: "Supplies", icon: BoxIco },
@@ -327,8 +333,13 @@ export default function OCSAStaffPortal() {
               const TabIco = tab.icon;
               return (
                 <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
-                  <TabIco sz={18} c={active ? GOLD : GRAY} />
-                  <span style={{ fontSize: 9, fontWeight: active ? 700 : 500, color: active ? GOLD : GRAY, letterSpacing: "0.5px", textTransform: "uppercase" }}>{tab.label}</span>
+                  <div style={{ position: "relative" }}>
+                    <TabIco sz={18} c={active ? GOLD : GRAY} />
+                    {tab.badge > 0 && (
+                      <div style={{ position: "absolute", top: -5, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: RED, color: WHITE, fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{tab.badge}</div>
+                    )}
+                  </div>
+                  <span style={{ fontSize: 8, fontWeight: active ? 700 : 500, color: active ? GOLD : GRAY, letterSpacing: "0.3px", textTransform: "uppercase" }}>{tab.label}</span>
                   {active && <div style={{ position: "absolute", top: -1, width: 20, height: 2, background: GOLD, borderRadius: 1 }} />}
                 </button>
               );
@@ -500,40 +511,86 @@ function ClockView({ clockStatus, currentTime, selectedSite, setSelectedSite, on
 }
 
 // ============================================================
-// TASKS VIEW
+// HELPER: Group tasks by floor and zone
+// ============================================================
+function groupTasksByFloorZone(taskList) {
+  const groups = [];
+  const floorMap = {};
+
+  taskList.forEach(t => {
+    const floor = t.floor_number || null;
+    const zone = t.zone || "General";
+    const key = (floor || "_none_") + "|" + zone;
+
+    if (!floorMap[key]) {
+      floorMap[key] = { floor, zone, tasks: [] };
+      groups.push(floorMap[key]);
+    }
+    floorMap[key].tasks.push(t);
+  });
+
+  // Sort: floors with values first (sorted), then null floors, then by zone within each floor
+  groups.sort((a, b) => {
+    if (a.floor && !b.floor) return -1;
+    if (!a.floor && b.floor) return 1;
+    if (a.floor && b.floor && a.floor !== b.floor) {
+      const aNum = parseInt(a.floor);
+      const bNum = parseInt(b.floor);
+      if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
+      return a.floor.localeCompare(b.floor);
+    }
+    return a.zone.localeCompare(b.zone);
+  });
+
+  return groups;
+}
+
+// ============================================================
+// TASKS VIEW (Daily Tasks - standard tasks only)
 // ============================================================
 function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask }) {
   const [detail, setDetail] = useState(null);
+
+  // Filter to standard tasks only
+  const standardTasks = tasks.filter(t => !t.task_type || t.task_type === "standard");
 
   if (!clockStatus?.clockedIn) return (
     <div style={{ padding: "16px" }}>
       <div style={{ padding: "12px 14px", marginBottom: 14, background: "rgba(243,156,18,0.06)", borderRadius: 10, border: `1px solid rgba(243,156,18,0.15)` }}>
         <div style={{ fontSize: 12, color: ORANGE }}>Clock in to check off tasks. You can view your task list below.</div>
       </div>
-      {tasks.length === 0 ? <EmptyState icon={CheckIco} text="No tasks loaded. Clock in to a site to see your checklist." /> : (() => {
-        const zones = [...new Set(tasks.map(t => t.zone))];
-        return zones.map(zone => (
-          <div key={zone} style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: 6 }}>{zone}</div>
-            {tasks.filter(t => t.zone === zone).map(task => {
-              const hasInfo = task.has_details || task.description || task.media_url;
-              return (
-                <div key={task.id} onClick={() => hasInfo ? setDetail(task) : null} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 4, background: "rgba(255,255,255,0.02)", border: `1px solid ${NAVY_LIGHT}`, borderRadius: 8, cursor: hasInfo ? "pointer" : "default", opacity: 0.7 }}>
-                  <div style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${GRAY}`, background: "transparent", flexShrink: 0, marginTop: 1 }} />
-                  <div style={{ flex: 1, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 5 }}>{task.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div>
-                </div>
-              );
-            })}
-          </div>
-        ));
+      {standardTasks.length === 0 ? <EmptyState icon={CheckIco} text="No tasks loaded. Clock in to a site to see your checklist." /> : (() => {
+        const groups = groupTasksByFloorZone(standardTasks);
+        let lastFloor = undefined;
+        return groups.map((g, gi) => {
+          const showFloor = g.floor && g.floor !== lastFloor;
+          lastFloor = g.floor;
+          return (
+            <div key={gi} style={{ marginBottom: 14 }}>
+              {showFloor && (
+                <div style={{ fontSize: 11, color: WHITE, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, marginTop: gi > 0 ? 10 : 0, padding: "6px 10px", background: NAVY_MID, borderRadius: 6, border: `1px solid ${NAVY_LIGHT}` }}>Floor {g.floor}</div>
+              )}
+              <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: 6, paddingLeft: g.floor ? 8 : 0 }}>{g.zone}</div>
+              {g.tasks.map(task => {
+                const hasInfo = task.has_details || task.description || task.media_url;
+                return (
+                  <div key={task.id} onClick={() => hasInfo ? setDetail(task) : null} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 4, background: "rgba(255,255,255,0.02)", border: `1px solid ${NAVY_LIGHT}`, borderRadius: 8, cursor: hasInfo ? "pointer" : "default", opacity: 0.7, marginLeft: g.floor ? 8 : 0 }}>
+                    <div style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${GRAY}`, background: "transparent", flexShrink: 0, marginTop: 1 }} />
+                    <div style={{ flex: 1, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 5 }}>{task.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        });
       })()}
     </div>
   );
-  if (tasks.length === 0) return <EmptyState icon={CheckIco} text="Loading tasks..." />;
+  if (standardTasks.length === 0) return <EmptyState icon={CheckIco} text="Loading tasks..." />;
 
-  const zones = [...new Set(tasks.map(t => t.zone))];
-  const completed = tasks.filter(t => completedTaskIds.has(t.id)).length;
-  const pct = Math.round((completed / tasks.length) * 100);
+  const groups = groupTasksByFloorZone(standardTasks);
+  const completed = standardTasks.filter(t => completedTaskIds.has(t.id)).length;
+  const pct = Math.round((completed / standardTasks.length) * 100);
 
   if (detail) {
     const done = completedTaskIds.has(detail.id);
@@ -551,7 +608,7 @@ function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask }) {
                 <span style={{ fontSize: 8, color: GRAY, background: NAVY_LIGHT, padding: "2px 6px", borderRadius: 3 }}>{detail.cims_category}</span>
               </div>
             </div>
-            <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12 }}>{detail.zone}</div>
+            <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12 }}>{detail.floor_number ? "Floor " + detail.floor_number + " - " : ""}{detail.zone}</div>
 
             {detail.description && (
               <div style={{ marginBottom: 14 }}>
@@ -592,6 +649,7 @@ function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask }) {
     );
   }
 
+  let lastFloor = undefined;
   return (
     <div style={{ padding: "16px" }}>
       <div style={{ padding: "12px 14px", marginBottom: 14, background: GOLD_DIM, borderRadius: 10, border: `1px solid rgba(200,168,78,0.2)` }}>
@@ -609,37 +667,44 @@ function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask }) {
         </div>
       </div>
 
-      {zones.map(zone => (
-        <div key={zone} style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: 6 }}>{zone}</div>
-          {tasks.filter(t => t.zone === zone).map(task => {
-            const done = completedTaskIds.has(task.id);
-            const hasInfo = task.has_details || task.description || task.media_url;
-            return (
-              <div key={task.id} style={{
-                display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 4,
-                background: done ? "rgba(46,204,113,0.06)" : "rgba(255,255,255,0.02)",
-                border: done ? `1px solid rgba(46,204,113,0.2)` : `1px solid ${NAVY_LIGHT}`,
-                borderRadius: 8,
-              }}>
-                <button onClick={() => toggleTask(task.id)} style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${done ? GREEN : GRAY}`, background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1, cursor: "pointer", padding: 0 }}>
-                  {done && <CheckIco sz={11} c={WHITE} />}
-                </button>
-                <div onClick={() => hasInfo ? setDetail(task) : toggleTask(task.id)} style={{ flex: 1, cursor: "pointer" }}>
-                  <div style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5 }}>
-                    {task.label}
-                    {hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}
+      {groups.map((g, gi) => {
+        const showFloor = g.floor && g.floor !== lastFloor;
+        lastFloor = g.floor;
+        return (
+          <div key={gi} style={{ marginBottom: 14 }}>
+            {showFloor && (
+              <div style={{ fontSize: 11, color: WHITE, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, marginTop: gi > 0 ? 10 : 0, padding: "6px 10px", background: NAVY_MID, borderRadius: 6, border: `1px solid ${NAVY_LIGHT}` }}>Floor {g.floor}</div>
+            )}
+            <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: 6, paddingLeft: g.floor ? 8 : 0 }}>{g.zone}</div>
+            {g.tasks.map(task => {
+              const done = completedTaskIds.has(task.id);
+              const hasInfo = task.has_details || task.description || task.media_url;
+              return (
+                <div key={task.id} style={{
+                  display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 4,
+                  background: done ? "rgba(46,204,113,0.06)" : "rgba(255,255,255,0.02)",
+                  border: done ? `1px solid rgba(46,204,113,0.2)` : `1px solid ${NAVY_LIGHT}`,
+                  borderRadius: 8, marginLeft: g.floor ? 8 : 0,
+                }}>
+                  <button onClick={() => toggleTask(task.id)} style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${done ? GREEN : GRAY}`, background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1, cursor: "pointer", padding: 0 }}>
+                    {done && <CheckIco sz={11} c={WHITE} />}
+                  </button>
+                  <div onClick={() => hasInfo ? setDetail(task) : toggleTask(task.id)} style={{ flex: 1, cursor: "pointer" }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5 }}>
+                      {task.label}
+                      {hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>
+                    {task.priority === "high" && <span style={{ fontSize: 8, color: ORANGE, background: `${ORANGE}15`, padding: "1px 5px", borderRadius: 3, fontWeight: 600 }}>PRIORITY</span>}
+                    <span style={{ fontSize: 8, color: GRAY, background: NAVY_LIGHT, padding: "1px 5px", borderRadius: 3 }}>{task.cims_category}</span>
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>
-                  {task.priority === "high" && <span style={{ fontSize: 8, color: ORANGE, background: `${ORANGE}15`, padding: "1px 5px", borderRadius: 3, fontWeight: 600 }}>PRIORITY</span>}
-                  <span style={{ fontSize: 8, color: GRAY, background: NAVY_LIGHT, padding: "1px 5px", borderRadius: 3 }}>{task.cims_category}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ))}
+              );
+            })}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -735,13 +800,10 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
 }
 
 // ============================================================
-// ISSUES VIEW
-// ============================================================
-// ============================================================
-// ISSUE TASKS VIEW (Assigned issues from admin)
+// ISSUE TASKS VIEW (Assigned Tasks page)
 // ============================================================
 function IssueTasksView({ issueTasks, resolveIssueTask, showToast }) {
-  const [activePanel, setActivePanel] = useState(null); // {taskId, mode: "resolve"|"cantresolve"}
+  const [activePanel, setActivePanel] = useState(null);
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
@@ -782,8 +844,8 @@ function IssueTasksView({ issueTasks, resolveIssueTask, showToast }) {
   if (issueTasks.length === 0) return (
     <div style={{ padding: "60px 20px", textAlign: "center" }}>
       <AlertIco sz={40} c={NAVY_LIGHT} />
-      <div style={{ fontSize: 15, color: GRAY, marginTop: 16 }}>No assigned issue tasks right now.</div>
-      <div style={{ fontSize: 12, color: GRAY, marginTop: 4 }}>When a supervisor assigns an issue to you, it will appear here.</div>
+      <div style={{ fontSize: 15, color: GRAY, marginTop: 16 }}>No assigned tasks right now.</div>
+      <div style={{ fontSize: 12, color: GRAY, marginTop: 4 }}>When a supervisor assigns a task to you, it will appear here.</div>
     </div>
   );
 
@@ -791,8 +853,8 @@ function IssueTasksView({ issueTasks, resolveIssueTask, showToast }) {
     <div style={{ padding: "16px" }}>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />
       <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 16, fontWeight: 700 }}>Assigned Issues</div>
-        <div style={{ fontSize: 11, color: GRAY_LIGHT }}>{issueTasks.length} issue{issueTasks.length !== 1 ? "s" : ""} assigned to you</div>
+        <div style={{ fontSize: 16, fontWeight: 700 }}>Assigned Tasks</div>
+        <div style={{ fontSize: 11, color: GRAY_LIGHT }}>{issueTasks.length} task{issueTasks.length !== 1 ? "s" : ""} assigned to you</div>
       </div>
 
       {issueTasks.map(task => {
@@ -892,7 +954,6 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites }
   const sevs = [{ v: "low", l: "Low", c: GREEN }, { v: "medium", l: "Med", c: ORANGE }, { v: "high", l: "High", c: RED }];
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
 
-  // Staff only see their own reported issues
   const visibleIssues = isAdmin ? issues : issues.filter(i => i.reported_by === user?.id);
 
   if (!clockStatus?.clockedIn) {
@@ -959,7 +1020,6 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites }
             </div>
           </div>
 
-          {/* Photo Upload */}
           <div style={{ marginBottom: 14 }}>
             <label style={labelSt}>Photo</label>
             <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />
@@ -1033,6 +1093,13 @@ function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submi
   const [qty, setQty] = useState(1);
   const [reqForm, setReqForm] = useState(null);
 
+  const handleSubmitReq = () => {
+    if (!reqForm.type) { showToast("Select a request type", "error"); return; }
+    if ((reqForm.type === "new_gear" || reqForm.type === "new_supply") && !reqForm.itemName) { showToast("Enter the item name", "error"); return; }
+    submitRequest(reqForm.type, reqForm.itemName, reqForm.description, reqForm.urgency, reqForm.supplyId);
+    setReqForm(null);
+  };
+
   if (!clockStatus?.clockedIn) return (
     <div style={{ padding: "16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -1068,13 +1135,6 @@ function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submi
       )}
     </div>
   );
-
-  const handleSubmitReq = () => {
-    if (!reqForm.type) { showToast("Select a request type", "error"); return; }
-    if ((reqForm.type === "new_gear" || reqForm.type === "new_supply") && !reqForm.itemName) { showToast("Enter the item name", "error"); return; }
-    submitRequest(reqForm.type, reqForm.itemName, reqForm.description, reqForm.urgency, reqForm.supplyId);
-    setReqForm(null);
-  };
 
   return (
     <div style={{ padding: "16px" }}>
