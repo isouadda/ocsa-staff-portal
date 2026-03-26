@@ -205,9 +205,11 @@ export default function OCSAStaffPortal() {
     } catch (err) { showToast(err.message, "error"); }
   };
 
-  const submitIssue = async (title, description, zone, severity, photoUrl) => {
+  const submitIssue = async (title, description, zone, severity, photoUrl, siteId) => {
+    const actualSiteId = siteId || clockStatus?.shift?.siteId;
+    if (!actualSiteId) { showToast("Select a site first", "error"); return; }
     try {
-      const data = await api("/api/issues", { method: "POST", body: { siteId: clockStatus.shift.siteId, title, description, zone, severity }, token });
+      const data = await api("/api/issues", { method: "POST", body: { siteId: actualSiteId, title, description, zone, severity }, token });
       if (photoUrl && data.issue) {
         await api("/api/issues/" + data.issue.id + "/photos", { method: "POST", body: { photoUrl }, token });
       }
@@ -217,9 +219,9 @@ export default function OCSAStaffPortal() {
   };
 
   const loadSupplies = async () => {
-    if (!clockStatus?.shift?.siteId) return;
     try {
-      const data = await api("/api/supplies?site_id=" + clockStatus.shift.siteId, { token });
+      const url = clockStatus?.shift?.siteId ? "/api/supplies?site_id=" + clockStatus.shift.siteId : "/api/supplies";
+      const data = await api(url, { token });
       setSupplies(data);
     } catch (err) { console.error(err); }
   };
@@ -258,9 +260,9 @@ export default function OCSAStaffPortal() {
 
   useEffect(() => {
     if (activeTab === "tasks" && clockStatus?.clockedIn) loadTasks();
-    if (activeTab === "issues" && clockStatus?.clockedIn) loadIssues();
+    if (activeTab === "issues") loadIssues();
     if (activeTab === "issuetasks") loadIssueTasks();
-    if (activeTab === "supplies" && clockStatus?.clockedIn) loadSupplies();
+    if (activeTab === "supplies") loadSupplies();
     if (activeTab === "chat") loadChannels();
   }, [activeTab, clockStatus?.clockedIn]);
 
@@ -315,7 +317,7 @@ export default function OCSAStaffPortal() {
             {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} />}
             {activeTab === "issuetasks" && <IssueTasksView issueTasks={issueTasks} resolveIssueTask={resolveIssueTask} showToast={showToast} />}
             {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} />}
-            {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} user={user} />}
+            {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} />}
             {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} />}
           </div>
 
@@ -503,7 +505,30 @@ function ClockView({ clockStatus, currentTime, selectedSite, setSelectedSite, on
 function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask }) {
   const [detail, setDetail] = useState(null);
 
-  if (!clockStatus?.clockedIn) return <EmptyState icon={CheckIco} text="Clock in to view your assigned tasks." />;
+  if (!clockStatus?.clockedIn) return (
+    <div style={{ padding: "16px" }}>
+      <div style={{ padding: "12px 14px", marginBottom: 14, background: "rgba(243,156,18,0.06)", borderRadius: 10, border: `1px solid rgba(243,156,18,0.15)` }}>
+        <div style={{ fontSize: 12, color: ORANGE }}>Clock in to check off tasks. You can view your task list below.</div>
+      </div>
+      {tasks.length === 0 ? <EmptyState icon={CheckIco} text="No tasks loaded. Clock in to a site to see your checklist." /> : (() => {
+        const zones = [...new Set(tasks.map(t => t.zone))];
+        return zones.map(zone => (
+          <div key={zone} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: 6 }}>{zone}</div>
+            {tasks.filter(t => t.zone === zone).map(task => {
+              const hasInfo = task.has_details || task.description || task.media_url;
+              return (
+                <div key={task.id} onClick={() => hasInfo ? setDetail(task) : null} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 4, background: "rgba(255,255,255,0.02)", border: `1px solid ${NAVY_LIGHT}`, borderRadius: 8, cursor: hasInfo ? "pointer" : "default", opacity: 0.7 }}>
+                  <div style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${GRAY}`, background: "transparent", flexShrink: 0, marginTop: 1 }} />
+                  <div style={{ flex: 1, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 5 }}>{task.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div>
+                </div>
+              );
+            })}
+          </div>
+        ));
+      })()}
+    </div>
+  );
   if (tasks.length === 0) return <EmptyState icon={CheckIco} text="Loading tasks..." />;
 
   const zones = [...new Set(tasks.map(t => t.zone))];
@@ -855,10 +880,11 @@ function IssueTasksView({ issueTasks, resolveIssueTask, showToast }) {
 // ============================================================
 // ISSUES VIEW
 // ============================================================
-function IssuesView({ clockStatus, issues, submitIssue, showToast, user }) {
+function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites }) {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState(""); const [desc, setDesc] = useState("");
   const [sev, setSev] = useState("medium"); const [zone, setZone] = useState("");
+  const [selSite, setSelSite] = useState("");
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -869,7 +895,9 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user }) {
   // Staff only see their own reported issues
   const visibleIssues = isAdmin ? issues : issues.filter(i => i.reported_by === user?.id);
 
-  if (!clockStatus?.clockedIn) return <EmptyState icon={AlertIco} text="Clock in to report issues." />;
+  if (!clockStatus?.clockedIn) {
+    // Not clocked in - still allow reporting, but show site selector
+  }
 
   const handlePhoto = (e) => {
     const file = e.target.files?.[0];
@@ -889,13 +917,15 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user }) {
 
   const handleSubmit = async () => {
     if (!title.trim()) { showToast("Enter issue title", "error"); return; }
+    const siteId = clockStatus?.clockedIn ? clockStatus.shift.siteId : selSite;
+    if (!siteId) { showToast("Select a site", "error"); return; }
     setUploading(true);
     try {
       let photoUrl = null;
       if (photo) {
         photoUrl = await uploadPhoto(photo);
       }
-      await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl);
+      await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl, siteId);
       setTitle(""); setDesc(""); setZone(""); setSev("medium");
       setPhoto(null); setPhotoPreview(null);
       setShowForm(false);
@@ -914,6 +944,9 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user }) {
 
       {(showForm || !isAdmin) && (
         <div style={{ padding: 14, marginBottom: 14, background: NAVY_MID, border: `1px solid ${NAVY_LIGHT}`, borderRadius: 12, animation: "fadeIn 0.3s ease" }}>
+          {!clockStatus?.clockedIn && sites && sites.length > 0 && (
+            <div style={{ marginBottom: 10 }}><label style={labelSt}>Site</label><select value={selSite} onChange={e => setSelSite(e.target.value)} style={inputSt}><option value="">Select site...</option>{sites.map(s => <option key={s.siteId} value={s.siteId}>{s.siteName}</option>)}</select></div>
+          )}
           <div style={{ marginBottom: 10 }}><label style={labelSt}>Title</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder="Brief description" style={inputSt} /></div>
           <div style={{ marginBottom: 10 }}><label style={labelSt}>Details</label><textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Additional details..." rows={3} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
           <div style={{ marginBottom: 10 }}><label style={labelSt}>Zone</label><input value={zone} onChange={e => setZone(e.target.value)} placeholder="e.g. Restroom, Lobby" style={inputSt} /></div>
@@ -1000,7 +1033,41 @@ function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submi
   const [qty, setQty] = useState(1);
   const [reqForm, setReqForm] = useState(null);
 
-  if (!clockStatus?.clockedIn) return <EmptyState icon={BoxIco} text="Clock in to log supply usage." />;
+  if (!clockStatus?.clockedIn) return (
+    <div style={{ padding: "16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div><div style={{ fontSize: 16, fontWeight: 700 }}>Supplies</div><div style={{ fontSize: 11, color: GRAY_LIGHT }}>Clock in to log usage. Requests can be submitted anytime.</div></div>
+        <button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={{ padding: "7px 12px", borderRadius: 8, border: "none", background: GOLD, color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ Request</button>
+      </div>
+      {reqForm && (
+        <div style={{ padding: 14, marginBottom: 14, background: NAVY_MID, border: `1px solid ${NAVY_LIGHT}`, borderRadius: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Supply/Gear Request</div>
+          <div style={{ marginBottom: 10 }}>
+            <label style={labelSt}>Request Type</label>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {[{ v: "new_gear", l: "New Gear" }, { v: "new_supply", l: "New Supply" }, { v: "refill", l: "Refill" }, { v: "damage_report", l: "Damage Report" }].map(t => (
+                <button key={t.v} onClick={() => setReqForm({ ...reqForm, type: t.v })} style={{ padding: "6px 10px", borderRadius: 6, border: reqForm.type === t.v ? `2px solid ${GOLD}` : `1px solid ${NAVY_LIGHT}`, background: reqForm.type === t.v ? GOLD_DIM : "transparent", color: reqForm.type === t.v ? GOLD : GRAY_LIGHT, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{t.l}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ marginBottom: 10 }}><label style={labelSt}>Item Name</label><input value={reqForm.itemName} onChange={e => setReqForm({ ...reqForm, itemName: e.target.value })} placeholder="What do you need?" style={inputSt} /></div>
+          <div style={{ marginBottom: 10 }}><label style={labelSt}>Details</label><textarea value={reqForm.description} onChange={e => setReqForm({ ...reqForm, description: e.target.value })} placeholder="Describe the request..." rows={2} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={labelSt}>Urgency</label>
+            <div style={{ display: "flex", gap: 6 }}>
+              {[{ v: "low", l: "Low", c: GREEN }, { v: "normal", l: "Normal", c: GRAY_LIGHT }, { v: "high", l: "High", c: ORANGE }, { v: "urgent", l: "Urgent", c: RED }].map(u => (
+                <button key={u.v} onClick={() => setReqForm({ ...reqForm, urgency: u.v })} style={{ flex: 1, padding: "6px", borderRadius: 6, border: reqForm.urgency === u.v ? `2px solid ${u.c}` : `1px solid ${NAVY_LIGHT}`, background: reqForm.urgency === u.v ? u.c + "15" : "transparent", color: u.c, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>{u.l}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setReqForm(null)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${NAVY_LIGHT}`, background: "transparent", color: GRAY_LIGHT, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+            <button onClick={handleSubmitReq} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: `linear-gradient(135deg,${GOLD},${GOLD_LIGHT})`, color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Submit Request</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 
   const handleSubmitReq = () => {
     if (!reqForm.type) { showToast("Select a request type", "error"); return; }
