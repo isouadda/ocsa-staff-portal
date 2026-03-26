@@ -83,7 +83,7 @@ export default function OCSAStaffPortal() {
   const [tasks, setTasks] = useState([]);
   const [completedTaskIds, setCompletedTaskIds] = useState(new Set());
   const [issues, setIssues] = useState([]);
-  const [issueTasks, setIssueTasks] = useState([]);
+  const [assignedTasks, setAssignedTasks] = useState([]);
   const [supplies, setSupplies] = useState([]);
   const [supplyLogs, setSupplyLogs] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -103,10 +103,10 @@ export default function OCSAStaffPortal() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  const loadIssueTasks = useCallback(async (tkn) => {
+  const loadAssignedTasks = useCallback(async (tkn) => {
     try {
-      const data = await api("/api/issues/my-tasks", { token: tkn || token });
-      setIssueTasks(data);
+      const data = await api("/api/clock/tasks/assigned", { token: tkn || token });
+      setAssignedTasks(data);
     } catch (err) { console.error(err); }
   }, [token]);
 
@@ -122,7 +122,7 @@ export default function OCSAStaffPortal() {
       setClockStatus(cs);
       if (cs.clockedIn) setSelectedSite(cs.shift.siteId);
       // Preload assigned tasks for badge count
-      loadIssueTasks(data.token);
+      loadAssignedTasks(data.token);
       setScreen("main");
       showToast("Welcome, " + me.user.firstName);
     } catch (err) {
@@ -202,11 +202,11 @@ export default function OCSAStaffPortal() {
     try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); } catch (err) { console.error(err); }
   };
 
-  const resolveIssueTask = async (taskId, status, note, photoUrl) => {
+  const resolveAssignedTask = async (taskId, status, note, photoUrl) => {
     try {
-      await api("/api/issues/tasks/" + taskId + "/resolve", { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token });
+      await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token });
       showToast("Task updated to " + status.replace(/_/g, " "));
-      loadIssueTasks();
+      loadAssignedTasks();
     } catch (err) { showToast(err.message, "error"); }
   };
 
@@ -266,7 +266,7 @@ export default function OCSAStaffPortal() {
   useEffect(() => {
     if (activeTab === "tasks" && clockStatus?.clockedIn) loadTasks();
     if (activeTab === "issues") loadIssues();
-    if (activeTab === "issuetasks") loadIssueTasks();
+    if (activeTab === "issuetasks") loadAssignedTasks();
     if (activeTab === "supplies") loadSupplies();
     if (activeTab === "chat") loadChannels();
   }, [activeTab, clockStatus?.clockedIn]);
@@ -278,7 +278,7 @@ export default function OCSAStaffPortal() {
   const WrkIco = (p) => <Ico d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" {...p} />;
 
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
-  const assignedCount = issueTasks.length;
+  const assignedCount = assignedTasks.length;
   const tabs = [
     { id: "clock", label: "Clock", icon: ClockIco },
     { id: "tasks", label: "Daily Tasks", icon: CheckIco },
@@ -321,7 +321,7 @@ export default function OCSAStaffPortal() {
           <div style={{ padding: "0 0 80px 0", minHeight: "calc(100vh - 130px)" }}>
             {activeTab === "clock" && <ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} setSelectedSite={setSelectedSite} onClockIn={handleClockIn} onClockOut={handleClockOut} sites={sites} loading={loading} />}
             {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} />}
-            {activeTab === "issuetasks" && <IssueTasksView issueTasks={issueTasks} resolveIssueTask={resolveIssueTask} showToast={showToast} />}
+            {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} />}
             {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} />}
             {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} />}
             {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} />}
@@ -529,7 +529,6 @@ function groupTasksByFloorZone(taskList) {
     floorMap[key].tasks.push(t);
   });
 
-  // Sort: floors with values first (sorted), then null floors, then by zone within each floor
   groups.sort((a, b) => {
     if (a.floor && !b.floor) return -1;
     if (!a.floor && b.floor) return 1;
@@ -550,8 +549,6 @@ function groupTasksByFloorZone(taskList) {
 // ============================================================
 function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask }) {
   const [detail, setDetail] = useState(null);
-
-  // Filter to standard tasks only
   const standardTasks = tasks.filter(t => !t.task_type || t.task_type === "standard");
 
   if (!clockStatus?.clockedIn) return (
@@ -609,41 +606,12 @@ function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask }) {
               </div>
             </div>
             <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12 }}>{detail.floor_number ? "Floor " + detail.floor_number + " - " : ""}{detail.zone}</div>
-
-            {detail.description && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6 }}>Instructions</div>
-                <div style={{ fontSize: 13, color: GRAY_LIGHT, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{detail.description}</div>
-              </div>
-            )}
-
-            {detail.media_url && detail.media_type === "video" && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6 }}>Reference Video</div>
-                <video src={detail.media_url} controls style={{ width: "100%", borderRadius: 8, maxHeight: 240 }} />
-              </div>
-            )}
-
-            {detail.media_url && detail.media_type !== "video" && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6 }}>Reference Photo</div>
-                <img src={detail.media_url} alt="Task reference" style={{ width: "100%", borderRadius: 8, maxHeight: 240, objectFit: "cover" }} />
-              </div>
-            )}
-
-            {detail.due_date && (
-              <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
-                <div style={{ fontSize: 11, color: GRAY }}>Due Date: <span style={{ color: WHITE, fontWeight: 500 }}>{new Date(detail.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span></div>
-                {detail.due_time && <div style={{ fontSize: 11, color: GRAY }}>Time: <span style={{ color: WHITE, fontWeight: 500 }}>{detail.due_time}</span></div>}
-              </div>
-            )}
+            {detail.description && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6 }}>Instructions</div><div style={{ fontSize: 13, color: GRAY_LIGHT, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{detail.description}</div></div>)}
+            {detail.media_url && detail.media_type === "video" && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6 }}>Reference Video</div><video src={detail.media_url} controls style={{ width: "100%", borderRadius: 8, maxHeight: 240 }} /></div>)}
+            {detail.media_url && detail.media_type !== "video" && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6 }}>Reference Photo</div><img src={detail.media_url} alt="Task reference" style={{ width: "100%", borderRadius: 8, maxHeight: 240, objectFit: "cover" }} /></div>)}
+            {detail.due_date && (<div style={{ display: "flex", gap: 12, marginBottom: 14 }}><div style={{ fontSize: 11, color: GRAY }}>Due Date: <span style={{ color: WHITE, fontWeight: 500 }}>{new Date(detail.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span></div>{detail.due_time && <div style={{ fontSize: 11, color: GRAY }}>Time: <span style={{ color: WHITE, fontWeight: 500 }}>{detail.due_time}</span></div>}</div>)}
           </div>
-
-          <button onClick={() => { toggleTask(detail.id); setDetail(null); }} style={{
-            width: "100%", padding: "14px", border: "none",
-            background: done ? "rgba(136,153,170,0.1)" : `linear-gradient(135deg,${GOLD},${GOLD_LIGHT})`,
-            color: done ? GRAY : NAVY, fontSize: 14, fontWeight: 700, cursor: "pointer", textTransform: "uppercase",
-          }}>{done ? "Uncheck Task" : "Mark Complete"}</button>
+          <button onClick={() => { toggleTask(detail.id); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? "rgba(136,153,170,0.1)" : `linear-gradient(135deg,${GOLD},${GOLD_LIGHT})`, color: done ? GRAY : NAVY, fontSize: 14, fontWeight: 700, cursor: "pointer", textTransform: "uppercase" }}>{done ? "Uncheck Task" : "Mark Complete"}</button>
         </div>
       </div>
     );
@@ -672,20 +640,13 @@ function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask }) {
         lastFloor = g.floor;
         return (
           <div key={gi} style={{ marginBottom: 14 }}>
-            {showFloor && (
-              <div style={{ fontSize: 11, color: WHITE, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, marginTop: gi > 0 ? 10 : 0, padding: "6px 10px", background: NAVY_MID, borderRadius: 6, border: `1px solid ${NAVY_LIGHT}` }}>Floor {g.floor}</div>
-            )}
+            {showFloor && (<div style={{ fontSize: 11, color: WHITE, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, marginTop: gi > 0 ? 10 : 0, padding: "6px 10px", background: NAVY_MID, borderRadius: 6, border: `1px solid ${NAVY_LIGHT}` }}>Floor {g.floor}</div>)}
             <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: 6, paddingLeft: g.floor ? 8 : 0 }}>{g.zone}</div>
             {g.tasks.map(task => {
               const done = completedTaskIds.has(task.id);
               const hasInfo = task.has_details || task.description || task.media_url;
               return (
-                <div key={task.id} style={{
-                  display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 4,
-                  background: done ? "rgba(46,204,113,0.06)" : "rgba(255,255,255,0.02)",
-                  border: done ? `1px solid rgba(46,204,113,0.2)` : `1px solid ${NAVY_LIGHT}`,
-                  borderRadius: 8, marginLeft: g.floor ? 8 : 0,
-                }}>
+                <div key={task.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 4, background: done ? "rgba(46,204,113,0.06)" : "rgba(255,255,255,0.02)", border: done ? `1px solid rgba(46,204,113,0.2)` : `1px solid ${NAVY_LIGHT}`, borderRadius: 8, marginLeft: g.floor ? 8 : 0 }}>
                   <button onClick={() => toggleTask(task.id)} style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${done ? GREEN : GRAY}`, background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1, cursor: "pointer", padding: 0 }}>
                     {done && <CheckIco sz={11} c={WHITE} />}
                   </button>
@@ -800,15 +761,16 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
 }
 
 // ============================================================
-// ISSUE TASKS VIEW (Assigned Tasks page)
+// ASSIGNED TASKS VIEW (unified: issue-linked and standalone)
 // ============================================================
-function IssueTasksView({ issueTasks, resolveIssueTask, showToast }) {
+function AssignedTasksView({ assignedTasks, resolveTask, showToast }) {
   const [activePanel, setActivePanel] = useState(null);
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
+  const priC = { critical: RED, high: ORANGE, standard: GOLD };
   const sevC = { low: GREEN, medium: ORANGE, high: RED };
 
   const handlePhoto = (e) => {
@@ -824,12 +786,12 @@ function IssueTasksView({ issueTasks, resolveIssueTask, showToast }) {
   const clearForm = () => { setActivePanel(null); setNote(""); setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; };
 
   const handleResolve = async (taskId) => {
-    if (!note.trim()) { showToast("Describe what you did to resolve the issue", "error"); return; }
-    if (!photo) { showToast("A photo of the resolved issue is required", "error"); return; }
+    if (!note.trim()) { showToast("Describe what you did to complete this task", "error"); return; }
+    if (!photo) { showToast("A photo of the completed task is required", "error"); return; }
     setUploading(true);
     try {
       const photoUrl = await uploadPhoto(photo);
-      await resolveIssueTask(taskId, "resolved", note.trim(), photoUrl);
+      await resolveTask(taskId, "resolved", note.trim(), photoUrl);
       clearForm();
     } catch (err) { showToast(err.message, "error"); }
     setUploading(false);
@@ -837,11 +799,11 @@ function IssueTasksView({ issueTasks, resolveIssueTask, showToast }) {
 
   const handleCantResolve = async (taskId) => {
     if (!note.trim()) { showToast("Please provide a reason", "error"); return; }
-    await resolveIssueTask(taskId, "unable_to_resolve", note.trim(), null);
+    await resolveTask(taskId, "unable_to_resolve", note.trim(), null);
     clearForm();
   };
 
-  if (issueTasks.length === 0) return (
+  if (assignedTasks.length === 0) return (
     <div style={{ padding: "60px 20px", textAlign: "center" }}>
       <AlertIco sz={40} c={NAVY_LIGHT} />
       <div style={{ fontSize: 15, color: GRAY, marginTop: 16 }}>No assigned tasks right now.</div>
@@ -854,39 +816,60 @@ function IssueTasksView({ issueTasks, resolveIssueTask, showToast }) {
       <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 16, fontWeight: 700 }}>Assigned Tasks</div>
-        <div style={{ fontSize: 11, color: GRAY_LIGHT }}>{issueTasks.length} task{issueTasks.length !== 1 ? "s" : ""} assigned to you</div>
+        <div style={{ fontSize: 11, color: GRAY_LIGHT }}>{assignedTasks.length} task{assignedTasks.length !== 1 ? "s" : ""} assigned to you</div>
       </div>
 
-      {issueTasks.map(task => {
+      {assignedTasks.map(task => {
+        const isIssueLinked = !!task.source_issue_id;
+        const title = isIssueLinked ? (task.issue_title || task.label) : task.label;
+        const desc = isIssueLinked ? task.issue_description : task.description;
+        const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD);
+        const photoUrl = isIssueLinked ? task.issue_photo_url : null;
+        const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name;
+        const assignedByLabel = isIssueLinked ? "Reported by" : "Assigned by";
+        const locationParts = [task.site_name];
+        if (task.building_name) locationParts.push(task.building_name);
+        if (task.floor_number) locationParts.push("Floor " + task.floor_number);
+        locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || "General");
+        const locationStr = locationParts.filter(Boolean).join(" > ");
+
         const isResolving = activePanel?.taskId === task.task_id && activePanel?.mode === "resolve";
         const isCantResolve = activePanel?.taskId === task.task_id && activePanel?.mode === "cantresolve";
         const hasPanel = isResolving || isCantResolve;
+
         return (
-          <div key={task.task_id} style={{ marginBottom: 10, background: NAVY_MID, border: `1px solid ${NAVY_LIGHT}`, borderRadius: 10, borderLeft: `3px solid ${sevC[task.severity] || ORANGE}`, overflow: "hidden" }}>
+          <div key={task.task_id} style={{ marginBottom: 10, background: NAVY_MID, border: `1px solid ${NAVY_LIGHT}`, borderRadius: 10, borderLeft: `3px solid ${borderColor}`, overflow: "hidden" }}>
             <div style={{ padding: "12px 14px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{task.issue_title}</div>
-                  {task.issue_description && <div style={{ fontSize: 11, color: GRAY_LIGHT, marginTop: 4, lineHeight: 1.4 }}>{task.issue_description}</div>}
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{title}</div>
+                  {desc && <div style={{ fontSize: 11, color: GRAY_LIGHT, marginTop: 4, lineHeight: 1.4 }}>{desc}</div>}
                 </div>
-                <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: 4, background: (sevC[task.severity] || ORANGE) + "18", color: sevC[task.severity] || ORANGE, flexShrink: 0, marginLeft: 8 }}>{task.severity}</span>
+                <div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8 }}>
+                  {isIssueLinked && task.severity && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: 4, background: (sevC[task.severity] || ORANGE) + "18", color: sevC[task.severity] || ORANGE }}>{task.severity}</span>}
+                  {!isIssueLinked && task.priority && task.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: 4, background: (priC[task.priority] || GOLD) + "18", color: priC[task.priority] || GOLD }}>{task.priority}</span>}
+                  {isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "rgba(231,76,60,0.1)", color: RED }}>ISSUE</span>}
+                </div>
               </div>
-              <div style={{ display: "flex", gap: 10, marginTop: 8, fontSize: 10, color: GRAY }}>
-                <span>{task.site_name}</span>
-                <span>{task.issue_zone || task.zone}</span>
-                <span>Reported by {task.reported_by_name}</span>
+              <div style={{ display: "flex", gap: 8, marginTop: 8, fontSize: 10, color: GRAY, flexWrap: "wrap" }}>
+                <span>{locationStr}</span>
+                <span>{assignedByLabel} {assignedBy}</span>
               </div>
 
-              {task.photo_url && (
+              {task.due_date && (
+                <div style={{ marginTop: 6, fontSize: 10, color: ORANGE }}>Due: {new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}{task.due_time ? " at " + task.due_time : ""}</div>
+              )}
+
+              {photoUrl && (
                 <div style={{ marginTop: 8 }}>
-                  <img src={task.photo_url} alt="Issue" style={{ width: "100%", height: 120, objectFit: "cover", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}` }} />
+                  <img src={photoUrl} alt="Issue" style={{ width: "100%", height: 120, objectFit: "cover", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}` }} />
                 </div>
               )}
 
               {!hasPanel && (
                 <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
                   {task.resolution_status !== "in_progress" && (
-                    <button onClick={() => resolveIssueTask(task.task_id, "in_progress", null, null)} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1px solid ${ORANGE}`, background: "transparent", color: ORANGE, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>In Progress</button>
+                    <button onClick={() => resolveTask(task.task_id, "in_progress", null, null)} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1px solid ${ORANGE}`, background: "transparent", color: ORANGE, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>In Progress</button>
                   )}
                   <button onClick={() => { clearForm(); setActivePanel({ taskId: task.task_id, mode: "resolve" }); }} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1px solid ${GREEN}`, background: "transparent", color: GREEN, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Resolved</button>
                   <button onClick={() => { clearForm(); setActivePanel({ taskId: task.task_id, mode: "cantresolve" }); }} style={{ flex: 1, padding: "8px", borderRadius: 6, border: `1px solid ${RED}`, background: "transparent", color: RED, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Cannot Resolve</button>
@@ -898,15 +881,15 @@ function IssueTasksView({ issueTasks, resolveIssueTask, showToast }) {
               <div style={{ padding: "12px 14px", borderTop: `1px solid ${NAVY_LIGHT}`, background: "rgba(46,204,113,0.04)" }}>
                 <div style={{ fontSize: 10, color: GREEN, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>Mark as Resolved</div>
                 <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4 }}>What did you do to resolve this? *</div>
+                  <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4 }}>What did you do to complete this? *</div>
                   <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Describe the steps you took..." rows={3} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "rgba(255,255,255,0.04)", color: WHITE, fontSize: 12, outline: "none", resize: "vertical", fontFamily: "'DM Sans',sans-serif" }} />
                 </div>
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4 }}>Photo of resolved issue *</div>
+                  <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4 }}>Photo of completed task *</div>
                   {!photoPreview ? (
                     <button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: "rgba(255,255,255,0.03)", border: `1px dashed ${GREEN}`, borderRadius: 8, cursor: "pointer", color: GREEN, fontSize: 12, fontWeight: 600 }}>
                       <CamIco sz={18} c={GREEN} />
-                      <div style={{ textAlign: "left" }}><div>Take Photo of Resolved Issue</div><div style={{ fontSize: 10, color: GRAY, fontWeight: 400, marginTop: 2 }}>Required to verify resolution</div></div>
+                      <div style={{ textAlign: "left" }}><div>Take Photo of Completed Task</div><div style={{ fontSize: 10, color: GRAY, fontWeight: 400, marginTop: 2 }}>Required to verify completion</div></div>
                     </button>
                   ) : (
                     <div style={{ position: "relative" }}>
@@ -924,8 +907,8 @@ function IssueTasksView({ issueTasks, resolveIssueTask, showToast }) {
 
             {isCantResolve && (
               <div style={{ padding: "12px 14px", borderTop: `1px solid ${NAVY_LIGHT}`, background: "rgba(231,76,60,0.04)" }}>
-                <div style={{ fontSize: 10, color: RED, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>Explain why this cannot be resolved *</div>
-                <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Describe the issue preventing resolution..." rows={3} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "rgba(255,255,255,0.04)", color: WHITE, fontSize: 12, outline: "none", resize: "vertical", fontFamily: "'DM Sans',sans-serif", marginBottom: 8 }} />
+                <div style={{ fontSize: 10, color: RED, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>Explain why this cannot be completed *</div>
+                <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Describe the issue preventing completion..." rows={3} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "rgba(255,255,255,0.04)", color: WHITE, fontSize: 12, outline: "none", resize: "vertical", fontFamily: "'DM Sans',sans-serif", marginBottom: 8 }} />
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={clearForm} style={{ flex: 1, padding: "10px", borderRadius: 6, border: `1px solid ${NAVY_LIGHT}`, background: "transparent", color: GRAY_LIGHT, fontSize: 12, cursor: "pointer" }}>Cancel</button>
                   <button onClick={() => handleCantResolve(task.task_id)} style={{ flex: 1, padding: "10px", borderRadius: 6, border: "none", background: RED, color: WHITE, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Submit</button>
@@ -953,12 +936,7 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites }
   const fileRef = useRef(null);
   const sevs = [{ v: "low", l: "Low", c: GREEN }, { v: "medium", l: "Med", c: ORANGE }, { v: "high", l: "High", c: RED }];
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
-
   const visibleIssues = isAdmin ? issues : issues.filter(i => i.reported_by === user?.id);
-
-  if (!clockStatus?.clockedIn) {
-    // Not clocked in - still allow reporting, but show site selector
-  }
 
   const handlePhoto = (e) => {
     const file = e.target.files?.[0];
@@ -970,11 +948,7 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites }
     reader.readAsDataURL(file);
   };
 
-  const removePhoto = () => {
-    setPhoto(null);
-    setPhotoPreview(null);
-    if (fileRef.current) fileRef.current.value = "";
-  };
+  const removePhoto = () => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; };
 
   const handleSubmit = async () => {
     if (!title.trim()) { showToast("Enter issue title", "error"); return; }
@@ -983,16 +957,12 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites }
     setUploading(true);
     try {
       let photoUrl = null;
-      if (photo) {
-        photoUrl = await uploadPhoto(photo);
-      }
+      if (photo) { photoUrl = await uploadPhoto(photo); }
       await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl, siteId);
       setTitle(""); setDesc(""); setZone(""); setSev("medium");
       setPhoto(null); setPhotoPreview(null);
       setShowForm(false);
-    } catch (err) {
-      showToast(err.message, "error");
-    }
+    } catch (err) { showToast(err.message, "error"); }
     setUploading(false);
   };
 
@@ -1019,48 +989,23 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites }
               ))}
             </div>
           </div>
-
           <div style={{ marginBottom: 14 }}>
             <label style={labelSt}>Photo</label>
             <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />
-
             {!photoPreview ? (
-              <button onClick={() => fileRef.current?.click()} style={{
-                width: "100%", display: "flex", alignItems: "center", gap: 10,
-                padding: "12px", background: "rgba(255,255,255,0.03)",
-                border: `1px dashed ${GOLD}`, borderRadius: 8, cursor: "pointer",
-                color: GOLD, fontSize: 12, fontWeight: 600,
-              }}>
+              <button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: "rgba(255,255,255,0.03)", border: `1px dashed ${GOLD}`, borderRadius: 8, cursor: "pointer", color: GOLD, fontSize: 12, fontWeight: 600 }}>
                 <CamIco sz={18} c={GOLD} />
-                <div style={{ textAlign: "left" }}>
-                  <div>Take Photo or Choose from Gallery</div>
-                  <div style={{ fontSize: 10, color: GRAY, fontWeight: 400, marginTop: 2 }}>JPG, PNG up to 10MB</div>
-                </div>
+                <div style={{ textAlign: "left" }}><div>Take Photo or Choose from Gallery</div><div style={{ fontSize: 10, color: GRAY, fontWeight: 400, marginTop: 2 }}>JPG, PNG up to 10MB</div></div>
               </button>
             ) : (
               <div style={{ position: "relative" }}>
-                <img src={photoPreview} alt="Preview" style={{
-                  width: "100%", height: 160, objectFit: "cover",
-                  borderRadius: 8, border: `1px solid ${NAVY_LIGHT}`,
-                }} />
-                <button onClick={removePhoto} style={{
-                  position: "absolute", top: 6, right: 6,
-                  width: 28, height: 28, borderRadius: "50%",
-                  background: "rgba(0,0,0,0.7)", border: "none",
-                  color: WHITE, fontSize: 16, cursor: "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}>x</button>
+                <img src={photoPreview} alt="Preview" style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: 8, border: `1px solid ${NAVY_LIGHT}` }} />
+                <button onClick={removePhoto} style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "none", color: WHITE, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>x</button>
                 <div style={{ fontSize: 10, color: GREEN, marginTop: 4 }}>Photo attached: {photo?.name}</div>
               </div>
             )}
           </div>
-
-          <button onClick={handleSubmit} disabled={uploading} style={{
-            width: "100%", padding: "12px", borderRadius: 10, border: "none",
-            background: `linear-gradient(135deg,${GOLD},${GOLD_LIGHT})`,
-            color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer",
-            textTransform: "uppercase", opacity: uploading ? 0.6 : 1,
-          }}>{uploading ? "Uploading..." : "Submit Issue"}</button>
+          <button onClick={handleSubmit} disabled={uploading} style={{ width: "100%", padding: "12px", borderRadius: 10, border: "none", background: `linear-gradient(135deg,${GOLD},${GOLD_LIGHT})`, color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", opacity: uploading ? 0.6 : 1 }}>{uploading ? "Uploading..." : "Submit Issue"}</button>
         </div>
       )}
 
