@@ -246,7 +246,7 @@ function LoginScreen({ onLogin, onGoRegister, loading, showToast, t, toggleTheme
     <div style={{ width: "100%", minHeight: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
       <div style={{ width: "100%", maxWidth: 420 }}>
         <div style={{ textAlign: "center", marginBottom: 40 }}>
-          <img src={LOGO_LG} alt="OCSA Cleaning" style={{ height: 70 }} />
+          <div style={{ display: "inline-block", padding: themeMode === "dark" ? "12px 20px" : "0", background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: 12 }}><img src={LOGO_LG} alt="OCSA Cleaning" style={{ height: 70 }} /></div>
           
           <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase" }}>Staff Operations Portal</div>
           <div style={{ fontSize: 10, color: GREEN, marginTop: 8 }}>Connected to Live API</div>
@@ -274,7 +274,7 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
     <div style={{ width: "100%", minHeight: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
       <div style={{ width: "100%", maxWidth: 420 }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <img src={LOGO_SM} alt="OCSA Cleaning" style={{ height: 38 }} />
+          <div style={{ display: "inline-block", padding: "4px 12px", background: "rgba(255,255,255,0.92)", borderRadius: 6 }}><img src={LOGO_SM} alt="OCSA Cleaning" style={{ height: 34 }} /></div>
           <div style={{ fontSize: 12, color: t.textSec, letterSpacing: "2px", textTransform: "uppercase", marginTop: 8 }}>New Staff Registration</div>
         </div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>First Name *</label><input value={fn} onChange={e => setFn(e.target.value)} placeholder="First name" style={inputSt} /></div>
