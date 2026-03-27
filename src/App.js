@@ -558,6 +558,11 @@ function InspectView({ token, user, showToast, t }) {
   const [submitting, setSubmitting] = useState(false);
   const [uploaded, setUploaded] = useState({});
   const [uploadingId, setUploadingId] = useState(null);
+  const [scheduleModal, setScheduleModal] = useState(false);
+  const [templates, setTemplates] = useState([]);
+  const [sites, setSites] = useState([]);
+  const [schedForm, setSchedForm] = useState({ template_id: "", site_id: "", scheduled_date: "" });
+  const [scheduling, setScheduling] = useState(false);
 
   const loadList = async () => {
     setLoading(true);
@@ -569,6 +574,31 @@ function InspectView({ token, user, showToast, t }) {
   };
 
   useEffect(() => { loadList(); }, []);
+
+  const openScheduleModal = async () => {
+    try {
+      const [tmpl, st] = await Promise.all([
+        api("/api/inspections/templates", { token }),
+        api("/api/sites", { token }),
+      ]);
+      setTemplates(tmpl);
+      setSites(st);
+      setSchedForm({ template_id: "", site_id: "", scheduled_date: "" });
+      setScheduleModal(true);
+    } catch (e) { showToast(e.message, "error"); }
+  };
+
+  const submitSchedule = async () => {
+    if (!schedForm.template_id || !schedForm.site_id || !schedForm.scheduled_date) {
+      showToast("Template, site, and date are required", "error"); return;
+    }
+    setScheduling(true);
+    try {
+      await api("/api/inspections/scheduled", { method: "POST", token, body: { ...schedForm, assigned_to: user.id } });
+      showToast("Inspection scheduled"); setScheduleModal(false); loadList();
+    } catch (e) { showToast(e.message, "error"); }
+    setScheduling(false);
+  };
 
   const openInspection = async (id) => {
     try {
@@ -606,8 +636,6 @@ function InspectView({ token, user, showToast, t }) {
 
   const submit = async () => {
     if (!active) return;
-    const missing = (active.items || []).filter(item => scores[item.id] === undefined || scores[item.id] === null);
-    if (missing.length > 0) { showToast("Score all items before submitting", "error"); return; }
     setSubmitting(true);
     try {
       const payload = (active.items || []).map(item => ({
@@ -629,7 +657,9 @@ function InspectView({ token, user, showToast, t }) {
 
   const labelSt = { fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, display: "block", marginBottom: 5 };
   const inputSt = { width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid " + t.inputBorder, background: t.inputBg, color: t.text, fontSize: 13, outline: "none", fontFamily: "'DM Sans',sans-serif" };
+  const isManager = user?.role === "admin" || user?.role === "supervisor" || user?.role === "custodial_lead";
 
+  // SCORING VIEW
   if (active) {
     const totalMax = (active.items || []).reduce((sum, i) => sum + i.max_score, 0);
     const totalScored = (active.items || []).reduce((sum, i) => sum + (parseInt(scores[i.id]) || 0), 0);
@@ -669,32 +699,15 @@ function InspectView({ token, user, showToast, t }) {
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: iColor, minWidth: 36, textAlign: "right" }}>{sc}<span style={{ fontSize: 10, color: t.textMut, fontWeight: 400 }}>/{item.max_score}</span></div>
                 </div>
-
                 <div style={{ marginBottom: 8 }}>
-                  <input
-                    type="range"
-                    min={0}
-                    max={item.max_score}
-                    value={sc}
-                    onChange={e => setScores(prev => ({ ...prev, [item.id]: parseInt(e.target.value) }))}
-                    style={{ width: "100%", accentColor: iColor }}
-                  />
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: t.textMut, marginTop: 2 }}>
-                    <span>0</span><span>{item.max_score}</span>
-                  </div>
+                  <input type="range" min={0} max={item.max_score} value={sc} onChange={e => setScores(prev => ({ ...prev, [item.id]: parseInt(e.target.value) }))} style={{ width: "100%", accentColor: iColor }} />
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: t.textMut, marginTop: 2 }}><span>0</span><span>{item.max_score}</span></div>
                 </div>
-
-                <input
-                  value={notes[item.id] || ""}
-                  onChange={e => setNotes(prev => ({ ...prev, [item.id]: e.target.value }))}
-                  placeholder="Notes for this item (optional)"
-                  style={{ ...inputSt, fontSize: 12, marginBottom: 8 }}
-                />
-
+                <input value={notes[item.id] || ""} onChange={e => setNotes(prev => ({ ...prev, [item.id]: e.target.value }))} placeholder="Notes for this item (optional)" style={{ ...inputSt, fontSize: 12, marginBottom: 8 }} />
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <label style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 6, border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", fontSize: 11, color: t.textSec }}>
                     <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files[0] && uploadPhoto(item.id, e.target.files[0])} />
-                    {uploadingId === item.id ? "Uploading..." : "Photo"}
+                    {uploadingId === item.id ? "Uploading..." : "Attach Photo"}
                   </label>
                   {uploaded[item.id] && <span style={{ fontSize: 10, color: GREEN, fontWeight: 600 }}>Photo attached</span>}
                 </div>
@@ -705,47 +718,43 @@ function InspectView({ token, user, showToast, t }) {
 
         <div style={{ marginBottom: 16 }}>
           <label style={labelSt}>Overall Notes</label>
-          <textarea
-            value={overallNotes}
-            onChange={e => setOverallNotes(e.target.value)}
-            placeholder="General observations, follow-ups needed, etc."
-            rows={3}
-            style={{ ...inputSt, resize: "vertical" }}
-          />
+          <textarea value={overallNotes} onChange={e => setOverallNotes(e.target.value)} placeholder="General observations, follow-ups needed, etc." rows={3} style={{ ...inputSt, resize: "vertical" }} />
         </div>
 
-        <button
-          onClick={submit}
-          disabled={submitting}
-          style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: "#0A1628", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: submitting ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px" }}
-        >
+        <button onClick={submit} disabled={submitting} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: "#0A1628", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: submitting ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px" }}>
           {submitting ? "Submitting..." : "Submit Inspection"}
         </button>
       </div>
     );
   }
 
+  // LIST VIEW
   return (
     <div style={{ padding: "14px 16px" }}>
-      <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 4 }}>My Inspections</div>
-      <div style={{ fontSize: 11, color: t.textSec, marginBottom: 16 }}>Inspections assigned to you that are ready to be completed.</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 2 }}>My Inspections</div>
+          <div style={{ fontSize: 11, color: t.textSec }}>Tap an inspection to begin scoring.</div>
+        </div>
+        {isManager && (
+          <button onClick={openScheduleModal} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: GOLD, color: "#0A1628", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
+            + Schedule
+          </button>
+        )}
+      </div>
 
       {loading && <div style={{ padding: "30px 0", textAlign: "center", fontSize: 12, color: t.textMut }}>Loading...</div>}
 
       {!loading && list.length === 0 && (
-        <div style={{ padding: "60px 20px", textAlign: "center" }}>
-          <div style={{ fontSize: 36, marginBottom: 10 }}>{"[_]"}</div>
-          <div style={{ fontSize: 14, color: t.textMut }}>No inspections assigned to you right now.</div>
+        <div style={{ padding: "50px 20px", textAlign: "center" }}>
+          <div style={{ fontSize: 32, marginBottom: 10, color: t.textMut }}>{"[_]"}</div>
+          <div style={{ fontSize: 14, color: t.textMut }}>No pending inspections assigned to you.</div>
         </div>
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {list.map(si => (
-          <button
-            key={si.id}
-            onClick={() => openInspection(si.id)}
-            style={{ width: "100%", display: "block", padding: "14px", borderRadius: 12, border: "1.5px solid " + t.borderSolid, background: t.card, cursor: "pointer", textAlign: "left", boxShadow: t.shadow }}
-          >
+          <button key={si.id} onClick={() => openInspection(si.id)} style={{ width: "100%", display: "block", padding: "14px", borderRadius: 12, border: "1.5px solid " + t.borderSolid, background: t.card, cursor: "pointer", textAlign: "left", boxShadow: t.shadow }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: t.text, flex: 1, marginRight: 8 }}>{si.template_name}</div>
               <span style={{ fontSize: 9, fontWeight: 700, padding: "3px 8px", borderRadius: 4, background: (STATUS_C[si.status] || BLUE) + "18", color: STATUS_C[si.status] || BLUE, textTransform: "uppercase", flexShrink: 0 }}>{si.status.replace("_", " ")}</span>
@@ -753,12 +762,44 @@ function InspectView({ token, user, showToast, t }) {
             <div style={{ fontSize: 12, color: t.textSec }}>{si.site_name}</div>
             <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>Scheduled {fmtDate(si.scheduled_date)}</div>
             <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 8, background: t.cardAlt, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 11, color: t.textSec }}>Tap to start this inspection</span>
+              <span style={{ fontSize: 11, color: t.textSec }}>Tap to start scoring</span>
               <span style={{ fontSize: 16, color: GOLD }}>{">"}</span>
             </div>
           </button>
         ))}
       </div>
+
+      {scheduleModal && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 500, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={() => setScheduleModal(false)}>
+          <div style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 640, padding: "24px 20px 40px", maxHeight: "85vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Schedule Inspection</div>
+              <button onClick={() => setScheduleModal(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: t.textMut, lineHeight: 1 }}>x</button>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelSt}>Template *</label>
+              <select value={schedForm.template_id} onChange={e => setSchedForm({ ...schedForm, template_id: e.target.value })} style={{ ...inputSt }}>
+                <option value="">Select template...</option>
+                {templates.map(tp => <option key={tp.id} value={tp.id}>{tp.name}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelSt}>Site *</label>
+              <select value={schedForm.site_id} onChange={e => setSchedForm({ ...schedForm, site_id: e.target.value })} style={{ ...inputSt }}>
+                <option value="">Select site...</option>
+                {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom: 24 }}>
+              <label style={labelSt}>Scheduled Date *</label>
+              <input type="date" value={schedForm.scheduled_date} onChange={e => setSchedForm({ ...schedForm, scheduled_date: e.target.value })} style={inputSt} />
+            </div>
+            <button onClick={submitSchedule} disabled={scheduling} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: "#0A1628", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: scheduling ? 0.6 : 1 }}>
+              {scheduling ? "Scheduling..." : "Schedule Inspection"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
