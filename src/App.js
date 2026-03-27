@@ -64,6 +64,7 @@ const ChevIco = (p) => <Ico d="M9 18l6-6-6-6" {...p} />;
 const SunIco = (p) => <Ico d="M12 3v1m0 16v1m-8-9H3m18 0h-1m-2.636-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m11.314 11.314l.707.707M12 8a4 4 0 100 8 4 4 0 000-8z" {...p} />;
 const MoonIco = (p) => <Ico d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" {...p} />;
 const WrkIco = (p) => <Ico d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" {...p} />;
+const ClipIco = (p) => <Ico d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 12l2 2 4-4" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
 const mkLabel = (t) => ({ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: 6, display: "block" });
@@ -159,6 +160,7 @@ export default function OCSAStaffPortal() {
     { id: "chat", label: "Chat", icon: ChatIco },
     { id: "issues", label: isAdmin ? "Issues" : "Report", icon: AlertIco },
     { id: "supplies", label: "Supplies", icon: BoxIco },
+    { id: "inspect", label: "Inspect", icon: ClipIco },
   ];
 
   return (
@@ -194,6 +196,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} t={t} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} />}
+              {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
             </div>
           </div>
 
@@ -539,4 +542,223 @@ function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submi
 
 function EmptyState({ icon: Icon, text, t }) {
   return (<div style={{ padding: "60px 20px", textAlign: "center" }}><Icon sz={40} c={t.borderSolid} /><div style={{ fontSize: 15, color: t.textMut, marginTop: 16 }}>{text}</div></div>);
+}
+
+function InspectView({ token, user, showToast, t }) {
+  const CIMS_C = { SD: "#3498DB", HSE: "#F39C12", GB: "#2ECC71", QS: "#C8A84E", HR: "#9B59B6", MC: "#2C3E50" };
+  const STATUS_C = { scheduled: "#3498DB", in_progress: "#F39C12", completed: "#2ECC71" };
+  const fmtDate = (d) => d ? new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "--";
+
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [active, setActive] = useState(null);
+  const [scores, setScores] = useState({});
+  const [notes, setNotes] = useState({});
+  const [overallNotes, setOverallNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [uploaded, setUploaded] = useState({});
+  const [uploadingId, setUploadingId] = useState(null);
+
+  const loadList = async () => {
+    setLoading(true);
+    try {
+      const d = await api("/api/inspections/scheduled?status=scheduled", { token });
+      setList(d);
+    } catch (e) { showToast(e.message, "error"); }
+    setLoading(false);
+  };
+
+  useEffect(() => { loadList(); }, []);
+
+  const openInspection = async (id) => {
+    try {
+      const d = await api("/api/inspections/scheduled/" + id, { token });
+      setActive(d);
+      const initScores = {};
+      const initNotes = {};
+      (d.items || []).forEach(item => {
+        initScores[item.id] = 0;
+        initNotes[item.id] = "";
+      });
+      setScores(initScores);
+      setNotes(initNotes);
+      setOverallNotes("");
+      setUploaded({});
+    } catch (e) { showToast(e.message, "error"); }
+  };
+
+  const uploadPhoto = async (itemId, file) => {
+    setUploadingId(itemId);
+    try {
+      const ext = file.name.split(".").pop().toLowerCase();
+      const fileName = "inspect-" + Date.now() + "-" + Math.random().toString(36).substring(2, 8) + "." + ext;
+      const res = await fetch(
+        "https://gcgswxyxkbummtgzgusk.supabase.co/storage/v1/object/task-media/" + fileName,
+        { method: "POST", headers: { "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdjZ3N3eHl4a2J1bW10Z3pndXNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NjY0NTcsImV4cCI6MjA5MDA0MjQ1N30.Vbe7ueRmQ6MPZX2sqa0XHIlJD22_J7sDJ65OoQ50LaM", "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdjZ3N3eHl4a2J1bW10Z3pndXNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NjY0NTcsImV4cCI6MjA5MDA0MjQ1N30.Vbe7ueRmQ6MPZX2sqa0XHIlJD22_J7sDJ65OoQ50LaM", "Content-Type": file.type }, body: file }
+      );
+      if (!res.ok) throw new Error("Upload failed");
+      const url = "https://gcgswxyxkbummtgzgusk.supabase.co/storage/v1/object/public/task-media/" + fileName;
+      setUploaded(prev => ({ ...prev, [itemId]: url }));
+      showToast("Photo attached");
+    } catch (e) { showToast(e.message, "error"); }
+    setUploadingId(null);
+  };
+
+  const submit = async () => {
+    if (!active) return;
+    const missing = (active.items || []).filter(item => scores[item.id] === undefined || scores[item.id] === null);
+    if (missing.length > 0) { showToast("Score all items before submitting", "error"); return; }
+    setSubmitting(true);
+    try {
+      const payload = (active.items || []).map(item => ({
+        template_item_id: item.id,
+        score: parseInt(scores[item.id]) || 0,
+        notes: notes[item.id] || null,
+        photo_url: uploaded[item.id] || null,
+      }));
+      await api("/api/inspections/scheduled/" + active.id + "/complete", {
+        method: "POST", token,
+        body: { scores: payload, overall_notes: overallNotes || null },
+      });
+      showToast("Inspection submitted");
+      setActive(null);
+      loadList();
+    } catch (e) { showToast(e.message, "error"); }
+    setSubmitting(false);
+  };
+
+  const labelSt = { fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, display: "block", marginBottom: 5 };
+  const inputSt = { width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid " + t.inputBorder, background: t.inputBg, color: t.text, fontSize: 13, outline: "none", fontFamily: "'DM Sans',sans-serif" };
+
+  if (active) {
+    const totalMax = (active.items || []).reduce((sum, i) => sum + i.max_score, 0);
+    const totalScored = (active.items || []).reduce((sum, i) => sum + (parseInt(scores[i.id]) || 0), 0);
+    const pct = totalMax > 0 ? Math.round((totalScored / totalMax) * 100) : 0;
+    const scoreColor = pct >= 80 ? GREEN : pct >= 60 ? ORANGE : RED;
+
+    return (
+      <div style={{ padding: "14px 16px 100px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <button onClick={() => setActive(null)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: t.textSec, fontSize: 20, lineHeight: 1 }}>{"<"}</button>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.text }}>{active.template_name}</div>
+            <div style={{ fontSize: 11, color: t.textSec }}>{active.site_name} - {fmtDate(active.scheduled_date)}</div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderRadius: 10, background: t.cardAlt, marginBottom: 16, border: "1px solid " + t.borderSolid }}>
+          <div style={{ fontSize: 11, color: t.textSec }}>Running total</div>
+          <div style={{ textAlign: "right" }}>
+            <span style={{ fontSize: 22, fontWeight: 700, color: scoreColor }}>{pct}%</span>
+            <span style={{ fontSize: 11, color: t.textMut, marginLeft: 6 }}>{totalScored}/{totalMax} pts</span>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
+          {(active.items || []).map(item => {
+            const sc = parseInt(scores[item.id]) || 0;
+            const iPct = item.max_score > 0 ? Math.round((sc / item.max_score) * 100) : 0;
+            const iColor = iPct >= 80 ? GREEN : iPct >= 60 ? ORANGE : RED;
+            return (
+              <div key={item.id} style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: 12, padding: "14px 14px 12px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <div style={{ width: 26, height: 26, borderRadius: 5, background: (CIMS_C[item.cims_category] || BLUE) + "1A", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: CIMS_C[item.cims_category] || BLUE, flexShrink: 0 }}>{item.cims_category}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: t.text, lineHeight: 1.3 }}>{item.label}</div>
+                    <div style={{ fontSize: 10, color: t.textMut }}>{item.zone}</div>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: iColor, minWidth: 36, textAlign: "right" }}>{sc}<span style={{ fontSize: 10, color: t.textMut, fontWeight: 400 }}>/{item.max_score}</span></div>
+                </div>
+
+                <div style={{ marginBottom: 8 }}>
+                  <input
+                    type="range"
+                    min={0}
+                    max={item.max_score}
+                    value={sc}
+                    onChange={e => setScores(prev => ({ ...prev, [item.id]: parseInt(e.target.value) }))}
+                    style={{ width: "100%", accentColor: iColor }}
+                  />
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: t.textMut, marginTop: 2 }}>
+                    <span>0</span><span>{item.max_score}</span>
+                  </div>
+                </div>
+
+                <input
+                  value={notes[item.id] || ""}
+                  onChange={e => setNotes(prev => ({ ...prev, [item.id]: e.target.value }))}
+                  placeholder="Notes for this item (optional)"
+                  style={{ ...inputSt, fontSize: 12, marginBottom: 8 }}
+                />
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 6, border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", fontSize: 11, color: t.textSec }}>
+                    <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files[0] && uploadPhoto(item.id, e.target.files[0])} />
+                    {uploadingId === item.id ? "Uploading..." : "Photo"}
+                  </label>
+                  {uploaded[item.id] && <span style={{ fontSize: 10, color: GREEN, fontWeight: 600 }}>Photo attached</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={labelSt}>Overall Notes</label>
+          <textarea
+            value={overallNotes}
+            onChange={e => setOverallNotes(e.target.value)}
+            placeholder="General observations, follow-ups needed, etc."
+            rows={3}
+            style={{ ...inputSt, resize: "vertical" }}
+          />
+        </div>
+
+        <button
+          onClick={submit}
+          disabled={submitting}
+          style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: "#0A1628", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: submitting ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px" }}
+        >
+          {submitting ? "Submitting..." : "Submit Inspection"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: "14px 16px" }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 4 }}>My Inspections</div>
+      <div style={{ fontSize: 11, color: t.textSec, marginBottom: 16 }}>Inspections assigned to you that are ready to be completed.</div>
+
+      {loading && <div style={{ padding: "30px 0", textAlign: "center", fontSize: 12, color: t.textMut }}>Loading...</div>}
+
+      {!loading && list.length === 0 && (
+        <div style={{ padding: "60px 20px", textAlign: "center" }}>
+          <div style={{ fontSize: 36, marginBottom: 10 }}>{"[_]"}</div>
+          <div style={{ fontSize: 14, color: t.textMut }}>No inspections assigned to you right now.</div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {list.map(si => (
+          <button
+            key={si.id}
+            onClick={() => openInspection(si.id)}
+            style={{ width: "100%", display: "block", padding: "14px", borderRadius: 12, border: "1.5px solid " + t.borderSolid, background: t.card, cursor: "pointer", textAlign: "left", boxShadow: t.shadow }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: t.text, flex: 1, marginRight: 8 }}>{si.template_name}</div>
+              <span style={{ fontSize: 9, fontWeight: 700, padding: "3px 8px", borderRadius: 4, background: (STATUS_C[si.status] || BLUE) + "18", color: STATUS_C[si.status] || BLUE, textTransform: "uppercase", flexShrink: 0 }}>{si.status.replace("_", " ")}</span>
+            </div>
+            <div style={{ fontSize: 12, color: t.textSec }}>{si.site_name}</div>
+            <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>Scheduled {fmtDate(si.scheduled_date)}</div>
+            <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 8, background: t.cardAlt, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: t.textSec }}>Tap to start this inspection</span>
+              <span style={{ fontSize: 16, color: GOLD }}>{">"}</span>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
