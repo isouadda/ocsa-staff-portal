@@ -66,6 +66,8 @@ const MoonIco = (p) => <Ico d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" {...
 const WrkIco = (p) => <Ico d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" {...p} />;
 const ClipIco = (p) => <Ico d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 12l2 2 4-4" {...p} />;
 const SwapIco = (p) => <Ico d="M16 3l4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" {...p} />;
+const CalIco = (p) => <Ico d="M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM16 2v4M8 2v4M3 10h18" {...p} />;
+const HomeIco = (p) => <Ico d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
 const mkLabel = (t) => ({ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: 6, display: "block" });
@@ -155,8 +157,9 @@ export default function OCSAStaffPortal() {
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
   const assignedCount = assignedTasks.length;
   const tabs = [
-    { id: "clock", label: "Clock", icon: ClockIco },
-    { id: "tasks", label: "Daily Tasks", icon: CheckIco },
+    { id: "clock", label: "Home", icon: HomeIco },
+    { id: "schedule", label: "Schedule", icon: CalIco },
+    { id: "tasks", label: "Tasks", icon: CheckIco },
     { id: "issuetasks", label: "Assigned Tasks", icon: WrkIco, badge: assignedCount },
     { id: "chat", label: "Chat", icon: ChatIco },
     { id: "issues", label: isAdmin ? "Issues" : "Report", icon: AlertIco },
@@ -192,7 +195,8 @@ export default function OCSAStaffPortal() {
 
           <div style={{ padding: "0 0 80px 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
-              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} setSelectedSite={setSelectedSite} onClockIn={handleClockIn} onClockOut={handleClockOut} sites={sites} loading={loading} t={t} /><MyScheduleSection token={token} t={t} /></div>}
+              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} setSelectedSite={setSelectedSite} onClockIn={handleClockIn} onClockOut={handleClockOut} sites={sites} loading={loading} t={t} /><MyScheduleSection token={token} t={t} compact /></div>}
+              {activeTab === "schedule" && <MyScheduleSection token={token} t={t} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} />}
               {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} t={t} />}
@@ -297,9 +301,10 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
   );
 }
 
-function MyScheduleSection({ token, t }) {
+function MyScheduleSection({ token, t, compact }) {
   const [view, setView] = useState("week");
   const [data, setData] = useState({ scheduled: [], actual: [], pickups: [] });
+  const [detail, setDetail] = useState(null);
   const [weekStart, setWeekStart] = useState(() => {
     const now = new Date();
     const day = now.getDay();
@@ -403,19 +408,19 @@ function MyScheduleSection({ token, t }) {
                   <div style={{ fontSize: 14, fontWeight: 700, color: today ? GOLD : t.text }}>{dt.getDate()}</div>
                 </div>
                 {sched.map(s => (
-                  <div key={s.id} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: GOLD + "18", color: GOLD, border: "1px solid " + GOLD + "30" }}>
-                    {fmtTm(s.start_time)}{s.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{s.site_name}</div>}
+                  <div key={s.id} onClick={() => setDetail({ type: "scheduled", ...s })} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: GOLD + "18", color: GOLD, border: "1px solid " + GOLD + "30", cursor: "pointer" }}>
+                    {fmtTm(s.start_time)}{s.end_time ? " - " + fmtTm(s.end_time) : ""}{s.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{s.site_name}</div>}
                   </div>
                 ))}
                 {actual.map(a => (
-                  <div key={a.id} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: GREEN + "15", color: GREEN, border: "1px solid " + GREEN + "30" }}>
+                  <div key={a.id} onClick={() => setDetail({ type: "actual", ...a })} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: GREEN + "15", color: GREEN, border: "1px solid " + GREEN + "30", cursor: "pointer" }}>
                     {fmtClockTm(a.clock_in_time)}{a.duration_minutes ? " (" + Math.floor(a.duration_minutes / 60) + "h)" : a.shift_status === "active" ? " (live)" : ""}{a.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{a.site_name}</div>}
                   </div>
                 ))}
                 {pickups.map(p => {
                   const pc = p.status === "approved" ? GREEN : BLUE;
                   return (
-                    <div key={p.id} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: pc + "15", color: pc, border: "1px solid " + pc + "30" }}>
+                    <div key={p.id} onClick={() => setDetail({ type: "pickup", ...p })} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: pc + "15", color: pc, border: "1px solid " + pc + "30", cursor: "pointer" }}>
                       {fmtTm(p.start_time)} <span style={{ fontSize: 7, textTransform: "uppercase" }}>{p.status === "approved" ? "pickup" : "pending"}</span>
                       {p.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{p.site_name}</div>}
                     </div>
@@ -478,6 +483,82 @@ function MyScheduleSection({ token, t }) {
           </div>
         );
       })()}
+
+      {/* SHIFT DETAIL MODAL */}
+      {detail && (
+        <div onClick={() => setDetail(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "20px 20px 30px" }}>
+            <div style={{ width: 40, height: 4, borderRadius: 2, background: t.textMut, margin: "0 auto 16px", opacity: 0.3 }} />
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 14 }}>
+              {detail.type === "scheduled" ? "Scheduled Shift" : detail.type === "actual" ? "Worked Shift" : "Pickup Shift"}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+              <div>
+                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Site</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{detail.site_name || "N/A"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Status</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: detail.type === "actual" ? GREEN : detail.type === "pickup" ? (detail.status === "approved" ? GREEN : ORANGE) : GOLD }}>
+                  {detail.type === "actual" ? (detail.shift_status === "active" ? "On Site" : "Completed") : detail.type === "pickup" ? (detail.status || "").charAt(0).toUpperCase() + (detail.status || "").slice(1) : (detail.status || "scheduled").charAt(0).toUpperCase() + (detail.status || "scheduled").slice(1)}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+              {detail.type === "actual" ? (<>
+                <div>
+                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Clock In</div>
+                  <div style={{ fontSize: 13, color: t.text }}>{detail.clock_in_time ? fmtClockTm(detail.clock_in_time) : "N/A"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Clock Out</div>
+                  <div style={{ fontSize: 13, color: detail.clock_out_time ? t.text : ORANGE }}>{detail.clock_out_time ? fmtClockTm(detail.clock_out_time) : "Still on site"}</div>
+                </div>
+              </>) : (<>
+                <div>
+                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Start</div>
+                  <div style={{ fontSize: 13, color: t.text }}>{fmtTm(detail.start_time)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>End</div>
+                  <div style={{ fontSize: 13, color: t.text }}>{fmtTm(detail.end_time)}</div>
+                </div>
+              </>)}
+            </div>
+            {detail.type === "actual" && detail.duration_minutes && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Duration</div>
+                <div style={{ fontSize: 13, color: t.text }}>{Math.floor(detail.duration_minutes / 60)}h {detail.duration_minutes % 60}m</div>
+              </div>
+            )}
+            {(detail.building_name || detail.floor_number) && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                {detail.building_name && <div><div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Building</div><div style={{ fontSize: 13, color: t.text }}>{detail.building_name}</div></div>}
+                {detail.floor_number && <div><div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Floor</div><div style={{ fontSize: 13, color: t.text }}>{detail.floor_number}</div></div>}
+              </div>
+            )}
+            {detail.service_category && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Service</div>
+                <div style={{ fontSize: 13, color: t.text }}>{detail.service_category}</div>
+              </div>
+            )}
+            {detail.notes && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Notes</div>
+                <div style={{ fontSize: 12, color: t.textSec, fontStyle: "italic" }}>{detail.notes}</div>
+              </div>
+            )}
+            {detail.type === "pickup" && detail.origin && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Reason</div>
+                <div style={{ fontSize: 13, color: t.text }}>{detail.origin.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
+              </div>
+            )}
+            <button onClick={() => setDetail(null)} style={{ width: "100%", padding: "12px", borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 4 }}>Close</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
