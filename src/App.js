@@ -446,6 +446,7 @@ function MyScheduleSection({ token, t, compact }) {
           cells.push(toISO(d));
         }
         const monthName = firstDay.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+        return (
           <div style={{ display: "flex", flexDirection: "column", flex: compact ? undefined : 1 }}>
             <div style={{ textAlign: "center", fontSize: 13, fontWeight: 700, color: t.text, marginBottom: 8 }}>{monthName}</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 4 }}>
