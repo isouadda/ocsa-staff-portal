@@ -555,6 +555,39 @@ function MyScheduleSection({ token, t, compact }) {
                 <div style={{ fontSize: 13, color: t.text }}>{detail.origin.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
               </div>
             )}
+            {detail.type === "scheduled" && detail.status !== "cancelled" && !detail.dropForm && (
+              <button onClick={() => setDetail({ ...detail, dropForm: { reason: "sick", notes: "" } })} style={{ width: "100%", padding: "10px", borderRadius: 8, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>Request to Drop This Shift</button>
+            )}
+            {detail.dropForm && (
+              <div style={{ padding: 12, borderRadius: 8, background: RED + "08", border: "1px solid " + RED + "30", marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: RED, marginBottom: 8 }}>Drop Request</div>
+                <div style={{ fontSize: 10, color: t.textSec, marginBottom: 10 }}>Your supervisor will review this request. If approved, the shift will be opened for pickup or reassigned.</div>
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4 }}>Reason</div>
+                  <select value={detail.dropForm.reason} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, reason: e.target.value } })} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid " + t.inputBorder, background: t.inputBg, color: t.text, fontSize: 12, fontFamily: "'DM Sans',sans-serif" }}>
+                    <option value="sick">Sick</option>
+                    <option value="personal">Personal</option>
+                    <option value="scheduling_conflict">Scheduling Conflict</option>
+                    <option value="emergency">Emergency</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4 }}>Notes (optional)</div>
+                  <input value={detail.dropForm.notes} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, notes: e.target.value } })} placeholder="Any additional details..." style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid " + t.inputBorder, background: t.inputBg, color: t.text, fontSize: 12, fontFamily: "'DM Sans',sans-serif" }} />
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setDetail({ ...detail, dropForm: null })} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+                  <button onClick={async () => {
+                    try {
+                      await api("/api/pickups/request-drop", { method: "POST", body: { scheduled_shift_id: detail.id, reason: detail.dropForm.reason, notes: detail.dropForm.notes || detail.dropForm.reason }, token });
+                      setDetail(null);
+                      loadSchedule();
+                    } catch (e) { console.error(e); }
+                  }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Submit Request</button>
+                </div>
+              </div>
+            )}
             <button onClick={() => setDetail(null)} style={{ width: "100%", padding: "12px", borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 4 }}>Close</button>
           </div>
         </div>
