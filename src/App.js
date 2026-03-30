@@ -192,7 +192,7 @@ export default function OCSAStaffPortal() {
 
           <div style={{ padding: "0 0 80px 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
-              {activeTab === "clock" && <ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} setSelectedSite={setSelectedSite} onClockIn={handleClockIn} onClockOut={handleClockOut} sites={sites} loading={loading} t={t} />}
+              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} setSelectedSite={setSelectedSite} onClockIn={handleClockIn} onClockOut={handleClockOut} sites={sites} loading={loading} t={t} /><MyScheduleSection token={token} t={t} /></div>}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} />}
               {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} t={t} />}
@@ -293,6 +293,191 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
         <button onClick={() => { if (pin !== pin2) return; onRegister(fn, ln, ph, em, pin); }} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: "#0A1628", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>{loading ? "Registering..." : "Register"}</button>
         <button onClick={onBack} style={{ width: "100%", padding: "12px", marginTop: 12, borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, cursor: "pointer" }}>Back to Login</button>
       </div>
+    </div>
+  );
+}
+
+function MyScheduleSection({ token, t }) {
+  const [view, setView] = useState("week");
+  const [data, setData] = useState({ scheduled: [], actual: [], pickups: [] });
+  const [weekStart, setWeekStart] = useState(() => {
+    const now = new Date();
+    const day = now.getDay();
+    const diff = day === 0 ? 6 : day - 1;
+    const mon = new Date(now);
+    mon.setDate(now.getDate() - diff);
+    mon.setHours(0, 0, 0, 0);
+    return mon;
+  });
+  const [loading, setLoading] = useState(false);
+
+  const toISO = (d) => d.toISOString().split("T")[0];
+  const fmtTm = (v) => { if (!v) return ""; const parts = String(v).split(":"); const h = parseInt(parts[0]); const m = parts[1] || "00"; const ap = h >= 12 ? "PM" : "AM"; return ((h % 12) || 12) + ":" + m + " " + ap; };
+  const fmtClockTm = (d) => new Date(d).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+
+  const getWeekEnd = () => { const e = new Date(weekStart); e.setDate(e.getDate() + 6); return e; };
+  const getWeekDays = () => { const days = []; for (let i = 0; i < 7; i++) { const d = new Date(weekStart); d.setDate(d.getDate() + i); days.push(toISO(d)); } return days; };
+  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const isToday = (ds) => ds === toISO(new Date());
+
+  const loadSchedule = async () => {
+    setLoading(true);
+    try {
+      const sd = toISO(weekStart);
+      let ed;
+      if (view === "month") {
+        const last = new Date(weekStart.getFullYear(), weekStart.getMonth() + 1, 0);
+        ed = toISO(last);
+      } else {
+        ed = toISO(getWeekEnd());
+      }
+      const d = await api("/api/pickups/my-schedule?start_date=" + sd + "&end_date=" + ed, { token });
+      setData(d);
+    } catch (err) { console.error("Schedule load error:", err); }
+    setLoading(false);
+  };
+
+  useEffect(() => { loadSchedule(); }, [weekStart, view]);
+
+  const prevWeek = () => { const n = new Date(weekStart); n.setDate(n.getDate() - 7); setWeekStart(n); };
+  const nextWeek = () => { const n = new Date(weekStart); n.setDate(n.getDate() + 7); setWeekStart(n); };
+  const goToday = () => {
+    const now = new Date();
+    const day = now.getDay();
+    const diff = day === 0 ? 6 : day - 1;
+    const mon = new Date(now);
+    mon.setDate(now.getDate() - diff);
+    mon.setHours(0, 0, 0, 0);
+    setWeekStart(mon);
+  };
+
+  const getSchedForDay = (ds) => data.scheduled.filter(s => {
+    const d = typeof s.scheduled_date === "string" ? s.scheduled_date.slice(0, 10) : s.scheduled_date?.toISOString?.()?.split("T")?.[0];
+    return d === ds;
+  });
+  const getActualForDay = (ds) => data.actual.filter(s => s.clock_in_time?.slice?.(0, 10) === ds);
+  const getPickupsForDay = (ds) => data.pickups.filter(s => {
+    const d = typeof s.scheduled_date === "string" ? s.scheduled_date.slice(0, 10) : s.scheduled_date?.toISOString?.()?.split("T")?.[0];
+    return d === ds;
+  });
+
+  const weekLabel = weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " - " + getWeekEnd().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+  const weekDays = getWeekDays();
+
+  return (
+    <div style={{ padding: "0 16px 16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>My Schedule</div>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button onClick={() => setView("week")} style={{ padding: "4px 10px", borderRadius: 6, fontSize: 10, fontWeight: view === "week" ? 700 : 500, background: view === "week" ? GOLD + "20" : "transparent", color: view === "week" ? GOLD : t.textMut, border: view === "week" ? "1px solid " + GOLD + "40" : "1px solid transparent", cursor: "pointer" }}>Week</button>
+          <button onClick={() => { setView("month"); const first = new Date(weekStart.getFullYear(), weekStart.getMonth(), 1); setWeekStart(first); }} style={{ padding: "4px 10px", borderRadius: 6, fontSize: 10, fontWeight: view === "month" ? 700 : 500, background: view === "month" ? GOLD + "20" : "transparent", color: view === "month" ? GOLD : t.textMut, border: view === "month" ? "1px solid " + GOLD + "40" : "1px solid transparent", cursor: "pointer" }}>Month</button>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <button onClick={prevWeek} style={{ background: "none", border: "1px solid " + t.borderSolid, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: t.textMut, fontSize: 14 }}>&lt;</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>{weekLabel}</span>
+          <button onClick={goToday} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, border: "1px solid " + BLUE, background: "transparent", color: BLUE, cursor: "pointer", fontWeight: 600 }}>Today</button>
+        </div>
+        <button onClick={nextWeek} style={{ background: "none", border: "1px solid " + t.borderSolid, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: t.textMut, fontSize: 14 }}>&gt;</button>
+      </div>
+
+      {loading && <div style={{ textAlign: "center", padding: 20, color: t.textMut, fontSize: 12 }}>Loading...</div>}
+
+      {/* WEEK VIEW */}
+      {!loading && view === "week" && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+          {weekDays.map((ds, i) => {
+            const sched = getSchedForDay(ds);
+            const actual = getActualForDay(ds);
+            const pickups = getPickupsForDay(ds);
+            const today = isToday(ds);
+            const dt = new Date(ds + "T00:00:00");
+            const hasAny = sched.length > 0 || actual.length > 0 || pickups.length > 0;
+            return (
+              <div key={ds} style={{ background: today ? GOLD + "12" : t.card, border: "1px solid " + (today ? GOLD + "40" : t.borderSolid), borderRadius: 8, padding: 6, minHeight: 80 }}>
+                <div style={{ textAlign: "center", marginBottom: 4 }}>
+                  <div style={{ fontSize: 9, fontWeight: 600, color: today ? GOLD : t.textMut, textTransform: "uppercase" }}>{dayNames[i]}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: today ? GOLD : t.text }}>{dt.getDate()}</div>
+                </div>
+                {sched.map(s => (
+                  <div key={s.id} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: GOLD + "18", color: GOLD, border: "1px solid " + GOLD + "30" }}>
+                    {fmtTm(s.start_time)}{s.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{s.site_name}</div>}
+                  </div>
+                ))}
+                {actual.map(a => (
+                  <div key={a.id} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: GREEN + "15", color: GREEN, border: "1px solid " + GREEN + "30" }}>
+                    {fmtClockTm(a.clock_in_time)}{a.duration_minutes ? " (" + Math.floor(a.duration_minutes / 60) + "h)" : a.shift_status === "active" ? " (live)" : ""}{a.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{a.site_name}</div>}
+                  </div>
+                ))}
+                {pickups.map(p => {
+                  const pc = p.status === "approved" ? GREEN : BLUE;
+                  return (
+                    <div key={p.id} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: pc + "15", color: pc, border: "1px solid " + pc + "30" }}>
+                      {fmtTm(p.start_time)} <span style={{ fontSize: 7, textTransform: "uppercase" }}>{p.status === "approved" ? "pickup" : "pending"}</span>
+                      {p.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{p.site_name}</div>}
+                    </div>
+                  );
+                })}
+                {!hasAny && <div style={{ fontSize: 10, color: t.textMut, opacity: 0.3, textAlign: "center", marginTop: 8 }}>-</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* MONTH VIEW */}
+      {!loading && view === "month" && (() => {
+        const year = weekStart.getFullYear();
+        const month = weekStart.getMonth();
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        const startOff = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1;
+        const cells = [];
+        for (let i = -startOff; i <= lastDay.getDate() + (6 - (lastDay.getDay() === 0 ? 6 : lastDay.getDay() - 1)); i++) {
+          const d = new Date(year, month, i + 1);
+          cells.push(toISO(d));
+        }
+        const monthName = firstDay.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+        return (
+          <div>
+            <div style={{ textAlign: "center", fontSize: 13, fontWeight: 700, color: t.text, marginBottom: 8 }}>{monthName}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 4 }}>
+              {dayNames.map(d => <div key={d} style={{ textAlign: "center", fontSize: 9, fontWeight: 700, color: t.textMut, padding: "4px 0" }}>{d}</div>)}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+              {cells.map(ds => {
+                const dt = new Date(ds + "T00:00:00");
+                const inMonth = dt.getMonth() === month;
+                const today = isToday(ds);
+                const sched = getSchedForDay(ds);
+                const actual = getActualForDay(ds);
+                const pickups = getPickupsForDay(ds);
+                return (
+                  <div key={ds} onClick={() => { const day = dt.getDay(); const diff = day === 0 ? 6 : day - 1; const mon = new Date(dt); mon.setDate(dt.getDate() - diff); setWeekStart(mon); setView("week"); }} style={{ padding: 4, minHeight: 40, background: today ? GOLD + "12" : inMonth ? t.card : t.hover, borderRadius: 4, border: "1px solid " + (today ? GOLD + "40" : t.borderSolid), opacity: inMonth ? 1 : 0.3, cursor: "pointer", textAlign: "center" }}>
+                    <div style={{ fontSize: 11, fontWeight: today ? 700 : 500, color: today ? GOLD : t.text }}>{dt.getDate()}</div>
+                    <div style={{ display: "flex", justifyContent: "center", gap: 2, marginTop: 2, flexWrap: "wrap" }}>
+                      {sched.length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: GOLD }} />}
+                      {actual.length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: GREEN }} />}
+                      {pickups.length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: BLUE }} />}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 8 }}>
+              {[{ c: GOLD, l: "Scheduled" }, { c: GREEN, l: "Worked" }, { c: BLUE, l: "Pickup" }].map(lg => (
+                <div key={lg.l} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: lg.c }} />
+                  <span style={{ fontSize: 8, color: t.textMut }}>{lg.l}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
