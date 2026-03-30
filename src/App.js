@@ -65,6 +65,7 @@ const SunIco = (p) => <Ico d="M12 3v1m0 16v1m-8-9H3m18 0h-1m-2.636-6.364l-.707.7
 const MoonIco = (p) => <Ico d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" {...p} />;
 const WrkIco = (p) => <Ico d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" {...p} />;
 const ClipIco = (p) => <Ico d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 12l2 2 4-4" {...p} />;
+const SwapIco = (p) => <Ico d="M16 3l4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
 const mkLabel = (t) => ({ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: 6, display: "block" });
@@ -160,11 +161,12 @@ export default function OCSAStaffPortal() {
     { id: "chat", label: "Chat", icon: ChatIco },
     { id: "issues", label: isAdmin ? "Issues" : "Report", icon: AlertIco },
     { id: "supplies", label: "Supplies", icon: BoxIco },
+    { id: "pickup", label: "Pickup", icon: SwapIco },
     { id: "inspect", label: "Inspect", icon: ClipIco },
   ];
 
   return (
-    <div style={{ width: "100%", minHeight: "100vh", background: t.bg, fontFamily: "'DM Sans','Segoe UI',sans-serif", color: t.text, position: "relative" }}>
+    <div style={{ width: "100%", minHeight: "100vh", background: t.bg, fontFamily: "'DM Sans','Segoe UI',sans-serif", color: t.text, position: "relative", display: "flex", flexDirection: "column" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet" />
 
       {screen === "login" && <LoginScreen onLogin={handleLogin} onGoRegister={() => setScreen("register")} loading={loading} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
@@ -172,7 +174,7 @@ export default function OCSAStaffPortal() {
       {screen === "main" && (
         <>
           <div style={{ background: "linear-gradient(135deg, " + t.headerBg + " 0%, " + t.headerBg2 + " 100%)", padding: "14px 16px 10px", borderBottom: "1px solid " + (themeMode === "dark" ? t.borderSolid : "rgba(255,255,255,0.08)") }}>
-            <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(200,168,78,0.12)", border: "1.5px solid " + GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: GOLD }}>{user?.firstName?.[0]}{user?.lastName?.[0]}</div>
                 <div>
@@ -188,19 +190,20 @@ export default function OCSAStaffPortal() {
             </div>
           </div>
 
-          <div style={{ padding: "0 0 80px 0", minHeight: "calc(100vh - 130px)" }}>
-            <div style={{ maxWidth: 640, margin: "0 auto" }}>
+          <div style={{ padding: "0 0 80px 0", flex: 1, display: "flex", flexDirection: "column" }}>
+            <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
               {activeTab === "clock" && <ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} setSelectedSite={setSelectedSite} onClockIn={handleClockIn} onClockOut={handleClockOut} sites={sites} loading={loading} t={t} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} />}
               {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} t={t} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} />}
+              {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
             </div>
           </div>
 
-          <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 640, background: t.navBg, borderTop: "1px solid " + t.navBorder, display: "flex", padding: "6px 0 10px", zIndex: 100, boxShadow: themeMode === "light" ? "0 -2px 10px rgba(0,0,0,0.06)" : "none" }}>
+          <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 960, background: t.navBg, borderTop: "1px solid " + t.navBorder, display: "flex", padding: "6px 0 10px", zIndex: 100, boxShadow: themeMode === "light" ? "0 -2px 10px rgba(0,0,0,0.06)" : "none" }}>
             {tabs.map(tab => {
               const active = activeTab === tab.id;
               const TabIco = tab.icon;
@@ -229,6 +232,7 @@ export default function OCSAStaffPortal() {
         select { color-scheme: ${themeMode}; }
         ::-webkit-scrollbar { width: 3px; }
         ::-webkit-scrollbar-thumb { background: ${t.scrollThumb}; border-radius: 2px; }
+        .sp-content > div { flex: 1; display: flex; flex-direction: column; }
       `}</style>
     </div>
   );
@@ -545,6 +549,188 @@ function EmptyState({ icon: Icon, text, t }) {
   return (<div style={{ padding: "60px 20px", textAlign: "center" }}><Icon sz={40} c={t.borderSolid} /><div style={{ fontSize: 15, color: t.textMut, marginTop: 16 }}>{text}</div></div>);
 }
 
+function PickupView({ token, user, showToast, t }) {
+  const [tab, setTab] = useState("available");
+  const [available, setAvailable] = useState([]);
+  const [myPickups, setMyPickups] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [claiming, setClaiming] = useState(null);
+
+  const fmtDate = (d) => { const s = String(d).slice(0, 10); return new Date(s + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); };
+  const fmtTm = (t) => { const [h, m] = String(t).split(":").map(Number); const ap = h >= 12 ? "PM" : "AM"; return ((h % 12) || 12) + ":" + String(m).padStart(2, "0") + " " + ap; };
+  const originLabel = { callout: "Callout", no_show: "No-Show", extra_coverage: "Extra Coverage", voluntary_drop: "Voluntary Drop", new_shift: "New Shift" };
+  const originColor = { callout: RED, no_show: RED, extra_coverage: ORANGE, voluntary_drop: BLUE, new_shift: GOLD };
+
+  const loadAvailable = async () => {
+    setLoading(true);
+    try {
+      const data = await api("/api/pickups/available", { token });
+      setAvailable(data);
+    } catch (err) { showToast(err.message, "error"); }
+    setLoading(false);
+  };
+
+  const loadMyPickups = async () => {
+    setLoading(true);
+    try {
+      const data = await api("/api/pickups/my-pickups", { token });
+      setMyPickups(data);
+    } catch (err) { showToast(err.message, "error"); }
+    setLoading(false);
+  };
+
+  useEffect(() => { loadAvailable(); loadMyPickups(); }, []);
+  useEffect(() => { if (tab === "available") loadAvailable(); else loadMyPickups(); }, [tab]);
+
+  const claimShift = async (id) => {
+    setClaiming(id);
+    try {
+      const result = await api("/api/pickups/" + id + "/claim", { method: "POST", token });
+      if (result.ot_warning) {
+        showToast("Shift claimed (overtime warning: " + Math.round(result.weekly_minutes / 60) + "h this week)", "error");
+      } else {
+        showToast("Shift claimed successfully!");
+      }
+      loadAvailable();
+      loadMyPickups();
+    } catch (err) { showToast(err.message, "error"); }
+    setClaiming(null);
+  };
+
+  const releaseShift = async (id) => {
+    try {
+      await api("/api/pickups/" + id + "/release", { method: "POST", token });
+      showToast("Shift released");
+      loadAvailable();
+      loadMyPickups();
+    } catch (err) { showToast(err.message, "error"); }
+  };
+
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 12 }}>Shift Pickup Board</div>
+
+      <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
+        {[{ id: "available", l: "Available", count: available.length }, { id: "mine", l: "My Pickups", count: myPickups.length }].map(tb => (
+          <button key={tb.id} onClick={() => setTab(tb.id)} style={{
+            flex: 1, padding: "10px 0", borderRadius: 8, border: "none",
+            background: tab === tb.id ? "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")" : t.cardAlt,
+            color: tab === tb.id ? "#0A1628" : t.textMut,
+            fontSize: 12, fontWeight: 700, cursor: "pointer"
+          }}>
+            {tb.l} {tb.count > 0 && <span style={{ marginLeft: 4, fontSize: 10, padding: "1px 5px", borderRadius: 8, background: tab === tb.id ? "rgba(0,0,0,0.15)" : GOLD + "30", color: tab === tb.id ? "#0A1628" : GOLD }}>{tb.count}</span>}
+          </button>
+        ))}
+      </div>
+
+      {loading && <div style={{ textAlign: "center", padding: 40, color: t.textMut }}>Loading...</div>}
+
+      {/* AVAILABLE SHIFTS */}
+      {!loading && tab === "available" && (
+        <div>
+          {available.length === 0 && (
+            <div style={{ textAlign: "center", padding: "40px 20px" }}>
+              <SwapIco sz={32} c={t.textMut} style={{ opacity: 0.3, marginBottom: 8 }} />
+              <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec }}>No open shifts right now</div>
+              <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>Check back later for available pickup shifts at your assigned sites.</div>
+            </div>
+          )}
+          {available.map(s => (
+            <div key={s.id} style={{ background: t.card, borderRadius: 12, padding: 14, marginBottom: 10, border: "1px solid " + (s.urgency === "urgent" ? RED + "40" : t.border) }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>{s.site_name}</span>
+                    {s.urgency === "urgent" && <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: RED + "18", color: RED }}>URGENT</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: t.textSec }}>{fmtDate(s.scheduled_date)}</div>
+                </div>
+                <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: (originColor[s.origin] || GOLD) + "18", color: originColor[s.origin] || GOLD }}>{originLabel[s.origin] || s.origin}</span>
+              </div>
+
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, padding: "8px 10px", borderRadius: 8, background: t.cardAlt }}>
+                <ClockIco sz={14} c={GOLD} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{fmtTm(s.start_time)} to {fmtTm(s.end_time)}</span>
+              </div>
+
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                {s.building_name && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: 4, background: t.cardAlt }}>Bldg: {s.building_name}</span>}
+                {s.floor_number && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: 4, background: t.cardAlt }}>Floor: {s.floor_number}</span>}
+                {s.service_category && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: 4, background: t.cardAlt }}>{s.service_category}</span>}
+              </div>
+
+              {s.notes && <div style={{ fontSize: 11, color: t.textSec, marginBottom: 10, fontStyle: "italic" }}>{s.notes}</div>}
+
+              <button
+                onClick={() => claimShift(s.id)}
+                disabled={claiming === s.id}
+                style={{
+                  width: "100%", padding: "12px", borderRadius: 10, border: "none",
+                  background: claiming === s.id ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")",
+                  color: claiming === s.id ? t.textMut : "#0A1628",
+                  fontSize: 14, fontWeight: 700, cursor: claiming === s.id ? "default" : "pointer"
+                }}
+              >
+                {claiming === s.id ? "Claiming..." : "Claim This Shift"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* MY PICKUPS */}
+      {!loading && tab === "mine" && (
+        <div>
+          {myPickups.length === 0 && (
+            <div style={{ textAlign: "center", padding: "40px 20px" }}>
+              <CheckIco sz={32} c={t.textMut} style={{ opacity: 0.3, marginBottom: 8 }} />
+              <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec }}>No claimed shifts</div>
+              <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>Shifts you claim will appear here.</div>
+            </div>
+          )}
+          {myPickups.map(s => {
+            const sColor = s.status === "approved" ? GREEN : s.status === "filled" ? GREEN : BLUE;
+            return (
+              <div key={s.id} style={{ background: t.card, borderRadius: 12, padding: 14, marginBottom: 10, border: "1px solid " + sColor + "30" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>{s.site_name}</div>
+                    <div style={{ fontSize: 12, color: t.textSec, marginTop: 2 }}>{fmtDate(s.scheduled_date)}</div>
+                  </div>
+                  <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: sColor + "18", color: sColor, textTransform: "uppercase" }}>{s.status}</span>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, padding: "8px 10px", borderRadius: 8, background: t.cardAlt }}>
+                  <ClockIco sz={14} c={sColor} />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{fmtTm(s.start_time)} to {fmtTm(s.end_time)}</span>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                  {s.building_name && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: 4, background: t.cardAlt }}>Bldg: {s.building_name}</span>}
+                  {s.floor_number && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: 4, background: t.cardAlt }}>Floor: {s.floor_number}</span>}
+                </div>
+
+                {s.status === "claimed" && (
+                  <div>
+                    <div style={{ padding: "6px 10px", borderRadius: 6, background: ORANGE + "12", border: "1px solid " + ORANGE + "30", fontSize: 10, color: ORANGE, marginBottom: 8 }}>Waiting for manager approval</div>
+                    <button onClick={() => releaseShift(s.id)} style={{ width: "100%", padding: "10px", borderRadius: 8, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Release Shift</button>
+                  </div>
+                )}
+                {s.status === "approved" && (
+                  <div style={{ padding: "8px 12px", borderRadius: 8, background: GREEN + "12", border: "1px solid " + GREEN + "30" }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: GREEN }}>Approved. You are scheduled for this shift.</div>
+                    <div style={{ fontSize: 10, color: t.textMut, marginTop: 2 }}>Clock in at the normal time and your daily tasks will load automatically.</div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function InspectView({ token, user, showToast, t }) {
   const CIMS_C = { SD: "#3498DB", HSE: "#F39C12", GB: "#2ECC71", QS: "#C8A84E", HR: "#9B59B6", MC: "#2C3E50" };
   const STATUS_C = { scheduled: "#3498DB", in_progress: "#F39C12", completed: "#2ECC71" };
@@ -772,7 +958,7 @@ function InspectView({ token, user, showToast, t }) {
 
       {scheduleModal && (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 500, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={() => setScheduleModal(false)}>
-          <div style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 640, padding: "24px 20px 40px", maxHeight: "85vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "24px 20px 40px", maxHeight: "85vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Schedule Inspection</div>
               <button onClick={() => setScheduleModal(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: t.textMut, lineHeight: 1 }}>x</button>
