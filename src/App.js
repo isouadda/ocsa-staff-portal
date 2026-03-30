@@ -393,7 +393,7 @@ function MyScheduleSection({ token, t, compact }) {
 
       {/* WEEK VIEW */}
       {!loading && view === "week" && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, flex: compact ? undefined : 1 }}>
           {weekDays.map((ds, i) => {
             const sched = getSchedForDay(ds);
             const actual = getActualForDay(ds);
@@ -402,7 +402,7 @@ function MyScheduleSection({ token, t, compact }) {
             const dt = new Date(ds + "T00:00:00");
             const hasAny = sched.length > 0 || actual.length > 0 || pickups.length > 0;
             return (
-              <div key={ds} style={{ background: today ? GOLD + "12" : t.card, border: "1px solid " + (today ? GOLD + "40" : t.borderSolid), borderRadius: 8, padding: 6, minHeight: 80 }}>
+              <div key={ds} style={{ background: today ? GOLD + "12" : t.card, border: "1px solid " + (today ? GOLD + "40" : t.borderSolid), borderRadius: 8, padding: 6, minHeight: compact ? 80 : 120, flex: compact ? undefined : 1 }}>
                 <div style={{ textAlign: "center", marginBottom: 4 }}>
                   <div style={{ fontSize: 9, fontWeight: 600, color: today ? GOLD : t.textMut, textTransform: "uppercase" }}>{dayNames[i]}</div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: today ? GOLD : t.text }}>{dt.getDate()}</div>
@@ -421,7 +421,7 @@ function MyScheduleSection({ token, t, compact }) {
                   const pc = p.status === "approved" ? GREEN : BLUE;
                   return (
                     <div key={p.id} onClick={() => setDetail({ type: "pickup", ...p })} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: pc + "15", color: pc, border: "1px solid " + pc + "30", cursor: "pointer" }}>
-                      {fmtTm(p.start_time)} <span style={{ fontSize: 7, textTransform: "uppercase" }}>{p.status === "approved" ? "pickup" : "pending"}</span>
+                      {fmtTm(p.start_time)} <span style={{ fontSize: 7, textTransform: "uppercase" }}>{p.status === "approved" ? "approved" : "claimed"}</span>
                       {p.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{p.site_name}</div>}
                     </div>
                   );
@@ -446,13 +446,12 @@ function MyScheduleSection({ token, t, compact }) {
           cells.push(toISO(d));
         }
         const monthName = firstDay.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-        return (
-          <div>
+          <div style={{ display: "flex", flexDirection: "column", flex: compact ? undefined : 1 }}>
             <div style={{ textAlign: "center", fontSize: 13, fontWeight: 700, color: t.text, marginBottom: 8 }}>{monthName}</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 4 }}>
               {dayNames.map(d => <div key={d} style={{ textAlign: "center", fontSize: 9, fontWeight: 700, color: t.textMut, padding: "4px 0" }}>{d}</div>)}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, flex: compact ? undefined : 1 }}>
               {cells.map(ds => {
                 const dt = new Date(ds + "T00:00:00");
                 const inMonth = dt.getMonth() === month;
@@ -461,7 +460,7 @@ function MyScheduleSection({ token, t, compact }) {
                 const actual = getActualForDay(ds);
                 const pickups = getPickupsForDay(ds);
                 return (
-                  <div key={ds} onClick={() => { const day = dt.getDay(); const diff = day === 0 ? 6 : day - 1; const mon = new Date(dt); mon.setDate(dt.getDate() - diff); setWeekStart(mon); setView("week"); }} style={{ padding: 4, minHeight: 40, background: today ? GOLD + "12" : inMonth ? t.card : t.hover, borderRadius: 4, border: "1px solid " + (today ? GOLD + "40" : t.borderSolid), opacity: inMonth ? 1 : 0.3, cursor: "pointer", textAlign: "center" }}>
+                  <div key={ds} onClick={() => { const day = dt.getDay(); const diff = day === 0 ? 6 : day - 1; const mon = new Date(dt); mon.setDate(dt.getDate() - diff); setWeekStart(mon); setView("week"); }} style={{ padding: 4, minHeight: compact ? 40 : 60, background: today ? GOLD + "12" : inMonth ? t.card : t.hover, borderRadius: 4, border: "1px solid " + (today ? GOLD + "40" : t.borderSolid), opacity: inMonth ? 1 : 0.3, cursor: "pointer", textAlign: "center" }}>
                     <div style={{ fontSize: 11, fontWeight: today ? 700 : 500, color: today ? GOLD : t.text }}>{dt.getDate()}</div>
                     <div style={{ display: "flex", justifyContent: "center", gap: 2, marginTop: 2, flexWrap: "wrap" }}>
                       {sched.length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: GOLD }} />}
