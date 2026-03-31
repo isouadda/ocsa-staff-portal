@@ -917,6 +917,7 @@ function PickupView({ token, user, showToast, t }) {
   };
 
   const releaseShift = async (id) => {
+    if (!window.confirm("Release this shift? It will go back to the open pool for someone else to claim.")) return;
     try {
       await api("/api/pickups/" + id + "/release", { method: "POST", token });
       showToast("Shift released");
