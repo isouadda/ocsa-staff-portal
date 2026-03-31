@@ -1,16 +1,30 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 const API = process.env.REACT_APP_API_URL || "https://ocsa-api-production.up.railway.app";
-const SUPA_URL = "https://gcgswxyxkbummtgzgusk.supabase.co";
-const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdjZ3N3eHl4a2J1bW10Z3pndXNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NjY0NTcsImV4cCI6MjA5MDA0MjQ1N30.Vbe7ueRmQ6MPZX2sqa0XHIlJD22_J7sDJ65OoQ50LaM";
 
-async function uploadPhoto(file) {
-  const fileName = "issue-" + Date.now() + "-" + Math.random().toString(36).substring(2, 8) + "." + file.name.split(".").pop();
-  const res = await fetch(SUPA_URL + "/storage/v1/object/issue-photos/" + fileName, {
-    method: "POST", headers: { "Authorization": "Bearer " + SUPA_KEY, "apikey": SUPA_KEY, "Content-Type": file.type }, body: file,
+async function uploadPhoto(file, token) {
+  const ext = file.name.split(".").pop().toLowerCase();
+  const res = await fetch(API + "/api/uploads?bucket=issue-photos&ext=" + encodeURIComponent(ext), {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + token, "Content-Type": file.type },
+    body: file,
   });
-  if (!res.ok) throw new Error("Photo upload failed");
-  return SUPA_URL + "/storage/v1/object/public/issue-photos/" + fileName;
+  if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Photo upload failed"); }
+  const data = await res.json();
+  return data.url;
+}
+
+async function uploadTaskMedia(file, token) {
+  const ext = file.name.split(".").pop().toLowerCase();
+  const res = await fetch(API + "/api/uploads?bucket=task-media&ext=" + encodeURIComponent(ext), {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + token, "Content-Type": file.type },
+    body: file,
+  });
+  if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Upload failed"); }
+  return res.json();
 }
 
 const GOLD = "#C8A84E", GOLD_LIGHT = "#E8D08E", GREEN = "#2ECC71", RED = "#E74C3C", ORANGE = "#F39C12", BLUE = "#3498DB";
@@ -40,6 +54,7 @@ async function api(path, opts = {}) {
   const headers = { "Content-Type": "application/json", ...opts.headers };
   if (opts.token) headers["Authorization"] = "Bearer " + opts.token;
   const res = await fetch(API + path, { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
   if (!res.ok) { const err = await res.json().catch(() => ({ error: "Request failed" })); throw new Error(err.error || "Request failed"); }
   return res.json();
 }
@@ -99,6 +114,7 @@ export default function OCSAStaffPortal() {
   const toggleTheme = () => { const next = themeMode === "dark" ? "light" : "dark"; setThemeMode(next); try { localStorage.setItem("ocsa-staff-theme", next); } catch {} };
 
   useEffect(() => { const i = setInterval(() => setCurrentTime(now()), 1000); return () => clearInterval(i); }, []);
+  useEffect(() => { const h = () => { setToken(null); setUser(null); setScreen("login"); }; window.addEventListener("ocsa-session-expired", h); return () => window.removeEventListener("ocsa-session-expired", h); }, []);
   const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
   const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); } catch (err) { console.error(err); } }, [token]);
 
@@ -153,6 +169,7 @@ export default function OCSAStaffPortal() {
 
   useEffect(() => { if (activeTab === "tasks" && clockStatus?.clockedIn) loadTasks(); if (activeTab === "issues") loadIssues(); if (activeTab === "issuetasks") loadAssignedTasks(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn]);
   useEffect(() => { if (activeChannel) { loadMessages(activeChannel); setTimeout(() => loadChannels(), 600); } }, [activeChannel]);
+  useEffect(() => { if (activeTab !== "chat" || !activeChannel) return; const iv = setInterval(() => loadMessages(activeChannel), 12000); return () => clearInterval(iv); }, [activeTab, activeChannel]);
 
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
   const assignedCount = assignedTasks.length;
@@ -195,12 +212,12 @@ export default function OCSAStaffPortal() {
 
           <div style={{ padding: "0 0 80px 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
-              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} setSelectedSite={setSelectedSite} onClockIn={handleClockIn} onClockOut={handleClockOut} sites={sites} loading={loading} t={t} /><MyScheduleSection token={token} t={t} compact /></div>}
-              {activeTab === "schedule" && <MyScheduleSection token={token} t={t} />}
+              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} setSelectedSite={setSelectedSite} onClockIn={handleClockIn} onClockOut={handleClockOut} sites={sites} loading={loading} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} /></div>}
+              {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} t={t} />}
-              {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} />}
-              {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} t={t} />}
-              {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} />}
+              {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} />}
+              {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} t={t} token={token} />}
+              {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
@@ -301,7 +318,7 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
   );
 }
 
-function MyScheduleSection({ token, t, compact }) {
+function MyScheduleSection({ token, t, compact, showToast }) {
   const [view, setView] = useState("week");
   const [data, setData] = useState({ scheduled: [], actual: [], pickups: [] });
   const [detail, setDetail] = useState(null);
@@ -344,8 +361,8 @@ function MyScheduleSection({ token, t, compact }) {
 
   useEffect(() => { loadSchedule(); }, [weekStart, view]);
 
-  const prevWeek = () => { const n = new Date(weekStart); n.setDate(n.getDate() - 7); setWeekStart(n); };
-  const nextWeek = () => { const n = new Date(weekStart); n.setDate(n.getDate() + 7); setWeekStart(n); };
+  const prevWeek = () => { if (view === "month") { const n = new Date(weekStart.getFullYear(), weekStart.getMonth() - 1, 1); setWeekStart(n); } else { const n = new Date(weekStart); n.setDate(n.getDate() - 7); setWeekStart(n); } };
+  const nextWeek = () => { if (view === "month") { const n = new Date(weekStart.getFullYear(), weekStart.getMonth() + 1, 1); setWeekStart(n); } else { const n = new Date(weekStart); n.setDate(n.getDate() + 7); setWeekStart(n); } };
   const goToday = () => {
     const now = new Date();
     const day = now.getDay();
@@ -360,7 +377,10 @@ function MyScheduleSection({ token, t, compact }) {
     const d = typeof s.scheduled_date === "string" ? s.scheduled_date.slice(0, 10) : s.scheduled_date?.toISOString?.()?.split("T")?.[0];
     return d === ds;
   });
-  const getActualForDay = (ds) => data.actual.filter(s => s.clock_in_time?.slice?.(0, 10) === ds);
+  const getActualForDay = (ds) => data.actual.filter(s => {
+    const d = typeof s.clock_in_time === "string" ? s.clock_in_time.slice(0, 10) : s.clock_in_time?.toISOString?.()?.split("T")?.[0];
+    return d === ds;
+  });
   const getPickupsForDay = (ds) => data.pickups.filter(s => {
     const d = typeof s.scheduled_date === "string" ? s.scheduled_date.slice(0, 10) : s.scheduled_date?.toISOString?.()?.split("T")?.[0];
     return d === ds;
@@ -583,7 +603,7 @@ function MyScheduleSection({ token, t, compact }) {
                       await api("/api/pickups/request-drop", { method: "POST", body: { scheduled_shift_id: detail.id, reason: detail.dropForm.reason, notes: detail.dropForm.notes || detail.dropForm.reason }, token });
                       setDetail(null);
                       loadSchedule();
-                    } catch (e) { console.error(e); }
+                    } catch (e) { showToast(e.message || "Drop request failed", "error"); }
                   }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Submit Request</button>
                 </div>
               </div>
@@ -697,7 +717,7 @@ function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask, t }) {
   );
 }
 
-function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMessage, user, t }) {
+function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMessage, user, t, token }) {
   const [text, setText] = useState(""); const endRef = useRef(null);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length]);
   const siteChannels = channels.filter(c => c.type === "site" || c.type === "general");
@@ -725,7 +745,7 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
   );
 }
 
-function AssignedTasksView({ assignedTasks, resolveTask, showToast, t }) {
+function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token }) {
   const [detail, setDetail] = useState(null); const [activePanel, setActivePanel] = useState(null);
   const [note, setNote] = useState(""); const [photo, setPhoto] = useState(null); const [photoPreview, setPhotoPreview] = useState(null); const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
@@ -733,7 +753,7 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast, t }) {
   const inputSt = mkInput(t);
   const handlePhoto = (e) => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { showToast("Photo must be under 10MB", "error"); return; } setPhoto(file); const reader = new FileReader(); reader.onload = (ev) => setPhotoPreview(ev.target.result); reader.readAsDataURL(file); };
   const clearForm = () => { setActivePanel(null); setNote(""); setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; };
-  const handleResolve = async (taskId) => { if (!note.trim()) { showToast("Describe what you did to complete this task", "error"); return; } if (!photo) { showToast("A photo of the completed task is required", "error"); return; } setUploading(true); try { const photoUrl = await uploadPhoto(photo); await resolveTask(taskId, "resolved", note.trim(), photoUrl); clearForm(); setDetail(null); } catch (err) { showToast(err.message, "error"); } setUploading(false); };
+  const handleResolve = async (taskId) => { if (!note.trim()) { showToast("Describe what you did to complete this task", "error"); return; } if (!photo) { showToast("A photo of the completed task is required", "error"); return; } setUploading(true); try { const photoUrl = await uploadPhoto(photo, token); await resolveTask(taskId, "resolved", note.trim(), photoUrl); clearForm(); setDetail(null); } catch (err) { showToast(err.message, "error"); } setUploading(false); };
   const handleCantResolve = async (taskId) => { if (!note.trim()) { showToast("Please provide a reason", "error"); return; } await resolveTask(taskId, "unable_to_resolve", note.trim(), null); clearForm(); setDetail(null); };
   const getTaskInfo = (task) => { const isIssueLinked = !!task.source_issue_id; const title = isIssueLinked ? (task.issue_title || task.label) : task.label; const desc = isIssueLinked ? task.issue_description : task.description; const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD); const photoUrl = isIssueLinked ? task.issue_photo_url : (task.media_url || null); const mediaType = isIssueLinked ? "image" : (task.media_type || "image"); const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name; const assignedByLabel = isIssueLinked ? "Reported by" : "Assigned by"; const locationParts = [task.site_name]; if (task.building_name) locationParts.push(task.building_name); if (task.floor_number) locationParts.push("Floor " + task.floor_number); locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || "General"); const locationStr = locationParts.filter(Boolean).join(" > "); return { isIssueLinked, title, desc, borderColor, photoUrl, mediaType, assignedBy, assignedByLabel, locationStr }; };
 
@@ -780,7 +800,7 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast, t }) {
   );
 }
 
-function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites, t }) {
+function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites, t, token }) {
   const [showForm, setShowForm] = useState(false); const [title, setTitle] = useState(""); const [desc, setDesc] = useState("");
   const [sev, setSev] = useState("medium"); const [zone, setZone] = useState(""); const [selSite, setSelSite] = useState("");
   const [photo, setPhoto] = useState(null); const [photoPreview, setPhotoPreview] = useState(null); const [uploading, setUploading] = useState(false);
@@ -791,7 +811,7 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites, 
   const visibleIssues = isAdmin ? issues : issues.filter(i => i.reported_by === user?.id);
   const handlePhoto = (e) => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { showToast("Photo must be under 10MB", "error"); return; } setPhoto(file); const reader = new FileReader(); reader.onload = (ev) => setPhotoPreview(ev.target.result); reader.readAsDataURL(file); };
   const removePhoto = () => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; };
-  const handleSubmit = async () => { if (!title.trim()) { showToast("Enter issue title", "error"); return; } const siteId = clockStatus?.clockedIn ? clockStatus.shift.siteId : selSite; if (!siteId) { showToast("Select a site", "error"); return; } setUploading(true); try { let photoUrl = null; if (photo) { photoUrl = await uploadPhoto(photo); } await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl, siteId); setTitle(""); setDesc(""); setZone(""); setSev("medium"); setPhoto(null); setPhotoPreview(null); setShowForm(false); } catch (err) { showToast(err.message, "error"); } setUploading(false); };
+  const handleSubmit = async () => { if (!title.trim()) { showToast("Enter issue title", "error"); return; } const siteId = clockStatus?.clockedIn ? clockStatus.shift.siteId : selSite; if (!siteId) { showToast("Select a site", "error"); return; } setUploading(true); try { let photoUrl = null; if (photo) { photoUrl = await uploadPhoto(photo, token); } await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl, siteId); setTitle(""); setDesc(""); setZone(""); setSev("medium"); setPhoto(null); setPhotoPreview(null); setShowForm(false); } catch (err) { showToast(err.message, "error"); } setUploading(false); };
   return (
     <div style={{ padding: "16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>{isAdmin ? "Issues" : "Report an Issue"}</div>{isAdmin && <button onClick={() => setShowForm(!showForm)} style={{ padding: "7px 12px", borderRadius: 8, border: "none", background: showForm ? t.cardAlt : GOLD, color: showForm ? t.text : "#0A1628", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{showForm ? "Cancel" : "+ Report"}</button>}</div>
@@ -1103,18 +1123,11 @@ function InspectView({ token, user, showToast, t }) {
     } catch (e) { showToast(e.message, "error"); }
   };
 
-  const uploadPhoto = async (itemId, file) => {
+  const handlePhotoUpload = async (itemId, file) => {
     setUploadingId(itemId);
     try {
-      const ext = file.name.split(".").pop().toLowerCase();
-      const fileName = "inspect-" + Date.now() + "-" + Math.random().toString(36).substring(2, 8) + "." + ext;
-      const res = await fetch(
-        "https://gcgswxyxkbummtgzgusk.supabase.co/storage/v1/object/task-media/" + fileName,
-        { method: "POST", headers: { "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdjZ3N3eHl4a2J1bW10Z3pndXNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NjY0NTcsImV4cCI6MjA5MDA0MjQ1N30.Vbe7ueRmQ6MPZX2sqa0XHIlJD22_J7sDJ65OoQ50LaM", "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdjZ3N3eHl4a2J1bW10Z3pndXNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NjY0NTcsImV4cCI6MjA5MDA0MjQ1N30.Vbe7ueRmQ6MPZX2sqa0XHIlJD22_J7sDJ65OoQ50LaM", "Content-Type": file.type }, body: file }
-      );
-      if (!res.ok) throw new Error("Upload failed");
-      const url = "https://gcgswxyxkbummtgzgusk.supabase.co/storage/v1/object/public/task-media/" + fileName;
-      setUploaded(prev => ({ ...prev, [itemId]: url }));
+      const result = await uploadTaskMedia(file, token);
+      setUploaded(prev => ({ ...prev, [itemId]: result.url }));
       showToast("Photo attached");
     } catch (e) { showToast(e.message, "error"); }
     setUploadingId(null);
@@ -1192,7 +1205,7 @@ function InspectView({ token, user, showToast, t }) {
                 <input value={notes[item.id] || ""} onChange={e => setNotes(prev => ({ ...prev, [item.id]: e.target.value }))} placeholder="Notes for this item (optional)" style={{ ...inputSt, fontSize: 12, marginBottom: 8 }} />
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <label style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 6, border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", fontSize: 11, color: t.textSec }}>
-                    <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files[0] && uploadPhoto(item.id, e.target.files[0])} />
+                    <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files[0] && handlePhotoUpload(item.id, e.target.files[0])} />
                     {uploadingId === item.id ? "Uploading..." : "Attach Photo"}
                   </label>
                   {uploaded[item.id] && <span style={{ fontSize: 10, color: GREEN, fontWeight: 600 }}>Photo attached</span>}
