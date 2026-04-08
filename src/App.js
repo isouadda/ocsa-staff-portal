@@ -1371,14 +1371,21 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
 
   const handlePhotoUpload = async (file) => {
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { showToast("Photo must be under 5MB", "error"); return; }
+    if (file.size > 10 * 1024 * 1024) { showToast("Photo must be under 10MB", "error"); return; }
     setUploading(true);
     try {
-      const ext = file.name.split(".").pop().toLowerCase();
-      const res = await fetch((process.env.REACT_APP_API_URL || "https://ocsa-api-production.up.railway.app") + "/api/uploads?bucket=profile-photos&ext=" + encodeURIComponent(ext), {
-        method: "POST", headers: { "Authorization": "Bearer " + token, "Content-Type": file.type }, body: file
+      // Normalize extension for mobile camera photos (HEIC, etc.)
+      let ext = "jpg";
+      if (file.name && file.name.includes(".")) {
+        const rawExt = file.name.split(".").pop().toLowerCase();
+        if (["jpg", "jpeg", "png", "gif", "webp"].includes(rawExt)) ext = rawExt;
+      }
+      const contentType = file.type || "image/jpeg";
+      const res = await fetch(API + "/api/uploads?bucket=profile-photos&ext=" + encodeURIComponent(ext), {
+        method: "POST", headers: { "Authorization": "Bearer " + token, "Content-Type": contentType }, body: file
       });
-      if (!res.ok) throw new Error("Upload failed");
+      if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Upload failed"); }
       const r = await res.json();
       await api("/api/users/profile/photo", { method: "POST", body: { photoUrl: r.url }, token });
       showToast("Photo updated");
