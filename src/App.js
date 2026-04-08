@@ -130,6 +130,7 @@ export default function OCSAStaffPortal() {
       setToken(data.token);
       const me = await api("/api/auth/me", { token: data.token });
       setUser(me.user); setSites(me.sites);
+      api("/api/users/profile/me", { token: data.token }).then(p => { if (p?.user?.profilePhotoUrl) setUser(prev => ({ ...prev, profilePhotoUrl: p.user.profilePhotoUrl })); }).catch(() => {});
       const cs = await api("/api/clock/status", { token: data.token });
       setClockStatus(cs);
       if (cs.clockedIn) setSelectedSite(cs.shift.siteId);
@@ -201,8 +202,8 @@ export default function OCSAStaffPortal() {
         <>
           <div style={{ background: "linear-gradient(135deg, " + t.headerBg + " 0%, " + t.headerBg2 + " 100%)", padding: "14px 16px 10px", borderBottom: "1px solid " + (themeMode === "dark" ? t.borderSolid : "rgba(255,255,255,0.08)") }}>
             <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(200,168,78,0.12)", border: "1.5px solid " + GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: GOLD }}>{user?.firstName?.[0]}{user?.lastName?.[0]}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => setActiveTab("profile")}>
+                {user?.profilePhotoUrl ? <img src={user.profilePhotoUrl} alt="" style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover", border: "1.5px solid " + GOLD }} /> : <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(200,168,78,0.12)", border: "1.5px solid " + GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: GOLD }}>{user?.firstName?.[0]}{user?.lastName?.[0]}</div>}
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 600, color: "#F8F7F4" }}>{user?.firstName} {user?.lastName}</div>
                   <div style={{ fontSize: 10, color: GOLD }}>{user?.role?.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
@@ -227,6 +228,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
+              {activeTab === "profile" && <MyProfileView token={token} user={user} showToast={showToast} t={t} setUser={setUser} setActiveTab={setActiveTab} />}
             </div>
           </div>
 
@@ -1310,6 +1312,151 @@ function InspectView({ token, user, showToast, t }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
+  const [profile, setProfile] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({});
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const loadProfile = async () => {
+    try {
+      const d = await api("/api/users/profile/me", { token });
+      setProfile(d);
+    } catch (e) { showToast(e.message, "error"); }
+  };
+  useEffect(() => { loadProfile(); }, []);
+
+  const fmtDate = d => { if (!d) return "Not set"; const dt = typeof d === "string" ? d.split("T")[0] : new Date(d).toISOString().split("T")[0]; const [y, m, dy] = dt.split("-"); const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]; return months[parseInt(m) - 1] + " " + parseInt(dy) + ", " + y; };
+
+  const handlePhotoUpload = async (file) => {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { showToast("Photo must be under 5MB", "error"); return; }
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop().toLowerCase();
+      const res = await fetch((process.env.REACT_APP_API_URL || "https://ocsa-api-production.up.railway.app") + "/api/uploads?bucket=profile-photos&ext=" + encodeURIComponent(ext), {
+        method: "POST", headers: { "Authorization": "Bearer " + token, "Content-Type": file.type }, body: file
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      const r = await res.json();
+      await api("/api/users/profile/photo", { method: "POST", body: { photoUrl: r.url }, token });
+      showToast("Photo updated");
+      setUser(prev => ({ ...prev, profilePhotoUrl: r.url }));
+      loadProfile();
+    } catch (e) { showToast(e.message, "error"); }
+    setUploading(false);
+  };
+
+  const startEditing = () => {
+    if (!profile) return;
+    const u = profile.user;
+    setForm({
+      birthday: u.birthday ? (typeof u.birthday === "string" ? u.birthday.split("T")[0] : "") : "",
+      addressLine1: u.addressLine1 || "", addressLine2: u.addressLine2 || "",
+      city: u.city || "", state: u.state || "", zipCode: u.zipCode || "",
+      emergencyContactName: u.emergencyContactName || "", emergencyContactPhone: u.emergencyContactPhone || "",
+      preferredLanguage: u.preferredLanguage || "English", personalNotes: u.personalNotes || ""
+    });
+    setEditing(true);
+  };
+
+  const saveProfile = async () => {
+    setSaving(true);
+    try {
+      await api("/api/users/profile/me", { method: "PATCH", body: form, token });
+      showToast("Profile updated");
+      setEditing(false);
+      loadProfile();
+    } catch (e) { showToast(e.message, "error"); }
+    setSaving(false);
+  };
+
+  if (!profile) return <div style={{ padding: 20, textAlign: "center", color: t.textMut }}>Loading profile...</div>;
+
+  const u = profile.user;
+  const cardSt = { background: t.card, border: "1px solid " + t.border, borderRadius: 12, padding: 16, marginBottom: 12 };
+  const labelSt = { fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, display: "block", marginBottom: 5 };
+  const inputSt = { width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid " + t.inputBorder, background: t.inputBg, color: t.text, fontSize: 13, outline: "none", fontFamily: "'DM Sans',sans-serif" };
+  const valSt = { color: t.text, fontWeight: 500, marginTop: 2, fontSize: 13 };
+
+  return (
+    <div style={{ padding: "16px" }}>
+      <button onClick={() => setActiveTab("clock")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 0", background: "none", border: "none", color: GOLD, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 12 }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={GOLD} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg> Back
+      </button>
+
+      {/* Photo and Name Header */}
+      <div style={{ ...cardSt, display: "flex", alignItems: "center", gap: 16 }}>
+        <div style={{ position: "relative" }}>
+          {u.profilePhotoUrl
+            ? <img src={u.profilePhotoUrl} alt="" style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover", border: "2px solid " + GOLD }} />
+            : <div style={{ width: 72, height: 72, borderRadius: "50%", background: "rgba(200,168,78,0.12)", border: "2px solid " + GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 700, color: GOLD }}>{u.firstName?.[0]}{u.lastName?.[0]}</div>
+          }
+          <label style={{ position: "absolute", bottom: -2, right: -2, width: 26, height: 26, borderRadius: "50%", background: GOLD, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: "2px solid " + t.card }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0A1628" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoUpload(f); }} />
+          </label>
+          {uploading && <div style={{ position: "absolute", top: 0, left: 0, width: 72, height: 72, borderRadius: "50%", background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#F8F7F4" }}>...</div>}
+        </div>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: t.text }}>{u.firstName} {u.lastName}</div>
+          <div style={{ fontSize: 12, color: GOLD, marginTop: 2 }}>{u.role?.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
+          <div style={{ fontSize: 10, color: t.textMut, marginTop: 4 }}>{u.phone} | {u.email}</div>
+        </div>
+      </div>
+
+      {/* Personal Info */}
+      <div style={cardSt}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={labelSt}>Personal Information</div>
+          {!editing && <button onClick={startEditing} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid " + GOLD, background: "transparent", color: GOLD, fontSize: 10, cursor: "pointer", fontWeight: 600 }}>Edit</button>}
+        </div>
+        {!editing ? <div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ fontSize: 11, color: t.textMut }}>Birthday<div style={valSt}>{u.birthday ? fmtDate(u.birthday) : "Not set"}</div></div>
+            <div style={{ fontSize: 11, color: t.textMut }}>Language<div style={valSt}>{u.preferredLanguage || "English"}</div></div>
+          </div>
+          <div style={{ marginTop: 12, fontSize: 11, color: t.textMut }}>Address<div style={valSt}>{u.addressLine1 ? (u.addressLine1 + (u.addressLine2 ? ", " + u.addressLine2 : "") + (u.city ? ", " + u.city : "") + (u.state ? ", " + u.state : "") + (u.zipCode ? " " + u.zipCode : "")) : "Not set"}</div></div>
+          <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ fontSize: 11, color: t.textMut }}>Emergency Contact<div style={valSt}>{u.emergencyContactName || "Not set"}</div></div>
+            <div style={{ fontSize: 11, color: t.textMut }}>Emergency Phone<div style={valSt}>{u.emergencyContactPhone || "Not set"}</div></div>
+          </div>
+        </div> : <div>
+          <div style={{ marginBottom: 10 }}><label style={labelSt}>Birthday</label><input type="date" value={form.birthday || ""} onChange={e => setForm({ ...form, birthday: e.target.value })} style={inputSt} /></div>
+          <div style={{ marginBottom: 10 }}><label style={labelSt}>Address Line 1</label><input value={form.addressLine1 || ""} onChange={e => setForm({ ...form, addressLine1: e.target.value })} style={inputSt} placeholder="Street address" /></div>
+          <div style={{ marginBottom: 10 }}><label style={labelSt}>Address Line 2</label><input value={form.addressLine2 || ""} onChange={e => setForm({ ...form, addressLine2: e.target.value })} style={inputSt} placeholder="Apt, suite, etc." /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
+            <div><label style={labelSt}>City</label><input value={form.city || ""} onChange={e => setForm({ ...form, city: e.target.value })} style={inputSt} /></div>
+            <div><label style={labelSt}>State</label><input value={form.state || ""} onChange={e => setForm({ ...form, state: e.target.value })} style={inputSt} /></div>
+            <div><label style={labelSt}>Zip</label><input value={form.zipCode || ""} onChange={e => setForm({ ...form, zipCode: e.target.value })} style={inputSt} /></div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+            <div><label style={labelSt}>Emergency Contact</label><input value={form.emergencyContactName || ""} onChange={e => setForm({ ...form, emergencyContactName: e.target.value })} style={inputSt} placeholder="Full name" /></div>
+            <div><label style={labelSt}>Emergency Phone</label><input value={form.emergencyContactPhone || ""} onChange={e => setForm({ ...form, emergencyContactPhone: e.target.value })} style={inputSt} placeholder="Phone number" /></div>
+          </div>
+          <div style={{ marginBottom: 10 }}><label style={labelSt}>Preferred Language</label><input value={form.preferredLanguage || ""} onChange={e => setForm({ ...form, preferredLanguage: e.target.value })} style={inputSt} /></div>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 14 }}>
+            <button onClick={() => setEditing(false)} style={{ padding: "10px 18px", borderRadius: 8, border: "none", background: t.btnGhost || t.card, color: t.text, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Cancel</button>
+            <button onClick={saveProfile} disabled={saving} style={{ padding: "10px 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: "#0A1628", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "Saving..." : "Save"}</button>
+          </div>
+        </div>}
+      </div>
+
+      {/* Assignments */}
+      {profile.assignments?.length > 0 && <div style={cardSt}>
+        <div style={{ ...labelSt, marginBottom: 10 }}>Site Assignments</div>
+        {profile.assignments.map((a, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", background: t.hover, borderRadius: 6, marginBottom: 4 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>{a.site_name}</div>
+            <div style={{ fontSize: 10, color: t.textMut, marginTop: 2 }}>{a.role_at_site || "Staff"} | {a.shift_name || "No shift"}{a.shift_start ? " | " + a.shift_start + " - " + a.shift_end : ""}</div>
+          </div>
+        </div>)}
+      </div>}
     </div>
   );
 }
