@@ -180,17 +180,23 @@ export default function OCSAStaffPortal() {
 
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
   const assignedCount = assignedTasks.length;
-  const tabs = [
+  const [showMore, setShowMore] = useState(false);
+  const primaryTabs = [
     { id: "clock", label: "Home", icon: HomeIco },
     { id: "schedule", label: "Schedule", icon: CalIco },
     { id: "tasks", label: "Tasks", icon: CheckIco },
-    { id: "issuetasks", label: "Assigned Tasks", icon: WrkIco, badge: assignedCount },
     { id: "chat", label: "Chat", icon: ChatIco },
+  ];
+  const moreTabs = [
+    { id: "issuetasks", label: "Assigned", icon: WrkIco, badge: assignedCount },
     { id: "issues", label: isAdmin ? "Issues" : "Report", icon: AlertIco },
     { id: "supplies", label: "Supplies", icon: BoxIco },
     { id: "pickup", label: "Pickup", icon: SwapIco },
     { id: "inspect", label: "Inspect", icon: ClipIco },
   ];
+  const moreTabIds = moreTabs.map(t => t.id);
+  const isMoreActive = moreTabIds.includes(activeTab);
+  const totalBadge = assignedCount;
 
   return (
     <div style={{ width: "100%", minHeight: "100vh", background: t.bg, fontFamily: "'DM Sans','Segoe UI',sans-serif", color: t.text, position: "relative", display: "flex", flexDirection: "column" }}>
@@ -202,11 +208,13 @@ export default function OCSAStaffPortal() {
         <>
           <div style={{ background: "linear-gradient(135deg, " + t.headerBg + " 0%, " + t.headerBg2 + " 100%)", padding: "14px 16px 10px", borderBottom: "1px solid " + (themeMode === "dark" ? t.borderSolid : "rgba(255,255,255,0.08)") }}>
             <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => setActiveTab("profile")}>
-                {user?.profilePhotoUrl ? <img src={user.profilePhotoUrl} alt="" style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover", border: "1.5px solid " + GOLD }} /> : <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(200,168,78,0.12)", border: "1.5px solid " + GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: GOLD }}>{user?.firstName?.[0]}{user?.lastName?.[0]}</div>}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button onClick={() => setActiveTab("profile")} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", minWidth: 44, minHeight: 44 }}>
+                  {user?.profilePhotoUrl ? <img src={user.profilePhotoUrl} alt="" style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", border: "2px solid " + GOLD }} /> : <div style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(200,168,78,0.15)", border: "2px solid " + GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: GOLD }}>{user?.firstName?.[0]}{user?.lastName?.[0]}</div>}
+                </button>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 600, color: "#F8F7F4" }}>{user?.firstName} {user?.lastName}</div>
-                  <div style={{ fontSize: 10, color: GOLD }}>{user?.role?.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
+                  <div style={{ fontSize: 10, color: GOLD, letterSpacing: "0.5px" }}>{user?.role?.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -217,7 +225,7 @@ export default function OCSAStaffPortal() {
             </div>
           </div>
 
-          <div style={{ padding: "0 0 80px 0", flex: 1, display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "0 0 76px 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
               {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} setSelectedSite={setSelectedSite} onClockIn={handleClockIn} onClockOut={handleClockOut} sites={sites} loading={loading} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
@@ -232,21 +240,44 @@ export default function OCSAStaffPortal() {
             </div>
           </div>
 
-          <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 960, background: t.navBg, borderTop: "1px solid " + t.navBorder, display: "flex", padding: "6px 0 10px", zIndex: 100, boxShadow: themeMode === "light" ? "0 -2px 10px rgba(0,0,0,0.06)" : "none" }}>
-            {tabs.map(tab => {
+          {/* More menu overlay */}
+          {showMore && <div onClick={() => setShowMore(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 150 }}>
+            <div onClick={e => e.stopPropagation()} style={{ position: "fixed", bottom: 60, left: "50%", transform: "translateX(-50%)", width: "calc(100% - 32px)", maxWidth: 400, background: t.card, borderRadius: 16, border: "1px solid " + t.border, padding: "12px 8px", boxShadow: "0 -8px 30px rgba(0,0,0,0.3)", zIndex: 151 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4 }}>
+                {moreTabs.map(tab => { const active = activeTab === tab.id; const TabIco = tab.icon; return (
+                  <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMore(false); }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 8px", background: active ? t.goldBg : "transparent", border: active ? "1px solid " + t.goldBorder : "1px solid transparent", borderRadius: 12, cursor: "pointer" }}>
+                    <div style={{ position: "relative" }}>
+                      <TabIco sz={22} c={active ? GOLD : t.textSec} />
+                      {tab.badge > 0 && <div style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{tab.badge}</div>}
+                    </div>
+                    <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, color: active ? GOLD : t.textSec }}>{tab.label}</span>
+                  </button>
+                ); })}
+              </div>
+            </div>
+          </div>}
+
+          {/* Bottom navigation */}
+          <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 960, background: t.navBg, borderTop: "1px solid " + t.navBorder, display: "flex", padding: "8px 0 12px", zIndex: 100, boxShadow: themeMode === "light" ? "0 -2px 10px rgba(0,0,0,0.06)" : "0 -2px 10px rgba(0,0,0,0.2)" }}>
+            {primaryTabs.map(tab => {
               const active = activeTab === tab.id;
               const TabIco = tab.icon;
               return (
-                <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
-                  <div style={{ position: "relative" }}>
-                    <TabIco sz={18} c={active ? GOLD : t.textMut} />
-                    {tab.badge > 0 && (<div style={{ position: "absolute", top: -5, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{tab.badge}</div>)}
-                  </div>
-                  <span style={{ fontSize: 8, fontWeight: active ? 700 : 500, color: active ? GOLD : t.textMut, letterSpacing: "0.3px", textTransform: "uppercase" }}>{tab.label}</span>
-                  {active && <div style={{ position: "absolute", top: -1, width: 20, height: 2, background: GOLD, borderRadius: 1 }} />}
+                <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMore(false); }} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
+                  <TabIco sz={22} c={active ? GOLD : t.textMut} />
+                  <span style={{ fontSize: 9, fontWeight: active ? 700 : 500, color: active ? GOLD : t.textMut, letterSpacing: "0.3px" }}>{tab.label}</span>
+                  {active && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: GOLD, borderRadius: 2 }} />}
                 </button>
               );
             })}
+            <button onClick={() => setShowMore(!showMore)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
+              <div style={{ position: "relative" }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={isMoreActive || showMore ? GOLD : t.textMut} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+                {totalBadge > 0 && !isMoreActive && <div style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{totalBadge}</div>}
+              </div>
+              <span style={{ fontSize: 9, fontWeight: isMoreActive || showMore ? 700 : 500, color: isMoreActive || showMore ? GOLD : t.textMut, letterSpacing: "0.3px" }}>More</span>
+              {isMoreActive && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: GOLD, borderRadius: 2 }} />}
+            </button>
           </div>
         </>
       )}
@@ -256,12 +287,17 @@ export default function OCSAStaffPortal() {
       <style>{`
         @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
         @keyframes fadeIn { from { opacity:0; transform:translateY(6px) } to { opacity:1; transform:translateY(0) } }
-        * { box-sizing: border-box; }
+        @keyframes slideUp { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:translateY(0) } }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html { -webkit-text-size-adjust: 100%; }
         input::placeholder, textarea::placeholder { color: ${t.textMut}; }
         select { color-scheme: ${themeMode}; }
         ::-webkit-scrollbar { width: 3px; }
         ::-webkit-scrollbar-thumb { background: ${t.scrollThumb}; border-radius: 2px; }
-        .sp-content > div { flex: 1; display: flex; flex-direction: column; }
+        .sp-content > div { flex: 1; display: flex; flex-direction: column; animation: slideUp 0.2s ease-out; }
+        .sp-content { padding: 0 12px; }
+        @media (min-width: 640px) { .sp-content { padding: 0 20px; } }
+        button:active { opacity: 0.8; }
       `}</style>
     </div>
   );
