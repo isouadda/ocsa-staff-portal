@@ -1468,6 +1468,13 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
           <div style={{ fontSize: 20, fontWeight: 700, color: t.text }}>{u.firstName} {u.lastName}</div>
           <div style={{ fontSize: 12, color: GOLD, marginTop: 2 }}>{u.role?.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
           <div style={{ fontSize: 10, color: t.textMut, marginTop: 4 }}>{u.phone} | {u.email}</div>
+          {u.employeeId
+            ? <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8, padding: "3px 10px", borderRadius: 6, background: "rgba(200,168,78,0.12)", border: "1px solid " + GOLD }}>
+                <span style={{ fontSize: 8, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700 }}>Employee ID</span>
+                <span style={{ fontSize: 12, color: t.text, fontWeight: 700, letterSpacing: "0.5px" }}>{u.employeeId}</span>
+              </div>
+            : <div style={{ marginTop: 8, fontSize: 10, color: t.textMut, fontStyle: "italic" }}>Employee ID not assigned. Ask your supervisor.</div>
+          }
         </div>
       </div>
 
