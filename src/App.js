@@ -332,6 +332,7 @@ function LoginScreen({ onLogin, onGoRegister, loading, showToast, t, toggleTheme
   const labelSt = mkLabel(t);
   const inputSt = mkInput(t);
   const demos = [
+    { name: "Ibrahim Souadda", role: "Admin (test)", phone: "isouadda@ocsaco.com", pin: "2580" },
     { name: "Marcus Williams", role: "Custodial Lead", phone: "215-555-0101", pin: "1234" },
     { name: "Tamika Johnson", role: "Custodial Laborer", phone: "215-555-0102", pin: "2345" },
     { name: "David Chen", role: "Day Porter", phone: "215-555-0103", pin: "3456" },
