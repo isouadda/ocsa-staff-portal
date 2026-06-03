@@ -333,10 +333,7 @@ function LoginScreen({ onLogin, onGoRegister, loading, showToast, t, toggleTheme
   const inputSt = mkInput(t);
   const demos = [
     { name: "Ibrahim Souadda", role: "Admin (test)", phone: "isouadda@ocsaco.com", pin: "2580" },
-    { name: "Marcus Williams", role: "Custodial Lead", phone: "215-555-0101", pin: "1234" },
-    { name: "Tamika Johnson", role: "Custodial Laborer", phone: "215-555-0102", pin: "2345" },
-    { name: "David Chen", role: "Day Porter", phone: "215-555-0103", pin: "3456" },
-    { name: "Aisha Brown", role: "Custodial Laborer", phone: "215-555-0104", pin: "4567" },
+    { name: "Daniel Evans", role: "Custodial Laborer | PLA", phone: "daniel.evans@ocsa.temp", pin: "1357" },
   ];
   return (
     <div style={{ width: "100%", minHeight: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
