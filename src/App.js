@@ -473,20 +473,20 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   return (
     <div style={{ padding: "0 16px 16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>My Schedule</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>My Schedule</div>
         <div style={{ display: "flex", gap: 4 }}>
-          <button onClick={() => setView("week")} style={{ padding: "4px 10px", borderRadius: 6, fontSize: 10, fontWeight: view === "week" ? 700 : 500, background: view === "week" ? GOLD + "20" : "transparent", color: view === "week" ? GOLD : t.textMut, border: view === "week" ? "1px solid " + GOLD + "40" : "1px solid transparent", cursor: "pointer" }}>Week</button>
-          <button onClick={() => { setView("month"); const first = new Date(weekStart.getFullYear(), weekStart.getMonth(), 1); setWeekStart(first); }} style={{ padding: "4px 10px", borderRadius: 6, fontSize: 10, fontWeight: view === "month" ? 700 : 500, background: view === "month" ? GOLD + "20" : "transparent", color: view === "month" ? GOLD : t.textMut, border: view === "month" ? "1px solid " + GOLD + "40" : "1px solid transparent", cursor: "pointer" }}>Month</button>
+          <button onClick={() => setView("week")} style={{ padding: "5px 12px", borderRadius: R.sm, fontSize: 10, fontWeight: view === "week" ? 700 : 600, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px", background: view === "week" ? t.goldBg : "transparent", color: view === "week" ? GOLD : t.textMut, border: view === "week" ? "1px solid " + t.goldBorder : "1px solid transparent", cursor: "pointer" }}>Week</button>
+          <button onClick={() => { setView("month"); const first = new Date(weekStart.getFullYear(), weekStart.getMonth(), 1); setWeekStart(first); }} style={{ padding: "5px 12px", borderRadius: R.sm, fontSize: 10, fontWeight: view === "month" ? 700 : 600, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px", background: view === "month" ? t.goldBg : "transparent", color: view === "month" ? GOLD : t.textMut, border: view === "month" ? "1px solid " + t.goldBorder : "1px solid transparent", cursor: "pointer" }}>Month</button>
         </div>
       </div>
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <button onClick={prevWeek} style={{ background: "none", border: "1px solid " + t.borderSolid, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: t.textMut, fontSize: 14 }}>&lt;</button>
+        <button onClick={prevWeek} style={{ background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.sm, padding: "6px 12px", cursor: "pointer", color: t.textMut, fontSize: 14 }}>&lt;</button>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>{weekLabel}</span>
-          <button onClick={goToday} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 4, border: "1px solid " + BLUE, background: "transparent", color: BLUE, cursor: "pointer", fontWeight: 600 }}>Today</button>
+          <button onClick={goToday} style={{ fontSize: 9, padding: "3px 9px", borderRadius: R.sm, border: "1px solid " + BLUE, background: "transparent", color: BLUE, cursor: "pointer", fontWeight: 700, fontFamily: FONT_HEAD }}>Today</button>
         </div>
-        <button onClick={nextWeek} style={{ background: "none", border: "1px solid " + t.borderSolid, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: t.textMut, fontSize: 14 }}>&gt;</button>
+        <button onClick={nextWeek} style={{ background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.sm, padding: "6px 12px", cursor: "pointer", color: t.textMut, fontSize: 14 }}>&gt;</button>
       </div>
 
       {loading && <div style={{ textAlign: "center", padding: 20, color: t.textMut, fontSize: 12 }}>Loading...</div>}
@@ -502,10 +502,10 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
             const dt = new Date(ds + "T00:00:00");
             const hasAny = sched.length > 0 || actual.length > 0 || pickups.length > 0;
             return (
-              <div key={ds} style={{ background: today ? GOLD + "12" : t.card, border: "1px solid " + (today ? GOLD + "40" : t.borderSolid), borderRadius: 8, padding: 6, minHeight: compact ? 80 : 120, flex: compact ? undefined : 1 }}>
+              <div key={ds} style={{ background: today ? t.goldBg : t.card, border: "1px solid " + (today ? t.goldBorder : t.borderSolid), borderRadius: R.md, padding: 6, minHeight: compact ? 80 : 120, flex: compact ? undefined : 1, boxShadow: t.shadow }}>
                 <div style={{ textAlign: "center", marginBottom: 4 }}>
                   <div style={{ fontSize: 9, fontWeight: 600, color: today ? GOLD : t.textMut, textTransform: "uppercase" }}>{dayNames[i]}</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: today ? GOLD : t.text }}>{dt.getDate()}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: today ? GOLD : t.text, fontFamily: FONT_HEAD }}>{dt.getDate()}</div>
                 </div>
                 {sched.map(s => (
                   <div key={s.id} onClick={() => setDetail({ type: "scheduled", ...s })} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: GOLD + "18", color: GOLD, border: "1px solid " + GOLD + "30", cursor: "pointer" }}>
@@ -548,7 +548,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
         const monthName = firstDay.toLocaleDateString("en-US", { month: "long", year: "numeric" });
         return (
           <div style={{ display: "flex", flexDirection: "column", flex: compact ? undefined : 1 }}>
-            <div style={{ textAlign: "center", fontSize: 13, fontWeight: 700, color: t.text, marginBottom: 8 }}>{monthName}</div>
+            <div style={{ textAlign: "center", fontSize: 13, fontWeight: 700, color: t.text, marginBottom: 8, fontFamily: FONT_HEAD }}>{monthName}</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 4 }}>
               {dayNames.map(d => <div key={d} style={{ textAlign: "center", fontSize: 9, fontWeight: 700, color: t.textMut, padding: "4px 0" }}>{d}</div>)}
             </div>
@@ -561,8 +561,8 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                 const actual = getActualForDay(ds);
                 const pickups = getPickupsForDay(ds);
                 return (
-                  <div key={ds} onClick={() => { const day = dt.getDay(); const diff = day === 0 ? 6 : day - 1; const mon = new Date(dt); mon.setDate(dt.getDate() - diff); setWeekStart(mon); setView("week"); }} style={{ padding: 4, minHeight: compact ? 40 : 60, background: today ? GOLD + "12" : inMonth ? t.card : t.hover, borderRadius: 4, border: "1px solid " + (today ? GOLD + "40" : t.borderSolid), opacity: inMonth ? 1 : 0.3, cursor: "pointer", textAlign: "center" }}>
-                    <div style={{ fontSize: 11, fontWeight: today ? 700 : 500, color: today ? GOLD : t.text }}>{dt.getDate()}</div>
+                  <div key={ds} onClick={() => { const day = dt.getDay(); const diff = day === 0 ? 6 : day - 1; const mon = new Date(dt); mon.setDate(dt.getDate() - diff); setWeekStart(mon); setView("week"); }} style={{ padding: 4, minHeight: compact ? 40 : 60, background: today ? t.goldBg : inMonth ? t.card : t.hover, borderRadius: R.sm, border: "1px solid " + (today ? t.goldBorder : t.borderSolid), opacity: inMonth ? 1 : 0.3, cursor: "pointer", textAlign: "center" }}>
+                    <div style={{ fontSize: 11, fontWeight: today ? 700 : 500, color: today ? GOLD : t.text, fontFamily: FONT_HEAD }}>{dt.getDate()}</div>
                     <div style={{ display: "flex", justifyContent: "center", gap: 2, marginTop: 2, flexWrap: "wrap" }}>
                       {sched.length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: GOLD }} />}
                       {actual.length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: GREEN }} />}
@@ -586,19 +586,19 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
 
       {/* SHIFT DETAIL MODAL */}
       {detail && (
-        <div onClick={() => setDetail(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "20px 20px 30px" }}>
+        <div onClick={() => setDetail(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "20px 20px 30px", boxShadow: t.popShadow }}>
             <div style={{ width: 40, height: 4, borderRadius: 2, background: t.textMut, margin: "0 auto 16px", opacity: 0.3 }} />
-            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 14 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 14, fontFamily: FONT_HEAD }}>
               {detail.type === "scheduled" ? "Scheduled Shift" : detail.type === "actual" ? "Worked Shift" : "Pickup Shift"}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
               <div>
-                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Site</div>
+                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Site</div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{detail.site_name || "N/A"}</div>
               </div>
               <div>
-                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Status</div>
+                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Status</div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: detail.type === "actual" ? GREEN : detail.type === "pickup" ? (detail.status === "approved" ? GREEN : ORANGE) : GOLD }}>
                   {detail.type === "actual" ? (detail.shift_status === "active" ? "On Site" : "Completed") : detail.type === "pickup" ? (detail.status || "").charAt(0).toUpperCase() + (detail.status || "").slice(1) : (detail.status || "scheduled").charAt(0).toUpperCase() + (detail.status || "scheduled").slice(1)}
                 </div>
@@ -607,88 +607,88 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
               {detail.type === "actual" ? (<>
                 <div>
-                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Clock In</div>
+                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Clock In</div>
                   <div style={{ fontSize: 13, color: t.text }}>{detail.clock_in_time ? fmtClockTm(detail.clock_in_time) : "N/A"}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Clock Out</div>
+                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Clock Out</div>
                   <div style={{ fontSize: 13, color: detail.clock_out_time ? t.text : ORANGE }}>{detail.clock_out_time ? fmtClockTm(detail.clock_out_time) : "Still on site"}</div>
                 </div>
               </>) : (<>
                 <div>
-                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Start</div>
+                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Start</div>
                   <div style={{ fontSize: 13, color: t.text }}>{fmtTm(detail.start_time)}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>End</div>
+                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>End</div>
                   <div style={{ fontSize: 13, color: t.text }}>{fmtTm(detail.end_time)}</div>
                 </div>
               </>)}
             </div>
             {detail.type === "actual" && detail.duration_minutes && (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Duration</div>
+                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Duration</div>
                 <div style={{ fontSize: 13, color: t.text }}>{Math.floor(detail.duration_minutes / 60)}h {detail.duration_minutes % 60}m</div>
               </div>
             )}
             {(detail.building_name || detail.floor_number) && (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-                {detail.building_name && <div><div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Building</div><div style={{ fontSize: 13, color: t.text }}>{detail.building_name}</div></div>}
-                {detail.floor_number && <div><div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Floor</div><div style={{ fontSize: 13, color: t.text }}>{detail.floor_number}</div></div>}
+                {detail.building_name && <div><div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Building</div><div style={{ fontSize: 13, color: t.text }}>{detail.building_name}</div></div>}
+                {detail.floor_number && <div><div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Floor</div><div style={{ fontSize: 13, color: t.text }}>{detail.floor_number}</div></div>}
               </div>
             )}
             {detail.service_category && (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Service</div>
+                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Service</div>
                 <div style={{ fontSize: 13, color: t.text }}>{detail.service_category}</div>
               </div>
             )}
             {detail.notes && (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Notes</div>
+                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Notes</div>
                 <div style={{ fontSize: 12, color: t.textSec, fontStyle: "italic" }}>{detail.notes}</div>
               </div>
             )}
             {detail.type === "pickup" && detail.origin && (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3 }}>Reason</div>
+                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Reason</div>
                 <div style={{ fontSize: 13, color: t.text }}>{detail.origin.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
               </div>
             )}
             {detail.type === "scheduled" && detail.status !== "cancelled" && !detail.dropForm && (
-              <button onClick={() => setDetail({ ...detail, dropForm: { reason: "sick", notes: "" } })} style={{ width: "100%", padding: "10px", borderRadius: 8, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>Request to Drop This Shift</button>
+              <button onClick={() => setDetail({ ...detail, dropForm: { reason: "sick", notes: "" } })} style={{ width: "100%", padding: "11px", borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>Request to Drop This Shift</button>
             )}
             {detail.dropForm && (
-              <div style={{ padding: 12, borderRadius: 8, background: RED + "08", border: "1px solid " + RED + "30", marginBottom: 10 }}>
+              <div style={{ padding: 12, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, marginBottom: 10 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: RED, marginBottom: 8 }}>Drop Request</div>
                 <div style={{ fontSize: 10, color: t.textSec, marginBottom: 10 }}>Your supervisor will review this request. If approved, the shift will be opened for pickup or reassigned.</div>
                 <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4 }}>Reason</div>
-                  <select value={detail.dropForm.reason} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, reason: e.target.value } })} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid " + t.inputBorder, background: t.inputBg, color: t.text, fontSize: 12, fontFamily: "'DM Sans',sans-serif" }}>
+                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>Reason</div>
+                  <select value={detail.dropForm.reason} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, reason: e.target.value } })} style={mkInput(t)}>
                     {(getOpts("drop_reasons").length > 0 ? getOpts("drop_reasons") : [{ v: "sick", l: "Sick" }, { v: "personal", l: "Personal" }, { v: "scheduling_conflict", l: "Scheduling Conflict" }, { v: "emergency", l: "Emergency" }, { v: "other", l: "Other" }]).map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
                   </select>
                 </div>
                 {lkHasOther("drop_reasons", detail.dropForm.reason) && <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4 }}>Specify Reason</div>
-                  <input value={detail.dropForm.otherText || ""} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, otherText: e.target.value } })} placeholder="Describe the reason" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid " + t.inputBorder, background: t.inputBg, color: t.text, fontSize: 12, fontFamily: "'DM Sans',sans-serif" }} />
+                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>Specify Reason</div>
+                  <input value={detail.dropForm.otherText || ""} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, otherText: e.target.value } })} placeholder="Describe the reason" style={mkInput(t)} />
                 </div>}
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4 }}>Notes (optional)</div>
-                  <input value={detail.dropForm.notes} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, notes: e.target.value } })} placeholder="Any additional details..." style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid " + t.inputBorder, background: t.inputBg, color: t.text, fontSize: 12, fontFamily: "'DM Sans',sans-serif" }} />
+                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>Notes (optional)</div>
+                  <input value={detail.dropForm.notes} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, notes: e.target.value } })} placeholder="Any additional details..." style={mkInput(t)} />
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => setDetail({ ...detail, dropForm: null })} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+                  <button onClick={() => setDetail({ ...detail, dropForm: null })} style={{ flex: 1, padding: "11px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
                   <button onClick={async () => {
                     try {
                       await api("/api/pickups/request-drop", { method: "POST", body: { scheduled_shift_id: detail.id, reason: detail.dropForm.reason, notes: detail.dropForm.notes || detail.dropForm.reason }, token });
                       setDetail(null);
                       loadSchedule();
                     } catch (e) { showToast(e.message || "Drop request failed", "error"); }
-                  }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Submit Request</button>
+                  }} style={{ flex: 1, padding: "11px", borderRadius: R.md, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD }}>Submit Request</button>
                 </div>
               </div>
             )}
-            <button onClick={() => setDetail(null)} style={{ width: "100%", padding: "12px", borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 4 }}>Close</button>
+            <button onClick={() => setDetail(null)} style={{ width: "100%", padding: "12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 4 }}>Close</button>
           </div>
         </div>
       )}
