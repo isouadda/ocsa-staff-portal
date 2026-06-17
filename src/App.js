@@ -706,35 +706,41 @@ function ClockView({ clockStatus, currentTime, selectedSite, setSelectedSite, on
   const labelSt = mkLabel(t);
   return (
     <div style={{ padding: "16px" }}>
-      <div style={{ textAlign: "center", marginBottom: 20 }}>
-        <div style={{ fontSize: 12, color: t.textSec, marginBottom: 3 }}>{formatDate(currentTime)}</div>
-        <div style={{ fontSize: 42, fontWeight: 700, color: t.text, letterSpacing: "-1px" }}>{formatTime(currentTime)}</div>
+      <div style={{ textAlign: "center", marginBottom: 24, marginTop: 4 }}>
+        <div style={{ fontSize: 11, color: t.textMut, marginBottom: 6, letterSpacing: "0.3px", fontFamily: FONT_BODY }}>{formatDate(currentTime)}</div>
+        <div style={{ fontSize: 44, fontWeight: 700, color: t.text, letterSpacing: "-0.5px", lineHeight: 1, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{formatTime(currentTime)}</div>
       </div>
       <div style={{ marginBottom: 16 }}>
-        <label style={{ ...labelSt, display: "block", marginBottom: 8 }}>Your Assigned Sites</label>
-        {sites.length === 0 && <div style={{ padding: 20, textAlign: "center", background: t.hover, borderRadius: 10, border: "1px solid " + t.borderSolid, fontSize: 13, color: t.textMut }}>No sites assigned yet.</div>}
-        {sites.map(site => (
-          <button key={site.siteId} onClick={() => !ci && setSelectedSite(site.siteId)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", marginBottom: 8, background: selectedSite === site.siteId ? t.goldBg : t.hover, border: selectedSite === site.siteId ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: 10, cursor: ci ? "default" : "pointer", color: t.text, textAlign: "left", opacity: ci && selectedSite !== site.siteId ? 0.3 : 1, boxShadow: t.shadow }}>
-            <MapIco sz={18} c={selectedSite === site.siteId ? GOLD : t.textMut} />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{site.siteName}</div>
-              <div style={{ fontSize: 10, color: t.textSec, marginTop: 2 }}>{site.address}, {site.city}</div>
-              {site.shiftName && <div style={{ fontSize: 10, color: GOLD, marginTop: 3 }}>{site.roleAtSite} | {site.shiftName} shift</div>}
-            </div>
-          </button>
-        ))}
+        <label style={{ ...labelSt, display: "block", marginBottom: 10 }}>Your Assigned Sites</label>
+        {sites.length === 0 && <div style={{ padding: "28px 20px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontSize: 13, color: t.textMut, boxShadow: t.shadow }}>No sites assigned yet.</div>}
+        {sites.map(site => {
+          const sel = selectedSite === site.siteId;
+          return (
+            <button key={site.siteId} onClick={() => !ci && setSelectedSite(site.siteId)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", marginBottom: 10, background: sel ? t.goldBg : t.card, border: sel ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: R.md, cursor: ci ? "default" : "pointer", color: t.text, textAlign: "left", opacity: ci && !sel ? 0.35 : 1, boxShadow: sel ? t.popShadow : t.shadow, transition: "background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease" }}>
+              <div style={{ width: 38, height: 38, flexShrink: 0, borderRadius: R.sm, display: "flex", alignItems: "center", justifyContent: "center", background: sel ? t.goldSubtle : t.hover, border: "1px solid " + (sel ? t.goldBorder : t.borderSolid) }}>
+                <MapIco sz={18} c={sel ? GOLD : t.textMut} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{site.siteName}</div>
+                <div style={{ fontSize: 10, color: t.textSec, marginTop: 2 }}>{site.address}, {site.city}</div>
+                {site.shiftName && <div style={{ fontSize: 10, color: GOLD, marginTop: 3, fontWeight: 600 }}>{site.roleAtSite} | {site.shiftName} shift</div>}
+              </div>
+              <div style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: sel ? GOLD : "transparent", border: sel ? "none" : "2px solid " + t.borderSolid }} />
+            </button>
+          );
+        })}
       </div>
       {ci && clockStatus.shift && (
-        <div style={{ textAlign: "center", padding: "18px", marginBottom: 16, background: t.card, borderRadius: 12, border: "1px solid " + t.borderSolid, boxShadow: t.shadow }}>
-          <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 6 }}>Time on Site</div>
-          <div style={{ fontSize: 38, fontWeight: 700, fontFamily: "'DM Sans',monospace", letterSpacing: "2px", color: t.text }}>{pad(h)}:{pad(m)}:{pad(s)}</div>
-          <div style={{ fontSize: 11, color: t.textSec, marginTop: 6 }}>Clocked in at {formatTime(clockStatus.shift.clockInTime)}</div>
-          <div style={{ fontSize: 12, color: t.textSec, marginTop: 4 }}>{clockStatus.shift.siteName}</div>
+        <div style={{ textAlign: "center", padding: "20px 18px", marginBottom: 16, background: t.card, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
+          <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 8, fontWeight: 700, fontFamily: FONT_HEAD }}>Time on Site</div>
+          <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "1px", color: t.text, lineHeight: 1, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pad(h)}:{pad(m)}:{pad(s)}</div>
+          <div style={{ fontSize: 11, color: t.textSec, marginTop: 8 }}>Clocked in at {formatTime(clockStatus.shift.clockInTime)}</div>
+          <div style={{ fontSize: 12, color: t.text, marginTop: 4, fontWeight: 600 }}>{clockStatus.shift.siteName}</div>
           {(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: GOLD, marginTop: 3 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - Floor " + clockStatus.shift.floorNumber : ""}</div>}
-          {tk.total > 0 && (<div style={{ marginTop: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><div style={{ flex: 1, maxWidth: 180, height: 5, borderRadius: 3, background: t.cardAlt, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: 3, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.3s ease" }} /></div><span style={{ fontSize: 11, color: GOLD, fontWeight: 600 }}>{tk.completed}/{tk.total}</span></div>)}
+          {tk.total > 0 && (<div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><div style={{ flex: 1, maxWidth: 180, height: 6, borderRadius: R.pill, background: t.cardAlt, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.3s ease" }} /></div><span style={{ fontSize: 11, color: GOLD, fontWeight: 700, fontFamily: FONT_HEAD }}>{tk.completed}/{tk.total}</span></div>)}
         </div>
       )}
-      <button onClick={ci ? onClockOut : onClockIn} disabled={loading} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: ci ? "linear-gradient(135deg," + RED + ",#C0392B)" : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: ci ? "#F8F7F4" : "#0A1628", fontSize: 15, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", opacity: loading ? 0.6 : 1 }}>{loading ? "..." : ci ? "Clock Out" : "Clock In"}</button>
+      <button onClick={ci ? onClockOut : onClockIn} disabled={loading} style={{ width: "100%", padding: "15px", borderRadius: R.md, border: "none", background: ci ? "linear-gradient(135deg," + RED + ",#C0392B)" : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: ci ? "#F8F7F4" : "#0A1628", fontSize: 15, fontWeight: 700, cursor: loading ? "default" : "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD, boxShadow: ci ? "0 6px 18px rgba(231,76,60,0.30)" : "0 6px 18px rgba(200,168,78,0.30)", opacity: loading ? 0.6 : 1 }}>{loading ? "..." : ci ? "Clock Out" : "Clock In"}</button>
     </div>
   );
 }
