@@ -1024,55 +1024,56 @@ function PickupView({ token, user, showToast, t }) {
 
   return (
     <div style={{ padding: "16px 16px 0" }}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 12 }}>Shift Pickup Board</div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 12, fontFamily: FONT_HEAD }}>Shift Pickup Board</div>
 
       <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
         {[{ id: "available", l: "Available", count: available.length }, { id: "mine", l: "My Pickups", count: myPickups.length }].map(tb => (
           <button key={tb.id} onClick={() => setTab(tb.id)} style={{
-            flex: 1, padding: "10px 0", borderRadius: 8, border: "none",
-            background: tab === tb.id ? "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")" : t.cardAlt,
-            color: tab === tb.id ? "#0A1628" : t.textMut,
-            fontSize: 12, fontWeight: 700, cursor: "pointer"
+            flex: 1, padding: "10px 0", borderRadius: R.sm,
+            border: tab === tb.id ? "1px solid " + t.goldBorder : "1px solid transparent",
+            background: tab === tb.id ? t.goldBg : "transparent",
+            color: tab === tb.id ? GOLD : t.textMut,
+            fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px"
           }}>
-            {tb.l} {tb.count > 0 && <span style={{ marginLeft: 4, fontSize: 10, padding: "1px 5px", borderRadius: 8, background: tab === tb.id ? "rgba(0,0,0,0.15)" : GOLD + "30", color: tab === tb.id ? "#0A1628" : GOLD }}>{tb.count}</span>}
+            {tb.l} {tb.count > 0 && <span style={{ marginLeft: 4, fontSize: 10, padding: "1px 6px", borderRadius: R.pill, background: GOLD + "26", color: GOLD, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{tb.count}</span>}
           </button>
         ))}
       </div>
 
-      {loading && <div style={{ textAlign: "center", padding: 40, color: t.textMut }}>Loading...</div>}
+      {loading && <div style={{ textAlign: "center", padding: 40, color: t.textMut, fontFamily: FONT_HEAD }}>Loading...</div>}
 
       {/* AVAILABLE SHIFTS */}
       {!loading && tab === "available" && (
         <div>
           {available.length === 0 && (
-            <div style={{ textAlign: "center", padding: "40px 20px" }}>
+            <div style={{ textAlign: "center", padding: "40px 24px", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}>
               <SwapIco sz={32} c={t.textMut} style={{ opacity: 0.3, marginBottom: 8 }} />
-              <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec }}>No open shifts right now</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>No open shifts right now</div>
               <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>Check back later for available pickup shifts at your assigned sites.</div>
             </div>
           )}
           {available.map(s => (
-            <div key={s.id} style={{ background: t.card, borderRadius: 12, padding: 14, marginBottom: 10, border: "1px solid " + (s.urgency === "urgent" ? RED + "40" : t.border) }}>
+            <div key={s.id} style={{ background: t.card, borderRadius: R.md, padding: 14, marginBottom: 10, border: "1px solid " + (s.urgency === "urgent" ? RED + "40" : t.border), boxShadow: t.shadow }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>{s.site_name}</span>
-                    {s.urgency === "urgent" && <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: RED + "18", color: RED }}>URGENT</span>}
+                    <span style={{ fontSize: 14, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{s.site_name}</span>
+                    {s.urgency === "urgent" && <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: R.sm, background: RED + "18", color: RED, fontFamily: FONT_HEAD }}>URGENT</span>}
                   </div>
-                  <div style={{ fontSize: 12, color: t.textSec }}>{fmtDate(s.scheduled_date)}</div>
+                  <div style={{ fontSize: 12, color: t.textSec, fontVariantNumeric: "tabular-nums" }}>{fmtDate(s.scheduled_date)}</div>
                 </div>
-                <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: (originColor[s.origin] || GOLD) + "18", color: originColor[s.origin] || GOLD }}>{originLabel[s.origin] || s.origin}</span>
+                <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: R.sm, background: (originColor[s.origin] || GOLD) + "18", color: originColor[s.origin] || GOLD, fontFamily: FONT_HEAD }}>{originLabel[s.origin] || s.origin}</span>
               </div>
 
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, padding: "8px 10px", borderRadius: 8, background: t.cardAlt }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, padding: "8px 10px", borderRadius: R.md, background: t.cardAlt }}>
                 <ClockIco sz={14} c={GOLD} />
-                <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{fmtTm(s.start_time)} to {fmtTm(s.end_time)}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{fmtTm(s.start_time)} to {fmtTm(s.end_time)}</span>
               </div>
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                {s.building_name && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: 4, background: t.cardAlt }}>Bldg: {s.building_name}</span>}
-                {s.floor_number && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: 4, background: t.cardAlt }}>Floor: {s.floor_number}</span>}
-                {s.service_category && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: 4, background: t.cardAlt }}>{s.service_category}</span>}
+                {s.building_name && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>Bldg: {s.building_name}</span>}
+                {s.floor_number && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>Floor: {s.floor_number}</span>}
+                {s.service_category && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{s.service_category}</span>}
               </div>
 
               {s.notes && <div style={{ fontSize: 11, color: t.textSec, marginBottom: 10, fontStyle: "italic" }}>{s.notes}</div>}
@@ -1081,10 +1082,12 @@ function PickupView({ token, user, showToast, t }) {
                 onClick={() => claimShift(s.id)}
                 disabled={claiming === s.id}
                 style={{
-                  width: "100%", padding: "12px", borderRadius: 10, border: "none",
+                  width: "100%", padding: "12px", borderRadius: R.md, border: "none",
                   background: claiming === s.id ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")",
                   color: claiming === s.id ? t.textMut : "#0A1628",
-                  fontSize: 14, fontWeight: 700, cursor: claiming === s.id ? "default" : "pointer"
+                  fontSize: 14, fontWeight: 700, cursor: claiming === s.id ? "default" : "pointer",
+                  fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "1px",
+                  boxShadow: claiming === s.id ? "none" : "0 6px 18px rgba(200,168,78,0.30)"
                 }}
               >
                 {claiming === s.id ? "Claiming..." : "Claim This Shift"}
@@ -1098,43 +1101,43 @@ function PickupView({ token, user, showToast, t }) {
       {!loading && tab === "mine" && (
         <div>
           {myPickups.length === 0 && (
-            <div style={{ textAlign: "center", padding: "40px 20px" }}>
+            <div style={{ textAlign: "center", padding: "40px 24px", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}>
               <CheckIco sz={32} c={t.textMut} style={{ opacity: 0.3, marginBottom: 8 }} />
-              <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec }}>No claimed shifts</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>No claimed shifts</div>
               <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>Shifts you claim will appear here.</div>
             </div>
           )}
           {myPickups.map(s => {
             const sColor = s.status === "approved" ? GREEN : s.status === "filled" ? GREEN : BLUE;
             return (
-              <div key={s.id} style={{ background: t.card, borderRadius: 12, padding: 14, marginBottom: 10, border: "1px solid " + sColor + "30" }}>
+              <div key={s.id} style={{ background: t.card, borderRadius: R.md, padding: 14, marginBottom: 10, border: "1px solid " + sColor + "30", boxShadow: t.shadow }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>{s.site_name}</div>
-                    <div style={{ fontSize: 12, color: t.textSec, marginTop: 2 }}>{fmtDate(s.scheduled_date)}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{s.site_name}</div>
+                    <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{fmtDate(s.scheduled_date)}</div>
                   </div>
-                  <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: sColor + "18", color: sColor, textTransform: "uppercase" }}>{s.status}</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: R.sm, background: sColor + "18", color: sColor, textTransform: "uppercase", fontFamily: FONT_HEAD }}>{s.status}</span>
                 </div>
 
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, padding: "8px 10px", borderRadius: 8, background: t.cardAlt }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, padding: "8px 10px", borderRadius: R.md, background: t.cardAlt }}>
                   <ClockIco sz={14} c={sColor} />
-                  <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{fmtTm(s.start_time)} to {fmtTm(s.end_time)}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{fmtTm(s.start_time)} to {fmtTm(s.end_time)}</span>
                 </div>
 
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                  {s.building_name && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: 4, background: t.cardAlt }}>Bldg: {s.building_name}</span>}
-                  {s.floor_number && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: 4, background: t.cardAlt }}>Floor: {s.floor_number}</span>}
+                  {s.building_name && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>Bldg: {s.building_name}</span>}
+                  {s.floor_number && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>Floor: {s.floor_number}</span>}
                 </div>
 
                 {s.status === "claimed" && (
                   <div>
-                    <div style={{ padding: "6px 10px", borderRadius: 6, background: ORANGE + "12", border: "1px solid " + ORANGE + "30", fontSize: 10, color: ORANGE, marginBottom: 8 }}>Waiting for manager approval</div>
-                    <button onClick={() => releaseShift(s.id)} style={{ width: "100%", padding: "10px", borderRadius: 8, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Release Shift</button>
+                    <div style={{ padding: "6px 10px", borderRadius: R.sm, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, fontSize: 10, color: ORANGE, marginBottom: 8, fontFamily: FONT_HEAD }}>Waiting for manager approval</div>
+                    <button onClick={() => releaseShift(s.id)} style={{ width: "100%", padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>Release Shift</button>
                   </div>
                 )}
                 {s.status === "approved" && (
-                  <div style={{ padding: "8px 12px", borderRadius: 8, background: GREEN + "12", border: "1px solid " + GREEN + "30" }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: GREEN }}>Approved. You are scheduled for this shift.</div>
+                  <div style={{ padding: "8px 12px", borderRadius: R.md, background: t.greenSubtle, border: "1px solid " + t.greenBorder }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: GREEN, fontFamily: FONT_HEAD }}>Approved. You are scheduled for this shift.</div>
                     <div style={{ fontSize: 10, color: t.textMut, marginTop: 2 }}>Clock in at the normal time and your daily tasks will load automatically.</div>
                   </div>
                 )}
