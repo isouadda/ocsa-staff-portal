@@ -1468,9 +1468,9 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
   if (!profile) return <div style={{ padding: 20, textAlign: "center", color: t.textMut }}>Loading profile...</div>;
 
   const u = profile.user;
-  const cardSt = { background: t.card, border: "1px solid " + t.border, borderRadius: 12, padding: 16, marginBottom: 12 };
-  const labelSt = { fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, display: "block", marginBottom: 5 };
-  const inputSt = { width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid " + t.inputBorder, background: t.inputBg, color: t.text, fontSize: 13, outline: "none", fontFamily: "'DM Sans',sans-serif" };
+  const cardSt = { background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 16, marginBottom: 12 };
+  const labelSt = mkLabel(t);
+  const inputSt = mkInput(t);
   const valSt = { color: t.text, fontWeight: 500, marginTop: 2, fontSize: 13 };
 
   return (
@@ -1484,7 +1484,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
         <div style={{ position: "relative" }}>
           {u.profilePhotoUrl
             ? <img src={u.profilePhotoUrl} alt="" style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover", border: "2px solid " + GOLD }} />
-            : <div style={{ width: 72, height: 72, borderRadius: "50%", background: "rgba(200,168,78,0.12)", border: "2px solid " + GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 700, color: GOLD }}>{u.firstName?.[0]}{u.lastName?.[0]}</div>
+            : <div style={{ width: 72, height: 72, borderRadius: "50%", background: t.goldSubtle, border: "2px solid " + GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 700, color: GOLD, fontFamily: FONT_HEAD }}>{u.firstName?.[0]}{u.lastName?.[0]}</div>
           }
           <label style={{ position: "absolute", bottom: -2, right: -2, width: 26, height: 26, borderRadius: "50%", background: GOLD, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: "2px solid " + t.card }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0A1628" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
@@ -1493,13 +1493,13 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
           {uploading && <div style={{ position: "absolute", top: 0, left: 0, width: 72, height: 72, borderRadius: "50%", background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#F8F7F4" }}>...</div>}
         </div>
         <div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: t.text }}>{u.firstName} {u.lastName}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{u.firstName} {u.lastName}</div>
           <div style={{ fontSize: 12, color: GOLD, marginTop: 2 }}>{u.role?.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
           <div style={{ fontSize: 10, color: t.textMut, marginTop: 4 }}>{u.phone} | {u.email}</div>
           {u.employeeId
-            ? <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8, padding: "3px 10px", borderRadius: 6, background: "rgba(200,168,78,0.12)", border: "1px solid " + GOLD }}>
-                <span style={{ fontSize: 8, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700 }}>Employee ID</span>
-                <span style={{ fontSize: 12, color: t.text, fontWeight: 700, letterSpacing: "0.5px" }}>{u.employeeId}</span>
+            ? <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8, padding: "3px 10px", borderRadius: R.sm, background: t.goldSubtle, border: "1px solid " + GOLD }}>
+                <span style={{ fontSize: 8, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>Employee ID</span>
+                <span style={{ fontSize: 12, color: t.text, fontWeight: 700, letterSpacing: "0.5px", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{u.employeeId}</span>
               </div>
             : <div style={{ marginTop: 8, fontSize: 10, color: t.textMut, fontStyle: "italic" }}>Employee ID not assigned. Ask your supervisor.</div>
           }
@@ -1510,7 +1510,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
       <div style={cardSt}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={labelSt}>Personal Information</div>
-          {!editing && <button onClick={startEditing} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid " + GOLD, background: "transparent", color: GOLD, fontSize: 10, cursor: "pointer", fontWeight: 600 }}>Edit</button>}
+          {!editing && <button onClick={startEditing} style={{ padding: "4px 10px", borderRadius: R.sm, border: "1px solid " + GOLD, background: "transparent", color: GOLD, fontSize: 10, cursor: "pointer", fontWeight: 600, fontFamily: FONT_HEAD }}>Edit</button>}
         </div>
         {!editing ? <div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -1537,8 +1537,8 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
           </div>
           <div style={{ marginBottom: 10 }}><label style={labelSt}>Preferred Language</label><input value={form.preferredLanguage || ""} onChange={e => setForm({ ...form, preferredLanguage: e.target.value })} style={inputSt} /></div>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 14 }}>
-            <button onClick={() => setEditing(false)} style={{ padding: "10px 18px", borderRadius: 8, border: "none", background: t.btnGhost || t.card, color: t.text, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Cancel</button>
-            <button onClick={saveProfile} disabled={saving} style={{ padding: "10px 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: "#0A1628", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "Saving..." : "Save"}</button>
+            <button onClick={() => setEditing(false)} style={{ padding: "10px 18px", borderRadius: R.sm, border: "none", background: t.btnGhost || t.card, color: t.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>Cancel</button>
+            <button onClick={saveProfile} disabled={saving} style={{ padding: "10px 18px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: "#0A1628", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(200,168,78,0.30)" }}>{saving ? "Saving..." : "Save"}</button>
           </div>
         </div>}
       </div>
@@ -1546,9 +1546,9 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
       {/* Assignments */}
       {profile.assignments?.length > 0 && <div style={cardSt}>
         <div style={{ ...labelSt, marginBottom: 10 }}>Site Assignments</div>
-        {profile.assignments.map((a, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", background: t.hover, borderRadius: 6, marginBottom: 4 }}>
+        {profile.assignments.map((a, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", background: t.hover, borderRadius: R.sm, marginBottom: 4 }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>{a.site_name}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{a.site_name}</div>
             <div style={{ fontSize: 10, color: t.textMut, marginTop: 2 }}>{a.role_at_site || "Staff"} | {a.shift_name || "No shift"}{a.shift_start ? " | " + a.shift_start + " - " + a.shift_end : ""}</div>
           </div>
         </div>)}
