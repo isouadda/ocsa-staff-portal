@@ -213,8 +213,28 @@ export default function OCSAStaffPortal() {
   const [clockStatus, setClockStatus] = useState(null);
   const [selectedSite, setSelectedSite] = useState(null);
   const [sessionSites, setSessionSites] = useState(null);
-  const [tasks, setTasks] = useState([]);
+  // null until the site's list has come back, so the Tasks tab can tell
+  // a list still loading from a building with no checklist.
+  const [tasks, setTasks] = useState(null);
   const [completedTaskIds, setCompletedTaskIds] = useState(new Set());
+  // Which server list fills the checklist. True reads the building's list,
+  // so a task ticked by anyone on site today shows as ticked to everyone
+  // there. False reads only this person's own ticks. Flipping it is one word.
+  const SHARED_SITE_CHECKLIST = true;
+  // Every clock status request takes a number and only the newest one may
+  // fill the Set. An older response landing late would otherwise clear a
+  // box that was ticked after it was requested.
+  const statusSeq = useRef(0);
+  const nextStatusSeq = () => ++statusSeq.current;
+  const hydrateCompleted = (cs, seq) => {
+    if (seq !== statusSeq.current) return;
+    const tk = cs ? cs.tasks : null;
+    const ids = tk ? (SHARED_SITE_CHECKLIST ? tk.siteCompletedTaskIds : tk.completedTaskIds) : null;
+    setCompletedTaskIds(new Set(Array.isArray(ids) ? ids : []));
+  };
+  // Task ids with a tick or untick request in flight. A second tap on the
+  // same task is ignored until the first answers. Other tasks stay tappable.
+  const inFlightTaskIds = useRef(new Set());
   const [issues, setIssues] = useState([]);
   const [assignedTasks, setAssignedTasks] = useState([]);
   const [supplies, setSupplies] = useState([]);
@@ -231,7 +251,7 @@ export default function OCSAStaffPortal() {
   const toggleTheme = () => { const next = themeMode === "dark" ? "light" : "dark"; setThemeMode(next); try { localStorage.setItem("ocsa-staff-theme", next); } catch {} };
 
   useEffect(() => { const i = setInterval(() => setCurrentTime(now()), 1000); return () => clearInterval(i); }, []);
-  useEffect(() => { const h = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setTasks([]); setCompletedTaskIds(new Set()); setActiveTab("clock"); }; window.addEventListener("ocsa-session-expired", h); return () => window.removeEventListener("ocsa-session-expired", h); }, []);
+  useEffect(() => { const h = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); }; window.addEventListener("ocsa-session-expired", h); return () => window.removeEventListener("ocsa-session-expired", h); }, []);
   const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
   const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); } catch (err) { console.error(err); } }, [token]);
   const loadSessionSites = useCallback(async (tkn) => { try { const data = await api("/api/shift-sessions/sites", { token: tkn || token }); setSessionSites(data); } catch (err) { console.error(err); } }, [token]);
@@ -247,7 +267,7 @@ export default function OCSAStaffPortal() {
     const me = await api("/api/auth/me", { token: tok });
     setUser(me.user); setSites(me.sites);
     api("/api/users/profile/me", { token: tok }).then(p => { if (p?.user?.profilePhotoUrl) setUser(prev => ({ ...prev, profilePhotoUrl: p.user.profilePhotoUrl })); }).catch(() => {});
-    try { const cs = await api("/api/clock/status", { token: tok }); setClockStatus(cs); if (cs.clockedIn && cs.shift) setSelectedSite(cs.shift.siteId); } catch (e) { console.warn("Clock status:", e.message); }
+    try { const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token: tok }); setClockStatus(cs); hydrateCompleted(cs, seq); if (cs.clockedIn && cs.shift) setSelectedSite(cs.shift.siteId); } catch (e) { console.warn("Clock status:", e.message); }
     loadAssignedTasks(tok);
     loadSessionSites(tok);
     api("/api/lookups", { token: tok }).then(setLookups).catch(e => console.warn("Lookups:", e.message));
@@ -301,17 +321,17 @@ export default function OCSAStaffPortal() {
     setLoading(false);
   };
 
-  const handleLogout = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setTasks([]); setCompletedTaskIds(new Set()); setActiveTab("clock"); };
+  const handleLogout = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); };
 
   const handleStartSession = async (siteId) => {
     if (!siteId) { showToast("Select a site first", "error"); return; }
     setLoading(true);
-    try { const data = await api("/api/shift-sessions", { method: "POST", body: { siteId }, token }); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); setSelectedSite(siteId); showToast(data.message || "Shift started"); setActiveTab("tasks"); } catch (err) { showToast(err.message, "error"); }
+    try { const data = await api("/api/shift-sessions", { method: "POST", body: { siteId }, token }); const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); setTasks(null); setSelectedSite(siteId); showToast(data.message || "Shift started"); setActiveTab("tasks"); } catch (err) { showToast(err.message, "error"); }
     setLoading(false);
   };
 
-  const loadTasks = async () => { if (!clockStatus?.clockedIn || !clockStatus?.shift?.siteId) return; try { let taskUrl = "/api/sites/" + clockStatus.shift.siteId + "/tasks?user_id=" + user.id; if (clockStatus.shift.buildingName) taskUrl += "&building_name=" + encodeURIComponent(clockStatus.shift.buildingName); if (clockStatus.shift.floorNumber) taskUrl += "&floor_number=" + encodeURIComponent(clockStatus.shift.floorNumber); const tt = await api(taskUrl, { token }); setTasks(tt); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); } catch (err) { console.error(err); } };
-  const toggleTask = async (taskId) => { try { if (completedTaskIds.has(taskId)) { await api("/api/clock/tasks/" + taskId + "/complete", { method: "DELETE", token }); setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); } else { await api("/api/clock/tasks/" + taskId + "/complete", { method: "POST", body: {}, token }); setCompletedTaskIds(prev => new Set(prev).add(taskId)); showToast("Task completed"); } const cs = await api("/api/clock/status", { token }); setClockStatus(cs); } catch (err) { showToast(err.message, "error"); } };
+  const loadTasks = async () => { if (!clockStatus?.clockedIn || !clockStatus?.shift?.siteId) return; try { let taskUrl = "/api/sites/" + clockStatus.shift.siteId + "/tasks?user_id=" + user.id; if (clockStatus.shift.buildingName) taskUrl += "&building_name=" + encodeURIComponent(clockStatus.shift.buildingName); if (clockStatus.shift.floorNumber) taskUrl += "&floor_number=" + encodeURIComponent(clockStatus.shift.floorNumber); const tt = await api(taskUrl, { token }); setTasks(tt); const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { console.error(err); } };
+  const toggleTask = async (taskId) => { if (inFlightTaskIds.current.has(taskId)) return; inFlightTaskIds.current.add(taskId); try { if (completedTaskIds.has(taskId)) { await api("/api/clock/tasks/" + taskId + "/complete", { method: "DELETE", token }); setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); } else { await api("/api/clock/tasks/" + taskId + "/complete", { method: "POST", body: {}, token }); setCompletedTaskIds(prev => new Set(prev).add(taskId)); showToast("Task completed"); } const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { showToast(err.message, "error"); } finally { inFlightTaskIds.current.delete(taskId); } };
   const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); } catch (err) { console.error(err); } };
   const resolveAssignedTask = async (taskId, status, note, photoUrl) => { try { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast("Task updated to " + status.replace(/_/g, " ")); loadAssignedTasks(); } catch (err) { showToast(err.message, "error"); } };
   const submitIssue = async (title, description, zone, severity, photoUrl, siteId) => { const actualSiteId = siteId || clockStatus?.shift?.siteId; if (!actualSiteId) { showToast("Select a site first", "error"); return; } try { const data = await api("/api/issues", { method: "POST", body: { siteId: actualSiteId, title, description, zone, severity }, token }); if (photoUrl && data.issue) { await api("/api/issues/" + data.issue.id + "/photos", { method: "POST", body: { photoUrl }, token }); } showToast("Issue reported"); loadIssues(); } catch (err) { showToast(err.message, "error"); } };
@@ -379,7 +399,7 @@ export default function OCSAStaffPortal() {
 
           <div style={{ padding: "0 0 76px 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
-              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} onStartSession={handleStartSession} siteChoices={sessionSites} loading={loading} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
+              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} onStartSession={handleStartSession} siteChoices={sessionSites} loading={loading} completedCount={completedTaskIds.size} taskCount={Array.isArray(tasks) ? tasks.filter(tk => !tk.task_type || tk.task_type === "standard").length : 0} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -1026,11 +1046,11 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
               {detail.type === "actual" ? (<>
                 <div>
-                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Clock In</div>
+                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Shift Start</div>
                   <div style={{ fontSize: 13, color: t.text }}>{detail.clock_in_time ? fmtClockTm(detail.clock_in_time) : "N/A"}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Clock Out</div>
+                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Shift End</div>
                   <div style={{ fontSize: 13, color: detail.clock_out_time ? t.text : ORANGE }}>{detail.clock_out_time ? fmtClockTm(detail.clock_out_time) : "Still on site"}</div>
                 </div>
               </>) : (<>
@@ -1115,13 +1135,19 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   );
 }
 
-function ClockView({ clockStatus, currentTime, selectedSite, onStartSession, siteChoices, loading, t }) {
+function ClockView({ clockStatus, currentTime, selectedSite, onStartSession, siteChoices, loading, completedCount, taskCount, t }) {
   const ci = clockStatus?.clockedIn;
   const elapsed = ci && clockStatus.shift ? Math.floor((currentTime - new Date(clockStatus.shift.clockInTime)) / 1000) : 0;
   const h = Math.floor(elapsed / 3600), m = Math.floor((elapsed % 3600) / 60), s = elapsed % 60;
   const pad = (n) => String(n).padStart(2, "0");
-  const tk = clockStatus?.tasks || { total: 0, completed: 0 };
-  const pct = tk.total > 0 ? Math.round((tk.completed / tk.total) * 100) : 0;
+  // The bar reads the numbers the Tasks tab renders: every active template
+  // at the site, over the distinct tasks in the hydrated Set. tasks is null
+  // with no open session. siteTotal falls back to total, then to the
+  // rendered task count, when the API does not carry it.
+  const tk = clockStatus?.tasks || {};
+  const total = tk.siteTotal > 0 ? tk.siteTotal : tk.total > 0 ? tk.total : (taskCount || 0);
+  const done = completedCount || 0;
+  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
   const labelSt = mkLabel(t);
   const scheduled = siteChoices?.scheduled || [];
   const assigned = siteChoices?.assigned || [];
@@ -1162,7 +1188,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, onStartSession, sit
           <div style={{ fontSize: 11, color: t.textSec, marginTop: 8 }}>Started at {formatTime(clockStatus.shift.clockInTime)}</div>
           <div style={{ fontSize: 12, color: t.text, marginTop: 4, fontWeight: 600 }}>{clockStatus.shift.siteName}</div>
           {(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: GOLD, marginTop: 3 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - Floor " + clockStatus.shift.floorNumber : ""}</div>}
-          {tk.total > 0 && (<div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><div style={{ flex: 1, maxWidth: 180, height: 6, borderRadius: R.pill, background: t.cardAlt, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.3s ease" }} /></div><span style={{ fontSize: 11, color: GOLD, fontWeight: 700, fontFamily: FONT_HEAD }}>{tk.completed}/{tk.total}</span></div>)}
+          {total > 0 && (<div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><div style={{ flex: 1, maxWidth: 180, height: 6, borderRadius: R.pill, background: t.cardAlt, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.3s ease" }} /></div><span style={{ fontSize: 11, color: GOLD, fontWeight: 700, fontFamily: FONT_HEAD }}>{done}/{total}</span></div>)}
           <div style={{ fontSize: 11, color: t.textMut, marginTop: 14, lineHeight: 1.5 }}>Your shift ends automatically. Close the app when you are done.</div>
         </div>
       )}
@@ -1185,7 +1211,8 @@ function groupTasksByFloorZone(taskList) {
 
 function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask, t }) {
   const [detail, setDetail] = useState(null);
-  const standardTasks = tasks.filter(tk => !tk.task_type || tk.task_type === "standard");
+  const loaded = Array.isArray(tasks);
+  const standardTasks = (loaded ? tasks : []).filter(tk => !tk.task_type || tk.task_type === "standard");
   const labelSt = mkLabel(t);
   const floorHeadSt = { fontSize: 11, color: t.text, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, padding: "7px 11px", background: t.card, borderRadius: R.sm, border: "1px solid " + t.borderSolid, fontFamily: FONT_HEAD };
   const zoneSt = { fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700, marginBottom: 8, fontFamily: FONT_HEAD };
@@ -1203,7 +1230,8 @@ function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask, t }) {
       })()}
     </div>
   );
-  if (standardTasks.length === 0) return <EmptyState icon={CheckIco} text="Loading tasks..." t={t} />;
+  if (!loaded) return <EmptyState icon={CheckIco} text="Loading tasks..." t={t} />;
+  if (standardTasks.length === 0) return <EmptyState icon={CheckIco} text="No checklist is set up for this building yet." t={t} />;
   const groups = groupTasksByFloorZone(standardTasks);
   const completed = standardTasks.filter(tk => completedTaskIds.has(tk.id)).length;
   const pct = Math.round((completed / standardTasks.length) * 100);
@@ -1376,7 +1404,7 @@ function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submi
 
   if (!clockStatus?.clockedIn) return (
     <div style={{ padding: "16px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>Supplies</div><div style={{ fontSize: 11, color: t.textSec }}>Clock in to log usage. Requests can be submitted anytime.</div></div><button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={{ padding: "7px 13px", borderRadius: R.sm, border: "none", background: GOLD, color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>+ Request</button></div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>Supplies</div><div style={{ fontSize: 11, color: t.textSec }}>Start your shift to log usage. Requests can be submitted anytime.</div></div><button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={{ padding: "7px 13px", borderRadius: R.sm, border: "none", background: GOLD, color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>+ Request</button></div>
       {reqFormUI}
     </div>
   );
@@ -1569,7 +1597,7 @@ function PickupView({ token, user, showToast, t }) {
                 {s.status === "approved" && (
                   <div style={{ padding: "8px 12px", borderRadius: R.md, background: t.greenSubtle, border: "1px solid " + t.greenBorder }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: GREEN, fontFamily: FONT_HEAD }}>Approved. You are scheduled for this shift.</div>
-                    <div style={{ fontSize: 10, color: t.textMut, marginTop: 2 }}>Clock in at the normal time and your daily tasks will load automatically.</div>
+                    <div style={{ fontSize: 10, color: t.textMut, marginTop: 2 }}>Start your shift at the normal time and your daily tasks will load automatically.</div>
                   </div>
                 )}
               </div>
