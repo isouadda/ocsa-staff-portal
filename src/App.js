@@ -96,8 +96,8 @@ async function api(path, opts = {}) {
   const headers = { "Content-Type": "application/json", ...opts.headers };
   if (opts.token) headers["Authorization"] = "Bearer " + opts.token;
   const res = await fetch(API + path, { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
-  if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-  if (!res.ok) { const err = await res.json().catch(() => ({ error: "Request failed" })); throw new Error(err.error || "Request failed"); }
+  if (res.status === 401 && !opts.noAuthEvent) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
+  if (!res.ok) { const err = await res.json().catch(() => ({ error: "Request failed" })); const e = new Error(err.error || "Request failed"); e.status = res.status; e.code = err.code || null; throw e; }
   return res.json();
 }
 
@@ -131,11 +131,84 @@ const mkLabel = (t) => ({ fontSize: 10, color: GOLD, textTransform: "uppercase",
 const mkInput = (t) => ({ width: "100%", padding: "11px 14px", borderRadius: R.md, border: "1px solid " + t.inputBorder, background: t.inputBg, color: t.text, fontSize: 14, outline: "none", fontFamily: FONT_BODY });
 const mkQtyBtn = (t) => ({ width: 36, height: 36, borderRadius: "50%", border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: t.text });
 
+const SUPPORT_LINE = "Contact your supervisor to have a new link sent.";
+const PIN_RE = /^[0-9]{4}$/;
+const PIN_INPUT_PROPS = { type: "password", inputMode: "numeric", pattern: "[0-9]*", maxLength: 4, autoComplete: "off" };
+const mkPinInput = (t) => ({ ...mkInput(t), letterSpacing: "8px", textAlign: "center", fontSize: 20 });
+const mkFieldErr = (t) => ({ fontSize: 11, color: RED, marginTop: 6, lineHeight: 1.4 });
+const mkHelp = (t) => ({ fontSize: 11, color: t.textMut, marginTop: 6, lineHeight: 1.4 });
+const mkPrimaryBtn = (t, busy) => ({ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 700, cursor: "pointer", opacity: busy ? 0.6 : 1, boxShadow: "0 6px 18px rgba(200,168,78,0.30)", fontFamily: FONT_HEAD });
+const mkGhostBtn = (t) => ({ width: "100%", padding: "12px", marginTop: 12, borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, cursor: "pointer" });
+const mkCardText = (t) => ({ fontSize: 14, color: t.text, lineHeight: 1.55, marginBottom: 14 });
+
+// Weak PIN rules, client side. The API checks shape only. Returns a
+// message naming what is wrong, or null when the PIN is acceptable.
+function weakPinReason(pin, badgeNumber) {
+  if (!PIN_RE.test(pin)) return "PIN must be exactly 4 digits.";
+  if (/^([0-9])\1{3}$/.test(pin)) return "Four of the same digit is too easy to guess. Use a mix of digits.";
+  var d = pin.split("").map(Number);
+  var up = true, down = true;
+  for (var i = 1; i < 4; i++) {
+    if ((d[i] - d[i - 1] + 10) % 10 !== 1) up = false;
+    if ((d[i - 1] - d[i] + 10) % 10 !== 1) down = false;
+  }
+  if (up || down) return "Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.";
+  var badge = badgeNumber ? String(badgeNumber).trim() : "";
+  if (badge && (pin === badge || pin === badge.slice(-4))) return "Your PIN cannot be your badge number or its last four digits.";
+  return null;
+}
+
+// Entry from an emailed link. Read once at module scope, before the
+// first render, so it stays out of the render path.
+function readEntryFromUrl() {
+  try {
+    var path = String(window.location.pathname || "").replace(/\/+$/, "").toLowerCase();
+    var token = new URLSearchParams(window.location.search || "").get("token");
+    if (path === "/activate") return { screen: "activate", token: token || null };
+    if (path === "/reset-pin") return { screen: "reset", token: token || null };
+    return null;
+  } catch (e) { return null; }
+}
+const ENTRY = readEntryFromUrl();
+if (ENTRY && ENTRY.token) {
+  try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
+}
+// Once the person leaves an entry screen, the address bar goes back to
+// the root so a later reload boots the stored session instead of the
+// incomplete-link card.
+function leaveEntryPath() {
+  if (!ENTRY) return;
+  try { window.history.replaceState({}, "", "/"); } catch (e) {}
+}
+
+// Session persistence. Only the JWT and the time it was saved. Never
+// the PIN, the identifier, or anything from the user record.
+const AUTH_KEY = "ocsa_auth";
+const AUTH_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+
+function saveAuth(tok) {
+  try { window.localStorage.setItem(AUTH_KEY, JSON.stringify({ token: tok, savedAt: Date.now() })); } catch (e) {}
+}
+function readAuth() {
+  try {
+    var raw = window.localStorage.getItem(AUTH_KEY);
+    if (!raw) return null;
+    var p = JSON.parse(raw);
+    if (!p || !p.token) return null;
+    if (!p.savedAt || (Date.now() - p.savedAt) > AUTH_MAX_AGE_MS) return null;
+    return p.token;
+  } catch (e) { return null; }
+}
+function clearAuth() {
+  try { window.localStorage.removeItem(AUTH_KEY); } catch (e) {}
+}
+
 export default function OCSAStaffPortal() {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
   const [sites, setSites] = useState([]);
-  const [screen, setScreen] = useState("login");
+  const [screen, setScreen] = useState(ENTRY ? ENTRY.screen : "login");
+  const [booting, setBooting] = useState(!ENTRY && !!readAuth());
   const [activeTab, setActiveTab] = useState("clock");
   const [clockStatus, setClockStatus] = useState(null);
   const [selectedSite, setSelectedSite] = useState(null);
@@ -158,7 +231,7 @@ export default function OCSAStaffPortal() {
   const toggleTheme = () => { const next = themeMode === "dark" ? "light" : "dark"; setThemeMode(next); try { localStorage.setItem("ocsa-staff-theme", next); } catch {} };
 
   useEffect(() => { const i = setInterval(() => setCurrentTime(now()), 1000); return () => clearInterval(i); }, []);
-  useEffect(() => { const h = () => { setToken(null); setUser(null); setScreen("login"); }; window.addEventListener("ocsa-session-expired", h); return () => window.removeEventListener("ocsa-session-expired", h); }, []);
+  useEffect(() => { const h = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setTasks([]); setCompletedTaskIds(new Set()); setActiveTab("clock"); }; window.addEventListener("ocsa-session-expired", h); return () => window.removeEventListener("ocsa-session-expired", h); }, []);
   const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
   const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); } catch (err) { console.error(err); } }, [token]);
   const loadSessionSites = useCallback(async (tkn) => { try { const data = await api("/api/shift-sessions/sites", { token: tkn || token }); setSessionSites(data); } catch (err) { console.error(err); } }, [token]);
@@ -167,22 +240,60 @@ export default function OCSAStaffPortal() {
   const lkColorMap = useCallback((slug) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return {}; const m = {}; (cat.values || []).forEach(v => { if (v.color) m[v.value] = v.color; }); return m; }, [lookups]);
   const lkHasOther = useCallback((slug, val) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return false; const v = (cat.values || []).find(x => x.value === val); return v?.show_other_input || false; }, [lookups]);
 
+  // One bootstrap for the login path, the boot path and the activation
+  // path, so the three cannot drift. Only /api/auth/me is awaited before
+  // the screen switches, since the main screen reads user.
+  const hydrateSession = useCallback(async (tok) => {
+    const me = await api("/api/auth/me", { token: tok });
+    setUser(me.user); setSites(me.sites);
+    api("/api/users/profile/me", { token: tok }).then(p => { if (p?.user?.profilePhotoUrl) setUser(prev => ({ ...prev, profilePhotoUrl: p.user.profilePhotoUrl })); }).catch(() => {});
+    try { const cs = await api("/api/clock/status", { token: tok }); setClockStatus(cs); if (cs.clockedIn && cs.shift) setSelectedSite(cs.shift.siteId); } catch (e) { console.warn("Clock status:", e.message); }
+    loadAssignedTasks(tok);
+    loadSessionSites(tok);
+    api("/api/lookups", { token: tok }).then(setLookups).catch(e => console.warn("Lookups:", e.message));
+    // The forced PIN set fires only when the API says so, strictly true.
+    // mustSetPin sits at the top level of the /api/auth/me response,
+    // beside user. While it is absent this branch stays dormant.
+    setScreen(me.mustSetPin === true ? "setpin" : "main");
+    return me.user;
+  }, [loadAssignedTasks, loadSessionSites]);
+
+  // Boot from a stored session. An emailed link wins over a stored session.
+  const bootRan = useRef(false);
+  useEffect(() => {
+    if (bootRan.current) return;
+    bootRan.current = true;
+    if (ENTRY) return;
+    const tok = readAuth();
+    if (!tok) return;
+    setToken(tok);
+    hydrateSession(tok)
+      .catch(() => { clearAuth(); setToken(null); setUser(null); setScreen("login"); })
+      .finally(() => setBooting(false));
+  }, [hydrateSession]);
+
   const handleLogin = async (phone, pin) => {
     setLoading(true);
     try {
       const data = await api("/api/auth/login", { method: "POST", body: { phone, pin } });
-      setToken(data.token);
-      const me = await api("/api/auth/me", { token: data.token });
-      setUser(me.user); setSites(me.sites);
-      api("/api/users/profile/me", { token: data.token }).then(p => { if (p?.user?.profilePhotoUrl) setUser(prev => ({ ...prev, profilePhotoUrl: p.user.profilePhotoUrl })); }).catch(() => {});
-      try { const cs = await api("/api/clock/status", { token: data.token }); setClockStatus(cs); if (cs.clockedIn && cs.shift) setSelectedSite(cs.shift.siteId); } catch (e) { console.warn("Clock status:", e.message); }
-      loadAssignedTasks(data.token);
-      loadSessionSites(data.token);
-      api("/api/lookups", { token: data.token }).then(setLookups).catch(e => console.warn("Lookups:", e.message));
-      setScreen("main"); showToast("Welcome, " + me.user.firstName);
+      setToken(data.token); saveAuth(data.token);
+      const me = await hydrateSession(data.token);
+      showToast("Welcome, " + me.firstName);
     } catch (err) { showToast(err.message, "error"); }
     setLoading(false);
   };
+
+  // A successful activation or reset returns the same twelve-hour JWT a
+  // login does. Store it the same way and take the same path in.
+  const handleAuthSuccess = async (tok) => {
+    leaveEntryPath();
+    setToken(tok); saveAuth(tok);
+    try { const me = await hydrateSession(tok); showToast("Welcome, " + me.firstName); }
+    catch (err) { clearAuth(); setToken(null); setUser(null); setScreen("login"); showToast(err.message, "error"); }
+  };
+
+  const handlePinSet = () => { setScreen("main"); showToast("PIN updated"); };
+  const goLogin = () => { leaveEntryPath(); setScreen("login"); };
 
   const handleRegister = async (firstName, lastName, phone, email, pin) => {
     setLoading(true);
@@ -190,7 +301,7 @@ export default function OCSAStaffPortal() {
     setLoading(false);
   };
 
-  const handleLogout = () => { setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setTasks([]); setCompletedTaskIds(new Set()); setActiveTab("clock"); };
+  const handleLogout = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setTasks([]); setCompletedTaskIds(new Set()); setActiveTab("clock"); };
 
   const handleStartSession = async (siteId) => {
     if (!siteId) { showToast("Select a site first", "error"); return; }
@@ -238,9 +349,14 @@ export default function OCSAStaffPortal() {
   return (
     <div style={{ width: "100%", minHeight: "100vh", background: t.bg, fontFamily: FONT_BODY, color: t.text, position: "relative", display: "flex", flexDirection: "column" }}>
 
-      {screen === "login" && <LoginScreen onLogin={handleLogin} onGoRegister={() => setScreen("register")} loading={loading} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
+      {booting && <BootSplash t={t} themeMode={themeMode} />}
+      {!booting && screen === "login" && <LoginScreen onLogin={handleLogin} onGoRegister={() => setScreen("register")} onGoForgot={() => setScreen("forgot")} loading={loading} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
       {screen === "register" && <RegisterScreen onRegister={handleRegister} onBack={() => setScreen("login")} loading={loading} t={t} />}
-      {screen === "main" && (
+      {screen === "activate" && <ActivateScreen token={ENTRY ? ENTRY.token : null} onActivated={handleAuthSuccess} onGoLogin={goLogin} showToast={showToast} t={t} />}
+      {screen === "reset" && <ResetScreen token={ENTRY ? ENTRY.token : null} onReset={handleAuthSuccess} onGoLogin={goLogin} onGoForgot={() => setScreen("forgot")} showToast={showToast} t={t} />}
+      {screen === "forgot" && <ForgotScreen onGoLogin={goLogin} showToast={showToast} t={t} />}
+      {screen === "setpin" && <SetPinScreen token={token} user={user} onDone={handlePinSet} onSignOut={handleLogout} showToast={showToast} t={t} />}
+      {!booting && screen === "main" && (
         <>
           <div style={{ background: "linear-gradient(135deg, " + t.headerBg + " 0%, " + t.headerBg2 + " 100%)", padding: "14px 16px 10px", borderBottom: "1px solid " + (themeMode === "dark" ? t.borderSolid : "rgba(255,255,255,0.08)") }}>
             <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -339,7 +455,7 @@ export default function OCSAStaffPortal() {
   );
 }
 
-function LoginScreen({ onLogin, onGoRegister, loading, showToast, t, toggleTheme, themeMode }) {
+function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, showToast, t, toggleTheme, themeMode }) {
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
   const labelSt = mkLabel(t);
@@ -353,8 +469,9 @@ function LoginScreen({ onLogin, onGoRegister, loading, showToast, t, toggleTheme
           <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 700 }}>Staff Operations Portal</div>
           <div style={{ fontSize: 10, color: GREEN, marginTop: 8 }}>Connected to Live API</div>
         </div>
-        <div style={{ marginBottom: 16 }}><label style={labelSt}>Phone Number or Email</label><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="2155550101 or name@email.com" style={inputSt} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
-        <div style={{ marginBottom: 24 }}><label style={labelSt}>PIN</label><input value={pin} onChange={e => setPin(e.target.value)} placeholder="4-digit PIN" type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
+        <div style={{ marginBottom: 16 }}><label style={labelSt}>Badge Number, Phone or Email</label><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="9001, 2155550101 or name@email.com" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
+        <div style={{ marginBottom: 8 }}><label style={labelSt}>PIN</label><input value={pin} onChange={e => setPin(e.target.value)} placeholder="4-digit PIN" type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
+        <div style={{ textAlign: "right", marginBottom: 24 }}><button onClick={onGoForgot} style={{ background: "none", border: "none", padding: "4px 0", color: t.textSec, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>Forgot your PIN?</button></div>
         <button onClick={() => onLogin(phone, pin)} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading ? 0.6 : 1, boxShadow: "0 6px 18px rgba(200,168,78,0.30)", fontFamily: FONT_HEAD }}>{loading ? "Signing in..." : "Sign In"}</button>
         <button onClick={onGoRegister} style={{ width: "100%", padding: "12px", marginTop: 12, borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, cursor: "pointer" }}>New Employee? Register Here</button>
         <div style={{ textAlign: "center", marginTop: 20 }}><button onClick={toggleTheme} style={{ background: "none", border: "1px solid " + t.border, borderRadius: 8, padding: "6px 14px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, color: t.textMut, fontSize: 11 }}>{themeMode === "dark" ? <SunIco sz={14} c={t.textMut} /> : <MoonIco sz={14} c={t.textMut} />}{themeMode === "dark" ? "Light Mode" : "Dark Mode"}</button></div>
@@ -385,6 +502,318 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
         <button onClick={onBack} style={{ width: "100%", padding: "12px", marginTop: 12, borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, cursor: "pointer" }}>Back to Login</button>
       </div>
     </div>
+  );
+}
+
+function AuthCard({ t, title, children }) {
+  return (
+    <div style={{ width: "100%", minHeight: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
+      <div style={{ width: "100%", maxWidth: 420, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: "28px 24px", boxShadow: t.popShadow }}>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{ display: "inline-block", padding: "4px 12px", background: "rgba(255,255,255,0.92)", borderRadius: 6 }}><img src={LOGO_SM} alt={clientConfig.company.shortName} style={{ height: 34 }} /></div>
+          <div style={{ fontSize: 12, color: t.textSec, letterSpacing: "2px", textTransform: "uppercase", marginTop: 8, fontFamily: FONT_HEAD, fontWeight: 700 }}>{title}</div>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function BootSplash({ t, themeMode }) {
+  return (
+    <div style={{ width: "100%", minHeight: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ display: "inline-block", padding: themeMode === "dark" ? "12px 20px" : "0", background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: 12 }}><img src={LOGO_LG} alt={clientConfig.company.shortName} style={{ height: 70 }} /></div>
+        <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 700 }}>Staff Operations Portal</div>
+        <div style={{ fontSize: 10, color: t.textMut, marginTop: 8, animation: "pulse 2s infinite" }}>Loading...</div>
+      </div>
+    </div>
+  );
+}
+
+function LangPicker({ value, onChange, t }) {
+  const opts = [["en", "English"], ["es", "Espa\u00f1ol"]];
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      {opts.map(([v, l]) => <button key={v} type="button" onClick={() => onChange(v)} style={{ flex: 1, padding: "10px", borderRadius: R.sm, fontSize: 12, fontWeight: 700, fontFamily: FONT_HEAD, background: value === v ? t.goldBg : "transparent", color: value === v ? GOLD : t.textMut, border: "1px solid " + (value === v ? t.goldBorder : t.borderSolid), cursor: "pointer" }}>{l}</button>)}
+    </div>
+  );
+}
+
+const fmtExpiry = (v) => { try { return new Date(v).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; } };
+const ERR_GENERIC = "Something went wrong on our end. Try again in a minute.";
+const ERR_PIN_MISMATCH = "The two PINs do not match. Type the same 4 digits in both fields.";
+const MSG_LINK_INVALID = "This link is no longer valid. Links expire, and each one can only be used once.";
+
+function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
+  const [phase, setPhase] = useState(token ? "checking" : "incomplete");
+  const [info, setInfo] = useState(null);
+  const [fail, setFail] = useState({ from: "", msg: "" });
+  const [badge, setBadge] = useState("");
+  const [pin, setPin] = useState("");
+  const [pin2, setPin2] = useState("");
+  const [locale, setLocale] = useState("en");
+  const [errs, setErrs] = useState({});
+  const [mismatches, setMismatches] = useState(0);
+  const [attempt, setAttempt] = useState(0);
+  const labelSt = mkLabel(t); const inputSt = mkInput(t); const pinSt = mkPinInput(t); const errSt = mkFieldErr(t); const helpSt = mkHelp(t); const textSt = mkCardText(t);
+
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    setPhase("checking");
+    api("/api/auth/activate/" + encodeURIComponent(token), { noAuthEvent: true })
+      .then(d => { if (!alive) return; setInfo(d); setLocale(d.preferredLanguage === "es" ? "es" : "en"); setPhase("form"); })
+      .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: ERR_GENERIC }); setPhase("error"); } });
+    return () => { alive = false; };
+  }, [token, attempt]);
+
+  // The API requires the badge whenever the row carries one. The GET says
+  // so through badgeAssigned; treat anything but an explicit false as required.
+  const needBadge = !info || info.badgeAssigned !== false;
+
+  const submit = async () => {
+    const e = {};
+    const b = badge.trim();
+    if (needBadge && !b) e.badge = "Enter the badge number from your email.";
+    if (!PIN_RE.test(pin)) e.pin = "PIN must be exactly 4 digits.";
+    else if (pin2 !== pin) e.pin2 = ERR_PIN_MISMATCH;
+    setErrs(e);
+    if (Object.keys(e).length) return;
+    setPhase("working");
+    try {
+      const body = { token, pin, locale };
+      if (needBadge) body.badgeNumber = b;
+      const d = await api("/api/auth/activate", { method: "POST", body, noAuthEvent: true });
+      if (d.token) { setPhase("done"); onActivated(d.token); return; }
+      setFail({ from: "post", msg: d.message || "Your account is activated but not currently active. Contact your supervisor." });
+      setPhase("inactive");
+    } catch (err) {
+      if (err.code === "TOKEN_INVALID") { setPhase("invalid"); return; }
+      if (err.code === "BADGE_MISMATCH") {
+        const n = mismatches + 1; setMismatches(n);
+        setErrs({ badge: "That badge number does not match our records. Check the number in your email." + (n >= 3 ? " Ask your supervisor to confirm your badge number." : "") });
+        setPhase("form"); return;
+      }
+      if (err.status === 400) { setErrs({ pin: err.message }); setPhase("form"); return; }
+      setFail({ from: "post", msg: ERR_GENERIC }); setPhase("error");
+    }
+  };
+  const retry = () => { setErrs({}); if (fail.from === "get") setAttempt(a => a + 1); else setPhase("form"); };
+  const working = phase === "working";
+
+  if (phase === "incomplete") return (
+    <AuthCard t={t} title="Account Activation">
+      <div style={textSt}>This activation link is incomplete. Open the link from your email again.</div>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+    </AuthCard>
+  );
+  if (phase === "checking" || phase === "done") return (
+    <AuthCard t={t} title="Account Activation">
+      <div style={{ ...textSt, textAlign: "center", color: t.textMut, animation: "pulse 2s infinite" }}>{phase === "done" ? "PIN set. Signing you in..." : "Checking your link..."}</div>
+    </AuthCard>
+  );
+  if (phase === "invalid") return (
+    <AuthCard t={t} title="Account Activation">
+      <div style={textSt}>{MSG_LINK_INVALID}</div>
+      <div style={textSt}>{SUPPORT_LINE}</div>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+    </AuthCard>
+  );
+  if (phase === "inactive") return (
+    <AuthCard t={t} title="Account Activation">
+      <div style={textSt}>{fail.msg}</div>
+      <div style={{ ...textSt, color: t.textSec }}>Your PIN has been saved. Signing in will work once your account is active.</div>
+    </AuthCard>
+  );
+  if (phase === "error") return (
+    <AuthCard t={t} title="Account Activation">
+      <div style={textSt}>{fail.msg}</div>
+      <button onClick={retry} style={mkPrimaryBtn(t, false)}>Try Again</button>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+    </AuthCard>
+  );
+  return (
+    <AuthCard t={t} title="Account Activation">
+      <div style={textSt}>{info && info.firstName ? "Welcome, " + info.firstName + ". " : ""}Confirm your badge number and choose your 4-digit PIN.</div>
+      {info && info.expiresAt && <div style={{ ...helpSt, marginTop: 0, marginBottom: 16 }}>This link works until {fmtExpiry(info.expiresAt)} and can be used once.</div>}
+      {needBadge && <div style={{ marginBottom: 14 }}>
+        <label style={labelSt}>Badge Number</label>
+        <input value={badge} onChange={e => setBadge(e.target.value)} inputMode="numeric" pattern="[0-9]*" autoComplete="off" placeholder="Badge number" style={inputSt} />
+        <div style={helpSt}>The number on the email we sent you.</div>
+        {errs.badge && <div style={errSt}>{errs.badge}</div>}
+      </div>}
+      <div style={{ marginBottom: 14 }}><label style={labelSt}>PIN (4 digits)</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
+      <div style={{ marginBottom: 14 }}><label style={labelSt}>Confirm PIN</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
+      <div style={{ marginBottom: 22 }}><label style={labelSt}>Language</label><LangPicker value={locale} onChange={setLocale} t={t} /></div>
+      <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? "Activating..." : "Activate Account"}</button>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+    </AuthCard>
+  );
+}
+
+function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
+  const [phase, setPhase] = useState(token ? "checking" : "incomplete");
+  const [info, setInfo] = useState(null);
+  const [fail, setFail] = useState({ from: "", msg: "" });
+  const [pin, setPin] = useState("");
+  const [pin2, setPin2] = useState("");
+  const [errs, setErrs] = useState({});
+  const [attempt, setAttempt] = useState(0);
+  const labelSt = mkLabel(t); const pinSt = mkPinInput(t); const errSt = mkFieldErr(t); const helpSt = mkHelp(t); const textSt = mkCardText(t);
+
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    setPhase("checking");
+    api("/api/auth/reset/" + encodeURIComponent(token), { noAuthEvent: true })
+      .then(d => { if (!alive) return; setInfo(d); setPhase("form"); })
+      .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: ERR_GENERIC }); setPhase("error"); } });
+    return () => { alive = false; };
+  }, [token, attempt]);
+
+  const submit = async () => {
+    const e = {};
+    if (!PIN_RE.test(pin)) e.pin = "PIN must be exactly 4 digits.";
+    else if (pin2 !== pin) e.pin2 = ERR_PIN_MISMATCH;
+    setErrs(e);
+    if (Object.keys(e).length) return;
+    setPhase("working");
+    try {
+      const d = await api("/api/auth/reset", { method: "POST", body: { token, pin }, noAuthEvent: true });
+      if (d.token) { setPhase("done"); onReset(d.token); return; }
+      setFail({ from: "post", msg: d.message || "Your PIN has been changed. Contact your supervisor about your account status." });
+      setPhase("inactive");
+    } catch (err) {
+      if (err.code === "TOKEN_INVALID") { setPhase("invalid"); return; }
+      if (err.status === 400) { setErrs({ pin: err.message }); setPhase("form"); return; }
+      setFail({ from: "post", msg: ERR_GENERIC }); setPhase("error");
+    }
+  };
+  const retry = () => { setErrs({}); if (fail.from === "get") setAttempt(a => a + 1); else setPhase("form"); };
+  const working = phase === "working";
+
+  if (phase === "incomplete") return (
+    <AuthCard t={t} title="Reset Your PIN">
+      <div style={textSt}>This reset link is incomplete. Open the link from your email again.</div>
+      <button onClick={onGoForgot} style={mkPrimaryBtn(t, false)}>Request a New Link</button>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+    </AuthCard>
+  );
+  if (phase === "checking" || phase === "done") return (
+    <AuthCard t={t} title="Reset Your PIN">
+      <div style={{ ...textSt, textAlign: "center", color: t.textMut, animation: "pulse 2s infinite" }}>{phase === "done" ? "PIN saved. Signing you in..." : "Checking your link..."}</div>
+    </AuthCard>
+  );
+  if (phase === "invalid") return (
+    <AuthCard t={t} title="Reset Your PIN">
+      <div style={textSt}>{MSG_LINK_INVALID}</div>
+      <button onClick={onGoForgot} style={mkPrimaryBtn(t, false)}>Request a New Link</button>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+    </AuthCard>
+  );
+  if (phase === "inactive") return (
+    <AuthCard t={t} title="Reset Your PIN">
+      <div style={textSt}>{fail.msg}</div>
+      <div style={{ ...textSt, color: t.textSec }}>Signing in will work once your account is active.</div>
+    </AuthCard>
+  );
+  if (phase === "error") return (
+    <AuthCard t={t} title="Reset Your PIN">
+      <div style={textSt}>{fail.msg}</div>
+      <button onClick={retry} style={mkPrimaryBtn(t, false)}>Try Again</button>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+    </AuthCard>
+  );
+  return (
+    <AuthCard t={t} title="Reset Your PIN">
+      <div style={textSt}>{info && info.firstName ? "Welcome back, " + info.firstName + ". " : ""}Choose your new 4-digit PIN.</div>
+      {info && info.expiresAt && <div style={{ ...helpSt, marginTop: 0, marginBottom: 16 }}>This link works until {fmtExpiry(info.expiresAt)} and can be used once.</div>}
+      <div style={{ marginBottom: 14 }}><label style={labelSt}>New PIN (4 digits)</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
+      <div style={{ marginBottom: 22 }}><label style={labelSt}>Confirm PIN</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
+      <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? "Saving..." : "Save PIN"}</button>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+    </AuthCard>
+  );
+}
+
+function ForgotScreen({ onGoLogin, showToast, t }) {
+  const [ident, setIdent] = useState("");
+  const [err, setErr] = useState("");
+  const [phase, setPhase] = useState("form");
+  const labelSt = mkLabel(t); const inputSt = mkInput(t); const errSt = mkFieldErr(t); const textSt = mkCardText(t);
+
+  const submit = async () => {
+    const v = ident.trim();
+    if (!v) { setErr("Enter your badge number, phone number or email address."); return; }
+    setErr(""); setPhase("working");
+    try {
+      await api("/api/auth/reset/request", { method: "POST", body: { identifier: v }, noAuthEvent: true });
+      setPhase("sent");
+    } catch (e) {
+      setPhase("form");
+      setErr(e.status === 400 ? e.message : ERR_GENERIC);
+    }
+  };
+  const working = phase === "working";
+
+  // The API answers the same neutral 200 for every outcome except an
+  // empty identifier, so the confirmation conditions on nothing.
+  if (phase === "sent") return (
+    <AuthCard t={t} title="Reset Your PIN">
+      <div style={textSt}>If that matches an account on file, a reset link is on its way. The link is good for one hour.</div>
+      <div style={textSt}>If you do not have an email address on file, no link can reach you. Contact your supervisor to have your PIN reset directly.</div>
+      <div style={textSt}>Forgotten your badge number? You can also sign in with your phone number or your email address.</div>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+    </AuthCard>
+  );
+  return (
+    <AuthCard t={t} title="Reset Your PIN">
+      <div style={textSt}>Enter the badge number, phone number or email address on your account and we will email you a link to choose a new PIN.</div>
+      <div style={{ marginBottom: 22 }}>
+        <label style={labelSt}>Badge Number, Phone or Email</label>
+        <input value={ident} onChange={e => setIdent(e.target.value)} placeholder="9001, 2155550101 or name@email.com" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />
+        {err && <div style={errSt}>{err}</div>}
+      </div>
+      <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? "Sending..." : "Send Reset Link"}</button>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+    </AuthCard>
+  );
+}
+
+// Forced PIN set. Rendered as its own screen value with no tab bar, no
+// back affordance and no dismiss. The person typed the assigned PIN to
+// get here, so only the new PIN and its confirmation are asked for.
+function SetPinScreen({ token, user, onDone, onSignOut, showToast, t }) {
+  const [pin, setPin] = useState("");
+  const [pin2, setPin2] = useState("");
+  const [errs, setErrs] = useState({});
+  const [working, setWorking] = useState(false);
+  const labelSt = mkLabel(t); const pinSt = mkPinInput(t); const errSt = mkFieldErr(t); const textSt = mkCardText(t);
+
+  const submit = async () => {
+    const e = {};
+    const why = weakPinReason(pin, user && user.badgeNumber);
+    if (why) e.pin = why;
+    else if (pin2 !== pin) e.pin2 = ERR_PIN_MISMATCH;
+    setErrs(e);
+    if (Object.keys(e).length) return;
+    setWorking(true);
+    try {
+      const d = await api("/api/auth/change-pin", { method: "POST", body: { newPin: pin }, token });
+      onDone(d);
+    } catch (err) { setErrs({ pin: err.message }); }
+    setWorking(false);
+  };
+
+  return (
+    <AuthCard t={t} title="Set Your PIN">
+      <div style={textSt}>Set your own PIN. The PIN you were given is known to your supervisor. Choose a new one that only you know.</div>
+      <div style={{ marginBottom: 14 }}><label style={labelSt}>New PIN (4 digits)</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
+      <div style={{ marginBottom: 22 }}><label style={labelSt}>Confirm PIN</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
+      <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? "Saving..." : "Save PIN"}</button>
+      <div style={{ textAlign: "center", marginTop: 18 }}><button onClick={onSignOut} style={{ background: "none", border: "none", padding: "4px 0", color: t.textMut, fontSize: 11, cursor: "pointer", textDecoration: "underline" }}>Not you? Sign out</button></div>
+    </AuthCard>
   );
 }
 
@@ -1411,6 +1840,32 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
   const [form, setForm] = useState({});
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pinForm, setPinForm] = useState({ current: "", next: "", confirm: "" });
+  const [pinErrs, setPinErrs] = useState({});
+  const [pinSaving, setPinSaving] = useState(false);
+
+  // The current PIN is required here. The threat on this screen is a
+  // handset left unlocked, so the change has to prove it is the owner.
+  const changePin = async () => {
+    const e = {};
+    if (!PIN_RE.test(pinForm.current)) e.current = "Enter your current 4-digit PIN.";
+    const why = weakPinReason(pinForm.next, (profile && profile.user && profile.user.badgeNumber) || (user && user.badgeNumber));
+    if (why) e.next = why;
+    else if (pinForm.confirm !== pinForm.next) e.confirm = ERR_PIN_MISMATCH;
+    else if (pinForm.next === pinForm.current) e.next = "Your new PIN must be different from your current PIN.";
+    setPinErrs(e);
+    if (Object.keys(e).length) return;
+    setPinSaving(true);
+    try {
+      await api("/api/auth/change-pin", { method: "POST", body: { currentPin: pinForm.current, newPin: pinForm.next }, token });
+      showToast("PIN updated");
+      setPinForm({ current: "", next: "", confirm: "" });
+    } catch (err) {
+      const msg = err.message || "Could not update your PIN.";
+      setPinErrs(/new/i.test(msg) ? { next: msg } : { current: msg });
+    }
+    setPinSaving(false);
+  };
 
   const loadProfile = async () => {
     try {
@@ -1505,6 +1960,10 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
               </div>
             : <div style={{ marginTop: 8, fontSize: 10, color: t.textMut, fontStyle: "italic" }}>Employee ID not assigned. Ask your supervisor.</div>
           }
+          {u.badgeNumber && <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 6, padding: "3px 10px", borderRadius: R.sm, background: t.goldSubtle, border: "1px solid " + GOLD }}>
+            <span style={{ fontSize: 8, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>Badge Number</span>
+            <span style={{ fontSize: 12, color: t.text, fontWeight: 700, letterSpacing: "0.5px", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{u.badgeNumber}</span>
+          </div>}
         </div>
       </div>
 
@@ -1543,6 +2002,18 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
             <button onClick={saveProfile} disabled={saving} style={{ padding: "10px 18px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(200,168,78,0.30)" }}>{saving ? "Saving..." : "Save"}</button>
           </div>
         </div>}
+      </div>
+
+      {/* Change PIN */}
+      <div style={cardSt}>
+        <div style={{ ...labelSt, marginBottom: 6 }}>Change PIN</div>
+        <div style={{ fontSize: 11, color: t.textMut, marginBottom: 12, lineHeight: 1.4 }}>Your PIN is 4 digits. Choose one that only you know.</div>
+        <div style={{ marginBottom: 10 }}><label style={labelSt}>Current PIN</label><input value={pinForm.current} onChange={e => setPinForm({ ...pinForm, current: e.target.value })} {...PIN_INPUT_PROPS} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{pinErrs.current && <div style={mkFieldErr(t)}>{pinErrs.current}</div>}</div>
+        <div style={{ marginBottom: 10 }}><label style={labelSt}>New PIN</label><input value={pinForm.next} onChange={e => setPinForm({ ...pinForm, next: e.target.value })} {...PIN_INPUT_PROPS} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{pinErrs.next && <div style={mkFieldErr(t)}>{pinErrs.next}</div>}</div>
+        <div style={{ marginBottom: 10 }}><label style={labelSt}>Confirm New PIN</label><input value={pinForm.confirm} onChange={e => setPinForm({ ...pinForm, confirm: e.target.value })} {...PIN_INPUT_PROPS} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && !pinSaving && changePin()} />{pinErrs.confirm && <div style={mkFieldErr(t)}>{pinErrs.confirm}</div>}</div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+          <button onClick={changePin} disabled={pinSaving} style={{ padding: "10px 18px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: pinSaving ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(200,168,78,0.30)" }}>{pinSaving ? "Saving..." : "Update PIN"}</button>
+        </div>
       </div>
 
       {/* Assignments */}
