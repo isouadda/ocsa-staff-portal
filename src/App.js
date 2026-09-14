@@ -406,7 +406,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} t={t} token={token} />}
-              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} />}
+              {activeTab === "agent" && <AgentView token={token} t={t} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
@@ -1305,10 +1305,10 @@ const agentField = (o, keys, fallback) => { for (const k of keys) { if (o && o[k
 const agentList = (d, keys) => { if (Array.isArray(d)) return d; for (const k of keys) { if (d && Array.isArray(d[k])) return d[k]; } return []; };
 const agentKeyWords = (k) => String(k).replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/^\w/, c => c.toUpperCase());
 const agentDraftId = (d) => agentField(d, ["id", "formResponseId", "form_response_id"], null);
-const agentName = (d) => agentField(d, ["formName", "formTitle", "form_name", "title", "formCode", "form_code"], "Report");
+const agentName = (d) => agentField(d, ["formName", "formCode"], "Report");
 const agentCount = (d) => { const a = agentField(d, ["answered", "answeredCount", "answered_count"], null), r = agentField(d, ["remaining", "remainingCount", "remaining_count"], null); return (a !== null && r !== null) ? a + " of " + (Number(a) + Number(r)) + " answered" : null; };
 
-function AgentView({ token, showToast, t }) {
+function AgentView({ token, t }) {
   const [drafts, setDrafts] = useState([]);
   const [conversationId, setConversationId] = useState(null);
   const [thread, setThread] = useState([]);
@@ -1321,7 +1321,7 @@ function AgentView({ token, showToast, t }) {
   const endRef = useRef(null); const taRef = useRef(null); const seqRef = useRef(0);
   const inputSt = mkInput(t);
 
-  const loadDrafts = useCallback(async () => { try { const d = await api("/api/agent/drafts", { token }); setDrafts(agentList(d, ["drafts", "items", "rows"])); } catch (err) { console.warn("Drafts:", err.message); } }, [token]);
+  const loadDrafts = useCallback(async () => { try { const d = await api("/api/agent/drafts", { token }); setDrafts(agentList(d, ["drafts"])); } catch (err) { console.warn("Drafts:", err.message); } }, [token]);
   useEffect(() => { loadDrafts(); }, [loadDrafts]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [thread.length, formResponse]);
   // The composer grows to a few lines and then scrolls.
@@ -1342,7 +1342,7 @@ function AgentView({ token, showToast, t }) {
       // The composer clears only now, and only if it still holds what was sent.
       setText(prev => prev.trim() === msgText ? "" : prev);
       setThread(prev => [...prev.map(m => m.id === msgId ? { ...m, pending: false } : m), { id: "a" + (++seqRef.current), role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], degraded: data.degraded === true, noProcedure: data.noProcedure === true }]);
-      if (data.formResponse) { setFormResponse(data.formResponse); setMissing([]); setSubmitted(false); }
+      if (data.formResponse) { setFormResponse({ ...data.formResponse, readyToSubmit: typeof data.readyToSubmit === "boolean" ? data.readyToSubmit : null }); setMissing([]); setSubmitted(false); }
     } catch (err) {
       setThread(prev => prev.map(m => m.id === msgId ? { ...m, pending: false, failed: true, error: err.message } : m));
     }
@@ -1350,21 +1350,12 @@ function AgentView({ token, showToast, t }) {
   };
   const handleSend = () => { const v = text.trim(); if (!v || sending) return; const id = "u" + (++seqRef.current); setThread(prev => [...prev, { id, role: "user", text: v, pending: true }]); send(id, v); };
 
-  // Resume reads the draft row. With a conversation id on it the thread is
-  // loaded from the API. Without one the composer opens and the API reuses
+  // Resume pins the card and focuses the composer. A draft row carries no
+  // conversation id, so the next message goes without one and the API reuses
   // the recent conversation on its own.
-  const resume = async (d) => {
-    setFormResponse({ id: agentDraftId(d), formCode: agentField(d, ["formCode", "form_code"], ""), formName: agentField(d, ["formName", "formTitle", "form_name", "title"], null), status: agentField(d, ["status"], "draft"), answered: agentField(d, ["answered", "answeredCount", "answered_count"], null), remaining: agentField(d, ["remaining", "remainingCount", "remaining_count"], null), nextQuestion: agentField(d, ["nextQuestion", "next_question"], null) });
+  const resume = (d) => {
+    setFormResponse({ id: agentDraftId(d), formCode: agentField(d, ["formCode"], ""), formName: agentField(d, ["formName"], null), status: agentField(d, ["status"], "draft"), answered: agentField(d, ["answered"], null), remaining: agentField(d, ["remaining"], null), nextQuestion: agentField(d, ["nextQuestion"], null), readyToSubmit: null });
     setMissing([]); setSubmitted(false);
-    const cid = agentField(d, ["conversationId", "conversation_id"], null);
-    if (cid) {
-      try {
-        const h = await api("/api/agent/conversations/" + cid, { token });
-        const list = agentList(h, ["messages", "turns", "history"]);
-        setThread(list.map((m, i) => ({ id: "h" + i, role: String(agentField(m, ["role", "sender"], "assistant")).toLowerCase() === "user" ? "user" : "assistant", text: String(agentField(m, ["text", "content", "reply"], "")), citedDocs: agentList(agentField(m, ["citedDocs", "cited_doc_codes", "citedDocCodes"], []), []), degraded: agentField(m, ["degraded"], false) === true, noProcedure: agentField(m, ["noProcedure", "no_procedure"], false) === true })));
-        setConversationId(cid);
-      } catch (err) { showToast(err.message, "error"); }
-    }
     taRef.current?.focus();
   };
 
@@ -1376,8 +1367,11 @@ function AgentView({ token, showToast, t }) {
     setSubmitBusy(false);
   };
 
+  // readyToSubmit is the API saying the draft is complete. When it is absent,
+  // as on a card pinned from a draft row, remaining above zero holds the button.
   const remaining = formResponse ? Number(formResponse.remaining) : 0;
-  const canSubmit = !!formResponse && !submitBusy && !(remaining > 0);
+  const ready = formResponse && typeof formResponse.readyToSubmit === "boolean" ? formResponse.readyToSubmit : !(remaining > 0);
+  const canSubmit = !!formResponse && !submitBusy && ready;
   const openDrafts = drafts.filter(d => !formResponse || String(agentDraftId(d)) !== String(formResponse.id));
   const canSend = !!text.trim() && !sending;
   const smallBtn = { padding: "8px 14px", minHeight: 36, borderRadius: R.sm, border: "1px solid " + t.goldBorder, background: t.goldBg, color: GOLD, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 };
