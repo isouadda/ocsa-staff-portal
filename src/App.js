@@ -31,6 +31,11 @@ async function uploadTaskMedia(file, token) {
 const GOLD = clientConfig.brand.gold, GOLD_LIGHT = "#FCEA4A", GREEN = "#2ECC71", RED = "#E74C3C", ORANGE = "#F39C12", BLUE = "#24A4F4";
 const NAVY = clientConfig.brand.navy;
 const NAVY_DARK = clientConfig.brand.navyDark;
+const BLUE_DEEP = clientConfig.brand.blueDeep;
+const BLUE_BRIGHT = clientConfig.brand.blueBright;
+const GOLD_MID = clientConfig.brand.goldMid;
+const SWEEP = "linear-gradient(100deg, " + BLUE_DEEP + " 0%, " + BLUE_BRIGHT + " 28%, #FFFFFF 50%, " + GOLD + " 72%, " + GOLD_MID + " 100%)";
+const SWEEP_BAR = "linear-gradient(100deg, " + BLUE_DEEP + " 0%, " + BLUE_BRIGHT + " 30%, " + GOLD + " 70%, " + GOLD_MID + " 100%)";
 
 function compressImage(file, maxSize, quality) {
   return new Promise((resolve, reject) => {
@@ -376,7 +381,7 @@ export default function OCSAStaffPortal() {
       {screen === "setpin" && <SetPinScreen token={token} user={user} onDone={handlePinSet} onSignOut={handleLogout} showToast={showToast} t={t} />}
       {!booting && screen === "main" && (
         <>
-          <div style={{ background: "linear-gradient(135deg, " + t.headerBg + " 0%, " + t.headerBg2 + " 100%)", padding: "14px 16px 10px", borderBottom: "1px solid " + (themeMode === "dark" ? t.borderSolid : "rgba(255,255,255,0.08)") }}>
+          <div style={{ backgroundImage: SWEEP + ", linear-gradient(135deg, " + t.headerBg + " 0%, " + t.headerBg2 + " 100%)", backgroundSize: "100% 2px, 100% 100%", backgroundPosition: "bottom left, top left", backgroundRepeat: "no-repeat, no-repeat", padding: "14px 16px 10px", borderBottom: "1px solid transparent" }}>
             <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <button onClick={() => setActiveTab("profile")} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", minWidth: 44, minHeight: 44 }}>
@@ -437,7 +442,7 @@ export default function OCSAStaffPortal() {
                 <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMore(false); }} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
                   <TabIco sz={22} c={active ? GOLD : t.textMut} />
                   <span style={{ fontSize: 9, fontWeight: active ? 700 : 500, color: active ? GOLD : t.textMut, letterSpacing: "0.3px" }}>{tab.label}</span>
-                  {active && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: GOLD, borderRadius: 2 }} />}
+                  {active && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: SWEEP_BAR, borderRadius: 2 }} />}
                 </button>
               );
             })}
@@ -447,7 +452,7 @@ export default function OCSAStaffPortal() {
                 {totalBadge > 0 && !isMoreActive && <div style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{totalBadge}</div>}
               </div>
               <span style={{ fontSize: 9, fontWeight: isMoreActive || showMore ? 700 : 500, color: isMoreActive || showMore ? GOLD : t.textMut, letterSpacing: "0.3px" }}>More</span>
-              {isMoreActive && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: GOLD, borderRadius: 2 }} />}
+              {isMoreActive && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: SWEEP_BAR, borderRadius: 2 }} />}
             </button>
           </div>
         </>
