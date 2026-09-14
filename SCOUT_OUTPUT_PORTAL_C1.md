@@ -1047,7 +1047,7 @@ Every claim in `SCOUT_OUTPUT_PORTAL_V2.md` that this report touched, with its st
 | CRITICAL 7, no activation or reset screen, `screen` takes three values | **Closed.** Seven values, section 1.3 |
 | CRITICAL 8, `GET /api/lookups/all` answers 403 | **Closed.** `:253` calls `GET /api/lookups` |
 | CRITICAL 9, token in React state only | **Closed.** `localStorage["ocsa_auth"]`, section 3.2 |
-| CRITICAL 10, two live credentials on the login card | **Closed.** `LoginScreen` at `:458` to `:481` has no demo block; `grep -n "2580\|1357\|ocsa.temp\|Demo Accounts" src/App.js` matches one line, `58`, where the digits `2580` occur inside the base64 literal |
+| CRITICAL 10, two live credentials on the login card | **Closed.** `LoginScreen` at `:458` to `:481` has no demo block; `grep -n "[redacted PIN]\|[redacted PIN]\|ocsa.temp\|Demo Accounts" src/App.js` matches one line, `58`, where the digits `[redacted PIN]` occur inside the base64 literal |
 | 2.6, nothing calls `/api/shift-sessions/` | **Stale.** Two calls, section 3.3; `/today` still uncalled |
 | 4.5, the four writes to `completedTaskIds` at `:143`, `:192`, `:203`, `:208` | **Moved.** Five statements at `:217`, `:234`, `:304`, `:314` twice; the clock-out reset is gone with `handleClockOut` |
 | 5.3, the 401 listener clears only `token`, `user` and `screen` | **Closed.** `:234` clears eleven values including `completedTaskIds` |
