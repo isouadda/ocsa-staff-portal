@@ -97,7 +97,7 @@ async function api(path, opts = {}) {
   if (opts.token) headers["Authorization"] = "Bearer " + opts.token;
   const res = await fetch(API + path, { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
   if (res.status === 401 && !opts.noAuthEvent) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-  if (!res.ok) { const err = await res.json().catch(() => ({ error: "Request failed" })); const e = new Error(err.error || "Request failed"); e.status = res.status; e.code = err.code || null; throw e; }
+  if (!res.ok) { const err = await res.json().catch(() => ({ error: "Request failed" })); const e = new Error(err.error || "Request failed"); e.status = res.status; e.code = err.code || null; e.body = err; throw e; }
   return res.json();
 }
 
@@ -125,6 +125,7 @@ const ClipIco = (p) => <Ico d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 
 const SwapIco = (p) => <Ico d="M16 3l4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" {...p} />;
 const CalIco = (p) => <Ico d="M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM16 2v4M8 2v4M3 10h18" {...p} />;
 const HomeIco = (p) => <Ico d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" {...p} />;
+const HelpIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
 const mkLabel = (t) => ({ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700, marginBottom: 6, display: "block", fontFamily: FONT_HEAD });
@@ -354,6 +355,7 @@ export default function OCSAStaffPortal() {
     { id: "schedule", label: "Schedule", icon: CalIco },
     { id: "tasks", label: "Tasks", icon: CheckIco },
     { id: "chat", label: "Chat", icon: ChatIco },
+    { id: "agent", label: "Help", icon: HelpIco },
   ];
   const moreTabs = [
     { id: "issuetasks", label: "Assigned", icon: WrkIco, badge: assignedCount },
@@ -404,6 +406,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} t={t} token={token} />}
+              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
@@ -1290,6 +1293,121 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
       <div style={{ padding: "10px 12px", borderTop: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), display: "flex", gap: 8, alignItems: "center", background: t.bg }}>
         <input value={text} onChange={e => setText(e.target.value)} placeholder={isDm ? "Private message to admin..." : "Type a message..."} style={{ flex: 1, padding: "10px 14px", borderRadius: R.pill, border: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.card, color: t.text, fontSize: 13, outline: "none", fontFamily: FONT_BODY }} onKeyDown={e => e.key === "Enter" && handleSend()} />
         <button onClick={handleSend} style={{ width: 38, height: 38, borderRadius: "50%", background: text.trim() ? (isDm ? BLUE : GOLD) : t.cardAlt, border: "none", cursor: text.trim() ? "pointer" : "default", boxShadow: text.trim() && !isDm ? "0 6px 18px rgba(200,168,78,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={text.trim() ? (isDm ? "#F8F7F4" : NAVY) : t.textMut} /></button>
+      </div>
+    </div>
+  );
+}
+
+// Help tab. Every line of guidance on this screen came back from the API on
+// the turn that produced it. Nothing procedural is stored, cached or written
+// here, and a reply the API did not return is never shown.
+const agentField = (o, keys, fallback) => { for (const k of keys) { if (o && o[k] !== undefined && o[k] !== null) return o[k]; } return fallback; };
+const agentList = (d, keys) => { if (Array.isArray(d)) return d; for (const k of keys) { if (d && Array.isArray(d[k])) return d[k]; } return []; };
+const agentKeyWords = (k) => String(k).replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/^\w/, c => c.toUpperCase());
+const agentDraftId = (d) => agentField(d, ["id", "formResponseId", "form_response_id"], null);
+const agentName = (d) => agentField(d, ["formName", "formTitle", "form_name", "title", "formCode", "form_code"], "Report");
+const agentCount = (d) => { const a = agentField(d, ["answered", "answeredCount", "answered_count"], null), r = agentField(d, ["remaining", "remainingCount", "remaining_count"], null); return (a !== null && r !== null) ? a + " of " + (Number(a) + Number(r)) + " answered" : null; };
+
+function AgentView({ token, showToast, t }) {
+  const [drafts, setDrafts] = useState([]);
+  const [conversationId, setConversationId] = useState(null);
+  const [thread, setThread] = useState([]);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [formResponse, setFormResponse] = useState(null);
+  const [submitBusy, setSubmitBusy] = useState(false);
+  const [missing, setMissing] = useState([]);
+  const [submitted, setSubmitted] = useState(false);
+  const endRef = useRef(null); const taRef = useRef(null); const seqRef = useRef(0);
+  const inputSt = mkInput(t);
+
+  const loadDrafts = useCallback(async () => { try { const d = await api("/api/agent/drafts", { token }); setDrafts(agentList(d, ["drafts", "items", "rows"])); } catch (err) { console.warn("Drafts:", err.message); } }, [token]);
+  useEffect(() => { loadDrafts(); }, [loadDrafts]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [thread.length, formResponse]);
+  // The composer grows to a few lines and then scrolls.
+  const grow = (el) => { if (!el) return; el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 120) + "px"; };
+  useEffect(() => { grow(taRef.current); }, [text]);
+
+  // One request per press. While one is in flight the send button, the
+  // composer and every Retry are disabled, so a person on bad signal
+  // pressing three times sends once. No automatic retry anywhere.
+  const send = async (msgId, msgText) => {
+    if (sending) return;
+    setSending(true);
+    setThread(prev => prev.map(m => m.id === msgId ? { ...m, pending: true, failed: false, error: null } : m));
+    try {
+      const body = { text: msgText }; if (conversationId) body.conversationId = conversationId;
+      const data = await api("/api/agent/message", { method: "POST", body, token });
+      if (data.conversationId) setConversationId(data.conversationId);
+      // The composer clears only now, and only if it still holds what was sent.
+      setText(prev => prev.trim() === msgText ? "" : prev);
+      setThread(prev => [...prev.map(m => m.id === msgId ? { ...m, pending: false } : m), { id: "a" + (++seqRef.current), role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], degraded: data.degraded === true, noProcedure: data.noProcedure === true }]);
+      if (data.formResponse) { setFormResponse(data.formResponse); setMissing([]); setSubmitted(false); }
+    } catch (err) {
+      setThread(prev => prev.map(m => m.id === msgId ? { ...m, pending: false, failed: true, error: err.message } : m));
+    }
+    setSending(false);
+  };
+  const handleSend = () => { const v = text.trim(); if (!v || sending) return; const id = "u" + (++seqRef.current); setThread(prev => [...prev, { id, role: "user", text: v, pending: true }]); send(id, v); };
+
+  // Resume reads the draft row. With a conversation id on it the thread is
+  // loaded from the API. Without one the composer opens and the API reuses
+  // the recent conversation on its own.
+  const resume = async (d) => {
+    setFormResponse({ id: agentDraftId(d), formCode: agentField(d, ["formCode", "form_code"], ""), formName: agentField(d, ["formName", "formTitle", "form_name", "title"], null), status: agentField(d, ["status"], "draft"), answered: agentField(d, ["answered", "answeredCount", "answered_count"], null), remaining: agentField(d, ["remaining", "remainingCount", "remaining_count"], null), nextQuestion: agentField(d, ["nextQuestion", "next_question"], null) });
+    setMissing([]); setSubmitted(false);
+    const cid = agentField(d, ["conversationId", "conversation_id"], null);
+    if (cid) {
+      try {
+        const h = await api("/api/agent/conversations/" + cid, { token });
+        const list = agentList(h, ["messages", "turns", "history"]);
+        setThread(list.map((m, i) => ({ id: "h" + i, role: String(agentField(m, ["role", "sender"], "assistant")).toLowerCase() === "user" ? "user" : "assistant", text: String(agentField(m, ["text", "content", "reply"], "")), citedDocs: agentList(agentField(m, ["citedDocs", "cited_doc_codes", "citedDocCodes"], []), []), degraded: agentField(m, ["degraded"], false) === true, noProcedure: agentField(m, ["noProcedure", "no_procedure"], false) === true })));
+        setConversationId(cid);
+      } catch (err) { showToast(err.message, "error"); }
+    }
+    taRef.current?.focus();
+  };
+
+  const submit = async () => {
+    if (!formResponse || submitBusy) return;
+    setSubmitBusy(true); setMissing([]);
+    try { await api("/api/agent/drafts/" + formResponse.id + "/submit", { method: "POST", token }); setFormResponse(null); setSubmitted(true); loadDrafts(); }
+    catch (err) { const b = err.body || {}; const keys = agentList(agentField(b, ["missing", "missingKeys", "missingFields", "missing_keys", "missing_fields"], []), []); setMissing(keys.length > 0 ? keys.map(agentKeyWords) : [err.message]); }
+    setSubmitBusy(false);
+  };
+
+  const remaining = formResponse ? Number(formResponse.remaining) : 0;
+  const canSubmit = !!formResponse && !submitBusy && !(remaining > 0);
+  const openDrafts = drafts.filter(d => !formResponse || String(agentDraftId(d)) !== String(formResponse.id));
+  const canSend = !!text.trim() && !sending;
+  const smallBtn = { padding: "8px 14px", minHeight: 36, borderRadius: R.sm, border: "1px solid " + t.goldBorder, background: t.goldBg, color: GOLD, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 };
+  // Pinned to the space between the header and the bottom navigation, so the
+  // thread scrolls inside it and the form card and composer stay in view.
+  return (
+    <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", height: "calc(100vh - 136px)", maxHeight: "calc(100dvh - 136px)", minHeight: 0, overflow: "hidden" }}>
+      {openDrafts.length > 0 && (<div style={{ padding: "10px 12px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0, maxHeight: 180, overflowY: "auto" }}>
+        <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>Unfinished reports</div>
+        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div><button onClick={() => resume(d)} style={smallBtn}>Resume</button></div>))}
+      </div>)}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 12px 0" }}>
+        {thread.length === 0 && (<div style={{ textAlign: "center", padding: "40px 20px" }}><HelpIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>Tell me what happened and I will tell you what to do.</div></div>)}
+        {thread.map(m => { const isMe = m.role === "user"; return (<div key={m.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", marginBottom: 12 }}><div style={{ maxWidth: "85%" }}>
+          <div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: isMe ? GOLD : (m.noProcedure ? t.goldSubtle : t.card), border: isMe ? "none" : "1px solid " + (m.noProcedure ? t.goldBorder : t.borderSolid), color: isMe ? NAVY : t.text, fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", opacity: m.pending ? 0.6 : 1 }}>{m.text}</div>
+          {!isMe && m.citedDocs.length > 0 && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>Based on {m.citedDocs.join(", ")}</div>}
+          {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>Working from the written procedure only right now.</div>}
+          {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>Not sent.{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", minHeight: 32, fontSize: 11, opacity: sending ? 0.6 : 1 }}>Retry</button></div>}
+        </div></div>); })}
+        <div ref={endRef} />
+      </div>
+      {submitted && <div style={{ padding: "8px 12px", fontSize: 12, color: GREEN, fontWeight: 600, textAlign: "center", fontFamily: FONT_HEAD }}>Report submitted.</div>}
+      {formResponse && (<div style={{ margin: "0 12px 8px", padding: "10px 12px", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.md, boxShadow: t.shadow }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>Report in progress</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2 }}>{agentName(formResponse)}</div>{agentCount(formResponse) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(formResponse)}</div>}</div>
+        <button onClick={submit} disabled={!canSubmit} style={{ padding: "10px 14px", minHeight: 40, flexShrink: 0, borderRadius: R.sm, border: "none", background: canSubmit ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : t.cardAlt, color: canSubmit ? NAVY : t.textMut, fontSize: 12, fontWeight: 700, cursor: canSubmit ? "pointer" : "default", fontFamily: FONT_HEAD, boxShadow: canSubmit ? "0 6px 18px rgba(200,168,78,0.30)" : "none" }}>{submitBusy ? "Submitting..." : "Submit report"}</button></div>
+        {missing.length > 0 && <div style={{ marginTop: 8, fontSize: 11, color: t.textSec, lineHeight: 1.5 }}><div style={{ fontWeight: 600 }}>Still needed before you can submit:</div>{missing.map((k, i) => <div key={i}>{k}</div>)}</div>}
+      </div>)}
+      <div style={{ padding: "10px 12px", borderTop: "1px solid " + t.borderSolid, display: "flex", gap: 8, alignItems: "flex-end", background: t.bg }}>
+        <textarea ref={taRef} value={text} onChange={e => setText(e.target.value)} disabled={sending} rows={1} placeholder="Describe what happened" aria-label="Describe what happened" style={{ ...inputSt, flex: 1, width: "auto", minHeight: 44, maxHeight: 120, overflowY: "auto", resize: "none", borderRadius: R.lg, lineHeight: 1.45, opacity: sending ? 0.6 : 1 }} />
+        <button onClick={handleSend} disabled={!canSend} aria-label="Send" style={{ width: 44, height: 44, flexShrink: 0, borderRadius: "50%", background: canSend ? GOLD : t.cardAlt, border: "none", cursor: canSend ? "pointer" : "default", boxShadow: canSend ? "0 6px 18px rgba(200,168,78,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={canSend ? NAVY : t.textMut} /></button>
       </div>
     </div>
   );
