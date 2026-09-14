@@ -30,7 +30,13 @@ async function uploadTaskMedia(file, token) {
 
 const GOLD = clientConfig.brand.gold, GOLD_LIGHT = "#FCEA4A", GREEN = "#2ECC71", RED = "#E74C3C", ORANGE = "#F39C12", BLUE = "#24A4F4";
 const NAVY = clientConfig.brand.navy;
-const NAVY_DARK = clientConfig.brand.navyDark;
+const BLUE_DEEP = clientConfig.brand.blueDeep;
+const BLUE_BRIGHT = clientConfig.brand.blueBright;
+const GOLD_MID = clientConfig.brand.goldMid;
+const PANEL_LIGHT = clientConfig.brand.panelLight;
+const SWEEP = "linear-gradient(100deg, " + BLUE_DEEP + " 0%, " + BLUE_BRIGHT + " 28%, #FFFFFF 50%, " + GOLD + " 72%, " + GOLD_MID + " 100%)";
+const SWEEP_BAR = "linear-gradient(100deg, " + BLUE_DEEP + " 0%, " + BLUE_BRIGHT + " 30%, " + GOLD + " 70%, " + GOLD_MID + " 100%)";
+const SWEEP_LIGHT = "linear-gradient(100deg, #FFFFFF 0%, " + GOLD_LIGHT + " 45%, " + GOLD + " 100%)";
 
 function compressImage(file, maxSize, quality) {
   return new Promise((resolve, reject) => {
@@ -75,15 +81,15 @@ const DARK = {
   goldSubtle: "rgba(231,176,23,0.06)",
 };
 const LIGHT = {
-  bg: "#F1F4F8", card: "#FFFFFF", cardAlt: "#EEF2F7", border: "#E1E8EF", borderSolid: "#CBD5E1",
-  text: NAVY, textSec: "#506B89", textMut: "#6E88A6", inputBg: "#FFFFFF", inputBorder: "#CBD5E1",
-  hover: "#F7F9FB", goldBg: "rgba(231,176,23,0.08)", goldBorder: "rgba(231,176,23,0.35)",
-  shadow: "0 2px 10px rgba(16,24,40,0.06)", popShadow: "0 18px 45px rgba(16,24,40,0.18)",
-  modalOverlay: "rgba(0,0,0,0.4)", headerBg: NAVY_DARK, headerBg2: NAVY_DARK,
-  scrollThumb: "#CAD5E2", greenSubtle: "rgba(46,204,113,0.06)", greenBorder: "rgba(46,204,113,0.15)",
+  bg: "#F4F7FB", card: "#FFFFFF", cardAlt: "#EEF3F9", border: "#E4EAF2", borderSolid: "#D2DBE6",
+  text: NAVY, textSec: "#4A5C70", textMut: "#5F6E7F", inputBg: "#FFFFFF", inputBorder: "#D2DBE6",
+  hover: "#F0F5FC", goldBg: "rgba(231,176,23,0.08)", goldBorder: "rgba(231,176,23,0.35)",
+  shadow: "0 1px 2px rgba(16,24,40,0.04), 0 8px 24px rgba(16,24,40,0.06)", popShadow: "0 18px 45px rgba(16,24,40,0.18)",
+  modalOverlay: "rgba(0,0,0,0.4)", headerBg: PANEL_LIGHT, headerBg2: PANEL_LIGHT,
+  scrollThumb: "#C6D2E0", greenSubtle: "rgba(46,204,113,0.06)", greenBorder: "rgba(46,204,113,0.15)",
   blueSubtle: "rgba(36,164,244,0.06)", blueBorder: "rgba(36,164,244,0.15)",
-  navBg: "#FFFFFF", navBorder: "#E1E8EF",
-  btnGhost: "#E1E8EF", redSubtle: "rgba(231,76,60,0.06)", redBorder: "rgba(231,76,60,0.15)",
+  navBg: "#FFFFFF", navBorder: "#E4EAF2",
+  btnGhost: "#E7EDF5", redSubtle: "rgba(231,76,60,0.06)", redBorder: "rgba(231,76,60,0.15)",
   orangeSubtle: "rgba(243,156,18,0.06)", orangeBorder: "rgba(243,156,18,0.15)",
   goldSubtle: "rgba(231,176,23,0.06)",
 };
@@ -376,7 +382,7 @@ export default function OCSAStaffPortal() {
       {screen === "setpin" && <SetPinScreen token={token} user={user} onDone={handlePinSet} onSignOut={handleLogout} showToast={showToast} t={t} />}
       {!booting && screen === "main" && (
         <>
-          <div style={{ background: "linear-gradient(135deg, " + t.headerBg + " 0%, " + t.headerBg2 + " 100%)", padding: "14px 16px 10px", borderBottom: "1px solid " + (themeMode === "dark" ? t.borderSolid : "rgba(255,255,255,0.08)") }}>
+          <div style={{ backgroundImage: (themeMode === "light" ? SWEEP_LIGHT : SWEEP) + ", linear-gradient(135deg, " + t.headerBg + " 0%, " + t.headerBg2 + " 100%)", backgroundSize: "100% 2px, 100% 100%", backgroundPosition: "bottom left, top left", backgroundRepeat: "no-repeat, no-repeat", padding: "14px 16px 10px", borderBottom: "1px solid transparent" }}>
             <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <button onClick={() => setActiveTab("profile")} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", minWidth: 44, minHeight: 44 }}>
@@ -389,8 +395,8 @@ export default function OCSAStaffPortal() {
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {clockStatus?.clockedIn && (<div style={{ display: "flex", alignItems: "center", gap: 5, background: "rgba(46,204,113,0.15)", padding: "3px 8px", borderRadius: 20, fontSize: 10, color: GREEN, fontWeight: 600 }}><div style={{ width: 5, height: 5, borderRadius: "50%", background: GREEN, animation: "pulse 2s infinite" }} />ON SITE</div>)}
-                <button onClick={toggleTheme} title={themeMode === "dark" ? "Light mode" : "Dark mode"} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, padding: "5px 8px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{themeMode === "dark" ? <SunIco sz={15} c="#A8B8C8" /> : <MoonIco sz={15} c="#A8B8C8" />}</button>
-                <button onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><LogOutIco sz={18} c="#8899AA" /></button>
+                <button onClick={toggleTheme} title={themeMode === "dark" ? "Light mode" : "Dark mode"} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, padding: "5px 8px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{themeMode === "dark" ? <SunIco sz={15} c="#A8B8C8" /> : <MoonIco sz={15} c="rgba(255,255,255,0.82)" />}</button>
+                <button onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><LogOutIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#8899AA"} /></button>
               </div>
             </div>
           </div>
@@ -437,7 +443,7 @@ export default function OCSAStaffPortal() {
                 <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMore(false); }} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
                   <TabIco sz={22} c={active ? GOLD : t.textMut} />
                   <span style={{ fontSize: 9, fontWeight: active ? 700 : 500, color: active ? GOLD : t.textMut, letterSpacing: "0.3px" }}>{tab.label}</span>
-                  {active && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: GOLD, borderRadius: 2 }} />}
+                  {active && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: SWEEP_BAR, borderRadius: 2 }} />}
                 </button>
               );
             })}
@@ -447,7 +453,7 @@ export default function OCSAStaffPortal() {
                 {totalBadge > 0 && !isMoreActive && <div style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{totalBadge}</div>}
               </div>
               <span style={{ fontSize: 9, fontWeight: isMoreActive || showMore ? 700 : 500, color: isMoreActive || showMore ? GOLD : t.textMut, letterSpacing: "0.3px" }}>More</span>
-              {isMoreActive && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: GOLD, borderRadius: 2 }} />}
+              {isMoreActive && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: SWEEP_BAR, borderRadius: 2 }} />}
             </button>
           </div>
         </>
