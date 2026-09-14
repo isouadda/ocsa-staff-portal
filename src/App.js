@@ -78,7 +78,7 @@ const DARK = {
   navBg: "#132240", navBorder: "#1B3058",
   btnGhost: "#1B3058", redSubtle: "rgba(231,76,60,0.06)", redBorder: "rgba(231,76,60,0.2)",
   orangeSubtle: "rgba(243,156,18,0.08)", orangeBorder: "rgba(243,156,18,0.2)",
-  goldSubtle: "rgba(231,176,23,0.06)",
+  goldSubtle: "rgba(231,176,23,0.06)", goldText: GOLD,
 };
 const LIGHT = {
   bg: "#F4F7FB", card: "#FFFFFF", cardAlt: "#EEF3F9", border: "#E4EAF2", borderSolid: "#D2DBE6",
@@ -91,7 +91,7 @@ const LIGHT = {
   navBg: "#FFFFFF", navBorder: "#E4EAF2",
   btnGhost: "#E7EDF5", redSubtle: "rgba(231,76,60,0.06)", redBorder: "rgba(231,76,60,0.15)",
   orangeSubtle: "rgba(243,156,18,0.06)", orangeBorder: "rgba(243,156,18,0.15)",
-  goldSubtle: "rgba(231,176,23,0.06)",
+  goldSubtle: "rgba(231,176,23,0.06)", goldText: "#8A5F10",
 };
 
 async function api(path, opts = {}) {
@@ -130,7 +130,7 @@ const HomeIco = (p) => <Ico d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" {
 const HelpIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
-const mkLabel = (t) => ({ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700, marginBottom: 6, display: "block", fontFamily: FONT_HEAD });
+const mkLabel = (t) => ({ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700, marginBottom: 6, display: "block", fontFamily: FONT_HEAD });
 const mkInput = (t) => ({ width: "100%", padding: "11px 14px", borderRadius: R.md, border: "1px solid " + t.inputBorder, background: t.inputBg, color: t.text, fontSize: 14, outline: "none", fontFamily: FONT_BODY });
 const mkQtyBtn = (t) => ({ width: 36, height: 36, borderRadius: "50%", border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: t.text });
 
@@ -386,15 +386,15 @@ export default function OCSAStaffPortal() {
             <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <button onClick={() => setActiveTab("profile")} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", minWidth: 44, minHeight: 44 }}>
-                  {user?.profilePhotoUrl ? <img src={user.profilePhotoUrl} alt="" style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", border: "2px solid " + GOLD }} /> : <div style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(231,176,23,0.15)", border: "2px solid " + GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: GOLD }}>{user?.firstName?.[0]}{user?.lastName?.[0]}</div>}
+                  {user?.profilePhotoUrl ? <img src={user.profilePhotoUrl} alt="" style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", border: "2px solid " + GOLD }} /> : <div style={{ width: 38, height: 38, borderRadius: "50%", background: themeMode === "light" ? "rgba(255,255,255,0.92)" : "rgba(231,176,23,0.15)", border: "2px solid " + (themeMode === "light" ? PANEL_LIGHT : GOLD), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: themeMode === "light" ? PANEL_LIGHT : GOLD }}>{user?.firstName?.[0]}{user?.lastName?.[0]}</div>}
                 </button>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: "#F8F7F4", fontFamily: FONT_HEAD }}>{user?.firstName} {user?.lastName}</div>
-                  <div style={{ fontSize: 10, color: GOLD, letterSpacing: "0.5px" }}>{user?.role?.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
+                  <div style={{ fontSize: 10, color: themeMode === "light" ? "rgba(255,255,255,0.82)" : GOLD, letterSpacing: "0.5px" }}>{user?.role?.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {clockStatus?.clockedIn && (<div style={{ display: "flex", alignItems: "center", gap: 5, background: "rgba(46,204,113,0.15)", padding: "3px 8px", borderRadius: 20, fontSize: 10, color: GREEN, fontWeight: 600 }}><div style={{ width: 5, height: 5, borderRadius: "50%", background: GREEN, animation: "pulse 2s infinite" }} />ON SITE</div>)}
+                {clockStatus?.clockedIn && (<div style={{ display: "flex", alignItems: "center", gap: 5, background: themeMode === "light" ? GREEN : "rgba(46,204,113,0.15)", padding: "3px 8px", borderRadius: 20, fontSize: 10, color: themeMode === "light" ? NAVY : GREEN, fontWeight: 600 }}><div style={{ width: 5, height: 5, borderRadius: "50%", background: themeMode === "light" ? NAVY : GREEN, animation: "pulse 2s infinite" }} />ON SITE</div>)}
                 <button onClick={toggleTheme} title={themeMode === "dark" ? "Light mode" : "Dark mode"} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, padding: "5px 8px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{themeMode === "dark" ? <SunIco sz={15} c="#A8B8C8" /> : <MoonIco sz={15} c="rgba(255,255,255,0.82)" />}</button>
                 <button onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><LogOutIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#8899AA"} /></button>
               </div>
@@ -424,10 +424,10 @@ export default function OCSAStaffPortal() {
                 {moreTabs.map(tab => { const active = activeTab === tab.id; const TabIco = tab.icon; return (
                   <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMore(false); }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 8px", background: active ? t.goldBg : "transparent", border: active ? "1px solid " + t.goldBorder : "1px solid transparent", borderRadius: 12, cursor: "pointer" }}>
                     <div style={{ position: "relative" }}>
-                      <TabIco sz={22} c={active ? GOLD : t.textSec} />
+                      <TabIco sz={22} c={active ? t.goldText : t.textSec} />
                       {tab.badge > 0 && <div style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{tab.badge}</div>}
                     </div>
-                    <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, color: active ? GOLD : t.textSec }}>{tab.label}</span>
+                    <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, color: active ? t.goldText : t.textSec }}>{tab.label}</span>
                   </button>
                 ); })}
               </div>
@@ -441,18 +441,18 @@ export default function OCSAStaffPortal() {
               const TabIco = tab.icon;
               return (
                 <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMore(false); }} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
-                  <TabIco sz={22} c={active ? GOLD : t.textMut} />
-                  <span style={{ fontSize: 9, fontWeight: active ? 700 : 500, color: active ? GOLD : t.textMut, letterSpacing: "0.3px" }}>{tab.label}</span>
+                  <TabIco sz={22} c={active ? t.goldText : t.textMut} />
+                  <span style={{ fontSize: 9, fontWeight: active ? 700 : 500, color: active ? t.goldText : t.textMut, letterSpacing: "0.3px" }}>{tab.label}</span>
                   {active && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: SWEEP_BAR, borderRadius: 2 }} />}
                 </button>
               );
             })}
             <button onClick={() => setShowMore(!showMore)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
               <div style={{ position: "relative" }}>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={isMoreActive || showMore ? GOLD : t.textMut} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={isMoreActive || showMore ? t.goldText : t.textMut} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
                 {totalBadge > 0 && !isMoreActive && <div style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{totalBadge}</div>}
               </div>
-              <span style={{ fontSize: 9, fontWeight: isMoreActive || showMore ? 700 : 500, color: isMoreActive || showMore ? GOLD : t.textMut, letterSpacing: "0.3px" }}>More</span>
+              <span style={{ fontSize: 9, fontWeight: isMoreActive || showMore ? 700 : 500, color: isMoreActive || showMore ? t.goldText : t.textMut, letterSpacing: "0.3px" }}>More</span>
               {isMoreActive && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: SWEEP_BAR, borderRadius: 2 }} />}
             </button>
           </div>
@@ -559,7 +559,7 @@ function LangPicker({ value, onChange, t }) {
   const opts = [["en", "English"], ["es", "Espa\u00f1ol"]];
   return (
     <div style={{ display: "flex", gap: 8 }}>
-      {opts.map(([v, l]) => <button key={v} type="button" onClick={() => onChange(v)} style={{ flex: 1, padding: "10px", borderRadius: R.sm, fontSize: 12, fontWeight: 700, fontFamily: FONT_HEAD, background: value === v ? t.goldBg : "transparent", color: value === v ? GOLD : t.textMut, border: "1px solid " + (value === v ? t.goldBorder : t.borderSolid), cursor: "pointer" }}>{l}</button>)}
+      {opts.map(([v, l]) => <button key={v} type="button" onClick={() => onChange(v)} style={{ flex: 1, padding: "10px", borderRadius: R.sm, fontSize: 12, fontWeight: 700, fontFamily: FONT_HEAD, background: value === v ? t.goldBg : "transparent", color: value === v ? t.goldText : t.textMut, border: "1px solid " + (value === v ? t.goldBorder : t.borderSolid), cursor: "pointer" }}>{l}</button>)}
     </div>
   );
 }
@@ -918,8 +918,8 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>My Schedule</div>
         <div style={{ display: "flex", gap: 4 }}>
-          <button onClick={() => setView("week")} style={{ padding: "5px 12px", borderRadius: R.sm, fontSize: 10, fontWeight: view === "week" ? 700 : 600, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px", background: view === "week" ? t.goldBg : "transparent", color: view === "week" ? GOLD : t.textMut, border: view === "week" ? "1px solid " + t.goldBorder : "1px solid transparent", cursor: "pointer" }}>Week</button>
-          <button onClick={() => { setView("month"); const first = new Date(weekStart.getFullYear(), weekStart.getMonth(), 1); setWeekStart(first); }} style={{ padding: "5px 12px", borderRadius: R.sm, fontSize: 10, fontWeight: view === "month" ? 700 : 600, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px", background: view === "month" ? t.goldBg : "transparent", color: view === "month" ? GOLD : t.textMut, border: view === "month" ? "1px solid " + t.goldBorder : "1px solid transparent", cursor: "pointer" }}>Month</button>
+          <button onClick={() => setView("week")} style={{ padding: "5px 12px", borderRadius: R.sm, fontSize: 10, fontWeight: view === "week" ? 700 : 600, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px", background: view === "week" ? t.goldBg : "transparent", color: view === "week" ? t.goldText : t.textMut, border: view === "week" ? "1px solid " + t.goldBorder : "1px solid transparent", cursor: "pointer" }}>Week</button>
+          <button onClick={() => { setView("month"); const first = new Date(weekStart.getFullYear(), weekStart.getMonth(), 1); setWeekStart(first); }} style={{ padding: "5px 12px", borderRadius: R.sm, fontSize: 10, fontWeight: view === "month" ? 700 : 600, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px", background: view === "month" ? t.goldBg : "transparent", color: view === "month" ? t.goldText : t.textMut, border: view === "month" ? "1px solid " + t.goldBorder : "1px solid transparent", cursor: "pointer" }}>Month</button>
         </div>
       </div>
 
@@ -947,11 +947,11 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
             return (
               <div key={ds} style={{ background: today ? t.goldBg : t.card, border: "1px solid " + (today ? t.goldBorder : t.borderSolid), borderRadius: R.md, padding: 6, minHeight: compact ? 80 : 120, flex: compact ? undefined : 1, boxShadow: t.shadow }}>
                 <div style={{ textAlign: "center", marginBottom: 4 }}>
-                  <div style={{ fontSize: 9, fontWeight: 600, color: today ? GOLD : t.textMut, textTransform: "uppercase" }}>{dayNames[i]}</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: today ? GOLD : t.text, fontFamily: FONT_HEAD }}>{dt.getDate()}</div>
+                  <div style={{ fontSize: 9, fontWeight: 600, color: today ? t.goldText : t.textMut, textTransform: "uppercase" }}>{dayNames[i]}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: today ? t.goldText : t.text, fontFamily: FONT_HEAD }}>{dt.getDate()}</div>
                 </div>
                 {sched.map(s => (
-                  <div key={s.id} onClick={() => setDetail({ type: "scheduled", ...s })} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: GOLD + "18", color: GOLD, border: "1px solid " + GOLD + "30", cursor: "pointer" }}>
+                  <div key={s.id} onClick={() => setDetail({ type: "scheduled", ...s })} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: GOLD + "18", color: t.goldText, border: "1px solid " + GOLD + "30", cursor: "pointer" }}>
                     {fmtTm(s.start_time)}{s.end_time ? " - " + fmtTm(s.end_time) : ""}{s.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{s.site_name}</div>}
                   </div>
                 ))}
@@ -1005,7 +1005,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                 const pickups = getPickupsForDay(ds);
                 return (
                   <div key={ds} onClick={() => { const day = dt.getDay(); const diff = day === 0 ? 6 : day - 1; const mon = new Date(dt); mon.setDate(dt.getDate() - diff); setWeekStart(mon); setView("week"); }} style={{ padding: 4, minHeight: compact ? 40 : 60, background: today ? t.goldBg : inMonth ? t.card : t.hover, borderRadius: R.sm, border: "1px solid " + (today ? t.goldBorder : t.borderSolid), opacity: inMonth ? 1 : 0.3, cursor: "pointer", textAlign: "center" }}>
-                    <div style={{ fontSize: 11, fontWeight: today ? 700 : 500, color: today ? GOLD : t.text, fontFamily: FONT_HEAD }}>{dt.getDate()}</div>
+                    <div style={{ fontSize: 11, fontWeight: today ? 700 : 500, color: today ? t.goldText : t.text, fontFamily: FONT_HEAD }}>{dt.getDate()}</div>
                     <div style={{ display: "flex", justifyContent: "center", gap: 2, marginTop: 2, flexWrap: "wrap" }}>
                       {sched.length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: GOLD }} />}
                       {actual.length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: GREEN }} />}
@@ -1037,12 +1037,12 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
               <div>
-                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Site</div>
+                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Site</div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{detail.site_name || "N/A"}</div>
               </div>
               <div>
-                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Status</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: detail.type === "actual" ? GREEN : detail.type === "pickup" ? (detail.status === "approved" ? GREEN : ORANGE) : GOLD }}>
+                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Status</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: detail.type === "actual" ? GREEN : detail.type === "pickup" ? (detail.status === "approved" ? GREEN : ORANGE) : t.goldText }}>
                   {detail.type === "actual" ? (detail.shift_status === "active" ? "On Site" : "Completed") : detail.type === "pickup" ? (detail.status || "").charAt(0).toUpperCase() + (detail.status || "").slice(1) : (detail.status || "scheduled").charAt(0).toUpperCase() + (detail.status || "scheduled").slice(1)}
                 </div>
               </div>
@@ -1050,51 +1050,51 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
               {detail.type === "actual" ? (<>
                 <div>
-                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Shift Start</div>
+                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Shift Start</div>
                   <div style={{ fontSize: 13, color: t.text }}>{detail.clock_in_time ? fmtClockTm(detail.clock_in_time) : "N/A"}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Shift End</div>
+                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Shift End</div>
                   <div style={{ fontSize: 13, color: detail.clock_out_time ? t.text : ORANGE }}>{detail.clock_out_time ? fmtClockTm(detail.clock_out_time) : "Still on site"}</div>
                 </div>
               </>) : (<>
                 <div>
-                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Start</div>
+                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Start</div>
                   <div style={{ fontSize: 13, color: t.text }}>{fmtTm(detail.start_time)}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>End</div>
+                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>End</div>
                   <div style={{ fontSize: 13, color: t.text }}>{fmtTm(detail.end_time)}</div>
                 </div>
               </>)}
             </div>
             {detail.type === "actual" && detail.duration_minutes && (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Duration</div>
+                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Duration</div>
                 <div style={{ fontSize: 13, color: t.text }}>{Math.floor(detail.duration_minutes / 60)}h {detail.duration_minutes % 60}m</div>
               </div>
             )}
             {(detail.building_name || detail.floor_number) && (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-                {detail.building_name && <div><div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Building</div><div style={{ fontSize: 13, color: t.text }}>{detail.building_name}</div></div>}
-                {detail.floor_number && <div><div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Floor</div><div style={{ fontSize: 13, color: t.text }}>{detail.floor_number}</div></div>}
+                {detail.building_name && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Building</div><div style={{ fontSize: 13, color: t.text }}>{detail.building_name}</div></div>}
+                {detail.floor_number && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Floor</div><div style={{ fontSize: 13, color: t.text }}>{detail.floor_number}</div></div>}
               </div>
             )}
             {detail.service_category && (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Service</div>
+                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Service</div>
                 <div style={{ fontSize: 13, color: t.text }}>{detail.service_category}</div>
               </div>
             )}
             {detail.notes && (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Notes</div>
+                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Notes</div>
                 <div style={{ fontSize: 12, color: t.textSec, fontStyle: "italic" }}>{detail.notes}</div>
               </div>
             )}
             {detail.type === "pickup" && detail.origin && (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Reason</div>
+                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Reason</div>
                 <div style={{ fontSize: 13, color: t.text }}>{detail.origin.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
               </div>
             )}
@@ -1106,17 +1106,17 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                 <div style={{ fontSize: 12, fontWeight: 700, color: RED, marginBottom: 8 }}>Drop Request</div>
                 <div style={{ fontSize: 10, color: t.textSec, marginBottom: 10 }}>Your supervisor will review this request. If approved, the shift will be opened for pickup or reassigned.</div>
                 <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>Reason</div>
+                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>Reason</div>
                   <select value={detail.dropForm.reason} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, reason: e.target.value } })} style={mkInput(t)}>
                     {(getOpts("drop_reasons").length > 0 ? getOpts("drop_reasons") : [{ v: "sick", l: "Sick" }, { v: "personal", l: "Personal" }, { v: "scheduling_conflict", l: "Scheduling Conflict" }, { v: "emergency", l: "Emergency" }, { v: "other", l: "Other" }]).map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
                   </select>
                 </div>
                 {lkHasOther("drop_reasons", detail.dropForm.reason) && <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>Specify Reason</div>
+                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>Specify Reason</div>
                   <input value={detail.dropForm.otherText || ""} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, otherText: e.target.value } })} placeholder="Describe the reason" style={mkInput(t)} />
                 </div>}
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>Notes (optional)</div>
+                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>Notes (optional)</div>
                   <input value={detail.dropForm.notes} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, notes: e.target.value } })} placeholder="Any additional details..." style={mkInput(t)} />
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -1173,7 +1173,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, onStartSession, sit
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 600 }}>{site.siteName}</div>
           {place && <div style={{ fontSize: 10, color: t.textSec, marginTop: 2 }}>{place}</div>}
-          {detail && <div style={{ fontSize: 10, color: GOLD, marginTop: 3, fontWeight: 600 }}>{detail}</div>}
+          {detail && <div style={{ fontSize: 10, color: t.goldText, marginTop: 3, fontWeight: 600 }}>{detail}</div>}
         </div>
         <div style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: sel ? GOLD : "transparent", border: sel ? "none" : "2px solid " + t.borderSolid }} />
       </button>
@@ -1187,12 +1187,12 @@ function ClockView({ clockStatus, currentTime, selectedSite, onStartSession, sit
       </div>
       {ci && clockStatus.shift && (
         <div style={{ textAlign: "center", padding: "20px 18px", marginBottom: 16, background: t.card, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
-          <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 8, fontWeight: 700, fontFamily: FONT_HEAD }}>Time on Site</div>
+          <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 8, fontWeight: 700, fontFamily: FONT_HEAD }}>Time on Site</div>
           <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "1px", color: t.text, lineHeight: 1, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pad(h)}:{pad(m)}:{pad(s)}</div>
           <div style={{ fontSize: 11, color: t.textSec, marginTop: 8 }}>Started at {formatTime(clockStatus.shift.clockInTime)}</div>
           <div style={{ fontSize: 12, color: t.text, marginTop: 4, fontWeight: 600 }}>{clockStatus.shift.siteName}</div>
-          {(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: GOLD, marginTop: 3 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - Floor " + clockStatus.shift.floorNumber : ""}</div>}
-          {total > 0 && (<div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><div style={{ flex: 1, maxWidth: 180, height: 6, borderRadius: R.pill, background: t.cardAlt, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.3s ease" }} /></div><span style={{ fontSize: 11, color: GOLD, fontWeight: 700, fontFamily: FONT_HEAD }}>{done}/{total}</span></div>)}
+          {(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.goldText, marginTop: 3 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - Floor " + clockStatus.shift.floorNumber : ""}</div>}
+          {total > 0 && (<div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><div style={{ flex: 1, maxWidth: 180, height: 6, borderRadius: R.pill, background: t.cardAlt, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.3s ease" }} /></div><span style={{ fontSize: 11, color: t.goldText, fontWeight: 700, fontFamily: FONT_HEAD }}>{done}/{total}</span></div>)}
           <div style={{ fontSize: 11, color: t.textMut, marginTop: 14, lineHeight: 1.5 }}>Your shift ends automatically. Close the app when you are done.</div>
         </div>
       )}
@@ -1219,11 +1219,11 @@ function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask, t }) {
   const standardTasks = (loaded ? tasks : []).filter(tk => !tk.task_type || tk.task_type === "standard");
   const labelSt = mkLabel(t);
   const floorHeadSt = { fontSize: 11, color: t.text, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, padding: "7px 11px", background: t.card, borderRadius: R.sm, border: "1px solid " + t.borderSolid, fontFamily: FONT_HEAD };
-  const zoneSt = { fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700, marginBottom: 8, fontFamily: FONT_HEAD };
+  const zoneSt = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700, marginBottom: 8, fontFamily: FONT_HEAD };
   const rowBase = { display: "flex", alignItems: "flex-start", gap: 11, padding: "11px 13px", marginBottom: 6, borderRadius: R.md, boxShadow: t.shadow };
   const chipPriority = { fontSize: 9, color: ORANGE, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, padding: "2px 6px", borderRadius: R.sm, fontWeight: 700, letterSpacing: "0.5px" };
   const chipCat = { fontSize: 9, color: t.textMut, background: t.cardAlt, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600 };
-  const detailSecLabel = { fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD };
+  const detailSecLabel = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD };
 
   if (!clockStatus?.clockedIn) return (
     <div style={{ padding: "16px" }}>
@@ -1248,7 +1248,7 @@ function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask, t }) {
         <div style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, overflow: "hidden", boxShadow: t.popShadow }}>
           <div style={{ padding: "16px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 700, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{detail.label}</div><div style={{ display: "flex", gap: 4, flexShrink: 0 }}>{detail.priority === "high" && <span style={chipPriority}>PRIORITY</span>}<span style={chipCat}>{detail.cims_category}</span></div></div>
-            <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontWeight: 700, fontFamily: FONT_HEAD }}>{detail.floor_number ? "Floor " + detail.floor_number + " - " : ""}{detail.zone}</div>
+            <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontWeight: 700, fontFamily: FONT_HEAD }}>{detail.floor_number ? "Floor " + detail.floor_number + " - " : ""}{detail.zone}</div>
             {detail.description && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>Instructions</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{detail.description}</div></div>)}
             {detail.media_url && detail.media_type === "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>Reference Video</div><video src={detail.media_url} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} /></div>)}
             {detail.media_url && detail.media_type !== "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>Reference Photo</div><img src={detail.media_url} alt="Task reference" style={{ width: "100%", borderRadius: R.md, maxHeight: 240, objectFit: "cover" }} /></div>)}
@@ -1264,7 +1264,7 @@ function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask, t }) {
   return (
     <div style={{ padding: "16px" }}>
       <div style={{ padding: "14px 16px", marginBottom: 16, background: t.goldBg, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>Your Assignment</div><div style={{ fontSize: 15, fontWeight: 700, marginTop: 3, color: t.text, fontFamily: FONT_HEAD }}>{clockStatus.shift.siteName}</div>{(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.textSec, marginTop: 2 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - Floor " + clockStatus.shift.floorNumber : ""}</div>}</div><div style={{ background: pct === 100 ? t.greenSubtle : t.card, padding: "6px 14px", borderRadius: R.pill, border: "1px solid " + (pct === 100 ? t.greenBorder : t.borderSolid) }}><div style={{ fontSize: 18, fontWeight: 700, color: pct === 100 ? GREEN : GOLD, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</div></div></div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>Your Assignment</div><div style={{ fontSize: 15, fontWeight: 700, marginTop: 3, color: t.text, fontFamily: FONT_HEAD }}>{clockStatus.shift.siteName}</div>{(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.textSec, marginTop: 2 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - Floor " + clockStatus.shift.floorNumber : ""}</div>}</div><div style={{ background: pct === 100 ? t.greenSubtle : t.card, padding: "6px 14px", borderRadius: R.pill, border: "1px solid " + (pct === 100 ? t.greenBorder : t.borderSolid) }}><div style={{ fontSize: 18, fontWeight: 700, color: pct === 100 ? GREEN : t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</div></div></div>
         <div style={{ height: 5, borderRadius: R.pill, background: t.cardAlt, marginTop: 12, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.4s ease" }} /></div>
       </div>
       {groups.map((g, gi) => { const showFloor = g.floor && g.floor !== lastFloor; lastFloor = g.floor; return (<div key={gi} style={{ marginBottom: 16 }}>{showFloor && (<div style={{ ...floorHeadSt, marginTop: gi > 0 ? 10 : 0 }}>Floor {g.floor}</div>)}<div style={{ ...zoneSt, paddingLeft: g.floor ? 8 : 0 }}>{g.zone}</div>{g.tasks.map(task => { const done = completedTaskIds.has(task.id); const hasInfo = task.has_details || task.description || task.media_url; return (<div key={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: g.floor ? 8 : 0 }}><button onClick={() => toggleTask(task.id)} style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1, cursor: "pointer", padding: 0 }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</button><div onClick={() => hasInfo ? setDetail(task) : toggleTask(task.id)} style={{ flex: 1, cursor: "pointer" }}><div style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{task.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>{task.priority === "high" && <span style={chipPriority}>PRIORITY</span>}<span style={chipCat}>{task.cims_category}</span></div></div>); })}</div>); })}
@@ -1282,14 +1282,14 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 128px)" }}>
       <div style={{ padding: "10px 12px 0", borderBottom: "1px solid " + t.borderSolid, paddingBottom: 10 }}>
-        <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} style={{ padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? GOLD : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 700 : 500, fontFamily: FONT_HEAD, cursor: "pointer" }}>{ch.name || ch.siteName}</button>))}</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} style={{ padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 700 : 500, fontFamily: FONT_HEAD, cursor: "pointer" }}>{ch.name || ch.siteName}</button>))}</div>
         {dmChannel && (<button onClick={() => setActiveChannel(dmChannel.id)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", borderRadius: R.md, background: isDm ? t.blueSubtle : t.hover, border: isDm ? "1.5px solid " + t.blueBorder : "1px solid " + t.borderSolid, boxShadow: isDm ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><LockIco c={isDm ? BLUE : t.textMut} /><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: isDm ? 700 : 600, color: isDm ? BLUE : t.textSec, fontFamily: FONT_HEAD }}>Admin (Private)</div><div style={{ fontSize: 9, color: t.textMut }}>Only you and management can see these messages</div></div>{dmChannel.unreadCount > 0 && <div style={{ background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{dmChannel.unreadCount}</div>}</button>)}
       </div>
       {isDm && (<div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: t.blueSubtle, borderBottom: "1px solid " + t.blueBorder, fontSize: 10, color: BLUE }}><LockIco /> Private conversation with admin.</div>)}
       <div style={{ flex: 1, overflowY: "auto", padding: "12px 12px 0" }}>
         {!activeChannel && <div style={{ textAlign: "center", padding: "40px 20px" }}><ChatIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>Select a channel to start chatting.</div></div>}
         {activeChannel && messages.length === 0 && <div style={{ textAlign: "center", padding: "40px 20px", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>No messages yet.</div>}
-        {messages.map((msg, idx) => { const isMe = msg.senderId === user?.id; const isAdm = msg.senderRole === "admin" || msg.senderRole === "supervisor"; const showName = idx === 0 || messages[idx - 1].senderId !== msg.senderId; return (<div key={msg.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 8, marginBottom: showName ? 12 : 4, alignItems: "flex-end" }}>{!isMe && showName && (<div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdm ? (isDm ? "rgba(36,164,244,0.15)" : t.goldBg) : t.cardAlt, border: "1px solid " + (isAdm ? (isDm ? BLUE : GOLD) : t.borderSolid), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: isAdm ? (isDm ? BLUE : GOLD) : t.textSec, flexShrink: 0, fontFamily: FONT_HEAD }}>{msg.senderName?.split(" ").map(n => n[0]).join("")}</div>)}{!isMe && !showName && <div style={{ width: 28, flexShrink: 0 }} />}<div style={{ maxWidth: "75%" }}>{!isMe && showName && <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 3, color: isAdm ? (isDm ? BLUE : GOLD) : t.textSec, fontFamily: FONT_HEAD }}>{msg.senderName}</div>}<div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: isMe ? (isDm ? BLUE : GOLD) : (isDm && isAdm ? t.blueSubtle : t.card), border: isMe ? "none" : "1px solid " + (isDm && isAdm ? t.blueBorder : t.borderSolid), color: isMe ? (isDm ? "#F8F7F4" : NAVY) : t.text, fontSize: 13, lineHeight: 1.45 }}>{msg.text}</div><div style={{ fontSize: 9, color: t.textMut, marginTop: 2, textAlign: isMe ? "right" : "left", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{formatTime(msg.sentAt)}</div></div></div>); })}
+        {messages.map((msg, idx) => { const isMe = msg.senderId === user?.id; const isAdm = msg.senderRole === "admin" || msg.senderRole === "supervisor"; const showName = idx === 0 || messages[idx - 1].senderId !== msg.senderId; return (<div key={msg.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 8, marginBottom: showName ? 12 : 4, alignItems: "flex-end" }}>{!isMe && showName && (<div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdm ? (isDm ? "rgba(36,164,244,0.15)" : t.goldBg) : t.cardAlt, border: "1px solid " + (isAdm ? (isDm ? BLUE : GOLD) : t.borderSolid), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, flexShrink: 0, fontFamily: FONT_HEAD }}>{msg.senderName?.split(" ").map(n => n[0]).join("")}</div>)}{!isMe && !showName && <div style={{ width: 28, flexShrink: 0 }} />}<div style={{ maxWidth: "75%" }}>{!isMe && showName && <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 3, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, fontFamily: FONT_HEAD }}>{msg.senderName}</div>}<div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: isMe ? (isDm ? BLUE : GOLD) : (isDm && isAdm ? t.blueSubtle : t.card), border: isMe ? "none" : "1px solid " + (isDm && isAdm ? t.blueBorder : t.borderSolid), color: isMe ? (isDm ? "#F8F7F4" : NAVY) : t.text, fontSize: 13, lineHeight: 1.45 }}>{msg.text}</div><div style={{ fontSize: 9, color: t.textMut, marginTop: 2, textAlign: isMe ? "right" : "left", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{formatTime(msg.sentAt)}</div></div></div>); })}
         <div ref={endRef} />
       </div>
       <div style={{ padding: "10px 12px", borderTop: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), display: "flex", gap: 8, alignItems: "center", background: t.bg }}>
@@ -1382,13 +1382,13 @@ function AgentView({ token, showToast, t }) {
   const canSubmit = !!formResponse && !submitBusy && !(remaining > 0);
   const openDrafts = drafts.filter(d => !formResponse || String(agentDraftId(d)) !== String(formResponse.id));
   const canSend = !!text.trim() && !sending;
-  const smallBtn = { padding: "8px 14px", minHeight: 36, borderRadius: R.sm, border: "1px solid " + t.goldBorder, background: t.goldBg, color: GOLD, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 };
+  const smallBtn = { padding: "8px 14px", minHeight: 36, borderRadius: R.sm, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 };
   // Pinned to the space between the header and the bottom navigation, so the
   // thread scrolls inside it and the form card and composer stay in view.
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", height: "calc(100vh - 136px)", maxHeight: "calc(100dvh - 136px)", minHeight: 0, overflow: "hidden" }}>
       {openDrafts.length > 0 && (<div style={{ padding: "10px 12px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0, maxHeight: 180, overflowY: "auto" }}>
-        <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>Unfinished reports</div>
+        <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>Unfinished reports</div>
         {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div><button onClick={() => resume(d)} style={smallBtn}>Resume</button></div>))}
       </div>)}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 12px 0" }}>
@@ -1403,7 +1403,7 @@ function AgentView({ token, showToast, t }) {
       </div>
       {submitted && <div style={{ padding: "8px 12px", fontSize: 12, color: GREEN, fontWeight: 600, textAlign: "center", fontFamily: FONT_HEAD }}>Report submitted.</div>}
       {formResponse && (<div style={{ margin: "0 12px 8px", padding: "10px 12px", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.md, boxShadow: t.shadow }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>Report in progress</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2 }}>{agentName(formResponse)}</div>{agentCount(formResponse) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(formResponse)}</div>}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>Report in progress</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2 }}>{agentName(formResponse)}</div>{agentCount(formResponse) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(formResponse)}</div>}</div>
         <button onClick={submit} disabled={!canSubmit} style={{ padding: "10px 14px", minHeight: 40, flexShrink: 0, borderRadius: R.sm, border: "none", background: canSubmit ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : t.cardAlt, color: canSubmit ? NAVY : t.textMut, fontSize: 12, fontWeight: 700, cursor: canSubmit ? "pointer" : "default", fontFamily: FONT_HEAD, boxShadow: canSubmit ? "0 6px 18px rgba(231,176,23,0.30)" : "none" }}>{submitBusy ? "Submitting..." : "Submit report"}</button></div>
         {missing.length > 0 && <div style={{ marginTop: 8, fontSize: 11, color: t.textSec, lineHeight: 1.5 }}><div style={{ fontWeight: 600 }}>Still needed before you can submit:</div>{missing.map((k, i) => <div key={i}>{k}</div>)}</div>}
       </div>)}
@@ -1438,18 +1438,18 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lk
         <button onClick={() => { setDetail(null); clearForm(); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", marginBottom: 14, background: "none", border: "1px solid " + t.borderSolid, borderRadius: R.sm, color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}><Ico d="M15 18l-6-6 6-6" sz={14} c={t.textSec} /> Back to assigned tasks</button>
         <div style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", boxShadow: t.popShadow }}>
           <div style={{ padding: "16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 700, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div><div style={{ display: "flex", gap: 4, flexShrink: 0 }}>{info.isIssueLinked && detail.severity && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (sevC[detail.severity] || ORANGE) + "18", color: sevC[detail.severity] || ORANGE, fontFamily: FONT_HEAD }}>{detail.severity}</span>}{!info.isIssueLinked && detail.priority && detail.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[detail.priority] || GOLD) + "18", color: priC[detail.priority] || GOLD, fontFamily: FONT_HEAD }}>{detail.priority}</span>}{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>ISSUE</span>}</div></div>
-            <div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontFamily: FONT_HEAD, fontWeight: 700 }}>{info.locationStr}</div>
-            {detail.resolution_status && (<div style={{ marginBottom: 12 }}><span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "3px 8px", borderRadius: R.sm, background: detail.resolution_status === "in_progress" ? ORANGE + "18" : GOLD + "18", color: detail.resolution_status === "in_progress" ? ORANGE : GOLD, fontFamily: FONT_HEAD }}>{detail.resolution_status.replace(/_/g, " ")}</span></div>)}
-            {info.desc && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>Description</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{info.desc}</div></div>)}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}><div><div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD, marginBottom: 3 }}>{info.assignedByLabel}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{info.assignedBy}</div></div><div><div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD, marginBottom: 3 }}>Site</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{detail.site_name}</div></div>{detail.due_date && <div><div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD, marginBottom: 3 }}>Due Date</div><div style={{ fontSize: 13, color: ORANGE, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}{detail.due_time ? " at " + detail.due_time : ""}</div></div>}{detail.task_created_at && <div><div style={{ fontSize: 9, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD, marginBottom: 3 }}>Assigned</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.task_created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div></div>}</div>
-            {info.photoUrl && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>{info.mediaType === "video" ? "Attached Video" : "Attached Photo"}</div>{info.mediaType === "video" ? (<video src={info.photoUrl} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} />) : (<img src={info.photoUrl} alt="Task" style={{ width: "100%", borderRadius: R.md, maxHeight: 200, objectFit: "cover", border: "1px solid " + t.borderSolid }} />)}</div>)}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 700, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div><div style={{ display: "flex", gap: 4, flexShrink: 0 }}>{info.isIssueLinked && detail.severity && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (sevC[detail.severity] || ORANGE) + "18", color: sevC[detail.severity] || ORANGE, fontFamily: FONT_HEAD }}>{detail.severity}</span>}{!info.isIssueLinked && detail.priority && detail.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[detail.priority] || GOLD) + "18", color: priC[detail.priority] || t.goldText, fontFamily: FONT_HEAD }}>{detail.priority}</span>}{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>ISSUE</span>}</div></div>
+            <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontFamily: FONT_HEAD, fontWeight: 700 }}>{info.locationStr}</div>
+            {detail.resolution_status && (<div style={{ marginBottom: 12 }}><span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "3px 8px", borderRadius: R.sm, background: detail.resolution_status === "in_progress" ? ORANGE + "18" : GOLD + "18", color: detail.resolution_status === "in_progress" ? ORANGE : t.goldText, fontFamily: FONT_HEAD }}>{detail.resolution_status.replace(/_/g, " ")}</span></div>)}
+            {info.desc && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>Description</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{info.desc}</div></div>)}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD, marginBottom: 3 }}>{info.assignedByLabel}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{info.assignedBy}</div></div><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD, marginBottom: 3 }}>Site</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{detail.site_name}</div></div>{detail.due_date && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD, marginBottom: 3 }}>Due Date</div><div style={{ fontSize: 13, color: ORANGE, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}{detail.due_time ? " at " + detail.due_time : ""}</div></div>}{detail.task_created_at && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD, marginBottom: 3 }}>Assigned</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.task_created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div></div>}</div>
+            {info.photoUrl && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>{info.mediaType === "video" ? "Attached Video" : "Attached Photo"}</div>{info.mediaType === "video" ? (<video src={info.photoUrl} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} />) : (<img src={info.photoUrl} alt="Task" style={{ width: "100%", borderRadius: R.md, maxHeight: 200, objectFit: "cover", border: "1px solid " + t.borderSolid }} />)}</div>)}
             {!isResolving && !isCantResolve && (<div style={{ display: "flex", gap: 6, marginTop: 10 }}>{detail.resolution_status !== "in_progress" && (<button onClick={() => { resolveTask(detail.task_id, "in_progress", null, null); setDetail(null); }} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + ORANGE, background: "transparent", color: ORANGE, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>In Progress</button>)}<button onClick={() => { clearForm(); setActivePanel("resolve"); }} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + GREEN, background: "transparent", color: GREEN, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>Resolved</button><button onClick={() => { clearForm(); setActivePanel("cantresolve"); }} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>Cannot Resolve</button></div>)}
           </div>
           {isResolving && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.greenSubtle }}>
             <div style={{ fontSize: 10, color: GREEN, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>Mark as Resolved</div>
-            <div style={{ marginBottom: 8 }}><div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>What did you do to complete this? *</div><textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Describe the steps you took..." rows={3} style={{ ...inputSt, resize: "vertical" }} /></div>
-            <div style={{ marginBottom: 10 }}><div style={{ fontSize: 10, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>Photo of completed task *</div>{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GREEN, borderRadius: R.md, cursor: "pointer", color: GREEN, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={GREEN} /><div style={{ textAlign: "left" }}><div>Take Photo of Completed Task</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>Required to verify completion</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt="Preview" style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: R.md, border: "1px solid " + t.borderSolid }} /><button onClick={() => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; }} style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "none", color: "#F8F7F4", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>x</button></div>)}</div>
+            <div style={{ marginBottom: 8 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>What did you do to complete this? *</div><textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Describe the steps you took..." rows={3} style={{ ...inputSt, resize: "vertical" }} /></div>
+            <div style={{ marginBottom: 10 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>Photo of completed task *</div>{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GREEN, borderRadius: R.md, cursor: "pointer", color: GREEN, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={GREEN} /><div style={{ textAlign: "left" }}><div>Take Photo of Completed Task</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>Required to verify completion</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt="Preview" style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: R.md, border: "1px solid " + t.borderSolid }} /><button onClick={() => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; }} style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "none", color: "#F8F7F4", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>x</button></div>)}</div>
             <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>Cancel</button><button onClick={() => handleResolve(detail.task_id)} disabled={uploading} style={{ flex: 1, padding: "10px", borderRadius: R.md, border: "none", background: GREEN, color: "#F8F7F4", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD, opacity: uploading ? 0.6 : 1 }}>{uploading ? "Uploading..." : "Submit Resolution"}</button></div>
           </div>)}
           {isCantResolve && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.redSubtle }}>
@@ -1466,7 +1466,7 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lk
     <div style={{ padding: "16px" }}>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />
       <div style={{ marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>Assigned Tasks</div><div style={{ fontSize: 11, color: t.textSec }}>{assignedTasks.length} task{assignedTasks.length !== 1 ? "s" : ""} assigned to you</div></div>
-      {assignedTasks.map(task => { const info = getTaskInfo(task); return (<div key={task.task_id} onClick={() => setDetail(task)} style={{ marginBottom: 10, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", cursor: "pointer", boxShadow: t.shadow }}><div style={{ padding: "12px 14px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div>{info.desc && <div style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{info.desc}</div>}</div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8, alignItems: "center" }}>{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>ISSUE</span>}{!info.isIssueLinked && task.priority && task.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[task.priority] || GOLD) + "18", color: priC[task.priority] || GOLD, fontFamily: FONT_HEAD }}>{task.priority}</span>}<Ico d="M9 18l6-6-6-6" sz={14} c={t.textMut} /></div></div><div style={{ display: "flex", gap: 8, marginTop: 8, fontSize: 10, color: t.textMut, flexWrap: "wrap", alignItems: "center" }}><span>{info.locationStr}</span><span>{info.assignedByLabel} {info.assignedBy}</span>{task.resolution_status === "in_progress" && <span style={{ fontSize: 9, fontWeight: 600, color: ORANGE, textTransform: "uppercase" }}>In Progress</span>}</div>{task.due_date && (<div style={{ marginTop: 6, fontSize: 10, color: ORANGE, fontVariantNumeric: "tabular-nums" }}>Due: {new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}{task.due_time ? " at " + task.due_time : ""}</div>)}</div></div>); })}
+      {assignedTasks.map(task => { const info = getTaskInfo(task); return (<div key={task.task_id} onClick={() => setDetail(task)} style={{ marginBottom: 10, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", cursor: "pointer", boxShadow: t.shadow }}><div style={{ padding: "12px 14px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div>{info.desc && <div style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{info.desc}</div>}</div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8, alignItems: "center" }}>{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>ISSUE</span>}{!info.isIssueLinked && task.priority && task.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[task.priority] || GOLD) + "18", color: priC[task.priority] || t.goldText, fontFamily: FONT_HEAD }}>{task.priority}</span>}<Ico d="M9 18l6-6-6-6" sz={14} c={t.textMut} /></div></div><div style={{ display: "flex", gap: 8, marginTop: 8, fontSize: 10, color: t.textMut, flexWrap: "wrap", alignItems: "center" }}><span>{info.locationStr}</span><span>{info.assignedByLabel} {info.assignedBy}</span>{task.resolution_status === "in_progress" && <span style={{ fontSize: 9, fontWeight: 600, color: ORANGE, textTransform: "uppercase" }}>In Progress</span>}</div>{task.due_date && (<div style={{ marginTop: 6, fontSize: 10, color: ORANGE, fontVariantNumeric: "tabular-nums" }}>Due: {new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}{task.due_time ? " at " + task.due_time : ""}</div>)}</div></div>); })}
     </div>
   );
 }
@@ -1495,7 +1495,7 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites, 
         <div style={{ marginBottom: 10 }}><label style={labelSt}>Details</label><textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Additional details..." rows={3} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
         <div style={{ marginBottom: 10 }}><label style={labelSt}>Zone</label><input value={zone} onChange={e => setZone(e.target.value)} placeholder="e.g. Restroom, Lobby" style={inputSt} /></div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>Severity</label><div style={{ display: "flex", gap: 6 }}>{sevs.map(s => (<button key={s.v} onClick={() => setSev(s.v)} style={{ flex: 1, padding: "9px", borderRadius: R.sm, border: sev === s.v ? "2px solid " + s.c : "1px solid " + t.borderSolid, background: sev === s.v ? s.c + "1A" : "transparent", cursor: "pointer", color: s.c, fontSize: 12, fontWeight: 700, textAlign: "center", fontFamily: FONT_HEAD, letterSpacing: "0.3px" }}>{s.l}</button>))}</div></div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>Photo</label><input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GOLD, borderRadius: R.sm, cursor: "pointer", color: GOLD, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={GOLD} /><div style={{ textAlign: "left" }}><div>Take Photo or Choose from Gallery</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>JPG, PNG up to 10MB</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt="Preview" style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} /><button onClick={removePhoto} style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "none", color: "#F8F7F4", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>x</button><div style={{ fontSize: 10, color: GREEN, marginTop: 4 }}>Photo attached: {photo?.name}</div></div>)}</div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>Photo</label><input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GOLD, borderRadius: R.sm, cursor: "pointer", color: t.goldText, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={t.goldText} /><div style={{ textAlign: "left" }}><div>Take Photo or Choose from Gallery</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>JPG, PNG up to 10MB</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt="Preview" style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} /><button onClick={removePhoto} style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "none", color: "#F8F7F4", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>x</button><div style={{ fontSize: 10, color: GREEN, marginTop: 4 }}>Photo attached: {photo?.name}</div></div>)}</div>
         <button onClick={handleSubmit} disabled={uploading} style={{ width: "100%", padding: "13px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", opacity: uploading ? 0.6 : 1 }}>{uploading ? "Uploading..." : "Submit Issue"}</button>
       </div>)}
       {isAdmin && visibleIssues.length === 0 && !showForm && <div style={{ padding: "32px 20px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontSize: 13, color: t.textMut, boxShadow: t.shadow }}>No issues reported yet.</div>}
@@ -1512,7 +1512,7 @@ function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submi
   const reqFormUI = reqForm && (
     <div style={{ padding: 14, marginBottom: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, boxShadow: t.popShadow }}>
       <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: t.text, fontFamily: FONT_HEAD }}>Supply/Gear Request</div>
-      <div style={{ marginBottom: 10 }}><label style={labelSt}>Request Type</label><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{(getOpts("request_types").length > 0 ? getOpts("request_types") : [{ v: "refill", l: "Refill" }, { v: "damage_report", l: "Damage Report" }, { v: "new_gear", l: "New Gear" }, { v: "new_supply", l: "New Supply" }]).map(tp => (<button key={tp.v} onClick={() => setReqForm({ ...reqForm, type: tp.v })} style={{ padding: "7px 11px", borderRadius: R.sm, border: reqForm.type === tp.v ? "2px solid " + GOLD : "1px solid " + t.borderSolid, background: reqForm.type === tp.v ? t.goldBg : "transparent", color: reqForm.type === tp.v ? GOLD : t.textSec, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{tp.l}</button>))}</div></div>
+      <div style={{ marginBottom: 10 }}><label style={labelSt}>Request Type</label><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{(getOpts("request_types").length > 0 ? getOpts("request_types") : [{ v: "refill", l: "Refill" }, { v: "damage_report", l: "Damage Report" }, { v: "new_gear", l: "New Gear" }, { v: "new_supply", l: "New Supply" }]).map(tp => (<button key={tp.v} onClick={() => setReqForm({ ...reqForm, type: tp.v })} style={{ padding: "7px 11px", borderRadius: R.sm, border: reqForm.type === tp.v ? "2px solid " + GOLD : "1px solid " + t.borderSolid, background: reqForm.type === tp.v ? t.goldBg : "transparent", color: reqForm.type === tp.v ? t.goldText : t.textSec, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{tp.l}</button>))}</div></div>
       {(reqForm.type === "refill" || reqForm.type === "damage_report") && supplies.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>Supply Item</label><select value={reqForm.supplyId || ""} onChange={e => setReqForm({ ...reqForm, supplyId: e.target.value || null, itemName: supplies.find(s => s.id === e.target.value)?.name || "" })} style={inputSt}><option value="">Select supply...</option>{supplies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>)}
       {(reqForm.type === "new_gear" || reqForm.type === "new_supply") && (<div style={{ marginBottom: 10 }}><label style={labelSt}>Item Name</label><input value={reqForm.itemName} onChange={e => setReqForm({ ...reqForm, itemName: e.target.value })} placeholder="What do you need?" style={inputSt} /></div>)}
       <div style={{ marginBottom: 10 }}><label style={labelSt}>Details</label><textarea value={reqForm.description} onChange={e => setReqForm({ ...reqForm, description: e.target.value })} placeholder="Describe the request..." rows={2} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
@@ -1532,7 +1532,7 @@ function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submi
     <div style={{ padding: "16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>Supply Tracking</div><div style={{ fontSize: 11, color: t.textSec }}>Log usage or submit a request</div></div><button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={{ padding: "7px 13px", borderRadius: R.sm, border: "none", background: GOLD, color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>+ Request</button></div>
       {reqFormUI}
-      {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: t.textMut, fontFamily: "monospace" }}>QR</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div><div style={{ display: "flex", gap: 6, marginTop: 2, fontSize: 9 }}><span style={{ color: t.textMut }}>{sup.qr_code}</span>{isLow && <span style={{ color: ORANGE, fontWeight: 600 }}>LOW</span>}</div></div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} style={qtyBtn}><MinusIco sz={14} /></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 700, color: GOLD, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} style={qtyBtn}><PlusIco sz={14} /></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>Log Usage</button></div>)}</div>); })}
+      {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: t.textMut, fontFamily: "monospace" }}>QR</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div><div style={{ display: "flex", gap: 6, marginTop: 2, fontSize: 9 }}><span style={{ color: t.textMut }}>{sup.qr_code}</span>{isLow && <span style={{ color: ORANGE, fontWeight: 600 }}>LOW</span>}</div></div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} style={qtyBtn}><MinusIco sz={14} /></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 700, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} style={qtyBtn}><PlusIco sz={14} /></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>Log Usage</button></div>)}</div>); })}
       {supplyLogs.length > 0 && (<div style={{ marginTop: 18 }}><label style={{ ...labelSt, display: "block", marginBottom: 8 }}>This Shift's Log</label>{supplyLogs.map((log, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", marginBottom: 3, background: t.hover, borderRadius: R.sm, fontSize: 11 }}><span style={{ fontWeight: 600, color: t.text }}>{log.supply_name || "Item"} <span style={{ color: t.textMut, fontWeight: 400 }}>{log.quantity} {log.unit}</span></span><span style={{ color: t.textMut, fontSize: 9 }}>{formatTime(log.loggedAt || log.scanned_at)}</span></div>))}</div>)}
     </div>
   );
@@ -1610,10 +1610,10 @@ function PickupView({ token, user, showToast, t }) {
             flex: 1, padding: "10px 0", borderRadius: R.sm,
             border: tab === tb.id ? "1px solid " + t.goldBorder : "1px solid transparent",
             background: tab === tb.id ? t.goldBg : "transparent",
-            color: tab === tb.id ? GOLD : t.textMut,
+            color: tab === tb.id ? t.goldText : t.textMut,
             fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px"
           }}>
-            {tb.l} {tb.count > 0 && <span style={{ marginLeft: 4, fontSize: 10, padding: "1px 6px", borderRadius: R.pill, background: GOLD + "26", color: GOLD, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{tb.count}</span>}
+            {tb.l} {tb.count > 0 && <span style={{ marginLeft: 4, fontSize: 10, padding: "1px 6px", borderRadius: R.pill, background: GOLD + "26", color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{tb.count}</span>}
           </button>
         ))}
       </div>
@@ -1640,11 +1640,11 @@ function PickupView({ token, user, showToast, t }) {
                   </div>
                   <div style={{ fontSize: 12, color: t.textSec, fontVariantNumeric: "tabular-nums" }}>{fmtDate(s.scheduled_date)}</div>
                 </div>
-                <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: R.sm, background: (originColor[s.origin] || GOLD) + "18", color: originColor[s.origin] || GOLD, fontFamily: FONT_HEAD }}>{originLabel[s.origin] || s.origin}</span>
+                <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: R.sm, background: (originColor[s.origin] || GOLD) + "18", color: originColor[s.origin] || t.goldText, fontFamily: FONT_HEAD }}>{originLabel[s.origin] || s.origin}</span>
               </div>
 
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, padding: "8px 10px", borderRadius: R.md, background: t.cardAlt }}>
-                <ClockIco sz={14} c={GOLD} />
+                <ClockIco sz={14} c={t.goldText} />
                 <span style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{fmtTm(s.start_time)} to {fmtTm(s.end_time)}</span>
               </div>
 
@@ -1940,7 +1940,7 @@ function InspectView({ token, user, showToast, t }) {
             <div style={{ fontSize: 11, color: t.textMut, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>Scheduled {fmtDate(si.scheduled_date)}</div>
             <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: R.sm, background: t.cardAlt, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: 11, color: t.textSec }}>Tap to start scoring</span>
-              <span style={{ fontSize: 16, color: GOLD }}>{">"}</span>
+              <span style={{ fontSize: 16, color: t.goldText }}>{">"}</span>
             </div>
           </button>
         ))}
@@ -2079,8 +2079,8 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
 
   return (
     <div style={{ padding: "16px" }}>
-      <button onClick={() => setActiveTab("clock")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 0", background: "none", border: "none", color: GOLD, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 12 }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={GOLD} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg> Back
+      <button onClick={() => setActiveTab("clock")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 0", background: "none", border: "none", color: t.goldText, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 12 }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.goldText} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg> Back
       </button>
 
       {/* Photo and Name Header */}
@@ -2088,7 +2088,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
         <div style={{ position: "relative" }}>
           {u.profilePhotoUrl
             ? <img src={u.profilePhotoUrl} alt="" style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover", border: "2px solid " + GOLD }} />
-            : <div style={{ width: 72, height: 72, borderRadius: "50%", background: t.goldSubtle, border: "2px solid " + GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 700, color: GOLD, fontFamily: FONT_HEAD }}>{u.firstName?.[0]}{u.lastName?.[0]}</div>
+            : <div style={{ width: 72, height: 72, borderRadius: "50%", background: t.goldSubtle, border: "2px solid " + GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 700, color: t.goldText, fontFamily: FONT_HEAD }}>{u.firstName?.[0]}{u.lastName?.[0]}</div>
           }
           <label style={{ position: "absolute", bottom: -2, right: -2, width: 26, height: 26, borderRadius: "50%", background: GOLD, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: "2px solid " + t.card }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={NAVY} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
@@ -2098,17 +2098,17 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
         </div>
         <div>
           <div style={{ fontSize: 20, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{u.firstName} {u.lastName}</div>
-          <div style={{ fontSize: 12, color: GOLD, marginTop: 2 }}>{u.role?.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
+          <div style={{ fontSize: 12, color: t.goldText, marginTop: 2 }}>{u.role?.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
           <div style={{ fontSize: 10, color: t.textMut, marginTop: 4 }}>{u.phone} | {u.email}</div>
           {u.employeeId
             ? <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8, padding: "3px 10px", borderRadius: R.sm, background: t.goldSubtle, border: "1px solid " + GOLD }}>
-                <span style={{ fontSize: 8, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>Employee ID</span>
+                <span style={{ fontSize: 8, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>Employee ID</span>
                 <span style={{ fontSize: 12, color: t.text, fontWeight: 700, letterSpacing: "0.5px", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{u.employeeId}</span>
               </div>
             : <div style={{ marginTop: 8, fontSize: 10, color: t.textMut, fontStyle: "italic" }}>Employee ID not assigned. Ask your supervisor.</div>
           }
           {u.badgeNumber && <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 6, padding: "3px 10px", borderRadius: R.sm, background: t.goldSubtle, border: "1px solid " + GOLD }}>
-            <span style={{ fontSize: 8, color: GOLD, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>Badge Number</span>
+            <span style={{ fontSize: 8, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>Badge Number</span>
             <span style={{ fontSize: 12, color: t.text, fontWeight: 700, letterSpacing: "0.5px", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{u.badgeNumber}</span>
           </div>}
         </div>
@@ -2118,7 +2118,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
       <div style={cardSt}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={labelSt}>Personal Information</div>
-          {!editing && <button onClick={startEditing} style={{ padding: "4px 10px", borderRadius: R.sm, border: "1px solid " + GOLD, background: "transparent", color: GOLD, fontSize: 10, cursor: "pointer", fontWeight: 600, fontFamily: FONT_HEAD }}>Edit</button>}
+          {!editing && <button onClick={startEditing} style={{ padding: "4px 10px", borderRadius: R.sm, border: "1px solid " + GOLD, background: "transparent", color: t.goldText, fontSize: 10, cursor: "pointer", fontWeight: 600, fontFamily: FONT_HEAD }}>Edit</button>}
         </div>
         {!editing ? <div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
