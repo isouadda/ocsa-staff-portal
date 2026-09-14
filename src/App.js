@@ -105,6 +105,10 @@ async function api(path, opts = {}) {
 
 const formatTime = (d) => new Date(d).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 const formatDate = (d) => new Date(d).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+const formatDayShort = (d) => new Date(d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+// Same calendar day on the person's own clock, never UTC. A shift that
+// started at 11 PM last night has to say so at 1 AM.
+const sameLocalDay = (a, b) => { const x = new Date(a), y = new Date(b); return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate(); };
 const now = () => new Date();
 
 const Ico = ({ d, sz = 18, c = "currentColor", style: s, ...p }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={s} {...p}><path d={d} /></svg>);
@@ -216,6 +220,13 @@ export default function OCSAStaffPortal() {
   const [clockStatus, setClockStatus] = useState(null);
   const [selectedSite, setSelectedSite] = useState(null);
   const [sessionSites, setSessionSites] = useState(null);
+  // A site that is chosen and not yet started. selectedSite means the
+  // open session's site and is read in several places, so the pending
+  // choice gets its own name. Cleared on start, on end, and on sign out.
+  const [pendingSite, setPendingSite] = useState(null);
+  // The notice shown when Start is refused because a shift is still open
+  // somewhere. Cleared on the next choice, start, or end.
+  const [startBlock, setStartBlock] = useState(null);
   // null until the site's list has come back, so the Tasks tab can tell
   // a list still loading from a building with no checklist.
   const [tasks, setTasks] = useState(null);
@@ -254,10 +265,20 @@ export default function OCSAStaffPortal() {
   const toggleTheme = () => { const next = themeMode === "dark" ? "light" : "dark"; setThemeMode(next); try { localStorage.setItem("ocsa-staff-theme", next); } catch {} };
 
   useEffect(() => { const i = setInterval(() => setCurrentTime(now()), 1000); return () => clearInterval(i); }, []);
-  useEffect(() => { const h = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); }; window.addEventListener("ocsa-session-expired", h); return () => window.removeEventListener("ocsa-session-expired", h); }, []);
+  useEffect(() => { const h = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); }; window.addEventListener("ocsa-session-expired", h); return () => window.removeEventListener("ocsa-session-expired", h); }, []);
   const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
   const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); } catch (err) { console.error(err); } }, [token]);
   const loadSessionSites = useCallback(async (tkn) => { try { const data = await api("/api/shift-sessions/sites", { token: tkn || token }); setSessionSites(data); } catch (err) { console.error(err); } }, [token]);
+  // One read of clock status for every path that has to redraw from the
+  // server's view: after a start, a refused start, an end that already
+  // happened elsewhere, and the app coming back into view.
+  const refreshClockStatus = useCallback(async (tkn) => {
+    const seq = nextStatusSeq();
+    const cs = await api("/api/clock/status", { token: tkn || token });
+    setClockStatus(cs); hydrateCompleted(cs, seq);
+    setSelectedSite(cs.clockedIn && cs.shift ? cs.shift.siteId : null);
+    return cs;
+  }, [token]);
   const getOpts = useCallback((slug, placeholder) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return placeholder ? [{ v: "", l: placeholder }] : []; const opts = (cat.values || []).filter(v => v.is_active).sort((a, b) => a.sort_order - b.sort_order).map(v => ({ v: v.value, l: v.label })); return placeholder ? [{ v: "", l: placeholder }, ...opts] : opts; }, [lookups]);
   const lkMap = useCallback((slug) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return {}; const m = {}; (cat.values || []).forEach(v => { m[v.value] = v.label; }); return m; }, [lookups]);
   const lkColorMap = useCallback((slug) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return {}; const m = {}; (cat.values || []).forEach(v => { if (v.color) m[v.value] = v.color; }); return m; }, [lookups]);
@@ -324,12 +345,56 @@ export default function OCSAStaffPortal() {
     setLoading(false);
   };
 
-  const handleLogout = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); };
+  const handleLogout = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); };
+
+  // Tapping a site chooses it. No request, no tab change, no toast.
+  const handleSelectSite = (siteId) => { if (clockStatus?.clockedIn) return; setPendingSite(siteId); setStartBlock(null); };
 
   const handleStartSession = async (siteId) => {
     if (!siteId) { showToast("Select a site first", "error"); return; }
+    setLoading(true); setStartBlock(null);
+    try {
+      // 201 is a new session. 200 is the same site already open, which
+      // the API answers with that session, so it takes the same path and
+      // creates nothing twice.
+      const data = await api("/api/shift-sessions", { method: "POST", body: { siteId }, token });
+      await refreshClockStatus();
+      setTasks(null); setPendingSite(null);
+      showToast(data.message || "Shift started"); setActiveTab("tasks");
+    } catch (err) {
+      if (err.code === "OPEN_SESSION_ELSEWHERE") {
+        // A shift is still open at another site. Say so and show it. It
+        // is never ended from here as a side effect of starting another.
+        const at = err.body && err.body.openSession ? err.body.openSession.siteName : null;
+        setStartBlock("A shift is still open" + (at ? " at " + at : "") + ". End it before starting another.");
+        refreshClockStatus().catch(e => console.warn("Clock status:", e.message));
+      } else { showToast(err.message, "error"); }
+    }
+    setLoading(false);
+  };
+
+  const handleEndSession = async () => {
+    const shift = clockStatus?.shift;
+    // /api/clock/status carries the id as shift.sessionId, with shift.id
+    // and session.id holding the same value. Without one, nothing is sent.
+    const id = shift?.sessionId || shift?.id || clockStatus?.session?.id;
+    if (!id) { showToast("Could not find your open shift. Reload and try again.", "error"); return; }
+    if (!window.confirm("End your shift at " + (shift.siteName || "this site") + "?")) return;
     setLoading(true);
-    try { const data = await api("/api/shift-sessions", { method: "POST", body: { siteId }, token }); const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); setTasks(null); setSelectedSite(siteId); showToast(data.message || "Shift started"); setActiveTab("tasks"); } catch (err) { showToast(err.message, "error"); }
+    try {
+      const data = await api("/api/shift-sessions/" + id + "/end", { method: "POST", token });
+      setClockStatus({ clockedIn: false, shift: null, session: null });
+      setSelectedSite(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set());
+      const endedAt = data && data.session ? data.session.endedAt : null;
+      showToast(endedAt ? "Shift ended at " + formatTime(endedAt) : "Shift ended");
+    } catch (err) {
+      if (err.code === "SESSION_ALREADY_ENDED") {
+        // Ended somewhere else already. Read the server's view and redraw.
+        setPendingSite(null); setStartBlock(null); setTasks(null);
+        try { await refreshClockStatus(); } catch (e) { setClockStatus({ clockedIn: false, shift: null, session: null }); setSelectedSite(null); }
+        showToast("This shift was already ended");
+      } else { showToast(err.message, "error"); }
+    }
     setLoading(false);
   };
 
@@ -347,6 +412,15 @@ export default function OCSAStaffPortal() {
 
   useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "tasks" && clockStatus?.clockedIn) loadTasks(); if (activeTab === "issues") loadIssues(); if (activeTab === "issuetasks") loadAssignedTasks(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn]);
   useEffect(() => { if (activeChannel) { loadMessages(activeChannel); setTimeout(() => loadChannels(), 600); } }, [activeChannel]);
+  // An admin can end a session from the dashboard, and a second device
+  // can end it too. Re-read clock status when the app comes back into
+  // view. One listener, no interval.
+  useEffect(() => {
+    if (!token || screen !== "main") return;
+    const h = () => { if (document.visibilityState === "visible") refreshClockStatus().catch(e => console.warn("Clock status:", e.message)); };
+    document.addEventListener("visibilitychange", h);
+    return () => document.removeEventListener("visibilitychange", h);
+  }, [token, screen, refreshClockStatus]);
   useEffect(() => { if (activeTab !== "chat" || !activeChannel) return; const iv = setInterval(() => loadMessages(activeChannel), 12000); return () => clearInterval(iv); }, [activeTab, activeChannel]);
 
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
@@ -403,7 +477,7 @@ export default function OCSAStaffPortal() {
 
           <div style={{ padding: "0 0 76px 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
-              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} onStartSession={handleStartSession} siteChoices={sessionSites} loading={loading} completedCount={completedTaskIds.size} taskCount={Array.isArray(tasks) ? tasks.filter(tk => !tk.task_type || tk.task_type === "standard").length : 0} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
+              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} loading={loading} completedCount={completedTaskIds.size} taskCount={Array.isArray(tasks) ? tasks.filter(tk => !tk.task_type || tk.task_type === "standard").length : 0} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -1139,7 +1213,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   );
 }
 
-function ClockView({ clockStatus, currentTime, selectedSite, onStartSession, siteChoices, loading, completedCount, taskCount, t }) {
+function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, onSelectSite, onStartSession, onEndSession, siteChoices, loading, completedCount, taskCount, t }) {
   const ci = clockStatus?.clockedIn;
   const elapsed = ci && clockStatus.shift ? Math.floor((currentTime - new Date(clockStatus.shift.clockInTime)) / 1000) : 0;
   const h = Math.floor(elapsed / 3600), m = Math.floor((elapsed % 3600) / 60), s = elapsed % 60;
@@ -1159,23 +1233,31 @@ function ClockView({ clockStatus, currentTime, selectedSite, onStartSession, sit
   const others = (siteChoices?.all || []).filter(x => !shown.has(x.siteId));
   const grouped = scheduled.length > 0 || assigned.length > 0;
   const groups = (grouped ? [{ label: "Scheduled Today", items: scheduled }, { label: "Your Assigned Sites", items: assigned }, { label: "All Other Sites", items: others }] : [{ label: null, items: others }]).filter(g => g.items.length > 0);
+  const pendingRow = pendingSite ? [...scheduled, ...assigned, ...others].find(x => x.siteId === pendingSite) : null;
+  const pendingName = pendingRow ? pendingRow.siteName : "";
   const emptySt = { padding: "28px 20px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontSize: 13, color: t.textMut, boxShadow: t.shadow };
   const groupHeadSt = { fontSize: 10, color: t.textMut, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, margin: "6px 0 8px", fontFamily: FONT_HEAD };
+  // Two highlights that must read differently. open is the site of the
+  // shift in progress: gold fill, filled dot. picked is a choice not yet
+  // started: gold outline, hollow gold dot. Rows go inert while a shift
+  // is open, since the API refuses a second start until it is ended.
   const renderSite = (site, idx) => {
-    const sel = ci && selectedSite === site.siteId;
+    const open = ci && selectedSite === site.siteId;
+    const picked = !ci && pendingSite === site.siteId;
+    const inert = loading || !!ci;
     const place = [site.address, site.city].filter(Boolean).join(", ");
     const detail = [site.buildingName, site.floorNumber ? "Floor " + site.floorNumber : null].filter(Boolean).join(" - ");
     return (
-      <button key={site.siteId + "-" + idx} onClick={() => { if (!loading && !sel) onStartSession(site.siteId); }} disabled={loading} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", marginBottom: 10, background: sel ? t.goldBg : t.card, border: sel ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: R.md, cursor: sel || loading ? "default" : "pointer", color: t.text, textAlign: "left", opacity: loading ? 0.6 : 1, boxShadow: sel ? t.popShadow : t.shadow, transition: "background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease" }}>
-        <div style={{ width: 38, height: 38, flexShrink: 0, borderRadius: R.sm, display: "flex", alignItems: "center", justifyContent: "center", background: sel ? t.goldSubtle : t.hover, border: "1px solid " + (sel ? t.goldBorder : t.borderSolid) }}>
-          <MapIco sz={18} c={sel ? GOLD : t.textMut} />
+      <button key={site.siteId + "-" + idx} onClick={() => { if (!inert) onSelectSite(site.siteId); }} disabled={inert} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", marginBottom: 10, background: open ? t.goldBg : t.card, border: open || picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: R.md, cursor: inert ? "default" : "pointer", color: t.text, textAlign: "left", opacity: loading || (ci && !open) ? 0.6 : 1, boxShadow: open || picked ? t.popShadow : t.shadow, transition: "background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease" }}>
+        <div style={{ width: 38, height: 38, flexShrink: 0, borderRadius: R.sm, display: "flex", alignItems: "center", justifyContent: "center", background: open ? t.goldSubtle : t.hover, border: "1px solid " + (open || picked ? t.goldBorder : t.borderSolid) }}>
+          <MapIco sz={18} c={open || picked ? GOLD : t.textMut} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 600 }}>{site.siteName}</div>
           {place && <div style={{ fontSize: 10, color: t.textSec, marginTop: 2 }}>{place}</div>}
           {detail && <div style={{ fontSize: 10, color: t.goldText, marginTop: 3, fontWeight: 600 }}>{detail}</div>}
         </div>
-        <div style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: sel ? GOLD : "transparent", border: sel ? "none" : "2px solid " + t.borderSolid }} />
+        <div style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: open ? GOLD : "transparent", border: open ? "none" : "2px solid " + (picked ? GOLD : t.borderSolid) }} />
       </button>
     );
   };
@@ -1189,18 +1271,22 @@ function ClockView({ clockStatus, currentTime, selectedSite, onStartSession, sit
         <div style={{ textAlign: "center", padding: "20px 18px", marginBottom: 16, background: t.card, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
           <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 8, fontWeight: 700, fontFamily: FONT_HEAD }}>Time on Site</div>
           <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "1px", color: t.text, lineHeight: 1, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pad(h)}:{pad(m)}:{pad(s)}</div>
-          <div style={{ fontSize: 11, color: t.textSec, marginTop: 8 }}>Started at {formatTime(clockStatus.shift.clockInTime)}</div>
+          <div style={{ fontSize: 11, color: t.textSec, marginTop: 8 }}>{sameLocalDay(clockStatus.shift.clockInTime, currentTime) ? "Started at " + formatTime(clockStatus.shift.clockInTime) : "Started " + formatDayShort(clockStatus.shift.clockInTime) + " at " + formatTime(clockStatus.shift.clockInTime)}</div>
           <div style={{ fontSize: 12, color: t.text, marginTop: 4, fontWeight: 600 }}>{clockStatus.shift.siteName}</div>
           {(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.goldText, marginTop: 3 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - Floor " + clockStatus.shift.floorNumber : ""}</div>}
           {total > 0 && (<div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><div style={{ flex: 1, maxWidth: 180, height: 6, borderRadius: R.pill, background: t.cardAlt, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.3s ease" }} /></div><span style={{ fontSize: 11, color: t.goldText, fontWeight: 700, fontFamily: FONT_HEAD }}>{done}/{total}</span></div>)}
-          <div style={{ fontSize: 11, color: t.textMut, marginTop: 14, lineHeight: 1.5 }}>Your shift ends automatically. Close the app when you are done.</div>
+          <button onClick={onEndSession} disabled={loading} style={{ ...mkPrimaryBtn(t, loading), marginTop: 16 }}>{loading ? "Ending..." : "End Shift"}</button>
         </div>
       )}
+      {startBlock && <div style={{ padding: "12px 14px", marginBottom: 16, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>{startBlock}</div>}
       <div style={{ marginBottom: 16 }}>
-        <label style={{ ...labelSt, display: "block", marginBottom: 10 }}>{ci ? "Start at Another Site" : "Start Your Shift"}</label>
+        <label style={{ ...labelSt, display: "block", marginBottom: 10 }}>{ci && clockStatus.shift ? "Shift Open at " + clockStatus.shift.siteName : "Choose a Site to Start"}</label>
         {!siteChoices && <div style={emptySt}>Loading sites...</div>}
         {siteChoices && groups.length === 0 && <div style={emptySt}>No sites available yet.</div>}
         {siteChoices && groups.map((g, gi) => (<div key={gi}>{g.label && <div style={groupHeadSt}>{g.label}</div>}{g.items.map(renderSite)}</div>))}
+        {siteChoices && groups.length > 0 && !ci && (
+          <button onClick={() => onStartSession(pendingSite)} disabled={!pendingSite || loading} style={{ ...mkPrimaryBtn(t, loading || !pendingSite), marginTop: 4, cursor: !pendingSite || loading ? "default" : "pointer" }}>{loading ? "Starting..." : pendingSite ? "Start Shift at " + pendingName : "Start Shift"}</button>
+        )}
       </div>
     </div>
   );
