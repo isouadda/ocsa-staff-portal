@@ -443,6 +443,10 @@ export default function OCSAStaffPortal() {
   const moreTabIds = moreTabs.map(t => t.id);
   const isMoreActive = moreTabIds.includes(activeTab);
   const totalBadge = assignedCount;
+  // The Home card counts this person's own checklist, the list the Tasks
+  // tab renders, and nothing wider. null until that list has come back.
+  const homeTasks = Array.isArray(tasks) ? standardTasksOf(tasks) : null;
+  const homeDone = homeTasks ? homeTasks.filter(tk => completedTaskIds.has(tk.id)).length : 0;
 
   return (
     <div style={{ width: "100%", minHeight: "100vh", background: t.bg, fontFamily: FONT_BODY, color: t.text, position: "relative", display: "flex", flexDirection: "column" }}>
@@ -477,7 +481,7 @@ export default function OCSAStaffPortal() {
 
           <div style={{ padding: "0 0 76px 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
-              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} loading={loading} completedCount={completedTaskIds.size} taskCount={Array.isArray(tasks) ? tasks.filter(tk => !tk.task_type || tk.task_type === "standard").length : 0} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
+              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} loading={loading} completedCount={homeDone} taskCount={homeTasks ? homeTasks.length : 0} taskListLoaded={!!homeTasks} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -1213,17 +1217,17 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   );
 }
 
-function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, onSelectSite, onStartSession, onEndSession, siteChoices, loading, completedCount, taskCount, t }) {
+function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, onSelectSite, onStartSession, onEndSession, siteChoices, loading, completedCount, taskCount, taskListLoaded, t }) {
   const ci = clockStatus?.clockedIn;
   const elapsed = ci && clockStatus.shift ? Math.floor((currentTime - new Date(clockStatus.shift.clockInTime)) / 1000) : 0;
   const h = Math.floor(elapsed / 3600), m = Math.floor((elapsed % 3600) / 60), s = elapsed % 60;
   const pad = (n) => String(n).padStart(2, "0");
-  // The bar reads the numbers the Tasks tab renders: every active template
-  // at the site, over the distinct tasks in the hydrated Set. tasks is null
-  // with no open session. siteTotal falls back to total, then to the
-  // rendered task count, when the API does not carry it.
-  const tk = clockStatus?.tasks || {};
-  const total = tk.siteTotal > 0 ? tk.siteTotal : tk.total > 0 ? tk.total : (taskCount || 0);
+  // The bar counts the checklist's own list: this person's standard tasks
+  // at the site, ticked ones over all of them. It is the list the Tasks
+  // tab renders, filtered the same way, so the two never disagree. A
+  // person with nothing assigned reads 0/0. Until the list has come back
+  // there is nothing of this person's to count, so the bar waits.
+  const total = taskCount || 0;
   const done = completedCount || 0;
   const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
   const labelSt = mkLabel(t);
@@ -1274,7 +1278,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
           <div style={{ fontSize: 11, color: t.textSec, marginTop: 8 }}>{sameLocalDay(clockStatus.shift.clockInTime, currentTime) ? "Started at " + formatTime(clockStatus.shift.clockInTime) : "Started " + formatDayShort(clockStatus.shift.clockInTime) + " at " + formatTime(clockStatus.shift.clockInTime)}</div>
           <div style={{ fontSize: 12, color: t.text, marginTop: 4, fontWeight: 600 }}>{clockStatus.shift.siteName}</div>
           {(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.goldText, marginTop: 3 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - Floor " + clockStatus.shift.floorNumber : ""}</div>}
-          {total > 0 && (<div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><div style={{ flex: 1, maxWidth: 180, height: 6, borderRadius: R.pill, background: t.cardAlt, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.3s ease" }} /></div><span style={{ fontSize: 11, color: t.goldText, fontWeight: 700, fontFamily: FONT_HEAD }}>{done}/{total}</span></div>)}
+          {taskListLoaded && (<div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><div style={{ flex: 1, maxWidth: 180, height: 6, borderRadius: R.pill, background: t.cardAlt, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.3s ease" }} /></div><span style={{ fontSize: 11, color: t.goldText, fontWeight: 700, fontFamily: FONT_HEAD }}>{done}/{total}</span></div>)}
           <button onClick={onEndSession} disabled={loading} style={{ ...mkPrimaryBtn(t, loading), marginTop: 16 }}>{loading ? "Ending..." : "End Shift"}</button>
         </div>
       )}
@@ -1298,11 +1302,16 @@ function groupTasksByFloorZone(taskList) {
   groups.sort((a, b) => { if (a.floor && !b.floor) return -1; if (!a.floor && b.floor) return 1; if (a.floor && b.floor && a.floor !== b.floor) { const aNum = parseInt(a.floor); const bNum = parseInt(b.floor); if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum; return a.floor.localeCompare(b.floor); } return a.zone.localeCompare(b.zone); });
   return groups;
 }
+// The checklist and the Home card count the same list through the same
+// filter. Both call this, so the two numbers cannot drift apart.
+function standardTasksOf(taskList) {
+  return (Array.isArray(taskList) ? taskList : []).filter(tk => !tk.task_type || tk.task_type === "standard");
+}
 
 function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask, t }) {
   const [detail, setDetail] = useState(null);
   const loaded = Array.isArray(tasks);
-  const standardTasks = (loaded ? tasks : []).filter(tk => !tk.task_type || tk.task_type === "standard");
+  const standardTasks = standardTasksOf(tasks);
   const labelSt = mkLabel(t);
   const floorHeadSt = { fontSize: 11, color: t.text, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, padding: "7px 11px", background: t.card, borderRadius: R.sm, border: "1px solid " + t.borderSolid, fontFamily: FONT_HEAD };
   const zoneSt = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700, marginBottom: 8, fontFamily: FONT_HEAD };
