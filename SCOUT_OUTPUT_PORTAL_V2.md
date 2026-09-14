@@ -29,7 +29,7 @@ Everything below was located by text pattern. Line numbers are a navigation aid 
 > 7. **No activation screen and no reset screen exist, and the app never reads the URL.** `screen` takes exactly three values, `"login"`, `"register"`, `"main"` (`:138`). There is no router, no `window.location` read, no `URLSearchParams`. The mailer's links to `/activate?token=` and `/reset-pin?token=` land on the login card with the token sitting unused in the address bar. Every invite sent before the rewire ships lands on a dead link. Section 5.
 > 8. **`GET /api/lookups/all` answers 403 to every staff account, and the portal hides it.** The route is gated `manage_lookups`, admin only by default. The portal calls it at login (`:180`) with `.catch(e => console.warn(...))`, so `lookups` stays `[]`, every `getOpts(slug)` returns `[]`, and every select falls through to its hardcoded English array. The `authenticate`-only sibling `GET /api/lookups` is the route this app should call. Section 9.
 > 9. **The token lives only in React state. A refresh logs the cleaner out.** `const [token, setToken] = useState(null)` at `:135`; `localStorage` holds one key, `ocsa-staff-theme`. Section 5.
-> 10. **Two live credentials ship in the bundle.** `LoginScreen` renders a "Demo Accounts (Live Data)" block with `isouadda@ocsaco.com` / `2580` and `daniel.evans@ocsa.temp` / `1357` (`:352` to `:355`, `:369` to `:371`). The API scouts confirm the login lockout counts failures only, so a correct PIN in the bundle bypasses it. Section 5.
+> 10. **Two live credentials ship in the bundle.** `LoginScreen` renders a "Demo Accounts (Live Data)" block with `[redacted admin identifier]` / `[redacted PIN]` and `[redacted staff identifier]` / `[redacted PIN]` (`:352` to `:355`, `:369` to `:371`). The API scouts confirm the login lockout counts failures only, so a correct PIN in the bundle bypasses it. Section 5.
 > 11. **No block field, `frequency`, `days_of_week`, `shift_label`, `block_label` or `anchor_time` appears anywhere in the source.** `sort_order` appears once, inside `getOpts` for lookup values (`:163`). The checklist groups on `floor_number` and `zone` only (`groupTasksByFloorZone`, `:751`) and keeps the API's row order inside a group. Section 4.
 > 12. **Chat is a single-line input polling every 12 seconds with no history paging and no system-message rendering.** `ChatView` (`:815` to `:841`) renders one bubble style for people, tinted by role, and reads `msg.senderId`, `msg.senderRole`, `msg.senderName`, `msg.text`, `msg.sentAt`. A compliance agent tab can copy the shell and needs its own message model. Section 6.
 > 13. **The smallest tap target on the Tasks view is a 22 by 22 pixel checkbox.** `width: 22, height: 22` on the button at `:810`, below the 44 pixel minimum the header avatar button already observes (`:253`). Section 7.
@@ -743,8 +743,8 @@ Neither input has `name`, `id`, `inputMode`, `pattern` or `autoComplete`. The PI
 >
 > ```js
 >   const demos = [
->     { name: "Ibrahim Souadda", role: "Admin (test)", phone: "isouadda@ocsaco.com", pin: "2580" },
->     { name: "Daniel Evans", role: "Custodial Laborer | PLA", phone: "daniel.evans@ocsa.temp", pin: "1357" },
+>     { name: "Ibrahim Souadda", role: "Admin (test)", phone: "[redacted admin identifier]", pin: "[redacted PIN]" },
+>     { name: "Daniel Evans", role: "Custodial Laborer | PLA", phone: "[redacted staff identifier]", pin: "[redacted PIN]" },
 >   ];
 > ```
 >
@@ -1204,7 +1204,7 @@ Two things the earlier portal scout reported that this read corrects: it counted
 5. **Whether any route returns the completed task ids for the current session.** The Block 2 scout's enumeration of `task_completions` readers says no. If that is right, the rewire either adds one to the API (`GET /api/shift-sessions/today` could carry `completedTaskIds`) or ships the session-local checkbox defect. `grep -n "task_completions" routes/*.js helpers/*.js` confirms the list.
 6. **Whether the deployed Vercel build sets `REACT_APP_API_URL`.** The fallback is the production host, so the answer changes nothing today; it decides whether a preview deploy can ever point at a staging API.
 7. **What `POST /api/chat/channels/:id/messages` returns.** `sendMessage` at `:217` appends `data.message` and the list render reads `senderId`, `senderName`, `senderRole`, `text`, `sentAt` from it. The first API scout quotes the INSERT `RETURNING *` (snake_case columns) and says nothing about the response projection. If the response is the raw row, the appended bubble renders with an empty name and `formatTime(undefined)` until the next poll replaces it. One send in the deployed app answers it.
-8. **Whether the PIN `2580` at `:353` is still the live PIN for the admin account.** The dashboard scout raised the same question. Rotating it and deleting the block are both needed regardless.
+8. **Whether the PIN `[redacted PIN]` at `:353` is still the live PIN for the admin account.** The dashboard scout raised the same question. Rotating it and deleting the block are both needed regardless.
 
 ## Completeness audit, items 1 through 10
 

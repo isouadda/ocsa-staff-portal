@@ -487,7 +487,6 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, showToast, t,
           <div style={{ display: "inline-block", padding: themeMode === "dark" ? "12px 20px" : "0", background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: 12 }}><img src={LOGO_LG} alt={clientConfig.company.shortName} style={{ height: 70 }} /></div>
           
           <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 700 }}>Staff Operations Portal</div>
-          <div style={{ fontSize: 10, color: GREEN, marginTop: 8 }}>Connected to Live API</div>
         </div>
         <div style={{ marginBottom: 16 }}><label style={labelSt}>Badge Number, Phone or Email</label><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="9001, 2155550101 or name@email.com" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
         <div style={{ marginBottom: 8 }}><label style={labelSt}>PIN</label><input value={pin} onChange={e => setPin(e.target.value)} placeholder="4-digit PIN" type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
