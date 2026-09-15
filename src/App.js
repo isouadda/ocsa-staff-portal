@@ -132,6 +132,7 @@ const SwapIco = (p) => <Ico d="M16 3l4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" {...p
 const CalIco = (p) => <Ico d="M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM16 2v4M8 2v4M3 10h18" {...p} />;
 const HomeIco = (p) => <Ico d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" {...p} />;
 const HelpIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01" {...p} />;
+const PersonIco = (p) => <Ico d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
 const mkLabel = (t) => ({ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700, marginBottom: 6, display: "block", fontFamily: FONT_HEAD });
@@ -450,6 +451,7 @@ export default function OCSAStaffPortal() {
     { id: "supplies", label: "Supplies", icon: BoxIco },
     { id: "pickup", label: "Pickup", icon: SwapIco },
     { id: "inspect", label: "Inspect", icon: ClipIco },
+    { id: "speakup", label: "Speak Up", icon: PersonIco },
   ];
   const moreTabIds = moreTabs.map(t => t.id);
   const isMoreActive = moreTabIds.includes(activeTab);
@@ -502,6 +504,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
+              {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
               {activeTab === "profile" && <MyProfileView token={token} user={user} showToast={showToast} t={t} setUser={setUser} setActiveTab={setActiveTab} />}
             </div>
           </div>
@@ -1640,6 +1643,99 @@ function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submi
       {reqFormUI}
       {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: t.textMut, fontFamily: "monospace" }}>QR</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div><div style={{ display: "flex", gap: 6, marginTop: 2, fontSize: 9 }}><span style={{ color: t.textMut }}>{sup.qr_code}</span>{isLow && <span style={{ color: ORANGE, fontWeight: 600 }}>LOW</span>}</div></div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} style={qtyBtn}><MinusIco sz={14} /></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 700, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} style={qtyBtn}><PlusIco sz={14} /></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>Log Usage</button></div>)}</div>); })}
       {supplyLogs.length > 0 && (<div style={{ marginTop: 18 }}><label style={{ ...labelSt, display: "block", marginBottom: 8 }}>This Shift's Log</label>{supplyLogs.map((log, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", marginBottom: 3, background: t.hover, borderRadius: R.sm, fontSize: 11 }}><span style={{ fontWeight: 600, color: t.text }}>{log.supply_name || "Item"} <span style={{ color: t.textMut, fontWeight: 400 }}>{log.quantity} {log.unit}</span></span><span style={{ color: t.textMut, fontSize: 9 }}>{formatTime(log.loggedAt || log.scanned_at)}</span></div>))}</div>)}
+    </div>
+  );
+}
+
+// ============================================================
+// SPEAK UP
+// A report about a person. Three things: what happened, who it is
+// about, Send. What is typed lives only in this component's state,
+// which is gone the moment the person leaves the tab, so a half
+// written report cannot be found on a shared phone by the next
+// person to pick it up. Nothing on this screen reaches the console.
+// The subjects list is the API's, never a name typed here.
+// ============================================================
+const CASE_MAX = 4000;
+const CASE_MAX_TEXT = CASE_MAX.toLocaleString("en-US");
+function SpeakUpView({ token, t }) {
+  const [text, setText] = useState("");
+  // "" is nobody in particular and sends no subject_user_id.
+  const [subjectId, setSubjectId] = useState("");
+  // null until the list has come back. An empty list hides the choice
+  // and the form still sends. A list that fails to load reads as empty.
+  const [subjects, setSubjects] = useState(null);
+  // sending disables Send and the fields for the length of one request.
+  // inFlight is the same fact held in a ref, so a second tap that lands
+  // before the render with the disabled button files nothing.
+  const [sending, setSending] = useState(false);
+  const inFlight = useRef(false);
+  // The id of the case just filed. Once set, the form is gone and the
+  // confirmation is all there is; the only way back is to leave the tab.
+  const [sent, setSent] = useState(null);
+  // One plain sentence when a send did not go through. What was typed
+  // stays on screen underneath it.
+  const [problem, setProblem] = useState(null);
+  useEffect(() => { let live = true; api("/api/contacts/case-subjects", { token }).then(d => { if (live) setSubjects(Array.isArray(d?.subjects) ? d.subjects : []); }).catch(() => { if (live) setSubjects([]); }); return () => { live = false; }; }, [token]);
+  const labelSt = mkLabel(t);
+  const inputSt = mkInput(t);
+  const helpSt = mkHelp(t);
+  const nearLimit = text.length >= CASE_MAX - 200;
+  const canSend = text.trim().length > 0 && !sending;
+  const send = async () => {
+    if (!canSend || inFlight.current) return;
+    inFlight.current = true; setSending(true); setProblem(null);
+    const body = { summary: text.trim() };
+    if (subjectId) body.subject_user_id = subjectId;
+    try {
+      const data = await api("/api/hr-cases", { method: "POST", body, token });
+      setText(""); setSubjectId("");
+      setSent({ id: data && data.id ? String(data.id) : "" });
+    } catch (err) {
+      // 503 carries the API's own sentence, which names nobody. Every
+      // other failure gets plain words. Never the raw body, never a code.
+      const own = err && err.status === 503 && typeof err.message === "string" && err.message.trim() ? err.message.trim() : null;
+      setProblem("Your report was not sent. " + (own || "Please try again."));
+    } finally { inFlight.current = false; setSending(false); }
+  };
+  const choices = subjects && subjects.length > 0 ? [{ id: "", name: "A co-worker, or no one in particular", title: null }, ...subjects] : [];
+  if (sent) return (
+    <div style={{ padding: "16px" }}>
+      <div style={{ padding: "28px 20px", textAlign: "center", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.lg, boxShadow: t.popShadow }}>
+        <CheckIco sz={40} c={GREEN} />
+        <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginTop: 14, fontFamily: FONT_HEAD }}>We got your report.</div>
+        <div style={{ fontSize: 13, color: t.textSec, marginTop: 8, lineHeight: 1.6 }}>Someone will be in touch with you within 72 hours.</div>
+        {sent.id && (<div style={{ marginTop: 20 }}><div style={labelSt}>Your reference</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, wordBreak: "break-all" }}>{sent.id}</div><div style={helpSt}>Quote this if you follow up.</div></div>)}
+      </div>
+    </div>
+  );
+  return (
+    <div style={{ padding: "16px" }}>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>Report a problem with someone</div>
+        <div style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.5 }}>Nothing you write here is kept. If you leave this screen before you send, it is gone.</div>
+      </div>
+      <div style={{ padding: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, boxShadow: t.popShadow }}>
+        <div style={{ marginBottom: 14 }}>
+          <label style={labelSt}>What happened</label>
+          <textarea value={text} onChange={e => setText(e.target.value.slice(0, CASE_MAX))} maxLength={CASE_MAX} disabled={sending} placeholder="Write what happened in your own words. One sentence is enough." rows={6} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }} />
+          <div style={{ ...helpSt, color: nearLimit ? ORANGE : t.textMut }}>{nearLimit ? text.length.toLocaleString("en-US") + " of " + CASE_MAX_TEXT + " characters used." : "You can write up to " + CASE_MAX_TEXT + " characters."}</div>
+        </div>
+        {choices.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelSt}>Who is it about</label>
+            <div style={{ ...helpSt, marginTop: 0, marginBottom: 8 }}>If it is about one of the people named here, pick their name so your report does not go to them.</div>
+            {choices.map(p => { const picked = subjectId === p.id; return (
+              <button key={p.id || "nobody"} onClick={() => setSubjectId(p.id)} disabled={sending} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", marginBottom: 8, background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: R.md, cursor: "pointer", color: t.text, textAlign: "left" }}>
+                <div style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: picked ? GOLD : "transparent", border: picked ? "none" : "2px solid " + t.borderSolid }} />
+                <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>{p.title && <div style={{ fontSize: 10, color: t.textSec, marginTop: 2 }}>{p.title}</div>}</div>
+              </button>
+            ); })}
+          </div>
+        )}
+        {problem && <div style={{ padding: "10px 12px", marginBottom: 12, background: t.redSubtle, border: "1px solid " + t.redBorder, borderRadius: R.sm, fontSize: 12, color: RED, lineHeight: 1.5 }}>{problem}</div>}
+        <button onClick={send} disabled={!canSend} style={{ ...mkPrimaryBtn(t, !canSend), cursor: canSend ? "pointer" : "default" }}>{sending ? "Sending..." : "Send"}</button>
+      </div>
     </div>
   );
 }
