@@ -398,7 +398,13 @@ export default function OCSAStaffPortal() {
     setLoading(false);
   };
 
-  const loadTasks = async () => { if (!clockStatus?.clockedIn || !clockStatus?.shift?.siteId) return; try { let taskUrl = "/api/sites/" + clockStatus.shift.siteId + "/tasks?user_id=" + user.id; if (clockStatus.shift.buildingName) taskUrl += "&building_name=" + encodeURIComponent(clockStatus.shift.buildingName); if (clockStatus.shift.floorNumber) taskUrl += "&floor_number=" + encodeURIComponent(clockStatus.shift.floorNumber); const tt = await api(taskUrl, { token }); setTasks(tt); const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { console.error(err); } };
+  // The site the list in tasks came back for, and the site a fetch is in
+  // flight for. A second call for the same site while one is in flight
+  // does nothing. A failure clears the in-flight mark and leaves tasks
+  // null, so the bar stays hidden and nothing is said to the person.
+  const tasksSite = useRef(null);
+  const tasksReqSite = useRef(null);
+  const loadTasks = async () => { if (!clockStatus?.clockedIn || !clockStatus?.shift?.siteId) return; const siteId = clockStatus.shift.siteId; if (tasksReqSite.current === siteId) return; tasksReqSite.current = siteId; try { let taskUrl = "/api/sites/" + siteId + "/tasks?user_id=" + user.id; if (clockStatus.shift.buildingName) taskUrl += "&building_name=" + encodeURIComponent(clockStatus.shift.buildingName); if (clockStatus.shift.floorNumber) taskUrl += "&floor_number=" + encodeURIComponent(clockStatus.shift.floorNumber); const tt = await api(taskUrl, { token }); setTasks(tt); tasksSite.current = siteId; const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { console.error(err); } finally { tasksReqSite.current = null; } };
   const toggleTask = async (taskId) => { if (inFlightTaskIds.current.has(taskId)) return; inFlightTaskIds.current.add(taskId); try { if (completedTaskIds.has(taskId)) { await api("/api/clock/tasks/" + taskId + "/complete", { method: "DELETE", token }); setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); } else { await api("/api/clock/tasks/" + taskId + "/complete", { method: "POST", body: {}, token }); setCompletedTaskIds(prev => new Set(prev).add(taskId)); showToast("Task completed"); } const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { showToast(err.message, "error"); } finally { inFlightTaskIds.current.delete(taskId); } };
   const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); } catch (err) { console.error(err); } };
   const resolveAssignedTask = async (taskId, status, note, photoUrl) => { try { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast("Task updated to " + status.replace(/_/g, " ")); loadAssignedTasks(); } catch (err) { showToast(err.message, "error"); } };
@@ -410,7 +416,12 @@ export default function OCSAStaffPortal() {
   const loadMessages = async (channelId) => { try { const data = await api("/api/chat/channels/" + channelId + "/messages", { token }); setMessages(data); } catch (err) { console.error(err); } };
   const sendMessage = async (channelId, text) => { try { const data = await api("/api/chat/channels/" + channelId + "/messages", { method: "POST", body: { text }, token }); setMessages(prev => [...prev, data.message]); } catch (err) { showToast(err.message, "error"); } };
 
-  useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "tasks" && clockStatus?.clockedIn) loadTasks(); if (activeTab === "issues") loadIssues(); if (activeTab === "issuetasks") loadAssignedTasks(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn]);
+  // The task list is fetched as soon as a session is seen open, whichever
+  // tab the person is standing on, so the Home card has its bar at boot.
+  // Once per site: opening Tasks afterwards fires nothing new, and a
+  // status refresh at the same site fetches nothing. A session at a
+  // different site fetches that site's list. No session, no fetch.
+  useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (clockStatus?.clockedIn && clockStatus?.shift?.siteId && (tasks === null || tasksSite.current !== clockStatus.shift.siteId)) loadTasks(); if (activeTab === "issues") loadIssues(); if (activeTab === "issuetasks") loadAssignedTasks(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId]);
   useEffect(() => { if (activeChannel) { loadMessages(activeChannel); setTimeout(() => loadChannels(), 600); } }, [activeChannel]);
   // An admin can end a session from the dashboard, and a second device
   // can end it too. Re-read clock status when the app comes back into
