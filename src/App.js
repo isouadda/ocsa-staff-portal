@@ -1665,19 +1665,50 @@ function SpeakUpView({ token, t }) {
   // null until the list has come back. An empty list hides the choice
   // and the form still sends. A list that fails to load reads as empty.
   const [subjects, setSubjects] = useState(null);
+  // sending disables Send and the fields for the length of one request.
+  // inFlight is the same fact held in a ref, so a second tap that lands
+  // before the render with the disabled button files nothing.
+  const [sending, setSending] = useState(false);
+  const inFlight = useRef(false);
+  // The id of the case just filed. Once set, the form is gone and the
+  // confirmation is all there is; the only way back is to leave the tab.
+  const [sent, setSent] = useState(null);
+  // One plain sentence when a send did not go through. What was typed
+  // stays on screen underneath it.
+  const [problem, setProblem] = useState(null);
   useEffect(() => { let live = true; api("/api/contacts/case-subjects", { token }).then(d => { if (live) setSubjects(Array.isArray(d?.subjects) ? d.subjects : []); }).catch(() => { if (live) setSubjects([]); }); return () => { live = false; }; }, [token]);
   const labelSt = mkLabel(t);
   const inputSt = mkInput(t);
   const helpSt = mkHelp(t);
   const nearLimit = text.length >= CASE_MAX - 200;
-  const canSend = text.trim().length > 0;
+  const canSend = text.trim().length > 0 && !sending;
   const send = async () => {
-    if (!canSend) return;
+    if (!canSend || inFlight.current) return;
+    inFlight.current = true; setSending(true); setProblem(null);
     const body = { summary: text.trim() };
     if (subjectId) body.subject_user_id = subjectId;
-    try { await api("/api/hr-cases", { method: "POST", body, token }); } catch (err) {}
+    try {
+      const data = await api("/api/hr-cases", { method: "POST", body, token });
+      setText(""); setSubjectId("");
+      setSent({ id: data && data.id ? String(data.id) : "" });
+    } catch (err) {
+      // 503 carries the API's own sentence, which names nobody. Every
+      // other failure gets plain words. Never the raw body, never a code.
+      const own = err && err.status === 503 && typeof err.message === "string" && err.message.trim() ? err.message.trim() : null;
+      setProblem("Your report was not sent. " + (own || "Please try again."));
+    } finally { inFlight.current = false; setSending(false); }
   };
   const choices = subjects && subjects.length > 0 ? [{ id: "", name: "A co-worker, or no one in particular", title: null }, ...subjects] : [];
+  if (sent) return (
+    <div style={{ padding: "16px" }}>
+      <div style={{ padding: "28px 20px", textAlign: "center", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.lg, boxShadow: t.popShadow }}>
+        <CheckIco sz={40} c={GREEN} />
+        <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginTop: 14, fontFamily: FONT_HEAD }}>We got your report.</div>
+        <div style={{ fontSize: 13, color: t.textSec, marginTop: 8, lineHeight: 1.6 }}>Someone will be in touch with you within 72 hours.</div>
+        {sent.id && (<div style={{ marginTop: 20 }}><div style={labelSt}>Your reference</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, wordBreak: "break-all" }}>{sent.id}</div><div style={helpSt}>Quote this if you follow up.</div></div>)}
+      </div>
+    </div>
+  );
   return (
     <div style={{ padding: "16px" }}>
       <div style={{ marginBottom: 14 }}>
@@ -1687,7 +1718,7 @@ function SpeakUpView({ token, t }) {
       <div style={{ padding: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, boxShadow: t.popShadow }}>
         <div style={{ marginBottom: 14 }}>
           <label style={labelSt}>What happened</label>
-          <textarea value={text} onChange={e => setText(e.target.value.slice(0, CASE_MAX))} maxLength={CASE_MAX} placeholder="Write what happened in your own words. One sentence is enough." rows={6} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }} />
+          <textarea value={text} onChange={e => setText(e.target.value.slice(0, CASE_MAX))} maxLength={CASE_MAX} disabled={sending} placeholder="Write what happened in your own words. One sentence is enough." rows={6} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }} />
           <div style={{ ...helpSt, color: nearLimit ? ORANGE : t.textMut }}>{nearLimit ? text.length.toLocaleString("en-US") + " of " + CASE_MAX_TEXT + " characters used." : "You can write up to " + CASE_MAX_TEXT + " characters."}</div>
         </div>
         {choices.length > 0 && (
@@ -1695,14 +1726,15 @@ function SpeakUpView({ token, t }) {
             <label style={labelSt}>Who is it about</label>
             <div style={{ ...helpSt, marginTop: 0, marginBottom: 8 }}>If it is about one of the people named here, pick their name so your report does not go to them.</div>
             {choices.map(p => { const picked = subjectId === p.id; return (
-              <button key={p.id || "nobody"} onClick={() => setSubjectId(p.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", marginBottom: 8, background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: R.md, cursor: "pointer", color: t.text, textAlign: "left" }}>
+              <button key={p.id || "nobody"} onClick={() => setSubjectId(p.id)} disabled={sending} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", marginBottom: 8, background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: R.md, cursor: "pointer", color: t.text, textAlign: "left" }}>
                 <div style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: picked ? GOLD : "transparent", border: picked ? "none" : "2px solid " + t.borderSolid }} />
                 <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>{p.title && <div style={{ fontSize: 10, color: t.textSec, marginTop: 2 }}>{p.title}</div>}</div>
               </button>
             ); })}
           </div>
         )}
-        <button onClick={send} disabled={!canSend} style={{ ...mkPrimaryBtn(t, !canSend), cursor: canSend ? "pointer" : "default" }}>Send</button>
+        {problem && <div style={{ padding: "10px 12px", marginBottom: 12, background: t.redSubtle, border: "1px solid " + t.redBorder, borderRadius: R.sm, fontSize: 12, color: RED, lineHeight: 1.5 }}>{problem}</div>}
+        <button onClick={send} disabled={!canSend} style={{ ...mkPrimaryBtn(t, !canSend), cursor: canSend ? "pointer" : "default" }}>{sending ? "Sending..." : "Send"}</button>
       </div>
     </div>
   );
