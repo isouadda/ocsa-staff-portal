@@ -1662,9 +1662,18 @@ function SpeakUpView({ token, t }) {
   const [text, setText] = useState("");
   // "" is nobody in particular and sends no subject_user_id.
   const [subjectId, setSubjectId] = useState("");
-  // null until the list has come back. An empty list hides the choice
-  // and the form still sends. A list that fails to load reads as empty.
+  // Three states. null is loading: the choice is not drawn yet. An
+  // array is loaded: an empty one hides the choice and the form still
+  // sends, which is a correct state. listFailed is the third: the
+  // request did not come back, the choice cannot be offered, and the
+  // screen says so where the choice would be, with a way to try again.
+  // A failure is never read as an empty list, because a report about
+  // a manager sent with no name goes to that manager.
   const [subjects, setSubjects] = useState(null);
+  const [listFailed, setListFailed] = useState(false);
+  // Bumped by Try again, which re-runs the same request. The activation
+  // screen's pattern.
+  const [attempt, setAttempt] = useState(0);
   // sending disables Send and the fields for the length of one request.
   // inFlight is the same fact held in a ref, so a second tap that lands
   // before the render with the disabled button files nothing.
@@ -1676,7 +1685,7 @@ function SpeakUpView({ token, t }) {
   // One plain sentence when a send did not go through. What was typed
   // stays on screen underneath it.
   const [problem, setProblem] = useState(null);
-  useEffect(() => { let live = true; api("/api/contacts/case-subjects", { token }).then(d => { if (live) setSubjects(Array.isArray(d?.subjects) ? d.subjects : []); }).catch(() => { if (live) setSubjects([]); }); return () => { live = false; }; }, [token]);
+  useEffect(() => { let live = true; setSubjects(null); setListFailed(false); api("/api/contacts/case-subjects", { token }).then(d => { if (live) setSubjects(Array.isArray(d?.subjects) ? d.subjects : []); }).catch(() => { if (live) setListFailed(true); }); return () => { live = false; }; }, [token, attempt]);
   const labelSt = mkLabel(t);
   const inputSt = mkInput(t);
   const helpSt = mkHelp(t);
@@ -1721,6 +1730,13 @@ function SpeakUpView({ token, t }) {
           <textarea value={text} onChange={e => setText(e.target.value.slice(0, CASE_MAX))} maxLength={CASE_MAX} disabled={sending} placeholder="Write what happened in your own words. One sentence is enough." rows={6} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }} />
           <div style={{ ...helpSt, color: nearLimit ? ORANGE : t.textMut }}>{nearLimit ? text.length.toLocaleString("en-US") + " of " + CASE_MAX_TEXT + " characters used." : "You can write up to " + CASE_MAX_TEXT + " characters."}</div>
         </div>
+        {listFailed && (
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelSt}>Who is it about</label>
+            <div style={{ padding: "10px 12px", background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, borderRadius: R.sm, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>The list of names did not load. If your report is about a manager, try again before you send, so it does not go to them.</div>
+            <button onClick={() => setAttempt(a => a + 1)} disabled={sending} style={{ ...mkGhostBtn(t), marginTop: 8 }}>Try again</button>
+          </div>
+        )}
         {choices.length > 0 && (
           <div style={{ marginBottom: 14 }}>
             <label style={labelSt}>Who is it about</label>
