@@ -901,7 +901,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} t={t} token={token} />}
-              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} />}
+              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
@@ -1933,7 +1933,7 @@ function AgentReply({ text }) {
   );
 }
 
-function AgentView({ token, showToast, t }) {
+function AgentView({ token, showToast, t, language }) {
   const [drafts, setDrafts] = useState([]);
   const [conversationId, setConversationId] = useState(null);
   const [thread, setThread] = useState([]);
@@ -2049,7 +2049,12 @@ function AgentView({ token, showToast, t }) {
     setThread(prev => prev.map(m => m.id === msgId ? { ...m, pending: true, failed: false, error: null } : m));
     try {
       // text is always present, empty when the message is photos alone.
+      // The chosen language rides along, because the message route takes a
+      // locale and otherwise falls back to the language on the account,
+      // which nothing in the portal can set until the preference routes are
+      // live. With it, the choice in Settings works on the next message.
       const body = { text: msgText };
+      if (language === "en" || language === "es") body.locale = language;
       if (paths && paths.length > 0) body.photoPaths = paths;
       if (conversationId) body.conversationId = conversationId;
       const data = await api("/api/agent/message", { method: "POST", body, token });
