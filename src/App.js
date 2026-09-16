@@ -28,6 +28,70 @@ async function uploadTaskMedia(file, token) {
   return res.json();
 }
 
+// Photos sent to the agent from the Help tab. Each one is prepared in the
+// browser before it leaves the phone: decoded, drawn to a canvas no larger
+// than the agent reads, and exported as JPEG. Re-encoding through a canvas
+// drops the location and camera data the phone wrote into the file, which
+// is intended. Canvas pixel sizes come from the image, never from layout,
+// so the text size zoom on the root element cannot change what is sent.
+const AGENT_PHOTO_MAX_EDGE = 1568;
+const AGENT_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+const AGENT_PHOTO_QUALITIES = [0.85, 0.7, 0.5];
+const AGENT_PHOTO_LIMIT = 3;
+const AGENT_PHOTO_LIMIT_TITLE = "You can send up to 3 photos with one message.";
+const AGENT_PHOTO_UNREADABLE = "This photo could not be read here. Choose a JPEG or PNG, or take a screenshot of it.";
+
+async function decodeAgentPhoto(file) {
+  if (typeof window.createImageBitmap === "function") {
+    try { return await window.createImageBitmap(file, { imageOrientation: "from-image" }); } catch (e) {}
+  }
+  return await new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(AGENT_PHOTO_UNREADABLE)); };
+    img.src = url;
+  });
+}
+
+async function prepareAgentPhoto(file) {
+  const src = await decodeAgentPhoto(file);
+  const w0 = src.width || src.naturalWidth, h0 = src.height || src.naturalHeight;
+  if (!w0 || !h0) throw new Error(AGENT_PHOTO_UNREADABLE);
+  // Never enlarged. Only a photo longer than the limit is brought down.
+  const scale = Math.min(1, AGENT_PHOTO_MAX_EDGE / Math.max(w0, h0));
+  const w = Math.max(1, Math.round(w0 * scale)), h = Math.max(1, Math.round(h0 * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error(AGENT_PHOTO_UNREADABLE);
+  ctx.drawImage(src, 0, 0, w, h);
+  if (typeof src.close === "function") { try { src.close(); } catch (e) {} }
+  let blob = null;
+  for (let i = 0; i < AGENT_PHOTO_QUALITIES.length; i++) {
+    blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", AGENT_PHOTO_QUALITIES[i]));
+    if (!blob) throw new Error(AGENT_PHOTO_UNREADABLE);
+    if (blob.size <= AGENT_PHOTO_MAX_BYTES) break;
+  }
+  if (!blob) throw new Error(AGENT_PHOTO_UNREADABLE);
+  return blob;
+}
+
+// The response carries a storage path and no URL of any kind. The path is
+// what goes to the message route; the thumbnail is drawn from memory.
+async function uploadAgentPhoto(blob, token) {
+  const res = await fetch(API + "/api/uploads?bucket=agent-photos&ext=jpg", {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + token, "Content-Type": "application/octet-stream" },
+    body: blob,
+  });
+  if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Photo upload failed"); }
+  const data = await res.json().catch(() => null);
+  if (!data || !data.path) throw new Error("Photo upload failed");
+  return data.path;
+}
+
 const GOLD = clientConfig.brand.gold, GOLD_LIGHT = "#FCEA4A", GREEN = "#2ECC71", RED = "#E74C3C", ORANGE = "#F39C12", BLUE = "#24A4F4";
 const NAVY = clientConfig.brand.navy;
 const BLUE_DEEP = clientConfig.brand.blueDeep;
@@ -1554,6 +1618,93 @@ function AgentView({ token, showToast, t }) {
   const endRef = useRef(null); const taRef = useRef(null); const seqRef = useRef(0);
   const inputSt = mkInput(t);
 
+  // Photos waiting to go with the next message. Each one holds the object
+  // URL its thumbnail is drawn from, the prepared bytes, and the storage
+  // path once its upload has answered.
+  const [photos, setPhotos] = useState([]);
+  const [photoProblem, setPhotoProblem] = useState(null);
+  const fileRef = useRef(null);
+  const photosRef = useRef([]);
+  useEffect(() => { photosRef.current = photos; }, [photos]);
+  // Every object URL made here, so none outlives the tab. A URL a sent
+  // message is still showing is kept until then.
+  const objectUrls = useRef([]);
+  const newObjectUrl = (blob) => { const u = URL.createObjectURL(blob); objectUrls.current.push(u); return u; };
+  useEffect(() => () => { objectUrls.current.forEach(u => { try { URL.revokeObjectURL(u); } catch (e) {} }); objectUrls.current = []; }, []);
+
+  // One upload at a time, in the order the photos were picked.
+  const uploadQueue = useRef([]);
+  const uploadRunning = useRef(false);
+  const runUploads = useCallback(async () => {
+    if (uploadRunning.current) return;
+    uploadRunning.current = true;
+    while (uploadQueue.current.length > 0) {
+      const item = uploadQueue.current.shift();
+      try {
+        const path = await uploadAgentPhoto(item.blob, token);
+        setPhotos(prev => prev.map(p => p.id === item.id ? { ...p, path, status: "done", error: null } : p));
+      } catch (err) {
+        setPhotos(prev => prev.map(p => p.id === item.id ? { ...p, status: "failed", error: err.message } : p));
+      }
+    }
+    uploadRunning.current = false;
+  }, [token]);
+
+  const queueUpload = useCallback((id, blob) => {
+    uploadQueue.current.push({ id, blob });
+    runUploads();
+  }, [runUploads]);
+
+  // Picked from the file chooser, or pasted into the composer.
+  const addPhotoFiles = useCallback(async (fileList) => {
+    const incoming = Array.from(fileList || []).filter(f => f && (!f.type || f.type.indexOf("image/") === 0));
+    if (incoming.length === 0) return;
+    setPhotoProblem(null);
+    for (let i = 0; i < incoming.length; i++) {
+      if (photosRef.current.length >= AGENT_PHOTO_LIMIT) break;
+      const id = "ph" + (++seqRef.current);
+      const placeholder = { id, url: null, path: null, status: "preparing", error: null };
+      photosRef.current = photosRef.current.concat([placeholder]);
+      setPhotos(photosRef.current);
+      let blob;
+      try { blob = await prepareAgentPhoto(incoming[i]); }
+      catch (err) {
+        photosRef.current = photosRef.current.filter(p => p.id !== id);
+        setPhotos(photosRef.current);
+        setPhotoProblem(AGENT_PHOTO_UNREADABLE);
+        continue;
+      }
+      const url = newObjectUrl(blob);
+      photosRef.current = photosRef.current.map(p => p.id === id ? { ...p, url, status: "uploading" } : p);
+      setPhotos(photosRef.current);
+      queueUpload(id, blob);
+    }
+  }, [queueUpload]);
+
+  const removePhoto = (id) => {
+    setPhotoProblem(null);
+    setPhotos(prev => {
+      const gone = prev.find(p => p.id === id);
+      if (gone && gone.url) {
+        try { URL.revokeObjectURL(gone.url); } catch (e) {}
+        objectUrls.current = objectUrls.current.filter(u => u !== gone.url);
+      }
+      return prev.filter(p => p.id !== id);
+    });
+  };
+
+  const retryPhoto = async (id) => {
+    const p = photosRef.current.find(x => x.id === id);
+    if (!p || !p.url) return;
+    setPhotos(prev => prev.map(x => x.id === id ? { ...x, status: "uploading", error: null } : x));
+    try {
+      const blob = await fetch(p.url).then(r => r.blob());
+      queueUpload(id, blob);
+    } catch (err) {
+      setPhotos(prev => prev.map(x => x.id === id ? { ...x, status: "failed", error: err.message } : x));
+    }
+  };
+
   const loadDrafts = useCallback(async () => { try { const d = await api("/api/agent/drafts", { token }); setDrafts(agentList(d, ["drafts", "items", "rows"])); } catch (err) { console.warn("Drafts:", err.message); } }, [token]);
   useEffect(() => { loadDrafts(); }, [loadDrafts]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [thread.length, formResponse]);
@@ -1564,16 +1715,20 @@ function AgentView({ token, showToast, t }) {
   // One request per press. While one is in flight the send button, the
   // composer and every Retry are disabled, so a person on bad signal
   // pressing three times sends once. No automatic retry anywhere.
-  const send = async (msgId, msgText) => {
+  const send = async (msgId, msgText, paths) => {
     if (sending) return;
     setSending(true);
     setThread(prev => prev.map(m => m.id === msgId ? { ...m, pending: true, failed: false, error: null } : m));
     try {
-      const body = { text: msgText }; if (conversationId) body.conversationId = conversationId;
+      // text is always present, empty when the message is photos alone.
+      const body = { text: msgText };
+      if (paths && paths.length > 0) body.photoPaths = paths;
+      if (conversationId) body.conversationId = conversationId;
       const data = await api("/api/agent/message", { method: "POST", body, token });
       if (data.conversationId) setConversationId(data.conversationId);
       // The composer clears only now, and only if it still holds what was sent.
       setText(prev => prev.trim() === msgText ? "" : prev);
+      setPhotos(prev => (prev.length > 0 && paths && paths.length > 0) ? [] : prev);
       setThread(prev => [...prev.map(m => m.id === msgId ? { ...m, pending: false } : m), { id: "a" + (++seqRef.current), role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], degraded: data.degraded === true, noProcedure: data.noProcedure === true }]);
       if (data.formResponse) { setFormResponse(data.formResponse); setMissing([]); setSubmitted(false); }
     } catch (err) {
@@ -1581,7 +1736,16 @@ function AgentView({ token, showToast, t }) {
     }
     setSending(false);
   };
-  const handleSend = () => { const v = text.trim(); if (!v || sending) return; const id = "u" + (++seqRef.current); setThread(prev => [...prev, { id, role: "user", text: v, pending: true }]); send(id, v); };
+  const handleSend = () => {
+    if (!canSend) return;
+    const v = text.trim();
+    const ready = photos.filter(p => p.status === "done" && p.path);
+    const paths = ready.map(p => p.path);
+    const urls = ready.map(p => p.url);
+    const id = "u" + (++seqRef.current);
+    setThread(prev => [...prev, { id, role: "user", text: v, photoPaths: paths, photoUrls: urls, pending: true }]);
+    send(id, v, paths);
+  };
 
   // Resume reads the draft row. With a conversation id on it the thread is
   // loaded from the API. Without one the composer opens and the API reuses
@@ -1612,7 +1776,13 @@ function AgentView({ token, showToast, t }) {
   const remaining = formResponse ? Number(formResponse.remaining) : 0;
   const canSubmit = !!formResponse && !submitBusy && !(remaining > 0);
   const openDrafts = drafts.filter(d => !formResponse || String(agentDraftId(d)) !== String(formResponse.id));
-  const canSend = !!text.trim() && !sending;
+  const photosBusy = photos.some(p => p.status === "preparing" || p.status === "uploading");
+  // A photo whose upload was refused holds the send until it is removed or
+  // retried, so nobody sends a message believing that photo went with it.
+  const photosBlocked = photos.some(p => p.status === "failed");
+  const readyPhotoCount = photos.filter(p => p.status === "done" && p.path).length;
+  const canSend = !sending && !photosBusy && !photosBlocked && (!!text.trim() || readyPhotoCount > 0);
+  const photoLimitReached = photos.length >= AGENT_PHOTO_LIMIT;
   const smallBtn = { padding: "8px 14px", minHeight: 36, borderRadius: R.sm, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 };
   // Pinned to the space between the header and the bottom navigation, so the
   // thread scrolls inside it and the form card and composer stay in view.
@@ -1625,10 +1795,17 @@ function AgentView({ token, showToast, t }) {
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 12px 0" }}>
         {thread.length === 0 && (<div style={{ textAlign: "center", padding: "40px 20px" }}><HelpIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>Tell me what happened and I will tell you what to do.</div></div>)}
         {thread.map(m => { const isMe = m.role === "user"; return (<div key={m.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", marginBottom: 12 }}><div style={{ maxWidth: "85%" }}>
-          <div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: isMe ? GOLD : (m.noProcedure ? t.goldSubtle : t.card), border: isMe ? "none" : "1px solid " + (m.noProcedure ? t.goldBorder : t.borderSolid), color: isMe ? NAVY : t.text, fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", opacity: m.pending ? 0.6 : 1 }}>{m.text}</div>
+          <div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: isMe ? GOLD : (m.noProcedure ? t.goldSubtle : t.card), border: isMe ? "none" : "1px solid " + (m.noProcedure ? t.goldBorder : t.borderSolid), color: isMe ? NAVY : t.text, fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", opacity: m.pending ? 0.6 : 1 }}>
+            {isMe && m.photoUrls && m.photoUrls.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: m.text ? 8 : 0 }}>
+                {m.photoUrls.map((u, i) => <img key={i} src={u} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: R.sm, border: "1px solid rgba(10,22,40,0.25)" }} />)}
+              </div>
+            )}
+            {m.text}
+          </div>
           {!isMe && m.citedDocs.length > 0 && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>Based on {m.citedDocs.join(", ")}</div>}
           {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>Working from the written procedure only right now.</div>}
-          {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>Not sent.{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", minHeight: 32, fontSize: 11, opacity: sending ? 0.6 : 1 }}>Retry</button></div>}
+          {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>Not sent.{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text, m.photoPaths)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", minHeight: 32, fontSize: 11, opacity: sending ? 0.6 : 1 }}>Retry</button></div>}
         </div></div>); })}
         <div ref={endRef} />
       </div>
@@ -1638,10 +1815,36 @@ function AgentView({ token, showToast, t }) {
         <button onClick={submit} disabled={!canSubmit} style={{ padding: "10px 14px", minHeight: 40, flexShrink: 0, borderRadius: R.sm, border: "none", background: canSubmit ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : t.cardAlt, color: canSubmit ? NAVY : t.textMut, fontSize: 12, fontWeight: 700, cursor: canSubmit ? "pointer" : "default", fontFamily: FONT_HEAD, boxShadow: canSubmit ? "0 6px 18px rgba(231,176,23,0.30)" : "none" }}>{submitBusy ? "Submitting..." : "Submit report"}</button></div>
         {missing.length > 0 && <div style={{ marginTop: 8, fontSize: 11, color: t.textSec, lineHeight: 1.5 }}><div style={{ fontWeight: 600 }}>Still needed before you can submit:</div>{missing.map((k, i) => <div key={i}>{k}</div>)}</div>}
       </div>)}
+      {photos.length > 0 && (
+        <div style={{ padding: "8px 12px 0", display: "flex", flexWrap: "wrap", gap: 10, flexShrink: 0 }}>
+          {photos.map(p => (
+            <div key={p.id} style={{ width: 96 }}>
+              <div style={{ position: "relative", width: 72, height: 72 }}>
+                {p.url
+                  ? <img src={p.url} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, opacity: p.status === "done" ? 1 : 0.6 }} />
+                  : <div style={{ width: 72, height: 72, borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt }} />}
+                <button onClick={() => removePhoto(p.id)} aria-label="Remove photo" style={{ position: "absolute", top: -10, right: -10, width: 44, height: 44, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                  <span style={{ width: 22, height: 22, borderRadius: "50%", background: NAVY, color: "#F8F7F4", fontSize: 13, fontWeight: 700, lineHeight: "20px", textAlign: "center", border: "1px solid " + t.borderSolid }}>x</span>
+                </button>
+              </div>
+              {p.status !== "done" && p.status !== "failed" && <div style={{ fontSize: 10, color: t.textMut, marginTop: 4 }}>Uploading...</div>}
+              {p.status === "failed" && (
+                <div style={{ marginTop: 4 }}>
+                  <div style={{ fontSize: 10, color: RED, lineHeight: 1.35 }}>{p.error}</div>
+                  <button onClick={() => retryPhoto(p.id)} style={{ ...smallBtn, padding: "6px 10px", minHeight: 32, fontSize: 11, marginTop: 4 }}>Try again</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       <div style={{ padding: "10px 12px", borderTop: "1px solid " + t.borderSolid, display: "flex", gap: 8, alignItems: "flex-end", background: t.bg }}>
-        <textarea ref={taRef} value={text} onChange={e => setText(e.target.value)} disabled={sending} rows={1} placeholder="Describe what happened" aria-label="Describe what happened" style={{ ...inputSt, flex: 1, width: "auto", minHeight: 44, maxHeight: 120, overflowY: "auto", resize: "none", borderRadius: R.lg, lineHeight: 1.45, opacity: sending ? 0.6 : 1 }} />
+        <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { addPhotoFiles(e.target.files); e.target.value = ""; }} />
+        <button onClick={() => fileRef.current && fileRef.current.click()} disabled={photoLimitReached || sending} aria-label="Add a photo" title={photoLimitReached ? AGENT_PHOTO_LIMIT_TITLE : "Add a photo"} style={{ width: 44, height: 44, flexShrink: 0, borderRadius: "50%", background: t.cardAlt, border: "1px solid " + t.borderSolid, cursor: photoLimitReached || sending ? "default" : "pointer", opacity: photoLimitReached || sending ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}><CamIco sz={18} c={t.textSec} /></button>
+        <textarea ref={taRef} value={text} onChange={e => setText(e.target.value)} onPaste={e => { const items = e.clipboardData && e.clipboardData.items ? Array.from(e.clipboardData.items) : []; const files = items.filter(i => i.kind === "file" && i.type.indexOf("image/") === 0).map(i => i.getAsFile()).filter(Boolean); if (files.length > 0) { e.preventDefault(); addPhotoFiles(files); } }} disabled={sending} rows={1} placeholder="Describe what happened" aria-label="Describe what happened" style={{ ...inputSt, flex: 1, width: "auto", minWidth: 0, minHeight: 44, maxHeight: 120, overflowY: "auto", resize: "none", borderRadius: R.lg, lineHeight: 1.45, opacity: sending ? 0.6 : 1 }} />
         <button onClick={handleSend} disabled={!canSend} aria-label="Send" style={{ width: 44, height: 44, flexShrink: 0, borderRadius: "50%", background: canSend ? GOLD : t.cardAlt, border: "none", cursor: canSend ? "pointer" : "default", boxShadow: canSend ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={canSend ? NAVY : t.textMut} /></button>
       </div>
+      {photoProblem && <div style={{ padding: "0 12px 10px", fontSize: 11, color: RED, lineHeight: 1.4, flexShrink: 0 }}>{photoProblem}</div>}
     </div>
   );
 }
