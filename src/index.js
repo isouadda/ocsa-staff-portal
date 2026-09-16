@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import HomeScreenPrompt from './HomeScreenPrompt';
 import { applyCanonicalRedirect } from './canonicalRedirect';
 
 // Before anything renders. On the host being retired this replaces the
@@ -8,7 +9,9 @@ import { applyCanonicalRedirect } from './canonicalRedirect';
 applyCanonicalRedirect();
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(<React.StrictMode><App /></React.StrictMode>);
+// The home screen prompt sits beside the app, once, so it can appear on
+// every screen including sign in without touching any screen's code.
+root.render(<React.StrictMode><App /><HomeScreenPrompt /></React.StrictMode>);
 
 // Production only. The worker caches nothing; see public/sw.js.
 if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) {
