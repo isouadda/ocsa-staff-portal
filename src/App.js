@@ -2851,6 +2851,10 @@ function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize
 // ------------------------------------------------------------
 const FORMS_LOAD_FAILED = "Forms could not load. Check your signal and try again.";
 const FORMS_NOT_SAVED = "Not saved yet. Check your signal and tap Next again.";
+const FORMS_NOT_SENT = "Not sent yet. Check your signal and tap Submit report again.";
+const FORMS_SEND_LINE = "Send this report? You cannot change it after it is sent.";
+const FORMS_SENT_LINE = "Report sent. The people who handle these reports have been told.";
+const FORMS_ALREADY_LINE = "This report was already sent.";
 // What the API clips a stored answer to, so a long answer is
 // stopped in the box rather than truncated after it is sent.
 const FORM_VALUE_MAX = 4000;
@@ -2890,6 +2894,23 @@ function formSectionsOf(fields) {
   const out = [];
   for (const f of fields) { const k = formSectionOf(f); if (out.indexOf(k) === -1) out.push(k); }
   return out;
+}
+
+const formOptionLabel = (f, v) => {
+  const s = String(v);
+  const o = (f.options || []).find(x => String(x.value) === s);
+  return o ? o.label : s;
+};
+// An answer as a person reads it: an option's label rather than the
+// value behind it, a multiselect joined, and null when nothing was
+// answered.
+function formReadAnswer(f, v) {
+  if (!formHasAnswer(v)) return null;
+  if (Array.isArray(v)) {
+    const parts = v.map(x => formOptionLabel(f, x)).filter(x => x !== "");
+    return parts.length ? parts.join(", ") : null;
+  }
+  return formOptionLabel(f, v);
 }
 
 const formDraftOf = (r) => (r && r.draft ? r.draft : r);
@@ -3020,6 +3041,11 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   const [saveErr, setSaveErr] = useState(null);
   const [badKeys, setBadKeys] = useState([]);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [review, setReview] = useState(false);
+  const [confirmSend, setConfirmSend] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendErr, setSendErr] = useState(null);
+  const [sent, setSent] = useState(null);
   const bodyRef = useRef(null);
 
   const fields = formFieldsInPlay(form, values);
@@ -3030,6 +3056,11 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   const here = sections.indexOf(sectionKey) !== -1 ? sectionKey : (sections.length > 0 ? sections[0] : null);
   const at = sections.indexOf(here);
   const pageFields = fields.filter(f => formSectionOf(f) === here);
+
+  // What is still unanswered is the server's judgement, never this
+  // screen's: it already reads the same rules over the same answers.
+  const missing = Array.isArray(current.missing) ? current.missing : [];
+  const fieldByKey = (k) => (form && Array.isArray(form.fields) ? form.fields : []).find(f => f.key === k) || null;
 
   const answered = Number(current.answered || 0);
   const remaining = Number(current.remaining || 0);
@@ -3098,19 +3129,39 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     if (!after) return;
     const list = formSectionsOf(formFieldsInPlay(form, after));
     const i = list.indexOf(here);
-    // The Review page arrives with the next commit.
-    if (i === -1 || i + 1 >= list.length) return;
+    if (i === -1 || i + 1 >= list.length) { setSendErr(null); setReview(true); toTop(); return; }
     setSectionKey(list[i + 1]); toTop();
   };
 
   const goBack = async () => {
     if (saving) return;
+    if (review) { setReview(false); setSectionKey(sections[sections.length - 1] || null); toTop(); return; }
     const after = await save();
     if (!after) return;
     const list = formSectionsOf(formFieldsInPlay(form, after));
     const i = list.indexOf(here);
     if (i <= 0) return;
     setSectionKey(list[i - 1]); toTop();
+  };
+
+  const editSection = (sk) => { setReview(false); setSendErr(null); setSectionKey(sk); toTop(); };
+
+  const submit = async () => {
+    setConfirmSend(false);
+    if (sending) return;
+    setSending(true); setSendErr(null);
+    try {
+      await api("/api/forms/drafts/" + encodeURIComponent(current.id) + "/submit", { method: "POST", token });
+      setSent("sent");
+    } catch (err) {
+      if (err.status === 409) setSent("already");
+      // The server decides what is still unanswered, so a refusal
+      // naming keys replaces the list rather than arguing with it.
+      else if (err.status === 400 && Array.isArray(err.body && err.body.missing)) { setCurrent(prev => Object.assign({}, prev, { missing: err.body.missing })); setSendErr(err.message); toTop(); }
+      else if (err.status === undefined || err.status === null) setSendErr(FORMS_NOT_SENT);
+      else setSendErr(err.message);
+    }
+    setSending(false);
   };
 
   // Whatever is not saved yet is sent first, and the person leaves
@@ -3153,13 +3204,26 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     return <input type={kind} maxLength={kind === "text" ? FORM_VALUE_MAX : undefined} value={v === undefined || v === null ? "" : v} onChange={e => setVal(f.key, e.target.value)} style={inputSt} />;
   };
 
+  // Leaving unmounts this component, which is what clears the draft
+  // and every answer from memory.
+  if (sent) {
+    return (
+      <div style={{ padding: 16 }}>
+        <div style={{ background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 18 }}>
+          <div style={{ fontSize: 14, color: t.text, lineHeight: 1.55, marginBottom: 16 }}>{sent === "already" ? FORMS_ALREADY_LINE : FORMS_SENT_LINE}</div>
+          <button onClick={onLeave} style={footBtn(true, false)}>Done</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "calc(var(--ocsa-vh, 100vh) - 136px)", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 136px)", minHeight: 0 }}>
       <div style={{ padding: "12px 16px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 0", minWidth: 0 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{current.formName || (form && form.title) || "Report"}</div>
-            {sections.length > 0 && <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{"Section " + (at + 1) + " of " + sections.length}</div>}
+            {sections.length > 0 && <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{review ? "Review" : ("Section " + (at + 1) + " of " + sections.length)}</div>}
           </div>
           <button onClick={() => setConfirmLeave(true)} style={{ minHeight: 44, padding: "0 14px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>Close</button>
         </div>
@@ -3172,9 +3236,38 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
       </div>
 
       <div ref={bodyRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 16 }}>
-        {saveErr && <div style={{ padding: "10px 12px", marginBottom: 16, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text, fontSize: 13, lineHeight: 1.5 }}>{saveErr}</div>}
+        {(review ? sendErr : saveErr) && <div style={{ padding: "10px 12px", marginBottom: 16, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text, fontSize: 13, lineHeight: 1.5 }}>{review ? sendErr : saveErr}</div>}
         {!form && <div style={{ fontSize: 13, color: t.textMut, lineHeight: 1.5 }}>{FORMS_LOAD_FAILED}</div>}
-        {pageFields.map(f => (
+
+        {review && missing.length > 0 && (
+          <div style={{ padding: 14, marginBottom: 18, borderRadius: R.md, background: t.goldSubtle, border: "1px solid " + t.goldBorder }}>
+            <div style={{ ...mkLabel(t), marginBottom: 10 }}>These still need an answer</div>
+            {missing.map(k => {
+              const f = fieldByKey(k);
+              return <button key={k} onClick={() => editSection(f ? formSectionOf(f) : null)} style={{ width: "100%", minHeight: 44, marginBottom: 8, padding: "10px 12px", textAlign: "left", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.card, color: t.text, fontSize: 13, lineHeight: 1.4, cursor: "pointer", fontFamily: FONT_BODY, overflowWrap: "anywhere" }}>{f ? f.label : k}</button>;
+            })}
+          </div>
+        )}
+
+        {review && sections.map((sk, i) => (
+          <div key={sk} style={{ marginBottom: 22 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+              <div style={{ ...mkLabel(t), marginBottom: 0, flex: "1 1 auto", minWidth: 0 }}>{"Section " + (i + 1)}</div>
+              <button onClick={() => editSection(sk)} style={{ minHeight: 44, padding: "0 16px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>Edit</button>
+            </div>
+            {fields.filter(f => formSectionOf(f) === sk).map(f => {
+              const read = formReadAnswer(f, values[f.key]);
+              return (
+                <div key={f.key} style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{f.label}</div>
+                  <div style={{ fontSize: 14, color: read ? t.text : t.textMut, fontWeight: read ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{read || "Not answered"}</div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+
+        {!review && pageFields.map(f => (
           <div key={f.key} style={qSt}>
             <div style={labelSt}>{f.label}{f.required && <span style={reqSt}>Required</span>}</div>
             {f.help && <div style={mkHelp(t)}>{f.help}</div>}
@@ -3185,9 +3278,23 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
       </div>
 
       <div style={{ display: "flex", gap: 10, padding: "12px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0 }}>
-        {at > 0 && <button onClick={goBack} disabled={saving} style={footBtn(false, saving)}>{saving ? "Saving" : "Back"}</button>}
-        <button onClick={goNext} disabled={saving} style={footBtn(true, saving)}>{saving ? "Saving" : "Next"}</button>
+        {(review || at > 0) && <button onClick={goBack} disabled={saving || sending} style={footBtn(false, saving || sending)}>{saving ? "Saving" : "Back"}</button>}
+        {review
+          ? <button onClick={() => setConfirmSend(true)} disabled={sending || missing.length > 0} style={footBtn(true, sending || missing.length > 0)}>{sending ? "Sending" : "Submit report"}</button>
+          : <button onClick={goNext} disabled={saving} style={footBtn(true, saving)}>{saving ? "Saving" : "Next"}</button>}
       </div>
+
+      {confirmSend && (
+        <div onClick={() => setConfirmSend(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 360, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: 18, boxShadow: t.popShadow }}>
+            <div style={{ fontSize: 14, color: t.text, lineHeight: 1.5, marginBottom: 16 }}>{FORMS_SEND_LINE}</div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button onClick={() => setConfirmSend(false)} style={{ ...footBtn(false, false), flex: "1 1 120px" }}>Not yet</button>
+              <button onClick={submit} style={{ ...footBtn(true, false), flex: "1 1 120px" }}>Send it</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmLeave && (
         <div onClick={() => setConfirmLeave(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
