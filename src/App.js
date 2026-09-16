@@ -447,7 +447,7 @@ function TextSizeChoices({ value, onChange, t }) {
             background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text,
           }}>
             <div style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: picked ? GOLD : "transparent", border: picked ? "none" : "2px solid " + t.borderSolid }} />
-            <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: picked ? 700 : 500, fontFamily: FONT_HEAD }}>{s.label}</span>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: picked ? 700 : 500, fontFamily: FONT_HEAD }}>{tr(s.label)}</span>
           </button>
         );
       })}
@@ -856,7 +856,7 @@ export default function OCSAStaffPortal() {
   }, [token, screen, refreshUnread]);
 
   const badgeCounts = { assigned: assignedCount };
-  const tabOf = (d) => ({ id: d.id, label: d.label(destCtx), icon: d.icon, badge: d.badge ? (badgeCounts[d.badge] || 0) : 0 });
+  const tabOf = (d) => ({ id: d.id, label: tr(d.label(destCtx)), icon: d.icon, badge: d.badge ? (badgeCounts[d.badge] || 0) : 0 });
   // Home first, then the four, then More. Whatever is not on the bar is
   // under More, so nothing can be hidden from a person entirely.
   const primaryTabs = [DESTINATIONS.find(d => d.home)].concat(shortcuts.map(destById)).filter(Boolean).map(tabOf);
@@ -1407,12 +1407,14 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   const [loading, setLoading] = useState(false);
 
   const toISO = (d) => d.toISOString().split("T")[0];
-  const fmtTm = (v) => { if (!v) return ""; const parts = String(v).split(":"); const h = parseInt(parts[0]); const m = parts[1] || "00"; const ap = h >= 12 ? "PM" : "AM"; return ((h % 12) || 12) + ":" + m + " " + ap; };
+  const fmtTm = (v) => { if (!v) return ""; const parts = String(v).split(":"); const h = parseInt(parts[0]); const m = parseInt(parts[1] || "0"); return new Date(2024, 0, 1, h, m).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }); };
   const fmtClockTm = (d) => new Date(d).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit", hour12: true });
 
   const getWeekEnd = () => { const e = new Date(weekStart); e.setDate(e.getDate() + 6); return e; };
   const getWeekDays = () => { const days = []; for (let i = 0; i < 7; i++) { const d = new Date(weekStart); d.setDate(d.getDate() + i); days.push(toISO(d)); } return days; };
-  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  // The week strip names its days in the reader's language, from the
+  // same source as every other date on this screen.
+  const dayNames = Array.from({ length: 7 }, (_, i) => new Date(Date.UTC(2024, 0, 1 + i)).toLocaleDateString(dateLocale(), { weekday: "short", timeZone: "UTC" }));
   const isToday = (ds) => ds === toISO(new Date());
 
   const loadSchedule = async () => {
@@ -1714,7 +1716,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
   const shown = new Set([...scheduled, ...assigned].map(x => x.siteId));
   const others = (siteChoices?.all || []).filter(x => !shown.has(x.siteId));
   const grouped = scheduled.length > 0 || assigned.length > 0;
-  const groups = (grouped ? [{ label: "Scheduled Today", items: scheduled }, { label: "Your Assigned Sites", items: assigned }, { label: "All Other Sites", items: others }] : [{ label: null, items: others }]).filter(g => g.items.length > 0);
+  const groups = (grouped ? [{ label: tr("Scheduled Today"), items: scheduled }, { label: tr("Your Assigned Sites"), items: assigned }, { label: tr("All Other Sites"), items: others }] : [{ label: null, items: others }]).filter(g => g.items.length > 0);
   const pendingRow = pendingSite ? [...scheduled, ...assigned, ...others].find(x => x.siteId === pendingSite) : null;
   const pendingName = pendingRow ? pendingRow.siteName : "";
   const emptySt = { padding: "28px 20px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontSize: 13, color: t.textMut, boxShadow: t.shadow };
@@ -1728,7 +1730,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
     const picked = !ci && pendingSite === site.siteId;
     const inert = loading || !!ci;
     const place = [site.address, site.city].filter(Boolean).join(", ");
-    const detail = [site.buildingName, site.floorNumber ? "Floor " + site.floorNumber : null].filter(Boolean).join(" - ");
+    const detail = [site.buildingName, site.floorNumber ? tr("Floor {n}", { n: site.floorNumber }) : null].filter(Boolean).join(" - ");
     return (
       <button key={site.siteId + "-" + idx} onClick={() => { if (!inert) onSelectSite(site.siteId); }} disabled={inert} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", marginBottom: 10, background: open ? t.goldBg : t.card, border: open || picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: R.md, cursor: inert ? "default" : "pointer", color: t.text, textAlign: "left", opacity: loading || (ci && !open) ? 0.6 : 1, boxShadow: open || picked ? t.popShadow : t.shadow, transition: "background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease" }}>
         <div style={{ width: 38, height: 38, flexShrink: 0, borderRadius: R.sm, display: "flex", alignItems: "center", justifyContent: "center", background: open ? t.goldSubtle : t.hover, border: "1px solid " + (open || picked ? t.goldBorder : t.borderSolid) }}>
@@ -2207,7 +2209,7 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lk
   const clearForm = () => { setActivePanel(null); setNote(""); setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; };
   const handleResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Describe what you did to complete this task"), "error"); return; } if (!photo) { showToast(tr("A photo of the completed task is required"), "error"); return; } setUploading(true); try { const photoUrl = await uploadPhoto(photo, token); await resolveTask(taskId, "resolved", note.trim(), photoUrl); clearForm(); setDetail(null); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
   const handleCantResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Please provide a reason"), "error"); return; } await resolveTask(taskId, "unable_to_resolve", note.trim(), null); clearForm(); setDetail(null); };
-  const getTaskInfo = (task) => { const isIssueLinked = !!task.source_issue_id; const title = isIssueLinked ? (task.issue_title || task.label) : task.label; const desc = isIssueLinked ? task.issue_description : task.description; const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD); const photoUrl = isIssueLinked ? task.issue_photo_url : (task.media_url || null); const mediaType = isIssueLinked ? "image" : (task.media_type || "image"); const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name; const assignedByLabel = isIssueLinked ? "Reported by" : "Assigned by"; const locationParts = [task.site_name]; if (task.building_name) locationParts.push(task.building_name); if (task.floor_number) locationParts.push("Floor " + task.floor_number); locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || "General"); const locationStr = locationParts.filter(Boolean).join(" > "); return { isIssueLinked, title, desc, borderColor, photoUrl, mediaType, assignedBy, assignedByLabel, locationStr }; };
+  const getTaskInfo = (task) => { const isIssueLinked = !!task.source_issue_id; const title = isIssueLinked ? (task.issue_title || task.label) : task.label; const desc = isIssueLinked ? task.issue_description : task.description; const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD); const photoUrl = isIssueLinked ? task.issue_photo_url : (task.media_url || null); const mediaType = isIssueLinked ? "image" : (task.media_type || "image"); const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name; const assignedByLabel = isIssueLinked ? tr("Reported by") : tr("Assigned by"); const locationParts = [task.site_name]; if (task.building_name) locationParts.push(task.building_name); if (task.floor_number) locationParts.push(tr("Floor {n}", { n: task.floor_number })); locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || "General"); const locationStr = locationParts.filter(Boolean).join(" > "); return { isIssueLinked, title, desc, borderColor, photoUrl, mediaType, assignedBy, assignedByLabel, locationStr }; };
 
   if (assignedTasks.length === 0) return (<div style={{ padding: "16px" }}><div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><AlertIco sz={40} c={t.borderSolid} /><div style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{tr("No assigned tasks right now.")}</div><div style={{ fontSize: 12, color: t.textMut, marginTop: 4 }}>{tr("When a supervisor assigns a task to you, it will appear here.")}</div></div></div>);
 
@@ -2260,7 +2262,7 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites, 
   const labelSt = mkLabel(t); const inputSt = mkInput(t);
   const sevOpts = getOpts("issue_severities");
   const sevColors = lkColorMap("issue_severities");
-  const sevs = sevOpts.length > 0 ? sevOpts.map(o => ({ v: o.v, l: o.l, c: sevColors[o.v] || ORANGE })) : [{ v: "low", l: "Low", c: GREEN }, { v: "medium", l: "Med", c: ORANGE }, { v: "high", l: "High", c: RED }];
+  const sevs = sevOpts.length > 0 ? sevOpts.map(o => ({ v: o.v, l: o.l, c: sevColors[o.v] || ORANGE })) : [{ v: "low", l: tr("Low"), c: GREEN }, { v: "medium", l: tr("Med"), c: ORANGE }, { v: "high", l: tr("High"), c: RED }];
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
   const visibleIssues = isAdmin ? issues : issues.filter(i => i.reported_by === user?.id);
   const sevC = Object.keys(sevColors).length > 0 ? sevColors : { low: GREEN, medium: ORANGE, high: RED };
@@ -2381,7 +2383,7 @@ function SpeakUpView({ token, t }) {
       setProblem("Your report was not sent. " + (own || "Please try again."));
     } finally { inFlight.current = false; setSending(false); }
   };
-  const choices = subjects && subjects.length > 0 ? [{ id: "", name: "A co-worker, or no one in particular", title: null }, ...subjects] : [];
+  const choices = subjects && subjects.length > 0 ? [{ id: "", name: tr("A co-worker, or no one in particular"), title: null }, ...subjects] : [];
   if (sent) return (
     <div style={{ padding: "16px" }}>
       <div style={{ padding: "28px 20px", textAlign: "center", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.lg, boxShadow: t.popShadow }}>
@@ -2445,7 +2447,7 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
   const [replacing, setReplacing] = useState(null);
   const [confirmReset, setConfirmReset] = useState(false);
 
-  const nameOf = (id) => { const d = destById(id); return d ? d.label(ctx) : ""; };
+  const nameOf = (id) => { const d = destById(id); return d ? tr(d.label(ctx)) : ""; };
   const iconOf = (id) => { const d = destById(id); return d ? d.icon : null; };
   const filled = draft.filter(Boolean);
   const complete = filled.length === SHORTCUT_SLOTS;
@@ -2546,7 +2548,7 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
           {under.length === 0 && <div style={{ fontSize: 12, color: t.textMut, padding: "4px 2px" }}>{tr("Everything is on your bar.")}</div>}
           {under.map(d => {
             const Ic = d.icon;
-            const name = d.label(ctx);
+            const name = tr(d.label(ctx));
             return (
               <div key={d.id} style={rowSt}>
                 <Ic sz={18} c={t.textSec} />
@@ -2610,13 +2612,13 @@ function notifAgo(iso, nowMs) {
   const at = new Date(iso).getTime();
   if (!isFinite(at)) return "";
   const secs = Math.floor((nowMs - at) / 1000);
-  if (secs < 60) return "now";
+  if (secs < 60) return tr("now");
   const mins = Math.floor(secs / 60);
-  if (mins < 60) return mins + "m";
+  if (mins < 60) return tr("{n}m", { n: mins });
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return hours + "h";
+  if (hours < 24) return tr("{n}h", { n: hours });
   const days = Math.floor(hours / 24);
-  if (days <= 7) return days + "d";
+  if (days <= 7) return tr("{n}d", { n: days });
   return new Date(at).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" });
 }
 
@@ -3332,8 +3334,8 @@ function PickupView({ token, user, showToast, t }) {
   const [claiming, setClaiming] = useState(null);
 
   const fmtDate = (d) => { const s = String(d).slice(0, 10); return new Date(s + "T00:00:00").toLocaleDateString(dateLocale(), { weekday: "short", month: "short", day: "numeric" }); };
-  const fmtTm = (t) => { const [h, m] = String(t).split(":").map(Number); const ap = h >= 12 ? "PM" : "AM"; return ((h % 12) || 12) + ":" + String(m).padStart(2, "0") + " " + ap; };
-  const originLabel = { callout: "Callout", no_show: "No-Show", extra_coverage: "Extra Coverage", voluntary_drop: "Voluntary Drop", new_shift: "New Shift" };
+  const fmtTm = (t) => { const [h, m] = String(t).split(":").map(Number); return new Date(2024, 0, 1, h, m || 0).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }); };
+  const originLabel = { callout: tr("Callout"), no_show: tr("No-Show"), extra_coverage: tr("Extra Coverage"), voluntary_drop: tr("Voluntary Drop"), new_shift: tr("New Shift") };
   const originColor = { callout: RED, no_show: RED, extra_coverage: ORANGE, voluntary_drop: BLUE, new_shift: GOLD };
 
   const loadAvailable = async () => {
