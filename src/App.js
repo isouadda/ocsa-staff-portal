@@ -197,6 +197,7 @@ const CalIco = (p) => <Ico d="M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 
 const HomeIco = (p) => <Ico d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" {...p} />;
 const HelpIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01" {...p} />;
 const PersonIco = (p) => <Ico d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" {...p} />;
+const BellIco = (p) => <Ico d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
 // Every destination the portal has, in one list, so the bottom bar and the
@@ -482,7 +483,7 @@ export default function OCSAStaffPortal() {
   const zoom = zoomOf(textSize);
 
   useEffect(() => { const i = setInterval(() => setCurrentTime(now()), 1000); return () => clearInterval(i); }, []);
-  useEffect(() => { const h = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); }; window.addEventListener("ocsa-session-expired", h); return () => window.removeEventListener("ocsa-session-expired", h); }, []);
+  useEffect(() => { const h = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); setUnread(0); }; window.addEventListener("ocsa-session-expired", h); return () => window.removeEventListener("ocsa-session-expired", h); }, []);
   const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
   const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); } catch (err) { console.error(err); } }, [token]);
   const loadSessionSites = useCallback(async (tkn) => { try { const data = await api("/api/shift-sessions/sites", { token: tkn || token }); setSessionSites(data); } catch (err) { console.error(err); } }, [token]);
@@ -567,7 +568,7 @@ export default function OCSAStaffPortal() {
     setLoading(false);
   };
 
-  const handleLogout = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); };
+  const handleLogout = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); setUnread(0); };
 
   // Tapping a site chooses it. No request, no tab change, no toast.
   const handleSelectSite = (siteId) => { if (clockStatus?.clockedIn) return; setPendingSite(siteId); setStartBlock(null); };
@@ -678,6 +679,34 @@ export default function OCSAStaffPortal() {
   };
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
+  // What the platform has told this person, counted. The routes arrive with
+  // Step 61 in the API; until then every poll answers 404, which hides the
+  // count and warns once. Nothing here ever toasts, so the bell stays quiet.
+  const [unread, setUnread] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const unreadWarned = useRef(false);
+  const refreshUnread = useCallback(async (tkn) => {
+    const tk = tkn || token;
+    if (!tk) return;
+    try {
+      const d = await api("/api/notifications/unread-count", { token: tk });
+      const n = Number(d && d.unread);
+      setUnread(Number.isFinite(n) && n > 0 ? n : 0);
+    } catch (err) {
+      setUnread(0);
+      if (!unreadWarned.current) { unreadWarned.current = true; console.warn("Notifications:", err.message); }
+    }
+  }, [token]);
+
+  // A tick while the tab is hidden is skipped, not queued.
+  useEffect(() => {
+    if (!token || screen !== "main") return;
+    const tick = () => { if (!document.hidden) refreshUnread(); };
+    tick();
+    const iv = setInterval(tick, 60000);
+    return () => clearInterval(iv);
+  }, [token, screen, refreshUnread]);
+
   const badgeCounts = { assigned: assignedCount };
   const tabOf = (d) => ({ id: d.id, label: d.label(destCtx), icon: d.icon, badge: d.badge ? (badgeCounts[d.badge] || 0) : 0 });
   // Home first, then the four, then More. Whatever is not on the bar is
@@ -708,18 +737,22 @@ export default function OCSAStaffPortal() {
       {!booting && screen === "main" && (
         <>
           <div style={{ backgroundImage: (themeMode === "light" ? SWEEP_LIGHT : SWEEP) + ", linear-gradient(135deg, " + t.headerBg + " 0%, " + t.headerBg2 + " 100%)", backgroundSize: "100% 2px, 100% 100%", backgroundPosition: "bottom left, top left", backgroundRepeat: "no-repeat, no-repeat", padding: "14px 16px 10px", borderBottom: "1px solid transparent" }}>
-            <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: "1 1 auto" }}>
                 <button onClick={() => setActiveTab("profile")} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", minWidth: 44, minHeight: 44 }}>
                   {user?.profilePhotoUrl ? <img src={user.profilePhotoUrl} alt="" style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", border: "2px solid " + GOLD }} /> : <div style={{ width: 38, height: 38, borderRadius: "50%", background: themeMode === "light" ? "rgba(255,255,255,0.92)" : "rgba(231,176,23,0.15)", border: "2px solid " + (themeMode === "light" ? PANEL_LIGHT : GOLD), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: themeMode === "light" ? PANEL_LIGHT : GOLD }}>{user?.firstName?.[0]}{user?.lastName?.[0]}</div>}
                 </button>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#F8F7F4", fontFamily: FONT_HEAD }}>{user?.firstName} {user?.lastName}</div>
-                  <div style={{ fontSize: 10, color: themeMode === "light" ? "rgba(255,255,255,0.82)" : GOLD, letterSpacing: "0.5px" }}>{user?.role?.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#F8F7F4", fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.firstName} {user?.lastName}</div>
+                  <div style={{ fontSize: 10, color: themeMode === "light" ? "rgba(255,255,255,0.82)" : GOLD, letterSpacing: "0.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.role?.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
                 </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                 {clockStatus?.clockedIn && (<div style={{ display: "flex", alignItems: "center", gap: 5, background: themeMode === "light" ? GREEN : "rgba(46,204,113,0.15)", padding: "3px 8px", borderRadius: 20, fontSize: 10, color: themeMode === "light" ? NAVY : GREEN, fontWeight: 600 }}><div style={{ width: 5, height: 5, borderRadius: "50%", background: themeMode === "light" ? NAVY : GREEN, animation: "pulse 2s infinite" }} />ON SITE</div>)}
+                <button onClick={() => setNotifOpen(true)} aria-label={unread > 0 ? unread + " unread notifications" : "Notifications"} aria-expanded={notifOpen} style={{ position: "relative", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, minWidth: 44, minHeight: 44, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                  <BellIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#A8B8C8"} />
+                  {unread > 0 && <span style={{ position: "absolute", top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8, background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", fontFamily: FONT_HEAD }}>{unread > 9 ? "9+" : unread}</span>}
+                </button>
                 <button onClick={toggleTheme} title={themeMode === "dark" ? "Light mode" : "Dark mode"} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, padding: "5px 8px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{themeMode === "dark" ? <SunIco sz={15} c="#A8B8C8" /> : <MoonIco sz={15} c="rgba(255,255,255,0.82)" />}</button>
                 <button onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><LogOutIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#8899AA"} /></button>
               </div>
@@ -784,6 +817,17 @@ export default function OCSAStaffPortal() {
             </button>
           </div>
         </>
+      )}
+
+      {notifOpen && (
+        <NotificationsSheet
+          token={token}
+          t={t}
+          unread={unread}
+          onUnreadChanged={setUnread}
+          onOpenTab={(id) => { setActiveTab(id); setShowMore(false); }}
+          onClose={() => { setNotifOpen(false); refreshUnread(); }}
+        />
       )}
 
       {shortcutsOpen && (
@@ -2387,6 +2431,156 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// What a notice opens. Read from subjectType and never from link, because
+// a link may point at the admin dashboard, which a person on a phone
+// cannot use. A type that is not here only gets marked read.
+const NOTIF_TAB = {
+  supply_request: "supplies",
+  shift_drop: "pickup",
+  shift_claim: "pickup",
+  issue: "issues",
+  issue_escalated: "issues",
+};
+const NOTIF_PAGE = 30;
+
+// "5m", "3h", "2d", and a date once it is older than seven days.
+function notifAgo(iso, nowMs) {
+  const at = new Date(iso).getTime();
+  if (!isFinite(at)) return "";
+  const secs = Math.floor((nowMs - at) / 1000);
+  if (secs < 60) return "now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return mins + "m";
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return hours + "h";
+  const days = Math.floor(hours / 24);
+  if (days <= 7) return days + "d";
+  return new Date(at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// True when the link leaves this app, so the row can offer to open it in
+// a new tab instead of pretending the portal can show it.
+function notifOffOrigin(link) {
+  try {
+    if (!link) return false;
+    return new URL(link, window.location.href).origin !== window.location.origin;
+  } catch (e) { return false; }
+}
+
+function NotificationsSheet({ token, t, unread, onClose, onOpenTab, onUnreadChanged }) {
+  const [rows, setRows] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [more, setMore] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [allBusy, setAllBusy] = useState(false);
+  const nowMs = Date.now();
+
+  const load = useCallback(async (before) => {
+    setBusy(true); setFailed(false);
+    try {
+      const d = await api("/api/notifications?limit=" + NOTIF_PAGE + (before ? "&before=" + encodeURIComponent(before) : ""), { token });
+      const list = Array.isArray(d && d.notifications) ? d.notifications : [];
+      setRows(prev => (before && Array.isArray(prev)) ? prev.concat(list) : list);
+      setMore(list.length === NOTIF_PAGE);
+      if (d && typeof d.unread === "number") onUnreadChanged(d.unread);
+    } catch (err) {
+      setFailed(true);
+      if (!before) setRows(null);
+    }
+    setBusy(false);
+  }, [token, onUnreadChanged]);
+
+  useEffect(() => { load(null); }, [load]);
+
+  const markRead = async (row) => {
+    if (row.readAt) return;
+    setRows(prev => (prev || []).map(r => r.id === row.id ? { ...r, readAt: new Date().toISOString() } : r));
+    onUnreadChanged(Math.max(0, unread - 1));
+    // The count is read again when the sheet closes, so a refusal here
+    // corrects itself rather than leaving a wrong number on the bell.
+    try { await api("/api/notifications/" + row.id + "/read", { method: "POST", token }); } catch (e) {}
+  };
+
+  const markAll = async () => {
+    setAllBusy(true);
+    try {
+      await api("/api/notifications/read-all", { method: "POST", token });
+      const at = new Date().toISOString();
+      setRows(prev => (prev || []).map(r => ({ ...r, readAt: r.readAt || at })));
+      onUnreadChanged(0);
+    } catch (e) {}
+    setAllBusy(false);
+  };
+
+  const openRow = async (row) => {
+    await markRead(row);
+    const tab = NOTIF_TAB[row.subjectType];
+    if (tab) { onClose(); onOpenTab(tab); }
+  };
+
+  const wideBtn = { minHeight: 44, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD };
+  const canMarkAll = unread > 0 && !allBusy;
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, height: "var(--ocsa-vh, 100vh)", maxHeight: "var(--ocsa-dvh, 100dvh)", display: "flex", flexDirection: "column", borderTop: "1px solid " + t.borderSolid }}>
+        <div style={{ padding: "14px 16px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>Notifications</div>
+          <button onClick={markAll} disabled={!canMarkAll} style={{ ...wideBtn, padding: "0 12px", fontSize: 12, opacity: canMarkAll ? 1 : 0.5, cursor: canMarkAll ? "pointer" : "default" }}>{allBusy ? "Marking..." : "Mark all read"}</button>
+        </div>
+
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 16px 16px" }}>
+          {rows === null && !failed && <div style={{ padding: "28px 4px", textAlign: "center", fontSize: 13, color: t.textMut }}>Loading...</div>}
+          {rows === null && failed && (
+            <div style={{ padding: "28px 4px", textAlign: "center" }}>
+              <div style={{ fontSize: 14, color: t.textMut, fontFamily: FONT_HEAD }}>Notifications did not load.</div>
+              <button onClick={() => load(null)} style={{ ...wideBtn, marginTop: 14, borderColor: t.goldBorder, background: t.goldBg, color: t.goldText, fontWeight: 700 }}>Try again</button>
+            </div>
+          )}
+          {rows !== null && rows.length === 0 && <div style={{ padding: "28px 4px", textAlign: "center", fontSize: 14, color: t.textMut, fontFamily: FONT_HEAD }}>Nothing yet.</div>}
+
+          {(rows || []).map(row => {
+            const isUnread = !row.readAt;
+            const hasTab = !!NOTIF_TAB[row.subjectType];
+            const showDashboard = !hasTab && notifOffOrigin(row.link);
+            return (
+              <div key={row.id} style={{ marginBottom: 6, background: t.card, border: "1px solid " + (isUnread ? t.goldBorder : t.borderSolid), borderRadius: R.md }}>
+                <button onClick={() => openRow(row)} style={{ width: "100%", minHeight: 56, display: "flex", alignItems: "flex-start", gap: 10, padding: "12px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: isUnread ? GOLD : "transparent", flexShrink: 0, marginTop: 5 }} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 13, fontWeight: isUnread ? 700 : 500, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35 }}>{row.title}</span>
+                    {row.body && <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: 12, color: t.textSec, marginTop: 3, lineHeight: 1.4 }}>{row.body}</span>}
+                  </span>
+                  <span style={{ flexShrink: 0, fontSize: 10, color: t.textMut, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>{notifAgo(row.createdAt, nowMs)}</span>
+                </button>
+                {showDashboard && (
+                  <div style={{ padding: "0 12px 12px" }}>
+                    <button onClick={() => { try { window.open(row.link, "_blank", "noopener,noreferrer"); } catch (e) {} }} style={{ ...wideBtn, width: "100%", fontSize: 12, borderColor: t.blueBorder, color: BLUE }}>Open in the dashboard</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {rows !== null && rows.length > 0 && failed && (
+            <div style={{ padding: "10px 4px", textAlign: "center" }}>
+              <div style={{ fontSize: 12, color: t.textMut }}>Notifications did not load.</div>
+              <button onClick={() => load(rows[rows.length - 1].createdAt)} style={{ ...wideBtn, marginTop: 8 }}>Try again</button>
+            </div>
+          )}
+          {rows !== null && rows.length > 0 && more && !failed && (
+            <button onClick={() => load(rows[rows.length - 1].createdAt)} disabled={busy} style={{ ...wideBtn, width: "100%", marginTop: 8, opacity: busy ? 0.6 : 1 }}>{busy ? "Loading..." : "Load more"}</button>
+          )}
+        </div>
+
+        <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
+          <button onClick={onClose} style={{ ...wideBtn, width: "100%" }}>Close</button>
+        </div>
       </div>
     </div>
   );
