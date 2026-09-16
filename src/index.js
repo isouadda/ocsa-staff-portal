@@ -1,6 +1,11 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { applyCanonicalRedirect } from './canonicalRedirect';
+
+// Before anything renders. On the host being retired this replaces the
+// address and the page unloads; everywhere else it does nothing.
+applyCanonicalRedirect();
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<React.StrictMode><App /></React.StrictMode>);
