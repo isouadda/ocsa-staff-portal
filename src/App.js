@@ -1605,6 +1605,63 @@ const agentDraftId = (d) => agentField(d, ["id", "formResponseId", "form_respons
 const agentName = (d) => agentField(d, ["formName", "formTitle", "form_name", "title", "formCode", "form_code"], "Report");
 const agentCount = (d) => { const a = agentField(d, ["answered", "answeredCount", "answered_count"], null), r = agentField(d, ["remaining", "remainingCount", "remaining_count"], null); return (a !== null && r !== null) ? a + " of " + (Number(a) + Number(r)) + " answered" : null; };
 
+// A reply may carry numbered steps and a bold word. These two turn one into
+// a list of lines, each holding inline parts, and nothing else. The admin
+// dashboard uses the same pair, so the two apps read a reply the same way.
+// Pure: no DOM, no React, no HTML. What comes out is rendered as React
+// elements, so no markup in a reply ever reaches the page.
+function agentInlineParts(line) {
+  const s = String(line == null ? "" : line);
+  const out = [];
+  let i = 0;
+  while (i < s.length) {
+    const open = s.indexOf("**", i);
+    // No opener left, or an opener with no partner: the rest is literal.
+    if (open === -1) { out.push({ bold: false, text: s.slice(i) }); break; }
+    const close = s.indexOf("**", open + 2);
+    if (close === -1) { out.push({ bold: false, text: s.slice(i) }); break; }
+    if (open > i) out.push({ bold: false, text: s.slice(i, open) });
+    out.push({ bold: true, text: s.slice(open + 2, close) });
+    i = close + 2;
+  }
+  if (out.length === 0) out.push({ bold: false, text: "" });
+  return out;
+}
+
+function agentReplyParts(text) {
+  return String(text == null ? "" : text).split("\n").map(line => {
+    // Bold never spans lines, so each line is read on its own.
+    const m = /^\s*(\d{1,2})\.\s+(.+)$/.exec(line);
+    if (m) return { type: "step", number: m[1], parts: agentInlineParts(m[2]) };
+    return { type: "line", parts: agentInlineParts(line) };
+  });
+}
+
+function AgentInline({ parts }) {
+  return <>{parts.map((p, i) => p.bold ? <strong key={i}>{p.text}</strong> : <span key={i}>{p.text}</span>)}</>;
+}
+
+function AgentReply({ text }) {
+  const lines = agentReplyParts(text);
+  return (
+    <>
+      {lines.map((ln, i) => {
+        if (ln.type === "step") {
+          return (
+            <div key={i} style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+              <span style={{ flexShrink: 0, fontWeight: 700 }}>{ln.number}.</span>
+              <span style={{ flex: 1, minWidth: 0 }}><AgentInline parts={ln.parts} /></span>
+            </div>
+          );
+        }
+        const empty = ln.parts.length === 1 && ln.parts[0].text === "";
+        if (empty) return <div key={i} style={{ height: "0.7em" }} />;
+        return <div key={i}><AgentInline parts={ln.parts} /></div>;
+      })}
+    </>
+  );
+}
+
 function AgentView({ token, showToast, t }) {
   const [drafts, setDrafts] = useState([]);
   const [conversationId, setConversationId] = useState(null);
@@ -1801,7 +1858,7 @@ function AgentView({ token, showToast, t }) {
                 {m.photoUrls.map((u, i) => <img key={i} src={u} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: R.sm, border: "1px solid rgba(10,22,40,0.25)" }} />)}
               </div>
             )}
-            {m.text}
+            {isMe ? m.text : <AgentReply text={m.text} />}
           </div>
           {!isMe && m.citedDocs.length > 0 && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>Based on {m.citedDocs.join(", ")}</div>}
           {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>Working from the written procedure only right now.</div>}
