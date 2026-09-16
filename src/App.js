@@ -199,6 +199,7 @@ const HelpIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.1 9a3 
 const PersonIco = (p) => <Ico d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" {...p} />;
 const GearIco = (p) => <Ico d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" {...p} />;
 const BellIco = (p) => <Ico d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0" {...p} />;
+const DocIco = (p) => <Ico d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h4" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
 // Every destination the portal has, in one list, so the bottom bar and the
@@ -219,6 +220,7 @@ const DESTINATIONS = [
   { id: "inspect", label: () => "Inspect", icon: ClipIco },
   { id: "speakup", label: () => "Speak Up", icon: PersonIco },
   { id: "settings", label: () => "Settings", icon: GearIco },
+  { id: "forms", label: () => "Forms", icon: DocIco },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
 
@@ -812,6 +814,10 @@ export default function OCSAStaffPortal() {
     sendPrefs(changed, tok, userId);
   };
 
+  // Which draft the Forms screen should open on, when Help sent a
+  // person over to fill one in. Held here only long enough to hand
+  // it across, and never written anywhere.
+  const [formsDraft, setFormsDraft] = useState(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   // What the platform has told this person, counted. The routes arrive with
@@ -901,12 +907,13 @@ export default function OCSAStaffPortal() {
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} t={t} token={token} />}
-              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} />}
+              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
+              {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} />}
               {activeTab === "profile" && <MyProfileView token={token} user={user} showToast={showToast} t={t} setUser={setUser} setActiveTab={setActiveTab} />}
             </div>
@@ -1933,7 +1940,7 @@ function AgentReply({ text }) {
   );
 }
 
-function AgentView({ token, showToast, t, language }) {
+function AgentView({ token, showToast, t, language, onFillForm }) {
   const [drafts, setDrafts] = useState([]);
   const [conversationId, setConversationId] = useState(null);
   const [thread, setThread] = useState([]);
@@ -2123,7 +2130,7 @@ function AgentView({ token, showToast, t, language }) {
     <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", height: "calc(var(--ocsa-vh, 100vh) - 136px)", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 136px)", minHeight: 0, overflow: "hidden" }}>
       {openDrafts.length > 0 && (<div style={{ padding: "10px 12px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0, maxHeight: 180, overflowY: "auto" }}>
         <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>Unfinished reports</div>
-        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div><button onClick={() => resume(d)} style={smallBtn}>Resume</button></div>))}
+        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div><button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>Fill in form</button><button onClick={() => resume(d)} style={smallBtn}>Resume</button></div>))}
       </div>)}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 12px 0" }}>
         {thread.length === 0 && (<div style={{ textAlign: "center", padding: "40px 20px" }}><HelpIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>Tell me what happened and I will tell you what to do.</div></div>)}
@@ -2825,6 +2832,217 @@ function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize
       </div>
 
       <ChangePinCard token={token} user={user} showToast={showToast} t={t} cardSt={cardSt} />
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Forms
+// The same report the Help chat fills, filled as a form instead.
+// The catalog says which questions a person is asked and when
+// each conditional one applies; the draft holds the answers. One
+// open draft per person per form, whichever way it was opened, so
+// a report started in Help finishes here and the other way round.
+//
+// A report can carry an account of an injury, so no answer, no
+// label value and no draft id is written to storage, the URL, the
+// title or the console. Everything below lives in memory for as
+// long as the screen is open.
+// ------------------------------------------------------------
+const FORMS_LOAD_FAILED = "Forms could not load. Check your signal and try again.";
+const FORMS_LEAVE_LINE = "Leave this report? Your saved answers stay, and you can continue from Forms or Help.";
+
+// The data twin of the rule the API evaluates, read exactly the
+// way the API reads it. A shape this cannot recognize counts as
+// holding, so a rule the portal does not understand shows the
+// question rather than hiding it.
+function formRuleHolds(rule, answers) {
+  if (!rule || typeof rule !== "object" || Array.isArray(rule)) return true;
+  const a = answers || {};
+  if (Array.isArray(rule.any)) return rule.any.some(r => formRuleHolds(r, a));
+  if (Array.isArray(rule.all)) return rule.all.every(r => formRuleHolds(r, a));
+  if (typeof rule.key !== "string" || !Array.isArray(rule.anyOf)) return true;
+  const v = a[rule.key];
+  if (Array.isArray(v)) return v.some(x => rule.anyOf.indexOf(x) !== -1);
+  return rule.anyOf.indexOf(v) !== -1;
+}
+
+const formHasAnswer = (v) => {
+  if (v === undefined || v === null) return false;
+  if (typeof v === "string") return v.trim() !== "";
+  if (Array.isArray(v)) return v.length > 0;
+  return true;
+};
+
+// Every question this person is asked for the answers so far. A
+// prefilled question is already on the draft and is never shown.
+const formFieldsInPlay = (form, answers) =>
+  (form && Array.isArray(form.fields) ? form.fields : []).filter(f => !f.prefilled && formRuleHolds(f.appliesWhen, answers));
+
+const formSectionOf = (f) => (f.section === null || f.section === undefined ? "" : String(f.section));
+// The sections in play, in the order they first appear. A section
+// with no question in play is not one of them.
+function formSectionsOf(fields) {
+  const out = [];
+  for (const f of fields) { const k = formSectionOf(f); if (out.indexOf(k) === -1) out.push(k); }
+  return out;
+}
+
+const formDraftOf = (r) => (r && r.draft ? r.draft : r);
+
+// The list of forms, and the one button on each card.
+function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDraft }) {
+  const [forms, setForms] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]);
+  const [starting, setStarting] = useState(null);
+  const [open, setOpen] = useState(null);
+
+  const locale = language === "es" ? "es" : "en";
+
+  // Once per visit. The catalog decides the screen, so a failure
+  // here is the whole screen's failure; the draft list only
+  // decides a label, so a failure there leaves the cards saying
+  // Start report and the API resumes the open draft anyway.
+  const load = useCallback(async () => {
+    setLoading(true); setFailed(false);
+    try {
+      const c = await api("/api/forms?locale=" + locale, { token });
+      setForms(agentList(c, ["forms"]));
+    } catch (err) { setFailed(true); setLoading(false); return; }
+    try {
+      const d = agentList(await api("/api/agent/drafts", { token }), ["drafts", "items", "rows"]);
+      // Whoever may read reports is served everyone's drafts on
+      // this route, so the rows are narrowed to this person's
+      // before a card can say Continue on somebody else's report.
+      const mine = user && user.id;
+      setRows(d.filter(r => r.userId === undefined || r.userId === null || !mine || String(r.userId) === String(mine)));
+    } catch (err) { setRows([]); }
+    setLoading(false);
+  }, [token, locale, user]);
+  useEffect(() => { load(); }, [load]);
+
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+
+  const openOn = useCallback((draft) => {
+    if (!draft || !draft.id || !alive.current) return;
+    setOpen(draft);
+  }, []);
+
+  // Help hands over a draft id. The catalog has to be in hand
+  // first, because the form is what says which questions it has,
+  // so the id is held until the catalog arrives and is handed back
+  // only once the report is open. The ref is what keeps that from
+  // running twice.
+  const handedOver = useRef(null);
+  useEffect(() => {
+    if (!openDraft || !forms) return;
+    if (handedOver.current === openDraft) return;
+    handedOver.current = openDraft;
+    (async () => {
+      try {
+        const r = await api("/api/forms/drafts/" + encodeURIComponent(openDraft) + "?locale=" + locale, { token });
+        openOn(formDraftOf(r));
+      } catch (err) { if (alive.current) showToast(err.message, "error"); }
+      onOpenedDraft();
+    })();
+  }, [openDraft, forms, locale, token, openOn, onOpenedDraft, showToast]);
+
+  const startOn = async (code) => {
+    setStarting(code);
+    try {
+      const r = await api("/api/forms/" + encodeURIComponent(code) + "/drafts?locale=" + locale, { method: "POST", token });
+      openOn(formDraftOf(r));
+    } catch (err) { showToast(err.message, "error"); }
+    setStarting(null);
+  };
+
+  const cardSt = { background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 16, marginBottom: 12 };
+  const titleSt = { fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35 };
+  const lineSt = { fontSize: 11, color: t.textMut, marginTop: 6, lineHeight: 1.4 };
+  const goBtn = (busy) => ({ width: "100%", minHeight: 44, marginTop: 12, borderRadius: R.md, border: "1px solid " + GOLD, background: busy ? "transparent" : t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 700, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1, fontFamily: FONT_HEAD });
+
+  const draftFor = (code) => rows.find(r => String(agentField(r, ["formCode", "form_code"], "")) === String(code)) || null;
+
+  if (open) {
+    const form = (forms || []).find(f => String(f.code) === String(open.formCode)) || null;
+    return <FormFiller token={token} t={t} showToast={showToast} locale={locale} form={form} draft={open} onLeave={() => { setOpen(null); load(); }} />;
+  }
+
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 14, fontFamily: FONT_HEAD }}>Forms</div>
+
+      {loading && <div style={{ ...cardSt, fontSize: 13, color: t.textMut }}>Loading forms</div>}
+
+      {!loading && failed && (
+        <div style={cardSt}>
+          <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5 }}>{FORMS_LOAD_FAILED}</div>
+          <button onClick={load} style={goBtn(false)}>Try again</button>
+        </div>
+      )}
+
+      {!loading && !failed && (forms || []).length === 0 && <EmptyState icon={DocIco} text="No forms to fill right now." t={t} />}
+
+      {!loading && !failed && (forms || []).map(f => {
+        const d = draftFor(f.code);
+        const busy = starting === f.code;
+        const answered = d ? agentField(d, ["answered", "answeredCount", "answered_count"], null) : null;
+        const remaining = d ? agentField(d, ["remaining", "remainingCount", "remaining_count"], null) : null;
+        return (
+          <div key={f.code} style={cardSt}>
+            <div style={titleSt}>{f.title}</div>
+            {d && answered !== null && remaining !== null && <div style={lineSt}>{answered + " answered, " + remaining + " to go"}</div>}
+            <button onClick={() => startOn(f.code)} disabled={busy} style={goBtn(busy)}>{busy ? "Opening" : (d ? "Continue" : "Start report")}</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// One report, open. The questions and the saving arrive with the
+// next commit; what is here is the frame they sit in.
+function FormFiller({ token, t, showToast, locale, form, draft, onLeave }) {
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const answered = Number(draft.answered || 0);
+  const remaining = Number(draft.remaining || 0);
+  const total = answered + remaining;
+  const pct = total > 0 ? Math.round((answered / total) * 100) : 0;
+  void token; void showToast; void locale;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(var(--ocsa-vh, 100vh) - 136px)", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 136px)", minHeight: 0 }}>
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 0", minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{draft.formName || (form && form.title) || "Report"}</div>
+          </div>
+          <button onClick={() => setConfirmLeave(true)} style={{ minHeight: 44, padding: "0 14px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>Close</button>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 120px", minWidth: 80, height: 6, borderRadius: 3, background: t.borderSolid, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: pct + "%", background: GOLD, borderRadius: 3 }} />
+          </div>
+          <div style={{ fontSize: 11, color: t.textMut, flexShrink: 0 }}>{answered + " answered"}</div>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 16 }} />
+
+      {confirmLeave && (
+        <div onClick={() => setConfirmLeave(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 360, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: 18, boxShadow: t.popShadow }}>
+            <div style={{ fontSize: 14, color: t.text, lineHeight: 1.5, marginBottom: 16 }}>{FORMS_LEAVE_LINE}</div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setConfirmLeave(false)} style={{ flex: 1, minHeight: 44, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>Keep filling</button>
+              <button onClick={onLeave} style={{ flex: 1, minHeight: 44, borderRadius: R.md, border: "1px solid " + GOLD, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>Leave</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
