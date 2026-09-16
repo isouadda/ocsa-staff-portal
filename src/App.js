@@ -197,6 +197,7 @@ const CalIco = (p) => <Ico d="M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 
 const HomeIco = (p) => <Ico d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" {...p} />;
 const HelpIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01" {...p} />;
 const PersonIco = (p) => <Ico d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" {...p} />;
+const GearIco = (p) => <Ico d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" {...p} />;
 const BellIco = (p) => <Ico d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
@@ -217,6 +218,7 @@ const DESTINATIONS = [
   { id: "pickup", label: () => "Pickup", icon: SwapIco },
   { id: "inspect", label: () => "Inspect", icon: ClipIco },
   { id: "speakup", label: () => "Speak Up", icon: PersonIco },
+  { id: "settings", label: () => "Settings", icon: GearIco },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
 
@@ -871,7 +873,7 @@ export default function OCSAStaffPortal() {
         <>
           <div style={{ backgroundImage: (themeMode === "light" ? SWEEP_LIGHT : SWEEP) + ", linear-gradient(135deg, " + t.headerBg + " 0%, " + t.headerBg2 + " 100%)", backgroundSize: "100% 2px, 100% 100%", backgroundPosition: "bottom left, top left", backgroundRepeat: "no-repeat, no-repeat", padding: "14px 16px 10px", borderBottom: "1px solid transparent" }}>
             <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: "1 1 auto" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: "1 1 0" }}>
                 <button onClick={() => setActiveTab("profile")} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", minWidth: 44, minHeight: 44 }}>
                   {user?.profilePhotoUrl ? <img src={user.profilePhotoUrl} alt="" style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", border: "2px solid " + GOLD }} /> : <div style={{ width: 38, height: 38, borderRadius: "50%", background: themeMode === "light" ? "rgba(255,255,255,0.92)" : "rgba(231,176,23,0.15)", border: "2px solid " + (themeMode === "light" ? PANEL_LIGHT : GOLD), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: themeMode === "light" ? PANEL_LIGHT : GOLD }}>{user?.firstName?.[0]}{user?.lastName?.[0]}</div>}
                 </button>
@@ -886,7 +888,7 @@ export default function OCSAStaffPortal() {
                   <BellIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#A8B8C8"} />
                   {unread > 0 && <span style={{ position: "absolute", top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8, background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", fontFamily: FONT_HEAD }}>{unread > 9 ? "9+" : unread}</span>}
                 </button>
-                <button onClick={toggleTheme} title={themeMode === "dark" ? "Light mode" : "Dark mode"} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, padding: "5px 8px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{themeMode === "dark" ? <SunIco sz={15} c="#A8B8C8" /> : <MoonIco sz={15} c="rgba(255,255,255,0.82)" />}</button>
+                <button onClick={() => { setActiveTab("settings"); setShowMore(false); }} aria-label="Settings" style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, minWidth: 44, minHeight: 44, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}><GearIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#A8B8C8"} /></button>
                 <button onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><LogOutIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#8899AA"} /></button>
               </div>
             </div>
@@ -905,7 +907,8 @@ export default function OCSAStaffPortal() {
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
-              {activeTab === "profile" && <MyProfileView token={token} user={user} showToast={showToast} t={t} setUser={setUser} setActiveTab={setActiveTab} onEditShortcuts={() => setShortcutsOpen(true)} />}
+              {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} />}
+              {activeTab === "profile" && <MyProfileView token={token} user={user} showToast={showToast} t={t} setUser={setUser} setActiveTab={setActiveTab} />}
             </div>
           </div>
 
@@ -2719,6 +2722,108 @@ function NotificationsSheet({ token, t, unread, onClose, onOpenTab, onUnreadChan
   );
 }
 
+// Change PIN, lifted out of Profile unchanged so Settings can hold it.
+// The current PIN is required here. The threat on this screen is a handset
+// left unlocked, so the change has to prove it is the owner.
+function ChangePinCard({ token, user, showToast, t, cardSt }) {
+  const [pinForm, setPinForm] = useState({ current: "", next: "", confirm: "" });
+  const [pinErrs, setPinErrs] = useState({});
+  const [pinSaving, setPinSaving] = useState(false);
+  const labelSt = mkLabel(t);
+  const inputSt = mkInput(t);
+
+  const changePin = async () => {
+    const e = {};
+    if (!PIN_RE.test(pinForm.current)) e.current = "Enter your current 4-digit PIN.";
+    const why = weakPinReason(pinForm.next, user && user.badgeNumber);
+    if (why) e.next = why;
+    else if (pinForm.confirm !== pinForm.next) e.confirm = ERR_PIN_MISMATCH;
+    else if (pinForm.next === pinForm.current) e.next = "Your new PIN must be different from your current PIN.";
+    setPinErrs(e);
+    if (Object.keys(e).length) return;
+    setPinSaving(true);
+    try {
+      await api("/api/auth/change-pin", { method: "POST", body: { currentPin: pinForm.current, newPin: pinForm.next }, token });
+      showToast("PIN updated");
+      setPinForm({ current: "", next: "", confirm: "" });
+    } catch (err) {
+      const msg = err.message || "Could not update your PIN.";
+      setPinErrs(/new/i.test(msg) ? { next: msg } : { current: msg });
+    }
+    setPinSaving(false);
+  };
+
+  return (
+    <div style={cardSt}>
+      <div style={{ ...labelSt, marginBottom: 6 }}>Change PIN</div>
+      <div style={{ fontSize: 11, color: t.textMut, marginBottom: 12, lineHeight: 1.4 }}>Your PIN is 4 digits. Choose one that only you know.</div>
+      <div style={{ marginBottom: 10 }}><label style={labelSt}>Current PIN</label><input value={pinForm.current} onChange={e => setPinForm({ ...pinForm, current: e.target.value })} {...PIN_INPUT_PROPS} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{pinErrs.current && <div style={mkFieldErr(t)}>{pinErrs.current}</div>}</div>
+      <div style={{ marginBottom: 10 }}><label style={labelSt}>New PIN</label><input value={pinForm.next} onChange={e => setPinForm({ ...pinForm, next: e.target.value })} {...PIN_INPUT_PROPS} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{pinErrs.next && <div style={mkFieldErr(t)}>{pinErrs.next}</div>}</div>
+      <div style={{ marginBottom: 10 }}><label style={labelSt}>Confirm New PIN</label><input value={pinForm.confirm} onChange={e => setPinForm({ ...pinForm, confirm: e.target.value })} {...PIN_INPUT_PROPS} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && !pinSaving && changePin()} />{pinErrs.confirm && <div style={mkFieldErr(t)}>{pinErrs.confirm}</div>}</div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+        <button onClick={changePin} disabled={pinSaving} style={{ minHeight: 44, padding: "0 18px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: pinSaving ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{pinSaving ? "Saving..." : "Update PIN"}</button>
+      </div>
+    </div>
+  );
+}
+
+// Settings, separate from Profile. Profile is who a person is; this is how
+// the app behaves for them. Every card here follows the account once the
+// API carries preferences.
+function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize, setTextSize, language, setLanguage, onEditShortcuts }) {
+  const cardSt = { background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 16, marginBottom: 12 };
+  const labelSt = mkLabel(t);
+  const lineSt = { fontSize: 11, color: t.textMut, marginBottom: 12, lineHeight: 1.4 };
+  const pickBtn = (picked) => ({
+    flex: 1, minHeight: 44, borderRadius: R.md, cursor: "pointer", fontSize: 14, fontWeight: picked ? 700 : 500, fontFamily: FONT_HEAD,
+    background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text,
+    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+  });
+  const dot = (picked) => ({ width: 14, height: 14, flexShrink: 0, borderRadius: "50%", background: picked ? GOLD : "transparent", border: picked ? "none" : "2px solid " + t.borderSolid });
+
+  return (
+    <div style={{ padding: "16px" }}>
+      <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 14, fontFamily: FONT_HEAD }}>Settings</div>
+
+      <div style={cardSt}>
+        <div style={{ ...labelSt, marginBottom: 6 }}>Appearance</div>
+        <div style={lineSt}>Choose how the app looks.</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          {[["light", "Light"], ["dark", "Dark"]].map(([id, label]) => {
+            const picked = themeMode === id;
+            return <button key={id} onClick={() => setTheme(id)} aria-label={label} style={pickBtn(picked)}><span style={dot(picked)} />{label}</button>;
+          })}
+        </div>
+      </div>
+
+      <div style={cardSt}>
+        <div style={{ ...labelSt, marginBottom: 6 }}>Text size</div>
+        <div style={lineSt}>Makes everything in the app bigger.</div>
+        <TextSizeChoices value={textSize} onChange={setTextSize} t={t} />
+      </div>
+
+      <div style={cardSt}>
+        <div style={{ ...labelSt, marginBottom: 6 }}>Shortcuts</div>
+        <div style={lineSt}>{SHORTCUTS_CARD_LINE}</div>
+        <button onClick={onEditShortcuts} style={{ width: "100%", minHeight: 44, borderRadius: R.md, border: "1px solid " + GOLD, background: "transparent", color: t.goldText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>Edit shortcuts</button>
+      </div>
+
+      <div style={cardSt}>
+        <div style={{ ...labelSt, marginBottom: 6 }}>Language</div>
+        <div style={lineSt}>Help answers you in this language. The rest of the app is in English for now.</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          {LANGUAGES.map(l => {
+            const picked = language === l.id;
+            return <button key={l.id} onClick={() => setLanguage(l.id)} aria-label={l.label} style={pickBtn(picked)}><span style={dot(picked)} />{l.label}</button>;
+          })}
+        </div>
+      </div>
+
+      <ChangePinCard token={token} user={user} showToast={showToast} t={t} cardSt={cardSt} />
+    </div>
+  );
+}
+
 function EmptyState({ icon: Icon, text, t }) {
   return (<div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><Icon sz={40} c={t.borderSolid} /><div style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{text}</div></div>);
 }
@@ -3162,40 +3267,12 @@ function InspectView({ token, user, showToast, t }) {
   );
 }
 
-function MyProfileView({ token, user, showToast, t, setUser, setActiveTab, onEditShortcuts }) {
-  const { textSize, setTextSize } = useContext(TextSizeCtx);
+function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
   const [profile, setProfile] = useState(null);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({});
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [pinForm, setPinForm] = useState({ current: "", next: "", confirm: "" });
-  const [pinErrs, setPinErrs] = useState({});
-  const [pinSaving, setPinSaving] = useState(false);
-
-  // The current PIN is required here. The threat on this screen is a
-  // handset left unlocked, so the change has to prove it is the owner.
-  const changePin = async () => {
-    const e = {};
-    if (!PIN_RE.test(pinForm.current)) e.current = "Enter your current 4-digit PIN.";
-    const why = weakPinReason(pinForm.next, (profile && profile.user && profile.user.badgeNumber) || (user && user.badgeNumber));
-    if (why) e.next = why;
-    else if (pinForm.confirm !== pinForm.next) e.confirm = ERR_PIN_MISMATCH;
-    else if (pinForm.next === pinForm.current) e.next = "Your new PIN must be different from your current PIN.";
-    setPinErrs(e);
-    if (Object.keys(e).length) return;
-    setPinSaving(true);
-    try {
-      await api("/api/auth/change-pin", { method: "POST", body: { currentPin: pinForm.current, newPin: pinForm.next }, token });
-      showToast("PIN updated");
-      setPinForm({ current: "", next: "", confirm: "" });
-    } catch (err) {
-      const msg = err.message || "Could not update your PIN.";
-      setPinErrs(/new/i.test(msg) ? { next: msg } : { current: msg });
-    }
-    setPinSaving(false);
-  };
-
   const loadProfile = async () => {
     try {
       const d = await api("/api/users/profile/me", { token });
@@ -3235,7 +3312,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab, onEdi
       addressLine1: u.addressLine1 || "", addressLine2: u.addressLine2 || "",
       city: u.city || "", state: u.state || "", zipCode: u.zipCode || "",
       emergencyContactName: u.emergencyContactName || "", emergencyContactPhone: u.emergencyContactPhone || "",
-      preferredLanguage: u.preferredLanguage || "English", personalNotes: u.personalNotes || ""
+      personalNotes: u.personalNotes || ""
     });
     setEditing(true);
   };
@@ -3303,10 +3380,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab, onEdi
           {!editing && <button onClick={startEditing} style={{ padding: "4px 10px", borderRadius: R.sm, border: "1px solid " + GOLD, background: "transparent", color: t.goldText, fontSize: 10, cursor: "pointer", fontWeight: 600, fontFamily: FONT_HEAD }}>Edit</button>}
         </div>
         {!editing ? <div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div style={{ fontSize: 11, color: t.textMut }}>Birthday<div style={valSt}>{u.birthday ? fmtDate(u.birthday) : "Not set"}</div></div>
-            <div style={{ fontSize: 11, color: t.textMut }}>Language<div style={valSt}>{u.preferredLanguage || "English"}</div></div>
-          </div>
+          <div style={{ fontSize: 11, color: t.textMut }}>Birthday<div style={valSt}>{u.birthday ? fmtDate(u.birthday) : "Not set"}</div></div>
           <div style={{ marginTop: 12, fontSize: 11, color: t.textMut }}>Address<div style={valSt}>{u.addressLine1 ? (u.addressLine1 + (u.addressLine2 ? ", " + u.addressLine2 : "") + (u.city ? ", " + u.city : "") + (u.state ? ", " + u.state : "") + (u.zipCode ? " " + u.zipCode : "")) : "Not set"}</div></div>
           <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div style={{ fontSize: 11, color: t.textMut }}>Emergency Contact<div style={valSt}>{u.emergencyContactName || "Not set"}</div></div>
@@ -3325,38 +3399,11 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab, onEdi
             <div><label style={labelSt}>Emergency Contact</label><input value={form.emergencyContactName || ""} onChange={e => setForm({ ...form, emergencyContactName: e.target.value })} style={inputSt} placeholder="Full name" /></div>
             <div><label style={labelSt}>Emergency Phone</label><input value={form.emergencyContactPhone || ""} onChange={e => setForm({ ...form, emergencyContactPhone: e.target.value })} style={inputSt} placeholder="Phone number" /></div>
           </div>
-          <div style={{ marginBottom: 10 }}><label style={labelSt}>Preferred Language</label><input value={form.preferredLanguage || ""} onChange={e => setForm({ ...form, preferredLanguage: e.target.value })} style={inputSt} /></div>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 14 }}>
             <button onClick={() => setEditing(false)} style={{ padding: "10px 18px", borderRadius: R.sm, border: "none", background: t.btnGhost || t.card, color: t.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>Cancel</button>
             <button onClick={saveProfile} disabled={saving} style={{ padding: "10px 18px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{saving ? "Saving..." : "Save"}</button>
           </div>
         </div>}
-      </div>
-
-      {/* Text size */}
-      <div style={cardSt}>
-        <div style={{ ...labelSt, marginBottom: 6 }}>Text size</div>
-        <div style={{ fontSize: 11, color: t.textMut, marginBottom: 12, lineHeight: 1.4 }}>Makes everything in the app bigger on this phone.</div>
-        <TextSizeChoices value={textSize} onChange={setTextSize} t={t} />
-      </div>
-
-      {/* Shortcuts */}
-      <div style={cardSt}>
-        <div style={{ ...labelSt, marginBottom: 6 }}>Shortcuts</div>
-        <div style={{ fontSize: 11, color: t.textMut, marginBottom: 12, lineHeight: 1.4 }}>{SHORTCUTS_CARD_LINE}</div>
-        <button onClick={onEditShortcuts} style={{ width: "100%", minHeight: 44, borderRadius: R.md, border: "1px solid " + GOLD, background: "transparent", color: t.goldText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>Edit shortcuts</button>
-      </div>
-
-      {/* Change PIN */}
-      <div style={cardSt}>
-        <div style={{ ...labelSt, marginBottom: 6 }}>Change PIN</div>
-        <div style={{ fontSize: 11, color: t.textMut, marginBottom: 12, lineHeight: 1.4 }}>Your PIN is 4 digits. Choose one that only you know.</div>
-        <div style={{ marginBottom: 10 }}><label style={labelSt}>Current PIN</label><input value={pinForm.current} onChange={e => setPinForm({ ...pinForm, current: e.target.value })} {...PIN_INPUT_PROPS} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{pinErrs.current && <div style={mkFieldErr(t)}>{pinErrs.current}</div>}</div>
-        <div style={{ marginBottom: 10 }}><label style={labelSt}>New PIN</label><input value={pinForm.next} onChange={e => setPinForm({ ...pinForm, next: e.target.value })} {...PIN_INPUT_PROPS} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{pinErrs.next && <div style={mkFieldErr(t)}>{pinErrs.next}</div>}</div>
-        <div style={{ marginBottom: 10 }}><label style={labelSt}>Confirm New PIN</label><input value={pinForm.confirm} onChange={e => setPinForm({ ...pinForm, confirm: e.target.value })} {...PIN_INPUT_PROPS} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && !pinSaving && changePin()} />{pinErrs.confirm && <div style={mkFieldErr(t)}>{pinErrs.confirm}</div>}</div>
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
-          <button onClick={changePin} disabled={pinSaving} style={{ padding: "10px 18px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: pinSaving ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{pinSaving ? "Saving..." : "Update PIN"}</button>
-        </div>
       </div>
 
       {/* Assignments */}
