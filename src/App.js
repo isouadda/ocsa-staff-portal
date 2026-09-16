@@ -260,6 +260,16 @@ function readShortcuts(userId, allowedIds) {
     return validShortcuts(JSON.parse(raw), allowedIds) || DEFAULT_SHORTCUTS.slice();
   } catch (e) { return DEFAULT_SHORTCUTS.slice(); }
 }
+// The raw list this device saved, before any role check, so the sync can
+// see whether this device ever had one.
+function storedShortcuts(userId) {
+  try {
+    var raw = window.localStorage.getItem(shortcutsKey(userId));
+    if (!raw) return null;
+    var v = JSON.parse(raw);
+    return Array.isArray(v) ? v : null;
+  } catch (e) { return null; }
+}
 function saveShortcuts(userId, ids) {
   try { window.localStorage.setItem(shortcutsKey(userId), JSON.stringify(ids)); } catch (e) {}
 }
@@ -346,6 +356,43 @@ function clearAuth() {
 // Text size. One setting scales the whole page, so a person who cannot
 // read 10 pixel type can read every screen without the thousands of
 // inline sizes being rewritten. Kept on the device, never sent anywhere.
+const THEME_KEY = "ocsa-staff-theme";
+function storedTheme() {
+  try { var v = window.localStorage.getItem(THEME_KEY); return (v === "light" || v === "dark") ? v : null; } catch (e) { return null; }
+}
+function saveTheme(v) { try { window.localStorage.setItem(THEME_KEY, v); } catch (e) {} }
+
+// The language the Help agent answers in. The portal's own screens are
+// English, which the Settings card says plainly.
+const LANGUAGE_KEY = "ocsa-staff-language";
+const LANGUAGES = [{ id: "en", label: "English" }, { id: "es", label: "Espa\u00f1ol" }];
+function readLanguage() {
+  try { var v = window.localStorage.getItem(LANGUAGE_KEY); return (v === "en" || v === "es") ? v : "en"; } catch (e) { return "en"; }
+}
+function storedLanguage() {
+  try { var v = window.localStorage.getItem(LANGUAGE_KEY); return (v === "en" || v === "es") ? v : null; } catch (e) { return null; }
+}
+function saveLanguage(v) { try { window.localStorage.setItem(LANGUAGE_KEY, v); } catch (e) {} }
+
+// Settings belong to the account once the API carries them. Until then each
+// device works on its own exactly as before, and nothing is sent anywhere.
+const PREF_KEYS = ["shortcuts", "textSize", "theme", "language"];
+const PREFS_PENDING_PREFIX = "ocsa-staff-prefs-pending:";
+const prefsPendingKey = (userId) => PREFS_PENDING_PREFIX + String(userId || "");
+function readPendingPrefs(userId) {
+  try {
+    var raw = window.localStorage.getItem(prefsPendingKey(userId));
+    var a = raw ? JSON.parse(raw) : null;
+    return Array.isArray(a) ? a.filter(k => PREF_KEYS.indexOf(k) !== -1) : [];
+  } catch (e) { return []; }
+}
+function savePendingPrefs(userId, keys) {
+  try {
+    if (!keys || keys.length === 0) window.localStorage.removeItem(prefsPendingKey(userId));
+    else window.localStorage.setItem(prefsPendingKey(userId), JSON.stringify(keys));
+  } catch (e) {}
+}
+
 const TEXT_SIZE_KEY = "ocsa-staff-text-size";
 const TEXT_SIZES = [
   { id: "standard", label: "Standard", zoom: 1 },
@@ -360,6 +407,12 @@ function readTextSize() {
     var v = window.localStorage.getItem(TEXT_SIZE_KEY);
     return TEXT_SIZES.some(s => s.id === v) ? v : "standard";
   } catch (e) { return "standard"; }
+}
+function storedTextSize() {
+  try {
+    var v = window.localStorage.getItem(TEXT_SIZE_KEY);
+    return TEXT_SIZES.some(s => s.id === v) ? v : null;
+  } catch (e) { return null; }
 }
 function saveTextSize(id) {
   try { window.localStorage.setItem(TEXT_SIZE_KEY, id); } catch (e) {}
@@ -475,11 +528,19 @@ export default function OCSAStaffPortal() {
   const [toast, setToast] = useState(null);
   const [loading, setLoading] = useState(false);
   const [lookups, setLookups] = useState([]);
-  const [themeMode, setThemeMode] = useState(() => { try { return localStorage.getItem("ocsa-staff-theme") || "dark"; } catch { return "dark"; } });
+  const queuePrefRef = useRef(null);
+  const queuePref = (changed) => { if (queuePrefRef.current) queuePrefRef.current(changed); };
+  const applyPrefsRef = useRef(null);
+  const [themeMode, setThemeMode] = useState(() => { try { return localStorage.getItem(THEME_KEY) || "dark"; } catch { return "dark"; } });
   const t = themeMode === "light" ? LIGHT : DARK;
-  const toggleTheme = () => { const next = themeMode === "dark" ? "light" : "dark"; setThemeMode(next); try { localStorage.setItem("ocsa-staff-theme", next); } catch {} };
+  const setTheme = (next) => { setThemeMode(next); saveTheme(next); queuePref({ theme: next }); };
+  // The sign in screen keeps its own toggle, which now goes through the same
+  // path, so a choice made before signing in is sent up afterwards.
+  const toggleTheme = () => setTheme(themeMode === "dark" ? "light" : "dark");
+  const [language, setLanguageState] = useState(readLanguage);
+  const setLanguage = (v) => { setLanguageState(v); saveLanguage(v); queuePref({ language: v }); };
   const [textSize, setTextSizeState] = useState(readTextSize);
-  const setTextSize = (id) => { setTextSizeState(id); saveTextSize(id); };
+  const setTextSize = (id) => { setTextSizeState(id); saveTextSize(id); queuePref({ textSize: id }); };
   const zoom = zoomOf(textSize);
 
   useEffect(() => { const i = setInterval(() => setCurrentTime(now()), 1000); return () => clearInterval(i); }, []);
@@ -508,6 +569,7 @@ export default function OCSAStaffPortal() {
   const hydrateSession = useCallback(async (tok) => {
     const me = await api("/api/auth/me", { token: tok });
     setUser(me.user); setSites(me.sites);
+    if (me.preferences && applyPrefsRef.current) applyPrefsRef.current(me.preferences, tok, me.user);
     api("/api/users/profile/me", { token: tok }).then(p => { if (p?.user?.profilePhotoUrl) setUser(prev => ({ ...prev, profilePhotoUrl: p.user.profilePhotoUrl })); }).catch(() => {});
     try { const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token: tok }); setClockStatus(cs); hydrateCompleted(cs, seq); if (cs.clockedIn && cs.shift) setSelectedSite(cs.shift.siteId); } catch (e) { console.warn("Clock status:", e.message); }
     loadAssignedTasks(tok);
@@ -676,7 +738,78 @@ export default function OCSAStaffPortal() {
   const applyShortcuts = (ids) => {
     setShortcutsState({ userId: uid, ids: ids.slice() });
     if (uid) saveShortcuts(uid, ids);
+    queuePref({ shortcuts: ids.slice() });
   };
+  // What this device would send for each key right now.
+  const prefValues = useRef({});
+  prefValues.current = { shortcuts, textSize, theme: themeMode, language };
+  // True only once /api/auth/me has carried a preferences key. While it is
+  // false the portal never touches the preference routes.
+  const prefsLive = useRef(false);
+
+  // One PATCH carrying the key that changed and anything an earlier PATCH
+  // failed to deliver. Marked pending before it goes, cleared when it
+  // answers, so a tab closed mid-request retries on the next change or the
+  // next sign in. A refusal is silent and never reverts the screen.
+  const sendPrefs = (changed, tok, userId) => {
+    if (!prefsLive.current || !userId || !tok) return;
+    const keys = Object.keys(changed || {});
+    readPendingPrefs(userId).forEach(k => { if (keys.indexOf(k) === -1) keys.push(k); });
+    if (keys.length === 0) return;
+    const payload = {};
+    keys.forEach(k => { payload[k] = (changed && k in changed) ? changed[k] : prefValues.current[k]; });
+    savePendingPrefs(userId, keys);
+    api("/api/users/me/preferences", { method: "PATCH", body: payload, token: tok })
+      .then(() => { savePendingPrefs(userId, readPendingPrefs(userId).filter(k => keys.indexOf(k) === -1)); })
+      .catch(() => {});
+  };
+  queuePrefRef.current = (changed) => sendPrefs(changed, token, uid);
+
+  // A value the account holds wins and replaces this device's. A value the
+  // account does not hold, where this device has one, goes up once, so the
+  // first device a person set things on becomes their account's settings.
+  applyPrefsRef.current = (prefs, tok, u) => {
+    prefsLive.current = true;
+    const userId = u && u.id ? u.id : null;
+    const changed = {};
+    const settled = [];
+
+    if (Array.isArray(prefs.shortcuts)) {
+      const ok = validShortcuts(prefs.shortcuts, allowedShortcutIds) || DEFAULT_SHORTCUTS.slice();
+      setShortcutsState({ userId: userId, ids: ok });
+      if (userId) saveShortcuts(userId, ok);
+      settled.push("shortcuts");
+    } else {
+      const mine = userId ? storedShortcuts(userId) : null;
+      if (mine) changed.shortcuts = mine;
+    }
+
+    if (TEXT_SIZES.some(x => x.id === prefs.textSize)) {
+      setTextSizeState(prefs.textSize); saveTextSize(prefs.textSize); settled.push("textSize");
+    } else {
+      const mine = storedTextSize();
+      if (mine) changed.textSize = mine;
+    }
+
+    if (prefs.theme === "light" || prefs.theme === "dark") {
+      setThemeMode(prefs.theme); saveTheme(prefs.theme); settled.push("theme");
+    } else {
+      const mine = storedTheme();
+      if (mine) changed.theme = mine;
+    }
+
+    if (prefs.language === "en" || prefs.language === "es") {
+      setLanguageState(prefs.language); saveLanguage(prefs.language); settled.push("language");
+    } else {
+      const mine = storedLanguage();
+      if (mine) changed.language = mine;
+    }
+
+    // A key the account just supplied is no longer waiting to be sent.
+    if (userId && settled.length > 0) savePendingPrefs(userId, readPendingPrefs(userId).filter(k => settled.indexOf(k) === -1));
+    sendPrefs(changed, tok, userId);
+  };
+
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   // What the platform has told this person, counted. The routes arrive with
