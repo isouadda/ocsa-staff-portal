@@ -2850,6 +2850,10 @@ function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize
 // long as the screen is open.
 // ------------------------------------------------------------
 const FORMS_LOAD_FAILED = "Forms could not load. Check your signal and try again.";
+const FORMS_NOT_SAVED = "Not saved yet. Check your signal and tap Next again.";
+// What the API clips a stored answer to, so a long answer is
+// stopped in the box rather than truncated after it is sent.
+const FORM_VALUE_MAX = 4000;
 const FORMS_LEAVE_LINE = "Leave this report? Your saved answers stay, and you can continue from Forms or Help.";
 
 // The data twin of the rule the API evaluates, read exactly the
@@ -2968,7 +2972,7 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
 
   if (open) {
     const form = (forms || []).find(f => String(f.code) === String(open.formCode)) || null;
-    return <FormFiller token={token} t={t} showToast={showToast} locale={locale} form={form} draft={open} onLeave={() => { setOpen(null); load(); }} />;
+    return <FormFiller token={token} t={t} locale={locale} form={form} draft={open} onLeave={() => { setOpen(null); load(); }} />;
   }
 
   return (
@@ -3003,22 +3007,159 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
   );
 }
 
-// One report, open. The questions and the saving arrive with the
-// next commit; what is here is the frame they sit in.
-function FormFiller({ token, t, showToast, locale, form, draft, onLeave }) {
+// One report, open, a section at a time. Which questions are in
+// play is read from the answers on screen rather than the answers
+// on the server, so a question appears or disappears the moment
+// the answer that opens it does.
+function FormFiller({ token, t, locale, form, draft, onLeave }) {
+  const [current, setCurrent] = useState(draft);
+  const [values, setValues] = useState(() => Object.assign({}, draft.answers || {}));
+  const [dirty, setDirty] = useState({});
+  const [sectionKey, setSectionKey] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState(null);
+  const [badKeys, setBadKeys] = useState([]);
   const [confirmLeave, setConfirmLeave] = useState(false);
-  const answered = Number(draft.answered || 0);
-  const remaining = Number(draft.remaining || 0);
+  const bodyRef = useRef(null);
+
+  const fields = formFieldsInPlay(form, values);
+  const sections = formSectionsOf(fields);
+  // A section cannot empty from an answer given inside it, because
+  // the answer that governs it is somewhere else. If one ever did,
+  // the first section is where this lands rather than nowhere.
+  const here = sections.indexOf(sectionKey) !== -1 ? sectionKey : (sections.length > 0 ? sections[0] : null);
+  const at = sections.indexOf(here);
+  const pageFields = fields.filter(f => formSectionOf(f) === here);
+
+  const answered = Number(current.answered || 0);
+  const remaining = Number(current.remaining || 0);
   const total = answered + remaining;
   const pct = total > 0 ? Math.round((answered / total) * 100) : 0;
-  void token; void showToast; void locale;
+
+  const setVal = (key, v) => {
+    setValues(prev => {
+      const next = Object.assign({}, prev);
+      if (v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0)) delete next[key];
+      else next[key] = v;
+      return next;
+    });
+    setDirty(prev => Object.assign({}, prev, { [key]: true }));
+    setBadKeys(prev => prev.filter(k => k !== key));
+  };
+
+  // What one save sends: every answer on this page that changed,
+  // and any answer anywhere that those changes have closed. A
+  // question that is no longer asked must not keep an answer on
+  // the report, because the copy a supervisor reads carries every
+  // field of the form whether it was asked or not.
+  const changedAnswers = () => {
+    const out = {};
+    const inPlay = fields.map(f => f.key);
+    Object.keys(dirty).forEach(k => {
+      if (inPlay.indexOf(k) === -1) return;
+      out[k] = formHasAnswer(values[k]) ? values[k] : null;
+    });
+    (form && Array.isArray(form.fields) ? form.fields : []).forEach(f => {
+      if (f.prefilled || inPlay.indexOf(f.key) !== -1) return;
+      if (formHasAnswer(values[f.key]) || formHasAnswer((current.answers || {})[f.key])) out[f.key] = null;
+    });
+    return out;
+  };
+
+  // One PATCH. It answers with the whole draft, so the counts, the
+  // missing list and the answers on screen all come back from the
+  // server rather than being guessed at here. Returns the answers
+  // afterwards, or null when nothing was written.
+  const save = async () => {
+    const body = changedAnswers();
+    if (Object.keys(body).length === 0) { setSaveErr(null); setBadKeys([]); return values; }
+    setSaving(true); setSaveErr(null); setBadKeys([]);
+    try {
+      const r = await api("/api/forms/drafts/" + encodeURIComponent(current.id) + "?locale=" + locale, { method: "PATCH", token, body: { answers: body } });
+      const d = formDraftOf(r);
+      const after = Object.assign({}, d.answers || {});
+      setCurrent(d); setValues(after); setDirty({});
+      setSaving(false);
+      return after;
+    } catch (err) {
+      // A request that never reached the server carries no status.
+      if (err.status === undefined || err.status === null) setSaveErr(FORMS_NOT_SAVED);
+      else { setSaveErr(err.message); setBadKeys(Array.isArray(err.body && err.body.keys) ? err.body.keys : []); }
+      setSaving(false);
+      return null;
+    }
+  };
+
+  const toTop = () => { if (bodyRef.current) bodyRef.current.scrollTop = 0; };
+
+  const goNext = async () => {
+    if (saving) return;
+    const after = await save();
+    if (!after) return;
+    const list = formSectionsOf(formFieldsInPlay(form, after));
+    const i = list.indexOf(here);
+    // The Review page arrives with the next commit.
+    if (i === -1 || i + 1 >= list.length) return;
+    setSectionKey(list[i + 1]); toTop();
+  };
+
+  const goBack = async () => {
+    if (saving) return;
+    const after = await save();
+    if (!after) return;
+    const list = formSectionsOf(formFieldsInPlay(form, after));
+    const i = list.indexOf(here);
+    if (i <= 0) return;
+    setSectionKey(list[i - 1]); toTop();
+  };
+
+  // Whatever is not saved yet is sent first, and the person leaves
+  // either way: a refusal here would strand them on a report they
+  // asked to close.
+  const leave = async () => { setConfirmLeave(false); await save(); onLeave(); };
+
+  const qSt = { marginBottom: 20 };
+  const labelSt = { fontSize: 14, fontWeight: 600, color: t.text, lineHeight: 1.45, fontFamily: FONT_HEAD, overflowWrap: "anywhere" };
+  const reqSt = { fontSize: 11, fontWeight: 600, color: t.textMut, marginLeft: 6, whiteSpace: "nowrap" };
+  const inputSt = { ...mkInput(t), minHeight: 44, marginTop: 8 };
+  const optRow = (picked) => ({
+    width: "100%", minHeight: 44, marginTop: 8, padding: "10px 12px", borderRadius: R.md, cursor: "pointer",
+    display: "flex", alignItems: "center", gap: 10, textAlign: "left", fontSize: 14, fontFamily: FONT_BODY, lineHeight: 1.4,
+    background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text,
+  });
+  const mark = (picked, round) => ({ width: 16, height: 16, flexShrink: 0, borderRadius: round ? "50%" : 4, background: picked ? GOLD : "transparent", border: picked ? "none" : "2px solid " + t.borderSolid });
+  const footBtn = (primary, off) => ({
+    flex: 1, minHeight: 44, borderRadius: R.md, fontSize: 14, fontWeight: 700, fontFamily: FONT_HEAD, cursor: off ? "default" : "pointer", opacity: off ? 0.6 : 1,
+    border: primary ? "1px solid " + GOLD : "1px solid " + t.borderSolid, background: primary ? t.goldBg : "transparent", color: primary ? t.goldText : t.textSec,
+  });
+
+  const renderInput = (f) => {
+    const v = values[f.key];
+    if (f.type === "select" || f.type === "multiselect") {
+      const many = f.type === "multiselect";
+      const chosen = many ? (Array.isArray(v) ? v : []) : v;
+      return (f.options || []).map(o => {
+        const picked = many ? chosen.indexOf(o.value) !== -1 : chosen === o.value;
+        const toggle = () => {
+          if (!many) { setVal(f.key, picked ? null : o.value); return; }
+          const next = picked ? chosen.filter(x => x !== o.value) : chosen.concat([o.value]);
+          setVal(f.key, next);
+        };
+        return <button key={o.value} type="button" onClick={toggle} aria-pressed={picked} style={optRow(picked)}><span style={mark(picked, !many)} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{o.label}</span></button>;
+      });
+    }
+    if (f.type === "textarea") return <textarea rows={4} maxLength={FORM_VALUE_MAX} value={v === undefined || v === null ? "" : v} onChange={e => setVal(f.key, e.target.value)} style={{ ...inputSt, minHeight: 104, resize: "vertical", lineHeight: 1.5 }} />;
+    const kind = f.type === "date" ? "date" : (f.type === "time" ? "time" : "text");
+    return <input type={kind} maxLength={kind === "text" ? FORM_VALUE_MAX : undefined} value={v === undefined || v === null ? "" : v} onChange={e => setVal(f.key, e.target.value)} style={inputSt} />;
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "calc(var(--ocsa-vh, 100vh) - 136px)", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 136px)", minHeight: 0 }}>
       <div style={{ padding: "12px 16px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 0", minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{draft.formName || (form && form.title) || "Report"}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{current.formName || (form && form.title) || "Report"}</div>
+            {sections.length > 0 && <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{"Section " + (at + 1) + " of " + sections.length}</div>}
           </div>
           <button onClick={() => setConfirmLeave(true)} style={{ minHeight: 44, padding: "0 14px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>Close</button>
         </div>
@@ -3030,15 +3171,31 @@ function FormFiller({ token, t, showToast, locale, form, draft, onLeave }) {
         </div>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 16 }} />
+      <div ref={bodyRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 16 }}>
+        {saveErr && <div style={{ padding: "10px 12px", marginBottom: 16, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text, fontSize: 13, lineHeight: 1.5 }}>{saveErr}</div>}
+        {!form && <div style={{ fontSize: 13, color: t.textMut, lineHeight: 1.5 }}>{FORMS_LOAD_FAILED}</div>}
+        {pageFields.map(f => (
+          <div key={f.key} style={qSt}>
+            <div style={labelSt}>{f.label}{f.required && <span style={reqSt}>Required</span>}</div>
+            {f.help && <div style={mkHelp(t)}>{f.help}</div>}
+            {renderInput(f)}
+            {badKeys.indexOf(f.key) !== -1 && <div style={mkFieldErr(t)}>Check this answer</div>}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 10, padding: "12px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0 }}>
+        {at > 0 && <button onClick={goBack} disabled={saving} style={footBtn(false, saving)}>{saving ? "Saving" : "Back"}</button>}
+        <button onClick={goNext} disabled={saving} style={footBtn(true, saving)}>{saving ? "Saving" : "Next"}</button>
+      </div>
 
       {confirmLeave && (
         <div onClick={() => setConfirmLeave(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 360, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: 18, boxShadow: t.popShadow }}>
             <div style={{ fontSize: 14, color: t.text, lineHeight: 1.5, marginBottom: 16 }}>{FORMS_LEAVE_LINE}</div>
-            <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setConfirmLeave(false)} style={{ flex: 1, minHeight: 44, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>Keep filling</button>
-              <button onClick={onLeave} style={{ flex: 1, minHeight: 44, borderRadius: R.md, border: "1px solid " + GOLD, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>Leave</button>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button onClick={() => setConfirmLeave(false)} style={{ ...footBtn(false, false), flex: "1 1 120px" }}>Keep filling</button>
+              <button onClick={leave} style={{ ...footBtn(true, false), flex: "1 1 120px" }}>Leave</button>
             </div>
           </div>
         </div>
