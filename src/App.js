@@ -2065,11 +2065,16 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
     setThread(prev => prev.map(m => m.id === msgId ? { ...m, pending: true, failed: false, error: null } : m));
     try {
       // text is always present, empty when the message is photos alone.
+      // app says which app the message came from, so the API can tell one
+      // typed in the staff portal from one sent anywhere else. This is the
+      // only place a message body is built, so the first send, a message
+      // carrying photos and a Retry all say it. The API ignores the key
+      // until it reads it.
+      const body = { text: msgText, app: "portal" };
       // The chosen language rides along, because the message route takes a
       // locale and otherwise falls back to the language on the account,
       // which nothing in the portal can set until the preference routes are
       // live. With it, the choice in Settings works on the next message.
-      const body = { text: msgText };
       if (language === "en" || language === "es") body.locale = language;
       if (paths && paths.length > 0) body.photoPaths = paths;
       if (conversationId) body.conversationId = conversationId;
