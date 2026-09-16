@@ -197,6 +197,7 @@ const CalIco = (p) => <Ico d="M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 
 const HomeIco = (p) => <Ico d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" {...p} />;
 const HelpIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01" {...p} />;
 const PersonIco = (p) => <Ico d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" {...p} />;
+const BellIco = (p) => <Ico d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
 // Every destination the portal has, in one list, so the bottom bar and the
@@ -482,7 +483,7 @@ export default function OCSAStaffPortal() {
   const zoom = zoomOf(textSize);
 
   useEffect(() => { const i = setInterval(() => setCurrentTime(now()), 1000); return () => clearInterval(i); }, []);
-  useEffect(() => { const h = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); }; window.addEventListener("ocsa-session-expired", h); return () => window.removeEventListener("ocsa-session-expired", h); }, []);
+  useEffect(() => { const h = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); setUnread(0); }; window.addEventListener("ocsa-session-expired", h); return () => window.removeEventListener("ocsa-session-expired", h); }, []);
   const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
   const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); } catch (err) { console.error(err); } }, [token]);
   const loadSessionSites = useCallback(async (tkn) => { try { const data = await api("/api/shift-sessions/sites", { token: tkn || token }); setSessionSites(data); } catch (err) { console.error(err); } }, [token]);
@@ -567,7 +568,7 @@ export default function OCSAStaffPortal() {
     setLoading(false);
   };
 
-  const handleLogout = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); };
+  const handleLogout = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); setUnread(0); };
 
   // Tapping a site chooses it. No request, no tab change, no toast.
   const handleSelectSite = (siteId) => { if (clockStatus?.clockedIn) return; setPendingSite(siteId); setStartBlock(null); };
@@ -655,6 +656,14 @@ export default function OCSAStaffPortal() {
     return () => document.removeEventListener("visibilitychange", h);
   }, [token, screen, refreshClockStatus]);
   useEffect(() => { if (activeTab !== "chat" || !activeChannel) return; const iv = setInterval(() => loadMessages(activeChannel), 12000); return () => clearInterval(iv); }, [activeTab, activeChannel]);
+  // A tick while the tab is hidden is skipped, not queued.
+  useEffect(() => {
+    if (!token || screen !== "main") return;
+    const tick = () => { if (!document.hidden) refreshUnread(); };
+    tick();
+    const iv = setInterval(tick, 60000);
+    return () => clearInterval(iv);
+  }, [token, screen, refreshUnread]);
 
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
   const assignedCount = assignedTasks.length;
@@ -677,6 +686,25 @@ export default function OCSAStaffPortal() {
     if (uid) saveShortcuts(uid, ids);
   };
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  // What the platform has told this person, counted. The routes arrive with
+  // Step 61 in the API; until then every poll answers 404, which hides the
+  // count and warns once. Nothing here ever toasts, so the bell stays quiet.
+  const [unread, setUnread] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const unreadWarned = useRef(false);
+  const refreshUnread = useCallback(async (tkn) => {
+    const tk = tkn || token;
+    if (!tk) return;
+    try {
+      const d = await api("/api/notifications/unread-count", { token: tk });
+      const n = Number(d && d.unread);
+      setUnread(Number.isFinite(n) && n > 0 ? n : 0);
+    } catch (err) {
+      setUnread(0);
+      if (!unreadWarned.current) { unreadWarned.current = true; console.warn("Notifications:", err.message); }
+    }
+  }, [token]);
 
   const badgeCounts = { assigned: assignedCount };
   const tabOf = (d) => ({ id: d.id, label: d.label(destCtx), icon: d.icon, badge: d.badge ? (badgeCounts[d.badge] || 0) : 0 });
@@ -720,6 +748,10 @@ export default function OCSAStaffPortal() {
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {clockStatus?.clockedIn && (<div style={{ display: "flex", alignItems: "center", gap: 5, background: themeMode === "light" ? GREEN : "rgba(46,204,113,0.15)", padding: "3px 8px", borderRadius: 20, fontSize: 10, color: themeMode === "light" ? NAVY : GREEN, fontWeight: 600 }}><div style={{ width: 5, height: 5, borderRadius: "50%", background: themeMode === "light" ? NAVY : GREEN, animation: "pulse 2s infinite" }} />ON SITE</div>)}
+                <button onClick={() => setNotifOpen(true)} aria-label={unread > 0 ? unread + " unread notifications" : "Notifications"} aria-expanded={notifOpen} style={{ position: "relative", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, minWidth: 44, minHeight: 44, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                  <BellIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#A8B8C8"} />
+                  {unread > 0 && <span style={{ position: "absolute", top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8, background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", fontFamily: FONT_HEAD }}>{unread > 9 ? "9+" : unread}</span>}
+                </button>
                 <button onClick={toggleTheme} title={themeMode === "dark" ? "Light mode" : "Dark mode"} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, padding: "5px 8px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{themeMode === "dark" ? <SunIco sz={15} c="#A8B8C8" /> : <MoonIco sz={15} c="rgba(255,255,255,0.82)" />}</button>
                 <button onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><LogOutIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#8899AA"} /></button>
               </div>
