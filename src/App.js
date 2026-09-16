@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
 import clientConfig from './clientConfig';
-import { setWordsLanguage } from "./words";
+import { tr, dateLocale, setWordsLanguage } from "./words";
 
 const API = process.env.REACT_APP_API_URL || "https://ocsa-api-production.up.railway.app";
 
@@ -168,9 +168,9 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
-const formatTime = (d) => new Date(d).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-const formatDate = (d) => new Date(d).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-const formatDayShort = (d) => new Date(d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+const formatTime = (d) => new Date(d).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit", hour12: true });
+const formatDate = (d) => new Date(d).toLocaleDateString(dateLocale(), { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+const formatDayShort = (d) => new Date(d).toLocaleDateString(dateLocale(), { weekday: "short", month: "short", day: "numeric" });
 // Same calendar day on the person's own clock, never UTC. A shift that
 // started at 11 PM last night has to say so at 1 AM.
 const sameLocalDay = (a, b) => { const x = new Date(a), y = new Date(b); return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate(); };
@@ -463,16 +463,16 @@ function TextSizeButton({ t }) {
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} style={{ background: "none", border: "1px solid " + t.border, borderRadius: 8, padding: "6px 14px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, color: t.textMut, fontSize: 11 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1 }}>A</span>Text size
+        <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1 }}>{tr("A")}</span>{tr("Text size")}
       </button>
       {open && (
         <div onClick={() => setOpen(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 300, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
           <div onClick={e => e.stopPropagation()} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 560, padding: "18px 18px 26px", boxShadow: t.popShadow, textAlign: "left" }}>
             <div style={{ width: 40, height: 4, borderRadius: 2, background: t.textMut, margin: "0 auto 14px", opacity: 0.3 }} />
-            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 4, fontFamily: FONT_HEAD }}>Text size</div>
-            <div style={{ fontSize: 12, color: t.textSec, marginBottom: 14, lineHeight: 1.4 }}>Makes everything in the app bigger on this phone.</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("Text size")}</div>
+            <div style={{ fontSize: 12, color: t.textSec, marginBottom: 14, lineHeight: 1.4 }}>{tr("Makes everything in the app bigger on this phone.")}</div>
             <TextSizeChoices value={value} onChange={onChange} t={t} />
-            <button type="button" onClick={() => setOpen(false)} style={{ width: "100%", minHeight: 44, marginTop: 14, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>Done</button>
+            <button type="button" onClick={() => setOpen(false)} style={{ width: "100%", minHeight: 44, marginTop: 14, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Done")}</button>
           </div>
         </div>
       )}
@@ -615,10 +615,10 @@ export default function OCSAStaffPortal() {
       const data = await api("/api/auth/login", { method: "POST", body: { phone, pin }, noAuthEvent: true });
       setToken(data.token); saveAuth(data.token);
       const me = await hydrateSession(data.token);
-      showToast("Welcome, " + me.firstName);
+      showToast(tr("Welcome, {name}", { name: me.firstName }));
     } catch (err) {
       const said = err && err.body && err.body.error ? String(err.body.error) : "";
-      showToast(said || "That sign-in did not match. Check your badge, phone or email and your PIN.", "error");
+      showToast(said || tr("That sign-in did not match. Check your badge, phone or email and your PIN."), "error");
     }
     setLoading(false);
   };
@@ -628,16 +628,16 @@ export default function OCSAStaffPortal() {
   const handleAuthSuccess = async (tok) => {
     leaveEntryPath();
     setToken(tok); saveAuth(tok);
-    try { const me = await hydrateSession(tok); showToast("Welcome, " + me.firstName); }
-    catch (err) { clearAuth(); setToken(null); setUser(null); setScreen("login"); showToast(err.message, "error"); }
+    try { const me = await hydrateSession(tok); showToast(tr("Welcome, {name}", { name: me.firstName })); }
+    catch (err) { clearAuth(); setToken(null); setUser(null); setScreen("login"); showToast(tr(err.message), "error"); }
   };
 
-  const handlePinSet = () => { setScreen("main"); showToast("PIN updated"); };
+  const handlePinSet = () => { setScreen("main"); showToast(tr("PIN updated")); };
   const goLogin = () => { leaveEntryPath(); setScreen("login"); };
 
   const handleRegister = async (firstName, lastName, phone, email, pin) => {
     setLoading(true);
-    try { await api("/api/auth/register", { method: "POST", body: { firstName, lastName, phone, email, pin } }); showToast("Registration submitted. Pending supervisor approval."); setScreen("login"); } catch (err) { showToast(err.message, "error"); }
+    try { await api("/api/auth/register", { method: "POST", body: { firstName, lastName, phone, email, pin } }); showToast(tr("Registration submitted. Pending supervisor approval.")); setScreen("login"); } catch (err) { showToast(tr(err.message), "error"); }
     setLoading(false);
   };
 
@@ -647,7 +647,7 @@ export default function OCSAStaffPortal() {
   const handleSelectSite = (siteId) => { if (clockStatus?.clockedIn) return; setPendingSite(siteId); setStartBlock(null); };
 
   const handleStartSession = async (siteId) => {
-    if (!siteId) { showToast("Select a site first", "error"); return; }
+    if (!siteId) { showToast(tr("Select a site first"), "error"); return; }
     setLoading(true); setStartBlock(null);
     try {
       // 201 is a new session. 200 is the same site already open, which
@@ -656,7 +656,7 @@ export default function OCSAStaffPortal() {
       const data = await api("/api/shift-sessions", { method: "POST", body: { siteId }, token });
       await refreshClockStatus();
       setTasks(null); setPendingSite(null);
-      showToast(data.message || "Shift started"); setActiveTab("tasks");
+      showToast(tr(data.message) || tr("Shift started")); setActiveTab("tasks");
     } catch (err) {
       if (err.code === "OPEN_SESSION_ELSEWHERE") {
         // A shift is still open at another site. Say so and show it. It
@@ -664,7 +664,7 @@ export default function OCSAStaffPortal() {
         const at = err.body && err.body.openSession ? err.body.openSession.siteName : null;
         setStartBlock("A shift is still open" + (at ? " at " + at : "") + ". End it before starting another.");
         refreshClockStatus().catch(e => console.warn("Clock status:", e.message));
-      } else { showToast(err.message, "error"); }
+      } else { showToast(tr(err.message), "error"); }
     }
     setLoading(false);
   };
@@ -674,22 +674,22 @@ export default function OCSAStaffPortal() {
     // /api/clock/status carries the id as shift.sessionId, with shift.id
     // and session.id holding the same value. Without one, nothing is sent.
     const id = shift?.sessionId || shift?.id || clockStatus?.session?.id;
-    if (!id) { showToast("Could not find your open shift. Reload and try again.", "error"); return; }
-    if (!window.confirm("End your shift at " + (shift.siteName || "this site") + "?")) return;
+    if (!id) { showToast(tr("Could not find your open shift. Reload and try again."), "error"); return; }
+    if (!window.confirm(tr("End your shift at {site}?", { site: shift.siteName || tr("this site") }))) return;
     setLoading(true);
     try {
       const data = await api("/api/shift-sessions/" + id + "/end", { method: "POST", token });
       setClockStatus({ clockedIn: false, shift: null, session: null });
       setSelectedSite(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set());
       const endedAt = data && data.session ? data.session.endedAt : null;
-      showToast(endedAt ? "Shift ended at " + formatTime(endedAt) : "Shift ended");
+      showToast(endedAt ? tr("Shift ended at {time}", { time: formatTime(endedAt) }) : tr("Shift ended"));
     } catch (err) {
       if (err.code === "SESSION_ALREADY_ENDED") {
         // Ended somewhere else already. Read the server's view and redraw.
         setPendingSite(null); setStartBlock(null); setTasks(null);
         try { await refreshClockStatus(); } catch (e) { setClockStatus({ clockedIn: false, shift: null, session: null }); setSelectedSite(null); }
-        showToast("This shift was already ended");
-      } else { showToast(err.message, "error"); }
+        showToast(tr("This shift was already ended"));
+      } else { showToast(tr(err.message), "error"); }
     }
     setLoading(false);
   };
@@ -701,16 +701,16 @@ export default function OCSAStaffPortal() {
   const tasksSite = useRef(null);
   const tasksReqSite = useRef(null);
   const loadTasks = async () => { if (!clockStatus?.clockedIn || !clockStatus?.shift?.siteId) return; const siteId = clockStatus.shift.siteId; if (tasksReqSite.current === siteId) return; tasksReqSite.current = siteId; setTasksFailed(false); try { let taskUrl = "/api/sites/" + siteId + "/tasks?user_id=" + user.id; if (clockStatus.shift.buildingName) taskUrl += "&building_name=" + encodeURIComponent(clockStatus.shift.buildingName); if (clockStatus.shift.floorNumber) taskUrl += "&floor_number=" + encodeURIComponent(clockStatus.shift.floorNumber); const tt = await api(taskUrl, { token }); setTasks(tt); tasksSite.current = siteId; const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { console.error(err); setTasksFailed(true); } finally { tasksReqSite.current = null; } };
-  const toggleTask = async (taskId) => { if (inFlightTaskIds.current.has(taskId)) return; inFlightTaskIds.current.add(taskId); try { if (completedTaskIds.has(taskId)) { await api("/api/clock/tasks/" + taskId + "/complete", { method: "DELETE", token }); setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); showToast("Task unchecked"); } else { await api("/api/clock/tasks/" + taskId + "/complete", { method: "POST", body: {}, token }); setCompletedTaskIds(prev => new Set(prev).add(taskId)); showToast("Task completed"); } const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { showToast(err.message, "error"); } finally { inFlightTaskIds.current.delete(taskId); } };
+  const toggleTask = async (taskId) => { if (inFlightTaskIds.current.has(taskId)) return; inFlightTaskIds.current.add(taskId); try { if (completedTaskIds.has(taskId)) { await api("/api/clock/tasks/" + taskId + "/complete", { method: "DELETE", token }); setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); showToast(tr("Task unchecked")); } else { await api("/api/clock/tasks/" + taskId + "/complete", { method: "POST", body: {}, token }); setCompletedTaskIds(prev => new Set(prev).add(taskId)); showToast(tr("Task completed")); } const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { showToast(tr(err.message), "error"); } finally { inFlightTaskIds.current.delete(taskId); } };
   const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); } catch (err) { console.error(err); } };
-  const resolveAssignedTask = async (taskId, status, note, photoUrl) => { try { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast("Task updated to " + status.replace(/_/g, " ")); loadAssignedTasks(); } catch (err) { showToast(err.message, "error"); } };
-  const submitIssue = async (title, description, zone, severity, photoUrl, siteId) => { const actualSiteId = siteId || clockStatus?.shift?.siteId; if (!actualSiteId) { showToast("Select a site first", "error"); return; } try { const data = await api("/api/issues", { method: "POST", body: { siteId: actualSiteId, title, description, zone, severity }, token }); if (photoUrl && data.issue) { await api("/api/issues/" + data.issue.id + "/photos", { method: "POST", body: { photoUrl }, token }); } showToast("Issue reported"); loadIssues(); } catch (err) { showToast(err.message, "error"); } };
+  const resolveAssignedTask = async (taskId, status, note, photoUrl) => { try { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast(tr("Task updated to {status}", { status: tr(status.replace(/_/g, " ")) })); loadAssignedTasks(); } catch (err) { showToast(tr(err.message), "error"); } };
+  const submitIssue = async (title, description, zone, severity, photoUrl, siteId) => { const actualSiteId = siteId || clockStatus?.shift?.siteId; if (!actualSiteId) { showToast(tr("Select a site first"), "error"); return; } try { const data = await api("/api/issues", { method: "POST", body: { siteId: actualSiteId, title, description, zone, severity }, token }); if (photoUrl && data.issue) { await api("/api/issues/" + data.issue.id + "/photos", { method: "POST", body: { photoUrl }, token }); } showToast(tr("Issue reported")); loadIssues(); } catch (err) { showToast(tr(err.message), "error"); } };
   const loadSupplies = async () => { try { const url = clockStatus?.shift?.siteId ? "/api/supplies?site_id=" + clockStatus.shift.siteId : "/api/supplies"; const data = await api(url, { token }); setSupplies(data); } catch (err) { console.error(err); } };
-  const logSupplyUsage = async (supplyId, quantity) => { try { const data = await api("/api/supplies/log-usage", { method: "POST", body: { supplyId, quantity, siteId: clockStatus.shift.siteId, scanMethod: "manual" }, token }); showToast(data.message); setSupplyLogs(prev => [{ ...data.log, loggedAt: now().toISOString() }, ...prev]); if (data.lowStockAlert) showToast("Low stock alert!", "notice"); } catch (err) { showToast(err.message, "error"); } };
-  const submitSupplyRequest = async (requestType, itemName, description, urgency, supplyId) => { try { const siteId = clockStatus?.shift?.siteId || null; await api("/api/supplies/requests", { method: "POST", body: { requestType, itemName, description, urgency, supplyId, siteId }, token }); showToast("Request submitted"); } catch (err) { showToast(err.message, "error"); } };
+  const logSupplyUsage = async (supplyId, quantity) => { try { const data = await api("/api/supplies/log-usage", { method: "POST", body: { supplyId, quantity, siteId: clockStatus.shift.siteId, scanMethod: "manual" }, token }); showToast(data.message); setSupplyLogs(prev => [{ ...data.log, loggedAt: now().toISOString() }, ...prev]); if (data.lowStockAlert) showToast(tr("Low stock alert!"), "notice"); } catch (err) { showToast(tr(err.message), "error"); } };
+  const submitSupplyRequest = async (requestType, itemName, description, urgency, supplyId) => { try { const siteId = clockStatus?.shift?.siteId || null; await api("/api/supplies/requests", { method: "POST", body: { requestType, itemName, description, urgency, supplyId, siteId }, token }); showToast(tr("Request submitted")); } catch (err) { showToast(tr(err.message), "error"); } };
   const loadChannels = async () => { try { const data = await api("/api/chat/channels", { token }); setChannels(data); } catch (err) { console.error(err); } };
   const loadMessages = async (channelId) => { try { const data = await api("/api/chat/channels/" + channelId + "/messages", { token }); setMessages(data); } catch (err) { console.error(err); } };
-  const sendMessage = async (channelId, text) => { try { const data = await api("/api/chat/channels/" + channelId + "/messages", { method: "POST", body: { text }, token }); setMessages(prev => [...prev, data.message]); } catch (err) { showToast(err.message, "error"); } };
+  const sendMessage = async (channelId, text) => { try { const data = await api("/api/chat/channels/" + channelId + "/messages", { method: "POST", body: { text }, token }); setMessages(prev => [...prev, data.message]); } catch (err) { showToast(tr(err.message), "error"); } };
 
   // The task list is fetched as soon as a session is seen open, whichever
   // tab the person is standing on, so the Home card has its bar at boot.
@@ -896,12 +896,12 @@ export default function OCSAStaffPortal() {
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                {clockStatus?.clockedIn && (<div style={{ display: "flex", alignItems: "center", gap: 5, background: themeMode === "light" ? GREEN : "rgba(46,204,113,0.15)", padding: "3px 8px", borderRadius: 20, fontSize: 10, color: themeMode === "light" ? NAVY : GREEN, fontWeight: 600 }}><div style={{ width: 5, height: 5, borderRadius: "50%", background: themeMode === "light" ? NAVY : GREEN, animation: "pulse 2s infinite" }} />ON SITE</div>)}
-                <button onClick={() => setNotifOpen(true)} aria-label={unread > 0 ? unread + " unread notifications" : "Notifications"} aria-expanded={notifOpen} style={{ position: "relative", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, minWidth: 44, minHeight: 44, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                {clockStatus?.clockedIn && (<div style={{ display: "flex", alignItems: "center", gap: 5, background: themeMode === "light" ? GREEN : "rgba(46,204,113,0.15)", padding: "3px 8px", borderRadius: 20, fontSize: 10, color: themeMode === "light" ? NAVY : GREEN, fontWeight: 600 }}><div style={{ width: 5, height: 5, borderRadius: "50%", background: themeMode === "light" ? NAVY : GREEN, animation: "pulse 2s infinite" }} />{tr("ON SITE")}</div>)}
+                <button onClick={() => setNotifOpen(true)} aria-label={unread > 0 ? tr("{count} unread notifications", { count: unread }) : tr("Notifications")} aria-expanded={notifOpen} style={{ position: "relative", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, minWidth: 44, minHeight: 44, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
                   <BellIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#A8B8C8"} />
                   {unread > 0 && <span style={{ position: "absolute", top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8, background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", fontFamily: FONT_HEAD }}>{unread > 9 ? "9+" : unread}</span>}
                 </button>
-                <button onClick={() => { setActiveTab("settings"); setShowMore(false); }} aria-label="Settings" style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, minWidth: 44, minHeight: 44, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}><GearIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#A8B8C8"} /></button>
+                <button onClick={() => { setActiveTab("settings"); setShowMore(false); }} aria-label={tr("Settings")} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, minWidth: 44, minHeight: 44, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}><GearIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#A8B8C8"} /></button>
                 <button onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><LogOutIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#8899AA"} /></button>
               </div>
             </div>
@@ -940,7 +940,7 @@ export default function OCSAStaffPortal() {
                   </button>
                 ); })}
               </div>
-              <button onClick={() => { setShowMore(false); setShortcutsOpen(true); }} style={{ width: "100%", minHeight: 44, marginTop: 8, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>Edit shortcuts</button>
+              <button onClick={() => { setShowMore(false); setShortcutsOpen(true); }} style={{ width: "100%", minHeight: 44, marginTop: 8, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Edit shortcuts")}</button>
             </div>
           </div>}
 
@@ -962,7 +962,7 @@ export default function OCSAStaffPortal() {
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={isMoreActive || showMore ? t.goldText : t.textMut} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
                 {totalBadge > 0 && !isMoreActive && <div style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{totalBadge}</div>}
               </div>
-              <span style={{ fontSize: 9, fontWeight: isMoreActive || showMore ? 700 : 500, color: isMoreActive || showMore ? t.goldText : t.textMut, letterSpacing: "0.3px" }}>More</span>
+              <span style={{ fontSize: 9, fontWeight: isMoreActive || showMore ? 700 : 500, color: isMoreActive || showMore ? t.goldText : t.textMut, letterSpacing: "0.3px" }}>{tr("More")}</span>
               {isMoreActive && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: SWEEP_BAR, borderRadius: 2 }} />}
             </button>
           </div>
@@ -987,7 +987,7 @@ export default function OCSAStaffPortal() {
           current={shortcuts}
           ctx={destCtx}
           onClose={() => setShortcutsOpen(false)}
-          onSave={(ids) => { applyShortcuts(ids); setShortcutsOpen(false); showToast("Shortcuts saved"); }}
+          onSave={(ids) => { applyShortcuts(ids); setShortcutsOpen(false); showToast(tr("Shortcuts saved")); }}
         />
       )}
 
@@ -1024,14 +1024,14 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, showToast, t,
         <div style={{ textAlign: "center", marginBottom: 40 }}>
           <div style={{ display: "inline-block", maxWidth: "100%", boxSizing: "border-box", padding: themeMode === "dark" ? "12px 20px" : "0", background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: 12 }}><img src={LOGO_LG} alt={clientConfig.company.shortName} style={{ height: 70, maxWidth: "100%", objectFit: "contain" }} /></div>
           
-          <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 700 }}>Staff Operations Portal</div>
+          <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 700 }}>{tr("Staff Operations Portal")}</div>
         </div>
-        <div style={{ marginBottom: 16 }}><label style={labelSt}>Badge Number, Phone or Email</label><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="9001, 2155550101 or name@email.com" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
-        <div style={{ marginBottom: 8 }}><label style={labelSt}>PIN</label><input value={pin} onChange={e => setPin(e.target.value)} placeholder="4-digit PIN" type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
-        <div style={{ textAlign: "right", marginBottom: 24 }}><button onClick={onGoForgot} style={{ background: "none", border: "none", padding: "4px 0", color: t.textSec, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>Forgot your PIN?</button></div>
-        <button onClick={() => onLogin(phone, pin)} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? "Signing in..." : "Sign In"}</button>
-        <button onClick={onGoRegister} style={{ width: "100%", padding: "12px", marginTop: 12, borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, cursor: "pointer" }}>New Employee? Register Here</button>
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><button onClick={toggleTheme} style={{ background: "none", border: "1px solid " + t.border, borderRadius: 8, padding: "6px 14px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, color: t.textMut, fontSize: 11 }}>{themeMode === "dark" ? <SunIco sz={14} c={t.textMut} /> : <MoonIco sz={14} c={t.textMut} />}{themeMode === "dark" ? "Light Mode" : "Dark Mode"}</button><TextSizeButton t={t} /></div>
+        <div style={{ marginBottom: 16 }}><label style={labelSt}>{tr("Badge Number, Phone or Email")}</label><input value={phone} onChange={e => setPhone(e.target.value)} placeholder={tr("9001, 2155550101 or name@email.com")} autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
+        <div style={{ marginBottom: 8 }}><label style={labelSt}>{tr("PIN")}</label><input value={pin} onChange={e => setPin(e.target.value)} placeholder={tr("4-digit PIN")} type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
+        <div style={{ textAlign: "right", marginBottom: 24 }}><button onClick={onGoForgot} style={{ background: "none", border: "none", padding: "4px 0", color: t.textSec, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>{tr("Forgot your PIN?")}</button></div>
+        <button onClick={() => onLogin(phone, pin)} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Signing in...") : tr("Sign In")}</button>
+        <button onClick={onGoRegister} style={{ width: "100%", padding: "12px", marginTop: 12, borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, cursor: "pointer" }}>{tr("New Employee? Register Here")}</button>
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><button onClick={toggleTheme} style={{ background: "none", border: "1px solid " + t.border, borderRadius: 8, padding: "6px 14px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, color: t.textMut, fontSize: 11 }}>{themeMode === "dark" ? <SunIco sz={14} c={t.textMut} /> : <MoonIco sz={14} c={t.textMut} />}{themeMode === "dark" ? tr("Light Mode") : tr("Dark Mode")}</button><TextSizeButton t={t} /></div>
       </div>
     </div>
   );
@@ -1049,8 +1049,8 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
   const submit = () => {
     const required = [["firstName", "First Name", fn], ["phone", "Phone Number", ph], ["email", "Email Address", em], ["pin", "PIN", pin], ["pin2", "Confirm PIN", pin2]];
     const empty = required.find(f => !String(f[2]).trim());
-    if (empty) { setErrs({ [empty[0]]: "Fill in " + empty[1] + "." }); return; }
-    if (pin !== pin2) { setErrs({ pin2: ERR_PIN_MISMATCH }); return; }
+    if (empty) { setErrs({ [empty[0]]: tr("Fill in {field}.", { field: tr(empty[1]) }) }); return; }
+    if (pin !== pin2) { setErrs({ pin2: tr(ERR_PIN_MISMATCH) }); return; }
     setErrs({});
     onRegister(fn, ln, ph, em, pin);
   };
@@ -1059,16 +1059,16 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
       <div style={{ width: "100%", maxWidth: 420, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: "28px 24px", boxShadow: t.popShadow }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{ display: "inline-block", maxWidth: "100%", boxSizing: "border-box", padding: "4px 12px", background: "rgba(255,255,255,0.92)", borderRadius: 6 }}><img src={LOGO_SM} alt={clientConfig.company.shortName} style={{ height: 34, maxWidth: "100%", objectFit: "contain" }} /></div>
-          <div style={{ fontSize: 12, color: t.textSec, letterSpacing: "2px", textTransform: "uppercase", marginTop: 8, fontFamily: FONT_HEAD, fontWeight: 700 }}>New Staff Registration</div>
+          <div style={{ fontSize: 12, color: t.textSec, letterSpacing: "2px", textTransform: "uppercase", marginTop: 8, fontFamily: FONT_HEAD, fontWeight: 700 }}>{tr("New Staff Registration")}</div>
         </div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>First Name *</label><input value={fn} onChange={e => setFn(e.target.value)} placeholder="First name" style={inputSt} />{errs.firstName && <div style={errSt}>{errs.firstName}</div>}</div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>Last Name</label><input value={ln} onChange={e => setLn(e.target.value)} placeholder="Last name" style={inputSt} /></div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>Phone Number *</label><input value={ph} onChange={e => setPh(e.target.value)} placeholder="2155550000 (no dashes needed)" style={inputSt} />{errs.phone && <div style={errSt}>{errs.phone}</div>}</div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>Email Address *</label><input value={em} onChange={e => setEm(e.target.value)} placeholder="name@email.com" type="email" style={inputSt} />{errs.email && <div style={errSt}>{errs.email}</div>}</div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>PIN (4 digits) *</label><input value={pin} onChange={e => setPin(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
-        <div style={{ marginBottom: 24 }}><label style={labelSt}>Confirm PIN *</label><input value={pin2} onChange={e => setPin2(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
-        <button onClick={submit} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 700, cursor: "pointer", boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? "Registering..." : "Register"}</button>
-        <button onClick={onBack} style={{ width: "100%", padding: "12px", marginTop: 12, borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, cursor: "pointer" }}>Back to Login</button>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("First Name *")}</label><input value={fn} onChange={e => setFn(e.target.value)} placeholder={tr("First name")} style={inputSt} />{errs.firstName && <div style={errSt}>{errs.firstName}</div>}</div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Last Name")}</label><input value={ln} onChange={e => setLn(e.target.value)} placeholder={tr("Last name")} style={inputSt} /></div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Phone Number *")}</label><input value={ph} onChange={e => setPh(e.target.value)} placeholder={tr("2155550000 (no dashes needed)")} style={inputSt} />{errs.phone && <div style={errSt}>{errs.phone}</div>}</div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Email Address *")}</label><input value={em} onChange={e => setEm(e.target.value)} placeholder={tr("name@email.com")} type="email" style={inputSt} />{errs.email && <div style={errSt}>{errs.email}</div>}</div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("PIN (4 digits) *")}</label><input value={pin} onChange={e => setPin(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
+        <div style={{ marginBottom: 24 }}><label style={labelSt}>{tr("Confirm PIN *")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
+        <button onClick={submit} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 700, cursor: "pointer", boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Registering...") : tr("Register")}</button>
+        <button onClick={onBack} style={{ width: "100%", padding: "12px", marginTop: 12, borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, cursor: "pointer" }}>{tr("Back to Login")}</button>
         <div style={{ display: "flex", justifyContent: "center", marginTop: 20 }}><TextSizeButton t={t} /></div>
       </div>
     </div>
@@ -1095,8 +1095,8 @@ function BootSplash({ t, themeMode }) {
     <div style={{ width: "100%", minHeight: "var(--ocsa-vh, 100vh)", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
       <div style={{ textAlign: "center" }}>
         <div style={{ display: "inline-block", maxWidth: "100%", boxSizing: "border-box", padding: themeMode === "dark" ? "12px 20px" : "0", background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: 12 }}><img src={LOGO_LG} alt={clientConfig.company.shortName} style={{ height: 70, maxWidth: "100%", objectFit: "contain" }} /></div>
-        <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 700 }}>Staff Operations Portal</div>
-        <div style={{ fontSize: 10, color: t.textMut, marginTop: 8, animation: "pulse 2s infinite" }}>Loading...</div>
+        <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 700 }}>{tr("Staff Operations Portal")}</div>
+        <div style={{ fontSize: 10, color: t.textMut, marginTop: 8, animation: "pulse 2s infinite" }}>{tr("Loading...")}</div>
       </div>
     </div>
   );
@@ -1135,7 +1135,7 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
     setPhase("checking");
     api("/api/auth/activate/" + encodeURIComponent(token), { noAuthEvent: true })
       .then(d => { if (!alive) return; setInfo(d); setLocale(d.preferredLanguage === "es" ? "es" : "en"); setPhase("form"); })
-      .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: ERR_GENERIC }); setPhase("error"); } });
+      .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(ERR_GENERIC) }); setPhase("error"); } });
     return () => { alive = false; };
   }, [token, attempt]);
 
@@ -1151,7 +1151,7 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
     // refused a moment later.
     const why = weakPinReason(pin, b);
     if (why) e.pin = why;
-    else if (pin2 !== pin) e.pin2 = ERR_PIN_MISMATCH;
+    else if (pin2 !== pin) e.pin2 = tr(ERR_PIN_MISMATCH);
     setErrs(e);
     if (Object.keys(e).length) return;
     setPhase("working");
@@ -1160,68 +1160,68 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
       if (needBadge) body.badgeNumber = b;
       const d = await api("/api/auth/activate", { method: "POST", body, noAuthEvent: true });
       if (d.token) { setPhase("done"); onActivated(d.token); return; }
-      setFail({ from: "post", msg: d.message || "Your account is activated but not currently active. Contact your supervisor." });
+      setFail({ from: "post", msg: tr(d.message) || tr("Your account is activated but not currently active. Contact your supervisor.") });
       setPhase("inactive");
     } catch (err) {
       if (err.code === "TOKEN_INVALID") { setPhase("invalid"); return; }
       if (err.code === "BADGE_MISMATCH") {
         const n = mismatches + 1; setMismatches(n);
-        setErrs({ badge: "That badge number does not match our records. Check the number in your email." + (n >= 3 ? " Ask your supervisor to confirm your badge number." : "") });
+        setErrs({ badge: tr("That badge number does not match our records. Check the number in your email.") + (n >= 3 ? " " + tr("Ask your supervisor to confirm your badge number.") : "") });
         setPhase("form"); return;
       }
-      if (err.status === 400) { setErrs({ pin: err.message }); setPhase("form"); return; }
-      setFail({ from: "post", msg: ERR_GENERIC }); setPhase("error");
+      if (err.status === 400) { setErrs({ pin: tr(err.message) }); setPhase("form"); return; }
+      setFail({ from: "post", msg: tr(ERR_GENERIC) }); setPhase("error");
     }
   };
   const retry = () => { setErrs({}); if (fail.from === "get") setAttempt(a => a + 1); else setPhase("form"); };
   const working = phase === "working";
 
   if (phase === "incomplete") return (
-    <AuthCard t={t} title="Account Activation">
-      <div style={textSt}>This activation link is incomplete. Open the link from your email again.</div>
-      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+    <AuthCard t={t} title={tr("Account Activation")}>
+      <div style={textSt}>{tr("This activation link is incomplete. Open the link from your email again.")}</div>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>{tr("Back to Sign In")}</button>
     </AuthCard>
   );
   if (phase === "checking" || phase === "done") return (
-    <AuthCard t={t} title="Account Activation">
-      <div style={{ ...textSt, textAlign: "center", color: t.textMut, animation: "pulse 2s infinite" }}>{phase === "done" ? "PIN set. Signing you in..." : "Checking your link..."}</div>
+    <AuthCard t={t} title={tr("Account Activation")}>
+      <div style={{ ...textSt, textAlign: "center", color: t.textMut, animation: "pulse 2s infinite" }}>{phase === "done" ? tr("PIN set. Signing you in...") : tr("Checking your link...")}</div>
     </AuthCard>
   );
   if (phase === "invalid") return (
-    <AuthCard t={t} title="Account Activation">
-      <div style={textSt}>{MSG_LINK_INVALID}</div>
-      <div style={textSt}>{SUPPORT_LINE}</div>
-      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+    <AuthCard t={t} title={tr("Account Activation")}>
+      <div style={textSt}>{tr(MSG_LINK_INVALID)}</div>
+      <div style={textSt}>{tr(SUPPORT_LINE)}</div>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>{tr("Back to Sign In")}</button>
     </AuthCard>
   );
   if (phase === "inactive") return (
-    <AuthCard t={t} title="Account Activation">
+    <AuthCard t={t} title={tr("Account Activation")}>
       <div style={textSt}>{fail.msg}</div>
-      <div style={{ ...textSt, color: t.textSec }}>Your PIN has been saved. Signing in will work once your account is active.</div>
+      <div style={{ ...textSt, color: t.textSec }}>{tr("Your PIN has been saved. Signing in will work once your account is active.")}</div>
     </AuthCard>
   );
   if (phase === "error") return (
-    <AuthCard t={t} title="Account Activation">
+    <AuthCard t={t} title={tr("Account Activation")}>
       <div style={textSt}>{fail.msg}</div>
-      <button onClick={retry} style={mkPrimaryBtn(t, false)}>Try Again</button>
-      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+      <button onClick={retry} style={mkPrimaryBtn(t, false)}>{tr("Try Again")}</button>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>{tr("Back to Sign In")}</button>
     </AuthCard>
   );
   return (
-    <AuthCard t={t} title="Account Activation">
-      <div style={textSt}>{info && info.firstName ? "Welcome, " + info.firstName + ". " : ""}Confirm your badge number and choose your 4-digit PIN.</div>
-      {info && info.expiresAt && <div style={{ ...helpSt, marginTop: 0, marginBottom: 16 }}>This link works until {fmtExpiry(info.expiresAt)} and can be used once.</div>}
+    <AuthCard t={t} title={tr("Account Activation")}>
+      <div style={textSt}>{info && info.firstName ? tr("Welcome, {name}.", { name: info.firstName }) + " " : ""}{tr("Confirm your badge number and choose your 4-digit PIN.")}</div>
+      {info && info.expiresAt && <div style={{ ...helpSt, marginTop: 0, marginBottom: 16 }}>{tr("This link works until")} {fmtExpiry(info.expiresAt)} {tr("and can be used once.")}</div>}
       {needBadge && <div style={{ marginBottom: 14 }}>
-        <label style={labelSt}>Badge Number</label>
-        <input value={badge} onChange={e => setBadge(e.target.value)} inputMode="numeric" pattern="[0-9]*" autoComplete="off" placeholder="Badge number" style={inputSt} />
-        <div style={helpSt}>The number on the email we sent you.</div>
+        <label style={labelSt}>{tr("Badge Number")}</label>
+        <input value={badge} onChange={e => setBadge(e.target.value)} inputMode="numeric" pattern="[0-9]*" autoComplete="off" placeholder={tr("Badge number")} style={inputSt} />
+        <div style={helpSt}>{tr("The number on the email we sent you.")}</div>
         {errs.badge && <div style={errSt}>{errs.badge}</div>}
       </div>}
-      <div style={{ marginBottom: 14 }}><label style={labelSt}>PIN (4 digits)</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
-      <div style={{ marginBottom: 14 }}><label style={labelSt}>Confirm PIN</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
-      <div style={{ marginBottom: 22 }}><label style={labelSt}>Language</label><LangPicker value={locale} onChange={setLocale} t={t} /></div>
-      <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? "Activating..." : "Activate Account"}</button>
-      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+      <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("PIN (4 digits)")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
+      <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Confirm PIN")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
+      <div style={{ marginBottom: 22 }}><label style={labelSt}>{tr("Language")}</label><LangPicker value={locale} onChange={setLocale} t={t} /></div>
+      <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? tr("Activating...") : tr("Activate Account")}</button>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>{tr("Back to Sign In")}</button>
     </AuthCard>
   );
 }
@@ -1242,71 +1242,71 @@ function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
     setPhase("checking");
     api("/api/auth/reset/" + encodeURIComponent(token), { noAuthEvent: true })
       .then(d => { if (!alive) return; setInfo(d); setPhase("form"); })
-      .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: ERR_GENERIC }); setPhase("error"); } });
+      .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(ERR_GENERIC) }); setPhase("error"); } });
     return () => { alive = false; };
   }, [token, attempt]);
 
   const submit = async () => {
     const e = {};
     if (!PIN_RE.test(pin)) e.pin = "PIN must be exactly 4 digits.";
-    else if (pin2 !== pin) e.pin2 = ERR_PIN_MISMATCH;
+    else if (pin2 !== pin) e.pin2 = tr(ERR_PIN_MISMATCH);
     setErrs(e);
     if (Object.keys(e).length) return;
     setPhase("working");
     try {
       const d = await api("/api/auth/reset", { method: "POST", body: { token, pin }, noAuthEvent: true });
       if (d.token) { setPhase("done"); onReset(d.token); return; }
-      setFail({ from: "post", msg: d.message || "Your PIN has been changed. Contact your supervisor about your account status." });
+      setFail({ from: "post", msg: tr(d.message) || tr("Your PIN has been changed. Contact your supervisor about your account status.") });
       setPhase("inactive");
     } catch (err) {
       if (err.code === "TOKEN_INVALID") { setPhase("invalid"); return; }
-      if (err.status === 400) { setErrs({ pin: err.message }); setPhase("form"); return; }
-      setFail({ from: "post", msg: ERR_GENERIC }); setPhase("error");
+      if (err.status === 400) { setErrs({ pin: tr(err.message) }); setPhase("form"); return; }
+      setFail({ from: "post", msg: tr(ERR_GENERIC) }); setPhase("error");
     }
   };
   const retry = () => { setErrs({}); if (fail.from === "get") setAttempt(a => a + 1); else setPhase("form"); };
   const working = phase === "working";
 
   if (phase === "incomplete") return (
-    <AuthCard t={t} title="Reset Your PIN">
-      <div style={textSt}>This reset link is incomplete. Open the link from your email again.</div>
-      <button onClick={onGoForgot} style={mkPrimaryBtn(t, false)}>Request a New Link</button>
-      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+    <AuthCard t={t} title={tr("Reset Your PIN")}>
+      <div style={textSt}>{tr("This reset link is incomplete. Open the link from your email again.")}</div>
+      <button onClick={onGoForgot} style={mkPrimaryBtn(t, false)}>{tr("Request a New Link")}</button>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>{tr("Back to Sign In")}</button>
     </AuthCard>
   );
   if (phase === "checking" || phase === "done") return (
-    <AuthCard t={t} title="Reset Your PIN">
-      <div style={{ ...textSt, textAlign: "center", color: t.textMut, animation: "pulse 2s infinite" }}>{phase === "done" ? "PIN saved. Signing you in..." : "Checking your link..."}</div>
+    <AuthCard t={t} title={tr("Reset Your PIN")}>
+      <div style={{ ...textSt, textAlign: "center", color: t.textMut, animation: "pulse 2s infinite" }}>{phase === "done" ? tr("PIN saved. Signing you in...") : tr("Checking your link...")}</div>
     </AuthCard>
   );
   if (phase === "invalid") return (
-    <AuthCard t={t} title="Reset Your PIN">
-      <div style={textSt}>{MSG_LINK_INVALID}</div>
-      <button onClick={onGoForgot} style={mkPrimaryBtn(t, false)}>Request a New Link</button>
-      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+    <AuthCard t={t} title={tr("Reset Your PIN")}>
+      <div style={textSt}>{tr(MSG_LINK_INVALID)}</div>
+      <button onClick={onGoForgot} style={mkPrimaryBtn(t, false)}>{tr("Request a New Link")}</button>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>{tr("Back to Sign In")}</button>
     </AuthCard>
   );
   if (phase === "inactive") return (
-    <AuthCard t={t} title="Reset Your PIN">
+    <AuthCard t={t} title={tr("Reset Your PIN")}>
       <div style={textSt}>{fail.msg}</div>
-      <div style={{ ...textSt, color: t.textSec }}>Signing in will work once your account is active.</div>
+      <div style={{ ...textSt, color: t.textSec }}>{tr("Signing in will work once your account is active.")}</div>
     </AuthCard>
   );
   if (phase === "error") return (
-    <AuthCard t={t} title="Reset Your PIN">
+    <AuthCard t={t} title={tr("Reset Your PIN")}>
       <div style={textSt}>{fail.msg}</div>
-      <button onClick={retry} style={mkPrimaryBtn(t, false)}>Try Again</button>
-      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+      <button onClick={retry} style={mkPrimaryBtn(t, false)}>{tr("Try Again")}</button>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>{tr("Back to Sign In")}</button>
     </AuthCard>
   );
   return (
-    <AuthCard t={t} title="Reset Your PIN">
-      <div style={textSt}>{info && info.firstName ? "Welcome back, " + info.firstName + ". " : ""}Choose your new 4-digit PIN.</div>
-      {info && info.expiresAt && <div style={{ ...helpSt, marginTop: 0, marginBottom: 16 }}>This link works until {fmtExpiry(info.expiresAt)} and can be used once.</div>}
-      <div style={{ marginBottom: 14 }}><label style={labelSt}>New PIN (4 digits)</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
-      <div style={{ marginBottom: 22 }}><label style={labelSt}>Confirm PIN</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
-      <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? "Saving..." : "Save PIN"}</button>
-      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+    <AuthCard t={t} title={tr("Reset Your PIN")}>
+      <div style={textSt}>{info && info.firstName ? tr("Welcome back, {name}.", { name: info.firstName }) + " " : ""}{tr("Choose your new 4-digit PIN.")}</div>
+      {info && info.expiresAt && <div style={{ ...helpSt, marginTop: 0, marginBottom: 16 }}>{tr("This link works until")} {fmtExpiry(info.expiresAt)} {tr("and can be used once.")}</div>}
+      <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("New PIN (4 digits)")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
+      <div style={{ marginBottom: 22 }}><label style={labelSt}>{tr("Confirm PIN")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
+      <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? tr("Saving...") : tr("Save PIN")}</button>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>{tr("Back to Sign In")}</button>
     </AuthCard>
   );
 }
@@ -1319,14 +1319,14 @@ function ForgotScreen({ onGoLogin, showToast, t }) {
 
   const submit = async () => {
     const v = ident.trim();
-    if (!v) { setErr("Enter your badge number, phone number or email address."); return; }
+    if (!v) { setErr(tr("Enter your badge number, phone number or email address.")); return; }
     setErr(""); setPhase("working");
     try {
       await api("/api/auth/reset/request", { method: "POST", body: { identifier: v }, noAuthEvent: true });
       setPhase("sent");
     } catch (e) {
       setPhase("form");
-      setErr(e.status === 400 ? e.message : ERR_GENERIC);
+      setErr(e.status === 400 ? tr(e.message) : tr(ERR_GENERIC));
     }
   };
   const working = phase === "working";
@@ -1334,23 +1334,23 @@ function ForgotScreen({ onGoLogin, showToast, t }) {
   // The API answers the same neutral 200 for every outcome except an
   // empty identifier, so the confirmation conditions on nothing.
   if (phase === "sent") return (
-    <AuthCard t={t} title="Reset Your PIN">
-      <div style={textSt}>If that matches an account on file, a reset link is on its way. The link is good for one hour.</div>
-      <div style={textSt}>If you do not have an email address on file, no link can reach you. Contact your supervisor to have your PIN reset directly.</div>
-      <div style={textSt}>Forgotten your badge number? You can also sign in with your phone number or your email address.</div>
-      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+    <AuthCard t={t} title={tr("Reset Your PIN")}>
+      <div style={textSt}>{tr("If that matches an account on file, a reset link is on its way. The link is good for one hour.")}</div>
+      <div style={textSt}>{tr("If you do not have an email address on file, no link can reach you. Contact your supervisor to have your PIN reset directly.")}</div>
+      <div style={textSt}>{tr("Forgotten your badge number? You can also sign in with your phone number or your email address.")}</div>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>{tr("Back to Sign In")}</button>
     </AuthCard>
   );
   return (
-    <AuthCard t={t} title="Reset Your PIN">
-      <div style={textSt}>Enter the badge number, phone number or email address on your account and we will email you a link to choose a new PIN.</div>
+    <AuthCard t={t} title={tr("Reset Your PIN")}>
+      <div style={textSt}>{tr("Enter the badge number, phone number or email address on your account and we will email you a link to choose a new PIN.")}</div>
       <div style={{ marginBottom: 22 }}>
-        <label style={labelSt}>Badge Number, Phone or Email</label>
-        <input value={ident} onChange={e => setIdent(e.target.value)} placeholder="9001, 2155550101 or name@email.com" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />
+        <label style={labelSt}>{tr("Badge Number, Phone or Email")}</label>
+        <input value={ident} onChange={e => setIdent(e.target.value)} placeholder={tr("9001, 2155550101 or name@email.com")} autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />
         {err && <div style={errSt}>{err}</div>}
       </div>
-      <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? "Sending..." : "Send Reset Link"}</button>
-      <button onClick={onGoLogin} style={mkGhostBtn(t)}>Back to Sign In</button>
+      <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? tr("Sending...") : tr("Send Reset Link")}</button>
+      <button onClick={onGoLogin} style={mkGhostBtn(t)}>{tr("Back to Sign In")}</button>
     </AuthCard>
   );
 }
@@ -1369,24 +1369,24 @@ function SetPinScreen({ token, user, onDone, onSignOut, showToast, t }) {
     const e = {};
     const why = weakPinReason(pin, user && user.badgeNumber);
     if (why) e.pin = why;
-    else if (pin2 !== pin) e.pin2 = ERR_PIN_MISMATCH;
+    else if (pin2 !== pin) e.pin2 = tr(ERR_PIN_MISMATCH);
     setErrs(e);
     if (Object.keys(e).length) return;
     setWorking(true);
     try {
       const d = await api("/api/auth/change-pin", { method: "POST", body: { newPin: pin }, token });
       onDone(d);
-    } catch (err) { setErrs({ pin: err.message }); }
+    } catch (err) { setErrs({ pin: tr(err.message) }); }
     setWorking(false);
   };
 
   return (
-    <AuthCard t={t} title="Set Your PIN">
-      <div style={textSt}>Set your own PIN. The PIN you were given is known to your supervisor. Choose a new one that only you know.</div>
-      <div style={{ marginBottom: 14 }}><label style={labelSt}>New PIN (4 digits)</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
-      <div style={{ marginBottom: 22 }}><label style={labelSt}>Confirm PIN</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
-      <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? "Saving..." : "Save PIN"}</button>
-      <div style={{ textAlign: "center", marginTop: 18 }}><button onClick={onSignOut} style={{ background: "none", border: "none", padding: "4px 0", color: t.textMut, fontSize: 11, cursor: "pointer", textDecoration: "underline" }}>Not you? Sign out</button></div>
+    <AuthCard t={t} title={tr("Set Your PIN")}>
+      <div style={textSt}>{tr("Set your own PIN. The PIN you were given is known to your supervisor. Choose a new one that only you know.")}</div>
+      <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("New PIN (4 digits)")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
+      <div style={{ marginBottom: 22 }}><label style={labelSt}>{tr("Confirm PIN")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
+      <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? tr("Saving...") : tr("Save PIN")}</button>
+      <div style={{ textAlign: "center", marginTop: 18 }}><button onClick={onSignOut} style={{ background: "none", border: "none", padding: "4px 0", color: t.textMut, fontSize: 11, cursor: "pointer", textDecoration: "underline" }}>{tr("Not you? Sign out")}</button></div>
     </AuthCard>
   );
 }
@@ -1408,7 +1408,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
 
   const toISO = (d) => d.toISOString().split("T")[0];
   const fmtTm = (v) => { if (!v) return ""; const parts = String(v).split(":"); const h = parseInt(parts[0]); const m = parts[1] || "00"; const ap = h >= 12 ? "PM" : "AM"; return ((h % 12) || 12) + ":" + m + " " + ap; };
-  const fmtClockTm = (d) => new Date(d).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  const fmtClockTm = (d) => new Date(d).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit", hour12: true });
 
   const getWeekEnd = () => { const e = new Date(weekStart); e.setDate(e.getDate() + 6); return e; };
   const getWeekDays = () => { const days = []; for (let i = 0; i < 7; i++) { const d = new Date(weekStart); d.setDate(d.getDate() + i); days.push(toISO(d)); } return days; };
@@ -1459,17 +1459,17 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
     return d === ds;
   });
 
-  const weekLabel = weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " - " + getWeekEnd().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const weekLabel = weekStart.toLocaleDateString(dateLocale(), { month: "short", day: "numeric" }) + " - " + getWeekEnd().toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" });
 
   const weekDays = getWeekDays();
 
   return (
     <div style={{ padding: "0 16px 16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>My Schedule</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("My Schedule")}</div>
         <div style={{ display: "flex", gap: 4 }}>
-          <button onClick={() => setView("week")} style={{ padding: "5px 12px", borderRadius: R.sm, fontSize: 10, fontWeight: view === "week" ? 700 : 600, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px", background: view === "week" ? t.goldBg : "transparent", color: view === "week" ? t.goldText : t.textMut, border: view === "week" ? "1px solid " + t.goldBorder : "1px solid transparent", cursor: "pointer" }}>Week</button>
-          <button onClick={() => { setView("month"); const first = new Date(weekStart.getFullYear(), weekStart.getMonth(), 1); setWeekStart(first); }} style={{ padding: "5px 12px", borderRadius: R.sm, fontSize: 10, fontWeight: view === "month" ? 700 : 600, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px", background: view === "month" ? t.goldBg : "transparent", color: view === "month" ? t.goldText : t.textMut, border: view === "month" ? "1px solid " + t.goldBorder : "1px solid transparent", cursor: "pointer" }}>Month</button>
+          <button onClick={() => setView("week")} style={{ padding: "5px 12px", borderRadius: R.sm, fontSize: 10, fontWeight: view === "week" ? 700 : 600, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px", background: view === "week" ? t.goldBg : "transparent", color: view === "week" ? t.goldText : t.textMut, border: view === "week" ? "1px solid " + t.goldBorder : "1px solid transparent", cursor: "pointer" }}>{tr("Week")}</button>
+          <button onClick={() => { setView("month"); const first = new Date(weekStart.getFullYear(), weekStart.getMonth(), 1); setWeekStart(first); }} style={{ padding: "5px 12px", borderRadius: R.sm, fontSize: 10, fontWeight: view === "month" ? 700 : 600, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px", background: view === "month" ? t.goldBg : "transparent", color: view === "month" ? t.goldText : t.textMut, border: view === "month" ? "1px solid " + t.goldBorder : "1px solid transparent", cursor: "pointer" }}>{tr("Month")}</button>
         </div>
       </div>
 
@@ -1477,12 +1477,12 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
         <button onClick={prevWeek} style={{ background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.sm, padding: "6px 12px", cursor: "pointer", color: t.textMut, fontSize: 14 }}>&lt;</button>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>{weekLabel}</span>
-          <button onClick={goToday} style={{ fontSize: 9, padding: "3px 9px", borderRadius: R.sm, border: "1px solid " + BLUE, background: "transparent", color: BLUE, cursor: "pointer", fontWeight: 700, fontFamily: FONT_HEAD }}>Today</button>
+          <button onClick={goToday} style={{ fontSize: 9, padding: "3px 9px", borderRadius: R.sm, border: "1px solid " + BLUE, background: "transparent", color: BLUE, cursor: "pointer", fontWeight: 700, fontFamily: FONT_HEAD }}>{tr("Today")}</button>
         </div>
         <button onClick={nextWeek} style={{ background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.sm, padding: "6px 12px", cursor: "pointer", color: t.textMut, fontSize: 14 }}>&gt;</button>
       </div>
 
-      {loading && <div style={{ textAlign: "center", padding: 20, color: t.textMut, fontSize: 12 }}>Loading...</div>}
+      {loading && <div style={{ textAlign: "center", padding: 20, color: t.textMut, fontSize: 12 }}>{tr("Loading...")}</div>}
 
       {/* WEEK VIEW */}
       {!loading && view === "week" && (
@@ -1507,14 +1507,14 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                 ))}
                 {actual.map(a => (
                   <div key={a.id} onClick={() => setDetail({ type: "actual", ...a })} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: GREEN + "15", color: GREEN, border: "1px solid " + GREEN + "30", cursor: "pointer" }}>
-                    {fmtClockTm(a.clock_in_time)}{a.duration_minutes ? " (" + Math.floor(a.duration_minutes / 60) + "h)" : a.shift_status === "active" ? " (live)" : ""}{a.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{a.site_name}</div>}
+                    {fmtClockTm(a.clock_in_time)}{a.duration_minutes ? tr(" ({h}h)", { h: Math.floor(a.duration_minutes / 60) }) : a.shift_status === "active" ? tr(" (live)") : ""}{a.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{a.site_name}</div>}
                   </div>
                 ))}
                 {pickups.map(p => {
                   const pc = p.status === "approved" ? GREEN : BLUE;
                   return (
                     <div key={p.id} onClick={() => setDetail({ type: "pickup", ...p })} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: pc + "15", color: pc, border: "1px solid " + pc + "30", cursor: "pointer" }}>
-                      {fmtTm(p.start_time)} <span style={{ fontSize: 7, textTransform: "uppercase" }}>{p.status === "approved" ? "approved" : "claimed"}</span>
+                      {fmtTm(p.start_time)} <span style={{ fontSize: 7, textTransform: "uppercase" }}>{p.status === "approved" ? tr("approved") : tr("claimed")}</span>
                       {p.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{p.site_name}</div>}
                     </div>
                   );
@@ -1538,7 +1538,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
           const d = new Date(year, month, i + 1);
           cells.push(toISO(d));
         }
-        const monthName = firstDay.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+        const monthName = firstDay.toLocaleDateString(dateLocale(), { month: "long", year: "numeric" });
         return (
           <div style={{ display: "flex", flexDirection: "column", flex: compact ? undefined : 1 }}>
             <div style={{ textAlign: "center", fontSize: 13, fontWeight: 700, color: t.text, marginBottom: 8, fontFamily: FONT_HEAD }}>{monthName}</div>
@@ -1566,7 +1566,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
               })}
             </div>
             <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 8 }}>
-              {[{ c: GOLD, l: "Scheduled" }, { c: GREEN, l: "Worked" }, { c: BLUE, l: "Pickup" }].map(lg => (
+              {[{ c: GOLD, l: tr("Scheduled") }, { c: GREEN, l: tr("Worked") }, { c: BLUE, l: tr("Pickup") }].map(lg => (
                 <div key={lg.l} style={{ display: "flex", alignItems: "center", gap: 3 }}>
                   <div style={{ width: 6, height: 6, borderRadius: "50%", background: lg.c }} />
                   <span style={{ fontSize: 8, color: t.textMut }}>{lg.l}</span>
@@ -1583,94 +1583,94 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
           <div onClick={e => e.stopPropagation()} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "20px 20px 30px", boxShadow: t.popShadow }}>
             <div style={{ width: 40, height: 4, borderRadius: 2, background: t.textMut, margin: "0 auto 16px", opacity: 0.3 }} />
             <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 14, fontFamily: FONT_HEAD }}>
-              {detail.type === "scheduled" ? "Scheduled Shift" : detail.type === "actual" ? "Worked Shift" : "Pickup Shift"}
+              {detail.type === "scheduled" ? tr("Scheduled Shift") : detail.type === "actual" ? tr("Worked Shift") : tr("Pickup Shift")}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
               <div>
-                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Site</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{detail.site_name || "N/A"}</div>
+                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>{tr("Site")}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{detail.site_name || tr("N/A")}</div>
               </div>
               <div>
-                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Status</div>
+                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>{tr("Status")}</div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: detail.type === "actual" ? GREEN : detail.type === "pickup" ? (detail.status === "approved" ? GREEN : ORANGE) : t.goldText }}>
-                  {detail.type === "actual" ? (detail.shift_status === "active" ? "On Site" : "Completed") : detail.type === "pickup" ? (detail.status || "").charAt(0).toUpperCase() + (detail.status || "").slice(1) : (detail.status || "scheduled").charAt(0).toUpperCase() + (detail.status || "scheduled").slice(1)}
+                  {detail.type === "actual" ? (detail.shift_status === "active" ? tr("On Site") : tr("Completed")) : detail.type === "pickup" ? (detail.status || "").charAt(0).toUpperCase() + (detail.status || "").slice(1) : (detail.status || "scheduled").charAt(0).toUpperCase() + (detail.status || "scheduled").slice(1)}
                 </div>
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
               {detail.type === "actual" ? (<>
                 <div>
-                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Shift Start</div>
-                  <div style={{ fontSize: 13, color: t.text }}>{detail.clock_in_time ? fmtClockTm(detail.clock_in_time) : "N/A"}</div>
+                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>{tr("Shift Start")}</div>
+                  <div style={{ fontSize: 13, color: t.text }}>{detail.clock_in_time ? fmtClockTm(detail.clock_in_time) : tr("N/A")}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Shift End</div>
-                  <div style={{ fontSize: 13, color: detail.clock_out_time ? t.text : ORANGE }}>{detail.clock_out_time ? fmtClockTm(detail.clock_out_time) : "Still on site"}</div>
+                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>{tr("Shift End")}</div>
+                  <div style={{ fontSize: 13, color: detail.clock_out_time ? t.text : ORANGE }}>{detail.clock_out_time ? fmtClockTm(detail.clock_out_time) : tr("Still on site")}</div>
                 </div>
               </>) : (<>
                 <div>
-                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Start</div>
+                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>{tr("Start")}</div>
                   <div style={{ fontSize: 13, color: t.text }}>{fmtTm(detail.start_time)}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>End</div>
+                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>{tr("End")}</div>
                   <div style={{ fontSize: 13, color: t.text }}>{fmtTm(detail.end_time)}</div>
                 </div>
               </>)}
             </div>
             {detail.type === "actual" && detail.duration_minutes && (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Duration</div>
-                <div style={{ fontSize: 13, color: t.text }}>{Math.floor(detail.duration_minutes / 60)}h {detail.duration_minutes % 60}m</div>
+                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>{tr("Duration")}</div>
+                <div style={{ fontSize: 13, color: t.text }}>{tr("{h}h {m}m", { h: Math.floor(detail.duration_minutes / 60), m: detail.duration_minutes % 60 })}</div>
               </div>
             )}
             {(detail.building_name || detail.floor_number) && (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-                {detail.building_name && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Building</div><div style={{ fontSize: 13, color: t.text }}>{detail.building_name}</div></div>}
-                {detail.floor_number && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Floor</div><div style={{ fontSize: 13, color: t.text }}>{detail.floor_number}</div></div>}
+                {detail.building_name && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>{tr("Building")}</div><div style={{ fontSize: 13, color: t.text }}>{detail.building_name}</div></div>}
+                {detail.floor_number && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>{tr("Floor")}</div><div style={{ fontSize: 13, color: t.text }}>{detail.floor_number}</div></div>}
               </div>
             )}
             {detail.service_category && (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Service</div>
+                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>{tr("Service")}</div>
                 <div style={{ fontSize: 13, color: t.text }}>{detail.service_category}</div>
               </div>
             )}
             {detail.notes && (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Notes</div>
+                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>{tr("Notes")}</div>
                 <div style={{ fontSize: 12, color: t.textSec, fontStyle: "italic" }}>{detail.notes}</div>
               </div>
             )}
             {detail.type === "pickup" && detail.origin && (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>Reason</div>
+                <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD }}>{tr("Reason")}</div>
                 <div style={{ fontSize: 13, color: t.text }}>{detail.origin.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
               </div>
             )}
             {detail.type === "scheduled" && detail.status !== "cancelled" && !detail.dropForm && (
-              <button onClick={() => setDetail({ ...detail, dropForm: { reason: "sick", notes: "" } })} style={{ width: "100%", padding: "11px", borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>Request to Drop This Shift</button>
+              <button onClick={() => setDetail({ ...detail, dropForm: { reason: "sick", notes: "" } })} style={{ width: "100%", padding: "11px", borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>{tr("Request to Drop This Shift")}</button>
             )}
             {detail.dropForm && (
               <div style={{ padding: 12, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: RED, marginBottom: 8 }}>Drop Request</div>
-                <div style={{ fontSize: 10, color: t.textSec, marginBottom: 10 }}>Your supervisor will review this request. If approved, the shift will be opened for pickup or reassigned.</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: RED, marginBottom: 8 }}>{tr("Drop Request")}</div>
+                <div style={{ fontSize: 10, color: t.textSec, marginBottom: 10 }}>{tr("Your supervisor will review this request. If approved, the shift will be opened for pickup or reassigned.")}</div>
                 <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>Reason</div>
+                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("Reason")}</div>
                   <select value={detail.dropForm.reason} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, reason: e.target.value } })} style={mkInput(t)}>
-                    {(getOpts("drop_reasons").length > 0 ? getOpts("drop_reasons") : [{ v: "sick", l: "Sick" }, { v: "personal", l: "Personal" }, { v: "scheduling_conflict", l: "Scheduling Conflict" }, { v: "emergency", l: "Emergency" }, { v: "other", l: "Other" }]).map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+                    {(getOpts("drop_reasons").length > 0 ? getOpts("drop_reasons") : [{ v: "sick", l: tr("Sick") }, { v: "personal", l: tr("Personal") }, { v: "scheduling_conflict", l: tr("Scheduling Conflict") }, { v: "emergency", l: tr("Emergency") }, { v: "other", l: tr("Other") }]).map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
                   </select>
                 </div>
                 {lkHasOther("drop_reasons", detail.dropForm.reason) && <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>Specify Reason</div>
-                  <input value={detail.dropForm.otherText || ""} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, otherText: e.target.value } })} placeholder="Describe the reason" style={mkInput(t)} />
+                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("Specify Reason")}</div>
+                  <input value={detail.dropForm.otherText || ""} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, otherText: e.target.value } })} placeholder={tr("Describe the reason")} style={mkInput(t)} />
                 </div>}
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>Notes (optional)</div>
-                  <input value={detail.dropForm.notes} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, notes: e.target.value } })} placeholder="Any additional details..." style={mkInput(t)} />
+                  <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("Notes (optional)")}</div>
+                  <input value={detail.dropForm.notes} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, notes: e.target.value } })} placeholder={tr("Any additional details...")} style={mkInput(t)} />
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => setDetail({ ...detail, dropForm: null })} style={{ flex: 1, padding: "11px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+                  <button onClick={() => setDetail({ ...detail, dropForm: null })} style={{ flex: 1, padding: "11px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{tr("Cancel")}</button>
                   <button onClick={async () => {
                     try {
                       // What was typed under Specify Reason is sent, with
@@ -1680,14 +1680,14 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                       const notes = other && extra ? other + "\n" + extra : (other || extra || detail.dropForm.reason);
                       await api("/api/pickups/request-drop", { method: "POST", body: { scheduled_shift_id: detail.id, reason: detail.dropForm.reason, notes }, token });
                       setDetail(null);
-                      showToast("Drop request sent. Your supervisor will review it.");
+                      showToast(tr("Drop request sent. Your supervisor will review it."));
                       loadSchedule();
-                    } catch (e) { showToast(e.message || "Drop request failed", "error"); }
-                  }} style={{ flex: 1, padding: "11px", borderRadius: R.md, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD }}>Submit Request</button>
+                    } catch (e) { showToast(tr(e.message) || tr("Drop request failed"), "error"); }
+                  }} style={{ flex: 1, padding: "11px", borderRadius: R.md, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD }}>{tr("Submit Request")}</button>
                 </div>
               </div>
             )}
-            <button onClick={() => setDetail(null)} style={{ width: "100%", padding: "12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 4 }}>Close</button>
+            <button onClick={() => setDetail(null)} style={{ width: "100%", padding: "12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 4 }}>{tr("Close")}</button>
           </div>
         </div>
       )}
@@ -1751,23 +1751,23 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
       </div>
       {ci && clockStatus.shift && (
         <div style={{ textAlign: "center", padding: "20px 18px", marginBottom: 16, background: t.card, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
-          <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 8, fontWeight: 700, fontFamily: FONT_HEAD }}>Time on Site</div>
+          <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 8, fontWeight: 700, fontFamily: FONT_HEAD }}>{tr("Time on Site")}</div>
           <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: "1px", color: t.text, lineHeight: 1, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pad(h)}:{pad(m)}:{pad(s)}</div>
-          <div style={{ fontSize: 11, color: t.textSec, marginTop: 8 }}>{sameLocalDay(clockStatus.shift.clockInTime, currentTime) ? "Started at " + formatTime(clockStatus.shift.clockInTime) : "Started " + formatDayShort(clockStatus.shift.clockInTime) + " at " + formatTime(clockStatus.shift.clockInTime)}</div>
+          <div style={{ fontSize: 11, color: t.textSec, marginTop: 8 }}>{sameLocalDay(clockStatus.shift.clockInTime, currentTime) ? tr("Started at {time}", { time: formatTime(clockStatus.shift.clockInTime) }) : tr("Started {day} at {time}", { day: formatDayShort(clockStatus.shift.clockInTime), time: formatTime(clockStatus.shift.clockInTime) })}</div>
           <div style={{ fontSize: 12, color: t.text, marginTop: 4, fontWeight: 600 }}>{clockStatus.shift.siteName}</div>
-          {(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.goldText, marginTop: 3 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - Floor " + clockStatus.shift.floorNumber : ""}</div>}
+          {(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.goldText, marginTop: 3 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>}
           {taskListLoaded && (<div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><div style={{ flex: 1, maxWidth: 180, height: 6, borderRadius: R.pill, background: t.cardAlt, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.3s ease" }} /></div><span style={{ fontSize: 11, color: t.goldText, fontWeight: 700, fontFamily: FONT_HEAD }}>{done}/{total}</span></div>)}
-          <button onClick={onEndSession} disabled={loading} style={{ ...mkPrimaryBtn(t, loading), marginTop: 16 }}>{loading ? "Ending..." : "End Shift"}</button>
+          <button onClick={onEndSession} disabled={loading} style={{ ...mkPrimaryBtn(t, loading), marginTop: 16 }}>{loading ? tr("Ending...") : tr("End Shift")}</button>
         </div>
       )}
       {startBlock && <div style={{ padding: "12px 14px", marginBottom: 16, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>{startBlock}</div>}
       <div style={{ marginBottom: 16 }}>
-        <label style={{ ...labelSt, display: "block", marginBottom: 10 }}>{ci && clockStatus.shift ? "Shift Open at " + clockStatus.shift.siteName : "Choose a Site to Start"}</label>
-        {!siteChoices && <div style={emptySt}>Loading sites...</div>}
-        {siteChoices && groups.length === 0 && <div style={emptySt}>No sites available yet.</div>}
+        <label style={{ ...labelSt, display: "block", marginBottom: 10 }}>{ci && clockStatus.shift ? tr("Shift Open at {site}", { site: clockStatus.shift.siteName }) : tr("Choose a Site to Start")}</label>
+        {!siteChoices && <div style={emptySt}>{tr("Loading sites...")}</div>}
+        {siteChoices && groups.length === 0 && <div style={emptySt}>{tr("No sites available yet.")}</div>}
         {siteChoices && groups.map((g, gi) => (<div key={gi}>{g.label && <div style={groupHeadSt}>{g.label}</div>}{g.items.map(renderSite)}</div>))}
         {siteChoices && groups.length > 0 && !ci && (
-          <button onClick={() => onStartSession(pendingSite)} disabled={!pendingSite || loading} style={{ ...mkPrimaryBtn(t, loading || !pendingSite), marginTop: 4, cursor: !pendingSite || loading ? "default" : "pointer" }}>{loading ? "Starting..." : pendingSite ? "Start Shift at " + pendingName : "Start Shift"}</button>
+          <button onClick={() => onStartSession(pendingSite)} disabled={!pendingSite || loading} style={{ ...mkPrimaryBtn(t, loading || !pendingSite), marginTop: 4, cursor: !pendingSite || loading ? "default" : "pointer" }}>{loading ? tr("Starting...") : pendingSite ? tr("Start Shift at {site}", { site: pendingName }) : tr("Start Shift")}</button>
         )}
       </div>
     </div>
@@ -1800,18 +1800,18 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
 
   if (!clockStatus?.clockedIn) return (
     <div style={{ padding: "16px" }}>
-      <div style={{ padding: "12px 14px", marginBottom: 14, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow }}><div style={{ fontSize: 12, color: ORANGE }}>Start your shift to see and check off your tasks.</div></div>
+      <div style={{ padding: "12px 14px", marginBottom: 14, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow }}><div style={{ fontSize: 12, color: ORANGE }}>{tr("Start your shift to see and check off your tasks.")}</div></div>
       {standardTasks.length === 0 ? <EmptyState icon={CheckIco} text="No tasks loaded. Start your shift at a site to see your checklist." t={t} /> : (() => {
         const groups = groupTasksByFloorZone(standardTasks); let lastFloor = undefined;
-        return groups.map((g, gi) => { const showFloor = g.floor && g.floor !== lastFloor; lastFloor = g.floor; return (<div key={gi} style={{ marginBottom: 16 }}>{showFloor && (<div style={{ ...floorHeadSt, marginTop: gi > 0 ? 10 : 0 }}>Floor {g.floor}</div>)}<div style={{ ...zoneSt, paddingLeft: g.floor ? 8 : 0 }}>{g.zone}</div>{g.tasks.map(task => { const hasInfo = task.has_details || task.description || task.media_url; return (<div key={task.id} onClick={() => hasInfo ? setDetail(task) : null} style={{ ...rowBase, background: t.card, border: "1px solid " + t.borderSolid, cursor: hasInfo ? "pointer" : "default", opacity: 0.6, marginLeft: g.floor ? 8 : 0 }}><div style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + t.textMut, background: "transparent", flexShrink: 0, marginTop: 1 }} /><div style={{ flex: 1, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{task.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div>); })}</div>); });
+        return groups.map((g, gi) => { const showFloor = g.floor && g.floor !== lastFloor; lastFloor = g.floor; return (<div key={gi} style={{ marginBottom: 16 }}>{showFloor && (<div style={{ ...floorHeadSt, marginTop: gi > 0 ? 10 : 0 }}>{tr("Floor")} {g.floor}</div>)}<div style={{ ...zoneSt, paddingLeft: g.floor ? 8 : 0 }}>{g.zone}</div>{g.tasks.map(task => { const hasInfo = task.has_details || task.description || task.media_url; return (<div key={task.id} onClick={() => hasInfo ? setDetail(task) : null} style={{ ...rowBase, background: t.card, border: "1px solid " + t.borderSolid, cursor: hasInfo ? "pointer" : "default", opacity: 0.6, marginLeft: g.floor ? 8 : 0 }}><div style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + t.textMut, background: "transparent", flexShrink: 0, marginTop: 1 }} /><div style={{ flex: 1, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{task.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div>); })}</div>); });
       })()}
     </div>
   );
   if (!loaded && tasksFailed) return (
     <div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow, margin: 16 }}>
       <CheckIco sz={40} c={t.borderSolid} />
-      <div style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>Your tasks did not load.</div>
-      <button onClick={onRetryTasks} style={{ minHeight: 44, marginTop: 16, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>Try again</button>
+      <div style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{tr("Your tasks did not load.")}</div>
+      <button onClick={onRetryTasks} style={{ minHeight: 44, marginTop: 16, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button>
     </div>
   );
   if (!loaded) return <EmptyState icon={CheckIco} text="Loading tasks..." t={t} />;
@@ -1824,17 +1824,17 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
     const done = completedTaskIds.has(detail.id);
     return (
       <div style={{ padding: "16px" }}>
-        <button onClick={() => setDetail(null)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", marginBottom: 14, background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.md, color: t.textSec, fontSize: 12, cursor: "pointer", fontWeight: 600 }}><Ico d="M15 18l-6-6 6-6" sz={14} c={t.textSec} /> Back to checklist</button>
+        <button onClick={() => setDetail(null)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", marginBottom: 14, background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.md, color: t.textSec, fontSize: 12, cursor: "pointer", fontWeight: 600 }}><Ico d="M15 18l-6-6 6-6" sz={14} c={t.textSec} /> {tr("Back to checklist")}</button>
         <div style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, overflow: "hidden", boxShadow: t.popShadow }}>
           <div style={{ padding: "16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 700, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{detail.label}</div><div style={{ display: "flex", gap: 4, flexShrink: 0 }}>{detail.priority === "high" && <span style={chipPriority}>PRIORITY</span>}<span style={chipCat}>{detail.cims_category}</span></div></div>
-            <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontWeight: 700, fontFamily: FONT_HEAD }}>{detail.floor_number ? "Floor " + detail.floor_number + " - " : ""}{detail.zone}</div>
-            {detail.description && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>Instructions</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{detail.description}</div></div>)}
-            {detail.media_url && detail.media_type === "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>Reference Video</div><video src={detail.media_url} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} /></div>)}
-            {detail.media_url && detail.media_type !== "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>Reference Photo</div><img src={detail.media_url} alt="Task reference" style={{ width: "100%", borderRadius: R.md, maxHeight: 240, objectFit: "cover" }} /></div>)}
-            {detail.due_date && (<div style={{ display: "flex", gap: 12, marginBottom: 14 }}><div style={{ fontSize: 11, color: t.textMut }}>Due Date: <span style={{ color: t.text, fontWeight: 500 }}>{new Date(detail.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span></div>{detail.due_time && <div style={{ fontSize: 11, color: t.textMut }}>Time: <span style={{ color: t.text, fontWeight: 500 }}>{detail.due_time}</span></div>}</div>)}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 700, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{detail.label}</div><div style={{ display: "flex", gap: 4, flexShrink: 0 }}>{detail.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}<span style={chipCat}>{detail.cims_category}</span></div></div>
+            <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontWeight: 700, fontFamily: FONT_HEAD }}>{detail.floor_number ? tr("Floor {n}", { n: detail.floor_number }) + " - " : ""}{detail.zone}</div>
+            {detail.description && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Instructions")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{detail.description}</div></div>)}
+            {detail.media_url && detail.media_type === "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Video")}</div><video src={detail.media_url} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} /></div>)}
+            {detail.media_url && detail.media_type !== "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Photo")}</div><img src={detail.media_url} alt={tr("Task reference")} style={{ width: "100%", borderRadius: R.md, maxHeight: 240, objectFit: "cover" }} /></div>)}
+            {detail.due_date && (<div style={{ display: "flex", gap: 12, marginBottom: 14 }}><div style={{ fontSize: 11, color: t.textMut }}>{tr("Due Date:")} <span style={{ color: t.text, fontWeight: 500 }}>{new Date(detail.due_date).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}</span></div>{detail.due_time && <div style={{ fontSize: 11, color: t.textMut }}>{tr("Time:")} <span style={{ color: t.text, fontWeight: 500 }}>{detail.due_time}</span></div>}</div>)}
           </div>
-          <button onClick={() => { toggleTask(detail.id); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? "Uncheck Task" : "Mark Complete"}</button>
+          <button onClick={() => { toggleTask(detail.id); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? tr("Uncheck Task") : tr("Mark Complete")}</button>
         </div>
       </div>
     );
@@ -1844,10 +1844,10 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   return (
     <div style={{ padding: "16px" }}>
       <div style={{ padding: "14px 16px", marginBottom: 16, background: t.goldBg, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>Your Assignment</div><div style={{ fontSize: 15, fontWeight: 700, marginTop: 3, color: t.text, fontFamily: FONT_HEAD }}>{clockStatus.shift.siteName}</div>{(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.textSec, marginTop: 2 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - Floor " + clockStatus.shift.floorNumber : ""}</div>}</div><div style={{ background: pct === 100 ? t.greenSubtle : t.card, padding: "6px 14px", borderRadius: R.pill, border: "1px solid " + (pct === 100 ? t.greenBorder : t.borderSolid) }}><div style={{ fontSize: 18, fontWeight: 700, color: pct === 100 ? GREEN : t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</div></div></div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>{tr("Your Assignment")}</div><div style={{ fontSize: 15, fontWeight: 700, marginTop: 3, color: t.text, fontFamily: FONT_HEAD }}>{clockStatus.shift.siteName}</div>{(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.textSec, marginTop: 2 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>}</div><div style={{ background: pct === 100 ? t.greenSubtle : t.card, padding: "6px 14px", borderRadius: R.pill, border: "1px solid " + (pct === 100 ? t.greenBorder : t.borderSolid) }}><div style={{ fontSize: 18, fontWeight: 700, color: pct === 100 ? GREEN : t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</div></div></div>
         <div style={{ height: 5, borderRadius: R.pill, background: t.cardAlt, marginTop: 12, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.4s ease" }} /></div>
       </div>
-      {groups.map((g, gi) => { const showFloor = g.floor && g.floor !== lastFloor; lastFloor = g.floor; return (<div key={gi} style={{ marginBottom: 16 }}>{showFloor && (<div style={{ ...floorHeadSt, marginTop: gi > 0 ? 10 : 0 }}>Floor {g.floor}</div>)}<div style={{ ...zoneSt, paddingLeft: g.floor ? 8 : 0 }}>{g.zone}</div>{g.tasks.map(task => { const done = completedTaskIds.has(task.id); const hasInfo = task.has_details || task.description || task.media_url; return (<div key={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: g.floor ? 8 : 0 }}><button onClick={() => toggleTask(task.id)} style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1, cursor: "pointer", padding: 0 }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</button><div onClick={() => hasInfo ? setDetail(task) : toggleTask(task.id)} style={{ flex: 1, cursor: "pointer" }}><div style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{task.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>{task.priority === "high" && <span style={chipPriority}>PRIORITY</span>}<span style={chipCat}>{task.cims_category}</span></div></div>); })}</div>); })}
+      {groups.map((g, gi) => { const showFloor = g.floor && g.floor !== lastFloor; lastFloor = g.floor; return (<div key={gi} style={{ marginBottom: 16 }}>{showFloor && (<div style={{ ...floorHeadSt, marginTop: gi > 0 ? 10 : 0 }}>{tr("Floor")} {g.floor}</div>)}<div style={{ ...zoneSt, paddingLeft: g.floor ? 8 : 0 }}>{g.zone}</div>{g.tasks.map(task => { const done = completedTaskIds.has(task.id); const hasInfo = task.has_details || task.description || task.media_url; return (<div key={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: g.floor ? 8 : 0 }}><button onClick={() => toggleTask(task.id)} style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1, cursor: "pointer", padding: 0 }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</button><div onClick={() => hasInfo ? setDetail(task) : toggleTask(task.id)} style={{ flex: 1, cursor: "pointer" }}><div style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{task.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>{task.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}<span style={chipCat}>{task.cims_category}</span></div></div>); })}</div>); })}
     </div>
   );
 }
@@ -1863,17 +1863,17 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
     <div style={{ display: "flex", flexDirection: "column", height: "calc(var(--ocsa-vh, 100vh) - 128px)" }}>
       <div style={{ padding: "10px 12px 0", borderBottom: "1px solid " + t.borderSolid, paddingBottom: 10 }}>
         <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} style={{ padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 700 : 500, fontFamily: FONT_HEAD, cursor: "pointer" }}>{ch.name || ch.siteName}</button>))}</div>
-        {dmChannel && (<button onClick={() => setActiveChannel(dmChannel.id)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", borderRadius: R.md, background: isDm ? t.blueSubtle : t.hover, border: isDm ? "1.5px solid " + t.blueBorder : "1px solid " + t.borderSolid, boxShadow: isDm ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><LockIco c={isDm ? BLUE : t.textMut} /><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: isDm ? 700 : 600, color: isDm ? BLUE : t.textSec, fontFamily: FONT_HEAD }}>Admin (Private)</div><div style={{ fontSize: 9, color: t.textMut }}>Only you and management can see these messages</div></div>{dmChannel.unreadCount > 0 && <div style={{ background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{dmChannel.unreadCount}</div>}</button>)}
+        {dmChannel && (<button onClick={() => setActiveChannel(dmChannel.id)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", borderRadius: R.md, background: isDm ? t.blueSubtle : t.hover, border: isDm ? "1.5px solid " + t.blueBorder : "1px solid " + t.borderSolid, boxShadow: isDm ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><LockIco c={isDm ? BLUE : t.textMut} /><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: isDm ? 700 : 600, color: isDm ? BLUE : t.textSec, fontFamily: FONT_HEAD }}>{tr("Admin (Private)")}</div><div style={{ fontSize: 9, color: t.textMut }}>{tr("Only you and management can see these messages")}</div></div>{dmChannel.unreadCount > 0 && <div style={{ background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{dmChannel.unreadCount}</div>}</button>)}
       </div>
-      {isDm && (<div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: t.blueSubtle, borderBottom: "1px solid " + t.blueBorder, fontSize: 10, color: BLUE }}><LockIco /> Private conversation with admin.</div>)}
+      {isDm && (<div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: t.blueSubtle, borderBottom: "1px solid " + t.blueBorder, fontSize: 10, color: BLUE }}><LockIco /> {tr("Private conversation with admin.")}</div>)}
       <div style={{ flex: 1, overflowY: "auto", padding: "12px 12px 0" }}>
-        {!activeChannel && <div style={{ textAlign: "center", padding: "40px 20px" }}><ChatIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>Select a channel to start chatting.</div></div>}
-        {activeChannel && messages.length === 0 && <div style={{ textAlign: "center", padding: "40px 20px", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>No messages yet.</div>}
+        {!activeChannel && <div style={{ textAlign: "center", padding: "40px 20px" }}><ChatIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>{tr("Select a channel to start chatting.")}</div></div>}
+        {activeChannel && messages.length === 0 && <div style={{ textAlign: "center", padding: "40px 20px", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("No messages yet.")}</div>}
         {messages.map((msg, idx) => { const isMe = msg.senderId === user?.id; const isAdm = msg.senderRole === "admin" || msg.senderRole === "supervisor"; const showName = idx === 0 || messages[idx - 1].senderId !== msg.senderId; return (<div key={msg.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 8, marginBottom: showName ? 12 : 4, alignItems: "flex-end" }}>{!isMe && showName && (<div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdm ? (isDm ? "rgba(36,164,244,0.15)" : t.goldBg) : t.cardAlt, border: "1px solid " + (isAdm ? (isDm ? BLUE : GOLD) : t.borderSolid), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, flexShrink: 0, fontFamily: FONT_HEAD }}>{msg.senderName?.split(" ").map(n => n[0]).join("")}</div>)}{!isMe && !showName && <div style={{ width: 28, flexShrink: 0 }} />}<div style={{ maxWidth: "75%" }}>{!isMe && showName && <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 3, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, fontFamily: FONT_HEAD }}>{msg.senderName}</div>}<div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: isMe ? (isDm ? BLUE : GOLD) : (isDm && isAdm ? t.blueSubtle : t.card), border: isMe ? "none" : "1px solid " + (isDm && isAdm ? t.blueBorder : t.borderSolid), color: isMe ? (isDm ? "#F8F7F4" : NAVY) : t.text, fontSize: 13, lineHeight: 1.45 }}>{msg.text}</div><div style={{ fontSize: 9, color: t.textMut, marginTop: 2, textAlign: isMe ? "right" : "left", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{formatTime(msg.sentAt)}</div></div></div>); })}
         <div ref={endRef} />
       </div>
       <div style={{ padding: "10px 12px", borderTop: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), display: "flex", gap: 8, alignItems: "center", background: t.bg }}>
-        <input value={text} onChange={e => setText(e.target.value)} placeholder={isDm ? "Private message to admin..." : "Type a message..."} style={{ flex: 1, padding: "10px 14px", borderRadius: R.pill, border: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.card, color: t.text, fontSize: 13, outline: "none", fontFamily: FONT_BODY }} onKeyDown={e => e.key === "Enter" && handleSend()} />
+        <input value={text} onChange={e => setText(e.target.value)} placeholder={isDm ? tr("Private message to admin...") : tr("Type a message...")} style={{ flex: 1, padding: "10px 14px", borderRadius: R.pill, border: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.card, color: t.text, fontSize: 13, outline: "none", fontFamily: FONT_BODY }} onKeyDown={e => e.key === "Enter" && handleSend()} />
         <button onClick={handleSend} style={{ width: 38, height: 38, borderRadius: "50%", background: text.trim() ? (isDm ? BLUE : GOLD) : t.cardAlt, border: "none", cursor: text.trim() ? "pointer" : "default", boxShadow: text.trim() && !isDm ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={text.trim() ? (isDm ? "#F8F7F4" : NAVY) : t.textMut} /></button>
       </div>
     </div>
@@ -1888,7 +1888,7 @@ const agentList = (d, keys) => { if (Array.isArray(d)) return d; for (const k of
 const agentKeyWords = (k) => String(k).replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/^\w/, c => c.toUpperCase());
 const agentDraftId = (d) => agentField(d, ["id", "formResponseId", "form_response_id"], null);
 const agentName = (d) => agentField(d, ["formName", "formTitle", "form_name", "title", "formCode", "form_code"], "Report");
-const agentCount = (d) => { const a = agentField(d, ["answered", "answeredCount", "answered_count"], null), r = agentField(d, ["remaining", "remainingCount", "remaining_count"], null); return (a !== null && r !== null) ? a + " of " + (Number(a) + Number(r)) + " answered" : null; };
+const agentCount = (d) => { const a = agentField(d, ["answered", "answeredCount", "answered_count"], null), r = agentField(d, ["remaining", "remainingCount", "remaining_count"], null); return (a !== null && r !== null) ? tr("{answered} of {total} answered", { answered: a, total: Number(a) + Number(r) }) : null; };
 
 // A reply may carry numbered steps and a bold word. These two turn one into
 // a list of lines, each holding inline parts, and nothing else. The admin
@@ -1986,7 +1986,7 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
         const path = await uploadAgentPhoto(item.blob, token);
         setPhotos(prev => prev.map(p => p.id === item.id ? { ...p, path, status: "done", error: null } : p));
       } catch (err) {
-        setPhotos(prev => prev.map(p => p.id === item.id ? { ...p, status: "failed", error: err.message } : p));
+        setPhotos(prev => prev.map(p => p.id === item.id ? { ...p, status: "failed", error: tr(err.message) } : p));
       }
     }
     uploadRunning.current = false;
@@ -2013,7 +2013,7 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
       catch (err) {
         photosRef.current = photosRef.current.filter(p => p.id !== id);
         setPhotos(photosRef.current);
-        setPhotoProblem(AGENT_PHOTO_UNREADABLE);
+        setPhotoProblem(tr(AGENT_PHOTO_UNREADABLE));
         continue;
       }
       const url = newObjectUrl(blob);
@@ -2043,7 +2043,7 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
       const blob = await fetch(p.url).then(r => r.blob());
       queueUpload(id, blob);
     } catch (err) {
-      setPhotos(prev => prev.map(x => x.id === id ? { ...x, status: "failed", error: err.message } : x));
+      setPhotos(prev => prev.map(x => x.id === id ? { ...x, status: "failed", error: tr(err.message) } : x));
     }
   };
 
@@ -2079,7 +2079,7 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
       setThread(prev => [...prev.map(m => m.id === msgId ? { ...m, pending: false } : m), { id: "a" + (++seqRef.current), role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], degraded: data.degraded === true, noProcedure: data.noProcedure === true }]);
       if (data.formResponse) { setFormResponse(data.formResponse); setMissing([]); setSubmitted(false); }
     } catch (err) {
-      setThread(prev => prev.map(m => m.id === msgId ? { ...m, pending: false, failed: true, error: err.message } : m));
+      setThread(prev => prev.map(m => m.id === msgId ? { ...m, pending: false, failed: true, error: tr(err.message) } : m));
     }
     setSending(false);
   };
@@ -2107,7 +2107,7 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
         const list = agentList(h, ["messages", "turns", "history"]);
         setThread(list.map((m, i) => ({ id: "h" + i, role: String(agentField(m, ["role", "sender"], "assistant")).toLowerCase() === "user" ? "user" : "assistant", text: String(agentField(m, ["text", "content", "reply"], "")), citedDocs: agentList(agentField(m, ["citedDocs", "cited_doc_codes", "citedDocCodes"], []), []), degraded: agentField(m, ["degraded"], false) === true, noProcedure: agentField(m, ["noProcedure", "no_procedure"], false) === true })));
         setConversationId(cid);
-      } catch (err) { showToast(err.message, "error"); }
+      } catch (err) { showToast(tr(err.message), "error"); }
     }
     taRef.current?.focus();
   };
@@ -2116,7 +2116,7 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
     if (!formResponse || submitBusy) return;
     setSubmitBusy(true); setMissing([]);
     try { await api("/api/agent/drafts/" + formResponse.id + "/submit", { method: "POST", token }); setFormResponse(null); setSubmitted(true); loadDrafts(); }
-    catch (err) { const b = err.body || {}; const keys = agentList(agentField(b, ["missing", "missingKeys", "missingFields", "missing_keys", "missing_fields"], []), []); setMissing(keys.length > 0 ? keys.map(agentKeyWords) : [err.message]); }
+    catch (err) { const b = err.body || {}; const keys = agentList(agentField(b, ["missing", "missingKeys", "missingFields", "missing_keys", "missing_fields"], []), []); setMissing(keys.length > 0 ? keys.map(agentKeyWords) : [tr(err.message)]); }
     setSubmitBusy(false);
   };
 
@@ -2136,11 +2136,11 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", height: "calc(var(--ocsa-vh, 100vh) - 136px)", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 136px)", minHeight: 0, overflow: "hidden" }}>
       {openDrafts.length > 0 && (<div style={{ padding: "10px 12px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0, maxHeight: 180, overflowY: "auto" }}>
-        <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>Unfinished reports</div>
-        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div><button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>Fill in form</button><button onClick={() => resume(d)} style={smallBtn}>Resume</button></div>))}
+        <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Unfinished reports")}</div>
+        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div><button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Fill in form")}</button><button onClick={() => resume(d)} style={smallBtn}>{tr("Resume")}</button></div>))}
       </div>)}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 12px 0" }}>
-        {thread.length === 0 && (<div style={{ textAlign: "center", padding: "40px 20px" }}><HelpIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>Tell me what happened and I will tell you what to do.</div></div>)}
+        {thread.length === 0 && (<div style={{ textAlign: "center", padding: "40px 20px" }}><HelpIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>{tr("Tell me what happened and I will tell you what to do.")}</div></div>)}
         {thread.map(m => { const isMe = m.role === "user"; return (<div key={m.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", marginBottom: 12 }}><div style={{ maxWidth: "85%" }}>
           <div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: isMe ? GOLD : (m.noProcedure ? t.goldSubtle : t.card), border: isMe ? "none" : "1px solid " + (m.noProcedure ? t.goldBorder : t.borderSolid), color: isMe ? NAVY : t.text, fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", opacity: m.pending ? 0.6 : 1 }}>
             {isMe && m.photoUrls && m.photoUrls.length > 0 && (
@@ -2150,17 +2150,17 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
             )}
             {isMe ? m.text : <AgentReply text={m.text} />}
           </div>
-          {!isMe && m.citedDocs.length > 0 && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>Based on {m.citedDocs.join(", ")}</div>}
-          {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>Working from the written procedure only right now.</div>}
-          {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>Not sent.{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text, m.photoPaths)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", minHeight: 32, fontSize: 11, opacity: sending ? 0.6 : 1 }}>Retry</button></div>}
+          {!isMe && m.citedDocs.length > 0 && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>{tr("Based on")} {m.citedDocs.join(", ")}</div>}
+          {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>{tr("Working from the written procedure only right now.")}</div>}
+          {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("Not sent.")}{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text, m.photoPaths)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", minHeight: 32, fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Retry")}</button></div>}
         </div></div>); })}
         <div ref={endRef} />
       </div>
-      {submitted && <div style={{ padding: "8px 12px", fontSize: 12, color: GREEN, fontWeight: 600, textAlign: "center", fontFamily: FONT_HEAD }}>Report submitted.</div>}
+      {submitted && <div style={{ padding: "8px 12px", fontSize: 12, color: GREEN, fontWeight: 600, textAlign: "center", fontFamily: FONT_HEAD }}>{tr("Report submitted.")}</div>}
       {formResponse && (<div style={{ margin: "0 12px 8px", padding: "10px 12px", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.md, boxShadow: t.shadow }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>Report in progress</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2 }}>{agentName(formResponse)}</div>{agentCount(formResponse) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(formResponse)}</div>}</div>
-        <button onClick={submit} disabled={!canSubmit} style={{ padding: "10px 14px", minHeight: 40, flexShrink: 0, borderRadius: R.sm, border: "none", background: canSubmit ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : t.cardAlt, color: canSubmit ? NAVY : t.textMut, fontSize: 12, fontWeight: 700, cursor: canSubmit ? "pointer" : "default", fontFamily: FONT_HEAD, boxShadow: canSubmit ? "0 6px 18px rgba(231,176,23,0.30)" : "none" }}>{submitBusy ? "Submitting..." : "Submit report"}</button></div>
-        {missing.length > 0 && <div style={{ marginTop: 8, fontSize: 11, color: t.textSec, lineHeight: 1.5 }}><div style={{ fontWeight: 600 }}>Still needed before you can submit:</div>{missing.map((k, i) => <div key={i}>{k}</div>)}</div>}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>{tr("Report in progress")}</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2 }}>{agentName(formResponse)}</div>{agentCount(formResponse) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(formResponse)}</div>}</div>
+        <button onClick={submit} disabled={!canSubmit} style={{ padding: "10px 14px", minHeight: 40, flexShrink: 0, borderRadius: R.sm, border: "none", background: canSubmit ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : t.cardAlt, color: canSubmit ? NAVY : t.textMut, fontSize: 12, fontWeight: 700, cursor: canSubmit ? "pointer" : "default", fontFamily: FONT_HEAD, boxShadow: canSubmit ? "0 6px 18px rgba(231,176,23,0.30)" : "none" }}>{submitBusy ? tr("Submitting...") : tr("Submit report")}</button></div>
+        {missing.length > 0 && <div style={{ marginTop: 8, fontSize: 11, color: t.textSec, lineHeight: 1.5 }}><div style={{ fontWeight: 600 }}>{tr("Still needed before you can submit:")}</div>{missing.map((k, i) => <div key={i}>{k}</div>)}</div>}
       </div>)}
       {photos.length > 0 && (
         <div style={{ padding: "8px 12px 0", display: "flex", flexWrap: "wrap", gap: 10, flexShrink: 0 }}>
@@ -2170,15 +2170,15 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
                 {p.url
                   ? <img src={p.url} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, opacity: p.status === "done" ? 1 : 0.6 }} />
                   : <div style={{ width: 72, height: 72, borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt }} />}
-                <button onClick={() => removePhoto(p.id)} aria-label="Remove photo" style={{ position: "absolute", top: -10, right: -10, width: 44, height: 44, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
-                  <span style={{ width: 22, height: 22, borderRadius: "50%", background: NAVY, color: "#F8F7F4", fontSize: 13, fontWeight: 700, lineHeight: "20px", textAlign: "center", border: "1px solid " + t.borderSolid }}>x</span>
+                <button onClick={() => removePhoto(p.id)} aria-label={tr("Remove photo")} style={{ position: "absolute", top: -10, right: -10, width: 44, height: 44, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                  <span style={{ width: 22, height: 22, borderRadius: "50%", background: NAVY, color: "#F8F7F4", fontSize: 13, fontWeight: 700, lineHeight: "20px", textAlign: "center", border: "1px solid " + t.borderSolid }}>{tr("x")}</span>
                 </button>
               </div>
-              {p.status !== "done" && p.status !== "failed" && <div style={{ fontSize: 10, color: t.textMut, marginTop: 4 }}>Uploading...</div>}
+              {p.status !== "done" && p.status !== "failed" && <div style={{ fontSize: 10, color: t.textMut, marginTop: 4 }}>{tr("Uploading...")}</div>}
               {p.status === "failed" && (
                 <div style={{ marginTop: 4 }}>
-                  <div style={{ fontSize: 10, color: RED, lineHeight: 1.35 }}>{p.error}</div>
-                  <button onClick={() => retryPhoto(p.id)} style={{ ...smallBtn, padding: "6px 10px", minHeight: 32, fontSize: 11, marginTop: 4 }}>Try again</button>
+                  <div style={{ fontSize: 10, color: RED, lineHeight: 1.35 }}>{tr(p.error)}</div>
+                  <button onClick={() => retryPhoto(p.id)} style={{ ...smallBtn, padding: "6px 10px", minHeight: 32, fontSize: 11, marginTop: 4 }}>{tr("Try again")}</button>
                 </div>
               )}
             </div>
@@ -2187,11 +2187,11 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
       )}
       <div style={{ padding: "10px 12px", borderTop: "1px solid " + t.borderSolid, display: "flex", gap: 8, alignItems: "flex-end", background: t.bg }}>
         <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { addPhotoFiles(e.target.files); e.target.value = ""; }} />
-        <button onClick={() => fileRef.current && fileRef.current.click()} disabled={photoLimitReached || sending} aria-label="Add a photo" title={photoLimitReached ? AGENT_PHOTO_LIMIT_TITLE : "Add a photo"} style={{ width: 44, height: 44, flexShrink: 0, borderRadius: "50%", background: t.cardAlt, border: "1px solid " + t.borderSolid, cursor: photoLimitReached || sending ? "default" : "pointer", opacity: photoLimitReached || sending ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}><CamIco sz={18} c={t.textSec} /></button>
-        <textarea ref={taRef} value={text} onChange={e => setText(e.target.value)} onPaste={e => { const items = e.clipboardData && e.clipboardData.items ? Array.from(e.clipboardData.items) : []; const files = items.filter(i => i.kind === "file" && i.type.indexOf("image/") === 0).map(i => i.getAsFile()).filter(Boolean); if (files.length > 0) { e.preventDefault(); addPhotoFiles(files); } }} disabled={sending} rows={1} placeholder="Describe what happened" aria-label="Describe what happened" style={{ ...inputSt, flex: 1, width: "auto", minWidth: 0, minHeight: 44, maxHeight: 120, overflowY: "auto", resize: "none", borderRadius: R.lg, lineHeight: 1.45, opacity: sending ? 0.6 : 1 }} />
-        <button onClick={handleSend} disabled={!canSend} aria-label="Send" style={{ width: 44, height: 44, flexShrink: 0, borderRadius: "50%", background: canSend ? GOLD : t.cardAlt, border: "none", cursor: canSend ? "pointer" : "default", boxShadow: canSend ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={canSend ? NAVY : t.textMut} /></button>
+        <button onClick={() => fileRef.current && fileRef.current.click()} disabled={photoLimitReached || sending} aria-label={tr("Add a photo")} title={photoLimitReached ? tr(AGENT_PHOTO_LIMIT_TITLE) : tr("Add a photo")} style={{ width: 44, height: 44, flexShrink: 0, borderRadius: "50%", background: t.cardAlt, border: "1px solid " + t.borderSolid, cursor: photoLimitReached || sending ? "default" : "pointer", opacity: photoLimitReached || sending ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}><CamIco sz={18} c={t.textSec} /></button>
+        <textarea ref={taRef} value={text} onChange={e => setText(e.target.value)} onPaste={e => { const items = e.clipboardData && e.clipboardData.items ? Array.from(e.clipboardData.items) : []; const files = items.filter(i => i.kind === "file" && i.type.indexOf("image/") === 0).map(i => i.getAsFile()).filter(Boolean); if (files.length > 0) { e.preventDefault(); addPhotoFiles(files); } }} disabled={sending} rows={1} placeholder={tr("Describe what happened")} aria-label={tr("Describe what happened")} style={{ ...inputSt, flex: 1, width: "auto", minWidth: 0, minHeight: 44, maxHeight: 120, overflowY: "auto", resize: "none", borderRadius: R.lg, lineHeight: 1.45, opacity: sending ? 0.6 : 1 }} />
+        <button onClick={handleSend} disabled={!canSend} aria-label={tr("Send")} style={{ width: 44, height: 44, flexShrink: 0, borderRadius: "50%", background: canSend ? GOLD : t.cardAlt, border: "none", cursor: canSend ? "pointer" : "default", boxShadow: canSend ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={canSend ? NAVY : t.textMut} /></button>
       </div>
-      {photoProblem && <div style={{ padding: "0 12px 10px", fontSize: 11, color: RED, lineHeight: 1.4, flexShrink: 0 }}>{photoProblem}</div>}
+      {photoProblem && <div style={{ padding: "0 12px 10px", fontSize: 11, color: RED, lineHeight: 1.4, flexShrink: 0 }}>{tr(photoProblem)}</div>}
     </div>
   );
 }
@@ -2203,40 +2203,40 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lk
   const lkPriColors = lkColorMap("task_priorities"); const lkSevColors = lkColorMap("issue_severities");
   const priC = Object.keys(lkPriColors).length > 0 ? lkPriColors : { critical: RED, high: ORANGE, standard: GOLD }; const sevC = Object.keys(lkSevColors).length > 0 ? lkSevColors : { low: GREEN, medium: ORANGE, high: RED };
   const inputSt = mkInput(t);
-  const handlePhoto = (e) => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { showToast("Photo must be under 10MB", "error"); return; } setPhoto(file); const reader = new FileReader(); reader.onload = (ev) => setPhotoPreview(ev.target.result); reader.readAsDataURL(file); };
+  const handlePhoto = (e) => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { showToast(tr("Photo must be under 10MB"), "error"); return; } setPhoto(file); const reader = new FileReader(); reader.onload = (ev) => setPhotoPreview(ev.target.result); reader.readAsDataURL(file); };
   const clearForm = () => { setActivePanel(null); setNote(""); setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; };
-  const handleResolve = async (taskId) => { if (!note.trim()) { showToast("Describe what you did to complete this task", "error"); return; } if (!photo) { showToast("A photo of the completed task is required", "error"); return; } setUploading(true); try { const photoUrl = await uploadPhoto(photo, token); await resolveTask(taskId, "resolved", note.trim(), photoUrl); clearForm(); setDetail(null); } catch (err) { showToast(err.message, "error"); } setUploading(false); };
-  const handleCantResolve = async (taskId) => { if (!note.trim()) { showToast("Please provide a reason", "error"); return; } await resolveTask(taskId, "unable_to_resolve", note.trim(), null); clearForm(); setDetail(null); };
+  const handleResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Describe what you did to complete this task"), "error"); return; } if (!photo) { showToast(tr("A photo of the completed task is required"), "error"); return; } setUploading(true); try { const photoUrl = await uploadPhoto(photo, token); await resolveTask(taskId, "resolved", note.trim(), photoUrl); clearForm(); setDetail(null); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
+  const handleCantResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Please provide a reason"), "error"); return; } await resolveTask(taskId, "unable_to_resolve", note.trim(), null); clearForm(); setDetail(null); };
   const getTaskInfo = (task) => { const isIssueLinked = !!task.source_issue_id; const title = isIssueLinked ? (task.issue_title || task.label) : task.label; const desc = isIssueLinked ? task.issue_description : task.description; const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD); const photoUrl = isIssueLinked ? task.issue_photo_url : (task.media_url || null); const mediaType = isIssueLinked ? "image" : (task.media_type || "image"); const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name; const assignedByLabel = isIssueLinked ? "Reported by" : "Assigned by"; const locationParts = [task.site_name]; if (task.building_name) locationParts.push(task.building_name); if (task.floor_number) locationParts.push("Floor " + task.floor_number); locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || "General"); const locationStr = locationParts.filter(Boolean).join(" > "); return { isIssueLinked, title, desc, borderColor, photoUrl, mediaType, assignedBy, assignedByLabel, locationStr }; };
 
-  if (assignedTasks.length === 0) return (<div style={{ padding: "16px" }}><div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><AlertIco sz={40} c={t.borderSolid} /><div style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>No assigned tasks right now.</div><div style={{ fontSize: 12, color: t.textMut, marginTop: 4 }}>When a supervisor assigns a task to you, it will appear here.</div></div></div>);
+  if (assignedTasks.length === 0) return (<div style={{ padding: "16px" }}><div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><AlertIco sz={40} c={t.borderSolid} /><div style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{tr("No assigned tasks right now.")}</div><div style={{ fontSize: 12, color: t.textMut, marginTop: 4 }}>{tr("When a supervisor assigns a task to you, it will appear here.")}</div></div></div>);
 
   if (detail) {
     const info = getTaskInfo(detail); const isResolving = activePanel === "resolve"; const isCantResolve = activePanel === "cantresolve";
     return (
       <div style={{ padding: "16px" }}>
         <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />
-        <button onClick={() => { setDetail(null); clearForm(); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", marginBottom: 14, background: "none", border: "1px solid " + t.borderSolid, borderRadius: R.sm, color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}><Ico d="M15 18l-6-6 6-6" sz={14} c={t.textSec} /> Back to assigned tasks</button>
+        <button onClick={() => { setDetail(null); clearForm(); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", marginBottom: 14, background: "none", border: "1px solid " + t.borderSolid, borderRadius: R.sm, color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}><Ico d="M15 18l-6-6 6-6" sz={14} c={t.textSec} /> {tr("Back to assigned tasks")}</button>
         <div style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", boxShadow: t.popShadow }}>
           <div style={{ padding: "16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 700, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div><div style={{ display: "flex", gap: 4, flexShrink: 0 }}>{info.isIssueLinked && detail.severity && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (sevC[detail.severity] || ORANGE) + "18", color: sevC[detail.severity] || ORANGE, fontFamily: FONT_HEAD }}>{detail.severity}</span>}{!info.isIssueLinked && detail.priority && detail.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[detail.priority] || GOLD) + "18", color: priC[detail.priority] || t.goldText, fontFamily: FONT_HEAD }}>{detail.priority}</span>}{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>ISSUE</span>}</div></div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 700, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div><div style={{ display: "flex", gap: 4, flexShrink: 0 }}>{info.isIssueLinked && detail.severity && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (sevC[detail.severity] || ORANGE) + "18", color: sevC[detail.severity] || ORANGE, fontFamily: FONT_HEAD }}>{detail.severity}</span>}{!info.isIssueLinked && detail.priority && detail.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[detail.priority] || GOLD) + "18", color: priC[detail.priority] || t.goldText, fontFamily: FONT_HEAD }}>{detail.priority}</span>}{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>{tr("ISSUE")}</span>}</div></div>
             <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontFamily: FONT_HEAD, fontWeight: 700 }}>{info.locationStr}</div>
             {detail.resolution_status && (<div style={{ marginBottom: 12 }}><span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "3px 8px", borderRadius: R.sm, background: detail.resolution_status === "in_progress" ? ORANGE + "18" : GOLD + "18", color: detail.resolution_status === "in_progress" ? ORANGE : t.goldText, fontFamily: FONT_HEAD }}>{detail.resolution_status.replace(/_/g, " ")}</span></div>)}
-            {info.desc && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>Description</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{info.desc}</div></div>)}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD, marginBottom: 3 }}>{info.assignedByLabel}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{info.assignedBy}</div></div><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD, marginBottom: 3 }}>Site</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{detail.site_name}</div></div>{detail.due_date && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD, marginBottom: 3 }}>Due Date</div><div style={{ fontSize: 13, color: ORANGE, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}{detail.due_time ? " at " + detail.due_time : ""}</div></div>}{detail.task_created_at && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD, marginBottom: 3 }}>Assigned</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.task_created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div></div>}</div>
-            {info.photoUrl && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>{info.mediaType === "video" ? "Attached Video" : "Attached Photo"}</div>{info.mediaType === "video" ? (<video src={info.photoUrl} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} />) : (<img src={info.photoUrl} alt="Task" style={{ width: "100%", borderRadius: R.md, maxHeight: 200, objectFit: "cover", border: "1px solid " + t.borderSolid }} />)}</div>)}
-            {!isResolving && !isCantResolve && (<div style={{ display: "flex", gap: 6, marginTop: 10 }}>{detail.resolution_status !== "in_progress" && (<button onClick={() => { resolveTask(detail.task_id, "in_progress", null, null); setDetail(null); }} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + ORANGE, background: "transparent", color: ORANGE, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>In Progress</button>)}<button onClick={() => { clearForm(); setActivePanel("resolve"); }} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + GREEN, background: "transparent", color: GREEN, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>Resolved</button><button onClick={() => { clearForm(); setActivePanel("cantresolve"); }} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>Cannot Resolve</button></div>)}
+            {info.desc && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Description")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{info.desc}</div></div>)}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD, marginBottom: 3 }}>{info.assignedByLabel}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{info.assignedBy}</div></div><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Site")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{detail.site_name}</div></div>{detail.due_date && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Due Date")}</div><div style={{ fontSize: 13, color: ORANGE, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.due_date).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}{detail.due_time ? " " + tr("at {time}", { time: detail.due_time }) : ""}</div></div>}{detail.task_created_at && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Assigned")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.task_created_at).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })}</div></div>}</div>
+            {info.photoUrl && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>{info.mediaType === "video" ? tr("Attached Video") : tr("Attached Photo")}</div>{info.mediaType === "video" ? (<video src={info.photoUrl} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} />) : (<img src={info.photoUrl} alt={tr("Task")} style={{ width: "100%", borderRadius: R.md, maxHeight: 200, objectFit: "cover", border: "1px solid " + t.borderSolid }} />)}</div>)}
+            {!isResolving && !isCantResolve && (<div style={{ display: "flex", gap: 6, marginTop: 10 }}>{detail.resolution_status !== "in_progress" && (<button onClick={() => { resolveTask(detail.task_id, "in_progress", null, null); setDetail(null); }} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + ORANGE, background: "transparent", color: ORANGE, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("In Progress")}</button>)}<button onClick={() => { clearForm(); setActivePanel("resolve"); }} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + GREEN, background: "transparent", color: GREEN, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Resolved")}</button><button onClick={() => { clearForm(); setActivePanel("cantresolve"); }} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cannot Resolve")}</button></div>)}
           </div>
           {isResolving && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.greenSubtle }}>
-            <div style={{ fontSize: 10, color: GREEN, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>Mark as Resolved</div>
-            <div style={{ marginBottom: 8 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>What did you do to complete this? *</div><textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Describe the steps you took..." rows={3} style={{ ...inputSt, resize: "vertical" }} /></div>
-            <div style={{ marginBottom: 10 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>Photo of completed task *</div>{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GREEN, borderRadius: R.md, cursor: "pointer", color: GREEN, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={GREEN} /><div style={{ textAlign: "left" }}><div>Take Photo of Completed Task</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>Required to verify completion</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt="Preview" style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: R.md, border: "1px solid " + t.borderSolid }} /><button onClick={() => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; }} style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "none", color: "#F8F7F4", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>x</button></div>)}</div>
-            <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>Cancel</button><button onClick={() => handleResolve(detail.task_id)} disabled={uploading} style={{ flex: 1, padding: "10px", borderRadius: R.md, border: "none", background: GREEN, color: "#F8F7F4", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD, opacity: uploading ? 0.6 : 1 }}>{uploading ? "Uploading..." : "Submit Resolution"}</button></div>
+            <div style={{ fontSize: 10, color: GREEN, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Mark as Resolved")}</div>
+            <div style={{ marginBottom: 8 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("What did you do to complete this? *")}</div><textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the steps you took...")} rows={3} style={{ ...inputSt, resize: "vertical" }} /></div>
+            <div style={{ marginBottom: 10 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("Photo of completed task *")}</div>{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GREEN, borderRadius: R.md, cursor: "pointer", color: GREEN, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={GREEN} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo of Completed Task")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("Required to verify completion")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: R.md, border: "1px solid " + t.borderSolid }} /><button onClick={() => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; }} style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "none", color: "#F8F7F4", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</button></div>)}</div>
+            <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleResolve(detail.task_id)} disabled={uploading} style={{ flex: 1, padding: "10px", borderRadius: R.md, border: "none", background: GREEN, color: "#F8F7F4", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD, opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Resolution")}</button></div>
           </div>)}
           {isCantResolve && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.redSubtle }}>
-            <div style={{ fontSize: 10, color: RED, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>Explain why this cannot be completed *</div>
-            <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Describe the issue preventing completion..." rows={3} style={{ ...inputSt, resize: "vertical", marginBottom: 8 }} />
-            <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>Cancel</button><button onClick={() => handleCantResolve(detail.task_id)} style={{ flex: 1, padding: "10px", borderRadius: R.md, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>Submit</button></div>
+            <div style={{ fontSize: 10, color: RED, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Explain why this cannot be completed *")}</div>
+            <textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the issue preventing completion...")} rows={3} style={{ ...inputSt, resize: "vertical", marginBottom: 8 }} />
+            <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleCantResolve(detail.task_id)} style={{ flex: 1, padding: "10px", borderRadius: R.md, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Submit")}</button></div>
           </div>)}
         </div>
       </div>
@@ -2246,8 +2246,8 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lk
   return (
     <div style={{ padding: "16px" }}>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />
-      <div style={{ marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>Assigned Tasks</div><div style={{ fontSize: 11, color: t.textSec }}>{assignedTasks.length} task{assignedTasks.length !== 1 ? "s" : ""} assigned to you</div></div>
-      {assignedTasks.map(task => { const info = getTaskInfo(task); return (<div key={task.task_id} onClick={() => setDetail(task)} style={{ marginBottom: 10, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", cursor: "pointer", boxShadow: t.shadow }}><div style={{ padding: "12px 14px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div>{info.desc && <div style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{info.desc}</div>}</div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8, alignItems: "center" }}>{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>ISSUE</span>}{!info.isIssueLinked && task.priority && task.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[task.priority] || GOLD) + "18", color: priC[task.priority] || t.goldText, fontFamily: FONT_HEAD }}>{task.priority}</span>}<Ico d="M9 18l6-6-6-6" sz={14} c={t.textMut} /></div></div><div style={{ display: "flex", gap: 8, marginTop: 8, fontSize: 10, color: t.textMut, flexWrap: "wrap", alignItems: "center" }}><span>{info.locationStr}</span><span>{info.assignedByLabel} {info.assignedBy}</span>{task.resolution_status === "in_progress" && <span style={{ fontSize: 9, fontWeight: 600, color: ORANGE, textTransform: "uppercase" }}>In Progress</span>}</div>{task.due_date && (<div style={{ marginTop: 6, fontSize: 10, color: ORANGE, fontVariantNumeric: "tabular-nums" }}>Due: {new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}{task.due_time ? " at " + task.due_time : ""}</div>)}</div></div>); })}
+      <div style={{ marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("Assigned Tasks")}</div><div style={{ fontSize: 11, color: t.textSec }}>{assignedTasks.length === 1 ? tr("{n} task assigned to you", { n: assignedTasks.length }) : tr("{n} tasks assigned to you", { n: assignedTasks.length })}</div></div>
+      {assignedTasks.map(task => { const info = getTaskInfo(task); return (<div key={task.task_id} onClick={() => setDetail(task)} style={{ marginBottom: 10, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", cursor: "pointer", boxShadow: t.shadow }}><div style={{ padding: "12px 14px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div>{info.desc && <div style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{info.desc}</div>}</div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8, alignItems: "center" }}>{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>{tr("ISSUE")}</span>}{!info.isIssueLinked && task.priority && task.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[task.priority] || GOLD) + "18", color: priC[task.priority] || t.goldText, fontFamily: FONT_HEAD }}>{task.priority}</span>}<Ico d="M9 18l6-6-6-6" sz={14} c={t.textMut} /></div></div><div style={{ display: "flex", gap: 8, marginTop: 8, fontSize: 10, color: t.textMut, flexWrap: "wrap", alignItems: "center" }}><span>{info.locationStr}</span><span>{info.assignedByLabel} {info.assignedBy}</span>{task.resolution_status === "in_progress" && <span style={{ fontSize: 9, fontWeight: 600, color: ORANGE, textTransform: "uppercase" }}>{tr("In Progress")}</span>}</div>{task.due_date && (<div style={{ marginTop: 6, fontSize: 10, color: ORANGE, fontVariantNumeric: "tabular-nums" }}>{tr("Due:")} {new Date(task.due_date).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })}{task.due_time ? " " + tr("at {time}", { time: task.due_time }) : ""}</div>)}</div></div>); })}
     </div>
   );
 }
@@ -2264,22 +2264,22 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites, 
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
   const visibleIssues = isAdmin ? issues : issues.filter(i => i.reported_by === user?.id);
   const sevC = Object.keys(sevColors).length > 0 ? sevColors : { low: GREEN, medium: ORANGE, high: RED };
-  const handlePhoto = (e) => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { showToast("Photo must be under 10MB", "error"); return; } setPhoto(file); const reader = new FileReader(); reader.onload = (ev) => setPhotoPreview(ev.target.result); reader.readAsDataURL(file); };
+  const handlePhoto = (e) => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { showToast(tr("Photo must be under 10MB"), "error"); return; } setPhoto(file); const reader = new FileReader(); reader.onload = (ev) => setPhotoPreview(ev.target.result); reader.readAsDataURL(file); };
   const removePhoto = () => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; };
-  const handleSubmit = async () => { if (!title.trim()) { showToast("Enter issue title", "error"); return; } const siteId = clockStatus?.clockedIn ? clockStatus.shift.siteId : selSite; if (!siteId) { showToast("Select a site", "error"); return; } setUploading(true); try { let photoUrl = null; if (photo) { photoUrl = await uploadPhoto(photo, token); } await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl, siteId); setTitle(""); setDesc(""); setZone(""); setSev("medium"); setPhoto(null); setPhotoPreview(null); setShowForm(false); } catch (err) { showToast(err.message, "error"); } setUploading(false); };
+  const handleSubmit = async () => { if (!title.trim()) { showToast(tr("Enter issue title"), "error"); return; } const siteId = clockStatus?.clockedIn ? clockStatus.shift.siteId : selSite; if (!siteId) { showToast(tr("Select a site"), "error"); return; } setUploading(true); try { let photoUrl = null; if (photo) { photoUrl = await uploadPhoto(photo, token); } await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl, siteId); setTitle(""); setDesc(""); setZone(""); setSev("medium"); setPhoto(null); setPhotoPreview(null); setShowForm(false); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
   return (
     <div style={{ padding: "16px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{isAdmin ? "Issues" : "Report an Issue"}</div>{isAdmin && <button onClick={() => setShowForm(!showForm)} style={{ padding: "7px 13px", borderRadius: R.sm, border: showForm ? "1px solid " + t.borderSolid : "none", background: showForm ? t.cardAlt : GOLD, color: showForm ? t.text : NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{showForm ? "Cancel" : "+ Report"}</button>}</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{isAdmin ? tr("Issues") : tr("Report an Issue")}</div>{isAdmin && <button onClick={() => setShowForm(!showForm)} style={{ padding: "7px 13px", borderRadius: R.sm, border: showForm ? "1px solid " + t.borderSolid : "none", background: showForm ? t.cardAlt : GOLD, color: showForm ? t.text : NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{showForm ? tr("Cancel") : tr("+ Report")}</button>}</div>
       {(showForm || !isAdmin) && (<div style={{ padding: 14, marginBottom: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, animation: "fadeIn 0.3s ease", boxShadow: t.popShadow }}>
-        {!clockStatus?.clockedIn && sites && sites.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>Site</label><select value={selSite} onChange={e => setSelSite(e.target.value)} style={inputSt}><option value="">Select site...</option>{sites.map(s => <option key={s.siteId} value={s.siteId}>{s.siteName}</option>)}</select></div>)}
-        <div style={{ marginBottom: 10 }}><label style={labelSt}>Title</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder="Brief description" style={inputSt} /></div>
-        <div style={{ marginBottom: 10 }}><label style={labelSt}>Details</label><textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Additional details..." rows={3} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
-        <div style={{ marginBottom: 10 }}><label style={labelSt}>Zone</label><input value={zone} onChange={e => setZone(e.target.value)} placeholder="e.g. Restroom, Lobby" style={inputSt} /></div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>Severity</label><div style={{ display: "flex", gap: 6 }}>{sevs.map(s => (<button key={s.v} onClick={() => setSev(s.v)} style={{ flex: 1, padding: "9px", borderRadius: R.sm, border: sev === s.v ? "2px solid " + s.c : "1px solid " + t.borderSolid, background: sev === s.v ? s.c + "1A" : "transparent", cursor: "pointer", color: s.c, fontSize: 12, fontWeight: 700, textAlign: "center", fontFamily: FONT_HEAD, letterSpacing: "0.3px" }}>{s.l}</button>))}</div></div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>Photo</label><input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GOLD, borderRadius: R.sm, cursor: "pointer", color: t.goldText, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={t.goldText} /><div style={{ textAlign: "left" }}><div>Take Photo or Choose from Gallery</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>JPG, PNG up to 10MB</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt="Preview" style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} /><button onClick={removePhoto} style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "none", color: "#F8F7F4", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>x</button><div style={{ fontSize: 10, color: GREEN, marginTop: 4 }}>Photo attached: {photo?.name}</div></div>)}</div>
-        <button onClick={handleSubmit} disabled={uploading} style={{ width: "100%", padding: "13px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", opacity: uploading ? 0.6 : 1 }}>{uploading ? "Uploading..." : "Submit Issue"}</button>
+        {!clockStatus?.clockedIn && sites && sites.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Site")}</label><select value={selSite} onChange={e => setSelSite(e.target.value)} style={inputSt}><option value="">{tr("Select site...")}</option>{sites.map(s => <option key={s.siteId} value={s.siteId}>{s.siteName}</option>)}</select></div>)}
+        <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Title")}</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder={tr("Brief description")} style={inputSt} /></div>
+        <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Details")}</label><textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder={tr("Additional details...")} rows={3} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
+        <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Zone")}</label><input value={zone} onChange={e => setZone(e.target.value)} placeholder={tr("e.g. Restroom, Lobby")} style={inputSt} /></div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Severity")}</label><div style={{ display: "flex", gap: 6 }}>{sevs.map(s => (<button key={s.v} onClick={() => setSev(s.v)} style={{ flex: 1, padding: "9px", borderRadius: R.sm, border: sev === s.v ? "2px solid " + s.c : "1px solid " + t.borderSolid, background: sev === s.v ? s.c + "1A" : "transparent", cursor: "pointer", color: s.c, fontSize: 12, fontWeight: 700, textAlign: "center", fontFamily: FONT_HEAD, letterSpacing: "0.3px" }}>{s.l}</button>))}</div></div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Photo")}</label><input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GOLD, borderRadius: R.sm, cursor: "pointer", color: t.goldText, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={t.goldText} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo or Choose from Gallery")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("JPG, PNG up to 10MB")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} /><button onClick={removePhoto} style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "none", color: "#F8F7F4", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</button><div style={{ fontSize: 10, color: GREEN, marginTop: 4 }}>{tr("Photo attached:")} {photo?.name}</div></div>)}</div>
+        <button onClick={handleSubmit} disabled={uploading} style={{ width: "100%", padding: "13px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Issue")}</button>
       </div>)}
-      {isAdmin && visibleIssues.length === 0 && !showForm && <div style={{ padding: "32px 20px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontSize: 13, color: t.textMut, boxShadow: t.shadow }}>No issues reported yet.</div>}
+      {isAdmin && visibleIssues.length === 0 && !showForm && <div style={{ padding: "32px 20px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontSize: 13, color: t.textMut, boxShadow: t.shadow }}>{tr("No issues reported yet.")}</div>}
       {isAdmin && visibleIssues.map(issue => { const sc = sevC[issue.severity] || ORANGE; return (<div key={issue.id} style={{ padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + sc, boxShadow: t.shadow }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><div style={{ fontSize: 13, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{issue.title}</div><span style={{ fontSize: 9, color: sc, background: sc + "20", padding: "3px 7px", borderRadius: R.sm, fontWeight: 700, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{issue.severity}</span></div><div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 9, color: t.textMut }}><span>{issue.zone}</span><span>{issue.site_name}</span><span style={{ color: issue.status === "open" ? ORANGE : GREEN, fontWeight: 700, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{issue.status}</span></div></div>); })}
     </div>
   );
@@ -2288,33 +2288,33 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites, 
 function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submitRequest, showToast, t, getOpts, lkColorMap }) {
   const [scanning, setScanning] = useState(null); const [qty, setQty] = useState(1); const [reqForm, setReqForm] = useState(null);
   const labelSt = mkLabel(t); const inputSt = mkInput(t); const qtyBtn = mkQtyBtn(t);
-  const handleSubmitReq = () => { if (!reqForm.type) { showToast("Select a request type", "error"); return; } if ((reqForm.type === "new_gear" || reqForm.type === "new_supply") && !reqForm.itemName) { showToast("Enter the item name", "error"); return; } submitRequest(reqForm.type, reqForm.itemName, reqForm.description, reqForm.urgency, reqForm.supplyId); setReqForm(null); };
+  const handleSubmitReq = () => { if (!reqForm.type) { showToast(tr("Select a request type"), "error"); return; } if ((reqForm.type === "new_gear" || reqForm.type === "new_supply") && !reqForm.itemName) { showToast(tr("Enter the item name"), "error"); return; } submitRequest(reqForm.type, reqForm.itemName, reqForm.description, reqForm.urgency, reqForm.supplyId); setReqForm(null); };
 
   const reqFormUI = reqForm && (
     <div style={{ padding: 14, marginBottom: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, boxShadow: t.popShadow }}>
-      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: t.text, fontFamily: FONT_HEAD }}>Supply/Gear Request</div>
-      <div style={{ marginBottom: 10 }}><label style={labelSt}>Request Type</label><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{(getOpts("request_types").length > 0 ? getOpts("request_types") : [{ v: "refill", l: "Refill" }, { v: "damage_report", l: "Damage Report" }, { v: "new_gear", l: "New Gear" }, { v: "new_supply", l: "New Supply" }]).map(tp => (<button key={tp.v} onClick={() => setReqForm({ ...reqForm, type: tp.v })} style={{ padding: "7px 11px", borderRadius: R.sm, border: reqForm.type === tp.v ? "2px solid " + GOLD : "1px solid " + t.borderSolid, background: reqForm.type === tp.v ? t.goldBg : "transparent", color: reqForm.type === tp.v ? t.goldText : t.textSec, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{tp.l}</button>))}</div></div>
-      {(reqForm.type === "refill" || reqForm.type === "damage_report") && supplies.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>Supply Item</label><select value={reqForm.supplyId || ""} onChange={e => setReqForm({ ...reqForm, supplyId: e.target.value || null, itemName: supplies.find(s => s.id === e.target.value)?.name || "" })} style={inputSt}><option value="">Select supply...</option>{supplies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>)}
-      {(reqForm.type === "new_gear" || reqForm.type === "new_supply") && (<div style={{ marginBottom: 10 }}><label style={labelSt}>Item Name</label><input value={reqForm.itemName} onChange={e => setReqForm({ ...reqForm, itemName: e.target.value })} placeholder="What do you need?" style={inputSt} /></div>)}
-      <div style={{ marginBottom: 10 }}><label style={labelSt}>Details</label><textarea value={reqForm.description} onChange={e => setReqForm({ ...reqForm, description: e.target.value })} placeholder="Describe the request..." rows={2} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
-      <div style={{ marginBottom: 12 }}><label style={labelSt}>Urgency</label><div style={{ display: "flex", gap: 6 }}>{(() => { const urgOpts = getOpts("urgency_levels"); const urgColors = lkColorMap("urgency_levels"); const items = urgOpts.length > 0 ? urgOpts.map(o => ({ v: o.v, l: o.l, c: urgColors[o.v] || t.textSec })) : [{ v: "low", l: "Low", c: GREEN }, { v: "normal", l: "Normal", c: t.textSec }, { v: "high", l: "High", c: ORANGE }, { v: "urgent", l: "Urgent", c: RED }]; return items.map(u => (<button key={u.v} onClick={() => setReqForm({ ...reqForm, urgency: u.v })} style={{ flex: 1, padding: "7px", borderRadius: R.sm, border: reqForm.urgency === u.v ? "2px solid " + u.c : "1px solid " + t.borderSolid, background: reqForm.urgency === u.v ? u.c + "1A" : "transparent", color: u.c, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{u.l}</button>)); })()}</div></div>
-      <div style={{ display: "flex", gap: 8 }}><button onClick={() => setReqForm(null)} style={{ flex: 1, padding: "11px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>Cancel</button><button onClick={handleSubmitReq} style={{ flex: 1, padding: "11px", borderRadius: R.sm, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>Submit Request</button></div>
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supply/Gear Request")}</div>
+      <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Request Type")}</label><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{(getOpts("request_types").length > 0 ? getOpts("request_types") : [{ v: "refill", l: tr("Refill") }, { v: "damage_report", l: tr("Damage Report") }, { v: "new_gear", l: tr("New Gear") }, { v: "new_supply", l: tr("New Supply") }]).map(tp => (<button key={tp.v} onClick={() => setReqForm({ ...reqForm, type: tp.v })} style={{ padding: "7px 11px", borderRadius: R.sm, border: reqForm.type === tp.v ? "2px solid " + GOLD : "1px solid " + t.borderSolid, background: reqForm.type === tp.v ? t.goldBg : "transparent", color: reqForm.type === tp.v ? t.goldText : t.textSec, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{tp.l}</button>))}</div></div>
+      {(reqForm.type === "refill" || reqForm.type === "damage_report") && supplies.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Supply Item")}</label><select value={reqForm.supplyId || ""} onChange={e => setReqForm({ ...reqForm, supplyId: e.target.value || null, itemName: supplies.find(s => s.id === e.target.value)?.name || "" })} style={inputSt}><option value="">{tr("Select supply...")}</option>{supplies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>)}
+      {(reqForm.type === "new_gear" || reqForm.type === "new_supply") && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Item Name")}</label><input value={reqForm.itemName} onChange={e => setReqForm({ ...reqForm, itemName: e.target.value })} placeholder={tr("What do you need?")} style={inputSt} /></div>)}
+      <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Details")}</label><textarea value={reqForm.description} onChange={e => setReqForm({ ...reqForm, description: e.target.value })} placeholder={tr("Describe the request...")} rows={2} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
+      <div style={{ marginBottom: 12 }}><label style={labelSt}>{tr("Urgency")}</label><div style={{ display: "flex", gap: 6 }}>{(() => { const urgOpts = getOpts("urgency_levels"); const urgColors = lkColorMap("urgency_levels"); const items = urgOpts.length > 0 ? urgOpts.map(o => ({ v: o.v, l: o.l, c: urgColors[o.v] || t.textSec })) : [{ v: "low", l: tr("Low"), c: GREEN }, { v: "normal", l: tr("Normal"), c: t.textSec }, { v: "high", l: tr("High"), c: ORANGE }, { v: "urgent", l: tr("Urgent"), c: RED }]; return items.map(u => (<button key={u.v} onClick={() => setReqForm({ ...reqForm, urgency: u.v })} style={{ flex: 1, padding: "7px", borderRadius: R.sm, border: reqForm.urgency === u.v ? "2px solid " + u.c : "1px solid " + t.borderSolid, background: reqForm.urgency === u.v ? u.c + "1A" : "transparent", color: u.c, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{u.l}</button>)); })()}</div></div>
+      <div style={{ display: "flex", gap: 8 }}><button onClick={() => setReqForm(null)} style={{ flex: 1, padding: "11px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={handleSubmitReq} style={{ flex: 1, padding: "11px", borderRadius: R.sm, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Submit Request")}</button></div>
     </div>
   );
 
   if (!clockStatus?.clockedIn) return (
     <div style={{ padding: "16px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>Supplies</div><div style={{ fontSize: 11, color: t.textSec }}>Start your shift to log usage. Requests can be submitted anytime.</div></div><button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={{ padding: "7px 13px", borderRadius: R.sm, border: "none", background: GOLD, color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>+ Request</button></div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supplies")}</div><div style={{ fontSize: 11, color: t.textSec }}>{tr("Start your shift to log usage. Requests can be submitted anytime.")}</div></div><button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={{ padding: "7px 13px", borderRadius: R.sm, border: "none", background: GOLD, color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("+ Request")}</button></div>
       {reqFormUI}
     </div>
   );
 
   return (
     <div style={{ padding: "16px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>Supply Tracking</div><div style={{ fontSize: 11, color: t.textSec }}>Log usage or submit a request</div></div><button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={{ padding: "7px 13px", borderRadius: R.sm, border: "none", background: GOLD, color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>+ Request</button></div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supply Tracking")}</div><div style={{ fontSize: 11, color: t.textSec }}>{tr("Log usage or submit a request")}</div></div><button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={{ padding: "7px 13px", borderRadius: R.sm, border: "none", background: GOLD, color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("+ Request")}</button></div>
       {reqFormUI}
-      {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: t.textMut, fontFamily: "monospace" }}>QR</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div><div style={{ display: "flex", gap: 6, marginTop: 2, fontSize: 9 }}><span style={{ color: t.textMut }}>{sup.qr_code}</span>{isLow && <span style={{ color: ORANGE, fontWeight: 600 }}>LOW</span>}</div></div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} style={qtyBtn}><MinusIco sz={14} /></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 700, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} style={qtyBtn}><PlusIco sz={14} /></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>Log Usage</button></div>)}</div>); })}
-      {supplyLogs.length > 0 && (<div style={{ marginTop: 18 }}><label style={{ ...labelSt, display: "block", marginBottom: 8 }}>This Shift's Log</label>{supplyLogs.map((log, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", marginBottom: 3, background: t.hover, borderRadius: R.sm, fontSize: 11 }}><span style={{ fontWeight: 600, color: t.text }}>{log.supply_name || "Item"} <span style={{ color: t.textMut, fontWeight: 400 }}>{log.quantity} {log.unit}</span></span><span style={{ color: t.textMut, fontSize: 9 }}>{formatTime(log.loggedAt || log.scanned_at)}</span></div>))}</div>)}
+      {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: t.textMut, fontFamily: "monospace" }}>{tr("QR")}</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div><div style={{ display: "flex", gap: 6, marginTop: 2, fontSize: 9 }}><span style={{ color: t.textMut }}>{sup.qr_code}</span>{isLow && <span style={{ color: ORANGE, fontWeight: 600 }}>{tr("LOW")}</span>}</div></div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} style={qtyBtn}><MinusIco sz={14} /></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 700, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} style={qtyBtn}><PlusIco sz={14} /></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Log Usage")}</button></div>)}</div>); })}
+      {supplyLogs.length > 0 && (<div style={{ marginTop: 18 }}><label style={{ ...labelSt, display: "block", marginBottom: 8 }}>{tr("This Shift's Log")}</label>{supplyLogs.map((log, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", marginBottom: 3, background: t.hover, borderRadius: R.sm, fontSize: 11 }}><span style={{ fontWeight: 600, color: t.text }}>{log.supply_name || tr("Item")} <span style={{ color: t.textMut, fontWeight: 400 }}>{log.quantity} {log.unit}</span></span><span style={{ color: t.textMut, fontSize: 9 }}>{formatTime(log.loggedAt || log.scanned_at)}</span></div>))}</div>)}
     </div>
   );
 }
@@ -2329,7 +2329,9 @@ function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submi
 // The subjects list is the API's, never a name typed here.
 // ============================================================
 const CASE_MAX = 4000;
-const CASE_MAX_TEXT = CASE_MAX.toLocaleString("en-US");
+// Built when the counter is drawn rather than once at import,
+// because the language is not known at import time.
+const caseMaxText = () => CASE_MAX.toLocaleString(dateLocale());
 function SpeakUpView({ token, t }) {
   const [text, setText] = useState("");
   // "" is nobody in particular and sends no subject_user_id.
@@ -2375,7 +2377,7 @@ function SpeakUpView({ token, t }) {
     } catch (err) {
       // 503 carries the API's own sentence, which names nobody. Every
       // other failure gets plain words. Never the raw body, never a code.
-      const own = err && err.status === 503 && typeof err.message === "string" && err.message.trim() ? err.message.trim() : null;
+      const own = err && err.status === 503 && typeof err.message === "string" && err.message.trim() ? tr(err.message.trim()) : null;
       setProblem("Your report was not sent. " + (own || "Please try again."));
     } finally { inFlight.current = false; setSending(false); }
   };
@@ -2384,35 +2386,35 @@ function SpeakUpView({ token, t }) {
     <div style={{ padding: "16px" }}>
       <div style={{ padding: "28px 20px", textAlign: "center", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.lg, boxShadow: t.popShadow }}>
         <CheckIco sz={40} c={GREEN} />
-        <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginTop: 14, fontFamily: FONT_HEAD }}>We got your report.</div>
-        <div style={{ fontSize: 13, color: t.textSec, marginTop: 8, lineHeight: 1.6 }}>Someone will be in touch with you within 72 hours.</div>
-        {sent.id && (<div style={{ marginTop: 20 }}><div style={labelSt}>Your reference</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, wordBreak: "break-all" }}>{sent.id}</div><div style={helpSt}>Quote this if you follow up.</div></div>)}
+        <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginTop: 14, fontFamily: FONT_HEAD }}>{tr("We got your report.")}</div>
+        <div style={{ fontSize: 13, color: t.textSec, marginTop: 8, lineHeight: 1.6 }}>{tr("Someone will be in touch with you within 72 hours.")}</div>
+        {sent.id && (<div style={{ marginTop: 20 }}><div style={labelSt}>{tr("Your reference")}</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, wordBreak: "break-all" }}>{sent.id}</div><div style={helpSt}>{tr("Quote this if you follow up.")}</div></div>)}
       </div>
     </div>
   );
   return (
     <div style={{ padding: "16px" }}>
       <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>Report a problem with someone</div>
-        <div style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.5 }}>Nothing you write here is kept. If you leave this screen before you send, it is gone.</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("Report a problem with someone")}</div>
+        <div style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.5 }}>{tr("Nothing you write here is kept. If you leave this screen before you send, it is gone.")}</div>
       </div>
       <div style={{ padding: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, boxShadow: t.popShadow }}>
         <div style={{ marginBottom: 14 }}>
-          <label style={labelSt}>What happened</label>
-          <textarea value={text} onChange={e => setText(e.target.value.slice(0, CASE_MAX))} maxLength={CASE_MAX} disabled={sending} placeholder="Write what happened in your own words. One sentence is enough." rows={6} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }} />
-          <div style={{ ...helpSt, color: nearLimit ? ORANGE : t.textMut }}>{nearLimit ? text.length.toLocaleString("en-US") + " of " + CASE_MAX_TEXT + " characters used." : "You can write up to " + CASE_MAX_TEXT + " characters."}</div>
+          <label style={labelSt}>{tr("What happened")}</label>
+          <textarea value={text} onChange={e => setText(e.target.value.slice(0, CASE_MAX))} maxLength={CASE_MAX} disabled={sending} placeholder={tr("Write what happened in your own words. One sentence is enough.")} rows={6} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }} />
+          <div style={{ ...helpSt, color: nearLimit ? ORANGE : t.textMut }}>{nearLimit ? tr("{used} of {max} characters used.", { used: text.length.toLocaleString(dateLocale()), max: caseMaxText() }) : tr("You can write up to {max} characters.", { max: caseMaxText() })}</div>
         </div>
         {listFailed && (
           <div style={{ marginBottom: 14 }}>
-            <label style={labelSt}>Who is it about</label>
-            <div style={{ padding: "10px 12px", background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, borderRadius: R.sm, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>The list of names did not load. If your report is about a manager, try again before you send, so it does not go to them.</div>
-            <button onClick={() => setAttempt(a => a + 1)} disabled={sending} style={{ ...mkGhostBtn(t), marginTop: 8 }}>Try again</button>
+            <label style={labelSt}>{tr("Who is it about")}</label>
+            <div style={{ padding: "10px 12px", background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, borderRadius: R.sm, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>{tr("The list of names did not load. If your report is about a manager, try again before you send, so it does not go to them.")}</div>
+            <button onClick={() => setAttempt(a => a + 1)} disabled={sending} style={{ ...mkGhostBtn(t), marginTop: 8 }}>{tr("Try again")}</button>
           </div>
         )}
         {choices.length > 0 && (
           <div style={{ marginBottom: 14 }}>
-            <label style={labelSt}>Who is it about</label>
-            <div style={{ ...helpSt, marginTop: 0, marginBottom: 8 }}>If it is about one of the people named here, pick their name so your report does not go to them.</div>
+            <label style={labelSt}>{tr("Who is it about")}</label>
+            <div style={{ ...helpSt, marginTop: 0, marginBottom: 8 }}>{tr("If it is about one of the people named here, pick their name so your report does not go to them.")}</div>
             {choices.map(p => { const picked = subjectId === p.id; return (
               <button key={p.id || "nobody"} onClick={() => setSubjectId(p.id)} disabled={sending} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", marginBottom: 8, background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: R.md, cursor: "pointer", color: t.text, textAlign: "left" }}>
                 <div style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: picked ? GOLD : "transparent", border: picked ? "none" : "2px solid " + t.borderSolid }} />
@@ -2422,7 +2424,7 @@ function SpeakUpView({ token, t }) {
           </div>
         )}
         {problem && <div style={{ padding: "10px 12px", marginBottom: 12, background: t.redSubtle, border: "1px solid " + t.redBorder, borderRadius: R.sm, fontSize: 12, color: RED, lineHeight: 1.5 }}>{problem}</div>}
-        <button onClick={send} disabled={!canSend} style={{ ...mkPrimaryBtn(t, !canSend), cursor: canSend ? "pointer" : "default" }}>{sending ? "Sending..." : "Send"}</button>
+        <button onClick={send} disabled={!canSend} style={{ ...mkPrimaryBtn(t, !canSend), cursor: canSend ? "pointer" : "default" }}>{sending ? tr("Sending...") : tr("Send")}</button>
       </div>
     </div>
   );
@@ -2489,7 +2491,7 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
       })}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minWidth: 0, padding: "0 2px" }}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={t.textMut} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" /></svg>
-        <span style={{ fontSize: 8, color: t.textMut, letterSpacing: "0.3px" }}>More</span>
+        <span style={{ fontSize: 8, color: t.textMut, letterSpacing: "0.3px" }}>{tr("More")}</span>
       </div>
     </div>
   );
@@ -2498,23 +2500,23 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
     <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, height: "var(--ocsa-vh, 100vh)", maxHeight: "var(--ocsa-dvh, 100dvh)", display: "flex", flexDirection: "column", borderTop: "1px solid " + t.borderSolid }}>
         <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>Shortcuts</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>{tr("Shortcuts")}</div>
           {PreviewBar}
         </div>
 
         <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 16px" }}>
-          <div style={sectionSt}>On your bar</div>
+          <div style={sectionSt}>{tr("On your bar")}</div>
           <div style={fixedSt}>
             <HomeIco sz={18} c={t.textMut} />
-            <span style={nameSt}>Home</span>
-            <span style={{ fontSize: 10, color: t.textMut, flexShrink: 0 }}>Always first</span>
+            <span style={nameSt}>{tr("Home")}</span>
+            <span style={{ fontSize: 10, color: t.textMut, flexShrink: 0 }}>{tr("Always first")}</span>
           </div>
           {draft.map((id, i) => {
             if (!id) {
               return (
                 <div key={"empty" + i} style={{ ...rowSt, border: "1px dashed " + ORANGE }}>
                   <div style={{ width: 18, height: 18, borderRadius: 4, border: "1px dashed " + ORANGE, flexShrink: 0 }} />
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: ORANGE }}>{SHORTCUTS_EMPTY_SLOT}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: ORANGE }}>{tr(SHORTCUTS_EMPTY_SLOT)}</span>
                 </div>
               );
             }
@@ -2527,21 +2529,21 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
                   <span style={nameSt}>{name}</span>
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                  <button onClick={() => move(i, -1)} disabled={i === 0} aria-label={"Move up " + name} style={{ ...rowBtn, flex: 1, opacity: i === 0 ? 0.4 : 1 }}>Move up</button>
-                  <button onClick={() => move(i, 1)} disabled={i === SHORTCUT_SLOTS - 1} aria-label={"Move down " + name} style={{ ...rowBtn, flex: 1, opacity: i === SHORTCUT_SLOTS - 1 ? 0.4 : 1 }}>Move down</button>
-                  <button onClick={() => removeAt(i)} aria-label={"Remove " + name} style={{ ...rowBtn, flex: 1, color: RED, borderColor: RED }}>Remove</button>
+                  <button onClick={() => move(i, -1)} disabled={i === 0} aria-label={tr("Move up {name}", { name })} style={{ ...rowBtn, flex: 1, opacity: i === 0 ? 0.4 : 1 }}>{tr("Move up")}</button>
+                  <button onClick={() => move(i, 1)} disabled={i === SHORTCUT_SLOTS - 1} aria-label={tr("Move down {name}", { name })} style={{ ...rowBtn, flex: 1, opacity: i === SHORTCUT_SLOTS - 1 ? 0.4 : 1 }}>{tr("Move down")}</button>
+                  <button onClick={() => removeAt(i)} aria-label={tr("Remove {name}", { name })} style={{ ...rowBtn, flex: 1, color: RED, borderColor: RED }}>{tr("Remove")}</button>
                 </div>
               </div>
             );
           })}
           <div style={fixedSt}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={t.textMut} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" /></svg>
-            <span style={nameSt}>More</span>
-            <span style={{ fontSize: 10, color: t.textMut, flexShrink: 0 }}>Always last</span>
+            <span style={nameSt}>{tr("More")}</span>
+            <span style={{ fontSize: 10, color: t.textMut, flexShrink: 0 }}>{tr("Always last")}</span>
           </div>
 
-          <div style={sectionSt}>Under More</div>
-          {under.length === 0 && <div style={{ fontSize: 12, color: t.textMut, padding: "4px 2px" }}>Everything is on your bar.</div>}
+          <div style={sectionSt}>{tr("Under More")}</div>
+          {under.length === 0 && <div style={{ fontSize: 12, color: t.textMut, padding: "4px 2px" }}>{tr("Everything is on your bar.")}</div>}
           {under.map(d => {
             const Ic = d.icon;
             const name = d.label(ctx);
@@ -2549,28 +2551,28 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
               <div key={d.id} style={rowSt}>
                 <Ic sz={18} c={t.textSec} />
                 <span style={nameSt}>{name}</span>
-                <button onClick={() => addToBar(d.id)} aria-label={"Add to bar " + name} style={{ ...rowBtn, color: t.goldText, borderColor: t.goldBorder, background: t.goldBg }}>Add to bar</button>
+                <button onClick={() => addToBar(d.id)} aria-label={tr("Add to bar {name}", { name })} style={{ ...rowBtn, color: t.goldText, borderColor: t.goldBorder, background: t.goldBg }}>{tr("Add to bar")}</button>
               </div>
             );
           })}
 
-          <button onClick={() => setConfirmReset(true)} style={{ ...wideBtn, marginTop: 18 }}>Reset to default</button>
+          <button onClick={() => setConfirmReset(true)} style={{ ...wideBtn, marginTop: 18 }}>{tr("Reset to default")}</button>
         </div>
 
         <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, display: "flex", gap: 10, flexShrink: 0, background: t.bg }}>
-          <button onClick={onClose} style={{ ...wideBtn, flex: 1 }}>Close</button>
-          <button onClick={() => onSave(draft)} disabled={!complete} style={{ flex: 1, minHeight: 44, borderRadius: R.md, border: "none", background: complete ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : t.cardAlt, color: complete ? NAVY : t.textMut, fontSize: 14, fontWeight: 700, cursor: complete ? "pointer" : "default", fontFamily: FONT_HEAD }}>Done</button>
+          <button onClick={onClose} style={{ ...wideBtn, flex: 1 }}>{tr("Close")}</button>
+          <button onClick={() => onSave(draft)} disabled={!complete} style={{ flex: 1, minHeight: 44, borderRadius: R.md, border: "none", background: complete ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : t.cardAlt, color: complete ? NAVY : t.textMut, fontSize: 14, fontWeight: 700, cursor: complete ? "pointer" : "default", fontFamily: FONT_HEAD }}>{tr("Done")}</button>
         </div>
 
         {replacing && (
           <div onClick={() => setReplacing(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 410, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
             <div onClick={e => e.stopPropagation()} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 560, padding: "18px 16px 26px", boxShadow: t.popShadow }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>Replace which one?</div>
-              <div style={{ fontSize: 12, color: t.textSec, marginBottom: 12 }}>Your bar is full. {nameOf(replacing)} will take the place of the one you pick.</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("Replace which one?")}</div>
+              <div style={{ fontSize: 12, color: t.textSec, marginBottom: 12 }}>{tr("Your bar is full.")} {nameOf(replacing)} {tr("will take the place of the one you pick.")}</div>
               {draft.map((id, i) => (
-                <button key={i} onClick={() => replaceAt(i)} style={{ ...wideBtn, marginBottom: 8, textAlign: "left", padding: "0 14px" }}>{id ? nameOf(id) : SHORTCUTS_EMPTY_SLOT}</button>
+                <button key={i} onClick={() => replaceAt(i)} style={{ ...wideBtn, marginBottom: 8, textAlign: "left", padding: "0 14px" }}>{id ? nameOf(id) : tr(SHORTCUTS_EMPTY_SLOT)}</button>
               ))}
-              <button onClick={() => setReplacing(null)} style={{ ...wideBtn, marginTop: 4 }}>Cancel</button>
+              <button onClick={() => setReplacing(null)} style={{ ...wideBtn, marginTop: 4 }}>{tr("Cancel")}</button>
             </div>
           </div>
         )}
@@ -2578,10 +2580,10 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
         {confirmReset && (
           <div onClick={() => setConfirmReset(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 410, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
             <div onClick={e => e.stopPropagation()} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 560, padding: "18px 16px 26px", boxShadow: t.popShadow }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, marginBottom: 14 }}>Put the bar back the way it came?</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, marginBottom: 14 }}>{tr("Put the bar back the way it came?")}</div>
               <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={() => setConfirmReset(false)} style={{ ...wideBtn, flex: 1 }}>Cancel</button>
-                <button onClick={() => { setDraft(DEFAULT_SHORTCUTS.slice()); setConfirmReset(false); }} style={{ flex: 1, minHeight: 44, borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>Reset</button>
+                <button onClick={() => setConfirmReset(false)} style={{ ...wideBtn, flex: 1 }}>{tr("Cancel")}</button>
+                <button onClick={() => { setDraft(DEFAULT_SHORTCUTS.slice()); setConfirmReset(false); }} style={{ flex: 1, minHeight: 44, borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Reset")}</button>
               </div>
             </div>
           </div>
@@ -2615,7 +2617,7 @@ function notifAgo(iso, nowMs) {
   if (hours < 24) return hours + "h";
   const days = Math.floor(hours / 24);
   if (days <= 7) return days + "d";
-  return new Date(at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return new Date(at).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" });
 }
 
 // True when the link leaves this app, so the row can offer to open it in
@@ -2685,19 +2687,19 @@ function NotificationsSheet({ token, t, unread, onClose, onOpenTab, onUnreadChan
     <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, height: "var(--ocsa-vh, 100vh)", maxHeight: "var(--ocsa-dvh, 100dvh)", display: "flex", flexDirection: "column", borderTop: "1px solid " + t.borderSolid }}>
         <div style={{ padding: "14px 16px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>Notifications</div>
-          <button onClick={markAll} disabled={!canMarkAll} style={{ ...wideBtn, padding: "0 12px", fontSize: 12, opacity: canMarkAll ? 1 : 0.5, cursor: canMarkAll ? "pointer" : "default" }}>{allBusy ? "Marking..." : "Mark all read"}</button>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("Notifications")}</div>
+          <button onClick={markAll} disabled={!canMarkAll} style={{ ...wideBtn, padding: "0 12px", fontSize: 12, opacity: canMarkAll ? 1 : 0.5, cursor: canMarkAll ? "pointer" : "default" }}>{allBusy ? tr("Marking...") : tr("Mark all read")}</button>
         </div>
 
         <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 16px 16px" }}>
-          {rows === null && !failed && <div style={{ padding: "28px 4px", textAlign: "center", fontSize: 13, color: t.textMut }}>Loading...</div>}
+          {rows === null && !failed && <div style={{ padding: "28px 4px", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
           {rows === null && failed && (
             <div style={{ padding: "28px 4px", textAlign: "center" }}>
-              <div style={{ fontSize: 14, color: t.textMut, fontFamily: FONT_HEAD }}>Notifications did not load.</div>
-              <button onClick={() => load(null)} style={{ ...wideBtn, marginTop: 14, borderColor: t.goldBorder, background: t.goldBg, color: t.goldText, fontWeight: 700 }}>Try again</button>
+              <div style={{ fontSize: 14, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("Notifications did not load.")}</div>
+              <button onClick={() => load(null)} style={{ ...wideBtn, marginTop: 14, borderColor: t.goldBorder, background: t.goldBg, color: t.goldText, fontWeight: 700 }}>{tr("Try again")}</button>
             </div>
           )}
-          {rows !== null && rows.length === 0 && <div style={{ padding: "28px 4px", textAlign: "center", fontSize: 14, color: t.textMut, fontFamily: FONT_HEAD }}>Nothing yet.</div>}
+          {rows !== null && rows.length === 0 && <div style={{ padding: "28px 4px", textAlign: "center", fontSize: 14, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("Nothing yet.")}</div>}
 
           {(rows || []).map(row => {
             const isUnread = !row.readAt;
@@ -2715,7 +2717,7 @@ function NotificationsSheet({ token, t, unread, onClose, onOpenTab, onUnreadChan
                 </button>
                 {showDashboard && (
                   <div style={{ padding: "0 12px 12px" }}>
-                    <button onClick={() => { try { window.open(row.link, "_blank", "noopener,noreferrer"); } catch (e) {} }} style={{ ...wideBtn, width: "100%", fontSize: 12, borderColor: t.blueBorder, color: BLUE }}>Open in the dashboard</button>
+                    <button onClick={() => { try { window.open(row.link, "_blank", "noopener,noreferrer"); } catch (e) {} }} style={{ ...wideBtn, width: "100%", fontSize: 12, borderColor: t.blueBorder, color: BLUE }}>{tr("Open in the dashboard")}</button>
                   </div>
                 )}
               </div>
@@ -2724,17 +2726,17 @@ function NotificationsSheet({ token, t, unread, onClose, onOpenTab, onUnreadChan
 
           {rows !== null && rows.length > 0 && failed && (
             <div style={{ padding: "10px 4px", textAlign: "center" }}>
-              <div style={{ fontSize: 12, color: t.textMut }}>Notifications did not load.</div>
-              <button onClick={() => load(rows[rows.length - 1].createdAt)} style={{ ...wideBtn, marginTop: 8 }}>Try again</button>
+              <div style={{ fontSize: 12, color: t.textMut }}>{tr("Notifications did not load.")}</div>
+              <button onClick={() => load(rows[rows.length - 1].createdAt)} style={{ ...wideBtn, marginTop: 8 }}>{tr("Try again")}</button>
             </div>
           )}
           {rows !== null && rows.length > 0 && more && !failed && (
-            <button onClick={() => load(rows[rows.length - 1].createdAt)} disabled={busy} style={{ ...wideBtn, width: "100%", marginTop: 8, opacity: busy ? 0.6 : 1 }}>{busy ? "Loading..." : "Load more"}</button>
+            <button onClick={() => load(rows[rows.length - 1].createdAt)} disabled={busy} style={{ ...wideBtn, width: "100%", marginTop: 8, opacity: busy ? 0.6 : 1 }}>{busy ? tr("Loading...") : tr("Load more")}</button>
           )}
         </div>
 
         <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
-          <button onClick={onClose} style={{ ...wideBtn, width: "100%" }}>Close</button>
+          <button onClick={onClose} style={{ ...wideBtn, width: "100%" }}>{tr("Close")}</button>
         </div>
       </div>
     </div>
@@ -2756,14 +2758,14 @@ function ChangePinCard({ token, user, showToast, t, cardSt }) {
     if (!PIN_RE.test(pinForm.current)) e.current = "Enter your current 4-digit PIN.";
     const why = weakPinReason(pinForm.next, user && user.badgeNumber);
     if (why) e.next = why;
-    else if (pinForm.confirm !== pinForm.next) e.confirm = ERR_PIN_MISMATCH;
+    else if (pinForm.confirm !== pinForm.next) e.confirm = tr(ERR_PIN_MISMATCH);
     else if (pinForm.next === pinForm.current) e.next = "Your new PIN must be different from your current PIN.";
     setPinErrs(e);
     if (Object.keys(e).length) return;
     setPinSaving(true);
     try {
       await api("/api/auth/change-pin", { method: "POST", body: { currentPin: pinForm.current, newPin: pinForm.next }, token });
-      showToast("PIN updated");
+      showToast(tr("PIN updated"));
       setPinForm({ current: "", next: "", confirm: "" });
     } catch (err) {
       const msg = err.message || "Could not update your PIN.";
@@ -2774,13 +2776,13 @@ function ChangePinCard({ token, user, showToast, t, cardSt }) {
 
   return (
     <div style={cardSt}>
-      <div style={{ ...labelSt, marginBottom: 6 }}>Change PIN</div>
-      <div style={{ fontSize: 11, color: t.textMut, marginBottom: 12, lineHeight: 1.4 }}>Your PIN is 4 digits. Choose one that only you know.</div>
-      <div style={{ marginBottom: 10 }}><label style={labelSt}>Current PIN</label><input value={pinForm.current} onChange={e => setPinForm({ ...pinForm, current: e.target.value })} {...PIN_INPUT_PROPS} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{pinErrs.current && <div style={mkFieldErr(t)}>{pinErrs.current}</div>}</div>
-      <div style={{ marginBottom: 10 }}><label style={labelSt}>New PIN</label><input value={pinForm.next} onChange={e => setPinForm({ ...pinForm, next: e.target.value })} {...PIN_INPUT_PROPS} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{pinErrs.next && <div style={mkFieldErr(t)}>{pinErrs.next}</div>}</div>
-      <div style={{ marginBottom: 10 }}><label style={labelSt}>Confirm New PIN</label><input value={pinForm.confirm} onChange={e => setPinForm({ ...pinForm, confirm: e.target.value })} {...PIN_INPUT_PROPS} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && !pinSaving && changePin()} />{pinErrs.confirm && <div style={mkFieldErr(t)}>{pinErrs.confirm}</div>}</div>
+      <div style={{ ...labelSt, marginBottom: 6 }}>{tr("Change PIN")}</div>
+      <div style={{ fontSize: 11, color: t.textMut, marginBottom: 12, lineHeight: 1.4 }}>{tr("Your PIN is 4 digits. Choose one that only you know.")}</div>
+      <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Current PIN")}</label><input value={pinForm.current} onChange={e => setPinForm({ ...pinForm, current: e.target.value })} {...PIN_INPUT_PROPS} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{pinErrs.current && <div style={mkFieldErr(t)}>{pinErrs.current}</div>}</div>
+      <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("New PIN")}</label><input value={pinForm.next} onChange={e => setPinForm({ ...pinForm, next: e.target.value })} {...PIN_INPUT_PROPS} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{pinErrs.next && <div style={mkFieldErr(t)}>{pinErrs.next}</div>}</div>
+      <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Confirm New PIN")}</label><input value={pinForm.confirm} onChange={e => setPinForm({ ...pinForm, confirm: e.target.value })} {...PIN_INPUT_PROPS} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && !pinSaving && changePin()} />{pinErrs.confirm && <div style={mkFieldErr(t)}>{pinErrs.confirm}</div>}</div>
       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
-        <button onClick={changePin} disabled={pinSaving} style={{ minHeight: 44, padding: "0 18px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: pinSaving ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{pinSaving ? "Saving..." : "Update PIN"}</button>
+        <button onClick={changePin} disabled={pinSaving} style={{ minHeight: 44, padding: "0 18px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: pinSaving ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{pinSaving ? tr("Saving...") : tr("Update PIN")}</button>
       </div>
     </div>
   );
@@ -2802,13 +2804,13 @@ function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize
 
   return (
     <div style={{ padding: "16px" }}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 14, fontFamily: FONT_HEAD }}>Settings</div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 14, fontFamily: FONT_HEAD }}>{tr("Settings")}</div>
 
       <div style={cardSt}>
-        <div style={{ ...labelSt, marginBottom: 6 }}>Appearance</div>
-        <div style={lineSt}>Choose how the app looks.</div>
+        <div style={{ ...labelSt, marginBottom: 6 }}>{tr("Appearance")}</div>
+        <div style={lineSt}>{tr("Choose how the app looks.")}</div>
         <div style={{ display: "flex", gap: 10 }}>
-          {[["light", "Light"], ["dark", "Dark"]].map(([id, label]) => {
+          {[["light", tr("Light")], ["dark", tr("Dark")]].map(([id, label]) => {
             const picked = themeMode === id;
             return <button key={id} onClick={() => setTheme(id)} aria-label={label} style={pickBtn(picked)}><span style={dot(picked)} />{label}</button>;
           })}
@@ -2816,20 +2818,20 @@ function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize
       </div>
 
       <div style={cardSt}>
-        <div style={{ ...labelSt, marginBottom: 6 }}>Text size</div>
-        <div style={lineSt}>Makes everything in the app bigger.</div>
+        <div style={{ ...labelSt, marginBottom: 6 }}>{tr("Text size")}</div>
+        <div style={lineSt}>{tr("Makes everything in the app bigger.")}</div>
         <TextSizeChoices value={textSize} onChange={setTextSize} t={t} />
       </div>
 
       <div style={cardSt}>
-        <div style={{ ...labelSt, marginBottom: 6 }}>Shortcuts</div>
-        <div style={lineSt}>{SHORTCUTS_CARD_LINE}</div>
-        <button onClick={onEditShortcuts} style={{ width: "100%", minHeight: 44, borderRadius: R.md, border: "1px solid " + GOLD, background: "transparent", color: t.goldText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>Edit shortcuts</button>
+        <div style={{ ...labelSt, marginBottom: 6 }}>{tr("Shortcuts")}</div>
+        <div style={lineSt}>{tr(SHORTCUTS_CARD_LINE)}</div>
+        <button onClick={onEditShortcuts} style={{ width: "100%", minHeight: 44, borderRadius: R.md, border: "1px solid " + GOLD, background: "transparent", color: t.goldText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Edit shortcuts")}</button>
       </div>
 
       <div style={cardSt}>
-        <div style={{ ...labelSt, marginBottom: 6 }}>Language</div>
-        <div style={lineSt}>Help answers you in this language. The rest of the app is in English for now.</div>
+        <div style={{ ...labelSt, marginBottom: 6 }}>{tr("Language")}</div>
+        <div style={lineSt}>{tr("Help answers you in this language. The rest of the app is in English for now.")}</div>
         <div style={{ display: "flex", gap: 10 }}>
           {LANGUAGES.map(l => {
             const picked = language === l.id;
@@ -2977,7 +2979,7 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
       try {
         const r = await api("/api/forms/drafts/" + encodeURIComponent(openDraft) + "?locale=" + locale, { token });
         openOn(formDraftOf(r));
-      } catch (err) { if (alive.current) showToast(err.message, "error"); }
+      } catch (err) { if (alive.current) showToast(tr(err.message), "error"); }
       onOpenedDraft();
     })();
   }, [openDraft, forms, locale, token, openOn, onOpenedDraft, showToast]);
@@ -2987,7 +2989,7 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
     try {
       const r = await api("/api/forms/" + encodeURIComponent(code) + "/drafts?locale=" + locale, { method: "POST", token });
       openOn(formDraftOf(r));
-    } catch (err) { showToast(err.message, "error"); }
+    } catch (err) { showToast(tr(err.message), "error"); }
     setStarting(null);
   };
 
@@ -3005,14 +3007,14 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
 
   return (
     <div style={{ padding: 16 }}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 14, fontFamily: FONT_HEAD }}>Forms</div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 14, fontFamily: FONT_HEAD }}>{tr("Forms")}</div>
 
-      {loading && <div style={{ ...cardSt, fontSize: 13, color: t.textMut }}>Loading forms</div>}
+      {loading && <div style={{ ...cardSt, fontSize: 13, color: t.textMut }}>{tr("Loading forms")}</div>}
 
       {!loading && failed && (
         <div style={cardSt}>
-          <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5 }}>{FORMS_LOAD_FAILED}</div>
-          <button onClick={load} style={goBtn(false)}>Try again</button>
+          <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5 }}>{tr(FORMS_LOAD_FAILED)}</div>
+          <button onClick={load} style={goBtn(false)}>{tr("Try again")}</button>
         </div>
       )}
 
@@ -3026,8 +3028,8 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
         return (
           <div key={f.code} style={cardSt}>
             <div style={titleSt}>{f.title}</div>
-            {d && answered !== null && remaining !== null && <div style={lineSt}>{answered + " answered, " + remaining + " to go"}</div>}
-            <button onClick={() => startOn(f.code)} disabled={busy} style={goBtn(busy)}>{busy ? "Opening" : (d ? "Continue" : "Start report")}</button>
+            {d && answered !== null && remaining !== null && <div style={lineSt}>{tr("{answered} answered, {remaining} to go", { answered, remaining })}</div>}
+            <button onClick={() => startOn(f.code)} disabled={busy} style={goBtn(busy)}>{busy ? tr("Opening") : (d ? tr("Continue") : tr("Start report"))}</button>
           </div>
         );
       })}
@@ -3121,8 +3123,8 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
       return after;
     } catch (err) {
       // A request that never reached the server carries no status.
-      if (err.status === undefined || err.status === null) setSaveErr(FORMS_NOT_SAVED);
-      else { setSaveErr(err.message); setBadKeys(Array.isArray(err.body && err.body.keys) ? err.body.keys : []); }
+      if (err.status === undefined || err.status === null) setSaveErr(tr(FORMS_NOT_SAVED));
+      else { setSaveErr(tr(err.message)); setBadKeys(Array.isArray(err.body && err.body.keys) ? err.body.keys : []); }
       setSaving(false);
       return null;
     }
@@ -3164,9 +3166,9 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
       if (err.status === 409) setSent("already");
       // The server decides what is still unanswered, so a refusal
       // naming keys replaces the list rather than arguing with it.
-      else if (err.status === 400 && Array.isArray(err.body && err.body.missing)) { setCurrent(prev => Object.assign({}, prev, { missing: err.body.missing })); setSendErr(err.message); toTop(); }
-      else if (err.status === undefined || err.status === null) setSendErr(FORMS_NOT_SENT);
-      else setSendErr(err.message);
+      else if (err.status === 400 && Array.isArray(err.body && err.body.missing)) { setCurrent(prev => Object.assign({}, prev, { missing: err.body.missing })); setSendErr(tr(err.message)); toTop(); }
+      else if (err.status === undefined || err.status === null) setSendErr(tr(FORMS_NOT_SENT));
+      else setSendErr(tr(err.message));
     }
     setSending(false);
   };
@@ -3217,8 +3219,8 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     return (
       <div style={{ padding: 16 }}>
         <div style={{ background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 18 }}>
-          <div style={{ fontSize: 14, color: t.text, lineHeight: 1.55, marginBottom: 16 }}>{sent === "already" ? FORMS_ALREADY_LINE : FORMS_SENT_LINE}</div>
-          <button onClick={onLeave} style={footBtn(true, false)}>Done</button>
+          <div style={{ fontSize: 14, color: t.text, lineHeight: 1.55, marginBottom: 16 }}>{sent === "already" ? tr(FORMS_ALREADY_LINE) : tr(FORMS_SENT_LINE)}</div>
+          <button onClick={onLeave} style={footBtn(true, false)}>{tr("Done")}</button>
         </div>
       </div>
     );
@@ -3229,26 +3231,26 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
       <div style={{ padding: "12px 16px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 0", minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{current.formName || (form && form.title) || "Report"}</div>
-            {sections.length > 0 && <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{review ? "Review" : ("Section " + (at + 1) + " of " + sections.length)}</div>}
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{current.formName || (form && form.title) || tr("Report")}</div>
+            {sections.length > 0 && <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{review ? tr("Review") : tr("Section {n} of {total}", { n: at + 1, total: sections.length })}</div>}
           </div>
-          <button onClick={() => setConfirmLeave(true)} style={{ minHeight: 44, padding: "0 14px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>Close</button>
+          <button onClick={() => setConfirmLeave(true)} style={{ minHeight: 44, padding: "0 14px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Close")}</button>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 120px", minWidth: 80, height: 6, borderRadius: 3, background: t.borderSolid, overflow: "hidden" }}>
             <div style={{ height: "100%", width: pct + "%", background: GOLD, borderRadius: 3 }} />
           </div>
-          <div style={{ fontSize: 11, color: t.textMut, flexShrink: 0 }}>{answered + " answered"}</div>
+          <div style={{ fontSize: 11, color: t.textMut, flexShrink: 0 }}>{tr("{answered} answered", { answered })}</div>
         </div>
       </div>
 
       <div ref={bodyRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 16 }}>
         {(review ? sendErr : saveErr) && <div style={{ padding: "10px 12px", marginBottom: 16, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text, fontSize: 13, lineHeight: 1.5 }}>{review ? sendErr : saveErr}</div>}
-        {!form && <div style={{ fontSize: 13, color: t.textMut, lineHeight: 1.5 }}>{FORMS_LOAD_FAILED}</div>}
+        {!form && <div style={{ fontSize: 13, color: t.textMut, lineHeight: 1.5 }}>{tr(FORMS_LOAD_FAILED)}</div>}
 
         {review && missing.length > 0 && (
           <div style={{ padding: 14, marginBottom: 18, borderRadius: R.md, background: t.goldSubtle, border: "1px solid " + t.goldBorder }}>
-            <div style={{ ...mkLabel(t), marginBottom: 10 }}>These still need an answer</div>
+            <div style={{ ...mkLabel(t), marginBottom: 10 }}>{tr("These still need an answer")}</div>
             {missing.map(k => {
               const f = fieldByKey(k);
               return <button key={k} onClick={() => editSection(f ? formSectionOf(f) : null)} style={{ width: "100%", minHeight: 44, marginBottom: 8, padding: "10px 12px", textAlign: "left", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.card, color: t.text, fontSize: 13, lineHeight: 1.4, cursor: "pointer", fontFamily: FONT_BODY, overflowWrap: "anywhere" }}>{f ? f.label : k}</button>;
@@ -3259,15 +3261,15 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
         {review && sections.map((sk, i) => (
           <div key={sk} style={{ marginBottom: 22 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
-              <div style={{ ...mkLabel(t), marginBottom: 0, flex: "1 1 auto", minWidth: 0 }}>{"Section " + (i + 1)}</div>
-              <button onClick={() => editSection(sk)} style={{ minHeight: 44, padding: "0 16px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>Edit</button>
+              <div style={{ ...mkLabel(t), marginBottom: 0, flex: "1 1 auto", minWidth: 0 }}>{tr("Section {n}", { n: i + 1 })}</div>
+              <button onClick={() => editSection(sk)} style={{ minHeight: 44, padding: "0 16px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Edit")}</button>
             </div>
             {fields.filter(f => formSectionOf(f) === sk).map(f => {
               const read = formReadAnswer(f, values[f.key]);
               return (
                 <div key={f.key} style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{f.label}</div>
-                  <div style={{ fontSize: 14, color: read ? t.text : t.textMut, fontWeight: read ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{read || "Not answered"}</div>
+                  <div style={{ fontSize: 14, color: read ? t.text : t.textMut, fontWeight: read ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{read || tr("Not answered")}</div>
                 </div>
               );
             })}
@@ -3276,28 +3278,28 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
 
         {!review && pageFields.map(f => (
           <div key={f.key} style={qSt}>
-            <div style={labelSt}>{f.label}{f.required && <span style={reqSt}>Required</span>}</div>
+            <div style={labelSt}>{f.label}{f.required && <span style={reqSt}>{tr("Required")}</span>}</div>
             {f.help && <div style={mkHelp(t)}>{f.help}</div>}
             {renderInput(f)}
-            {badKeys.indexOf(f.key) !== -1 && <div style={mkFieldErr(t)}>Check this answer</div>}
+            {badKeys.indexOf(f.key) !== -1 && <div style={mkFieldErr(t)}>{tr("Check this answer")}</div>}
           </div>
         ))}
       </div>
 
       <div style={{ display: "flex", gap: 10, padding: "12px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0 }}>
-        {(review || at > 0) && <button onClick={goBack} disabled={saving || sending} style={footBtn(false, saving || sending)}>{saving ? "Saving" : "Back"}</button>}
+        {(review || at > 0) && <button onClick={goBack} disabled={saving || sending} style={footBtn(false, saving || sending)}>{saving ? tr("Saving") : tr("Back")}</button>}
         {review
-          ? <button onClick={() => setConfirmSend(true)} disabled={sending || missing.length > 0} style={footBtn(true, sending || missing.length > 0)}>{sending ? "Sending" : "Submit report"}</button>
-          : <button onClick={goNext} disabled={saving} style={footBtn(true, saving)}>{saving ? "Saving" : "Next"}</button>}
+          ? <button onClick={() => setConfirmSend(true)} disabled={sending || missing.length > 0} style={footBtn(true, sending || missing.length > 0)}>{sending ? tr("Sending") : tr("Submit report")}</button>
+          : <button onClick={goNext} disabled={saving} style={footBtn(true, saving)}>{saving ? tr("Saving") : tr("Next")}</button>}
       </div>
 
       {confirmSend && (
         <div onClick={() => setConfirmSend(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 360, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: 18, boxShadow: t.popShadow }}>
-            <div style={{ fontSize: 14, color: t.text, lineHeight: 1.5, marginBottom: 16 }}>{FORMS_SEND_LINE}</div>
+            <div style={{ fontSize: 14, color: t.text, lineHeight: 1.5, marginBottom: 16 }}>{tr(FORMS_SEND_LINE)}</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button onClick={() => setConfirmSend(false)} style={{ ...footBtn(false, false), flex: "1 1 120px" }}>Not yet</button>
-              <button onClick={submit} style={{ ...footBtn(true, false), flex: "1 1 120px" }}>Send it</button>
+              <button onClick={() => setConfirmSend(false)} style={{ ...footBtn(false, false), flex: "1 1 120px" }}>{tr("Not yet")}</button>
+              <button onClick={submit} style={{ ...footBtn(true, false), flex: "1 1 120px" }}>{tr("Send it")}</button>
             </div>
           </div>
         </div>
@@ -3306,10 +3308,10 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
       {confirmLeave && (
         <div onClick={() => setConfirmLeave(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 360, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: 18, boxShadow: t.popShadow }}>
-            <div style={{ fontSize: 14, color: t.text, lineHeight: 1.5, marginBottom: 16 }}>{FORMS_LEAVE_LINE}</div>
+            <div style={{ fontSize: 14, color: t.text, lineHeight: 1.5, marginBottom: 16 }}>{tr(FORMS_LEAVE_LINE)}</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button onClick={() => setConfirmLeave(false)} style={{ ...footBtn(false, false), flex: "1 1 120px" }}>Keep filling</button>
-              <button onClick={leave} style={{ ...footBtn(true, false), flex: "1 1 120px" }}>Leave</button>
+              <button onClick={() => setConfirmLeave(false)} style={{ ...footBtn(false, false), flex: "1 1 120px" }}>{tr("Keep filling")}</button>
+              <button onClick={leave} style={{ ...footBtn(true, false), flex: "1 1 120px" }}>{tr("Leave")}</button>
             </div>
           </div>
         </div>
@@ -3329,7 +3331,7 @@ function PickupView({ token, user, showToast, t }) {
   const [loading, setLoading] = useState(false);
   const [claiming, setClaiming] = useState(null);
 
-  const fmtDate = (d) => { const s = String(d).slice(0, 10); return new Date(s + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); };
+  const fmtDate = (d) => { const s = String(d).slice(0, 10); return new Date(s + "T00:00:00").toLocaleDateString(dateLocale(), { weekday: "short", month: "short", day: "numeric" }); };
   const fmtTm = (t) => { const [h, m] = String(t).split(":").map(Number); const ap = h >= 12 ? "PM" : "AM"; return ((h % 12) || 12) + ":" + String(m).padStart(2, "0") + " " + ap; };
   const originLabel = { callout: "Callout", no_show: "No-Show", extra_coverage: "Extra Coverage", voluntary_drop: "Voluntary Drop", new_shift: "New Shift" };
   const originColor = { callout: RED, no_show: RED, extra_coverage: ORANGE, voluntary_drop: BLUE, new_shift: GOLD };
@@ -3339,7 +3341,7 @@ function PickupView({ token, user, showToast, t }) {
     try {
       const data = await api("/api/pickups/available", { token });
       setAvailable(data);
-    } catch (err) { showToast(err.message, "error"); }
+    } catch (err) { showToast(tr(err.message), "error"); }
     setLoading(false);
   };
 
@@ -3348,7 +3350,7 @@ function PickupView({ token, user, showToast, t }) {
     try {
       const data = await api("/api/pickups/my-pickups", { token });
       setMyPickups(data);
-    } catch (err) { showToast(err.message, "error"); }
+    } catch (err) { showToast(tr(err.message), "error"); }
     setLoading(false);
   };
 
@@ -3360,32 +3362,32 @@ function PickupView({ token, user, showToast, t }) {
     try {
       const result = await api("/api/pickups/" + id + "/claim", { method: "POST", token });
       if (result.ot_warning) {
-        showToast("Shift claimed (overtime warning: " + Math.round(result.weekly_minutes / 60) + "h this week)", "notice");
+        showToast(tr("Shift claimed (overtime warning: {hours}h this week)", { hours: Math.round(result.weekly_minutes / 60) }), "notice");
       } else {
-        showToast("Shift claimed successfully!");
+        showToast(tr("Shift claimed successfully!"));
       }
       loadAvailable();
       loadMyPickups();
-    } catch (err) { showToast(err.message, "error"); }
+    } catch (err) { showToast(tr(err.message), "error"); }
     setClaiming(null);
   };
 
   const releaseShift = async (id) => {
-    if (!window.confirm("Release this shift? It will go back to the open pool for someone else to claim.")) return;
+    if (!window.confirm(tr("Release this shift? It will go back to the open pool for someone else to claim."))) return;
     try {
       await api("/api/pickups/" + id + "/release", { method: "POST", token });
-      showToast("Shift released");
+      showToast(tr("Shift released"));
       loadAvailable();
       loadMyPickups();
-    } catch (err) { showToast(err.message, "error"); }
+    } catch (err) { showToast(tr(err.message), "error"); }
   };
 
   return (
     <div style={{ padding: "16px 16px 0" }}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 12, fontFamily: FONT_HEAD }}>Shift Pickup Board</div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 12, fontFamily: FONT_HEAD }}>{tr("Shift Pickup Board")}</div>
 
       <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
-        {[{ id: "available", l: "Available", count: available.length }, { id: "mine", l: "My Pickups", count: myPickups.length }].map(tb => (
+        {[{ id: "available", l: tr("Available"), count: available.length }, { id: "mine", l: tr("My Pickups"), count: myPickups.length }].map(tb => (
           <button key={tb.id} onClick={() => setTab(tb.id)} style={{
             flex: 1, padding: "10px 0", borderRadius: R.sm,
             border: tab === tb.id ? "1px solid " + t.goldBorder : "1px solid transparent",
@@ -3398,7 +3400,7 @@ function PickupView({ token, user, showToast, t }) {
         ))}
       </div>
 
-      {loading && <div style={{ textAlign: "center", padding: 40, color: t.textMut, fontFamily: FONT_HEAD }}>Loading...</div>}
+      {loading && <div style={{ textAlign: "center", padding: 40, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("Loading...")}</div>}
 
       {/* AVAILABLE SHIFTS */}
       {!loading && tab === "available" && (
@@ -3406,8 +3408,8 @@ function PickupView({ token, user, showToast, t }) {
           {available.length === 0 && (
             <div style={{ textAlign: "center", padding: "40px 24px", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}>
               <SwapIco sz={32} c={t.textMut} style={{ opacity: 0.3, marginBottom: 8 }} />
-              <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>No open shifts right now</div>
-              <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>Check back later for available pickup shifts at your assigned sites.</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("No open shifts right now")}</div>
+              <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{tr("Check back later for available pickup shifts at your assigned sites.")}</div>
             </div>
           )}
           {available.map(s => (
@@ -3416,7 +3418,7 @@ function PickupView({ token, user, showToast, t }) {
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                     <span style={{ fontSize: 14, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{s.site_name}</span>
-                    {s.urgency === "urgent" && <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: R.sm, background: RED + "18", color: RED, fontFamily: FONT_HEAD }}>URGENT</span>}
+                    {s.urgency === "urgent" && <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: R.sm, background: RED + "18", color: RED, fontFamily: FONT_HEAD }}>{tr("URGENT")}</span>}
                   </div>
                   <div style={{ fontSize: 12, color: t.textSec, fontVariantNumeric: "tabular-nums" }}>{fmtDate(s.scheduled_date)}</div>
                 </div>
@@ -3425,12 +3427,12 @@ function PickupView({ token, user, showToast, t }) {
 
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, padding: "8px 10px", borderRadius: R.md, background: t.cardAlt }}>
                 <ClockIco sz={14} c={t.goldText} />
-                <span style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{fmtTm(s.start_time)} to {fmtTm(s.end_time)}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{tr("{start} to {end}", { start: fmtTm(s.start_time), end: fmtTm(s.end_time) })}</span>
               </div>
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                {s.building_name && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>Bldg: {s.building_name}</span>}
-                {s.floor_number && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>Floor: {s.floor_number}</span>}
+                {s.building_name && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Bldg:")} {s.building_name}</span>}
+                {s.floor_number && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Floor:")} {s.floor_number}</span>}
                 {s.service_category && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{s.service_category}</span>}
               </div>
 
@@ -3448,7 +3450,7 @@ function PickupView({ token, user, showToast, t }) {
                   boxShadow: claiming === s.id ? "none" : "0 6px 18px rgba(231,176,23,0.30)"
                 }}
               >
-                {claiming === s.id ? "Claiming..." : "Claim This Shift"}
+                {claiming === s.id ? tr("Claiming...") : tr("Claim This Shift")}
               </button>
             </div>
           ))}
@@ -3461,8 +3463,8 @@ function PickupView({ token, user, showToast, t }) {
           {myPickups.length === 0 && (
             <div style={{ textAlign: "center", padding: "40px 24px", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}>
               <CheckIco sz={32} c={t.textMut} style={{ opacity: 0.3, marginBottom: 8 }} />
-              <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>No claimed shifts</div>
-              <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>Shifts you claim will appear here.</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("No claimed shifts")}</div>
+              <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{tr("Shifts you claim will appear here.")}</div>
             </div>
           )}
           {myPickups.map(s => {
@@ -3479,24 +3481,24 @@ function PickupView({ token, user, showToast, t }) {
 
                 <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, padding: "8px 10px", borderRadius: R.md, background: t.cardAlt }}>
                   <ClockIco sz={14} c={sColor} />
-                  <span style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{fmtTm(s.start_time)} to {fmtTm(s.end_time)}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{tr("{start} to {end}", { start: fmtTm(s.start_time), end: fmtTm(s.end_time) })}</span>
                 </div>
 
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                  {s.building_name && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>Bldg: {s.building_name}</span>}
-                  {s.floor_number && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>Floor: {s.floor_number}</span>}
+                  {s.building_name && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Bldg:")} {s.building_name}</span>}
+                  {s.floor_number && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Floor:")} {s.floor_number}</span>}
                 </div>
 
                 {s.status === "claimed" && (
                   <div>
-                    <div style={{ padding: "6px 10px", borderRadius: R.sm, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, fontSize: 10, color: ORANGE, marginBottom: 8, fontFamily: FONT_HEAD }}>Waiting for manager approval</div>
-                    <button onClick={() => releaseShift(s.id)} style={{ width: "100%", padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>Release Shift</button>
+                    <div style={{ padding: "6px 10px", borderRadius: R.sm, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, fontSize: 10, color: ORANGE, marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Waiting for manager approval")}</div>
+                    <button onClick={() => releaseShift(s.id)} style={{ width: "100%", padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Release Shift")}</button>
                   </div>
                 )}
                 {s.status === "approved" && (
                   <div style={{ padding: "8px 12px", borderRadius: R.md, background: t.greenSubtle, border: "1px solid " + t.greenBorder }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: GREEN, fontFamily: FONT_HEAD }}>Approved. You are scheduled for this shift.</div>
-                    <div style={{ fontSize: 10, color: t.textMut, marginTop: 2 }}>Start your shift at the normal time and your daily tasks will load automatically.</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: GREEN, fontFamily: FONT_HEAD }}>{tr("Approved. You are scheduled for this shift.")}</div>
+                    <div style={{ fontSize: 10, color: t.textMut, marginTop: 2 }}>{tr("Start your shift at the normal time and your daily tasks will load automatically.")}</div>
                   </div>
                 )}
               </div>
@@ -3511,7 +3513,7 @@ function PickupView({ token, user, showToast, t }) {
 function InspectView({ token, user, showToast, t }) {
   const CIMS_C = { SD: "#24A4F4", HSE: "#F39C12", GB: "#2ECC71", QS: GOLD, HR: "#9B59B6", MC: "#2C3E50" };
   const STATUS_C = { scheduled: "#24A4F4", in_progress: "#F39C12", completed: "#2ECC71" };
-  const fmtDate = (d) => d ? new Date(d.slice(0, 10) + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "--";
+  const fmtDate = (d) => d ? new Date(d.slice(0, 10) + "T00:00:00").toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" }) : "--";
 
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -3533,7 +3535,7 @@ function InspectView({ token, user, showToast, t }) {
     try {
       const d = await api("/api/inspections/scheduled?status=scheduled", { token });
       setList(d);
-    } catch (e) { showToast(e.message, "error"); }
+    } catch (e) { showToast(tr(e.message), "error"); }
     setLoading(false);
   };
 
@@ -3549,18 +3551,18 @@ function InspectView({ token, user, showToast, t }) {
       setSites(st);
       setSchedForm({ template_id: "", site_id: "", scheduled_date: "" });
       setScheduleModal(true);
-    } catch (e) { showToast(e.message, "error"); }
+    } catch (e) { showToast(tr(e.message), "error"); }
   };
 
   const submitSchedule = async () => {
     if (!schedForm.template_id || !schedForm.site_id || !schedForm.scheduled_date) {
-      showToast("Template, site, and date are required", "error"); return;
+      showToast(tr("Template, site, and date are required"), "error"); return;
     }
     setScheduling(true);
     try {
       await api("/api/inspections/scheduled", { method: "POST", token, body: { ...schedForm, assigned_to: user.id } });
-      showToast("Inspection scheduled"); setScheduleModal(false); loadList();
-    } catch (e) { showToast(e.message, "error"); }
+      showToast(tr("Inspection scheduled")); setScheduleModal(false); loadList();
+    } catch (e) { showToast(tr(e.message), "error"); }
     setScheduling(false);
   };
 
@@ -3578,7 +3580,7 @@ function InspectView({ token, user, showToast, t }) {
       setNotes(initNotes);
       setOverallNotes("");
       setUploaded({});
-    } catch (e) { showToast(e.message, "error"); }
+    } catch (e) { showToast(tr(e.message), "error"); }
   };
 
   const handlePhotoUpload = async (itemId, file) => {
@@ -3586,8 +3588,8 @@ function InspectView({ token, user, showToast, t }) {
     try {
       const result = await uploadTaskMedia(file, token);
       setUploaded(prev => ({ ...prev, [itemId]: result.url }));
-      showToast("Photo attached");
-    } catch (e) { showToast(e.message, "error"); }
+      showToast(tr("Photo attached"));
+    } catch (e) { showToast(tr(e.message), "error"); }
     setUploadingId(null);
   };
 
@@ -3605,10 +3607,10 @@ function InspectView({ token, user, showToast, t }) {
         method: "POST", token,
         body: { scores: payload, overall_notes: overallNotes || null },
       });
-      showToast("Inspection submitted");
+      showToast(tr("Inspection submitted"));
       setActive(null);
       loadList();
-    } catch (e) { showToast(e.message, "error"); }
+    } catch (e) { showToast(tr(e.message), "error"); }
     setSubmitting(false);
   };
 
@@ -3634,10 +3636,10 @@ function InspectView({ token, user, showToast, t }) {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderRadius: R.lg, background: t.card, marginBottom: 16, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
-          <div style={{ fontSize: 11, color: t.textSec, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px" }}>Running total</div>
+          <div style={{ fontSize: 11, color: t.textSec, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px" }}>{tr("Running total")}</div>
           <div style={{ textAlign: "right" }}>
             <span style={{ fontSize: 22, fontWeight: 700, color: scoreColor, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</span>
-            <span style={{ fontSize: 11, color: t.textMut, marginLeft: 6, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{totalScored}/{totalMax} pts</span>
+            <span style={{ fontSize: 11, color: t.textMut, marginLeft: 6, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{totalScored}/{totalMax} {tr("pts")}</span>
           </div>
         </div>
 
@@ -3660,13 +3662,13 @@ function InspectView({ token, user, showToast, t }) {
                   <input type="range" min={0} max={item.max_score} value={sc} onChange={e => setScores(prev => ({ ...prev, [item.id]: parseInt(e.target.value) }))} style={{ width: "100%", accentColor: iColor }} />
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: t.textMut, marginTop: 2 }}><span>0</span><span>{item.max_score}</span></div>
                 </div>
-                <input value={notes[item.id] || ""} onChange={e => setNotes(prev => ({ ...prev, [item.id]: e.target.value }))} placeholder="Notes for this item (optional)" style={{ ...inputSt, fontSize: 12, marginBottom: 8 }} />
+                <input value={notes[item.id] || ""} onChange={e => setNotes(prev => ({ ...prev, [item.id]: e.target.value }))} placeholder={tr("Notes for this item (optional)")} style={{ ...inputSt, fontSize: 12, marginBottom: 8 }} />
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <label style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", fontSize: 11, color: t.textSec }}>
                     <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files[0] && handlePhotoUpload(item.id, e.target.files[0])} />
-                    {uploadingId === item.id ? "Uploading..." : "Attach Photo"}
+                    {uploadingId === item.id ? tr("Uploading...") : tr("Attach Photo")}
                   </label>
-                  {uploaded[item.id] && <span style={{ fontSize: 10, color: GREEN, fontWeight: 600 }}>Photo attached</span>}
+                  {uploaded[item.id] && <span style={{ fontSize: 10, color: GREEN, fontWeight: 600 }}>{tr("Photo attached")}</span>}
                 </div>
               </div>
             );
@@ -3674,12 +3676,12 @@ function InspectView({ token, user, showToast, t }) {
         </div>
 
         <div style={{ marginBottom: 16 }}>
-          <label style={labelSt}>Overall Notes</label>
-          <textarea value={overallNotes} onChange={e => setOverallNotes(e.target.value)} placeholder="General observations, follow-ups needed, etc." rows={3} style={{ ...inputSt, resize: "vertical" }} />
+          <label style={labelSt}>{tr("Overall Notes")}</label>
+          <textarea value={overallNotes} onChange={e => setOverallNotes(e.target.value)} placeholder={tr("General observations, follow-ups needed, etc.")} rows={3} style={{ ...inputSt, resize: "vertical" }} />
         </div>
 
         <button onClick={submit} disabled={submitting} style={{ width: "100%", padding: "14px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: submitting ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>
-          {submitting ? "Submitting..." : "Submit Inspection"}
+          {submitting ? tr("Submitting...") : tr("Submit Inspection")}
         </button>
       </div>
     );
@@ -3690,22 +3692,22 @@ function InspectView({ token, user, showToast, t }) {
     <div style={{ padding: "14px 16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
         <div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 2, fontFamily: FONT_HEAD }}>My Inspections</div>
-          <div style={{ fontSize: 11, color: t.textSec }}>Tap an inspection to begin scoring.</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 2, fontFamily: FONT_HEAD }}>{tr("My Inspections")}</div>
+          <div style={{ fontSize: 11, color: t.textSec }}>{tr("Tap an inspection to begin scoring.")}</div>
         </div>
         {isManager && (
           <button onClick={openScheduleModal} style={{ padding: "8px 14px", borderRadius: R.sm, border: "none", background: GOLD, color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0, fontFamily: FONT_HEAD }}>
-            + Schedule
+            {tr("+ Schedule")}
           </button>
         )}
       </div>
 
-      {loading && <div style={{ padding: "30px 0", textAlign: "center", fontSize: 12, color: t.textMut }}>Loading...</div>}
+      {loading && <div style={{ padding: "30px 0", textAlign: "center", fontSize: 12, color: t.textMut }}>{tr("Loading...")}</div>}
 
       {!loading && list.length === 0 && (
         <div style={{ textAlign: "center", padding: "40px 24px", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>No inspections pending</div>
-          <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>Inspections assigned to you will appear here.</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("No inspections pending")}</div>
+          <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{tr("Inspections assigned to you will appear here.")}</div>
         </div>
       )}
 
@@ -3717,9 +3719,9 @@ function InspectView({ token, user, showToast, t }) {
               <span style={{ fontSize: 9, fontWeight: 700, padding: "3px 8px", borderRadius: R.sm, background: (STATUS_C[si.status] || BLUE) + "18", color: STATUS_C[si.status] || BLUE, textTransform: "uppercase", flexShrink: 0, fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{si.status.replace("_", " ")}</span>
             </div>
             <div style={{ fontSize: 12, color: t.textSec }}>{si.site_name}</div>
-            <div style={{ fontSize: 11, color: t.textMut, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>Scheduled {fmtDate(si.scheduled_date)}</div>
+            <div style={{ fontSize: 11, color: t.textMut, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{tr("Scheduled")} {fmtDate(si.scheduled_date)}</div>
             <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: R.sm, background: t.cardAlt, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 11, color: t.textSec }}>Tap to start scoring</span>
+              <span style={{ fontSize: 11, color: t.textSec }}>{tr("Tap to start scoring")}</span>
               <span style={{ fontSize: 16, color: t.goldText }}>{">"}</span>
             </div>
           </button>
@@ -3730,29 +3732,29 @@ function InspectView({ token, user, showToast, t }) {
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 500, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={() => setScheduleModal(false)}>
           <div style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "24px 20px 40px", maxHeight: "85vh", overflowY: "auto", boxShadow: t.popShadow }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>Schedule Inspection</div>
-              <button onClick={() => setScheduleModal(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: t.textMut, lineHeight: 1 }}>x</button>
+              <div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("Schedule Inspection")}</div>
+              <button onClick={() => setScheduleModal(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: t.textMut, lineHeight: 1 }}>{tr("x")}</button>
             </div>
             <div style={{ marginBottom: 14 }}>
-              <label style={labelSt}>Template *</label>
+              <label style={labelSt}>{tr("Template *")}</label>
               <select value={schedForm.template_id} onChange={e => setSchedForm({ ...schedForm, template_id: e.target.value })} style={{ ...inputSt }}>
-                <option value="">Select template...</option>
+                <option value="">{tr("Select template...")}</option>
                 {templates.map(tp => <option key={tp.id} value={tp.id}>{tp.name}</option>)}
               </select>
             </div>
             <div style={{ marginBottom: 14 }}>
-              <label style={labelSt}>Site *</label>
+              <label style={labelSt}>{tr("Site *")}</label>
               <select value={schedForm.site_id} onChange={e => setSchedForm({ ...schedForm, site_id: e.target.value })} style={{ ...inputSt }}>
-                <option value="">Select site...</option>
+                <option value="">{tr("Select site...")}</option>
                 {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
             <div style={{ marginBottom: 24 }}>
-              <label style={labelSt}>Scheduled Date *</label>
+              <label style={labelSt}>{tr("Scheduled Date *")}</label>
               <input type="date" value={schedForm.scheduled_date} onChange={e => setSchedForm({ ...schedForm, scheduled_date: e.target.value })} style={inputSt} />
             </div>
             <button onClick={submitSchedule} disabled={scheduling} style={{ width: "100%", padding: "14px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: scheduling ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>
-              {scheduling ? "Scheduling..." : "Schedule Inspection"}
+              {scheduling ? tr("Scheduling...") : tr("Schedule Inspection")}
             </button>
           </div>
         </div>
@@ -3771,7 +3773,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
     try {
       const d = await api("/api/users/profile/me", { token });
       setProfile(d);
-    } catch (e) { showToast(e.message, "error"); }
+    } catch (e) { showToast(tr(e.message), "error"); }
   };
   useEffect(() => { loadProfile(); }, []);
 
@@ -3779,7 +3781,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
 
   const handlePhotoUpload = async (file) => {
     if (!file) return;
-    if (file.size > 20 * 1024 * 1024) { showToast("Photo must be under 20MB", "error"); return; }
+    if (file.size > 20 * 1024 * 1024) { showToast(tr("Photo must be under 20MB"), "error"); return; }
     setUploading(true);
     try {
       // Compress to 512x512 max, JPEG quality 80%
@@ -3791,10 +3793,10 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Upload failed"); }
       const r = await res.json();
       await api("/api/users/profile/photo", { method: "POST", body: { photoUrl: r.url }, token });
-      showToast("Photo updated");
+      showToast(tr("Photo updated"));
       setUser(prev => ({ ...prev, profilePhotoUrl: r.url }));
       loadProfile();
-    } catch (e) { showToast(e.message, "error"); }
+    } catch (e) { showToast(tr(e.message), "error"); }
     setUploading(false);
   };
 
@@ -3815,14 +3817,14 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
     setSaving(true);
     try {
       await api("/api/users/profile/me", { method: "PATCH", body: form, token });
-      showToast("Profile updated");
+      showToast(tr("Profile updated"));
       setEditing(false);
       loadProfile();
-    } catch (e) { showToast(e.message, "error"); }
+    } catch (e) { showToast(tr(e.message), "error"); }
     setSaving(false);
   };
 
-  if (!profile) return <div style={{ padding: 20, textAlign: "center", color: t.textMut }}>Loading profile...</div>;
+  if (!profile) return <div style={{ padding: 20, textAlign: "center", color: t.textMut }}>{tr("Loading profile...")}</div>;
 
   const u = profile.user;
   const cardSt = { background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 16, marginBottom: 12 };
@@ -3833,7 +3835,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
   return (
     <div style={{ padding: "16px" }}>
       <button onClick={() => setActiveTab("clock")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 0", background: "none", border: "none", color: t.goldText, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 12 }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.goldText} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg> Back
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.goldText} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg> {tr("Back")}
       </button>
 
       {/* Photo and Name Header */}
@@ -3855,13 +3857,13 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
           <div style={{ fontSize: 10, color: t.textMut, marginTop: 4, overflowWrap: "anywhere" }}>{u.phone} | {u.email}</div>
           {u.employeeId
             ? <div style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", maxWidth: "100%", boxSizing: "border-box", gap: 6, marginTop: 8, padding: "3px 10px", borderRadius: R.sm, background: t.goldSubtle, border: "1px solid " + GOLD }}>
-                <span style={{ fontSize: 8, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>Employee ID</span>
+                <span style={{ fontSize: 8, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>{tr("Employee ID")}</span>
                 <span style={{ fontSize: 12, color: t.text, fontWeight: 700, letterSpacing: "0.5px", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{u.employeeId}</span>
               </div>
-            : <div style={{ marginTop: 8, fontSize: 10, color: t.textMut, fontStyle: "italic" }}>Employee ID not assigned. Ask your supervisor.</div>
+            : <div style={{ marginTop: 8, fontSize: 10, color: t.textMut, fontStyle: "italic" }}>{tr("Employee ID not assigned. Ask your supervisor.")}</div>
           }
           {u.badgeNumber && <div style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", maxWidth: "100%", boxSizing: "border-box", gap: 6, marginTop: 6, padding: "3px 10px", borderRadius: R.sm, background: t.goldSubtle, border: "1px solid " + GOLD }}>
-            <span style={{ fontSize: 8, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>Badge Number</span>
+            <span style={{ fontSize: 8, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>{tr("Badge Number")}</span>
             <span style={{ fontSize: 12, color: t.text, fontWeight: 700, letterSpacing: "0.5px", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{u.badgeNumber}</span>
           </div>}
         </div>
@@ -3870,43 +3872,43 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
       {/* Personal Info */}
       <div style={cardSt}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={labelSt}>Personal Information</div>
-          {!editing && <button onClick={startEditing} style={{ padding: "4px 10px", borderRadius: R.sm, border: "1px solid " + GOLD, background: "transparent", color: t.goldText, fontSize: 10, cursor: "pointer", fontWeight: 600, fontFamily: FONT_HEAD }}>Edit</button>}
+          <div style={labelSt}>{tr("Personal Information")}</div>
+          {!editing && <button onClick={startEditing} style={{ padding: "4px 10px", borderRadius: R.sm, border: "1px solid " + GOLD, background: "transparent", color: t.goldText, fontSize: 10, cursor: "pointer", fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Edit")}</button>}
         </div>
         {!editing ? <div>
-          <div style={{ fontSize: 11, color: t.textMut }}>Birthday<div style={valSt}>{u.birthday ? fmtDate(u.birthday) : "Not set"}</div></div>
-          <div style={{ marginTop: 12, fontSize: 11, color: t.textMut }}>Address<div style={valSt}>{u.addressLine1 ? (u.addressLine1 + (u.addressLine2 ? ", " + u.addressLine2 : "") + (u.city ? ", " + u.city : "") + (u.state ? ", " + u.state : "") + (u.zipCode ? " " + u.zipCode : "")) : "Not set"}</div></div>
+          <div style={{ fontSize: 11, color: t.textMut }}>{tr("Birthday")}<div style={valSt}>{u.birthday ? fmtDate(u.birthday) : tr("Not set")}</div></div>
+          <div style={{ marginTop: 12, fontSize: 11, color: t.textMut }}>{tr("Address")}<div style={valSt}>{u.addressLine1 ? (u.addressLine1 + (u.addressLine2 ? ", " + u.addressLine2 : "") + (u.city ? ", " + u.city : "") + (u.state ? ", " + u.state : "") + (u.zipCode ? " " + u.zipCode : "")) : tr("Not set")}</div></div>
           <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div style={{ fontSize: 11, color: t.textMut }}>Emergency Contact<div style={valSt}>{u.emergencyContactName || "Not set"}</div></div>
-            <div style={{ fontSize: 11, color: t.textMut }}>Emergency Phone<div style={valSt}>{u.emergencyContactPhone || "Not set"}</div></div>
+            <div style={{ fontSize: 11, color: t.textMut }}>{tr("Emergency Contact")}<div style={valSt}>{u.emergencyContactName || tr("Not set")}</div></div>
+            <div style={{ fontSize: 11, color: t.textMut }}>{tr("Emergency Phone")}<div style={valSt}>{u.emergencyContactPhone || tr("Not set")}</div></div>
           </div>
         </div> : <div>
-          <div style={{ marginBottom: 10 }}><label style={labelSt}>Birthday</label><input type="date" value={form.birthday || ""} onChange={e => setForm({ ...form, birthday: e.target.value })} style={inputSt} /></div>
-          <div style={{ marginBottom: 10 }}><label style={labelSt}>Address Line 1</label><input value={form.addressLine1 || ""} onChange={e => setForm({ ...form, addressLine1: e.target.value })} style={inputSt} placeholder="Street address" /></div>
-          <div style={{ marginBottom: 10 }}><label style={labelSt}>Address Line 2</label><input value={form.addressLine2 || ""} onChange={e => setForm({ ...form, addressLine2: e.target.value })} style={inputSt} placeholder="Apt, suite, etc." /></div>
+          <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Birthday")}</label><input type="date" value={form.birthday || ""} onChange={e => setForm({ ...form, birthday: e.target.value })} style={inputSt} /></div>
+          <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Address Line 1")}</label><input value={form.addressLine1 || ""} onChange={e => setForm({ ...form, addressLine1: e.target.value })} style={inputSt} placeholder={tr("Street address")} /></div>
+          <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Address Line 2")}</label><input value={form.addressLine2 || ""} onChange={e => setForm({ ...form, addressLine2: e.target.value })} style={inputSt} placeholder={tr("Apt, suite, etc.")} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
-            <div><label style={labelSt}>City</label><input value={form.city || ""} onChange={e => setForm({ ...form, city: e.target.value })} style={inputSt} /></div>
-            <div><label style={labelSt}>State</label><input value={form.state || ""} onChange={e => setForm({ ...form, state: e.target.value })} style={inputSt} /></div>
-            <div><label style={labelSt}>Zip</label><input value={form.zipCode || ""} onChange={e => setForm({ ...form, zipCode: e.target.value })} style={inputSt} /></div>
+            <div><label style={labelSt}>{tr("City")}</label><input value={form.city || ""} onChange={e => setForm({ ...form, city: e.target.value })} style={inputSt} /></div>
+            <div><label style={labelSt}>{tr("State")}</label><input value={form.state || ""} onChange={e => setForm({ ...form, state: e.target.value })} style={inputSt} /></div>
+            <div><label style={labelSt}>{tr("Zip")}</label><input value={form.zipCode || ""} onChange={e => setForm({ ...form, zipCode: e.target.value })} style={inputSt} /></div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
-            <div><label style={labelSt}>Emergency Contact</label><input value={form.emergencyContactName || ""} onChange={e => setForm({ ...form, emergencyContactName: e.target.value })} style={inputSt} placeholder="Full name" /></div>
-            <div><label style={labelSt}>Emergency Phone</label><input value={form.emergencyContactPhone || ""} onChange={e => setForm({ ...form, emergencyContactPhone: e.target.value })} style={inputSt} placeholder="Phone number" /></div>
+            <div><label style={labelSt}>{tr("Emergency Contact")}</label><input value={form.emergencyContactName || ""} onChange={e => setForm({ ...form, emergencyContactName: e.target.value })} style={inputSt} placeholder={tr("Full name")} /></div>
+            <div><label style={labelSt}>{tr("Emergency Phone")}</label><input value={form.emergencyContactPhone || ""} onChange={e => setForm({ ...form, emergencyContactPhone: e.target.value })} style={inputSt} placeholder={tr("Phone number")} /></div>
           </div>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 14 }}>
-            <button onClick={() => setEditing(false)} style={{ padding: "10px 18px", borderRadius: R.sm, border: "none", background: t.btnGhost || t.card, color: t.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>Cancel</button>
-            <button onClick={saveProfile} disabled={saving} style={{ padding: "10px 18px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{saving ? "Saving..." : "Save"}</button>
+            <button onClick={() => setEditing(false)} style={{ padding: "10px 18px", borderRadius: R.sm, border: "none", background: t.btnGhost || t.card, color: t.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button>
+            <button onClick={saveProfile} disabled={saving} style={{ padding: "10px 18px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{saving ? tr("Saving...") : tr("Save")}</button>
           </div>
         </div>}
       </div>
 
       {/* Assignments */}
       {profile.assignments?.length > 0 && <div style={cardSt}>
-        <div style={{ ...labelSt, marginBottom: 10 }}>Site Assignments</div>
+        <div style={{ ...labelSt, marginBottom: 10 }}>{tr("Site Assignments")}</div>
         {profile.assignments.map((a, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", background: t.hover, borderRadius: R.sm, marginBottom: 4 }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{a.site_name}</div>
-            <div style={{ fontSize: 10, color: t.textMut, marginTop: 2 }}>{a.role_at_site || "Staff"} | {a.shift_name || "No shift"}{a.shift_start ? " | " + a.shift_start + " - " + a.shift_end : ""}</div>
+            <div style={{ fontSize: 10, color: t.textMut, marginTop: 2 }}>{a.role_at_site || tr("Staff")} | {a.shift_name || tr("No shift")}{a.shift_start ? " | " + a.shift_start + " - " + a.shift_end : ""}</div>
           </div>
         </div>)}
       </div>}
