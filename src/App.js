@@ -199,6 +199,70 @@ const HelpIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.1 9a3 
 const PersonIco = (p) => <Ico d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
+// Every destination the portal has, in one list, so the bottom bar and the
+// More overlay cannot drift apart. Labels, icons and role conditions are
+// exactly what they were when the bar was the same for everyone. Home is
+// always the first place on the bar and is never one of the four choices.
+// A destination added here later appears under More on its own.
+const DESTINATIONS = [
+  { id: "clock", label: () => "Home", icon: HomeIco, home: true },
+  { id: "schedule", label: () => "Schedule", icon: CalIco },
+  { id: "tasks", label: () => "Tasks", icon: CheckIco },
+  { id: "chat", label: () => "Chat", icon: ChatIco },
+  { id: "agent", label: () => "Help", icon: HelpIco },
+  { id: "issuetasks", label: () => "Assigned", icon: WrkIco, badge: "assigned" },
+  { id: "issues", label: (ctx) => ctx.isAdmin ? "Issues" : "Report", icon: AlertIco },
+  { id: "supplies", label: () => "Supplies", icon: BoxIco },
+  { id: "pickup", label: () => "Pickup", icon: SwapIco },
+  { id: "inspect", label: () => "Inspect", icon: ClipIco },
+  { id: "speakup", label: () => "Speak Up", icon: PersonIco },
+];
+const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
+
+// The four places between Home and More. The default is the bar as it was:
+// Schedule, Tasks, Chat, Help, which leaves the same six under More in the
+// same order.
+const SHORTCUT_SLOTS = 4;
+const DEFAULT_SHORTCUTS = ["schedule", "tasks", "chat", "agent"];
+const SHORTCUTS_KEY_PREFIX = "ocsa-staff-shortcuts:";
+const shortcutsKey = (userId) => SHORTCUTS_KEY_PREFIX + String(userId || "");
+
+// Which destinations this person may put on the bar. Home is not one of
+// them, and a destination their role cannot open is not either.
+function shortcutChoicesFor(ctx) {
+  return DESTINATIONS.filter(d => !d.home && (!d.role || d.role(ctx)));
+}
+
+// A stored layout is trusted only if it is exactly four known, distinct ids
+// this person can open. Anything else reads as null, and the caller falls
+// back to the default.
+function validShortcuts(value, allowedIds) {
+  if (!Array.isArray(value) || value.length !== SHORTCUT_SLOTS) return null;
+  const seen = {};
+  for (let i = 0; i < value.length; i++) {
+    const id = value[i];
+    if (typeof id !== "string") return null;
+    if (allowedIds.indexOf(id) === -1) return null;
+    if (seen[id]) return null;
+    seen[id] = true;
+  }
+  return value.slice();
+}
+
+// Kept per person, so two people signing in on the same phone each keep
+// their own. Every read and write in try and catch, the same pattern as
+// Text size; a storage that throws means the default.
+function readShortcuts(userId, allowedIds) {
+  try {
+    const raw = window.localStorage.getItem(shortcutsKey(userId));
+    if (!raw) return DEFAULT_SHORTCUTS.slice();
+    return validShortcuts(JSON.parse(raw), allowedIds) || DEFAULT_SHORTCUTS.slice();
+  } catch (e) { return DEFAULT_SHORTCUTS.slice(); }
+}
+function saveShortcuts(userId, ids) {
+  try { window.localStorage.setItem(shortcutsKey(userId), JSON.stringify(ids)); } catch (e) {}
+}
+
 const mkLabel = (t) => ({ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700, marginBottom: 6, display: "block", fontFamily: FONT_HEAD });
 const mkInput = (t) => ({ width: "100%", padding: "11px 14px", borderRadius: R.md, border: "1px solid " + t.inputBorder, background: t.inputBg, color: t.text, fontSize: 14, outline: "none", fontFamily: FONT_BODY });
 const mkQtyBtn = (t) => ({ width: 36, height: 36, borderRadius: "50%", border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: t.text });
@@ -592,24 +656,35 @@ export default function OCSAStaffPortal() {
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
   const assignedCount = assignedTasks.length;
   const [showMore, setShowMore] = useState(false);
-  const primaryTabs = [
-    { id: "clock", label: "Home", icon: HomeIco },
-    { id: "schedule", label: "Schedule", icon: CalIco },
-    { id: "tasks", label: "Tasks", icon: CheckIco },
-    { id: "chat", label: "Chat", icon: ChatIco },
-    { id: "agent", label: "Help", icon: HelpIco },
-  ];
-  const moreTabs = [
-    { id: "issuetasks", label: "Assigned", icon: WrkIco, badge: assignedCount },
-    { id: "issues", label: isAdmin ? "Issues" : "Report", icon: AlertIco },
-    { id: "supplies", label: "Supplies", icon: BoxIco },
-    { id: "pickup", label: "Pickup", icon: SwapIco },
-    { id: "inspect", label: "Inspect", icon: ClipIco },
-    { id: "speakup", label: "Speak Up", icon: PersonIco },
-  ];
+
+  // The person's own four places between Home and More. Read on the first
+  // render after they are known, so the bar never shows the default and
+  // then swaps to theirs.
+  const destCtx = { isAdmin };
+  const shortcutChoices = shortcutChoicesFor(destCtx);
+  const allowedShortcutIds = shortcutChoices.map(d => d.id);
+  const uid = user && user.id ? user.id : null;
+  const [shortcutsState, setShortcutsState] = useState({ userId: null, ids: DEFAULT_SHORTCUTS });
+  if (shortcutsState.userId !== uid) {
+    setShortcutsState({ userId: uid, ids: uid ? readShortcuts(uid, allowedShortcutIds) : DEFAULT_SHORTCUTS.slice() });
+  }
+  const shortcuts = shortcutsState.userId === uid ? shortcutsState.ids : DEFAULT_SHORTCUTS;
+  const applyShortcuts = (ids) => {
+    setShortcutsState({ userId: uid, ids: ids.slice() });
+    if (uid) saveShortcuts(uid, ids);
+  };
+
+  const badgeCounts = { assigned: assignedCount };
+  const tabOf = (d) => ({ id: d.id, label: d.label(destCtx), icon: d.icon, badge: d.badge ? (badgeCounts[d.badge] || 0) : 0 });
+  // Home first, then the four, then More. Whatever is not on the bar is
+  // under More, so nothing can be hidden from a person entirely.
+  const primaryTabs = [DESTINATIONS.find(d => d.home)].concat(shortcuts.map(destById)).filter(Boolean).map(tabOf);
+  const moreTabs = shortcutChoices.filter(d => shortcuts.indexOf(d.id) === -1).map(tabOf);
   const moreTabIds = moreTabs.map(t => t.id);
   const isMoreActive = moreTabIds.includes(activeTab);
-  const totalBadge = assignedCount;
+  // The count on More is what is waiting under More. With Assigned on the
+  // bar its badge shows there instead, so the two never double up.
+  const totalBadge = moreTabs.reduce((n, tab) => n + (tab.badge || 0), 0);
   // The Home card counts this person's own checklist, the list the Tasks
   // tab renders, and nothing wider. null until that list has come back.
   const homeTasks = Array.isArray(tasks) ? standardTasksOf(tasks) : null;
