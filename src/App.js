@@ -199,6 +199,73 @@ const HelpIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.1 9a3 
 const PersonIco = (p) => <Ico d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
+// Every destination the portal has, in one list, so the bottom bar and the
+// More overlay cannot drift apart. Labels, icons and role conditions are
+// exactly what they were when the bar was the same for everyone. Home is
+// always the first place on the bar and is never one of the four choices.
+// A destination added here later appears under More on its own.
+const DESTINATIONS = [
+  { id: "clock", label: () => "Home", icon: HomeIco, home: true },
+  { id: "schedule", label: () => "Schedule", icon: CalIco },
+  { id: "tasks", label: () => "Tasks", icon: CheckIco },
+  { id: "chat", label: () => "Chat", icon: ChatIco },
+  { id: "agent", label: () => "Help", icon: HelpIco },
+  { id: "issuetasks", label: () => "Assigned", icon: WrkIco, badge: "assigned" },
+  { id: "issues", label: (ctx) => ctx.isAdmin ? "Issues" : "Report", icon: AlertIco },
+  { id: "supplies", label: () => "Supplies", icon: BoxIco },
+  { id: "pickup", label: () => "Pickup", icon: SwapIco },
+  { id: "inspect", label: () => "Inspect", icon: ClipIco },
+  { id: "speakup", label: () => "Speak Up", icon: PersonIco },
+];
+const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
+
+// The four places between Home and More. The default is the bar as it was:
+// Schedule, Tasks, Chat, Help, which leaves the same six under More in the
+// same order.
+const SHORTCUT_SLOTS = 4;
+const DEFAULT_SHORTCUTS = ["schedule", "tasks", "chat", "agent"];
+const SHORTCUTS_KEY_PREFIX = "ocsa-staff-shortcuts:";
+const shortcutsKey = (userId) => SHORTCUTS_KEY_PREFIX + String(userId || "");
+
+// Which destinations this person may put on the bar. Home is not one of
+// them, and a destination their role cannot open is not either.
+function shortcutChoicesFor(ctx) {
+  return DESTINATIONS.filter(d => !d.home && (!d.role || d.role(ctx)));
+}
+
+// A stored layout is trusted only if it is exactly four known, distinct ids
+// this person can open. Anything else reads as null, and the caller falls
+// back to the default.
+function validShortcuts(value, allowedIds) {
+  if (!Array.isArray(value) || value.length !== SHORTCUT_SLOTS) return null;
+  const seen = {};
+  for (let i = 0; i < value.length; i++) {
+    const id = value[i];
+    if (typeof id !== "string") return null;
+    if (allowedIds.indexOf(id) === -1) return null;
+    if (seen[id]) return null;
+    seen[id] = true;
+  }
+  return value.slice();
+}
+
+// Kept per person, so two people signing in on the same phone each keep
+// their own. Every read and write in try and catch, the same pattern as
+// Text size; a storage that throws means the default.
+function readShortcuts(userId, allowedIds) {
+  try {
+    const raw = window.localStorage.getItem(shortcutsKey(userId));
+    if (!raw) return DEFAULT_SHORTCUTS.slice();
+    return validShortcuts(JSON.parse(raw), allowedIds) || DEFAULT_SHORTCUTS.slice();
+  } catch (e) { return DEFAULT_SHORTCUTS.slice(); }
+}
+function saveShortcuts(userId, ids) {
+  try { window.localStorage.setItem(shortcutsKey(userId), JSON.stringify(ids)); } catch (e) {}
+}
+
+const SHORTCUTS_CARD_LINE = "Choose what sits on your bottom bar. Everything else is under More.";
+const SHORTCUTS_EMPTY_SLOT = "Pick something for this spot";
+
 const mkLabel = (t) => ({ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700, marginBottom: 6, display: "block", fontFamily: FONT_HEAD });
 const mkInput = (t) => ({ width: "100%", padding: "11px 14px", borderRadius: R.md, border: "1px solid " + t.inputBorder, background: t.inputBg, color: t.text, fontSize: 14, outline: "none", fontFamily: FONT_BODY });
 const mkQtyBtn = (t) => ({ width: 36, height: 36, borderRadius: "50%", border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: t.text });
@@ -592,24 +659,36 @@ export default function OCSAStaffPortal() {
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
   const assignedCount = assignedTasks.length;
   const [showMore, setShowMore] = useState(false);
-  const primaryTabs = [
-    { id: "clock", label: "Home", icon: HomeIco },
-    { id: "schedule", label: "Schedule", icon: CalIco },
-    { id: "tasks", label: "Tasks", icon: CheckIco },
-    { id: "chat", label: "Chat", icon: ChatIco },
-    { id: "agent", label: "Help", icon: HelpIco },
-  ];
-  const moreTabs = [
-    { id: "issuetasks", label: "Assigned", icon: WrkIco, badge: assignedCount },
-    { id: "issues", label: isAdmin ? "Issues" : "Report", icon: AlertIco },
-    { id: "supplies", label: "Supplies", icon: BoxIco },
-    { id: "pickup", label: "Pickup", icon: SwapIco },
-    { id: "inspect", label: "Inspect", icon: ClipIco },
-    { id: "speakup", label: "Speak Up", icon: PersonIco },
-  ];
+
+  // The person's own four places between Home and More. Read on the first
+  // render after they are known, so the bar never shows the default and
+  // then swaps to theirs.
+  const destCtx = { isAdmin };
+  const shortcutChoices = shortcutChoicesFor(destCtx);
+  const allowedShortcutIds = shortcutChoices.map(d => d.id);
+  const uid = user && user.id ? user.id : null;
+  const [shortcutsState, setShortcutsState] = useState({ userId: null, ids: DEFAULT_SHORTCUTS });
+  if (shortcutsState.userId !== uid) {
+    setShortcutsState({ userId: uid, ids: uid ? readShortcuts(uid, allowedShortcutIds) : DEFAULT_SHORTCUTS.slice() });
+  }
+  const shortcuts = shortcutsState.userId === uid ? shortcutsState.ids : DEFAULT_SHORTCUTS;
+  const applyShortcuts = (ids) => {
+    setShortcutsState({ userId: uid, ids: ids.slice() });
+    if (uid) saveShortcuts(uid, ids);
+  };
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  const badgeCounts = { assigned: assignedCount };
+  const tabOf = (d) => ({ id: d.id, label: d.label(destCtx), icon: d.icon, badge: d.badge ? (badgeCounts[d.badge] || 0) : 0 });
+  // Home first, then the four, then More. Whatever is not on the bar is
+  // under More, so nothing can be hidden from a person entirely.
+  const primaryTabs = [DESTINATIONS.find(d => d.home)].concat(shortcuts.map(destById)).filter(Boolean).map(tabOf);
+  const moreTabs = shortcutChoices.filter(d => shortcuts.indexOf(d.id) === -1).map(tabOf);
   const moreTabIds = moreTabs.map(t => t.id);
   const isMoreActive = moreTabIds.includes(activeTab);
-  const totalBadge = assignedCount;
+  // The count on More is what is waiting under More. With Assigned on the
+  // bar its badge shows there instead, so the two never double up.
+  const totalBadge = moreTabs.reduce((n, tab) => n + (tab.badge || 0), 0);
   // The Home card counts this person's own checklist, the list the Tasks
   // tab renders, and nothing wider. null until that list has come back.
   const homeTasks = Array.isArray(tasks) ? standardTasksOf(tasks) : null;
@@ -660,7 +739,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
-              {activeTab === "profile" && <MyProfileView token={token} user={user} showToast={showToast} t={t} setUser={setUser} setActiveTab={setActiveTab} />}
+              {activeTab === "profile" && <MyProfileView token={token} user={user} showToast={showToast} t={t} setUser={setUser} setActiveTab={setActiveTab} onEditShortcuts={() => setShortcutsOpen(true)} />}
             </div>
           </div>
 
@@ -678,6 +757,7 @@ export default function OCSAStaffPortal() {
                   </button>
                 ); })}
               </div>
+              <button onClick={() => { setShowMore(false); setShortcutsOpen(true); }} style={{ width: "100%", minHeight: 44, marginTop: 8, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>Edit shortcuts</button>
             </div>
           </div>}
 
@@ -704,6 +784,17 @@ export default function OCSAStaffPortal() {
             </button>
           </div>
         </>
+      )}
+
+      {shortcutsOpen && (
+        <ShortcutsSheet
+          t={t}
+          choices={shortcutChoices}
+          current={shortcuts}
+          ctx={destCtx}
+          onClose={() => setShortcutsOpen(false)}
+          onSave={(ids) => { applyShortcuts(ids); setShortcutsOpen(false); showToast("Shortcuts saved"); }}
+        />
       )}
 
       {toast && (<div style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", background: toast.type === "error" ? RED : toast.type === "notice" ? ORANGE : GREEN, color: toast.type === "notice" ? NAVY : "#F8F7F4", padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 1000, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", maxWidth: "90%", textAlign: "center" }}>{toast.msg}</div>)}
@@ -2138,6 +2229,169 @@ function SpeakUpView({ token, t }) {
   );
 }
 
+// The shortcuts editor. Home and More are shown in their places and cannot
+// be moved. The four between them are the person's, and every destination
+// not on the bar is listed under More, so nothing can be lost here. The
+// draft lives in this component, so closing without Done changes nothing.
+function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
+  const [draft, setDraft] = useState(() => {
+    const ids = (current || []).slice(0, SHORTCUT_SLOTS);
+    while (ids.length < SHORTCUT_SLOTS) ids.push(null);
+    return ids;
+  });
+  // The id waiting to go on a full bar, until the person says which of the
+  // four it replaces.
+  const [replacing, setReplacing] = useState(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+
+  const nameOf = (id) => { const d = destById(id); return d ? d.label(ctx) : ""; };
+  const iconOf = (id) => { const d = destById(id); return d ? d.icon : null; };
+  const filled = draft.filter(Boolean);
+  const complete = filled.length === SHORTCUT_SLOTS;
+  const under = choices.filter(d => draft.indexOf(d.id) === -1);
+
+  const move = (i, step) => setDraft(prev => {
+    const j = i + step;
+    if (j < 0 || j >= SHORTCUT_SLOTS) return prev;
+    const next = prev.slice();
+    const a = next[i]; next[i] = next[j]; next[j] = a;
+    return next;
+  });
+  const removeAt = (i) => setDraft(prev => { const next = prev.slice(); next[i] = null; return next; });
+  const addToBar = (id) => {
+    const empty = draft.indexOf(null);
+    if (empty === -1) { setReplacing(id); return; }
+    setDraft(prev => { const next = prev.slice(); next[empty] = id; return next; });
+  };
+  const replaceAt = (i) => {
+    setDraft(prev => { const next = prev.slice(); next[i] = replacing; return next; });
+    setReplacing(null);
+  };
+
+  const rowBtn = { minHeight: 44, minWidth: 44, padding: "0 10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 };
+  const wideBtn = { width: "100%", minHeight: 44, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD };
+  const sectionSt = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, margin: "16px 0 8px", fontFamily: FONT_HEAD };
+  const rowSt = { display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md };
+  const nameSt = { flex: 1, minWidth: 0, fontSize: 14, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+  const fixedSt = { ...rowSt, background: t.hover, border: "1px dashed " + t.borderSolid };
+
+  // The bar as it would be, so the result is visible before it is saved.
+  const preview = [DESTINATIONS.find(d => d.home).id].concat(draft);
+  const PreviewBar = (
+    <div style={{ display: "flex", background: t.navBg, border: "1px solid " + t.navBorder, borderRadius: R.md, padding: "6px 0" }}>
+      {preview.map((id, i) => {
+        const Ic = id ? iconOf(id) : null;
+        return (
+          <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minWidth: 0, padding: "0 2px" }}>
+            {Ic ? <Ic sz={18} c={t.textMut} /> : <div style={{ width: 18, height: 18, borderRadius: 4, border: "1px dashed " + t.textMut }} />}
+            <span style={{ fontSize: 8, color: t.textMut, letterSpacing: "0.3px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{id ? nameOf(id) : "-"}</span>
+          </div>
+        );
+      })}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minWidth: 0, padding: "0 2px" }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={t.textMut} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" /></svg>
+        <span style={{ fontSize: 8, color: t.textMut, letterSpacing: "0.3px" }}>More</span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, height: "var(--ocsa-vh, 100vh)", maxHeight: "var(--ocsa-dvh, 100dvh)", display: "flex", flexDirection: "column", borderTop: "1px solid " + t.borderSolid }}>
+        <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>Shortcuts</div>
+          {PreviewBar}
+        </div>
+
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 16px" }}>
+          <div style={sectionSt}>On your bar</div>
+          <div style={fixedSt}>
+            <HomeIco sz={18} c={t.textMut} />
+            <span style={nameSt}>Home</span>
+            <span style={{ fontSize: 10, color: t.textMut, flexShrink: 0 }}>Always first</span>
+          </div>
+          {draft.map((id, i) => {
+            if (!id) {
+              return (
+                <div key={"empty" + i} style={{ ...rowSt, border: "1px dashed " + ORANGE }}>
+                  <div style={{ width: 18, height: 18, borderRadius: 4, border: "1px dashed " + ORANGE, flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: ORANGE }}>{SHORTCUTS_EMPTY_SLOT}</span>
+                </div>
+              );
+            }
+            const Ic = iconOf(id);
+            const name = nameOf(id);
+            return (
+              <div key={id} style={{ ...rowSt, display: "block" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {Ic && <Ic sz={18} c={t.textSec} />}
+                  <span style={nameSt}>{name}</span>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button onClick={() => move(i, -1)} disabled={i === 0} aria-label={"Move up " + name} style={{ ...rowBtn, flex: 1, opacity: i === 0 ? 0.4 : 1 }}>Move up</button>
+                  <button onClick={() => move(i, 1)} disabled={i === SHORTCUT_SLOTS - 1} aria-label={"Move down " + name} style={{ ...rowBtn, flex: 1, opacity: i === SHORTCUT_SLOTS - 1 ? 0.4 : 1 }}>Move down</button>
+                  <button onClick={() => removeAt(i)} aria-label={"Remove " + name} style={{ ...rowBtn, flex: 1, color: RED, borderColor: RED }}>Remove</button>
+                </div>
+              </div>
+            );
+          })}
+          <div style={fixedSt}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={t.textMut} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" /></svg>
+            <span style={nameSt}>More</span>
+            <span style={{ fontSize: 10, color: t.textMut, flexShrink: 0 }}>Always last</span>
+          </div>
+
+          <div style={sectionSt}>Under More</div>
+          {under.length === 0 && <div style={{ fontSize: 12, color: t.textMut, padding: "4px 2px" }}>Everything is on your bar.</div>}
+          {under.map(d => {
+            const Ic = d.icon;
+            const name = d.label(ctx);
+            return (
+              <div key={d.id} style={rowSt}>
+                <Ic sz={18} c={t.textSec} />
+                <span style={nameSt}>{name}</span>
+                <button onClick={() => addToBar(d.id)} aria-label={"Add to bar " + name} style={{ ...rowBtn, color: t.goldText, borderColor: t.goldBorder, background: t.goldBg }}>Add to bar</button>
+              </div>
+            );
+          })}
+
+          <button onClick={() => setConfirmReset(true)} style={{ ...wideBtn, marginTop: 18 }}>Reset to default</button>
+        </div>
+
+        <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, display: "flex", gap: 10, flexShrink: 0, background: t.bg }}>
+          <button onClick={onClose} style={{ ...wideBtn, flex: 1 }}>Close</button>
+          <button onClick={() => onSave(draft)} disabled={!complete} style={{ flex: 1, minHeight: 44, borderRadius: R.md, border: "none", background: complete ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : t.cardAlt, color: complete ? NAVY : t.textMut, fontSize: 14, fontWeight: 700, cursor: complete ? "pointer" : "default", fontFamily: FONT_HEAD }}>Done</button>
+        </div>
+
+        {replacing && (
+          <div onClick={() => setReplacing(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 410, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 560, padding: "18px 16px 26px", boxShadow: t.popShadow }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>Replace which one?</div>
+              <div style={{ fontSize: 12, color: t.textSec, marginBottom: 12 }}>Your bar is full. {nameOf(replacing)} will take the place of the one you pick.</div>
+              {draft.map((id, i) => (
+                <button key={i} onClick={() => replaceAt(i)} style={{ ...wideBtn, marginBottom: 8, textAlign: "left", padding: "0 14px" }}>{id ? nameOf(id) : SHORTCUTS_EMPTY_SLOT}</button>
+              ))}
+              <button onClick={() => setReplacing(null)} style={{ ...wideBtn, marginTop: 4 }}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {confirmReset && (
+          <div onClick={() => setConfirmReset(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 410, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 560, padding: "18px 16px 26px", boxShadow: t.popShadow }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, marginBottom: 14 }}>Put the bar back the way it came?</div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => setConfirmReset(false)} style={{ ...wideBtn, flex: 1 }}>Cancel</button>
+                <button onClick={() => { setDraft(DEFAULT_SHORTCUTS.slice()); setConfirmReset(false); }} style={{ flex: 1, minHeight: 44, borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>Reset</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function EmptyState({ icon: Icon, text, t }) {
   return (<div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><Icon sz={40} c={t.borderSolid} /><div style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{text}</div></div>);
 }
@@ -2581,7 +2835,7 @@ function InspectView({ token, user, showToast, t }) {
   );
 }
 
-function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
+function MyProfileView({ token, user, showToast, t, setUser, setActiveTab, onEditShortcuts }) {
   const { textSize, setTextSize } = useContext(TextSizeCtx);
   const [profile, setProfile] = useState(null);
   const [editing, setEditing] = useState(false);
@@ -2757,6 +3011,13 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
         <div style={{ ...labelSt, marginBottom: 6 }}>Text size</div>
         <div style={{ fontSize: 11, color: t.textMut, marginBottom: 12, lineHeight: 1.4 }}>Makes everything in the app bigger on this phone.</div>
         <TextSizeChoices value={textSize} onChange={setTextSize} t={t} />
+      </div>
+
+      {/* Shortcuts */}
+      <div style={cardSt}>
+        <div style={{ ...labelSt, marginBottom: 6 }}>Shortcuts</div>
+        <div style={{ fontSize: 11, color: t.textMut, marginBottom: 12, lineHeight: 1.4 }}>{SHORTCUTS_CARD_LINE}</div>
+        <button onClick={onEditShortcuts} style={{ width: "100%", minHeight: 44, borderRadius: R.md, border: "1px solid " + GOLD, background: "transparent", color: t.goldText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>Edit shortcuts</button>
       </div>
 
       {/* Change PIN */}
