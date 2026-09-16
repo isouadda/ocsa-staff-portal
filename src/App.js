@@ -310,6 +310,9 @@ export default function OCSAStaffPortal() {
   // null until the site's list has come back, so the Tasks tab can tell
   // a list still loading from a building with no checklist.
   const [tasks, setTasks] = useState(null);
+  // The fetch came back empty-handed. Separate from tasks staying null,
+  // which is a list still on its way.
+  const [tasksFailed, setTasksFailed] = useState(false);
   const [completedTaskIds, setCompletedTaskIds] = useState(new Set());
   // Which server list fills the checklist. True reads the building's list,
   // so a task ticked by anyone on site today shows as ticked to everyone
@@ -402,11 +405,16 @@ export default function OCSAStaffPortal() {
   const handleLogin = async (phone, pin) => {
     setLoading(true);
     try {
-      const data = await api("/api/auth/login", { method: "POST", body: { phone, pin } });
+      // noAuthEvent, so a refused PIN is not read as an expired session.
+      // Nothing is signed in yet, so there is no session to end.
+      const data = await api("/api/auth/login", { method: "POST", body: { phone, pin }, noAuthEvent: true });
       setToken(data.token); saveAuth(data.token);
       const me = await hydrateSession(data.token);
       showToast("Welcome, " + me.firstName);
-    } catch (err) { showToast(err.message, "error"); }
+    } catch (err) {
+      const said = err && err.body && err.body.error ? String(err.body.error) : "";
+      showToast(said || "That sign-in did not match. Check your badge, phone or email and your PIN.", "error");
+    }
     setLoading(false);
   };
 
@@ -487,13 +495,13 @@ export default function OCSAStaffPortal() {
   // null, so the bar stays hidden and nothing is said to the person.
   const tasksSite = useRef(null);
   const tasksReqSite = useRef(null);
-  const loadTasks = async () => { if (!clockStatus?.clockedIn || !clockStatus?.shift?.siteId) return; const siteId = clockStatus.shift.siteId; if (tasksReqSite.current === siteId) return; tasksReqSite.current = siteId; try { let taskUrl = "/api/sites/" + siteId + "/tasks?user_id=" + user.id; if (clockStatus.shift.buildingName) taskUrl += "&building_name=" + encodeURIComponent(clockStatus.shift.buildingName); if (clockStatus.shift.floorNumber) taskUrl += "&floor_number=" + encodeURIComponent(clockStatus.shift.floorNumber); const tt = await api(taskUrl, { token }); setTasks(tt); tasksSite.current = siteId; const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { console.error(err); } finally { tasksReqSite.current = null; } };
-  const toggleTask = async (taskId) => { if (inFlightTaskIds.current.has(taskId)) return; inFlightTaskIds.current.add(taskId); try { if (completedTaskIds.has(taskId)) { await api("/api/clock/tasks/" + taskId + "/complete", { method: "DELETE", token }); setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); } else { await api("/api/clock/tasks/" + taskId + "/complete", { method: "POST", body: {}, token }); setCompletedTaskIds(prev => new Set(prev).add(taskId)); showToast("Task completed"); } const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { showToast(err.message, "error"); } finally { inFlightTaskIds.current.delete(taskId); } };
+  const loadTasks = async () => { if (!clockStatus?.clockedIn || !clockStatus?.shift?.siteId) return; const siteId = clockStatus.shift.siteId; if (tasksReqSite.current === siteId) return; tasksReqSite.current = siteId; setTasksFailed(false); try { let taskUrl = "/api/sites/" + siteId + "/tasks?user_id=" + user.id; if (clockStatus.shift.buildingName) taskUrl += "&building_name=" + encodeURIComponent(clockStatus.shift.buildingName); if (clockStatus.shift.floorNumber) taskUrl += "&floor_number=" + encodeURIComponent(clockStatus.shift.floorNumber); const tt = await api(taskUrl, { token }); setTasks(tt); tasksSite.current = siteId; const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { console.error(err); setTasksFailed(true); } finally { tasksReqSite.current = null; } };
+  const toggleTask = async (taskId) => { if (inFlightTaskIds.current.has(taskId)) return; inFlightTaskIds.current.add(taskId); try { if (completedTaskIds.has(taskId)) { await api("/api/clock/tasks/" + taskId + "/complete", { method: "DELETE", token }); setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); showToast("Task unchecked"); } else { await api("/api/clock/tasks/" + taskId + "/complete", { method: "POST", body: {}, token }); setCompletedTaskIds(prev => new Set(prev).add(taskId)); showToast("Task completed"); } const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { showToast(err.message, "error"); } finally { inFlightTaskIds.current.delete(taskId); } };
   const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); } catch (err) { console.error(err); } };
   const resolveAssignedTask = async (taskId, status, note, photoUrl) => { try { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast("Task updated to " + status.replace(/_/g, " ")); loadAssignedTasks(); } catch (err) { showToast(err.message, "error"); } };
   const submitIssue = async (title, description, zone, severity, photoUrl, siteId) => { const actualSiteId = siteId || clockStatus?.shift?.siteId; if (!actualSiteId) { showToast("Select a site first", "error"); return; } try { const data = await api("/api/issues", { method: "POST", body: { siteId: actualSiteId, title, description, zone, severity }, token }); if (photoUrl && data.issue) { await api("/api/issues/" + data.issue.id + "/photos", { method: "POST", body: { photoUrl }, token }); } showToast("Issue reported"); loadIssues(); } catch (err) { showToast(err.message, "error"); } };
   const loadSupplies = async () => { try { const url = clockStatus?.shift?.siteId ? "/api/supplies?site_id=" + clockStatus.shift.siteId : "/api/supplies"; const data = await api(url, { token }); setSupplies(data); } catch (err) { console.error(err); } };
-  const logSupplyUsage = async (supplyId, quantity) => { try { const data = await api("/api/supplies/log-usage", { method: "POST", body: { supplyId, quantity, siteId: clockStatus.shift.siteId, scanMethod: "manual" }, token }); showToast(data.message); setSupplyLogs(prev => [{ ...data.log, loggedAt: now().toISOString() }, ...prev]); if (data.lowStockAlert) showToast("Low stock alert!", "error"); } catch (err) { showToast(err.message, "error"); } };
+  const logSupplyUsage = async (supplyId, quantity) => { try { const data = await api("/api/supplies/log-usage", { method: "POST", body: { supplyId, quantity, siteId: clockStatus.shift.siteId, scanMethod: "manual" }, token }); showToast(data.message); setSupplyLogs(prev => [{ ...data.log, loggedAt: now().toISOString() }, ...prev]); if (data.lowStockAlert) showToast("Low stock alert!", "notice"); } catch (err) { showToast(err.message, "error"); } };
   const submitSupplyRequest = async (requestType, itemName, description, urgency, supplyId) => { try { const siteId = clockStatus?.shift?.siteId || null; await api("/api/supplies/requests", { method: "POST", body: { requestType, itemName, description, urgency, supplyId, siteId }, token }); showToast("Request submitted"); } catch (err) { showToast(err.message, "error"); } };
   const loadChannels = async () => { try { const data = await api("/api/chat/channels", { token }); setChannels(data); } catch (err) { console.error(err); } };
   const loadMessages = async (channelId) => { try { const data = await api("/api/chat/channels/" + channelId + "/messages", { token }); setMessages(data); } catch (err) { console.error(err); } };
@@ -579,7 +587,7 @@ export default function OCSAStaffPortal() {
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
               {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} loading={loading} completedCount={homeDone} taskCount={homeTasks ? homeTasks.length : 0} taskListLoaded={!!homeTasks} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
-              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} t={t} />}
+              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} />}
@@ -634,7 +642,7 @@ export default function OCSAStaffPortal() {
         </>
       )}
 
-      {toast && (<div style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", background: toast.type === "error" ? RED : GREEN, color: "#F8F7F4", padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 1000, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", maxWidth: "90%", textAlign: "center" }}>{toast.msg}</div>)}
+      {toast && (<div style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", background: toast.type === "error" ? RED : toast.type === "notice" ? ORANGE : GREEN, color: toast.type === "notice" ? NAVY : "#F8F7F4", padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 1000, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", maxWidth: "90%", textAlign: "center" }}>{toast.msg}</div>)}
 
       <style>{`
         @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
@@ -684,7 +692,19 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
   const [fn, setFn] = useState(""); const [ln, setLn] = useState("");
   const [ph, setPh] = useState(""); const [em, setEm] = useState("");
   const [pin, setPin] = useState(""); const [pin2, setPin2] = useState("");
-  const labelSt = mkLabel(t); const inputSt = mkInput(t);
+  const [errs, setErrs] = useState({});
+  const labelSt = mkLabel(t); const inputSt = mkInput(t); const errSt = mkFieldErr(t);
+
+  // The first empty required field is named, and nothing is sent. Last
+  // Name carries no asterisk, so it is not required here either.
+  const submit = () => {
+    const required = [["firstName", "First Name", fn], ["phone", "Phone Number", ph], ["email", "Email Address", em], ["pin", "PIN", pin], ["pin2", "Confirm PIN", pin2]];
+    const empty = required.find(f => !String(f[2]).trim());
+    if (empty) { setErrs({ [empty[0]]: "Fill in " + empty[1] + "." }); return; }
+    if (pin !== pin2) { setErrs({ pin2: ERR_PIN_MISMATCH }); return; }
+    setErrs({});
+    onRegister(fn, ln, ph, em, pin);
+  };
   return (
     <div style={{ width: "100%", minHeight: "var(--ocsa-vh, 100vh)", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
       <div style={{ width: "100%", maxWidth: 420, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: "28px 24px", boxShadow: t.popShadow }}>
@@ -692,13 +712,13 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
           <div style={{ display: "inline-block", maxWidth: "100%", boxSizing: "border-box", padding: "4px 12px", background: "rgba(255,255,255,0.92)", borderRadius: 6 }}><img src={LOGO_SM} alt={clientConfig.company.shortName} style={{ height: 34, maxWidth: "100%", objectFit: "contain" }} /></div>
           <div style={{ fontSize: 12, color: t.textSec, letterSpacing: "2px", textTransform: "uppercase", marginTop: 8, fontFamily: FONT_HEAD, fontWeight: 700 }}>New Staff Registration</div>
         </div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>First Name *</label><input value={fn} onChange={e => setFn(e.target.value)} placeholder="First name" style={inputSt} /></div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>First Name *</label><input value={fn} onChange={e => setFn(e.target.value)} placeholder="First name" style={inputSt} />{errs.firstName && <div style={errSt}>{errs.firstName}</div>}</div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>Last Name</label><input value={ln} onChange={e => setLn(e.target.value)} placeholder="Last name" style={inputSt} /></div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>Phone Number *</label><input value={ph} onChange={e => setPh(e.target.value)} placeholder="2155550000 (no dashes needed)" style={inputSt} /></div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>Email Address *</label><input value={em} onChange={e => setEm(e.target.value)} placeholder="name@email.com" type="email" style={inputSt} /></div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>PIN (4 digits) *</label><input value={pin} onChange={e => setPin(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} /></div>
-        <div style={{ marginBottom: 24 }}><label style={labelSt}>Confirm PIN *</label><input value={pin2} onChange={e => setPin2(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} /></div>
-        <button onClick={() => { if (pin !== pin2) return; onRegister(fn, ln, ph, em, pin); }} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 700, cursor: "pointer", boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? "Registering..." : "Register"}</button>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>Phone Number *</label><input value={ph} onChange={e => setPh(e.target.value)} placeholder="2155550000 (no dashes needed)" style={inputSt} />{errs.phone && <div style={errSt}>{errs.phone}</div>}</div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>Email Address *</label><input value={em} onChange={e => setEm(e.target.value)} placeholder="name@email.com" type="email" style={inputSt} />{errs.email && <div style={errSt}>{errs.email}</div>}</div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>PIN (4 digits) *</label><input value={pin} onChange={e => setPin(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
+        <div style={{ marginBottom: 24 }}><label style={labelSt}>Confirm PIN *</label><input value={pin2} onChange={e => setPin2(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
+        <button onClick={submit} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 700, cursor: "pointer", boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? "Registering..." : "Register"}</button>
         <button onClick={onBack} style={{ width: "100%", padding: "12px", marginTop: 12, borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, cursor: "pointer" }}>Back to Login</button>
         <div style={{ display: "flex", justifyContent: "center", marginTop: 20 }}><TextSizeButton t={t} /></div>
       </div>
@@ -778,7 +798,10 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
     const e = {};
     const b = badge.trim();
     if (needBadge && !b) e.badge = "Enter the badge number from your email.";
-    if (!PIN_RE.test(pin)) e.pin = "PIN must be exactly 4 digits.";
+    // The same rules Set Your PIN applies, so a PIN accepted here is never
+    // refused a moment later.
+    const why = weakPinReason(pin, b);
+    if (why) e.pin = why;
     else if (pin2 !== pin) e.pin2 = ERR_PIN_MISMATCH;
     setErrs(e);
     if (Object.keys(e).length) return;
@@ -1301,8 +1324,14 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                   <button onClick={() => setDetail({ ...detail, dropForm: null })} style={{ flex: 1, padding: "11px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
                   <button onClick={async () => {
                     try {
-                      await api("/api/pickups/request-drop", { method: "POST", body: { scheduled_shift_id: detail.id, reason: detail.dropForm.reason, notes: detail.dropForm.notes || detail.dropForm.reason }, token });
+                      // What was typed under Specify Reason is sent, with
+                      // the Notes line under it when both were filled.
+                      const other = (detail.dropForm.otherText || "").trim();
+                      const extra = (detail.dropForm.notes || "").trim();
+                      const notes = other && extra ? other + "\n" + extra : (other || extra || detail.dropForm.reason);
+                      await api("/api/pickups/request-drop", { method: "POST", body: { scheduled_shift_id: detail.id, reason: detail.dropForm.reason, notes }, token });
                       setDetail(null);
+                      showToast("Drop request sent. Your supervisor will review it.");
                       loadSchedule();
                     } catch (e) { showToast(e.message || "Drop request failed", "error"); }
                   }} style={{ flex: 1, padding: "11px", borderRadius: R.md, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD }}>Submit Request</button>
@@ -1408,7 +1437,7 @@ function standardTasksOf(taskList) {
   return (Array.isArray(taskList) ? taskList : []).filter(tk => !tk.task_type || tk.task_type === "standard");
 }
 
-function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask, t }) {
+function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, toggleTask, t }) {
   const [detail, setDetail] = useState(null);
   const loaded = Array.isArray(tasks);
   const standardTasks = standardTasksOf(tasks);
@@ -1422,11 +1451,18 @@ function TasksView({ clockStatus, tasks, completedTaskIds, toggleTask, t }) {
 
   if (!clockStatus?.clockedIn) return (
     <div style={{ padding: "16px" }}>
-      <div style={{ padding: "12px 14px", marginBottom: 14, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow }}><div style={{ fontSize: 12, color: ORANGE }}>Start your shift to check off tasks. You can view your task list below.</div></div>
+      <div style={{ padding: "12px 14px", marginBottom: 14, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow }}><div style={{ fontSize: 12, color: ORANGE }}>Start your shift to see and check off your tasks.</div></div>
       {standardTasks.length === 0 ? <EmptyState icon={CheckIco} text="No tasks loaded. Start your shift at a site to see your checklist." t={t} /> : (() => {
         const groups = groupTasksByFloorZone(standardTasks); let lastFloor = undefined;
         return groups.map((g, gi) => { const showFloor = g.floor && g.floor !== lastFloor; lastFloor = g.floor; return (<div key={gi} style={{ marginBottom: 16 }}>{showFloor && (<div style={{ ...floorHeadSt, marginTop: gi > 0 ? 10 : 0 }}>Floor {g.floor}</div>)}<div style={{ ...zoneSt, paddingLeft: g.floor ? 8 : 0 }}>{g.zone}</div>{g.tasks.map(task => { const hasInfo = task.has_details || task.description || task.media_url; return (<div key={task.id} onClick={() => hasInfo ? setDetail(task) : null} style={{ ...rowBase, background: t.card, border: "1px solid " + t.borderSolid, cursor: hasInfo ? "pointer" : "default", opacity: 0.6, marginLeft: g.floor ? 8 : 0 }}><div style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + t.textMut, background: "transparent", flexShrink: 0, marginTop: 1 }} /><div style={{ flex: 1, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{task.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div>); })}</div>); });
       })()}
+    </div>
+  );
+  if (!loaded && tasksFailed) return (
+    <div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow, margin: 16 }}>
+      <CheckIco sz={40} c={t.borderSolid} />
+      <div style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>Your tasks did not load.</div>
+      <button onClick={onRetryTasks} style={{ minHeight: 44, marginTop: 16, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>Try again</button>
     </div>
   );
   if (!loaded) return <EmptyState icon={CheckIco} text="Loading tasks..." t={t} />;
@@ -1884,7 +1920,7 @@ function PickupView({ token, user, showToast, t }) {
     try {
       const result = await api("/api/pickups/" + id + "/claim", { method: "POST", token });
       if (result.ot_warning) {
-        showToast("Shift claimed (overtime warning: " + Math.round(result.weekly_minutes / 60) + "h this week)", "error");
+        showToast("Shift claimed (overtime warning: " + Math.round(result.weekly_minutes / 60) + "h this week)", "notice");
       } else {
         showToast("Shift claimed successfully!");
       }
