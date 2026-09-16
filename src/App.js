@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
 import clientConfig from './clientConfig';
+import { setWordsLanguage } from "./words";
 
 const API = process.env.REACT_APP_API_URL || "https://ocsa-api-production.up.railway.app";
 
@@ -543,6 +544,12 @@ export default function OCSAStaffPortal() {
   const toggleTheme = () => setTheme(themeMode === "dark" ? "light" : "dark");
   const [language, setLanguageState] = useState(readLanguage);
   const setLanguage = (v) => { setLanguageState(v); saveLanguage(v); queuePref({ language: v }); };
+  // Every screen below reads its words from this. Set during the
+  // render that carries the new value, so the whole portal turns
+  // at once; an effect would run after the first paint and show
+  // one frame of the language the person just left. It derives
+  // from state alone, so running it twice changes nothing.
+  setWordsLanguage(language);
   const [textSize, setTextSizeState] = useState(readTextSize);
   const setTextSize = (id) => { setTextSizeState(id); saveTextSize(id); queuePref({ textSize: id }); };
   const zoom = zoomOf(textSize);
