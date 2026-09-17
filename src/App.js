@@ -1862,13 +1862,19 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
   const isDm = activeChannel && dmChannel && activeChannel === dmChannel.id;
   const handleSend = () => { if (!text.trim() || !activeChannel) return; sendMessage(activeChannel, text.trim()); setText(""); };
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "calc(var(--ocsa-vh, 100vh) - 128px)" }}>
+    // The same ceiling every other full height screen carries. Chat
+    // subtracted 128 where Help and Forms subtract 136, and had no
+    // maxHeight, so at the Largest text size the page grew past the
+    // viewport, a vertical scrollbar appeared, and the bottom bar,
+    // whose width is 100 percent of the initial containing block, came
+    // out 10 pixels wider than the screen and scrolled it sideways.
+    <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", height: "calc(var(--ocsa-vh, 100vh) - 136px)", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 136px)", minHeight: 0, overflow: "hidden" }}>
       <div style={{ padding: "10px 12px 0", borderBottom: "1px solid " + t.borderSolid, paddingBottom: 10 }}>
         <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} style={{ padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 700 : 500, fontFamily: FONT_HEAD, cursor: "pointer" }}>{ch.name || ch.siteName}</button>))}</div>
         {dmChannel && (<button onClick={() => setActiveChannel(dmChannel.id)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", borderRadius: R.md, background: isDm ? t.blueSubtle : t.hover, border: isDm ? "1.5px solid " + t.blueBorder : "1px solid " + t.borderSolid, boxShadow: isDm ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><LockIco c={isDm ? BLUE : t.textMut} /><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: isDm ? 700 : 600, color: isDm ? BLUE : t.textSec, fontFamily: FONT_HEAD }}>{tr("Admin (Private)")}</div><div style={{ fontSize: 9, color: t.textMut }}>{tr("Only you and management can see these messages")}</div></div>{dmChannel.unreadCount > 0 && <div style={{ background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{dmChannel.unreadCount}</div>}</button>)}
       </div>
       {isDm && (<div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: t.blueSubtle, borderBottom: "1px solid " + t.blueBorder, fontSize: 10, color: BLUE }}><LockIco /> {tr("Private conversation with admin.")}</div>)}
-      <div style={{ flex: 1, overflowY: "auto", padding: "12px 12px 0" }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 12px 0" }}>
         {!activeChannel && <div style={{ textAlign: "center", padding: "40px 20px" }}><ChatIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>{tr("Select a channel to start chatting.")}</div></div>}
         {activeChannel && messages.length === 0 && <div style={{ textAlign: "center", padding: "40px 20px", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("No messages yet.")}</div>}
         {messages.map((msg, idx) => { const isMe = msg.senderId === user?.id; const isAdm = msg.senderRole === "admin" || msg.senderRole === "supervisor"; const showName = idx === 0 || messages[idx - 1].senderId !== msg.senderId; return (<div key={msg.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 8, marginBottom: showName ? 12 : 4, alignItems: "flex-end" }}>{!isMe && showName && (<div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdm ? (isDm ? "rgba(36,164,244,0.15)" : t.goldBg) : t.cardAlt, border: "1px solid " + (isAdm ? (isDm ? BLUE : GOLD) : t.borderSolid), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, flexShrink: 0, fontFamily: FONT_HEAD }}>{msg.senderName?.split(" ").map(n => n[0]).join("")}</div>)}{!isMe && !showName && <div style={{ width: 28, flexShrink: 0 }} />}<div style={{ maxWidth: "75%" }}>{!isMe && showName && <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 3, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, fontFamily: FONT_HEAD }}>{msg.senderName}</div>}<div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: isMe ? (isDm ? BLUE : GOLD) : (isDm && isAdm ? t.blueSubtle : t.card), border: isMe ? "none" : "1px solid " + (isDm && isAdm ? t.blueBorder : t.borderSolid), color: isMe ? (isDm ? "#F8F7F4" : NAVY) : t.text, fontSize: 13, lineHeight: 1.45 }}>{msg.text}</div><div style={{ fontSize: 9, color: t.textMut, marginTop: 2, textAlign: isMe ? "right" : "left", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{formatTime(msg.sentAt)}</div></div></div>); })}
@@ -2838,7 +2844,7 @@ function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize
 
       <div style={cardSt}>
         <div style={{ ...labelSt, marginBottom: 6 }}>{tr("Language")}</div>
-        <div style={lineSt}>{tr("Help answers you in this language. The rest of the app is in English for now.")}</div>
+        <div style={lineSt}>{tr("The app, Help and report forms use this language.")}</div>
         <div style={{ display: "flex", gap: 10 }}>
           {LANGUAGES.map(l => {
             const picked = language === l.id;

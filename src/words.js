@@ -500,7 +500,7 @@ export const WORDS = {
   "Could not update your PIN.": "No se pudo actualizar su PIN.",
   "Current PIN": "PIN actual",
   "Dark": "Oscuro",
-  "Help answers you in this language. The rest of the app is in English for now.": "Ayuda le responde en este idioma. El resto de la aplicaci\u00f3n est\u00e1 en ingl\u00e9s por ahora.",
+  "The app, Help and report forms use this language.": "La aplicaci\u00f3n, Ayuda y los formularios usan este idioma.",
   "Light": "Claro",
   "Makes everything in the app bigger on this phone.": "Agranda todo en la aplicaci\u00f3n en este tel\u00e9fono.",
   "Makes everything in the app bigger.": "Agranda todo en la aplicaci\u00f3n.",
