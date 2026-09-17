@@ -117,6 +117,7 @@ export const WORDS = {
   "Your PIN has been saved. Signing in will work once your account is active.": "Su PIN se guard\u00f3. Podr\u00e1 iniciar sesi\u00f3n cuando su cuenta est\u00e9 activa.",
 
   // App wide
+  "A new version is ready": "Hay una versi\u00f3n nueva lista",
   "Could not find your open shift. Reload and try again.": "No se encontr\u00f3 su turno abierto. Recargue e intente de nuevo.",
   "Edit shortcuts": "Editar accesos directos",
   "End your shift at {site}?": "\u00bfTerminar su turno en {site}?",
@@ -146,6 +147,7 @@ export const WORDS = {
   "That sign-in did not match. Check your badge, phone or email and your PIN.": "Esos datos no coinciden. Revise su n\u00famero de empleado, tel\u00e9fono o correo y su PIN.",
   "This shift was already ended": "Este turno ya estaba terminado",
   "this site": "este sitio",
+  "Update now": "Actualizar ahora",
   "Welcome, {name}": "Bienvenido, {name}",
   "{count} unread notifications": "{count} notificaciones sin leer",
 
