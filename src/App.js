@@ -2838,7 +2838,7 @@ function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize
 
       <div style={cardSt}>
         <div style={{ ...labelSt, marginBottom: 6 }}>{tr("Language")}</div>
-        <div style={lineSt}>{tr("Help answers you in this language. The rest of the app is in English for now.")}</div>
+        <div style={lineSt}>{tr("The app, Help and report forms use this language.")}</div>
         <div style={{ display: "flex", gap: 10 }}>
           {LANGUAGES.map(l => {
             const picked = language === l.id;
