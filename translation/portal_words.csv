@@ -1,0 +1,495 @@
+English,Spanish,Where it appears
+2155550000 (no dashes needed),2155550000 (sin guiones),Sign in
+4-digit PIN,PIN de 4 dígitos,Sign in
+"9001, 2155550101 or name@email.com","9001, 2155550101 o nombre@correo.com",Sign in
+Account Activation,Activación de cuenta,Sign in
+Activate Account,Activar cuenta,Sign in
+Activating...,Activando...,Sign in
+and can be used once.,y se puede usar una sola vez.,Sign in
+Ask your supervisor to confirm your badge number.,Pida a su supervisor que confirme su número de empleado.,Sign in
+Back to Login,Volver al inicio de sesión,Sign in
+Back to Sign In,Volver al inicio de sesión,Sign in
+Badge Number,Número de empleado,"Sign in, Profile"
+Badge number,Número de empleado,Sign in
+"Badge Number, Phone or Email","Número de empleado, teléfono o correo",Sign in
+Checking your link...,Revisando su enlace...,Sign in
+Choose your new 4-digit PIN.,Elija su nuevo PIN de 4 dígitos.,Sign in
+Confirm PIN,Confirmar PIN,Sign in
+Confirm PIN *,Confirmar PIN *,Sign in
+Confirm your badge number and choose your 4-digit PIN.,Confirme su número de empleado y elija su PIN de 4 dígitos.,Sign in
+Contact your supervisor to have a new link sent.,Hable con su supervisor para que le envíen un enlace nuevo.,Sign in
+Dark Mode,Modo oscuro,Sign in
+Email Address,Correo electrónico,Sign in
+Email Address *,Correo electrónico *,Sign in
+"Enter the badge number, phone number or email address on your account and we will email you a link to choose a new PIN.","Escriba el número de empleado, teléfono o correo de su cuenta y le enviaremos un enlace para elegir un PIN nuevo.",Sign in
+"Enter your badge number, phone number or email address.","Escriba su número de empleado, teléfono o correo electrónico.",Sign in
+Fill in {field}.,Complete {field}.,Sign in
+First Name,Nombre,Sign in
+First name,Nombre,Sign in
+First Name *,Nombre *,Sign in
+Forgot your PIN?,¿Olvidó su PIN?,Sign in
+Forgotten your badge number? You can also sign in with your phone number or your email address.,¿Olvidó su número de empleado? También puede entrar con su teléfono o su correo electrónico.,Sign in
+"If that matches an account on file, a reset link is on its way. The link is good for one hour.","Si eso coincide con una cuenta registrada, le enviamos un enlace. El enlace sirve por una hora.",Sign in
+"If you do not have an email address on file, no link can reach you. Contact your supervisor to have your PIN reset directly.","Si no tiene un correo registrado, no hay cómo enviarle el enlace. Hable con su supervisor para que le restablezca el PIN directamente.",Sign in
+Language,Idioma,"Sign in, Settings"
+Last Name,Apellido,Sign in
+Last name,Apellido,Sign in
+Light Mode,Modo claro,Sign in
+Loading...,Cargando...,"Sign in, Schedule, Pickup, Inspect, Notifications"
+name@email.com,nombre@correo.com,Sign in
+New Employee? Register Here,¿Empleado nuevo? Regístrese aquí,Sign in
+New PIN (4 digits),PIN nuevo (4 dígitos),Sign in
+New Staff Registration,Registro de personal nuevo,Sign in
+Not you? Sign out,¿No es usted? Cerrar sesión,Sign in
+Phone Number,Número de teléfono,Sign in
+Phone Number *,Número de teléfono *,Sign in
+PIN,PIN,Sign in
+PIN (4 digits),PIN (4 dígitos),Sign in
+PIN (4 digits) *,PIN (4 dígitos) *,Sign in
+PIN saved. Signing you in...,PIN guardado. Iniciando su sesión...,Sign in
+PIN set. Signing you in...,PIN guardado. Iniciando su sesión...,Sign in
+Register,Registrarse,Sign in
+Registering...,Registrando...,Sign in
+Request a New Link,Pedir un enlace nuevo,Sign in
+Reset Your PIN,Restablecer su PIN,Sign in
+Save PIN,Guardar PIN,Sign in
+Saving...,Guardando...,"Sign in, Settings, Profile"
+Send Reset Link,Enviar enlace,Sign in
+Sending...,Enviando...,"Sign in, Speak Up"
+Set your own PIN. The PIN you were given is known to your supervisor. Choose a new one that only you know.,Elija su propio PIN. Su supervisor conoce el PIN que le dieron. Elija uno nuevo que solo usted sepa.,Sign in
+Set Your PIN,Elija su PIN,Sign in
+Sign In,Iniciar sesión,Sign in
+Signing in will work once your account is active.,Podrá iniciar sesión cuando su cuenta esté activa.,Sign in
+Signing in...,Iniciando sesión...,Sign in
+Something went wrong on our end. Try again in a minute.,Hubo un problema de nuestro lado. Intente de nuevo en un minuto.,Sign in
+Staff Operations Portal,Portal del Personal,Sign in
+That badge number does not match our records. Check the number in your email.,Ese número de empleado no coincide con nuestros registros. Revise el número en su correo.,Sign in
+The number on the email we sent you.,El número que aparece en el correo que le enviamos.,Sign in
+The two PINs do not match. Type the same 4 digits in both fields.,Los dos PIN no coinciden. Escriba los mismos 4 dígitos en las dos casillas.,"Sign in, Settings"
+This activation link is incomplete. Open the link from your email again.,Este enlace de activación está incompleto. Abra el enlace de su correo otra vez.,Sign in
+"This link is no longer valid. Links expire, and each one can only be used once.",Este enlace ya no sirve. Los enlaces vencen y cada uno se puede usar una sola vez.,Sign in
+This link works until,Este enlace sirve hasta,Sign in
+This reset link is incomplete. Open the link from your email again.,Este enlace de restablecimiento está incompleto. Abra el enlace de su correo otra vez.,Sign in
+Try Again,Intentar de nuevo,Sign in
+"Welcome back, {name}.","Bienvenido de nuevo, {name}.",Sign in
+"Welcome, {name}.","Bienvenido, {name}.",Sign in
+Your account is activated but not currently active. Contact your supervisor.,Su cuenta está activada pero no está activa en este momento. Hable con su supervisor.,Sign in
+Your PIN has been changed. Contact your supervisor about your account status.,Su PIN fue cambiado. Hable con su supervisor sobre el estado de su cuenta.,Sign in
+Your PIN has been saved. Signing in will work once your account is active.,Su PIN se guardó. Podrá iniciar sesión cuando su cuenta esté activa.,Sign in
+Could not find your open shift. Reload and try again.,No se encontró su turno abierto. Recargue e intente de nuevo.,App wide
+Edit shortcuts,Editar accesos directos,"App wide, Settings"
+End your shift at {site}?,¿Terminar su turno en {site}?,App wide
+Extra large,Más grande,App wide
+Issue reported,Problema reportado,App wide
+Large,Grande,App wide
+Largest,El más grande,App wide
+Low stock alert!,¡Aviso de poco inventario!,App wide
+More,Más,"App wide, Shortcuts, Bar and More"
+Notifications,Notificaciones,"App wide, Notifications"
+ON SITE,EN SITIO,App wide
+PIN updated,PIN actualizado,"App wide, Settings"
+Profile,Perfil,"App wide, header"
+Registration submitted. Pending supervisor approval.,Registro enviado. Pendiente de aprobación de su supervisor.,App wide
+Request submitted,Solicitud enviada,App wide
+Select a site first,Primero elija un sitio,App wide
+Settings,Ajustes,"App wide, Settings, Bar and More"
+Shift ended,Turno terminado,App wide
+Shift ended at {time},Turno terminado a las {time},App wide
+Shift started,Turno iniciado,App wide
+Shortcuts saved,Accesos directos guardados,App wide
+Sign out,Cerrar sesión,"App wide, header"
+Standard,Normal,App wide
+Task completed,Tarea completada,App wide
+Task unchecked,Tarea desmarcada,App wide
+Task updated to {status},Tarea actualizada a {status},App wide
+"That sign-in did not match. Check your badge, phone or email and your PIN.","Esos datos no coinciden. Revise su número de empleado, teléfono o correo y su PIN.",App wide
+This shift was already ended,Este turno ya estaba terminado,App wide
+this site,este sitio,App wide
+"Welcome, {name}","Bienvenido, {name}",App wide
+{count} unread notifications,{count} notificaciones sin leer,App wide
+All Other Sites,Todos los demás sitios,Home
+Choose a Site to Start,Elija un sitio para comenzar,Home
+End Shift,Terminar turno,Home
+Ending...,Terminando...,Home
+Floor {n},Piso {n},"Home, Tasks, Assigned"
+Loading sites...,Cargando sitios...,Home
+No sites available yet.,Todavía no hay sitios disponibles.,Home
+Scheduled Today,Programado para hoy,Home
+Shift Open at {site},Turno abierto en {site},Home
+Start Shift,Comenzar turno,Home
+Start Shift at {site},Comenzar turno en {site},Home
+Started at {time},Comenzó a las {time},Home
+Started {day} at {time},Comenzó el {day} a las {time},Home
+Starting...,Comenzando...,Home
+Time on Site,Tiempo en el sitio,Home
+Your Assigned Sites,Sus sitios asignados,Home
+ (live), (en curso),Schedule
+ ({h}h), ({h} h),Schedule
+Any additional details...,Cualquier detalle adicional...,Schedule
+approved,aprobado,Schedule
+Building,Edificio,Schedule
+Cancel,Cancelar,"Schedule, Assigned, Report, Supplies, Shortcuts, Profile"
+claimed,tomado,Schedule
+Close,Cerrar,"Schedule, Forms, Shortcuts, Notifications"
+Completed,Completado,Schedule
+Describe the reason,Describa el motivo,Schedule
+Drop Request,Solicitud para dejar el turno,Schedule
+Drop request failed,No se pudo enviar la solicitud,Schedule
+Drop request sent. Your supervisor will review it.,Solicitud enviada. Su supervisor la revisará.,Schedule
+Duration,Duración,Schedule
+Emergency,Emergencia,Schedule
+End,Fin,Schedule
+Floor,Piso,"Schedule, Tasks"
+Month,Mes,Schedule
+My Schedule,Mi horario,Schedule
+N/A,No disponible,Schedule
+Notes,Notas,Schedule
+Notes (optional),Notas (opcional),Schedule
+On Site,En sitio,Schedule
+Other,Otro,Schedule
+Personal,Asunto personal,Schedule
+Pickup,Turnos libres,"Schedule, Bar and More"
+Pickup Shift,Turno tomado,Schedule
+Reason,Motivo,Schedule
+Request to Drop This Shift,Pedir dejar este turno,Schedule
+Scheduled,Programado,"Schedule, Inspect"
+Scheduled Shift,Turno programado,Schedule
+Scheduling Conflict,Conflicto de horario,Schedule
+Service,Servicio,Schedule
+Shift End,Fin del turno,Schedule
+Shift Start,Inicio del turno,Schedule
+Sick,Enfermedad,Schedule
+Site,Sitio,"Schedule, Assigned, Report"
+Specify Reason,Indique el motivo,Schedule
+Start,Inicio,Schedule
+Status,Estado,Schedule
+Still on site,Todavía en sitio,Schedule
+Submit Request,Enviar solicitud,"Schedule, Supplies"
+Today,Hoy,Schedule
+Week,Semana,Schedule
+Worked,Trabajado,Schedule
+Worked Shift,Turno trabajado,Schedule
+"Your supervisor will review this request. If approved, the shift will be opened for pickup or reassigned.","Su supervisor revisará esta solicitud. Si la aprueba, el turno se abrirá para que otra persona lo tome o se reasignará.",Schedule
+{h}h {m}m,{h} h {m} min,Schedule
+Back to checklist,Volver a la lista,Tasks
+Due Date:,Fecha límite:,Tasks
+Instructions,Instrucciones,Tasks
+Mark Complete,Marcar como completada,Tasks
+PRIORITY,PRIORIDAD,Tasks
+Reference Photo,Foto de referencia,Tasks
+Reference Video,Video de referencia,Tasks
+Start your shift to see and check off your tasks.,Comience su turno para ver y marcar sus tareas.,Tasks
+Task reference,Referencia de la tarea,Tasks
+Time:,Hora:,Tasks
+Try again,Intentar de nuevo,"Tasks, Help, Speak Up, Forms, Notifications"
+Uncheck Task,Desmarcar tarea,Tasks
+Your Assignment,Su asignación,Tasks
+Your tasks did not load.,Sus tareas no cargaron.,Tasks
+Admin (Private),Administración (privado),Chat
+No messages yet.,Todavía no hay mensajes.,Chat
+Only you and management can see these messages,Solo usted y la administración ven estos mensajes,Chat
+Private conversation with admin.,Conversación privada con la administración.,Chat
+Private message to admin...,Mensaje privado a la administración...,Chat
+Select a channel to start chatting.,Elija un canal para empezar a escribir.,Chat
+Type a message...,Escriba un mensaje...,Chat
+Add a photo,Agregar una foto,Help
+Based on,Según,Help
+Describe what happened,Describa lo que pasó,Help
+Fill in form,Llenar formulario,Help
+Not sent.,No se envió.,Help
+Remove photo,Quitar foto,Help
+Report in progress,Reporte en proceso,Help
+Report submitted.,Reporte enviado.,Help
+Resume,Continuar,Help
+Retry,Reintentar,Help
+Send,Enviar,"Help, Speak Up"
+Still needed before you can submit:,Falta esto antes de poder enviar:,Help
+Submit report,Enviar reporte,"Help, Forms"
+Submitting...,Enviando...,"Help, Inspect"
+Tell me what happened and I will tell you what to do.,Cuénteme qué pasó y le digo qué hacer.,Help
+"This photo could not be read here. Choose a JPEG or PNG, or take a screenshot of it.","Esta foto no se pudo leer aquí. Elija un JPEG o PNG, o tome una captura de pantalla.",Help
+Unfinished reports,Reportes sin terminar,Help
+Uploading...,Subiendo...,"Help, Assigned, Report, Inspect"
+Working from the written procedure only right now.,Por ahora solo se está usando el procedimiento escrito.,Help
+x,x,"Help, Assigned, Report, Inspect"
+You can send up to 3 photos with one message.,Puede enviar hasta 3 fotos en un mensaje.,Help
+{answered} of {total} answered,{answered} de {total} respondidas,Help
+A photo of the completed task is required,Se necesita una foto de la tarea completada,Assigned
+Assigned,Asignadas,"Assigned, Bar and More"
+Assigned by,Asignada por,Assigned
+Assigned Tasks,Tareas asignadas,Assigned
+at {time},a las {time},Assigned
+Attached Photo,Foto adjunta,Assigned
+Attached Video,Video adjunto,Assigned
+Back to assigned tasks,Volver a las tareas asignadas,Assigned
+Cannot Resolve,No se puede resolver,Assigned
+Describe the issue preventing completion...,Describa lo que impide completarla...,Assigned
+Describe the steps you took...,Describa los pasos que siguió...,Assigned
+Describe what you did to complete this task,Describa lo que hizo para completar esta tarea,Assigned
+Description,Descripción,Assigned
+Due Date,Fecha límite,Assigned
+Due:,Para:,Assigned
+Explain why this cannot be completed *,Explique por qué no se puede completar *,Assigned
+In Progress,En proceso,Assigned
+ISSUE,PROBLEMA,Assigned
+Mark as Resolved,Marcar como resuelta,Assigned
+No assigned tasks right now.,No hay tareas asignadas en este momento.,Assigned
+Photo must be under 10MB,La foto debe pesar menos de 10 MB,"Assigned, Report"
+Photo of completed task *,Foto de la tarea completada *,Assigned
+Please provide a reason,Indique un motivo,Assigned
+Preview,Vista previa,"Assigned, Report"
+Reported by,Reportada por,Assigned
+Required to verify completion,Se necesita para comprobar que se completó,Assigned
+Resolved,Resuelta,Assigned
+Submit,Enviar,Assigned
+Submit Resolution,Enviar resolución,Assigned
+Take Photo of Completed Task,Tomar foto de la tarea completada,Assigned
+Task,Tarea,Assigned
+What did you do to complete this? *,¿Qué hizo para completarla? *,Assigned
+"When a supervisor assigns a task to you, it will appear here.","Cuando un supervisor le asigne una tarea, aparecerá aquí.",Assigned
+{n} task assigned to you,{n} tarea asignada a usted,Assigned
+{n} tasks assigned to you,{n} tareas asignadas a usted,Assigned
++ Report,+ Reportar,Report
+Additional details...,Detalles adicionales...,Report
+Brief description,Descripción breve,Report
+Details,Detalles,"Report, Supplies"
+"e.g. Restroom, Lobby","por ejemplo: baño, recepción",Report
+Enter issue title,Escriba un título para el problema,Report
+High,Alta,"Report, Supplies"
+Issues,Problemas,"Report, Bar and More"
+"JPG, PNG up to 10MB",JPG o PNG hasta 10 MB,Report
+Low,Baja,"Report, Supplies"
+Med,Media,Report
+No issues reported yet.,Todavía no se ha reportado ningún problema.,Report
+Photo,Foto,Report
+Photo attached:,Foto adjunta:,Report
+Report an Issue,Reportar un problema,Report
+Select a site,Elija un sitio,Report
+Select site...,Elija un sitio...,"Report, Inspect"
+Severity,Gravedad,Report
+Submit Issue,Enviar problema,Report
+Take Photo or Choose from Gallery,Tomar foto o elegir de la galería,Report
+Title,Título,Report
+Zone,Zona,Report
++ Request,+ Solicitar,Supplies
+Damage Report,Reporte de daño,Supplies
+Describe the request...,Describa la solicitud...,Supplies
+Enter the item name,Escriba el nombre del artículo,Supplies
+Item,Artículo,Supplies
+Item Name,Nombre del artículo,Supplies
+Log Usage,Registrar uso,Supplies
+Log usage or submit a request,Registre el uso o envíe una solicitud,Supplies
+LOW,POCO,Supplies
+New Gear,Equipo nuevo,Supplies
+New Supply,Insumo nuevo,Supplies
+Normal,Normal,Supplies
+QR,QR,Supplies
+Refill,Reposición,Supplies
+Request Type,Tipo de solicitud,Supplies
+Select a request type,Elija un tipo de solicitud,Supplies
+Select supply...,Elija un artículo...,Supplies
+Start your shift to log usage. Requests can be submitted anytime.,Comience su turno para registrar el uso. Las solicitudes se pueden enviar en cualquier momento.,Supplies
+Supplies,Insumos,"Supplies, Bar and More"
+Supply Item,Artículo,Supplies
+Supply Tracking,Control de insumos,Supplies
+Supply/Gear Request,Solicitud de insumos o equipo,Supplies
+This Shift's Log,Registro de este turno,Supplies
+Urgency,Urgencia,Supplies
+Urgent,Urgente,Supplies
+What do you need?,¿Qué necesita?,Supplies
+Approved. You are scheduled for this shift.,Aprobado. Está programado para este turno.,Pickup
+Available,Disponibles,Pickup
+Bldg:,Edificio:,Pickup
+Callout,Ausencia,Pickup
+Check back later for available pickup shifts at your assigned sites.,Vuelva más tarde para ver turnos libres en los sitios que tiene asignados.,Pickup
+Claim This Shift,Tomar este turno,Pickup
+Claiming...,Tomando...,Pickup
+Extra Coverage,Cobertura adicional,Pickup
+Floor:,Piso:,Pickup
+My Pickups,Los míos,Pickup
+New Shift,Turno nuevo,Pickup
+No claimed shifts,No tiene turnos tomados,Pickup
+No open shifts right now,No hay turnos libres en este momento,Pickup
+No-Show,No se presentó,Pickup
+Release Shift,Soltar turno,Pickup
+Release this shift? It will go back to the open pool for someone else to claim.,¿Soltar este turno? Volverá a la lista abierta para que otra persona lo tome.,Pickup
+Shift claimed (overtime warning: {hours}h this week),Turno tomado (aviso de horas extra: {hours} h esta semana),Pickup
+Shift claimed successfully!,¡Turno tomado!,Pickup
+Shift Pickup Board,Turnos libres,Pickup
+Shift released,Turno soltado,Pickup
+Shifts you claim will appear here.,Los turnos que tome aparecerán aquí.,Pickup
+Start your shift at the normal time and your daily tasks will load automatically.,Comience su turno a la hora de siempre y sus tareas del día cargarán solas.,Pickup
+URGENT,URGENTE,Pickup
+Voluntary Drop,Turno dejado,Pickup
+Waiting for manager approval,Esperando la aprobación del gerente,Pickup
+{start} to {end},{start} a {end},Pickup
++ Schedule,+ Programar,Inspect
+Attach Photo,Adjuntar foto,Inspect
+"General observations, follow-ups needed, etc.","Observaciones generales, seguimientos pendientes, etc.",Inspect
+Inspection scheduled,Inspección programada,Inspect
+Inspection submitted,Inspección enviada,Inspect
+Inspections assigned to you will appear here.,Las inspecciones que le asignen aparecerán aquí.,Inspect
+My Inspections,Mis inspecciones,Inspect
+No inspections pending,No hay inspecciones pendientes,Inspect
+Notes for this item (optional),Notas para este punto (opcional),Inspect
+Overall Notes,Notas generales,Inspect
+Photo attached,Foto adjunta,Inspect
+pts,pts,Inspect
+Running total,Total acumulado,Inspect
+Schedule Inspection,Programar inspección,Inspect
+Scheduled Date *,Fecha programada *,Inspect
+Scheduling...,Programando...,Inspect
+Select template...,Elija una plantilla...,Inspect
+Site *,Sitio *,Inspect
+Submit Inspection,Enviar inspección,Inspect
+Tap an inspection to begin scoring.,Toque una inspección para empezar a calificar.,Inspect
+Tap to start scoring,Toque para empezar a calificar,Inspect
+Template *,Plantilla *,Inspect
+"Template, site, and date are required","Se necesitan la plantilla, el sitio y la fecha",Inspect
+"A co-worker, or no one in particular","Un compañero de trabajo, o nadie en particular",Speak Up
+"If it is about one of the people named here, pick their name so your report does not go to them.","Si es sobre una de las personas de esta lista, elija su nombre para que el reporte no le llegue a esa persona.",Speak Up
+"Nothing you write here is kept. If you leave this screen before you send, it is gone.","Nada de lo que escriba aquí se guarda. Si sale de esta pantalla antes de enviar, se pierde.",Speak Up
+Quote this if you follow up.,Menciónelo si vuelve a preguntar.,Speak Up
+Report a problem with someone,Reportar un problema con alguien,Speak Up
+Someone will be in touch with you within 72 hours.,Alguien se comunicará con usted en un plazo de 72 horas.,Speak Up
+"The list of names did not load. If your report is about a manager, try again before you send, so it does not go to them.","La lista de nombres no cargó. Si su reporte es sobre un gerente, intente de nuevo antes de enviar, para que no le llegue a esa persona.",Speak Up
+We got your report.,Recibimos su reporte.,Speak Up
+What happened,Qué pasó,Speak Up
+Who is it about,Sobre quién es,Speak Up
+Write what happened in your own words. One sentence is enough.,Escriba lo que pasó con sus propias palabras. Con una frase basta.,Speak Up
+You can write up to {max} characters.,Puede escribir hasta {max} caracteres.,Speak Up
+Your reference,Su número de referencia,Speak Up
+{used} of {max} characters used.,{used} de {max} caracteres usados.,Speak Up
+Back,Atrás,"Forms, Profile"
+Check this answer,Revise esta respuesta,Forms
+Continue,Continuar,Forms
+Done,Listo,"Forms, Shortcuts, Settings"
+Edit,Editar,"Forms, Profile"
+Forms,Formularios,"Forms, Bar and More"
+Forms could not load. Check your signal and try again.,Los formularios no cargaron. Revise su señal e intente de nuevo.,Forms
+Keep filling,Seguir llenando,Forms
+Leave,Salir,Forms
+"Leave this report? Your saved answers stay, and you can continue from Forms or Help.",¿Salir de este reporte? Sus respuestas guardadas se quedan y puede continuar desde Formularios o Ayuda.,Forms
+Loading forms,Cargando formularios,Forms
+Next,Siguiente,Forms
+Not answered,Sin responder,Forms
+Not saved yet. Check your signal and tap Next again.,Todavía no se guardó. Revise su señal y toque Siguiente otra vez.,Forms
+Not sent yet. Check your signal and tap Submit report again.,Todavía no se envió. Revise su señal y toque Enviar reporte otra vez.,Forms
+Not yet,Todavía no,Forms
+Opening,Abriendo,Forms
+Report,Reportar,"Forms, Bar and More"
+Report sent. The people who handle these reports have been told.,Reporte enviado. Ya se avisó a las personas que atienden estos reportes.,Forms
+Required,Obligatorio,Forms
+Review,Revisar,Forms
+Saving,Guardando,Forms
+Section {n},Sección {n},Forms
+Section {n} of {total},Sección {n} de {total},Forms
+Send it,Enviarlo,Forms
+Send this report? You cannot change it after it is sent.,¿Enviar este reporte? No lo podrá cambiar después de enviarlo.,Forms
+Sending,Enviando,Forms
+Start report,Comenzar reporte,Forms
+These still need an answer,Estas todavía necesitan respuesta,Forms
+This report was already sent.,Este reporte ya se había enviado.,Forms
+{answered} answered,{answered} respondidas,Forms
+"{answered} answered, {remaining} to go","{answered} respondidas, faltan {remaining}",Forms
+Add to bar,Agregar a la barra,Shortcuts
+Add to bar {name},Agregar {name} a la barra,Shortcuts
+Always first,Siempre primero,Shortcuts
+Always last,Siempre al final,Shortcuts
+Everything is on your bar.,Todo está en su barra.,Shortcuts
+Home,Inicio,"Shortcuts, Bar and More"
+Move down,Bajar,Shortcuts
+Move down {name},Bajar {name},Shortcuts
+Move up,Subir,Shortcuts
+Move up {name},Subir {name},Shortcuts
+On your bar,En su barra,Shortcuts
+Pick something for this spot,Elija algo para este lugar,Shortcuts
+Put the bar back the way it came?,¿Dejar la barra como estaba al principio?,Shortcuts
+Remove,Quitar,Shortcuts
+Remove {name},Quitar {name},Shortcuts
+Replace which one?,¿Cuál quiere reemplazar?,Shortcuts
+Reset,Restablecer,Shortcuts
+Reset to default,Volver a lo original,Shortcuts
+Shortcuts,Accesos directos,"Shortcuts, Settings"
+Under More,En Más,Shortcuts
+will take the place of the one you pick.,tomará el lugar del que elija.,Shortcuts
+Your bar is full.,Su barra está llena.,Shortcuts
+Load more,Cargar más,Notifications
+Mark all read,Marcar todas como leídas,Notifications
+Marking...,Marcando...,Notifications
+Nothing yet.,Todavía no hay nada.,Notifications
+Notifications did not load.,Las notificaciones no cargaron.,Notifications
+Open in the dashboard,Abrir en el panel,Notifications
+A,A,Settings
+Appearance,Apariencia,Settings
+Change PIN,Cambiar PIN,Settings
+Choose how the app looks.,Elija cómo se ve la aplicación.,Settings
+Choose what sits on your bottom bar. Everything else is under More.,Elija qué va en su barra de abajo. Todo lo demás queda en Más.,"Settings, Shortcuts"
+Confirm New PIN,Confirmar PIN nuevo,Settings
+Could not update your PIN.,No se pudo actualizar su PIN.,Settings
+Current PIN,PIN actual,Settings
+Dark,Oscuro,Settings
+Help answers you in this language. The rest of the app is in English for now.,Ayuda le responde en este idioma. El resto de la aplicación está en inglés por ahora.,Settings
+Light,Claro,Settings
+Makes everything in the app bigger on this phone.,Agranda todo en la aplicación en este teléfono.,Settings
+Makes everything in the app bigger.,Agranda todo en la aplicación.,Settings
+New PIN,PIN nuevo,Settings
+Text size,Tamaño del texto,Settings
+Update PIN,Actualizar PIN,Settings
+Your PIN is 4 digits. Choose one that only you know.,Su PIN es de 4 dígitos. Elija uno que solo usted sepa.,Settings
+Address,Dirección,Profile
+Address Line 1,Dirección línea 1,Profile
+Address Line 2,Dirección línea 2,Profile
+"Apt, suite, etc.","Apartamento, suite, etc.",Profile
+Birthday,Fecha de nacimiento,Profile
+City,Ciudad,Profile
+Emergency Contact,Contacto de emergencia,Profile
+Emergency Phone,Teléfono de emergencia,Profile
+Employee ID,Número de empleado,Profile
+Employee ID not assigned. Ask your supervisor.,No tiene número de empleado asignado. Pregúntele a su supervisor.,Profile
+Full name,Nombre completo,Profile
+Loading profile...,Cargando perfil...,Profile
+No shift,Sin turno,Profile
+Not set,Sin poner,Profile
+Personal Information,Información personal,Profile
+Phone number,Número de teléfono,Profile
+Photo must be under 20MB,La foto debe pesar menos de 20 MB,Profile
+Photo updated,Foto actualizada,Profile
+Profile updated,Perfil actualizado,Profile
+Save,Guardar,Profile
+Site Assignments,Sitios asignados,Profile
+Staff,Personal,Profile
+State,Estado,Profile
+Street address,Calle y número,Profile
+Zip,Código postal,Profile
+A photo could not be read. Upload it again and resend it.,Una foto no se pudo leer. Súbala otra vez y vuelva a enviarla.,"API message, shown word for word"
+A photo is larger than 5 MB. Send a smaller photo.,Una foto pesa más de 5 MB. Envíe una foto más pequeña.,"API message, shown word for word"
+"A photo must be a JPEG, PNG or WebP image.","La foto debe ser una imagen JPEG, PNG o WebP.","API message, shown word for word"
+Draft not found,No se encontró el reporte,"API message, shown word for word"
+Form not found,No se encontró el formulario,"API message, shown word for word"
+language must be en or es,el idioma debe ser en o es,"API message, shown word for word"
+Request failed,La solicitud falló,"API message, shown word for word"
+Required fields are unanswered,Faltan campos obligatorios por responder,"API message, shown word for word"
+Send answers as an object of key and value,Envíe las respuestas como un objeto de clave y valor,"API message, shown word for word"
+Send at most 3 photos with one message.,Envíe como máximo 3 fotos en un mensaje.,"API message, shown word for word"
+Server error,Error del servidor,"API message, shown word for word"
+Session expired,Su sesión venció,"API message, shown word for word"
+shortcuts must be four different tab ids,los accesos directos deben ser cuatro pestañas distintas,"API message, shown word for word"
+Some answers are not valid,Algunas respuestas no son válidas,"API message, shown word for word"
+"textSize must be standard, large, xlarge or largest","el tamaño del texto debe ser standard, large, xlarge o largest","API message, shown word for word"
+That photo was not uploaded by you. Upload the photo again and resend it.,Esa foto no la subió usted. Suba la foto otra vez y vuelva a enviarla.,"API message, shown word for word"
+theme must be light or dark,el tema debe ser light o dark,"API message, shown word for word"
+These fields cannot be answered here,Estos campos no se pueden responder aquí,"API message, shown word for word"
+This report is already submitted,Este reporte ya está enviado,"API message, shown word for word"
+This report was already submitted,Este reporte ya se había enviado,"API message, shown word for word"
+User not found,No se encontró el usuario,"API message, shown word for word"
+Chat,Mensajes,Bar and More
+Help,Ayuda,Bar and More
+Inspect,Inspección,Bar and More
+now,ahora,notifAgo
+Schedule,Horario,Bar and More
+Speak Up,Confianza,Bar and More
+Tasks,Tareas,Bar and More
+{n}d,{n} d,notifAgo
+{n}h,{n} h,notifAgo
+{n}m,{n} min,notifAgo
