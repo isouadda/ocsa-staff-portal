@@ -1502,6 +1502,15 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   const [confirmCancel, setConfirmCancel] = useState(false);
   const timeOffOn = !compact && Array.isArray(offTypes);
 
+  // Both read straight off the schedule response, so they are empty
+  // until Step 79 adds the keys and nothing on the calendar changes
+  // before then. A YYYY-MM-DD string compares correctly as text.
+  const getTimeOffForDay = (ds) => (Array.isArray(data.timeOff) ? data.timeOff : []).filter(r => r.startsOn && r.startsOn <= ds && ds <= (r.endsOn || r.startsOn));
+  const dropRequestedIds = (Array.isArray(data.pendingDrops) ? data.pendingDrops : [])
+    .map(d => String(d.scheduledShiftId || d.scheduled_shift_id || ""))
+    .filter(Boolean);
+  const isDropRequested = (id) => dropRequestedIds.indexOf(String(id)) !== -1;
+
   const toISO = (d) => d.toISOString().split("T")[0];
   const fmtTm = (v) => { if (!v) return ""; const parts = String(v).split(":"); const h = parseInt(parts[0]); const m = parseInt(parts[1] || "0"); return new Date(2024, 0, 1, h, m).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }); };
   const fmtClockTm = (d) => new Date(d).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit", hour12: true });
@@ -1630,6 +1639,13 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
 
   // A row already carries the whole request; a calendar chip carries
   // only an id, so that one is read back first.
+  const openOffById = async (id) => {
+    if (!id) return;
+    setOffErr(null); setConfirmCancel(false);
+    try { const d = await api("/api/time-off/" + encodeURIComponent(id), { token }); setOffDetail((d && d.request) ? d.request : d); }
+    catch (err) { showToast(tr(err.message), "error"); }
+  };
+
   const openOffDetail = async (r) => {
     setOffErr(null); setConfirmCancel(false);
     if (r && r.startsOn) { setOffDetail(r); return; }
@@ -1686,7 +1702,8 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
             const pickups = getPickupsForDay(ds);
             const today = isToday(ds);
             const dt = new Date(ds + "T00:00:00");
-            const hasAny = sched.length > 0 || actual.length > 0 || pickups.length > 0;
+            const dayOff = getTimeOffForDay(ds);
+            const hasAny = sched.length > 0 || actual.length > 0 || pickups.length > 0 || dayOff.length > 0;
             return (
               <div key={ds} style={{ background: today ? t.goldBg : t.card, border: "1px solid " + (today ? t.goldBorder : t.borderSolid), borderRadius: R.md, padding: 6, minHeight: compact ? 80 : 120, flex: compact ? undefined : 1, boxShadow: t.shadow }}>
                 <div style={{ textAlign: "center", marginBottom: 4 }}>
@@ -1695,7 +1712,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                 </div>
                 {sched.map(s => (
                   <div key={s.id} onClick={() => setDetail({ type: "scheduled", ...s })} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: GOLD + "18", color: t.goldText, border: "1px solid " + GOLD + "30", cursor: "pointer" }}>
-                    {fmtTm(s.start_time)}{s.end_time ? " - " + fmtTm(s.end_time) : ""}{s.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{s.site_name}</div>}
+                    {fmtTm(s.start_time)}{s.end_time ? " - " + fmtTm(s.end_time) : ""}{s.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{s.site_name}</div>}{isDropRequested(s.id) && <div style={{ fontSize: 7, marginTop: 1, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("Drop requested")}</div>}
                   </div>
                 ))}
                 {actual.map(a => (
@@ -1709,6 +1726,16 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                     <div key={p.id} onClick={() => setDetail({ type: "pickup", ...p })} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: pc + "15", color: pc, border: "1px solid " + pc + "30", cursor: "pointer" }}>
                       {fmtTm(p.start_time)} <span style={{ fontSize: 7, textTransform: "uppercase" }}>{p.status === "approved" ? tr("approved") : tr("claimed")}</span>
                       {p.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{p.site_name}</div>}
+                    </div>
+                  );
+                })}
+                {dayOff.map(r => {
+                  const waiting = r.status !== "approved";
+                  return (
+                    <div key={r.id} onClick={compact ? undefined : () => openOffById(r.id)} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: TIME_OFF_COLOR + (waiting ? "14" : "22"), color: TIME_OFF_COLOR, border: waiting ? "1px dashed " + TIME_OFF_COLOR : "1px solid " + TIME_OFF_COLOR, cursor: compact ? "default" : "pointer" }}>
+                      {tr("Time off")}
+                      {r.partDay && r.startTime && <div style={{ fontSize: 8, opacity: 0.9 }}>{fmtTm(r.startTime)}</div>}
+                      {waiting && <div style={{ fontSize: 7, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("requested")}</div>}
                     </div>
                   );
                 })}
@@ -1753,13 +1780,17 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                       {sched.length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: GOLD }} />}
                       {actual.length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: GREEN }} />}
                       {pickups.length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: BLUE }} />}
+                      {getTimeOffForDay(ds).length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: TIME_OFF_COLOR }} />}
                     </div>
                   </div>
                 );
               })}
             </div>
             <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 8 }}>
-              {[{ c: GOLD, l: tr("Scheduled") }, { c: GREEN, l: tr("Worked") }, { c: BLUE, l: tr("Pickup") }].map(lg => (
+              {[{ c: GOLD, l: tr("Scheduled") }, { c: GREEN, l: tr("Worked") }, { c: BLUE, l: tr("Pickup") }]
+                // The fourth reads off the same key the dots do, so the
+                // legend stays as it is until the API sends timeOff.
+                .concat(Array.isArray(data.timeOff) ? [{ c: TIME_OFF_COLOR, l: tr("Time off") }] : []).map(lg => (
                 <div key={lg.l} style={{ display: "flex", alignItems: "center", gap: 3 }}>
                   <div style={{ width: 6, height: 6, borderRadius: "50%", background: lg.c }} />
                   <span style={{ fontSize: 8, color: t.textMut }}>{lg.l}</span>
@@ -1996,7 +2027,10 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                 <div style={{ fontSize: 13, color: t.text }}>{detail.origin.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
               </div>
             )}
-            {detail.type === "scheduled" && detail.status !== "cancelled" && !detail.dropForm && (
+            {detail.type === "scheduled" && detail.status !== "cancelled" && isDropRequested(detail.id) && (
+              <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.5, marginBottom: 8 }}>{tr("You asked to drop this shift. Waiting for a decision.")}</div>
+            )}
+            {detail.type === "scheduled" && detail.status !== "cancelled" && !isDropRequested(detail.id) && !detail.dropForm && (
               <button onClick={() => setDetail({ ...detail, dropForm: { reason: "sick", notes: "" } })} style={{ width: "100%", padding: "11px", borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>{tr("Request to Drop This Shift")}</button>
             )}
             {detail.dropForm && (
@@ -2957,6 +2991,7 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
 // cannot use. A type that is not here only gets marked read.
 const NOTIF_TAB = {
   supply_request: "supplies",
+  time_off: "schedule",
   shift_drop: "pickup",
   shift_claim: "pickup",
   issue: "issues",
