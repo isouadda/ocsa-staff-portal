@@ -109,11 +109,13 @@ this site,este sitio,App wide
 {count} unread notifications,{count} notificaciones sin leer,App wide
 All Other Sites,Todos los demás sitios,Home
 Choose a Site to Start,Elija un sitio para comenzar,Home
+Drop requested,Pidió dejarlo,"Home, Schedule"
 End Shift,Terminar turno,Home
 Ending...,Terminando...,Home
 Floor {n},Piso {n},"Home, Tasks, Assigned"
 Loading sites...,Cargando sitios...,Home
 No sites available yet.,Todavía no hay sitios disponibles.,Home
+requested,solicitada,"Home, Schedule"
 Scheduled Today,Programado para hoy,Home
 Shift Open at {site},Turno abierto en {site},Home
 Start Shift,Comenzar turno,Home
@@ -121,17 +123,29 @@ Start Shift at {site},Comenzar turno en {site},Home
 Started at {time},Comenzó a las {time},Home
 Started {day} at {time},Comenzó el {day} a las {time},Home
 Starting...,Comenzando...,Home
+Time off,Tiempo libre,"Home, Schedule"
 Time on Site,Tiempo en el sitio,Home
+You asked to drop this shift. Waiting for a decision.,Usted pidió dejar este turno. Espera una decisión.,"Home, Schedule"
 Your Assigned Sites,Sus sitios asignados,Home
  (live), (en curso),Schedule
  ({h}h), ({h} h),Schedule
 Any additional details...,Cualquier detalle adicional...,Schedule
 approved,aprobado,Schedule
+Approved,Aprobada,Schedule
+Asked,Fecha de solicitud,Schedule
+Bereavement and personal,Duelo y asuntos personales,"Schedule, from the API"
 Building,Edificio,Schedule
 Cancel,Cancelar,"Schedule, Assigned, Report, Supplies, Shortcuts, Profile"
+Cancel request,Cancelar solicitud,Schedule
+Cancel this time off request?,¿Cancelar esta solicitud de tiempo libre?,Schedule
+Cancelled,Cancelada,Schedule
+Choose a type,Elija un tipo,Schedule
 claimed,tomado,Schedule
 Close,Cerrar,"Schedule, Forms, Shortcuts, Notifications"
 Completed,Completado,Schedule
+Dates,Fechas,Schedule
+Decided,Fecha de decisión,Schedule
+Denied,Denegada,Schedule
 Describe the reason,Describa el motivo,Schedule
 Drop Request,Solicitud para dejar el turno,Schedule
 Drop request failed,No se pudo enviar la solicitud,Schedule
@@ -139,25 +153,50 @@ Drop request sent. Your supervisor will review it.,Solicitud enviada. Su supervi
 Duration,Duración,Schedule
 Emergency,Emergencia,Schedule
 End,Fin,Schedule
+First day,Primer día,Schedule
 Floor,Piso,"Schedule, Tasks"
+"For example, 8","Por ejemplo, 8",Schedule
+From,Desde,Schedule
+Hours,Horas,Schedule
+Hours (optional),Horas (opcional),Schedule
+Jury duty,Servicio de jurado,"Schedule, from the API"
+Keep it,Conservarla,Schedule
+Last day,Último día,Schedule
+Military leave,Licencia militar,"Schedule, from the API"
 Month,Mes,Schedule
 My Schedule,Mi horario,Schedule
+My time off,Mi tiempo libre,Schedule
 N/A,No disponible,Schedule
+No note,Sin nota,Schedule
+No reason given,No dio un motivo,Schedule
+No time off requests yet.,Todavía no tiene solicitudes de tiempo libre.,Schedule
+Not given,No indicado,Schedule
+Note,Nota,Schedule
+Note: {note},Nota: {note},Schedule
 Notes,Notas,Schedule
 Notes (optional),Notas (opcional),Schedule
 On Site,En sitio,Schedule
+Only you and the person who approves time off can read this.,Solo usted y la persona que aprueba el tiempo libre pueden leer esto.,Schedule
 Other,Otro,Schedule
+Paid sick leave,Licencia por enfermedad pagada,"Schedule, from the API"
+Part of the day,Parte del día,Schedule
 Personal,Asunto personal,Schedule
 Pickup,Turnos libres,"Schedule, Bar and More"
 Pickup Shift,Turno tomado,Schedule
 Reason,Motivo,Schedule
+Reason (optional),Motivo (opcional),Schedule
+Request time off,Solicitar tiempo libre,Schedule
 Request to Drop This Shift,Pedir dejar este turno,Schedule
+Requested,Solicitada,Schedule
 Scheduled,Programado,"Schedule, Inspect"
 Scheduled Shift,Turno programado,Schedule
 Scheduling Conflict,Conflicto de horario,Schedule
+Send request,Enviar solicitud,Schedule
 Service,Servicio,Schedule
 Shift End,Fin del turno,Schedule
 Shift Start,Inicio del turno,Schedule
+Shifts on these days,Turnos en estos días,Schedule
+Showing your latest 50 requests.,Mostrando sus 50 solicitudes más recientes.,Schedule
 Sick,Enfermedad,Schedule
 Site,Sitio,"Schedule, Assigned, Report"
 Specify Reason,Indique el motivo,Schedule
@@ -165,12 +204,24 @@ Start,Inicio,Schedule
 Status,Estado,Schedule
 Still on site,Todavía en sitio,Schedule
 Submit Request,Enviar solicitud,"Schedule, Supplies"
+Time,Hora,Schedule
+Time off request,Solicitud de tiempo libre,Schedule
+Time off request cancelled.,Solicitud de tiempo libre cancelada.,Schedule
+Time off requested. You get a notice when it is decided.,Tiempo libre solicitado. Recibirá un aviso cuando se decida.,Schedule
+To,Hasta,Schedule
 Today,Hoy,Schedule
+Type,Tipo,Schedule
+Unpaid time off,Tiempo libre sin pago,"Schedule, from the API"
 Week,Semana,Schedule
 Worked,Trabajado,Schedule
 Worked Shift,Turno trabajado,Schedule
+You get a notice in the app when your request is decided.,Recibirá un aviso en la aplicación cuando se decida su solicitud.,Schedule
 "Your supervisor will review this request. If approved, the shift will be opened for pickup or reassigned.","Su supervisor revisará esta solicitud. Si la aprueba, el turno se abrirá para que otra persona lo tome o se reasignará.",Schedule
 {h}h {m}m,{h} h {m} min,Schedule
+{n} hour,{n} hora,Schedule
+{n} hours,{n} horas,Schedule
+{start} to {end},{start} a {end},"Schedule, Pickup"
+"{start} to {end}, {year}","{start} a {end}, {year}",Schedule
 Back to checklist,Volver a la lista,Tasks
 Due Date:,Fecha límite:,Tasks
 Instructions,Instrucciones,Tasks
@@ -322,7 +373,6 @@ Start your shift at the normal time and your daily tasks will load automatically
 URGENT,URGENTE,Pickup
 Voluntary Drop,Turno dejado,Pickup
 Waiting for manager approval,Esperando la aprobación del gerente,Pickup
-{start} to {end},{start} a {end},Pickup
 + Schedule,+ Programar,Inspect
 Attach Photo,Adjuntar foto,Inspect
 "General observations, follow-ups needed, etc.","Observaciones generales, seguimientos pendientes, etc.",Inspect
@@ -462,13 +512,19 @@ Staff,Personal,Profile
 State,Estado,Profile
 Street address,Calle y número,Profile
 Zip,Código postal,Profile
+"A part day needs both a start and an end time, on one day","Parte de un día necesita hora de inicio y hora de fin, en un solo día","API message, shown word for word"
 A photo could not be read. Upload it again and resend it.,Una foto no se pudo leer. Súbala otra vez y vuelva a enviarla.,"API message, shown word for word"
 A photo is larger than 5 MB. Send a smaller photo.,Una foto pesa más de 5 MB. Envíe una foto más pequeña.,"API message, shown word for word"
 "A photo must be a JPEG, PNG or WebP image.","La foto debe ser una imagen JPEG, PNG o WebP.","API message, shown word for word"
+Choose a type of time off,Elija un tipo de tiempo libre,"API message, shown word for word"
+Dates must be YYYY-MM-DD,Las fechas deben ser YYYY-MM-DD,"API message, shown word for word"
 Draft not found,No se encontró el reporte,"API message, shown word for word"
 Form not found,No se encontró el formulario,"API message, shown word for word"
+Hours must be a number from 0 to 999.99,Las horas deben ser un número de 0 a 999.99,"API message, shown word for word"
+Keep the reason under 1000 characters,Escriba el motivo con menos de 1000 caracteres,"API message, shown word for word"
 language must be en or es,el idioma debe ser en o es,"API message, shown word for word"
 Request failed,La solicitud falló,"API message, shown word for word"
+Request not found,No se encontró la solicitud,"API message, shown word for word"
 Required fields are unanswered,Faltan campos obligatorios por responder,"API message, shown word for word"
 Send answers as an object of key and value,Envíe las respuestas como un objeto de clave y valor,"API message, shown word for word"
 Send at most 3 photos with one message.,Envíe como máximo 3 fotos en un mensaje.,"API message, shown word for word"
@@ -478,11 +534,19 @@ shortcuts must be four different tab ids,los accesos directos deben ser cuatro p
 Some answers are not valid,Algunas respuestas no son válidas,"API message, shown word for word"
 "textSize must be standard, large, xlarge or largest","el tamaño del texto debe ser standard, large, xlarge o largest","API message, shown word for word"
 That photo was not uploaded by you. Upload the photo again and resend it.,Esa foto no la subió usted. Suba la foto otra vez y vuelva a enviarla.,"API message, shown word for word"
+The last day cannot be before the first day,El último día no puede ser anterior al primer día,"API message, shown word for word"
 theme must be light or dark,el tema debe ser light o dark,"API message, shown word for word"
 These fields cannot be answered here,Estos campos no se pueden responder aquí,"API message, shown word for word"
 This report is already submitted,Este reporte ya está enviado,"API message, shown word for word"
 This report was already submitted,Este reporte ya se había enviado,"API message, shown word for word"
+This request was already approved,Esta solicitud ya estaba aprobada,"API message, shown word for word"
+This request was already cancelled,Esta solicitud ya estaba cancelada,"API message, shown word for word"
+This request was already denied,Esta solicitud ya estaba denegada,"API message, shown word for word"
+Time off can start at most 30 days ago,El tiempo libre puede comenzar 30 días atrás como máximo,"API message, shown word for word"
+Time off can start at most one year ahead,El tiempo libre puede comenzar un año adelante como máximo,"API message, shown word for word"
+"Times must be HH:MM, from 00:00 to 23:59","Las horas deben ser HH:MM, de 00:00 a 23:59","API message, shown word for word"
 User not found,No se encontró el usuario,"API message, shown word for word"
+You already have time off requested or approved for those days,Ya tiene tiempo libre solicitado o aprobado para esos días,"API message, shown word for word"
 Chat,Mensajes,Bar and More
 Help,Ayuda,Bar and More
 Inspect,Inspección,Bar and More
