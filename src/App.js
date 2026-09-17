@@ -176,6 +176,86 @@ const formatDayShort = (d) => new Date(d).toLocaleDateString(dateLocale(), { wee
 const sameLocalDay = (a, b) => { const x = new Date(a), y = new Date(b); return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate(); };
 const now = () => new Date();
 
+// ------------------------------------------------------------
+// Calendar dates, read and written locally
+//
+// A YYYY-MM-DD string handed to new Date() is read as UTC midnight,
+// which is the evening before in Philadelphia, so the date shows a
+// day early. These read the parts and build a local date instead.
+// Today comes from the phone's own calendar rather than
+// toISOString, which gives tomorrow after 8 PM here.
+// ------------------------------------------------------------
+function localDay(ymd) {
+  const p = String(ymd || "").split("-");
+  if (p.length !== 3) return null;
+  const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  return isNaN(d.getTime()) ? null : d;
+}
+function todayLocal() {
+  const n = new Date();
+  return new Date(n.getFullYear(), n.getMonth(), n.getDate());
+}
+function ymdLocal(d) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+const addDays = (d, n) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() + n); return x; };
+// Every day from one YYYY-MM-DD to another, inclusive, as strings.
+function daySpan(startYmd, endYmd) {
+  const a = localDay(startYmd), b = localDay(endYmd) || localDay(startYmd);
+  if (!a || !b) return [];
+  const out = [];
+  for (let d = a; d <= b && out.length < 400; d = addDays(d, 1)) out.push(ymdLocal(d));
+  return out;
+}
+
+// ------------------------------------------------------------
+// Time off
+// ------------------------------------------------------------
+const TIME_OFF_MIN_BACK = 30;
+const TIME_OFF_MAX_AHEAD = 365;
+const TIME_OFF_PAGE = 50;
+// A colour the calendar does not already use for Scheduled, Worked
+// or Pickup, and readable on both themes.
+const TIME_OFF_COLOR = "#8E6FD8";
+const timeOffStatusColor = (status, t) => (
+  status === "approved" ? GREEN :
+  status === "denied" ? RED :
+  status === "cancelled" ? t.textMut : ORANGE
+);
+const timeOffStatusWord = (status) => (
+  status === "approved" ? tr("Approved") :
+  status === "denied" ? tr("Denied") :
+  status === "cancelled" ? tr("Cancelled") : tr("Requested")
+);
+// One day reads as its own date. A range says both ends, and drops
+// the repeated year only when both ends share one.
+function timeOffDates(startsOn, endsOn) {
+  const a = localDay(startsOn);
+  if (!a) return "";
+  const b = localDay(endsOn) || a;
+  const full = { month: "short", day: "numeric", year: "numeric" };
+  const noYear = { month: "short", day: "numeric" };
+  if (ymdLocal(a) === ymdLocal(b)) return a.toLocaleDateString(dateLocale(), full);
+  if (a.getFullYear() === b.getFullYear()) {
+    return tr("{start} to {end}, {year}", {
+      start: a.toLocaleDateString(dateLocale(), noYear),
+      end: b.toLocaleDateString(dateLocale(), noYear),
+      year: String(a.getFullYear()),
+    });
+  }
+  return tr("{start} to {end}", {
+    start: a.toLocaleDateString(dateLocale(), full),
+    end: b.toLocaleDateString(dateLocale(), full),
+  });
+}
+const timeOffHours = (h) => {
+  if (h === null || h === undefined || h === "") return null;
+  const n = Number(h);
+  if (!isFinite(n)) return null;
+  const shown = String(Math.round(n * 100) / 100);
+  return n === 1 ? tr("{n} hour", { n: shown }) : tr("{n} hours", { n: shown });
+};
+
 const Ico = ({ d, sz = 18, c = "currentColor", style: s, ...p }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={s} {...p}><path d={d} /></svg>);
 const ClockIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 0v10l4 4" {...p} />;
 const CheckIco = (p) => <Ico d="M20 6L9 17l-5-5" {...p} />;
@@ -1406,6 +1486,22 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   });
   const [loading, setLoading] = useState(false);
 
+  // Time off, on the Schedule tab only. types stays null until the
+  // route answers 200, and null keeps every part of this build off
+  // the screen, so before the routes are live the tab reads exactly
+  // as it did.
+  const [offTypes, setOffTypes] = useState(null);
+  const [myOff, setMyOff] = useState([]);
+  const [reqOpen, setReqOpen] = useState(false);
+  const [reqForm, setReqForm] = useState(null);
+  const [reqBusy, setReqBusy] = useState(false);
+  const [reqErr, setReqErr] = useState(null);
+  const [offDetail, setOffDetail] = useState(null);
+  const [offBusy, setOffBusy] = useState(false);
+  const [offErr, setOffErr] = useState(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const timeOffOn = !compact && Array.isArray(offTypes);
+
   const toISO = (d) => d.toISOString().split("T")[0];
   const fmtTm = (v) => { if (!v) return ""; const parts = String(v).split(":"); const h = parseInt(parts[0]); const m = parseInt(parts[1] || "0"); return new Date(2024, 0, 1, h, m).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }); };
   const fmtClockTm = (d) => new Date(d).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit", hour12: true });
@@ -1436,6 +1532,30 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
 
   useEffect(() => { loadSchedule(); }, [weekStart, view]);
 
+  // Asked once when the Schedule tab opens. Any answer other than
+  // 200 leaves types null and shows nothing, with no toast.
+  const loadMyOff = useCallback(async () => {
+    try {
+      const d = await api("/api/time-off/mine?status=all&limit=" + TIME_OFF_PAGE, { token });
+      setMyOff(Array.isArray(d) ? d : (Array.isArray(d && d.requests) ? d.requests : []));
+    } catch (err) { setMyOff([]); }
+  }, [token]);
+
+  useEffect(() => {
+    if (compact) return;
+    let gone = false;
+    (async () => {
+      try {
+        const d = await api("/api/time-off/types", { token });
+        const list = Array.isArray(d) ? d : (Array.isArray(d && d.types) ? d.types : null);
+        if (gone || !Array.isArray(list)) return;
+        setOffTypes(list);
+        loadMyOff();
+      } catch (err) { /* not live yet, nothing shows */ }
+    })();
+    return () => { gone = true; };
+  }, [compact, token, loadMyOff]);
+
   const prevWeek = () => { if (view === "month") { const n = new Date(weekStart.getFullYear(), weekStart.getMonth() - 1, 1); setWeekStart(n); } else { const n = new Date(weekStart); n.setDate(n.getDate() - 7); setWeekStart(n); } };
   const nextWeek = () => { if (view === "month") { const n = new Date(weekStart.getFullYear(), weekStart.getMonth() + 1, 1); setWeekStart(n); } else { const n = new Date(weekStart); n.setDate(n.getDate() + 7); setWeekStart(n); } };
   const goToday = () => {
@@ -1465,6 +1585,72 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
 
   const weekDays = getWeekDays();
 
+  const offLabel = { fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD };
+  const offValue = { fontSize: 13, color: t.text, fontWeight: 500, overflowWrap: "anywhere" };
+  // Both limits are local calendar days, so the pickers agree with
+  // what the API measures against.
+  const reqMin = ymdLocal(addDays(todayLocal(), -TIME_OFF_MIN_BACK));
+  const reqMax = ymdLocal(addDays(todayLocal(), TIME_OFF_MAX_AHEAD));
+
+  const openRequest = () => {
+    const today = ymdLocal(todayLocal());
+    setReqForm({ leaveType: "", startsOn: today, endsOn: today, partDay: false, startTime: "", endTime: "", hours: "", reason: "" });
+    setReqErr(null);
+    setReqOpen(true);
+  };
+  // The last day never sits before the first, and a part day only
+  // makes sense on one day, so widening the range clears it.
+  const onFirstDay = (v) => setReqForm(prev => {
+    const ends = (prev.endsOn && prev.endsOn >= v) ? prev.endsOn : v;
+    const same = ends === v;
+    return { ...prev, startsOn: v, endsOn: ends, partDay: same ? prev.partDay : false, startTime: same ? prev.startTime : "", endTime: same ? prev.endTime : "" };
+  });
+  const onLastDay = (v) => setReqForm(prev => {
+    const same = v === prev.startsOn;
+    return { ...prev, endsOn: v, partDay: same ? prev.partDay : false, startTime: same ? prev.startTime : "", endTime: same ? prev.endTime : "" };
+  });
+
+  const sendRequest = async () => {
+    if (reqBusy) return;
+    setReqBusy(true); setReqErr(null);
+    // leaveType rides along even when empty, so the API's own words
+    // answer rather than a second rule written here.
+    const body = { leaveType: reqForm.leaveType, startsOn: reqForm.startsOn, endsOn: reqForm.endsOn };
+    if (reqForm.partDay) { body.startTime = reqForm.startTime; body.endTime = reqForm.endTime; }
+    if (String(reqForm.hours).trim() !== "") body.hours = Number(reqForm.hours);
+    if (reqForm.reason.trim() !== "") body.reason = reqForm.reason.trim();
+    try {
+      await api("/api/time-off", { method: "POST", body, token });
+      setReqOpen(false);
+      showToast(tr("Time off requested. You get a notice when it is decided."));
+      loadSchedule(); loadMyOff();
+    } catch (err) { setReqErr(tr(err.message)); }
+    setReqBusy(false);
+  };
+
+  // A row already carries the whole request; a calendar chip carries
+  // only an id, so that one is read back first.
+  const openOffDetail = async (r) => {
+    setOffErr(null); setConfirmCancel(false);
+    if (r && r.startsOn) { setOffDetail(r); return; }
+    const id = r && (r.id || r);
+    if (!id) return;
+    try { const d = await api("/api/time-off/" + encodeURIComponent(id), { token }); setOffDetail((d && d.request) ? d.request : d); }
+    catch (err) { showToast(tr(err.message), "error"); }
+  };
+
+  const cancelRequest = async () => {
+    if (offBusy || !offDetail) return;
+    setOffBusy(true); setOffErr(null);
+    try {
+      await api("/api/time-off/" + encodeURIComponent(offDetail.id) + "/cancel", { method: "POST", token });
+      setOffDetail(null); setConfirmCancel(false);
+      showToast(tr("Time off request cancelled."));
+      loadSchedule(); loadMyOff();
+    } catch (err) { setOffErr(tr(err.message)); setConfirmCancel(false); }
+    setOffBusy(false);
+  };
+
   return (
     <div style={{ padding: "0 16px 16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -1485,6 +1671,11 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
       </div>
 
       {loading && <div style={{ textAlign: "center", padding: 20, color: t.textMut, fontSize: 12 }}>{tr("Loading...")}</div>}
+
+      {/* TIME OFF, Schedule tab only, and only once the routes answer */}
+      {timeOffOn && (
+        <button onClick={openRequest} style={{ width: "100%", minHeight: 44, marginBottom: 14, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Request time off")}</button>
+      )}
 
       {/* WEEK VIEW */}
       {!loading && view === "week" && (
@@ -1578,6 +1769,161 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
           </div>
         );
       })()}
+
+      {timeOffOn && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: t.text, marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("My time off")}</div>
+          {myOff.length === 0 && <div style={{ fontSize: 12, color: t.textMut, padding: "10px 0" }}>{tr("No time off requests yet.")}</div>}
+          {myOff.map(r => {
+            const hrs = timeOffHours(r.hours);
+            return (
+              <button key={r.id} onClick={() => openOffDetail(r)} style={{ width: "100%", textAlign: "left", minHeight: 44, marginBottom: 8, padding: "10px 12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.card, cursor: "pointer", fontFamily: FONT_BODY, display: "block" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ flex: "1 1 140px", minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{tr(r.leaveTypeLabel || r.leaveType || "")}</div>
+                    <div style={{ fontSize: 11, color: t.textSec, marginTop: 3, overflowWrap: "anywhere" }}>{timeOffDates(r.startsOn, r.endsOn)}</div>
+                    {r.partDay && r.startTime && r.endTime && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{fmtTm(r.startTime)} - {fmtTm(r.endTime)}</div>}
+                    {hrs && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{hrs}</div>}
+                  </div>
+                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", color: timeOffStatusColor(r.status, t), flexShrink: 0, fontFamily: FONT_HEAD }}>{timeOffStatusWord(r.status)}</span>
+                </div>
+                {r.decisionNote && <div style={{ fontSize: 11, color: t.textSec, marginTop: 6, lineHeight: 1.4, overflowWrap: "anywhere" }}>{tr("Note: {note}", { note: r.decisionNote })}</div>}
+              </button>
+            );
+          })}
+          {myOff.length >= TIME_OFF_PAGE && <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{tr("Showing your latest 50 requests.")}</div>}
+        </div>
+      )}
+
+      {/* REQUEST TIME OFF SHEET */}
+      {reqOpen && reqForm && (
+        <div onClick={() => !reqBusy && setReqOpen(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "20px 20px 30px", boxShadow: t.popShadow, maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 40px)", overflowY: "auto" }}>
+            <div style={{ width: 40, height: 4, borderRadius: 2, background: t.textMut, margin: "0 auto 16px", opacity: 0.3 }} />
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 14, fontFamily: FONT_HEAD }}>{tr("Request time off")}</div>
+
+            {reqErr && <div style={{ padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text, fontSize: 12, lineHeight: 1.5, overflowWrap: "anywhere" }}>{reqErr}</div>}
+
+            <div style={{ marginBottom: 10 }}>
+              <label style={mkLabel(t)}>{tr("Type")}</label>
+              <select value={reqForm.leaveType} onChange={e => setReqForm({ ...reqForm, leaveType: e.target.value })} style={{ ...mkInput(t), minHeight: 44 }}>
+                <option value="">{tr("Choose a type")}</option>
+                {offTypes.map(ty => <option key={ty.value} value={ty.value}>{tr(ty.label || ty.value)}</option>)}
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <label style={mkLabel(t)}>{tr("First day")}</label>
+              <input type="date" value={reqForm.startsOn} min={reqMin} max={reqMax} onChange={e => onFirstDay(e.target.value)} style={{ ...mkInput(t), minHeight: 44 }} />
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <label style={mkLabel(t)}>{tr("Last day")}</label>
+              <input type="date" value={reqForm.endsOn} min={reqForm.startsOn} onChange={e => onLastDay(e.target.value)} style={{ ...mkInput(t), minHeight: 44 }} />
+            </div>
+
+            {reqForm.startsOn === reqForm.endsOn && (
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44, cursor: "pointer", fontSize: 14, color: t.text }}>
+                  <input type="checkbox" checked={reqForm.partDay} onChange={e => setReqForm({ ...reqForm, partDay: e.target.checked, startTime: "", endTime: "" })} style={{ width: 20, height: 20, flexShrink: 0 }} />
+                  {tr("Part of the day")}
+                </label>
+                {reqForm.partDay && (
+                  <div style={{ display: "flex", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+                    <div style={{ flex: "1 1 120px", minWidth: 0 }}>
+                      <label style={mkLabel(t)}>{tr("From")}</label>
+                      <input type="time" value={reqForm.startTime} onChange={e => setReqForm({ ...reqForm, startTime: e.target.value })} style={{ ...mkInput(t), minHeight: 44 }} />
+                    </div>
+                    <div style={{ flex: "1 1 120px", minWidth: 0 }}>
+                      <label style={mkLabel(t)}>{tr("To")}</label>
+                      <input type="time" value={reqForm.endTime} onChange={e => setReqForm({ ...reqForm, endTime: e.target.value })} style={{ ...mkInput(t), minHeight: 44 }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div style={{ marginBottom: 10 }}>
+              <label style={mkLabel(t)}>{tr("Hours (optional)")}</label>
+              <input type="number" min="0" step="0.25" value={reqForm.hours} onChange={e => setReqForm({ ...reqForm, hours: e.target.value })} placeholder={tr("For example, 8")} style={{ ...mkInput(t), minHeight: 44 }} />
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <label style={mkLabel(t)}>{tr("Reason (optional)")}</label>
+              <textarea rows={3} maxLength={1000} value={reqForm.reason} onChange={e => setReqForm({ ...reqForm, reason: e.target.value })} style={{ ...mkInput(t), minHeight: 72, resize: "vertical", lineHeight: 1.5 }} />
+              <div style={{ fontSize: 11, color: t.textMut, marginTop: 6, lineHeight: 1.4 }}>{tr("Only you and the person who approves time off can read this.")}</div>
+            </div>
+
+            <div style={{ fontSize: 11, color: t.textMut, marginBottom: 14, lineHeight: 1.4 }}>{tr("You get a notice in the app when your request is decided.")}</div>
+
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button onClick={() => setReqOpen(false)} disabled={reqBusy} style={{ flex: "1 1 120px", minHeight: 44, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: reqBusy ? "default" : "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button>
+              <button onClick={sendRequest} disabled={reqBusy} style={{ flex: "1 1 120px", minHeight: 44, borderRadius: R.md, border: "1px solid " + GOLD, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 700, cursor: reqBusy ? "default" : "pointer", opacity: reqBusy ? 0.6 : 1, fontFamily: FONT_HEAD }}>{reqBusy ? tr("Sending...") : tr("Send request")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ONE TIME OFF REQUEST */}
+      {offDetail && (
+        <div onClick={() => !offBusy && setOffDetail(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "20px 20px 30px", boxShadow: t.popShadow, maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 40px)", overflowY: "auto" }}>
+            <div style={{ width: 40, height: 4, borderRadius: 2, background: t.textMut, margin: "0 auto 16px", opacity: 0.3 }} />
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, marginBottom: 14, fontFamily: FONT_HEAD }}>{tr("Time off request")}</div>
+
+            {offErr && <div style={{ padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text, fontSize: 12, lineHeight: 1.5, overflowWrap: "anywhere" }}>{offErr}</div>}
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+              <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Type")}</div><div style={offValue}>{tr(offDetail.leaveTypeLabel || offDetail.leaveType || "")}</div></div>
+              <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Status")}</div><div style={{ ...offValue, color: timeOffStatusColor(offDetail.status, t) }}>{timeOffStatusWord(offDetail.status)}</div></div>
+              <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Dates")}</div><div style={offValue}>{timeOffDates(offDetail.startsOn, offDetail.endsOn)}</div></div>
+              {offDetail.partDay && offDetail.startTime && offDetail.endTime && <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Time")}</div><div style={offValue}>{fmtTm(offDetail.startTime)} - {fmtTm(offDetail.endTime)}</div></div>}
+              <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Hours")}</div><div style={offValue}>{timeOffHours(offDetail.hours) || tr("Not given")}</div></div>
+              <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Asked")}</div><div style={offValue}>{offDetail.createdAt ? new Date(offDetail.createdAt).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" }) : ""}</div></div>
+              {offDetail.decidedAt && <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Decided")}</div><div style={offValue}>{new Date(offDetail.decidedAt).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}</div></div>}
+              {offDetail.cancelledAt && <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Cancelled")}</div><div style={offValue}>{new Date(offDetail.cancelledAt).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}</div></div>}
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <div style={offLabel}>{tr("Reason")}</div>
+              <div style={{ ...offValue, lineHeight: 1.5, overflowWrap: "anywhere" }}>{offDetail.reason || tr("No reason given")}</div>
+            </div>
+
+            {offDetail.decidedAt && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={offLabel}>{tr("Note")}</div>
+                <div style={{ ...offValue, lineHeight: 1.5, overflowWrap: "anywhere" }}>{offDetail.decisionNote || tr("No note")}</div>
+              </div>
+            )}
+
+            {Array.isArray(offDetail.shifts) && offDetail.shifts.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={offLabel}>{tr("Shifts on these days")}</div>
+                {offDetail.shifts.map(sh => (
+                  <div key={sh.id} style={{ fontSize: 12, color: t.text, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" }}>
+                    {timeOffDates(sh.date, sh.date)}{sh.startTime ? "  " + fmtTm(sh.startTime) + (sh.endTime ? " - " + fmtTm(sh.endTime) : "") : ""}{sh.siteName ? "  " + sh.siteName : ""}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {offDetail.status === "requested" && !confirmCancel && (
+              <button onClick={() => setConfirmCancel(true)} disabled={offBusy} style={{ width: "100%", minHeight: 44, marginBottom: 10, borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel request")}</button>
+            )}
+            {confirmCancel && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5, marginBottom: 10 }}>{tr("Cancel this time off request?")}</div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button onClick={() => setConfirmCancel(false)} disabled={offBusy} style={{ flex: "1 1 120px", minHeight: 44, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Keep it")}</button>
+                  <button onClick={cancelRequest} disabled={offBusy} style={{ flex: "1 1 120px", minHeight: 44, borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: offBusy ? 0.6 : 1, fontFamily: FONT_HEAD }}>{offBusy ? tr("Sending...") : tr("Cancel request")}</button>
+                </div>
+              </div>
+            )}
+
+            <button onClick={() => setOffDetail(null)} style={{ width: "100%", minHeight: 44, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Close")}</button>
+          </div>
+        </div>
+      )}
 
       {/* SHIFT DETAIL MODAL */}
       {detail && (
