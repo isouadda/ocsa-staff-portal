@@ -1,16 +1,204 @@
 import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
 import clientConfig from './clientConfig';
 import { tr, dateLocale, setWordsLanguage } from "./words";
+import { BUILD_STAMP } from "./buildStamp";
 
 const API = process.env.REACT_APP_API_URL || "https://ocsa-api-production.up.railway.app";
 
+// --- Part way through ---------------------------------------------------
+// One place that answers whether a person is in the middle of something,
+// so the update check has a single thing to ask.
+//
+// Requests count themselves, since api and uploadPhoto are the only two
+// ways this app talks to its API. A screen holding typed text, a picked
+// photo or an unsaved answer reports its own key through useBusy. Sheets
+// are read straight off the page: every sheet, dialog and confirmation
+// here is a fixed box pinned to all four edges, and nothing else is.
+let inFlight = 0;
+const busyKeys = new Set();
+const busyWatchers = new Set();
+const notifyBusy = () => { busyWatchers.forEach(fn => { try { fn(); } catch (e) {} }); };
+const watchBusy = (fn) => { busyWatchers.add(fn); return () => { busyWatchers.delete(fn); }; };
+const flightUp = () => { inFlight += 1; };
+const flightDown = () => { inFlight = inFlight > 0 ? inFlight - 1 : 0; notifyBusy(); };
+
+function setBusy(key, on) {
+  if (on === busyKeys.has(key)) return;
+  if (on) busyKeys.add(key); else busyKeys.delete(key);
+  notifyBusy();
+}
+// Reports one key for as long as the condition holds, and clears it when
+// the screen goes away, so a tab change can never leave a key set.
+function useBusy(key, on) {
+  useEffect(() => { setBusy(key, !!on); }, [key, on]);
+  useEffect(() => () => setBusy(key, false), [key]);
+}
+
+const UPDATE_BAR_ID = "ocsa-update-bar";
+
+function anySheetOpen() {
+  const all = document.querySelectorAll("div");
+  for (let i = 0; i < all.length; i++) {
+    const el = all[i];
+    if (el.id === UPDATE_BAR_ID) continue;
+    const st = window.getComputedStyle(el);
+    if (st.position !== "fixed") continue;
+    if (st.top === "0px" && st.left === "0px" && st.right === "0px" && st.bottom === "0px") return true;
+  }
+  return false;
+}
+
+// A field with something in it, under the cursor right now.
+function focusHoldsValue() {
+  const el = document.activeElement;
+  if (!el || !el.tagName) return false;
+  const tag = el.tagName.toUpperCase();
+  if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") return false;
+  if (el.type === "checkbox" || el.type === "radio") return false;
+  return String(el.value == null ? "" : el.value).length > 0;
+}
+
+const somethingIsUnderway = () => busyKeys.size > 0 || inFlight > 0 || anySheetOpen() || focusHoldsValue();
+
+// --- The app keeps itself current ---------------------------------------
+// A phone keeps this app open on its home screen for days, so a tab that
+// is never closed never asks for index.html again and keeps running the
+// bundle it first loaded. The app carries its own stamp, asks the server
+// for the current one, and reloads itself when nobody is mid sentence.
+const UPDATE_FIRST_MS = 5000;
+const UPDATE_PERIOD_MS = 15 * 60 * 1000;
+const UPDATE_GAP_MS = 60 * 1000;
+const UPDATE_RETEST_MS = 20 * 1000;
+const UPDATE_FETCH_MS = 8000;
+const UPDATE_TAB_KEY = "ocsa-update-tab";
+const UPDATE_TRIED_KEY = "ocsa-update-tried";
+
+const sessionGet = (k) => { try { return window.sessionStorage.getItem(k); } catch (e) { return null; } };
+const sessionSet = (k, v) => { try { window.sessionStorage.setItem(k, v); } catch (e) {} };
+const sessionDrop = (k) => { try { window.sessionStorage.removeItem(k); } catch (e) {} };
+
+// Nothing here is allowed to make noise. A check that fails, times out or
+// answers without a stamp leaves the app exactly as it was.
+async function readServerStamp() {
+  const base = process.env.PUBLIC_URL || "";
+  let timer = null;
+  try {
+    const ctl = typeof AbortController === "function" ? new AbortController() : null;
+    if (ctl) timer = setTimeout(() => { try { ctl.abort(); } catch (e) {} }, UPDATE_FETCH_MS);
+    const opts = ctl ? { cache: "no-store", signal: ctl.signal } : { cache: "no-store" };
+    const res = await fetch(base + "/version.json?t=" + Date.now(), opts);
+    if (!res || !res.ok) return null;
+    const data = await res.json();
+    const stamp = data && typeof data.stamp === "string" ? data.stamp.trim() : "";
+    return stamp || null;
+  } catch (e) {
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+// The tab is remembered first, so it survives even if the rest throws.
+async function clearAndReload(tab, stamp) {
+  sessionSet(UPDATE_TAB_KEY, tab || "clock");
+  sessionSet(UPDATE_TRIED_KEY, stamp);
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for (let i = 0; i < regs.length; i++) { try { await regs[i].unregister(); } catch (e) {} }
+    }
+  } catch (e) {}
+  try {
+    if (window.caches && window.caches.keys) {
+      const names = await window.caches.keys();
+      for (let i = 0; i < names.length; i++) { try { await window.caches.delete(names[i]); } catch (e) {} }
+    }
+  } catch (e) {}
+  try { window.location.reload(); } catch (e) {}
+}
+
+function useSelfUpdate(activeTab) {
+  // The server's stamp, once it differs from this bundle's.
+  const [ahead, setAhead] = useState(null);
+  // The bar only appears once a reload has been held back, so an idle
+  // app updates with nothing shown and nothing tapped.
+  const [showBar, setShowBar] = useState(false);
+  const aheadRef = useRef(null);
+  const goingRef = useRef(false);
+  const lastRef = useRef(0);
+  const tabRef = useRef(activeTab);
+  useEffect(() => { tabRef.current = activeTab; }, [activeTab]);
+  useEffect(() => { aheadRef.current = ahead; }, [ahead]);
+
+  const check = useCallback(async () => {
+    lastRef.current = Date.now();
+    const stamp = await readServerStamp();
+    if (!stamp || stamp === BUILD_STAMP) return;
+    setAhead(stamp);
+  }, []);
+
+  useEffect(() => {
+    const soon = () => { if (!document.hidden) check(); };
+    const first = setTimeout(soon, UPDATE_FIRST_MS);
+    const iv = setInterval(soon, UPDATE_PERIOD_MS);
+    // The one that matters most: a phone on a home screen spends its
+    // life hidden, and this is the moment a person looks at it again.
+    const onShow = () => { if (!document.hidden && Date.now() - lastRef.current > UPDATE_GAP_MS) check(); };
+    const onOnline = () => { check(); };
+    document.addEventListener("visibilitychange", onShow);
+    window.addEventListener("online", onOnline);
+    return () => {
+      clearTimeout(first); clearInterval(iv);
+      document.removeEventListener("visibilitychange", onShow);
+      window.removeEventListener("online", onOnline);
+    };
+  }, [check]);
+
+  const tryNow = useCallback(() => {
+    const stamp = aheadRef.current;
+    if (!stamp || goingRef.current) return;
+    // A reload already happened for this value and the stamps still
+    // differ, so reloading again would only loop. Leave the bar up.
+    if (sessionGet(UPDATE_TRIED_KEY) === stamp) { setShowBar(true); return; }
+    if (somethingIsUnderway()) { setShowBar(true); return; }
+    goingRef.current = true;
+    clearAndReload(tabRef.current, stamp);
+  }, []);
+
+  useEffect(() => {
+    if (!ahead) return;
+    tryNow();
+    const iv = setInterval(tryNow, UPDATE_RETEST_MS);
+    const off = watchBusy(tryNow);
+    // Closing a sheet is a tap, so one debounced listener catches it
+    // without watching the whole page for changes.
+    let t = null;
+    const onTap = () => { if (t) clearTimeout(t); t = setTimeout(tryNow, 400); };
+    document.addEventListener("click", onTap, true);
+    return () => { clearInterval(iv); off(); document.removeEventListener("click", onTap, true); if (t) clearTimeout(t); };
+  }, [ahead, activeTab, tryNow]);
+
+  const updateNow = useCallback(() => {
+    const stamp = aheadRef.current;
+    if (!stamp || goingRef.current) return;
+    goingRef.current = true;
+    clearAndReload(tabRef.current, stamp);
+  }, []);
+
+  return { showBar: showBar, updateNow: updateNow };
+}
+
 async function uploadPhoto(file, token) {
   const ext = file.name.split(".").pop().toLowerCase();
-  const res = await fetch(API + "/api/uploads?bucket=issue-photos&ext=" + encodeURIComponent(ext), {
-    method: "POST",
-    headers: { "Authorization": "Bearer " + token, "Content-Type": file.type },
-    body: file,
-  });
+  flightUp();
+  let res;
+  try {
+    res = await fetch(API + "/api/uploads?bucket=issue-photos&ext=" + encodeURIComponent(ext), {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + token, "Content-Type": file.type },
+      body: file,
+    });
+  } finally { flightDown(); }
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
   if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Photo upload failed"); }
   const data = await res.json();
@@ -162,7 +350,11 @@ const LIGHT = {
 async function api(path, opts = {}) {
   const headers = { "Content-Type": "application/json", ...opts.headers };
   if (opts.token) headers["Authorization"] = "Bearer " + opts.token;
-  const res = await fetch(API + path, { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  flightUp();
+  let res;
+  try {
+    res = await fetch(API + path, { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  } finally { flightDown(); }
   if (res.status === 401 && !opts.noAuthEvent) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
   if (!res.ok) { const err = await res.json().catch(() => ({ error: "Request failed" })); const e = new Error(err.error || "Request failed"); e.status = res.status; e.code = err.code || null; e.body = err; throw e; }
   return res.json();
@@ -935,6 +1127,18 @@ export default function OCSAStaffPortal() {
     return () => clearInterval(iv);
   }, [token, screen, refreshUnread]);
 
+  // The app keeps itself current. showBar is true only once a reload has
+  // been held back, so an idle app updates with nothing shown.
+  const { showBar: updateWaiting, updateNow } = useSelfUpdate(activeTab);
+
+  // Written just before a reload for an update, read once, then dropped.
+  useEffect(() => {
+    const want = sessionGet(UPDATE_TAB_KEY);
+    if (!want) return;
+    sessionDrop(UPDATE_TAB_KEY);
+    if (want === "profile" || DESTINATIONS.some(d => d.id === want)) setActiveTab(want);
+  }, []);
+
   const badgeCounts = { assigned: assignedCount };
   const tabOf = (d) => ({ id: d.id, label: tr(d.label(destCtx)), icon: d.icon, badge: d.badge ? (badgeCounts[d.badge] || 0) : 0 });
   // Home first, then the four, then More. Whatever is not on the bar is
@@ -954,6 +1158,17 @@ export default function OCSAStaffPortal() {
   return (
     <TextSizeCtx.Provider value={{ textSize, setTextSize }}>
     <div style={{ width: "100%", minHeight: "var(--ocsa-vh)", background: t.bg, fontFamily: FONT_BODY, color: t.text, position: "relative", display: "flex", flexDirection: "column", zoom: zoom, ...viewportVars(zoom) }}>
+
+      {/* Only while an update is waiting on someone to finish. It takes
+          its own space rather than covering anything, sticks to the top
+          while the page scrolls, and sits above every sheet. It has no
+          close control and goes on its own when the update goes. */}
+      {updateWaiting && (
+        <div id={UPDATE_BAR_ID} style={{ position: "sticky", top: 0, zIndex: 3000, background: t.card, borderBottom: "1px solid " + t.goldBorder, boxShadow: t.shadow, display: "flex", alignItems: "center", justifyContent: "center", flexWrap: "wrap", gap: 10, padding: "7px 12px" }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("A new version is ready")}</span>
+          <button onClick={updateNow} style={{ minHeight: 30, padding: "0 12px", borderRadius: R.sm, border: "1px solid " + GOLD, background: t.goldBg, color: t.goldText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Update now")}</button>
+        </div>
+      )}
 
       {booting && <BootSplash t={t} themeMode={themeMode} />}
       {!booting && screen === "login" && <LoginScreen onLogin={handleLogin} onGoRegister={() => setScreen("register")} onGoForgot={() => setScreen("forgot")} loading={loading} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
@@ -2236,6 +2451,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
 
 function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMessage, user, t, token }) {
   const [text, setText] = useState(""); const endRef = useRef(null);
+  useBusy("chat composer", text.trim().length > 0);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length]);
   const siteChannels = channels.filter(c => c.type === "site" || c.type === "general");
   const dmChannel = channels.find(c => c.type === "admin_dm");
@@ -2517,6 +2733,9 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
   const canSubmit = !!formResponse && !submitBusy && !(remaining > 0);
   const openDrafts = drafts.filter(d => !formResponse || String(agentDraftId(d)) !== String(formResponse.id));
   const photosBusy = photos.some(p => p.status === "preparing" || p.status === "uploading");
+  // Typed text, a picked photo, or a photo still going up. An update
+  // waits for all three.
+  useBusy("help composer", text.trim().length > 0 || photos.length > 0 || sending);
   // A photo whose upload was refused holds the send until it is removed or
   // retried, so nobody sends a message believing that photo went with it.
   const photosBlocked = photos.some(p => p.status === "failed");
@@ -2592,6 +2811,7 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
 function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lkColorMap }) {
   const [detail, setDetail] = useState(null); const [activePanel, setActivePanel] = useState(null);
   const [note, setNote] = useState(""); const [photo, setPhoto] = useState(null); const [photoPreview, setPhotoPreview] = useState(null); const [uploading, setUploading] = useState(false);
+  useBusy("assigned task resolution", note.trim().length > 0 || !!photo || uploading);
   const fileRef = useRef(null);
   const lkPriColors = lkColorMap("task_priorities"); const lkSevColors = lkColorMap("issue_severities");
   const priC = Object.keys(lkPriColors).length > 0 ? lkPriColors : { critical: RED, high: ORANGE, standard: GOLD }; const sevC = Object.keys(lkSevColors).length > 0 ? lkSevColors : { low: GREEN, medium: ORANGE, high: RED };
@@ -2650,6 +2870,7 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites, 
   const [sev, setSev] = useState("medium"); const [zone, setZone] = useState(""); const [selSite, setSelSite] = useState("");
   const [photo, setPhoto] = useState(null); const [photoPreview, setPhotoPreview] = useState(null); const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
+  useBusy("issue form", title.trim().length > 0 || desc.trim().length > 0 || zone.trim().length > 0 || !!photo || uploading);
   const labelSt = mkLabel(t); const inputSt = mkInput(t);
   const sevOpts = getOpts("issue_severities");
   const sevColors = lkColorMap("issue_severities");
@@ -2680,6 +2901,7 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites, 
 
 function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submitRequest, showToast, t, getOpts, lkColorMap }) {
   const [scanning, setScanning] = useState(null); const [qty, setQty] = useState(1); const [reqForm, setReqForm] = useState(null);
+  useBusy("supply request form", !!reqForm || scanning !== null);
   const labelSt = mkLabel(t); const inputSt = mkInput(t); const qtyBtn = mkQtyBtn(t);
   const handleSubmitReq = () => { if (!reqForm.type) { showToast(tr("Select a request type"), "error"); return; } if ((reqForm.type === "new_gear" || reqForm.type === "new_supply") && !reqForm.itemName) { showToast(tr("Enter the item name"), "error"); return; } submitRequest(reqForm.type, reqForm.itemName, reqForm.description, reqForm.urgency, reqForm.supplyId); setReqForm(null); };
 
@@ -2752,6 +2974,7 @@ function SpeakUpView({ token, t }) {
   // One plain sentence when a send did not go through. What was typed
   // stays on screen underneath it.
   const [problem, setProblem] = useState(null);
+  useBusy("speak up composer", text.trim().length > 0 || sending);
   useEffect(() => { let live = true; setSubjects(null); setListFailed(false); api("/api/contacts/case-subjects", { token }).then(d => { if (live) setSubjects(Array.isArray(d?.subjects) ? d.subjects : []); }).catch(() => { if (live) setListFailed(true); }); return () => { live = false; }; }, [token, attempt]);
   const labelSt = mkLabel(t);
   const inputSt = mkInput(t);
@@ -3450,6 +3673,8 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   const [sendErr, setSendErr] = useState(null);
   const [sent, setSent] = useState(null);
   const bodyRef = useRef(null);
+  // An answer typed and not yet saved, or a save or a send on its way.
+  useBusy("report form", Object.keys(dirty).length > 0 || saving || sending);
 
   const fields = formFieldsInPlay(form, values);
   const sections = formSectionsOf(fields);
@@ -3923,6 +4148,7 @@ function InspectView({ token, user, showToast, t }) {
   const [sites, setSites] = useState([]);
   const [schedForm, setSchedForm] = useState({ template_id: "", site_id: "", scheduled_date: "" });
   const [scheduling, setScheduling] = useState(false);
+  useBusy("inspection in progress", !!active || uploadingId !== null || submitting || scheduling);
 
   const loadList = async () => {
     setLoading(true);
@@ -4163,6 +4389,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
   const [form, setForm] = useState({});
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  useBusy("profile edit", editing || uploading || saving);
   const loadProfile = async () => {
     try {
       const d = await api("/api/users/profile/me", { token });

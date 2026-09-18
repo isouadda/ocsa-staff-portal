@@ -76,6 +76,7 @@ Try Again,Intentar de nuevo,Sign in
 Your account is activated but not currently active. Contact your supervisor.,Su cuenta está activada pero no está activa en este momento. Hable con su supervisor.,Sign in
 Your PIN has been changed. Contact your supervisor about your account status.,Su PIN fue cambiado. Hable con su supervisor sobre el estado de su cuenta.,Sign in
 Your PIN has been saved. Signing in will work once your account is active.,Su PIN se guardó. Podrá iniciar sesión cuando su cuenta esté activa.,Sign in
+A new version is ready,Hay una versión nueva lista,"App wide, the update bar"
 Could not find your open shift. Reload and try again.,No se encontró su turno abierto. Recargue e intente de nuevo.,App wide
 Edit shortcuts,Editar accesos directos,"App wide, Settings"
 End your shift at {site}?,¿Terminar su turno en {site}?,App wide
@@ -105,6 +106,7 @@ Task updated to {status},Tarea actualizada a {status},App wide
 "That sign-in did not match. Check your badge, phone or email and your PIN.","Esos datos no coinciden. Revise su número de empleado, teléfono o correo y su PIN.",App wide
 This shift was already ended,Este turno ya estaba terminado,App wide
 this site,este sitio,App wide
+Update now,Actualizar ahora,"App wide, the update bar"
 "Welcome, {name}","Bienvenido, {name}",App wide
 {count} unread notifications,{count} notificaciones sin leer,App wide
 All Other Sites,Todos los demás sitios,Home
