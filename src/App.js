@@ -1056,39 +1056,47 @@ export default function OCSAStaffPortal() {
     const userId = u && u.id ? u.id : null;
     const changed = {};
     const settled = [];
+    // What this device is still trying to send. Read before anything is
+    // applied, because the account's copy of a key that is still on its
+    // way here is the older one.
+    const waiting = userId ? readPendingPrefs(userId) : [];
 
-    if (Array.isArray(prefs.shortcuts)) {
-      const ok = validShortcuts(prefs.shortcuts, allowedShortcutIds) || DEFAULT_SHORTCUTS.slice();
-      setShortcutsState({ userId: userId, ids: ok });
-      if (userId) saveShortcuts(userId, ok);
-      settled.push("shortcuts");
-    } else {
-      const mine = userId ? storedShortcuts(userId) : null;
-      if (mine) changed.shortcuts = mine;
-    }
+    // One rule for every key. A key this device is still trying to send
+    // keeps this device's value and goes up again, so a save that did not
+    // reach the account is never quietly replaced by what the account
+    // held before it. Otherwise the account's value wins. Where the
+    // account holds none, this device's goes up once, so the first phone
+    // a person set things on becomes their account's settings.
+    const mergePref = (name, fromAccount, mine, apply) => {
+      const has = (v) => v !== null && v !== undefined;
+      if (waiting.indexOf(name) !== -1 && has(mine)) { changed[name] = mine; return; }
+      if (has(fromAccount)) { apply(fromAccount); settled.push(name); return; }
+      if (has(mine)) changed[name] = mine;
+    };
 
-    if (TEXT_SIZES.some(x => x.id === prefs.textSize)) {
-      setTextSizeState(prefs.textSize); saveTextSize(prefs.textSize); settled.push("textSize");
-    } else {
-      const mine = storedTextSize();
-      if (mine) changed.textSize = mine;
-    }
+    mergePref("shortcuts",
+      Array.isArray(prefs.shortcuts) ? (validShortcuts(prefs.shortcuts, allowedShortcutIds) || DEFAULT_SHORTCUTS.slice()) : null,
+      userId ? storedShortcuts(userId) : null,
+      (v) => { setShortcutsState({ userId: userId, ids: v }); if (userId) saveShortcuts(userId, v); });
 
-    if (prefs.theme === "light" || prefs.theme === "dark") {
-      setThemeMode(prefs.theme); saveTheme(prefs.theme); settled.push("theme");
-    } else {
-      const mine = storedTheme();
-      if (mine) changed.theme = mine;
-    }
+    mergePref("textSize",
+      TEXT_SIZES.some(x => x.id === prefs.textSize) ? prefs.textSize : null,
+      storedTextSize(),
+      (v) => { setTextSizeState(v); saveTextSize(v); });
 
-    if (prefs.language === "en" || prefs.language === "es") {
-      setLanguageState(prefs.language); saveLanguage(prefs.language); settled.push("language");
-    } else {
-      const mine = storedLanguage();
-      if (mine) changed.language = mine;
-    }
+    mergePref("theme",
+      (prefs.theme === "light" || prefs.theme === "dark") ? prefs.theme : null,
+      storedTheme(),
+      (v) => { setThemeMode(v); saveTheme(v); });
 
-    // A key the account just supplied is no longer waiting to be sent.
+    mergePref("language",
+      (prefs.language === "en" || prefs.language === "es") ? prefs.language : null,
+      storedLanguage(),
+      (v) => { setLanguageState(v); saveLanguage(v); });
+
+    // Only a key the account actually settled stops waiting. One this
+    // device is still delivering stays on the list and rides the
+    // sendPrefs call below.
     if (userId && settled.length > 0) savePendingPrefs(userId, readPendingPrefs(userId).filter(k => settled.indexOf(k) === -1));
     sendPrefs(changed, tok, userId);
   };
