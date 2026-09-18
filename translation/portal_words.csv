@@ -77,21 +77,31 @@ Your account is activated but not currently active. Contact your supervisor.,Su 
 Your PIN has been changed. Contact your supervisor about your account status.,Su PIN fue cambiado. Hable con su supervisor sobre el estado de su cuenta.,Sign in
 Your PIN has been saved. Signing in will work once your account is active.,Su PIN se guardó. Podrá iniciar sesión cuando su cuenta esté activa.,Sign in
 A new version is ready,Hay una versión nueva lista,"App wide, the update bar"
+Add {app} to your home screen,Agregue {app} a su pantalla de inicio,"App wide, the install sheet"
+Confirm on the next screen.,Confirme en la siguiente pantalla.,"App wide, the install sheet"
+Copied,Copiado,"App wide, the install sheet"
+Copy address,Copiar la dirección,"App wide, the install sheet"
 Could not find your open shift. Reload and try again.,No se encontró su turno abierto. Recargue e intente de nuevo.,App wide
+Don't show again,No mostrar más,"App wide, the install sheet"
 Edit shortcuts,Editar accesos directos,"App wide, Settings"
 End your shift at {site}?,¿Terminar su turno en {site}?,App wide
 Extra large,Más grande,App wide
+Install,Instalar,"App wide, the install sheet"
 Issue reported,Problema reportado,App wide
+"It opens like an app, one tap from your home screen.","Se abre como una aplicación, con un toque desde su pantalla de inicio.","App wide, the install sheet"
 Large,Grande,App wide
 Largest,El más grande,App wide
 Low stock alert!,¡Aviso de poco inventario!,App wide
 More,Más,"App wide, Shortcuts, Bar and More"
+Not now,Ahora no,"App wide, the install sheet"
 Notifications,Notificaciones,"App wide, Notifications"
 ON SITE,EN SITIO,App wide
+Open the browser menu. It is usually three dots at the top right.,Abra el menú del navegador. Casi siempre son tres puntos arriba a la derecha.,"App wide, the install sheet"
 PIN updated,PIN actualizado,"App wide, Settings"
 Profile,Perfil,"App wide, header"
 Registration submitted. Pending supervisor approval.,Registro enviado. Pendiente de aprobación de su supervisor.,App wide
 Request submitted,Solicitud enviada,App wide
+Scroll down and tap Add to Home Screen.,Baje y toque Agregar a la pantalla de inicio.,"App wide, the install sheet"
 Select a site first,Primero elija un sitio,App wide
 Settings,Ajustes,"App wide, Settings, Bar and More"
 Shift ended,Turno terminado,App wide
@@ -100,10 +110,18 @@ Shift started,Turno iniciado,App wide
 Shortcuts saved,Accesos directos guardados,App wide
 Sign out,Cerrar sesión,"App wide, header"
 Standard,Normal,App wide
+Tap Add or Install.,Toque Agregar o Instalar.,"App wide, the install sheet"
+Tap Add to Home screen or Install app.,Toque Agregar a la pantalla de inicio o Instalar aplicación.,"App wide, the install sheet"
+Tap Add to Home Screen.,Toque Agregar a la pantalla de inicio.,"App wide, the install sheet"
+Tap Add.,Toque Agregar.,"App wide, the install sheet"
+Tap Install below.,Toque Instalar abajo.,"App wide, the install sheet"
+Tap the Share button {share} at the bottom of the screen.,Toque el botón Compartir {share} abajo en la pantalla.,"App wide, the install sheet"
+Tap the Share button {share} in the address bar.,Toque el botón Compartir {share} en la barra de direcciones.,"App wide, the install sheet"
 Task completed,Tarea completada,App wide
 Task unchecked,Tarea desmarcada,App wide
 Task updated to {status},Tarea actualizada a {status},App wide
 "That sign-in did not match. Check your badge, phone or email and your PIN.","Esos datos no coinciden. Revise su número de empleado, teléfono o correo y su PIN.",App wide
+"This page is open inside another app. Open it in Safari or Chrome first, then add it to your home screen.",Esta página está abierta dentro de otra aplicación. Ábrala primero en Safari o Chrome y luego agréguela a su pantalla de inicio.,"App wide, the install sheet"
 This shift was already ended,Este turno ya estaba terminado,App wide
 this site,este sitio,App wide
 Update now,Actualizar ahora,"App wide, the update bar"
@@ -525,6 +543,7 @@ Form not found,No se encontró el formulario,"API message, shown word for word"
 Hours must be a number from 0 to 999.99,Las horas deben ser un número de 0 a 999.99,"API message, shown word for word"
 Keep the reason under 1000 characters,Escriba el motivo con menos de 1000 caracteres,"API message, shown word for word"
 language must be en or es,el idioma debe ser en o es,"API message, shown word for word"
+Photo upload failed,No se pudo subir la foto,"API message, shown word for word"
 Request failed,La solicitud falló,"API message, shown word for word"
 Request not found,No se encontró la solicitud,"API message, shown word for word"
 Required fields are unanswered,Faltan campos obligatorios por responder,"API message, shown word for word"
