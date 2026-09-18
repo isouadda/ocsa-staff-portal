@@ -2560,6 +2560,9 @@ function AgentReply({ text }) {
 }
 
 function AgentView({ token, showToast, t, language, onFillForm }) {
+  // The same shape the Forms screen uses, so a Spanish screen never
+  // lists English form names.
+  const locale = language === "es" ? "es" : "en";
   const [drafts, setDrafts] = useState([]);
   const [conversationId, setConversationId] = useState(null);
   const [thread, setThread] = useState([]);
@@ -2659,7 +2662,7 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
     }
   };
 
-  const loadDrafts = useCallback(async () => { try { const d = await api("/api/agent/drafts", { token }); setDrafts(agentList(d, ["drafts", "items", "rows"])); } catch (err) { console.warn("Drafts:", err.message); } }, [token]);
+  const loadDrafts = useCallback(async () => { try { const d = await api("/api/agent/drafts?locale=" + locale, { token }); setDrafts(agentList(d, ["drafts", "items", "rows"])); } catch (err) { console.warn("Drafts:", err.message); } }, [token, locale]);
   useEffect(() => { loadDrafts(); }, [loadDrafts]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [thread.length, formResponse]);
   // The composer grows to a few lines and then scrolls.
@@ -2720,7 +2723,7 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
     const cid = agentField(d, ["conversationId", "conversation_id"], null);
     if (cid) {
       try {
-        const h = await api("/api/agent/conversations/" + cid, { token });
+        const h = await api("/api/agent/conversations/" + cid + "?locale=" + locale, { token });
         const list = agentList(h, ["messages", "turns", "history"]);
         setThread(list.map((m, i) => ({ id: "h" + i, role: String(agentField(m, ["role", "sender"], "assistant")).toLowerCase() === "user" ? "user" : "assistant", text: String(agentField(m, ["text", "content", "reply"], "")), citedDocs: agentList(agentField(m, ["citedDocs", "cited_doc_codes", "citedDocCodes"], []), []), degraded: agentField(m, ["degraded"], false) === true, noProcedure: agentField(m, ["noProcedure", "no_procedure"], false) === true })));
         setConversationId(cid);
@@ -2732,7 +2735,7 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
   const submit = async () => {
     if (!formResponse || submitBusy) return;
     setSubmitBusy(true); setMissing([]);
-    try { await api("/api/agent/drafts/" + formResponse.id + "/submit", { method: "POST", token }); setFormResponse(null); setSubmitted(true); loadDrafts(); }
+    try { await api("/api/agent/drafts/" + formResponse.id + "/submit?locale=" + locale, { method: "POST", token }); setFormResponse(null); setSubmitted(true); loadDrafts(); }
     catch (err) { const b = err.body || {}; const keys = agentList(agentField(b, ["missing", "missingKeys", "missingFields", "missing_keys", "missing_fields"], []), []); setMissing(keys.length > 0 ? keys.map(agentKeyWords) : [tr(err.message)]); }
     setSubmitBusy(false);
   };
@@ -3571,7 +3574,7 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
       setForms(agentList(c, ["forms"]));
     } catch (err) { setFailed(true); setLoading(false); return; }
     try {
-      const d = agentList(await api("/api/agent/drafts", { token }), ["drafts", "items", "rows"]);
+      const d = agentList(await api("/api/agent/drafts?locale=" + locale, { token }), ["drafts", "items", "rows"]);
       // Whoever may read reports is served everyone's drafts on
       // this route, so the rows are narrowed to this person's
       // before a card can say Continue on somebody else's report.
