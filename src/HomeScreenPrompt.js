@@ -1,18 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import { detectInstallMode, readPromptState, writePromptState, shouldShowPrompt } from "./homeScreenPromptRules";
+import { tr } from "./words";
 
 // A bottom sheet that shows how to save the app to the home screen, with
 // steps for the phone and browser in use. Mounted once, beside the app,
 // so it appears on every screen including sign in. It waits for the page
 // to settle, shows only on a phone or tablet that is not already running
 // from the home screen, and honors "Not now" for seven days and "Don't
-// show again" for good. A tap outside closes it for this visit.
+// show again" for good. A tap outside counts as "Not now", so the sheet a
+// person waved away does not come back on the next load.
 
 const SETTLE_MS = 2500;
 const FONT = "-apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 const NAVY = "#0A1628";
 const BLUE = "#15558F";
 const ICON = process.env.PUBLIC_URL + "/icons/icon-192.png";
+// The one place this name is written. It rides into the title as a
+// placeholder so the Spanish line carries no client name of its own.
+const APP_NAME = "OCSA Staff";
 
 function isStandalone() {
   try {
@@ -30,6 +35,13 @@ function ShareGlyph() {
       <path d="M8 7l4-4 4 4" />
     </svg>
   );
+}
+
+// A step line, with the share glyph dropped in wherever {share} sits.
+// A line without the placeholder comes back unchanged.
+function StepLine({ text }) {
+  const parts = String(text).split("{share}");
+  return <>{parts.map((piece, i) => <span key={i}>{i > 0 && <ShareGlyph />}{piece}</span>)}</>;
 }
 
 export default function HomeScreenPrompt() {
@@ -98,10 +110,10 @@ export default function HomeScreenPrompt() {
   };
 
   const stepsFor = {
-    android_prompt: ["Tap Install below.", "Confirm on the next screen."],
-    android_manual: ["Open the browser menu. It is usually three dots at the top right.", "Tap Add to Home screen or Install app.", "Tap Add or Install."],
-    ios_safari: [<>Tap the Share button <ShareGlyph /> at the bottom of the screen.</>, "Scroll down and tap Add to Home Screen.", "Tap Add."],
-    ios_other_browser: [<>Tap the Share button <ShareGlyph /> in the address bar.</>, "Tap Add to Home Screen.", "Tap Add."],
+    android_prompt: [tr("Tap Install below."), tr("Confirm on the next screen.")],
+    android_manual: [tr("Open the browser menu. It is usually three dots at the top right."), tr("Tap Add to Home screen or Install app."), tr("Tap Add or Install.")],
+    ios_safari: [tr("Tap the Share button {share} at the bottom of the screen."), tr("Scroll down and tap Add to Home Screen."), tr("Tap Add.")],
+    ios_other_browser: [tr("Tap the Share button {share} in the address bar."), tr("Tap Add to Home Screen."), tr("Tap Add.")],
     in_app_browser: [],
   };
   const steps = stepsFor[mode] || [];
@@ -111,35 +123,35 @@ export default function HomeScreenPrompt() {
   const ghost = { ...btn, border: "1px solid #C9D3DF", background: "#FFFFFF", color: NAVY };
 
   return (
-    <div onClick={() => setOpen(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.45)", zIndex: 2000, display: "flex", alignItems: "flex-end", justifyContent: "center", fontFamily: FONT }}>
+    <div onClick={notNow} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.45)", zIndex: 2000, display: "flex", alignItems: "flex-end", justifyContent: "center", fontFamily: FONT }}>
       <div role="dialog" aria-modal="true" aria-labelledby="ocsa-a2hs-title" onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 560, background: "#FFFFFF", color: NAVY, borderRadius: "18px 18px 0 0", padding: "18px 20px calc(20px + env(safe-area-inset-bottom, 0px))", boxShadow: "0 -8px 30px rgba(0,0,0,0.25)" }}>
         <div style={{ width: 40, height: 4, borderRadius: 2, background: "#C9D3DF", margin: "0 auto 14px" }} />
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 10 }}>
           <img src={ICON} alt="" width="56" height="56" style={{ width: 56, height: 56, borderRadius: 12, border: "1px solid #E4EAF2", flexShrink: 0 }} />
           <div>
-            <div id="ocsa-a2hs-title" style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.25 }}>Add OCSA Staff to your home screen</div>
-            <div style={{ fontSize: 14, color: "#4A5C70", marginTop: 4, lineHeight: 1.4 }}>It opens like an app, one tap from your home screen.</div>
+            <div id="ocsa-a2hs-title" style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.25 }}>{tr("Add {app} to your home screen", { app: APP_NAME })}</div>
+            <div style={{ fontSize: 14, color: "#4A5C70", marginTop: 4, lineHeight: 1.4 }}>{tr("It opens like an app, one tap from your home screen.")}</div>
           </div>
         </div>
 
         {mode === "in_app_browser" ? (
           <div style={{ margin: "12px 0 16px" }}>
-            <div style={{ fontSize: 15, lineHeight: 1.5 }}>This page is open inside another app. Open it in Safari or Chrome first, then add it to your home screen.</div>
+            <div style={{ fontSize: 15, lineHeight: 1.5 }}>{tr("This page is open inside another app. Open it in Safari or Chrome first, then add it to your home screen.")}</div>
             <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, background: "#F4F7FB", border: "1px solid #E4EAF2", fontSize: 13, wordBreak: "break-all", userSelect: "all", WebkitUserSelect: "all" }}>{address}</div>
-            <button type="button" onClick={copy} style={{ ...ghost, flex: "none", width: "100%", marginTop: 8 }}>{copied ? "Copied" : "Copy address"}</button>
+            <button type="button" onClick={copy} style={{ ...ghost, flex: "none", width: "100%", marginTop: 8 }}>{copied ? tr("Copied") : tr("Copy address")}</button>
           </div>
         ) : (
           <ol style={{ margin: "12px 0 16px", paddingLeft: 22, fontSize: 15, lineHeight: 1.5 }}>
-            {steps.map((s, i) => <li key={i} style={{ marginBottom: 6 }}>{s}</li>)}
+            {steps.map((line, i) => <li key={i} style={{ marginBottom: 6 }}><StepLine text={line} /></li>)}
           </ol>
         )}
 
         {mode === "android_prompt" && (
-          <button type="button" onClick={install} style={{ ...primary, flex: "none", width: "100%", marginBottom: 10 }}>Install</button>
+          <button type="button" onClick={install} style={{ ...primary, flex: "none", width: "100%", marginBottom: 10 }}>{tr("Install")}</button>
         )}
         <div style={{ display: "flex", gap: 10 }}>
-          <button type="button" onClick={notNow} style={ghost}>Not now</button>
-          <button type="button" onClick={never} style={ghost}>Don't show again</button>
+          <button type="button" onClick={notNow} style={ghost}>{tr("Not now")}</button>
+          <button type="button" onClick={never} style={ghost}>{tr("Don't show again")}</button>
         </div>
       </div>
     </div>
