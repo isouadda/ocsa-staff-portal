@@ -11,6 +11,8 @@ const fs = require("fs");
 const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
+const { runScreens } = require("./screens");
+const { coverage, SCREEN_CASES, SHEET_CASES, FORM_CASES } = require("./inventory");
 
 const ROOT = path.join(__dirname, "..");
 const BUILD = path.join(ROOT, "build");
@@ -77,6 +79,7 @@ function table(counts) {
   const server = await serve(BUILD, PORT);
   const browser = await launch();
   let failures = 0;
+  const counts = { screens: "0 of 0", sheets: "0 of 0", forms: "0 of 0", journeys: "0 of 0", refusals: "0 of 0", combinations: 0, known: 0, failures: 0 };
 
   try {
     // The app comes up at all. Everything else depends on this.
@@ -94,6 +97,21 @@ function table(counts) {
     const clockOk = clock.localDay === "2026-10-01" && clock.utcDay === "2026-10-02";
     if (!record("harness", "the clock is 9:30 PM New York, a Thursday in October", clockOk, JSON.stringify(clock))) failures += 1;
     await app.context.close();
+
+    // The suite proves its own coverage before it measures anything.
+    const cov = coverage();
+    cov.missingScreens.forEach((id) => { record("coverage", "NO CASE  screen " + id, false, "add a case to audit/inventory.js"); failures += 1; });
+    cov.missingSheets.forEach((s) => { record("coverage", "NO CASE  sheet " + s.id + " (" + (s.label || s.owner) + ")", false, "src/" + s.owner + " line " + s.line); failures += 1; });
+    cov.strayScreens.forEach((id) => { record("coverage", "a case drives a screen the app no longer has: " + id, false, ""); failures += 1; });
+    cov.straySheets.forEach((id) => { record("coverage", "a case drives a sheet the app no longer has: " + id, false, ""); failures += 1; });
+
+    const sweep = await runScreens(browser, BASE, {});
+    counts.screens = sweep.covered.screens.length + " of " + SCREEN_CASES.length;
+    counts.sheets = sweep.covered.sheets.length + " of " + SHEET_CASES.length;
+    counts.combinations = sweep.combinations;
+
+    sweep.rows.forEach((r) => { record("check", r.where + "  " + r.check, false, r.detail); });
+    failures += sweep.rows.length;
   } finally {
     await browser.close();
     server.close();
@@ -101,11 +119,8 @@ function table(counts) {
 
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   results.filter(r => !r.ok).forEach(r => process.stdout.write("FAIL  " + r.area + "  " + r.name + (r.detail ? "  " + r.detail : "") + "\n"));
-  process.stdout.write(table({
-    screens: "0 of 0", sheets: "0 of 0", forms: "0 of 0",
-    journeys: "0 of 0", refusals: "0 of 0", combinations: 0,
-    known: 0, failures: failures,
-  }));
+  counts.failures = failures;
+  process.stdout.write(table(counts));
   process.stdout.write("  ran in " + seconds + "s\n\n");
   process.exit(failures > 0 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });
