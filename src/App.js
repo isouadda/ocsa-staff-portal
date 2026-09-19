@@ -200,7 +200,7 @@ async function uploadPhoto(file, token) {
     });
   } finally { flightDown(); }
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Photo upload failed"); }
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || AGENT_PHOTO_FAILED); }
   const data = await res.json();
   return data.url;
 }
@@ -229,6 +229,9 @@ const AGENT_PHOTO_QUALITIES = [0.85, 0.7, 0.5];
 const AGENT_PHOTO_LIMIT = 3;
 const AGENT_PHOTO_LIMIT_TITLE = "You can send up to 3 photos with one message.";
 const AGENT_PHOTO_UNREADABLE = "This photo could not be read here. Choose a JPEG or PNG, or take a screenshot of it.";
+// Thrown wherever an upload is refused, so the words and the Spanish
+// entry for them cannot drift apart.
+const AGENT_PHOTO_FAILED = "Photo upload failed";
 
 async function decodeAgentPhoto(file) {
   if (typeof window.createImageBitmap === "function") {
@@ -275,9 +278,9 @@ async function uploadAgentPhoto(blob, token) {
     body: blob,
   });
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Photo upload failed"); }
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || AGENT_PHOTO_FAILED); }
   const data = await res.json().catch(() => null);
-  if (!data || !data.path) throw new Error("Photo upload failed");
+  if (!data || !data.path) throw new Error(AGENT_PHOTO_FAILED);
   return data.path;
 }
 
@@ -808,6 +811,10 @@ export default function OCSAStaffPortal() {
   const queuePrefRef = useRef(null);
   const queuePref = (changed) => { if (queuePrefRef.current) queuePrefRef.current(changed); };
   const applyPrefsRef = useRef(null);
+  // A preference chosen on the way in, before this person has an id to
+  // mark it pending against. The merge below treats it the way it
+  // treats any key still on its way up to the account.
+  const chosenOnEntryRef = useRef(null);
   const [themeMode, setThemeMode] = useState(() => { try { return localStorage.getItem(THEME_KEY) || "dark"; } catch { return "dark"; } });
   const t = themeMode === "light" ? LIGHT : DARK;
   const setTheme = (next) => { setThemeMode(next); saveTheme(next); queuePref({ theme: next }); };
@@ -897,8 +904,12 @@ export default function OCSAStaffPortal() {
 
   // A successful activation or reset returns the same twelve-hour JWT a
   // login does. Store it the same way and take the same path in.
-  const handleAuthSuccess = async (tok) => {
+  const handleAuthSuccess = async (tok, chosenLanguage) => {
     leaveEntryPath();
+    // A language picked on the way in is this device's language from
+    // here, so a person who activated in Spanish lands in Spanish even
+    // if the account has not caught up with the choice yet.
+    if (chosenLanguage === "en" || chosenLanguage === "es") { chosenOnEntryRef.current = "language"; setLanguage(chosenLanguage); }
     setToken(tok); saveAuth(tok);
     try { const me = await hydrateSession(tok); showToast(tr("Welcome, {name}", { name: me.firstName })); }
     catch (err) { clearAuth(); setToken(null); setUser(null); setScreen("login"); showToast(tr(err.message), "error"); }
@@ -1056,39 +1067,48 @@ export default function OCSAStaffPortal() {
     const userId = u && u.id ? u.id : null;
     const changed = {};
     const settled = [];
+    // What this device is still trying to send. Read before anything is
+    // applied, because the account's copy of a key that is still on its
+    // way here is the older one.
+    const waiting = userId ? readPendingPrefs(userId) : [];
+    if (chosenOnEntryRef.current) { if (waiting.indexOf(chosenOnEntryRef.current) === -1) waiting.push(chosenOnEntryRef.current); chosenOnEntryRef.current = null; }
 
-    if (Array.isArray(prefs.shortcuts)) {
-      const ok = validShortcuts(prefs.shortcuts, allowedShortcutIds) || DEFAULT_SHORTCUTS.slice();
-      setShortcutsState({ userId: userId, ids: ok });
-      if (userId) saveShortcuts(userId, ok);
-      settled.push("shortcuts");
-    } else {
-      const mine = userId ? storedShortcuts(userId) : null;
-      if (mine) changed.shortcuts = mine;
-    }
+    // One rule for every key. A key this device is still trying to send
+    // keeps this device's value and goes up again, so a save that did not
+    // reach the account is never quietly replaced by what the account
+    // held before it. Otherwise the account's value wins. Where the
+    // account holds none, this device's goes up once, so the first phone
+    // a person set things on becomes their account's settings.
+    const mergePref = (name, fromAccount, mine, apply) => {
+      const has = (v) => v !== null && v !== undefined;
+      if (waiting.indexOf(name) !== -1 && has(mine)) { changed[name] = mine; return; }
+      if (has(fromAccount)) { apply(fromAccount); settled.push(name); return; }
+      if (has(mine)) changed[name] = mine;
+    };
 
-    if (TEXT_SIZES.some(x => x.id === prefs.textSize)) {
-      setTextSizeState(prefs.textSize); saveTextSize(prefs.textSize); settled.push("textSize");
-    } else {
-      const mine = storedTextSize();
-      if (mine) changed.textSize = mine;
-    }
+    mergePref("shortcuts",
+      Array.isArray(prefs.shortcuts) ? (validShortcuts(prefs.shortcuts, allowedShortcutIds) || DEFAULT_SHORTCUTS.slice()) : null,
+      userId ? storedShortcuts(userId) : null,
+      (v) => { setShortcutsState({ userId: userId, ids: v }); if (userId) saveShortcuts(userId, v); });
 
-    if (prefs.theme === "light" || prefs.theme === "dark") {
-      setThemeMode(prefs.theme); saveTheme(prefs.theme); settled.push("theme");
-    } else {
-      const mine = storedTheme();
-      if (mine) changed.theme = mine;
-    }
+    mergePref("textSize",
+      TEXT_SIZES.some(x => x.id === prefs.textSize) ? prefs.textSize : null,
+      storedTextSize(),
+      (v) => { setTextSizeState(v); saveTextSize(v); });
 
-    if (prefs.language === "en" || prefs.language === "es") {
-      setLanguageState(prefs.language); saveLanguage(prefs.language); settled.push("language");
-    } else {
-      const mine = storedLanguage();
-      if (mine) changed.language = mine;
-    }
+    mergePref("theme",
+      (prefs.theme === "light" || prefs.theme === "dark") ? prefs.theme : null,
+      storedTheme(),
+      (v) => { setThemeMode(v); saveTheme(v); });
 
-    // A key the account just supplied is no longer waiting to be sent.
+    mergePref("language",
+      (prefs.language === "en" || prefs.language === "es") ? prefs.language : null,
+      storedLanguage(),
+      (v) => { setLanguageState(v); saveLanguage(v); });
+
+    // Only a key the account actually settled stops waiting. One this
+    // device is still delivering stays on the list and rides the
+    // sendPrefs call below.
     if (userId && settled.length > 0) savePendingPrefs(userId, readPendingPrefs(userId).filter(k => settled.indexOf(k) === -1));
     sendPrefs(changed, tok, userId);
   };
@@ -1097,6 +1117,10 @@ export default function OCSAStaffPortal() {
   // person over to fill one in. Held here only long enough to hand
   // it across, and never written anywhere.
   const [formsDraft, setFormsDraft] = useState(null);
+  // Which conversation Help is in. Held here rather than inside Help,
+  // which is unmounted the moment its tab is left, so choosing a
+  // language in Settings no longer throws the conversation away.
+  const [agentConversation, setAgentConversation] = useState(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   // What the platform has told this person, counted. The routes arrive with
@@ -1209,7 +1233,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} t={t} token={token} />}
-              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
+              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
@@ -1454,7 +1478,7 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
       const body = { token, pin, locale };
       if (needBadge) body.badgeNumber = b;
       const d = await api("/api/auth/activate", { method: "POST", body, noAuthEvent: true });
-      if (d.token) { setPhase("done"); onActivated(d.token); return; }
+      if (d.token) { setPhase("done"); onActivated(d.token, locale); return; }
       setFail({ from: "post", msg: tr(d.message) || tr("Your account is activated but not currently active. Contact your supervisor.") });
       setPhase("inactive");
     } catch (err) {
@@ -2491,7 +2515,9 @@ const agentField = (o, keys, fallback) => { for (const k of keys) { if (o && o[k
 const agentList = (d, keys) => { if (Array.isArray(d)) return d; for (const k of keys) { if (d && Array.isArray(d[k])) return d[k]; } return []; };
 const agentKeyWords = (k) => String(k).replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/^\w/, c => c.toUpperCase());
 const agentDraftId = (d) => agentField(d, ["id", "formResponseId", "form_response_id"], null);
-const agentName = (d) => agentField(d, ["formName", "formTitle", "form_name", "title", "formCode", "form_code"], "Report");
+// No fallback here: the word a missing name falls back to is drawn on
+// screen, so it is translated at each call site instead.
+const agentName = (d) => agentField(d, ["formName", "formTitle", "form_name", "title", "formCode", "form_code"], null);
 const agentCount = (d) => { const a = agentField(d, ["answered", "answeredCount", "answered_count"], null), r = agentField(d, ["remaining", "remainingCount", "remaining_count"], null); return (a !== null && r !== null) ? tr("{answered} of {total} answered", { answered: a, total: Number(a) + Number(r) }) : null; };
 
 // A reply may carry numbered steps and a bold word. These two turn one into
@@ -2551,9 +2577,15 @@ function AgentReply({ text }) {
   );
 }
 
-function AgentView({ token, showToast, t, language, onFillForm }) {
+function AgentView({ token, showToast, t, language, onFillForm, conversationId, onConversation }) {
+  // The same shape the Forms screen uses, so a Spanish screen never
+  // lists English form names.
+  const locale = language === "es" ? "es" : "en";
   const [drafts, setDrafts] = useState([]);
-  const [conversationId, setConversationId] = useState(null);
+  // Held at the root, the way the forms draft is, so switching tabs and
+  // coming back continues the same conversation. The thread below stays
+  // here and is drawn again from the conversation.
+  const setConversationId = onConversation;
   const [thread, setThread] = useState([]);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -2651,7 +2683,7 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
     }
   };
 
-  const loadDrafts = useCallback(async () => { try { const d = await api("/api/agent/drafts", { token }); setDrafts(agentList(d, ["drafts", "items", "rows"])); } catch (err) { console.warn("Drafts:", err.message); } }, [token]);
+  const loadDrafts = useCallback(async () => { try { const d = await api("/api/agent/drafts?locale=" + locale, { token }); setDrafts(agentList(d, ["drafts", "items", "rows"])); } catch (err) { console.warn("Drafts:", err.message); } }, [token, locale]);
   useEffect(() => { loadDrafts(); }, [loadDrafts]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [thread.length, formResponse]);
   // The composer grows to a few lines and then scrolls.
@@ -2712,7 +2744,7 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
     const cid = agentField(d, ["conversationId", "conversation_id"], null);
     if (cid) {
       try {
-        const h = await api("/api/agent/conversations/" + cid, { token });
+        const h = await api("/api/agent/conversations/" + cid + "?locale=" + locale, { token });
         const list = agentList(h, ["messages", "turns", "history"]);
         setThread(list.map((m, i) => ({ id: "h" + i, role: String(agentField(m, ["role", "sender"], "assistant")).toLowerCase() === "user" ? "user" : "assistant", text: String(agentField(m, ["text", "content", "reply"], "")), citedDocs: agentList(agentField(m, ["citedDocs", "cited_doc_codes", "citedDocCodes"], []), []), degraded: agentField(m, ["degraded"], false) === true, noProcedure: agentField(m, ["noProcedure", "no_procedure"], false) === true })));
         setConversationId(cid);
@@ -2724,13 +2756,15 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
   const submit = async () => {
     if (!formResponse || submitBusy) return;
     setSubmitBusy(true); setMissing([]);
-    try { await api("/api/agent/drafts/" + formResponse.id + "/submit", { method: "POST", token }); setFormResponse(null); setSubmitted(true); loadDrafts(); }
+    try { await api("/api/agent/drafts/" + formResponse.id + "/submit?locale=" + locale, { method: "POST", token }); setFormResponse(null); setSubmitted(true); loadDrafts(); }
     catch (err) { const b = err.body || {}; const keys = agentList(agentField(b, ["missing", "missingKeys", "missingFields", "missing_keys", "missing_fields"], []), []); setMissing(keys.length > 0 ? keys.map(agentKeyWords) : [tr(err.message)]); }
     setSubmitBusy(false);
   };
 
   const remaining = formResponse ? Number(formResponse.remaining) : 0;
-  const canSubmit = !!formResponse && !submitBusy && !(remaining > 0);
+  // A count the API sends as a word reads as NaN, and "not greater than
+  // zero" let that through with answers still missing.
+  const canSubmit = !!formResponse && !submitBusy && Number.isFinite(remaining) && remaining <= 0;
   const openDrafts = drafts.filter(d => !formResponse || String(agentDraftId(d)) !== String(formResponse.id));
   const photosBusy = photos.some(p => p.status === "preparing" || p.status === "uploading");
   // Typed text, a picked photo, or a photo still going up. An update
@@ -2749,7 +2783,7 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
     <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", height: "calc(var(--ocsa-vh, 100vh) - 136px)", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 136px)", minHeight: 0, overflow: "hidden" }}>
       {openDrafts.length > 0 && (<div style={{ padding: "10px 12px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0, maxHeight: 180, overflowY: "auto" }}>
         <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Unfinished reports")}</div>
-        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div><button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Fill in form")}</button><button onClick={() => resume(d)} style={smallBtn}>{tr("Resume")}</button></div>))}
+        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d) || tr("Report")}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div><button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Fill in form")}</button><button onClick={() => resume(d)} style={smallBtn}>{tr("Resume")}</button></div>))}
       </div>)}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 12px 0" }}>
         {thread.length === 0 && (<div style={{ textAlign: "center", padding: "40px 20px" }}><HelpIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>{tr("Tell me what happened and I will tell you what to do.")}</div></div>)}
@@ -2770,7 +2804,7 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
       </div>
       {submitted && <div style={{ padding: "8px 12px", fontSize: 12, color: GREEN, fontWeight: 600, textAlign: "center", fontFamily: FONT_HEAD }}>{tr("Report submitted.")}</div>}
       {formResponse && (<div style={{ margin: "0 12px 8px", padding: "10px 12px", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.md, boxShadow: t.shadow }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>{tr("Report in progress")}</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2 }}>{agentName(formResponse)}</div>{agentCount(formResponse) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(formResponse)}</div>}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>{tr("Report in progress")}</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2 }}>{agentName(formResponse) || tr("Report")}</div>{agentCount(formResponse) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(formResponse)}</div>}</div>
         <button onClick={submit} disabled={!canSubmit} style={{ padding: "10px 14px", minHeight: 40, flexShrink: 0, borderRadius: R.sm, border: "none", background: canSubmit ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : t.cardAlt, color: canSubmit ? NAVY : t.textMut, fontSize: 12, fontWeight: 700, cursor: canSubmit ? "pointer" : "default", fontFamily: FONT_HEAD, boxShadow: canSubmit ? "0 6px 18px rgba(231,176,23,0.30)" : "none" }}>{submitBusy ? tr("Submitting...") : tr("Submit report")}</button></div>
         {missing.length > 0 && <div style={{ marginTop: 8, fontSize: 11, color: t.textSec, lineHeight: 1.5 }}><div style={{ fontWeight: 600 }}>{tr("Still needed before you can submit:")}</div>{missing.map((k, i) => <div key={i}>{k}</div>)}</div>}
       </div>)}
@@ -2789,7 +2823,7 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
               {p.status !== "done" && p.status !== "failed" && <div style={{ fontSize: 10, color: t.textMut, marginTop: 4 }}>{tr("Uploading...")}</div>}
               {p.status === "failed" && (
                 <div style={{ marginTop: 4 }}>
-                  <div style={{ fontSize: 10, color: RED, lineHeight: 1.35 }}>{tr(p.error)}</div>
+                  <div style={{ fontSize: 10, color: RED, lineHeight: 1.35 }}>{p.error}</div>
                   <button onClick={() => retryPhoto(p.id)} style={{ ...smallBtn, padding: "6px 10px", minHeight: 32, fontSize: 11, marginTop: 4 }}>{tr("Try again")}</button>
                 </div>
               )}
@@ -2803,7 +2837,7 @@ function AgentView({ token, showToast, t, language, onFillForm }) {
         <textarea ref={taRef} value={text} onChange={e => setText(e.target.value)} onPaste={e => { const items = e.clipboardData && e.clipboardData.items ? Array.from(e.clipboardData.items) : []; const files = items.filter(i => i.kind === "file" && i.type.indexOf("image/") === 0).map(i => i.getAsFile()).filter(Boolean); if (files.length > 0) { e.preventDefault(); addPhotoFiles(files); } }} disabled={sending} rows={1} placeholder={tr("Describe what happened")} aria-label={tr("Describe what happened")} style={{ ...inputSt, flex: 1, width: "auto", minWidth: 0, minHeight: 44, maxHeight: 120, overflowY: "auto", resize: "none", borderRadius: R.lg, lineHeight: 1.45, opacity: sending ? 0.6 : 1 }} />
         <button onClick={handleSend} disabled={!canSend} aria-label={tr("Send")} style={{ width: 44, height: 44, flexShrink: 0, borderRadius: "50%", background: canSend ? GOLD : t.cardAlt, border: "none", cursor: canSend ? "pointer" : "default", boxShadow: canSend ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={canSend ? NAVY : t.textMut} /></button>
       </div>
-      {photoProblem && <div style={{ padding: "0 12px 10px", fontSize: 11, color: RED, lineHeight: 1.4, flexShrink: 0 }}>{tr(photoProblem)}</div>}
+      {photoProblem && <div style={{ padding: "0 12px 10px", fontSize: 11, color: RED, lineHeight: 1.4, flexShrink: 0 }}>{photoProblem}</div>}
     </div>
   );
 }
@@ -3563,7 +3597,7 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
       setForms(agentList(c, ["forms"]));
     } catch (err) { setFailed(true); setLoading(false); return; }
     try {
-      const d = agentList(await api("/api/agent/drafts", { token }), ["drafts", "items", "rows"]);
+      const d = agentList(await api("/api/agent/drafts?locale=" + locale, { token }), ["drafts", "items", "rows"]);
       // Whoever may read reports is served everyone's drafts on
       // this route, so the rows are narrowed to this person's
       // before a card can say Continue on somebody else's report.
