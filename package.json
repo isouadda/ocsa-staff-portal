@@ -9,7 +9,11 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "node scripts/stamp.js && react-scripts build"
+    "build": "node scripts/stamp.js && react-scripts build",
+    "audit": "node audit/run.js"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
   },
   "browserslist": {
     "production": [">0.2%", "not dead", "not op_mini all"],

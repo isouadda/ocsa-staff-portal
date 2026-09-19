@@ -1,0 +1,485 @@
+{
+  "notes": "What the app gets wrong today. Each entry prints as KNOWN on every run and does not fail it. An entry that stops matching fails the run until it is taken off the list, so a fix is always noticed. The next build fixes these.",
+  "failures": [
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"BUTTON\"",
+      "why": "An icon button with no label of its own is under 44 by 44. It also has no aria-label, so nothing reading the screen aloud can name it."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"WEEK\"",
+      "why": "A calendar control is under 44 by 44. The week arrows are the smallest of them."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"MONTH\"",
+      "why": "A calendar control is under 44 by 44. The week arrows are the smallest of them."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"<\"",
+      "why": "A calendar control is under 44 by 44. The week arrows are the smallest of them."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Today\"",
+      "why": "A calendar control is under 44 by 44. The week arrows are the smallest of them."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\">\"",
+      "why": "A calendar control is under 44 by 44. The week arrows are the smallest of them."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"North Building\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Admin (Private) Only you and management \"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Type a message...\"",
+      "why": "A text field is under 44 pixels tall. Every one of them is a tap target on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Fill in form\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Resume\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Brief description\"",
+      "why": "A text field is under 44 pixels tall. Every one of them is a tap target on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"e.g. Restroom, Lobby\"",
+      "why": "A text field is under 44 pixels tall. Every one of them is a tap target on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Low\"",
+      "why": "A severity chip is under 44 by 44."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Med\"",
+      "why": "A severity chip is under 44 by 44."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"High\"",
+      "why": "A severity chip is under 44 by 44."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"SUBMIT ISSUE\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"+ Request\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"AVAILABLE 1\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"MY PICKUPS\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"CLAIM THIS SHIFT\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Back\"",
+      "why": "A text button is under 44 pixels tall."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Edit\"",
+      "why": "A text button is under 44 pixels tall."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"9001, 2155550101 or name@email.com\"",
+      "why": "A text field is under 44 pixels tall. Every one of them is a tap target on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Forgot your PIN?\"",
+      "why": "A text button is under 44 pixels tall."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"New Employee? Register Here\"",
+      "why": "A text button is under 44 pixels tall."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Light Mode\"",
+      "why": "A text button is under 44 pixels tall."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"A Text size\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"First name\"",
+      "why": "A text field is under 44 pixels tall. Every one of them is a tap target on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Last name\"",
+      "why": "A text field is under 44 pixels tall. Every one of them is a tap target on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"2155550000 (no dashes needed)\"",
+      "why": "A text field is under 44 pixels tall. Every one of them is a tap target on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"name@email.com\"",
+      "why": "A text field is under 44 pixels tall. Every one of them is a tap target on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Back to Login\"",
+      "why": "A text button is under 44 pixels tall."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Back to Sign In\"",
+      "why": "A text button is under 44 pixels tall."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"English\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Español\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "\"Alex Tester\"",
+      "why": "The name and the role in the header truncate with an ellipsis. Deliberate today, and at the wider sizes it hides most of the name."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "\"Custodian\"",
+      "why": "The name and the role in the header truncate with an ellipsis. Deliberate today, and at the wider sizes it hides most of the name."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "\"Incident report\"",
+      "why": "A draft name truncates to one line in its row. Deliberate today."
+    },
+    {
+      "where": "*",
+      "check": "covered",
+      "what": "\"AT\"",
+      "why": "At the Largest size the name block beside the avatar reaches over the avatar button, so a tap at the middle of the avatar lands on the name."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"SEMANA\"",
+      "why": "A calendar control is under 44 by 44. The week arrows are the smallest of them."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"MES\"",
+      "why": "A calendar control is under 44 by 44. The week arrows are the smallest of them."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Hoy\"",
+      "why": "A calendar control is under 44 by 44. The week arrows are the smallest of them."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Administración (privado) Solo usted y la\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Escriba un mensaje...\"",
+      "why": "A text field is under 44 pixels tall. Every one of them is a tap target on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Llenar formulario\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Continuar\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Descripción breve\"",
+      "why": "A text field is under 44 pixels tall. Every one of them is a tap target on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"por ejemplo: baño, recepción\"",
+      "why": "A text field is under 44 pixels tall. Every one of them is a tap target on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Baja\"",
+      "why": "A severity chip is under 44 by 44."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Media\"",
+      "why": "A severity chip is under 44 by 44."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Alta\"",
+      "why": "A severity chip is under 44 by 44."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"ENVIAR PROBLEMA\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"+ Solicitar\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"DISPONIBLES 1\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"LOS MÍOS\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"TOMAR ESTE TURNO\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Atrás\"",
+      "why": "A text button is under 44 pixels tall."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Editar\"",
+      "why": "A text button is under 44 pixels tall."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"9001, 2155550101 o nombre@correo.com\"",
+      "why": "A text field is under 44 pixels tall. Every one of them is a tap target on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"¿Olvidó su PIN?\"",
+      "why": "A text button is under 44 pixels tall."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"¿Empleado nuevo? Regístrese aquí\"",
+      "why": "A text button is under 44 pixels tall."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Modo claro\"",
+      "why": "A text button is under 44 pixels tall."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"A Tamaño del texto\"",
+      "why": "The control is under 44 by 44, which is the smallest a person can reliably hit on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Volver al inicio de sesión\"",
+      "why": "A text button is under 44 pixels tall."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "\"Continuar\"",
+      "why": "A bottom bar label runs out of room at the wider text sizes and is cut off. The bar is where two faults have already landed."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"INPUT\"",
+      "why": "A text field is under 44 pixels tall. Every one of them is a tap target on a phone."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Close\"",
+      "why": "A text button is under 44 pixels tall."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "\"Schedule\"",
+      "why": "A bottom bar label runs out of room at the wider text sizes and is cut off. The bar is where two faults have already landed."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"Cerrar\"",
+      "why": "A text button is under 44 pixels tall."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "\"Mensajes\"",
+      "why": "A bottom bar label runs out of room at the wider text sizes and is cut off. The bar is where two faults have already landed."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "\"Asignadas\"",
+      "why": "A bottom bar label runs out of room at the wider text sizes and is cut off. The bar is where two faults have already landed."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "\"Reportar\"",
+      "why": "A bottom bar label runs out of room at the wider text sizes and is cut off. The bar is where two faults have already landed."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "\"Insumos\"",
+      "why": "A bottom bar label runs out of room at the wider text sizes and is cut off. The bar is where two faults have already landed."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "\"Turnos libres\"",
+      "why": "A bottom bar label runs out of room at the wider text sizes and is cut off. The bar is where two faults have already landed."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "\"Inspección\"",
+      "why": "A bottom bar label runs out of room at the wider text sizes and is cut off. The bar is where two faults have already landed."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "\"Confianza\"",
+      "why": "A bottom bar label runs out of room at the wider text sizes and is cut off. The bar is where two faults have already landed."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "\"Ajustes\"",
+      "why": "A bottom bar label runs out of room at the wider text sizes and is cut off. The bar is where two faults have already landed."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "\"Formularios\"",
+      "why": "A bottom bar label runs out of room at the wider text sizes and is cut off. The bar is where two faults have already landed."
+    },
+    {
+      "where": "*",
+      "check": "Help opens with no conversation for the second person",
+      "what": "{\"text\":\"The second person's question\",\"app\":\"portal\",\"local",
+      "why": "Signing out clears the token, the person and the tab, and leaves the Help conversation id and the forms draft at the root, so the next person to sign in on the same phone inherits them. handleLogout in src/App.js does not clear agentConversation or formsDraft."
+    }
+  ]
+}
