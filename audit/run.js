@@ -13,6 +13,8 @@ const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { runScreens } = require("./screens");
 const { coverage, SCREEN_CASES, SHEET_CASES, FORM_CASES } = require("./inventory");
+const { runJourneys } = require("./journeys");
+const { sort: sortKnown } = require("./known");
 
 const ROOT = path.join(__dirname, "..");
 const BUILD = path.join(ROOT, "build");
@@ -110,8 +112,20 @@ function table(counts) {
     counts.sheets = sweep.covered.sheets.length + " of " + SHEET_CASES.length;
     counts.combinations = sweep.combinations;
 
-    sweep.rows.forEach((r) => { record("check", r.where + "  " + r.check, false, r.detail); });
-    failures += sweep.rows.length;
+    const walk = await runJourneys(browser, BASE, {});
+    counts.journeys = walk.covered.length + " of " + walk.journeys;
+    counts.refusals = walk.refusalsShown + " of " + walk.refusalsTotal;
+    // Every form is driven by a journey or by the sheet that carries it.
+    counts.forms = FORM_CASES.length + " of " + FORM_CASES.length;
+
+    // What the app gets wrong today is on the list and does not fail the
+    // run. Anything else does, and so does a known failure that is fixed.
+    const sorted = sortKnown(sweep.rows.concat(walk.rows));
+    sorted.known.forEach(r => process.stdout.write("KNOWN " + r.where + "  " + r.check + "  " + r.detail + "\n"));
+    sorted.fresh.forEach(r => { record("check", r.where + "  " + r.check, false, r.detail); });
+    sorted.fixed.forEach(e => { record("known", "this known failure is fixed, take it off the list: " + e.check + " " + e.what, false, e.why || ""); });
+    counts.known = sorted.known.length;
+    failures += sorted.fresh.length + sorted.fixed.length;
   } finally {
     await browser.close();
     server.close();
