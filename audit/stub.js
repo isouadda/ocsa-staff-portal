@@ -159,7 +159,13 @@ function createStub(opts) {
     if (key === "POST /api/auth/reset") return json(200, { token: "token-one" });
 
     // --- the person's own settings
-    if (key === "PATCH /api/users/me/preferences") { state.prefsPatches.push(body); return json(200, { ok: true }); }
+    if (key === "PATCH /api/users/me/preferences") {
+      state.prefsPatches.push(body);
+      // A real account remembers what it was told, so a reload reads
+      // back the choice rather than the value it held before.
+      Object.assign(state.accountPreferences, body || {});
+      return json(200, { ok: true });
+    }
     if (key === "GET /api/users/profile/me") return json(200, {
       user: Object.assign({}, state.person, { employeeId: "OCSA-0001", preferredLanguage: "English", addressLine1: "", city: "", state: "", zipCode: "", emergencyContactName: "", emergencyContactPhone: "", birthday: null }),
       assignments: [{ site_name: "North Building", role_at_site: "Staff", shift_name: "Evening", shift_start: "17:00", shift_end: "23:00" }],
@@ -183,6 +189,7 @@ function createStub(opts) {
     if (key === "POST /api/shift-sessions") { state.clockedIn = true; return json(200, { message: "Shift started", session: { id: "sess-1" } }); }
     if (method === "PATCH" && /^\/api\/shift-sessions\//.test(pathname)) { state.clockedIn = false; return json(200, { message: "Shift ended" }); }
     if (key === "GET /api/sites") return json(200, SITES);
+    if (method === "GET" && /^\/api\/sites\/[^/]+\/tasks$/.test(pathname)) return json(200, tasks());
     if (key === "GET /api/lookups") return json(200, []);
 
     // --- the calendar

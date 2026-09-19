@@ -25,7 +25,7 @@ const INSPECT = function (args) {
     const s = window.getComputedStyle(el);
     return s.visibility !== "hidden" && s.display !== "none" && Number(s.opacity) > 0.05;
   };
-  const label = (el) => (el.innerText || el.textContent || el.getAttribute("aria-label") || el.tagName).trim().replace(/\s+/g, " ").slice(0, 40);
+  const label = (el) => String(el.getAttribute("aria-label") || el.innerText || el.textContent || el.getAttribute("placeholder") || el.tagName).trim().replace(/\s+/g, " ").slice(0, 40);
 
   // 1. Text cut off, by its own box or by an ancestor that hides what
   // sticks out of it.

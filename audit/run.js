@@ -14,7 +14,7 @@ const { launch, openApp } = require("./browser");
 const { runScreens } = require("./screens");
 const { coverage, SCREEN_CASES, SHEET_CASES, FORM_CASES } = require("./inventory");
 const { runJourneys } = require("./journeys");
-const { sort: sortKnown } = require("./known");
+const { sort: sortKnown, write: writeKnown } = require("./known");
 
 const ROOT = path.join(__dirname, "..");
 const BUILD = path.join(ROOT, "build");
@@ -107,12 +107,19 @@ function table(counts) {
     cov.strayScreens.forEach((id) => { record("coverage", "a case drives a screen the app no longer has: " + id, false, ""); failures += 1; });
     cov.straySheets.forEach((id) => { record("coverage", "a case drives a sheet the app no longer has: " + id, false, ""); failures += 1; });
 
-    const sweep = await runScreens(browser, BASE, {});
+    // AUDIT_ONLY=screens or AUDIT_ONLY=journeys runs one half, which is
+    // what a person wants while working on a single case.
+    const only = process.env.AUDIT_ONLY || "";
+    const sweep = only === "journeys"
+      ? { rows: [], covered: { screens: [], sheets: [] }, gaps: [], combinations: 0 }
+      : await runScreens(browser, BASE, {});
     counts.screens = sweep.covered.screens.length + " of " + SCREEN_CASES.length;
     counts.sheets = sweep.covered.sheets.length + " of " + SHEET_CASES.length;
     counts.combinations = sweep.combinations;
 
-    const walk = await runJourneys(browser, BASE, {});
+    const walk = only === "screens"
+      ? { rows: [], covered: [], journeys: 0, refusalsShown: 0, refusalsTotal: 0, gaps: [] }
+      : await runJourneys(browser, BASE, {});
     counts.journeys = walk.covered.length + " of " + walk.journeys;
     counts.refusals = walk.refusalsShown + " of " + walk.refusalsTotal;
     // Every form is driven by a journey or by the sheet that carries it.
@@ -120,11 +127,17 @@ function table(counts) {
 
     // What the app gets wrong today is on the list and does not fail the
     // run. Anything else does, and so does a known failure that is fixed.
-    const sorted = sortKnown(sweep.rows.concat(walk.rows));
+    const everything = sweep.rows.concat(walk.rows);
+    if (process.env.AUDIT_WRITE_KNOWN === "1") {
+      const added = writeKnown(sortKnown(everything).fresh);
+      process.stdout.write("wrote " + added + " entries into audit/known.json. Write the reason on each one.\n");
+    }
+    const sorted = sortKnown(everything);
     sorted.known.forEach(r => process.stdout.write("KNOWN " + r.where + "  " + r.check + "  " + r.detail + "\n"));
     sorted.fresh.forEach(r => { record("check", r.where + "  " + r.check, false, r.detail); });
     sorted.fixed.forEach(e => { record("known", "this known failure is fixed, take it off the list: " + e.check + " " + e.what, false, e.why || ""); });
     counts.known = sorted.known.length;
+    sweep.gaps.concat(walk.gaps).forEach(g => process.stdout.write("NOT COVERED  " + g + "\n"));
     failures += sorted.fresh.length + sorted.fixed.length;
   } finally {
     await browser.close();

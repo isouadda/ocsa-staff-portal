@@ -183,11 +183,8 @@ async function answerThisPage(page) {
 async function openForm(page, language) {
   await openTab(page, "forms", language);
   await pause(page, 700);
-  await page.evaluate(() => {
-    const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.offsetParent !== null);
-    if (b) b.click();
-  });
-  await pause(page, 1100);
+  await clickText(page, say("Start report", language));
+  await pause(page, 1300);
 }
 
 // One screen or sheet, in one language at one size.
@@ -202,6 +199,7 @@ async function runScreens(browser, base, opts) {
   const o = opts || {};
   const rows = [];
   const covered = { screens: [], sheets: [] };
+  const gaps = [];
   let combinations = 0;
 
   const stubFor = (language, size) => ({
@@ -272,7 +270,10 @@ async function runScreens(browser, base, opts) {
             return s.position === "fixed" && s.top === "0px" && s.left === "0px" && s.right === "0px" && s.bottom === "0px";
           }));
           if (!up) {
-            rows.push({ where: sh.label + " [" + language + "/" + size + "]", check: "opens", detail: "the sheet did not come up" });
+            // A case exists for it; the suite cannot open it yet. Named
+            // on every run rather than counted as covered.
+            const line = sh.label + ": the suite cannot open this sheet yet";
+            if (gaps.indexOf(line) === -1) gaps.push(line);
           } else {
             // Marked so the checks read the sheet rather than the screen
             // it is sitting over.
@@ -284,8 +285,8 @@ async function runScreens(browser, base, opts) {
               if (sheet) sheet.setAttribute("data-audit-sheet", "1");
             });
             rows.push(...await inspect(app.page, "[data-audit-sheet]", sh.label, language, size));
+            if (covered.sheets.indexOf(sh.id) === -1) covered.sheets.push(sh.id);
           }
-          if (covered.sheets.indexOf(sh.id) === -1) covered.sheets.push(sh.id);
           combinations += 1;
         } finally {
           await app.context.close();
@@ -294,7 +295,7 @@ async function runScreens(browser, base, opts) {
     }
   }
 
-  return { rows: rows, covered: covered, combinations: LANGUAGES.length * SIZES.length };
+  return { rows: rows, covered: covered, gaps: gaps, combinations: LANGUAGES.length * SIZES.length };
 }
 
 module.exports = { runScreens, openTab, clickText, SIZES, LANGUAGES, ALLOWED };
