@@ -246,6 +246,8 @@ Back to checklist,Volver a la lista,Tasks
 Due Date:,Fecha límite:,Tasks
 Instructions,Instrucciones,Tasks
 Mark Complete,Marcar como completada,Tasks
+Mark {name} done,Marcar {name} como completada,Tasks
+Mark {name} not done,Desmarcar {name},Tasks
 PRIORITY,PRIORIDAD,Tasks
 Reference Photo,Foto de referencia,Tasks
 Reference Video,Video de referencia,Tasks
@@ -352,6 +354,8 @@ Log Usage,Registrar uso,Supplies
 Log usage or submit a request,Registre el uso o envíe una solicitud,Supplies
 LOW,POCO,Supplies
 New Gear,Equipo nuevo,Supplies
+One less,Uno menos,Supplies
+One more,Uno más,Supplies
 New Supply,Insumo nuevo,Supplies
 Normal,Normal,Supplies
 QR,QR,Supplies
