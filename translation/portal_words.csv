@@ -245,9 +245,12 @@ You get a notice in the app when your request is decided.,Recibirá un aviso en 
 Back to checklist,Volver a la lista,Tasks
 Due Date:,Fecha límite:,Tasks
 Instructions,Instrucciones,Tasks
+Loading tasks...,Cargando tareas...,Tasks
 Mark Complete,Marcar como completada,Tasks
 Mark {name} done,Marcar {name} como completada,Tasks
 Mark {name} not done,Desmarcar {name},Tasks
+No checklist is set up for this building yet.,Este edificio todavía no tiene una lista de tareas.,Tasks
+No tasks loaded. Start your shift at a site to see your checklist.,No hay tareas. Comience su turno en un sitio para ver su lista.,Tasks
 PRIORITY,PRIORIDAD,Tasks
 Reference Photo,Foto de referencia,Tasks
 Reference Video,Video de referencia,Tasks
@@ -434,6 +437,7 @@ Write what happened in your own words. One sentence is enough.,Escriba lo que pa
 You can write up to {max} characters.,Puede escribir hasta {max} caracteres.,Speak Up
 Your reference,Su número de referencia,Speak Up
 {used} of {max} characters used.,{used} de {max} caracteres usados.,Speak Up
+Answered,Respondida,Forms
 Back,Atrás,"Forms, Profile"
 Check this answer,Revise esta respuesta,Forms
 Continue,Continuar,Forms
@@ -446,6 +450,7 @@ Leave,Salir,Forms
 "Leave this report? Your saved answers stay, and you can continue from Forms or Help.",¿Salir de este reporte? Sus respuestas guardadas se quedan y puede continuar desde Formularios o Ayuda.,Forms
 Loading forms,Cargando formularios,Forms
 Next,Siguiente,Forms
+No forms to fill right now.,No hay formularios para llenar ahora.,Forms
 Not answered,Sin responder,Forms
 Not saved yet. Check your signal and tap Next again.,Todavía no se guardó. Revise su señal y toque Siguiente otra vez.,Forms
 Not sent yet. Check your signal and tap Submit report again.,Todavía no se envió. Revise su señal y toque Enviar reporte otra vez.,Forms
@@ -463,7 +468,9 @@ Send this report? You cannot change it after it is sent.,¿Enviar este reporte? 
 Sending,Enviando,Forms
 Start report,Comenzar reporte,Forms
 These still need an answer,Estas todavía necesitan respuesta,Forms
+This question cannot be answered here yet. Your supervisor will finish it.,Esta pregunta todavía no se puede responder aquí. Su supervisor la completará.,Forms
 This report was already sent.,Este reporte ya se había enviado.,Forms
+Untitled report,Reporte sin título,Forms
 {answered} answered,{answered} respondidas,Forms
 "{answered} answered, {remaining} to go","{answered} respondidas, faltan {remaining}",Forms
 Add to bar,Agregar a la barra,Shortcuts
@@ -570,6 +577,7 @@ This request was already denied,Esta solicitud ya estaba denegada,"API message, 
 Time off can start at most 30 days ago,El tiempo libre puede comenzar 30 días atrás como máximo,"API message, shown word for word"
 Time off can start at most one year ahead,El tiempo libre puede comenzar un año adelante como máximo,"API message, shown word for word"
 "Times must be HH:MM, from 00:00 to 23:59","Las horas deben ser HH:MM, de 00:00 a 23:59","API message, shown word for word"
+Upload failed,No se pudo subir el archivo,"API message, shown word for word"
 User not found,No se encontró el usuario,"API message, shown word for word"
 You already have time off requested or approved for those days,Ya tiene tiempo libre solicitado o aprobado para esos días,"API message, shown word for word"
 Chat,Mensajes,Bar and More

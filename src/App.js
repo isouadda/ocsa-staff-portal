@@ -213,7 +213,7 @@ async function uploadTaskMedia(file, token) {
     body: file,
   });
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Upload failed"); }
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || UPLOAD_FAILED); }
   return res.json();
 }
 
@@ -232,6 +232,8 @@ const AGENT_PHOTO_UNREADABLE = "This photo could not be read here. Choose a JPEG
 // Thrown wherever an upload is refused, so the words and the Spanish
 // entry for them cannot drift apart.
 const AGENT_PHOTO_FAILED = "Photo upload failed";
+// The same, for the two uploads that are not the agent's photo path.
+const UPLOAD_FAILED = "Upload failed";
 
 async function decodeAgentPhoto(file) {
   if (typeof window.createImageBitmap === "function") {
@@ -2471,7 +2473,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   if (!clockStatus?.clockedIn) return (
     <div style={{ padding: "16px" }}>
       <div style={{ padding: "12px 14px", marginBottom: 14, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow }}><div style={{ fontSize: 12, color: ORANGE }}>{tr("Start your shift to see and check off your tasks.")}</div></div>
-      {standardTasks.length === 0 ? <EmptyState icon={CheckIco} text="No tasks loaded. Start your shift at a site to see your checklist." t={t} /> : (() => {
+      {standardTasks.length === 0 ? <EmptyState icon={CheckIco} text={tr("No tasks loaded. Start your shift at a site to see your checklist.")} t={t} /> : (() => {
         const groups = groupTasksByFloorZone(standardTasks); let lastFloor = undefined;
         return groups.map((g, gi) => { const showFloor = g.floor && g.floor !== lastFloor; lastFloor = g.floor; return (<div key={gi} style={{ marginBottom: 16 }}>{showFloor && (<div style={{ ...floorHeadSt, marginTop: gi > 0 ? 10 : 0 }}>{tr("Floor")} {g.floor}</div>)}<div style={{ ...zoneSt, paddingLeft: g.floor ? 8 : 0 }}>{g.zone}</div>{g.tasks.map(task => { const hasInfo = task.has_details || task.description || task.media_url; return (<div key={task.id} onClick={() => hasInfo ? setDetail(task) : null} style={{ ...rowBase, background: t.card, border: "1px solid " + t.borderSolid, cursor: hasInfo ? "pointer" : "default", opacity: 0.6, marginLeft: g.floor ? 8 : 0 }}><div style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + t.textMut, background: "transparent", flexShrink: 0, marginTop: 1 }} /><div style={{ flex: 1, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{task.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div>); })}</div>); });
       })()}
@@ -2484,8 +2486,8 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
       <button onClick={onRetryTasks} style={{ minHeight: 44, marginTop: 16, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button>
     </div>
   );
-  if (!loaded) return <EmptyState icon={CheckIco} text="Loading tasks..." t={t} />;
-  if (standardTasks.length === 0) return <EmptyState icon={CheckIco} text="No checklist is set up for this building yet." t={t} />;
+  if (!loaded) return <EmptyState icon={CheckIco} text={tr("Loading tasks...")} t={t} />;
+  if (standardTasks.length === 0) return <EmptyState icon={CheckIco} text={tr("No checklist is set up for this building yet.")} t={t} />;
   const groups = groupTasksByFloorZone(standardTasks);
   const completed = standardTasks.filter(tk => completedTaskIds.has(tk.id)).length;
   const pct = Math.round((completed / standardTasks.length) * 100);
@@ -2832,7 +2834,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
     <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", height: "calc(var(--ocsa-vh, 100vh) - 136px)", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 136px)", minHeight: 0, overflow: "hidden" }}>
       {openDrafts.length > 0 && (<div style={{ padding: "10px 12px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0, maxHeight: 180, overflowY: "auto" }}>
         <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Unfinished reports")}</div>
-        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: "1 1 140px", minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d) || tr("Report")}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div><button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Fill in form")}</button><button onClick={() => resume(d)} style={smallBtn}>{tr("Resume")}</button></div>))}
+        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: "1 1 140px", minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d) || tr(FORMS_UNTITLED)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div><button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Fill in form")}</button><button onClick={() => resume(d)} style={smallBtn}>{tr("Resume")}</button></div>))}
       </div>)}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 12px 0" }}>
         {thread.length === 0 && (<div style={{ textAlign: "center", padding: "40px 20px" }}><HelpIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>{tr("Tell me what happened and I will tell you what to do.")}</div></div>)}
@@ -2853,7 +2855,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
       </div>
       {submitted && <div style={{ padding: "8px 12px", fontSize: 12, color: GREEN, fontWeight: 600, textAlign: "center", fontFamily: FONT_HEAD }}>{tr("Report submitted.")}</div>}
       {formResponse && (<div style={{ margin: "0 12px 8px", padding: "10px 12px", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.md, boxShadow: t.shadow }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>{tr("Report in progress")}</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2 }}>{agentName(formResponse) || tr("Report")}</div>{agentCount(formResponse) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(formResponse)}</div>}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>{tr("Report in progress")}</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2 }}>{agentName(formResponse) || tr(FORMS_UNTITLED)}</div>{agentCount(formResponse) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(formResponse)}</div>}</div>
         <button onClick={submit} disabled={!canSubmit} style={{ padding: "10px 14px", minHeight: 40, flexShrink: 0, borderRadius: R.sm, border: "none", background: canSubmit ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : t.cardAlt, color: canSubmit ? NAVY : t.textMut, fontSize: 12, fontWeight: 700, cursor: canSubmit ? "pointer" : "default", fontFamily: FONT_HEAD, boxShadow: canSubmit ? "0 6px 18px rgba(231,176,23,0.30)" : "none" }}>{submitBusy ? tr("Submitting...") : tr("Submit report")}</button></div>
         {missing.length > 0 && <div style={{ marginTop: 8, fontSize: 11, color: t.textSec, lineHeight: 1.5 }}><div style={{ fontWeight: 600 }}>{tr("Still needed before you can submit:")}</div>{missing.map((k, i) => <div key={i}>{k}</div>)}</div>}
       </div>)}
@@ -3616,15 +3618,33 @@ const formOptionLabel = (f, v) => {
 };
 // An answer as a person reads it: an option's label rather than the
 // value behind it, a multiselect joined, and null when nothing was
-// answered.
+// answered. An answer of a shape this page cannot read yet says
+// Answered rather than showing the object behind it.
+const formPlainValue = (v) => typeof v === "string" || typeof v === "number" || typeof v === "boolean";
 function formReadAnswer(f, v) {
   if (!formHasAnswer(v)) return null;
   if (Array.isArray(v)) {
+    if (!v.every(formPlainValue)) return tr(FORMS_ANSWERED);
     const parts = v.map(x => formOptionLabel(f, x)).filter(x => x !== "");
     return parts.length ? parts.join(", ") : null;
   }
+  if (!formPlainValue(v)) return tr(FORMS_ANSWERED);
   return formOptionLabel(f, v);
 }
+
+// What a draft with no name of its own is called. Report on its own is
+// the tab, which is a different thing.
+const FORMS_UNTITLED = "Untitled report";
+// A question of a type this screen does not draw yet, and an answer of a
+// shape it cannot read.
+const FORMS_UNKNOWN_TYPE = "This question cannot be answered here yet. Your supervisor will finish it.";
+const FORMS_ANSWERED = "Answered";
+// The types this screen draws. Anything else says the line above and
+// asks for nothing, so a type the forms engine adds later cannot quietly
+// become a text box. A question with no type at all is text, which is
+// what it has always been.
+const FORM_TYPES_DRAWN = ["", "text", "textarea", "select", "multiselect", "date", "time"];
+const formTypeOf = (f) => (f && f.type ? String(f.type) : "");
 
 const formDraftOf = (r) => (r && r.draft ? r.draft : r);
 
@@ -3722,7 +3742,7 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
         </div>
       )}
 
-      {!loading && !failed && (forms || []).length === 0 && <EmptyState icon={DocIco} text="No forms to fill right now." t={t} />}
+      {!loading && !failed && (forms || []).length === 0 && <EmptyState icon={DocIco} text={tr("No forms to fill right now.")} t={t} />}
 
       {!loading && !failed && (forms || []).map(f => {
         const d = draftFor(f.code);
@@ -3866,7 +3886,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     if (sending) return;
     setSending(true); setSendErr(null);
     try {
-      await api("/api/forms/drafts/" + encodeURIComponent(current.id) + "/submit", { method: "POST", token });
+      await api("/api/forms/drafts/" + encodeURIComponent(current.id) + "/submit?locale=" + locale, { method: "POST", token });
       setSent("sent");
     } catch (err) {
       if (err.status === 409) setSent("already");
@@ -3901,6 +3921,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
 
   const renderInput = (f) => {
     const v = values[f.key];
+    if (FORM_TYPES_DRAWN.indexOf(formTypeOf(f)) === -1) return <div style={mkHelp(t)}>{tr(FORMS_UNKNOWN_TYPE)}</div>;
     if (f.type === "select" || f.type === "multiselect") {
       const many = f.type === "multiselect";
       const chosen = many ? (Array.isArray(v) ? v : []) : v;
@@ -3937,7 +3958,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
       <div style={{ padding: "12px 16px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 0", minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{current.formName || (form && form.title) || tr("Report")}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{current.formName || (form && form.title) || tr(FORMS_UNTITLED)}</div>
             {sections.length > 0 && <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{review ? tr("Review") : tr("Section {n} of {total}", { n: at + 1, total: sections.length })}</div>}
           </div>
           <button onClick={() => setConfirmLeave(true)} style={{ minHeight: 44, padding: "0 14px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Close")}</button>
@@ -4498,7 +4519,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
         method: "POST", headers: { "Authorization": "Bearer " + token, "Content-Type": "image/jpeg" }, body: compressed
       });
       if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Upload failed"); }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || UPLOAD_FAILED); }
       const r = await res.json();
       await api("/api/users/profile/photo", { method: "POST", body: { photoUrl: r.url }, token });
       showToast(tr("Photo updated"));
