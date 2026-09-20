@@ -834,7 +834,6 @@ export default function OCSAStaffPortal() {
   const zoom = zoomOf(textSize);
 
   useEffect(() => { const i = setInterval(() => setCurrentTime(now()), 1000); return () => clearInterval(i); }, []);
-  useEffect(() => { const h = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); setUnread(0); }; window.addEventListener("ocsa-session-expired", h); return () => window.removeEventListener("ocsa-session-expired", h); }, []);
   const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
   const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); } catch (err) { console.error(err); } }, [token]);
   const loadSessionSites = useCallback(async (tkn) => { try { const data = await api("/api/shift-sessions/sites", { token: tkn || token }); setSessionSites(data); } catch (err) { console.error(err); } }, [token]);
@@ -924,7 +923,7 @@ export default function OCSAStaffPortal() {
     setLoading(false);
   };
 
-  const handleLogout = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); setUnread(0); };
+  const handleLogout = () => forgetPerson();
 
   // Tapping a site chooses it. No request, no tab change, no toast.
   const handleSelectSite = (siteId) => { if (clockStatus?.clockedIn) return; setPendingSite(siteId); setStartBlock(null); };
@@ -1129,6 +1128,31 @@ export default function OCSAStaffPortal() {
   const [unread, setUnread] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const unreadWarned = useRef(false);
+
+  // Everything the person who was signed in leaves behind, dropped in
+  // one place. Signing out and a session that runs out take this same
+  // path, so the next person on the same phone starts clean however the
+  // last one left. What this phone is set to, the language, the theme
+  // and the text size, belongs to the phone and stays.
+  const forgetPerson = useCallback(() => {
+    clearAuth();
+    setToken(null); setUser(null); setSites([]); setScreen("login");
+    setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null);
+    setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set());
+    setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
+    setChannels([]); setMessages([]); setActiveChannel(null);
+    setAgentConversation(null); setFormsDraft(null);
+    setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
+    setLookups([]); setToast(null); setLoading(false);
+    setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false);
+    setActiveTab("clock");
+    unreadWarned.current = false; prefsLive.current = false; chosenOnEntryRef.current = null;
+    tasksSite.current = null; tasksReqSite.current = null; inFlightTaskIds.current = new Set();
+  }, []);
+  useEffect(() => {
+    window.addEventListener("ocsa-session-expired", forgetPerson);
+    return () => window.removeEventListener("ocsa-session-expired", forgetPerson);
+  }, [forgetPerson]);
   const refreshUnread = useCallback(async (tkn) => {
     const tk = tkn || token;
     if (!tk) return;

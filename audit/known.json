@@ -474,12 +474,6 @@
       "check": "clipped",
       "what": "\"Formularios\"",
       "why": "A bottom bar label runs out of room at the wider text sizes and is cut off. The bar is where two faults have already landed."
-    },
-    {
-      "where": "*",
-      "check": "Help opens with no conversation for the second person",
-      "what": "{\"text\":\"The second person's question\",\"app\":\"portal\",\"local",
-      "why": "Signing out clears the token, the person and the tab, and leaves the Help conversation id and the forms draft at the root, so the next person to sign in on the same phone inherits them. handleLogout in src/App.js does not clear agentConversation or formsDraft."
     }
   ]
 }
