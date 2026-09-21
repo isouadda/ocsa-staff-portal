@@ -30,22 +30,8 @@
       "why": "Orange on light mode's orange wash. 2.04 to 1 against the 4.5 to 1 small text needs."
     },
     {
-      "where": "Assigned",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
       "where": "Chat",
       "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Chat",
-      "theme": "light",
       "check": "contrast",
       "what": "\"#F8F7F4 on #E74C3C\"",
       "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
@@ -58,22 +44,8 @@
       "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
     },
     {
-      "where": "Forms",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
       "where": "Help",
       "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Help",
-      "theme": "light",
       "check": "contrast",
       "what": "\"#F8F7F4 on #E74C3C\"",
       "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
@@ -100,22 +72,8 @@
       "why": "Green on light mode's green wash. 1.97 to 1 against the 4.5 to 1 small text needs."
     },
     {
-      "where": "Home",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
       "where": "Inspect",
       "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Inspect",
-      "theme": "light",
       "check": "contrast",
       "what": "\"#F8F7F4 on #E74C3C\"",
       "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
@@ -142,22 +100,8 @@
       "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
     },
     {
-      "where": "Pickup",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
       "where": "Profile",
       "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Profile",
-      "theme": "light",
       "check": "contrast",
       "what": "\"#F8F7F4 on #E74C3C\"",
       "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
@@ -198,13 +142,6 @@
       "why": "Orange on light mode's orange wash over a white card. 2.03 to 1 against the 4.5 to 1 this text needs."
     },
     {
-      "where": "Report",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
       "where": "Schedule",
       "theme": "dark",
       "check": "contrast",
@@ -233,13 +170,6 @@
       "why": "Orange on a white card in light mode. 2.19 to 1 against the 4.5 to 1 small text needs."
     },
     {
-      "where": "Schedule",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
       "where": "Set your PIN",
       "theme": "dark",
       "check": "contrast",
@@ -261,22 +191,8 @@
       "why": "Green on light mode's green wash. 1.97 to 1 against the 4.5 to 1 small text needs."
     },
     {
-      "where": "Set your PIN",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
       "where": "Settings",
       "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Settings",
-      "theme": "light",
       "check": "contrast",
       "what": "\"#F8F7F4 on #E74C3C\"",
       "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
@@ -310,13 +226,6 @@
       "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
     },
     {
-      "where": "Speak Up",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
       "where": "Supplies",
       "theme": "dark",
       "check": "contrast",
@@ -338,13 +247,6 @@
       "why": "Orange on a tinted row in light mode. 2.00 to 1 against the 4.5 to 1 small text needs."
     },
     {
-      "where": "Supplies",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
       "where": "Tasks",
       "theme": "dark",
       "check": "contrast",
@@ -357,13 +259,6 @@
       "check": "contrast",
       "what": "\"#F39C12 on #E9EFE5\"",
       "why": "Orange on a tinted row in light mode. 1.87 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Tasks",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
     },
     {
       "where": "The portal itself",
@@ -385,13 +280,6 @@
       "check": "contrast",
       "what": "\"#2ECC71 on #EEFBF3\"",
       "why": "Green on light mode's green wash. 1.97 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "The portal itself",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
     }
   ]
 }

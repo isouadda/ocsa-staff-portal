@@ -8,11 +8,31 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="OCSA Staff" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <script>
+    // The first frame, before React loads. A stored choice decides; where
+    // there is none the phone's own setting does. The two colors are
+    // LIGHT.bg and DARK.bg in src/App.js, which is what the app paints a
+    // moment later, so a phone set to light never shows a dark frame.
+    (function () {
+      try {
+        var stored = null;
+        try { stored = window.localStorage.getItem("ocsa-staff-theme"); } catch (e) {}
+        var mode = (stored === "light" || stored === "dark") ? stored
+          : ((window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark");
+        var color = mode === "light" ? "#F4F7FB" : "#0A1628";
+        var rule = document.createElement("style");
+        rule.textContent = "body { background: " + color + "; }";
+        document.head.appendChild(rule);
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", color);
+      } catch (e) {}
+    })();
+  </script>
   <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
   <link rel="apple-touch-icon" sizes="180x180" href="%PUBLIC_URL%/icons/apple-touch-icon.png" />
   <title>OCSA Staff Portal</title>
   <style>
-    body { margin: 0; padding: 0; background: %REACT_APP_THEME_COLOR%; font-family: -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
   </style>
 </head>
 <body>
