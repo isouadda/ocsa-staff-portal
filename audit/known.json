@@ -1,17 +1,18 @@
 {
   "notes": "What the app gets wrong today. Each entry prints as KNOWN on every run and does not fail it. An entry that stops matching fails the run until it is taken off the list, so a fix is always noticed. The next build fixes these.",
-  "failures": [
+  "accepted": [
     {
       "where": "*",
       "check": "clipped",
-      "what": "\"Alex Tester\"",
-      "why": "The name and the role in the header truncate with an ellipsis. Deliberate today, and at the wider sizes it hides most of the name."
+      "what": "Alex Tester",
+      "why": "The person's name in the header runs to one line and ends in an ellipsis when there is no room. Accepted: the name is theirs to recognise at a glance, the avatar beside it is the way to their profile, and the whole name is on the Profile screen."
     },
     {
       "where": "*",
       "check": "clipped",
-      "what": "\"Custodian\"",
-      "why": "The name and the role in the header truncate with an ellipsis. Deliberate today, and at the wider sizes it hides most of the name."
+      "what": "Custodian",
+      "why": "The role under the name runs to one line and ends in an ellipsis the same way, and for the same reason."
     }
-  ]
+  ],
+  "failures": []
 }

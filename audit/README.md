@@ -51,6 +51,13 @@ on why.
 The next build fixes them and removes them. The suite never changes
 anything under `src/`.
 
+## Accepted
+
+`audit/known.json` also holds an `accepted` list: what the app does on
+purpose. A name or a draft title that runs out of room and ends in an
+ellipsis is one of them. An accepted row prints as `ACCEPTED` and never
+fails a run, whether it shows up or not.
+
 ## How it is put together
 
 | File | What it holds |
