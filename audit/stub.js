@@ -86,6 +86,9 @@ function makeState(opts) {
   return {
     // Every request the app made, newest last.
     calls: [],
+    // Every string the stub has served. A Spanish screen showing one of
+    // these is showing a value, not a word the app forgot to translate.
+    served: new Set(),
     // Flip these from a case to make a route answer differently.
     refuse: o.refuse || {},          // "POST /api/time-off": { status, body }
     offline: false,                  // every call fails at the network
@@ -284,7 +287,22 @@ function createStub(opts) {
   }
 
   state.answers = {};
-  return { handle: handle, state: state };
+  // Every answer goes through here on its way out, so state.served
+  // holds what the screens were actually given.
+  function remember(answer) {
+    if (!answer || typeof answer.body !== "string") return answer;
+    let data;
+    try { data = JSON.parse(answer.body); } catch (e) { return answer; }
+    const walk = (v) => {
+      if (typeof v === "string") { state.served.add(v); return; }
+      if (Array.isArray(v)) { v.forEach(walk); return; }
+      if (v && typeof v === "object") Object.keys(v).forEach(k => walk(v[k]));
+    };
+    walk(data);
+    return answer;
+  }
+
+  return { handle: (method, pathname, search, body) => remember(handle(method, pathname, search, body)), state: state };
 }
 
 function draftOf(state) {

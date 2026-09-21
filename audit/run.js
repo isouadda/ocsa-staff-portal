@@ -64,6 +64,7 @@ function table(counts) {
   out.push(line("journeys", counts.journeys));
   out.push(line("refusals shown", counts.refusals));
   out.push(line("languages x sizes", counts.combinations + " combinations"));
+  out.push(line("accepted", String(counts.accepted)));
   out.push(line("known failures", String(counts.known)));
   out.push(line("FAILURES", String(counts.failures)));
   out.push("");
@@ -81,7 +82,7 @@ function table(counts) {
   const server = await serve(BUILD, PORT);
   const browser = await launch();
   let failures = 0;
-  const counts = { screens: "0 of 0", sheets: "0 of 0", forms: "0 of 0", journeys: "0 of 0", refusals: "0 of 0", combinations: 0, known: 0, failures: 0 };
+  const counts = { screens: "0 of 0", sheets: "0 of 0", forms: "0 of 0", journeys: "0 of 0", refusals: "0 of 0", combinations: 0, known: 0, accepted: 0, failures: 0 };
 
   try {
     // The app comes up at all. Everything else depends on this.
@@ -133,10 +134,12 @@ function table(counts) {
       process.stdout.write("wrote " + added + " entries into audit/known.json. Write the reason on each one.\n");
     }
     const sorted = sortKnown(everything);
+    sorted.accepted.forEach(r => process.stdout.write("ACCEPTED " + r.where + "  " + r.check + "  " + r.detail + "\n"));
     sorted.known.forEach(r => process.stdout.write("KNOWN " + r.where + "  " + r.check + "  " + r.detail + "\n"));
     sorted.fresh.forEach(r => { record("check", r.where + "  " + r.check, false, r.detail); });
     sorted.fixed.forEach(e => { record("known", "this known failure is fixed, take it off the list: " + e.check + " " + e.what, false, e.why || ""); });
     counts.known = sorted.known.length;
+    counts.accepted = sorted.accepted.length;
     sweep.gaps.concat(walk.gaps).forEach(g => process.stdout.write("NOT COVERED  " + g + "\n"));
     failures += sorted.fresh.length + sorted.fixed.length;
   } finally {

@@ -213,7 +213,7 @@ async function uploadTaskMedia(file, token) {
     body: file,
   });
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Upload failed"); }
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || UPLOAD_FAILED); }
   return res.json();
 }
 
@@ -232,6 +232,8 @@ const AGENT_PHOTO_UNREADABLE = "This photo could not be read here. Choose a JPEG
 // Thrown wherever an upload is refused, so the words and the Spanish
 // entry for them cannot drift apart.
 const AGENT_PHOTO_FAILED = "Photo upload failed";
+// The same, for the two uploads that are not the agent's photo path.
+const UPLOAD_FAILED = "Upload failed";
 
 async function decodeAgentPhoto(file) {
   if (typeof window.createImageBitmap === "function") {
@@ -557,8 +559,17 @@ function saveShortcuts(userId, ids) {
 const SHORTCUTS_CARD_LINE = "Choose what sits on your bottom bar. Everything else is under More.";
 const SHORTCUTS_EMPTY_SLOT = "Pick something for this spot";
 
+// The smallest a control may be, either way, at every text size. It is
+// the size Apple asks for and the size someone with poor sight can hit.
+const TAP = 44;
+// A control whose drawing is meant to stay smaller than that. The button
+// becomes a see-through frame of at least 44 by 44 and the look moves to
+// the span inside it, so the tap area grows and the drawing does not.
+const mkTapFrame = (extra) => ({ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: TAP, minHeight: TAP, padding: 0, background: "none", border: "none", cursor: "pointer", ...(extra || {}) });
+
 const mkLabel = (t) => ({ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700, marginBottom: 6, display: "block", fontFamily: FONT_HEAD });
-const mkInput = (t) => ({ width: "100%", padding: "11px 14px", borderRadius: R.md, border: "1px solid " + t.inputBorder, background: t.inputBg, color: t.text, fontSize: 14, outline: "none", fontFamily: FONT_BODY });
+const mkInput = (t) => ({ width: "100%", minHeight: TAP, padding: "11px 14px", borderRadius: R.md, border: "1px solid " + t.inputBorder, background: t.inputBg, color: t.text, fontSize: 14, outline: "none", fontFamily: FONT_BODY });
+const mkSmallPill = (t) => ({ display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid " + t.border, borderRadius: 8, padding: "6px 14px", color: t.textMut, fontSize: 11 });
 const mkQtyBtn = (t) => ({ width: 36, height: 36, borderRadius: "50%", border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: t.text });
 
 const SUPPORT_LINE = "Contact your supervisor to have a new link sent.";
@@ -568,7 +579,7 @@ const mkPinInput = (t) => ({ ...mkInput(t), letterSpacing: "8px", textAlign: "ce
 const mkFieldErr = (t) => ({ fontSize: 11, color: RED, marginTop: 6, lineHeight: 1.4 });
 const mkHelp = (t) => ({ fontSize: 11, color: t.textMut, marginTop: 6, lineHeight: 1.4 });
 const mkPrimaryBtn = (t, busy) => ({ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 700, cursor: "pointer", opacity: busy ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD });
-const mkGhostBtn = (t) => ({ width: "100%", padding: "12px", marginTop: 12, borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, cursor: "pointer" });
+const mkGhostBtn = (t) => ({ width: "100%", minHeight: TAP, padding: "12px", marginTop: 12, borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, cursor: "pointer" });
 const mkCardText = (t) => ({ fontSize: 14, color: t.text, lineHeight: 1.55, marginBottom: 14 });
 
 // Weak PIN rules, client side. The API checks shape only. Returns a
@@ -681,6 +692,12 @@ const TEXT_SIZES = [
   { id: "largest", label: "Largest", zoom: 1.5 },
 ];
 const zoomOf = (id) => (TEXT_SIZES.find(s => s.id === id) || TEXT_SIZES[0]).zoom;
+// A label on the bottom bar stops growing at the Large size, so every
+// label still fits on one line in both languages at every size. The root
+// carries the zoom, so dividing by it leaves the label drawn at the Large
+// size and no larger. The icons and the tap areas keep scaling with the
+// rest of the app, which is how the phone's own tab bar behaves.
+const barFontSize = (px, zoom) => px * Math.min(zoom, zoomOf("large")) / zoom;
 // Read before the first render. An unreadable or unknown value is Standard.
 function readTextSize() {
   try {
@@ -737,8 +754,8 @@ function TextSizeButton({ t }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} style={{ background: "none", border: "1px solid " + t.border, borderRadius: 8, padding: "6px 14px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, color: t.textMut, fontSize: 11 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1 }}>{tr("A")}</span>{tr("Text size")}
+      <button type="button" onClick={() => setOpen(true)} style={mkTapFrame()}>
+        <span style={mkSmallPill(t)}><span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1 }}>{tr("A")}</span>{tr("Text size")}</span>
       </button>
       {open && (
         <div onClick={() => setOpen(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 300, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
@@ -834,7 +851,6 @@ export default function OCSAStaffPortal() {
   const zoom = zoomOf(textSize);
 
   useEffect(() => { const i = setInterval(() => setCurrentTime(now()), 1000); return () => clearInterval(i); }, []);
-  useEffect(() => { const h = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); setUnread(0); }; window.addEventListener("ocsa-session-expired", h); return () => window.removeEventListener("ocsa-session-expired", h); }, []);
   const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
   const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); } catch (err) { console.error(err); } }, [token]);
   const loadSessionSites = useCallback(async (tkn) => { try { const data = await api("/api/shift-sessions/sites", { token: tkn || token }); setSessionSites(data); } catch (err) { console.error(err); } }, [token]);
@@ -924,7 +940,7 @@ export default function OCSAStaffPortal() {
     setLoading(false);
   };
 
-  const handleLogout = () => { clearAuth(); setToken(null); setUser(null); setSites([]); setScreen("login"); setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set()); setActiveTab("clock"); setUnread(0); };
+  const handleLogout = () => forgetPerson();
 
   // Tapping a site chooses it. No request, no tab change, no toast.
   const handleSelectSite = (siteId) => { if (clockStatus?.clockedIn) return; setPendingSite(siteId); setStartBlock(null); };
@@ -1129,6 +1145,31 @@ export default function OCSAStaffPortal() {
   const [unread, setUnread] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const unreadWarned = useRef(false);
+
+  // Everything the person who was signed in leaves behind, dropped in
+  // one place. Signing out and a session that runs out take this same
+  // path, so the next person on the same phone starts clean however the
+  // last one left. What this phone is set to, the language, the theme
+  // and the text size, belongs to the phone and stays.
+  const forgetPerson = useCallback(() => {
+    clearAuth();
+    setToken(null); setUser(null); setSites([]); setScreen("login");
+    setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null);
+    setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set());
+    setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
+    setChannels([]); setMessages([]); setActiveChannel(null);
+    setAgentConversation(null); setFormsDraft(null);
+    setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
+    setLookups([]); setToast(null); setLoading(false);
+    setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false);
+    setActiveTab("clock");
+    unreadWarned.current = false; prefsLive.current = false; chosenOnEntryRef.current = null;
+    tasksSite.current = null; tasksReqSite.current = null; inFlightTaskIds.current = new Set();
+  }, []);
+  useEffect(() => {
+    window.addEventListener("ocsa-session-expired", forgetPerson);
+    return () => window.removeEventListener("ocsa-session-expired", forgetPerson);
+  }, [forgetPerson]);
   const refreshUnread = useCallback(async (tkn) => {
     const tk = tkn || token;
     if (!tk) return;
@@ -1205,11 +1246,11 @@ export default function OCSAStaffPortal() {
         <>
           <div style={{ backgroundImage: (themeMode === "light" ? SWEEP_LIGHT : SWEEP) + ", linear-gradient(135deg, " + t.headerBg + " 0%, " + t.headerBg2 + " 100%)", backgroundSize: "100% 2px, 100% 100%", backgroundPosition: "bottom left, top left", backgroundRepeat: "no-repeat, no-repeat", padding: "14px 16px 10px", borderBottom: "1px solid transparent" }}>
             <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: "1 1 0" }}>
-                <button onClick={() => setActiveTab("profile")} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", minWidth: 44, minHeight: 44 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: TAP, flex: "1 1 0" }}>
+                <button onClick={() => setActiveTab("profile")} aria-label={tr("Profile")} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, minWidth: TAP, minHeight: TAP }}>
                   {user?.profilePhotoUrl ? <img src={user.profilePhotoUrl} alt="" style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", border: "2px solid " + GOLD }} /> : <div style={{ width: 38, height: 38, borderRadius: "50%", background: themeMode === "light" ? "rgba(255,255,255,0.92)" : "rgba(231,176,23,0.15)", border: "2px solid " + (themeMode === "light" ? PANEL_LIGHT : GOLD), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: themeMode === "light" ? PANEL_LIGHT : GOLD }}>{user?.firstName?.[0]}{user?.lastName?.[0]}</div>}
                 </button>
-                <div style={{ minWidth: 0 }}>
+                <div style={{ minWidth: 0, flex: "1 1 auto" }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: "#F8F7F4", fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.firstName} {user?.lastName}</div>
                   <div style={{ fontSize: 10, color: themeMode === "light" ? "rgba(255,255,255,0.82)" : GOLD, letterSpacing: "0.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.role?.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
                 </div>
@@ -1221,7 +1262,7 @@ export default function OCSAStaffPortal() {
                   {unread > 0 && <span style={{ position: "absolute", top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8, background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", fontFamily: FONT_HEAD }}>{unread > 9 ? "9+" : unread}</span>}
                 </button>
                 <button onClick={() => { setActiveTab("settings"); setShowMore(false); }} aria-label={tr("Settings")} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, minWidth: 44, minHeight: 44, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}><GearIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#A8B8C8"} /></button>
-                <button onClick={handleLogout} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><LogOutIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#8899AA"} /></button>
+                <button onClick={handleLogout} aria-label={tr("Sign out")} style={mkTapFrame()}><LogOutIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#8899AA"} /></button>
               </div>
             </div>
           </div>
@@ -1271,7 +1312,7 @@ export default function OCSAStaffPortal() {
               return (
                 <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMore(false); }} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
                   <TabIco sz={22} c={active ? t.goldText : t.textMut} />
-                  <span style={{ fontSize: 9, fontWeight: active ? 700 : 500, color: active ? t.goldText : t.textMut, letterSpacing: "0.3px" }}>{tab.label}</span>
+                  <span style={{ fontSize: barFontSize(9, zoom), fontWeight: active ? 700 : 500, color: active ? t.goldText : t.textMut, letterSpacing: "0.3px" }}>{tab.label}</span>
                   {active && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: SWEEP_BAR, borderRadius: 2 }} />}
                 </button>
               );
@@ -1281,7 +1322,7 @@ export default function OCSAStaffPortal() {
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={isMoreActive || showMore ? t.goldText : t.textMut} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
                 {totalBadge > 0 && !isMoreActive && <div style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{totalBadge}</div>}
               </div>
-              <span style={{ fontSize: 9, fontWeight: isMoreActive || showMore ? 700 : 500, color: isMoreActive || showMore ? t.goldText : t.textMut, letterSpacing: "0.3px" }}>{tr("More")}</span>
+              <span style={{ fontSize: barFontSize(9, zoom), fontWeight: isMoreActive || showMore ? 700 : 500, color: isMoreActive || showMore ? t.goldText : t.textMut, letterSpacing: "0.3px" }}>{tr("More")}</span>
               {isMoreActive && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: SWEEP_BAR, borderRadius: 2 }} />}
             </button>
           </div>
@@ -1347,10 +1388,10 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, showToast, t,
         </div>
         <div style={{ marginBottom: 16 }}><label style={labelSt}>{tr("Badge Number, Phone or Email")}</label><input value={phone} onChange={e => setPhone(e.target.value)} placeholder={tr("9001, 2155550101 or name@email.com")} autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
         <div style={{ marginBottom: 8 }}><label style={labelSt}>{tr("PIN")}</label><input value={pin} onChange={e => setPin(e.target.value)} placeholder={tr("4-digit PIN")} type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
-        <div style={{ textAlign: "right", marginBottom: 24 }}><button onClick={onGoForgot} style={{ background: "none", border: "none", padding: "4px 0", color: t.textSec, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>{tr("Forgot your PIN?")}</button></div>
+        <div style={{ textAlign: "right", marginBottom: 24 }}><button onClick={onGoForgot} style={{ background: "none", border: "none", minHeight: TAP, padding: "4px 0", color: t.textSec, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>{tr("Forgot your PIN?")}</button></div>
         <button onClick={() => onLogin(phone, pin)} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Signing in...") : tr("Sign In")}</button>
-        <button onClick={onGoRegister} style={{ width: "100%", padding: "12px", marginTop: 12, borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, cursor: "pointer" }}>{tr("New Employee? Register Here")}</button>
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><button onClick={toggleTheme} style={{ background: "none", border: "1px solid " + t.border, borderRadius: 8, padding: "6px 14px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, color: t.textMut, fontSize: 11 }}>{themeMode === "dark" ? <SunIco sz={14} c={t.textMut} /> : <MoonIco sz={14} c={t.textMut} />}{themeMode === "dark" ? tr("Light Mode") : tr("Dark Mode")}</button><TextSizeButton t={t} /></div>
+        <button onClick={onGoRegister} style={mkGhostBtn(t)}>{tr("New Employee? Register Here")}</button>
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><button onClick={toggleTheme} style={mkTapFrame()}><span style={mkSmallPill(t)}>{themeMode === "dark" ? <SunIco sz={14} c={t.textMut} /> : <MoonIco sz={14} c={t.textMut} />}{themeMode === "dark" ? tr("Light Mode") : tr("Dark Mode")}</span></button><TextSizeButton t={t} /></div>
       </div>
     </div>
   );
@@ -1387,7 +1428,7 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("PIN (4 digits) *")}</label><input value={pin} onChange={e => setPin(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
         <div style={{ marginBottom: 24 }}><label style={labelSt}>{tr("Confirm PIN *")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
         <button onClick={submit} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 700, cursor: "pointer", boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Registering...") : tr("Register")}</button>
-        <button onClick={onBack} style={{ width: "100%", padding: "12px", marginTop: 12, borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, cursor: "pointer" }}>{tr("Back to Login")}</button>
+        <button onClick={onBack} style={mkGhostBtn(t)}>{tr("Back to Login")}</button>
         <div style={{ display: "flex", justifyContent: "center", marginTop: 20 }}><TextSizeButton t={t} /></div>
       </div>
     </div>
@@ -1425,7 +1466,7 @@ function LangPicker({ value, onChange, t }) {
   const opts = [["en", "English"], ["es", "Espa\u00f1ol"]];
   return (
     <div style={{ display: "flex", gap: 8 }}>
-      {opts.map(([v, l]) => <button key={v} type="button" onClick={() => onChange(v)} style={{ flex: 1, padding: "10px", borderRadius: R.sm, fontSize: 12, fontWeight: 700, fontFamily: FONT_HEAD, background: value === v ? t.goldBg : "transparent", color: value === v ? t.goldText : t.textMut, border: "1px solid " + (value === v ? t.goldBorder : t.borderSolid), cursor: "pointer" }}>{l}</button>)}
+      {opts.map(([v, l]) => <button key={v} type="button" onClick={() => onChange(v)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, fontSize: 12, fontWeight: 700, fontFamily: FONT_HEAD, background: value === v ? t.goldBg : "transparent", color: value === v ? t.goldText : t.textMut, border: "1px solid " + (value === v ? t.goldBorder : t.borderSolid), cursor: "pointer" }}>{l}</button>)}
     </div>
   );
 }
@@ -1833,6 +1874,12 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
 
   const weekDays = getWeekDays();
 
+  // The five controls in the header above the calendar. Each drawing
+  // stays the size it was; the button around it carries the tap area.
+  const viewChip = (on) => ({ display: "inline-flex", alignItems: "center", padding: "5px 12px", borderRadius: R.sm, fontSize: 10, fontWeight: on ? 700 : 600, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px", background: on ? t.goldBg : "transparent", color: on ? t.goldText : t.textMut, border: on ? "1px solid " + t.goldBorder : "1px solid transparent" });
+  const stepChip = { display: "inline-flex", alignItems: "center", background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.sm, padding: "6px 12px", color: t.textMut, fontSize: 14 };
+  const todayChip = { display: "inline-flex", alignItems: "center", fontSize: 9, padding: "3px 9px", borderRadius: R.sm, border: "1px solid " + BLUE, background: "transparent", color: BLUE, fontWeight: 700, fontFamily: FONT_HEAD };
+
   const offLabel = { fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 3, fontFamily: FONT_HEAD };
   const offValue = { fontSize: 13, color: t.text, fontWeight: 500, overflowWrap: "anywhere" };
   // Both limits are local calendar days, so the pickers agree with
@@ -1911,18 +1958,18 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("My Schedule")}</div>
         <div style={{ display: "flex", gap: 4 }}>
-          <button onClick={() => setView("week")} style={{ padding: "5px 12px", borderRadius: R.sm, fontSize: 10, fontWeight: view === "week" ? 700 : 600, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px", background: view === "week" ? t.goldBg : "transparent", color: view === "week" ? t.goldText : t.textMut, border: view === "week" ? "1px solid " + t.goldBorder : "1px solid transparent", cursor: "pointer" }}>{tr("Week")}</button>
-          <button onClick={() => { setView("month"); const first = new Date(weekStart.getFullYear(), weekStart.getMonth(), 1); setWeekStart(first); }} style={{ padding: "5px 12px", borderRadius: R.sm, fontSize: 10, fontWeight: view === "month" ? 700 : 600, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px", background: view === "month" ? t.goldBg : "transparent", color: view === "month" ? t.goldText : t.textMut, border: view === "month" ? "1px solid " + t.goldBorder : "1px solid transparent", cursor: "pointer" }}>{tr("Month")}</button>
+          <button onClick={() => setView("week")} style={mkTapFrame()}><span style={viewChip(view === "week")}>{tr("Week")}</span></button>
+          <button onClick={() => { setView("month"); const first = new Date(weekStart.getFullYear(), weekStart.getMonth(), 1); setWeekStart(first); }} style={mkTapFrame()}><span style={viewChip(view === "month")}>{tr("Month")}</span></button>
         </div>
       </div>
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <button onClick={prevWeek} style={{ background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.sm, padding: "6px 12px", cursor: "pointer", color: t.textMut, fontSize: 14 }}>&lt;</button>
+        <button onClick={prevWeek} aria-label={tr("Back")} style={mkTapFrame()}><span style={stepChip}>&lt;</span></button>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>{weekLabel}</span>
-          <button onClick={goToday} style={{ fontSize: 9, padding: "3px 9px", borderRadius: R.sm, border: "1px solid " + BLUE, background: "transparent", color: BLUE, cursor: "pointer", fontWeight: 700, fontFamily: FONT_HEAD }}>{tr("Today")}</button>
+          <button onClick={goToday} style={mkTapFrame()}><span style={todayChip}>{tr("Today")}</span></button>
         </div>
-        <button onClick={nextWeek} style={{ background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.sm, padding: "6px 12px", cursor: "pointer", color: t.textMut, fontSize: 14 }}>&gt;</button>
+        <button onClick={nextWeek} aria-label={tr("Next")} style={mkTapFrame()}><span style={stepChip}>&gt;</span></button>
       </div>
 
       {loading && <div style={{ textAlign: "center", padding: 20, color: t.textMut, fontSize: 12 }}>{tr("Loading...")}</div>}
@@ -2094,10 +2141,14 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
 
             {reqForm.startsOn === reqForm.endsOn && (
               <div style={{ marginBottom: 10 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44, cursor: "pointer", fontSize: 14, color: t.text }}>
-                  <input type="checkbox" checked={reqForm.partDay} onChange={e => setReqForm({ ...reqForm, partDay: e.target.checked, startTime: "", endTime: "" })} style={{ width: 20, height: 20, flexShrink: 0 }} />
+                {/* The box a phone draws for a checkbox cannot be given
+                    a bigger tap area without being drawn bigger, so the
+                    whole row is the control and the box is the one the
+                    checklist already draws. */}
+                <button type="button" role="checkbox" aria-checked={reqForm.partDay} onClick={() => setReqForm({ ...reqForm, partDay: !reqForm.partDay, startTime: "", endTime: "" })} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, padding: 0, background: "none", border: "none", cursor: "pointer", fontSize: 14, color: t.text, fontFamily: FONT_BODY, textAlign: "left" }}>
+                  <span style={{ width: 20, height: 20, flexShrink: 0, borderRadius: R.sm, border: "2px solid " + (reqForm.partDay ? GOLD : t.borderSolid), background: reqForm.partDay ? GOLD : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{reqForm.partDay && <CheckIco sz={12} c={NAVY} />}</span>
                   {tr("Part of the day")}
-                </label>
+                </button>
                 {reqForm.partDay && (
                   <div style={{ display: "flex", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
                     <div style={{ flex: "1 1 120px", minWidth: 0 }}>
@@ -2308,7 +2359,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                 </div>
               </div>
             )}
-            <button onClick={() => setDetail(null)} style={{ width: "100%", padding: "12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 4 }}>{tr("Close")}</button>
+            <button onClick={() => setDetail(null)} style={{ width: "100%", minHeight: TAP, padding: "12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 4 }}>{tr("Close")}</button>
           </div>
         </div>
       )}
@@ -2414,7 +2465,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   const labelSt = mkLabel(t);
   const floorHeadSt = { fontSize: 11, color: t.text, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, padding: "7px 11px", background: t.card, borderRadius: R.sm, border: "1px solid " + t.borderSolid, fontFamily: FONT_HEAD };
   const zoneSt = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700, marginBottom: 8, fontFamily: FONT_HEAD };
-  const rowBase = { display: "flex", alignItems: "flex-start", gap: 11, padding: "11px 13px", marginBottom: 6, borderRadius: R.md, boxShadow: t.shadow };
+  const rowBase = { display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 11, padding: "11px 13px", marginBottom: 6, borderRadius: R.md, boxShadow: t.shadow };
   const chipPriority = { fontSize: 9, color: ORANGE, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, padding: "2px 6px", borderRadius: R.sm, fontWeight: 700, letterSpacing: "0.5px" };
   const chipCat = { fontSize: 9, color: t.textMut, background: t.cardAlt, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600 };
   const detailSecLabel = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD };
@@ -2422,7 +2473,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   if (!clockStatus?.clockedIn) return (
     <div style={{ padding: "16px" }}>
       <div style={{ padding: "12px 14px", marginBottom: 14, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow }}><div style={{ fontSize: 12, color: ORANGE }}>{tr("Start your shift to see and check off your tasks.")}</div></div>
-      {standardTasks.length === 0 ? <EmptyState icon={CheckIco} text="No tasks loaded. Start your shift at a site to see your checklist." t={t} /> : (() => {
+      {standardTasks.length === 0 ? <EmptyState icon={CheckIco} text={tr("No tasks loaded. Start your shift at a site to see your checklist.")} t={t} /> : (() => {
         const groups = groupTasksByFloorZone(standardTasks); let lastFloor = undefined;
         return groups.map((g, gi) => { const showFloor = g.floor && g.floor !== lastFloor; lastFloor = g.floor; return (<div key={gi} style={{ marginBottom: 16 }}>{showFloor && (<div style={{ ...floorHeadSt, marginTop: gi > 0 ? 10 : 0 }}>{tr("Floor")} {g.floor}</div>)}<div style={{ ...zoneSt, paddingLeft: g.floor ? 8 : 0 }}>{g.zone}</div>{g.tasks.map(task => { const hasInfo = task.has_details || task.description || task.media_url; return (<div key={task.id} onClick={() => hasInfo ? setDetail(task) : null} style={{ ...rowBase, background: t.card, border: "1px solid " + t.borderSolid, cursor: hasInfo ? "pointer" : "default", opacity: 0.6, marginLeft: g.floor ? 8 : 0 }}><div style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + t.textMut, background: "transparent", flexShrink: 0, marginTop: 1 }} /><div style={{ flex: 1, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{task.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div>); })}</div>); });
       })()}
@@ -2435,8 +2486,8 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
       <button onClick={onRetryTasks} style={{ minHeight: 44, marginTop: 16, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button>
     </div>
   );
-  if (!loaded) return <EmptyState icon={CheckIco} text="Loading tasks..." t={t} />;
-  if (standardTasks.length === 0) return <EmptyState icon={CheckIco} text="No checklist is set up for this building yet." t={t} />;
+  if (!loaded) return <EmptyState icon={CheckIco} text={tr("Loading tasks...")} t={t} />;
+  if (standardTasks.length === 0) return <EmptyState icon={CheckIco} text={tr("No checklist is set up for this building yet.")} t={t} />;
   const groups = groupTasksByFloorZone(standardTasks);
   const completed = standardTasks.filter(tk => completedTaskIds.has(tk.id)).length;
   const pct = Math.round((completed / standardTasks.length) * 100);
@@ -2468,7 +2519,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>{tr("Your Assignment")}</div><div style={{ fontSize: 15, fontWeight: 700, marginTop: 3, color: t.text, fontFamily: FONT_HEAD }}>{clockStatus.shift.siteName}</div>{(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.textSec, marginTop: 2 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>}</div><div style={{ background: pct === 100 ? t.greenSubtle : t.card, padding: "6px 14px", borderRadius: R.pill, border: "1px solid " + (pct === 100 ? t.greenBorder : t.borderSolid) }}><div style={{ fontSize: 18, fontWeight: 700, color: pct === 100 ? GREEN : t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</div></div></div>
         <div style={{ height: 5, borderRadius: R.pill, background: t.cardAlt, marginTop: 12, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.4s ease" }} /></div>
       </div>
-      {groups.map((g, gi) => { const showFloor = g.floor && g.floor !== lastFloor; lastFloor = g.floor; return (<div key={gi} style={{ marginBottom: 16 }}>{showFloor && (<div style={{ ...floorHeadSt, marginTop: gi > 0 ? 10 : 0 }}>{tr("Floor")} {g.floor}</div>)}<div style={{ ...zoneSt, paddingLeft: g.floor ? 8 : 0 }}>{g.zone}</div>{g.tasks.map(task => { const done = completedTaskIds.has(task.id); const hasInfo = task.has_details || task.description || task.media_url; return (<div key={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: g.floor ? 8 : 0 }}><button onClick={() => toggleTask(task.id)} style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1, cursor: "pointer", padding: 0 }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</button><div onClick={() => hasInfo ? setDetail(task) : toggleTask(task.id)} style={{ flex: 1, cursor: "pointer" }}><div style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{task.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>{task.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}<span style={chipCat}>{task.cims_category}</span></div></div>); })}</div>); })}
+      {groups.map((g, gi) => { const showFloor = g.floor && g.floor !== lastFloor; lastFloor = g.floor; return (<div key={gi} style={{ marginBottom: 16 }}>{showFloor && (<div style={{ ...floorHeadSt, marginTop: gi > 0 ? 10 : 0 }}>{tr("Floor")} {g.floor}</div>)}<div style={{ ...zoneSt, paddingLeft: g.floor ? 8 : 0 }}>{g.zone}</div>{g.tasks.map(task => { const done = completedTaskIds.has(task.id); const hasInfo = task.has_details || task.description || task.media_url; return (<div key={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: g.floor ? 8 : 0 }}><button onClick={() => toggleTask(task.id)} aria-label={tr(done ? "Mark {name} not done" : "Mark {name} done", { name: task.label })} style={mkTapFrame({ flexShrink: 0, marginTop: 1 })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></button><div onClick={() => hasInfo ? setDetail(task) : toggleTask(task.id)} style={{ flex: "1 1 120px", minWidth: 0, cursor: "pointer" }}><div style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{task.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>{task.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}<span style={chipCat}>{task.cims_category}</span></div></div>); })}</div>); })}
     </div>
   );
 }
@@ -2490,8 +2541,8 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
     // out 10 pixels wider than the screen and scrolled it sideways.
     <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", height: "calc(var(--ocsa-vh, 100vh) - 136px)", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 136px)", minHeight: 0, overflow: "hidden" }}>
       <div style={{ padding: "10px 12px 0", borderBottom: "1px solid " + t.borderSolid, paddingBottom: 10 }}>
-        <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} style={{ padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 700 : 500, fontFamily: FONT_HEAD, cursor: "pointer" }}>{ch.name || ch.siteName}</button>))}</div>
-        {dmChannel && (<button onClick={() => setActiveChannel(dmChannel.id)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 12px", borderRadius: R.md, background: isDm ? t.blueSubtle : t.hover, border: isDm ? "1.5px solid " + t.blueBorder : "1px solid " + t.borderSolid, boxShadow: isDm ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><LockIco c={isDm ? BLUE : t.textMut} /><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: isDm ? 700 : 600, color: isDm ? BLUE : t.textSec, fontFamily: FONT_HEAD }}>{tr("Admin (Private)")}</div><div style={{ fontSize: 9, color: t.textMut }}>{tr("Only you and management can see these messages")}</div></div>{dmChannel.unreadCount > 0 && <div style={{ background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{dmChannel.unreadCount}</div>}</button>)}
+        <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 700 : 500, fontFamily: FONT_HEAD }}>{ch.name || ch.siteName}</span></button>))}</div>
+        {dmChannel && (<button onClick={() => setActiveChannel(dmChannel.id)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", minHeight: TAP, padding: "8px 12px", borderRadius: R.md, background: isDm ? t.blueSubtle : t.hover, border: isDm ? "1.5px solid " + t.blueBorder : "1px solid " + t.borderSolid, boxShadow: isDm ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><LockIco c={isDm ? BLUE : t.textMut} /><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: isDm ? 700 : 600, color: isDm ? BLUE : t.textSec, fontFamily: FONT_HEAD }}>{tr("Admin (Private)")}</div><div style={{ fontSize: 9, color: t.textMut }}>{tr("Only you and management can see these messages")}</div></div>{dmChannel.unreadCount > 0 && <div style={{ background: RED, color: "#F8F7F4", fontSize: 9, fontWeight: 700, width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{dmChannel.unreadCount}</div>}</button>)}
       </div>
       {isDm && (<div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: t.blueSubtle, borderBottom: "1px solid " + t.blueBorder, fontSize: 10, color: BLUE }}><LockIco /> {tr("Private conversation with admin.")}</div>)}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 12px 0" }}>
@@ -2501,8 +2552,8 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
         <div ref={endRef} />
       </div>
       <div style={{ padding: "10px 12px", borderTop: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), display: "flex", gap: 8, alignItems: "center", background: t.bg }}>
-        <input value={text} onChange={e => setText(e.target.value)} placeholder={isDm ? tr("Private message to admin...") : tr("Type a message...")} style={{ flex: 1, padding: "10px 14px", borderRadius: R.pill, border: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.card, color: t.text, fontSize: 13, outline: "none", fontFamily: FONT_BODY }} onKeyDown={e => e.key === "Enter" && handleSend()} />
-        <button onClick={handleSend} style={{ width: 38, height: 38, borderRadius: "50%", background: text.trim() ? (isDm ? BLUE : GOLD) : t.cardAlt, border: "none", cursor: text.trim() ? "pointer" : "default", boxShadow: text.trim() && !isDm ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={text.trim() ? (isDm ? "#F8F7F4" : NAVY) : t.textMut} /></button>
+        <input value={text} onChange={e => setText(e.target.value)} placeholder={isDm ? tr("Private message to admin...") : tr("Type a message...")} style={{ flex: 1, minHeight: TAP, padding: "10px 14px", borderRadius: R.pill, border: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.card, color: t.text, fontSize: 13, outline: "none", fontFamily: FONT_BODY }} onKeyDown={e => e.key === "Enter" && handleSend()} />
+        <button onClick={handleSend} aria-label={tr("Send")} style={mkTapFrame({ flexShrink: 0, cursor: text.trim() ? "pointer" : "default" })}><span style={{ width: 38, height: 38, borderRadius: "50%", background: text.trim() ? (isDm ? BLUE : GOLD) : t.cardAlt, boxShadow: text.trim() && !isDm ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={text.trim() ? (isDm ? "#F8F7F4" : NAVY) : t.textMut} /></span></button>
       </div>
     </div>
   );
@@ -2776,14 +2827,14 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
   const readyPhotoCount = photos.filter(p => p.status === "done" && p.path).length;
   const canSend = !sending && !photosBusy && !photosBlocked && (!!text.trim() || readyPhotoCount > 0);
   const photoLimitReached = photos.length >= AGENT_PHOTO_LIMIT;
-  const smallBtn = { padding: "8px 14px", minHeight: 36, borderRadius: R.sm, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 };
+  const smallBtn = { padding: "8px 14px", minHeight: TAP, borderRadius: R.sm, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 };
   // Pinned to the space between the header and the bottom navigation, so the
   // thread scrolls inside it and the form card and composer stay in view.
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", height: "calc(var(--ocsa-vh, 100vh) - 136px)", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 136px)", minHeight: 0, overflow: "hidden" }}>
       {openDrafts.length > 0 && (<div style={{ padding: "10px 12px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0, maxHeight: 180, overflowY: "auto" }}>
         <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Unfinished reports")}</div>
-        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d) || tr("Report")}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div><button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Fill in form")}</button><button onClick={() => resume(d)} style={smallBtn}>{tr("Resume")}</button></div>))}
+        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: "1 1 140px", minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d) || tr(FORMS_UNTITLED)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div><button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Fill in form")}</button><button onClick={() => resume(d)} style={smallBtn}>{tr("Resume")}</button></div>))}
       </div>)}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 12px 0" }}>
         {thread.length === 0 && (<div style={{ textAlign: "center", padding: "40px 20px" }}><HelpIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>{tr("Tell me what happened and I will tell you what to do.")}</div></div>)}
@@ -2798,13 +2849,13 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
           </div>
           {!isMe && m.citedDocs.length > 0 && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>{tr("Based on")} {m.citedDocs.join(", ")}</div>}
           {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>{tr("Working from the written procedure only right now.")}</div>}
-          {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("Not sent.")}{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text, m.photoPaths)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", minHeight: 32, fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Retry")}</button></div>}
+          {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("Not sent.")}{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text, m.photoPaths)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Retry")}</button></div>}
         </div></div>); })}
         <div ref={endRef} />
       </div>
       {submitted && <div style={{ padding: "8px 12px", fontSize: 12, color: GREEN, fontWeight: 600, textAlign: "center", fontFamily: FONT_HEAD }}>{tr("Report submitted.")}</div>}
       {formResponse && (<div style={{ margin: "0 12px 8px", padding: "10px 12px", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.md, boxShadow: t.shadow }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>{tr("Report in progress")}</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2 }}>{agentName(formResponse) || tr("Report")}</div>{agentCount(formResponse) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(formResponse)}</div>}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, fontFamily: FONT_HEAD }}>{tr("Report in progress")}</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2 }}>{agentName(formResponse) || tr(FORMS_UNTITLED)}</div>{agentCount(formResponse) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(formResponse)}</div>}</div>
         <button onClick={submit} disabled={!canSubmit} style={{ padding: "10px 14px", minHeight: 40, flexShrink: 0, borderRadius: R.sm, border: "none", background: canSubmit ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : t.cardAlt, color: canSubmit ? NAVY : t.textMut, fontSize: 12, fontWeight: 700, cursor: canSubmit ? "pointer" : "default", fontFamily: FONT_HEAD, boxShadow: canSubmit ? "0 6px 18px rgba(231,176,23,0.30)" : "none" }}>{submitBusy ? tr("Submitting...") : tr("Submit report")}</button></div>
         {missing.length > 0 && <div style={{ marginTop: 8, fontSize: 11, color: t.textSec, lineHeight: 1.5 }}><div style={{ fontWeight: 600 }}>{tr("Still needed before you can submit:")}</div>{missing.map((k, i) => <div key={i}>{k}</div>)}</div>}
       </div>)}
@@ -2824,7 +2875,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
               {p.status === "failed" && (
                 <div style={{ marginTop: 4 }}>
                   <div style={{ fontSize: 10, color: RED, lineHeight: 1.35 }}>{p.error}</div>
-                  <button onClick={() => retryPhoto(p.id)} style={{ ...smallBtn, padding: "6px 10px", minHeight: 32, fontSize: 11, marginTop: 4 }}>{tr("Try again")}</button>
+                  <button onClick={() => retryPhoto(p.id)} style={{ ...smallBtn, padding: "6px 10px", fontSize: 11, marginTop: 4 }}>{tr("Try again")}</button>
                 </div>
               )}
             </div>
@@ -2877,7 +2928,7 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lk
           {isResolving && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.greenSubtle }}>
             <div style={{ fontSize: 10, color: GREEN, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Mark as Resolved")}</div>
             <div style={{ marginBottom: 8 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("What did you do to complete this? *")}</div><textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the steps you took...")} rows={3} style={{ ...inputSt, resize: "vertical" }} /></div>
-            <div style={{ marginBottom: 10 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("Photo of completed task *")}</div>{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GREEN, borderRadius: R.md, cursor: "pointer", color: GREEN, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={GREEN} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo of Completed Task")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("Required to verify completion")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: R.md, border: "1px solid " + t.borderSolid }} /><button onClick={() => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; }} style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "none", color: "#F8F7F4", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</button></div>)}</div>
+            <div style={{ marginBottom: 10 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("Photo of completed task *")}</div>{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GREEN, borderRadius: R.md, cursor: "pointer", color: GREEN, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={GREEN} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo of Completed Task")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("Required to verify completion")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: R.md, border: "1px solid " + t.borderSolid }} /><button onClick={() => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; }} aria-label={tr("Remove photo")} style={mkTapFrame({ position: "absolute", top: -2, right: -2 })}><span style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", color: "#F8F7F4", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</span></button></div>)}</div>
             <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleResolve(detail.task_id)} disabled={uploading} style={{ flex: 1, padding: "10px", borderRadius: R.md, border: "none", background: GREEN, color: "#F8F7F4", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD, opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Resolution")}</button></div>
           </div>)}
           {isCantResolve && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.redSubtle }}>
@@ -2917,15 +2968,15 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites, 
   const handleSubmit = async () => { if (!title.trim()) { showToast(tr("Enter issue title"), "error"); return; } const siteId = clockStatus?.clockedIn ? clockStatus.shift.siteId : selSite; if (!siteId) { showToast(tr("Select a site"), "error"); return; } setUploading(true); try { let photoUrl = null; if (photo) { photoUrl = await uploadPhoto(photo, token); } await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl, siteId); setTitle(""); setDesc(""); setZone(""); setSev("medium"); setPhoto(null); setPhotoPreview(null); setShowForm(false); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
   return (
     <div style={{ padding: "16px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{isAdmin ? tr("Issues") : tr("Report an Issue")}</div>{isAdmin && <button onClick={() => setShowForm(!showForm)} style={{ padding: "7px 13px", borderRadius: R.sm, border: showForm ? "1px solid " + t.borderSolid : "none", background: showForm ? t.cardAlt : GOLD, color: showForm ? t.text : NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{showForm ? tr("Cancel") : tr("+ Report")}</button>}</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{isAdmin ? tr("Issues") : tr("Report an Issue")}</div>{isAdmin && <button onClick={() => setShowForm(!showForm)} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "7px 13px", borderRadius: R.sm, border: showForm ? "1px solid " + t.borderSolid : "none", background: showForm ? t.cardAlt : GOLD, color: showForm ? t.text : NAVY, fontSize: 12, fontWeight: 700, fontFamily: FONT_HEAD }}>{showForm ? tr("Cancel") : tr("+ Report")}</span></button>}</div>
       {(showForm || !isAdmin) && (<div style={{ padding: 14, marginBottom: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, animation: "fadeIn 0.3s ease", boxShadow: t.popShadow }}>
         {!clockStatus?.clockedIn && sites && sites.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Site")}</label><select value={selSite} onChange={e => setSelSite(e.target.value)} style={inputSt}><option value="">{tr("Select site...")}</option>{sites.map(s => <option key={s.siteId} value={s.siteId}>{s.siteName}</option>)}</select></div>)}
         <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Title")}</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder={tr("Brief description")} style={inputSt} /></div>
         <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Details")}</label><textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder={tr("Additional details...")} rows={3} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
         <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Zone")}</label><input value={zone} onChange={e => setZone(e.target.value)} placeholder={tr("e.g. Restroom, Lobby")} style={inputSt} /></div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Severity")}</label><div style={{ display: "flex", gap: 6 }}>{sevs.map(s => (<button key={s.v} onClick={() => setSev(s.v)} style={{ flex: 1, padding: "9px", borderRadius: R.sm, border: sev === s.v ? "2px solid " + s.c : "1px solid " + t.borderSolid, background: sev === s.v ? s.c + "1A" : "transparent", cursor: "pointer", color: s.c, fontSize: 12, fontWeight: 700, textAlign: "center", fontFamily: FONT_HEAD, letterSpacing: "0.3px" }}>{s.l}</button>))}</div></div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Photo")}</label><input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GOLD, borderRadius: R.sm, cursor: "pointer", color: t.goldText, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={t.goldText} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo or Choose from Gallery")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("JPG, PNG up to 10MB")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} /><button onClick={removePhoto} style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "none", color: "#F8F7F4", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</button><div style={{ fontSize: 10, color: GREEN, marginTop: 4 }}>{tr("Photo attached:")} {photo?.name}</div></div>)}</div>
-        <button onClick={handleSubmit} disabled={uploading} style={{ width: "100%", padding: "13px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Issue")}</button>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Severity")}</label><div style={{ display: "flex", gap: 6 }}>{sevs.map(s => (<button key={s.v} onClick={() => setSev(s.v)} style={{ flex: 1, minHeight: TAP, padding: "9px", borderRadius: R.sm, border: sev === s.v ? "2px solid " + s.c : "1px solid " + t.borderSolid, background: sev === s.v ? s.c + "1A" : "transparent", cursor: "pointer", color: s.c, fontSize: 12, fontWeight: 700, textAlign: "center", fontFamily: FONT_HEAD, letterSpacing: "0.3px" }}>{s.l}</button>))}</div></div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Photo")}</label><input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GOLD, borderRadius: R.sm, cursor: "pointer", color: t.goldText, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={t.goldText} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo or Choose from Gallery")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("JPG, PNG up to 10MB")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} /><button onClick={removePhoto} aria-label={tr("Remove photo")} style={mkTapFrame({ position: "absolute", top: -2, right: -2 })}><span style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", color: "#F8F7F4", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</span></button><div style={{ fontSize: 10, color: GREEN, marginTop: 4 }}>{tr("Photo attached:")} {photo?.name}</div></div>)}</div>
+        <button onClick={handleSubmit} disabled={uploading} style={{ width: "100%", minHeight: TAP, padding: "13px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Issue")}</button>
       </div>)}
       {isAdmin && visibleIssues.length === 0 && !showForm && <div style={{ padding: "32px 20px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontSize: 13, color: t.textMut, boxShadow: t.shadow }}>{tr("No issues reported yet.")}</div>}
       {isAdmin && visibleIssues.map(issue => { const sc = sevC[issue.severity] || ORANGE; return (<div key={issue.id} style={{ padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + sc, boxShadow: t.shadow }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><div style={{ fontSize: 13, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{issue.title}</div><span style={{ fontSize: 9, color: sc, background: sc + "20", padding: "3px 7px", borderRadius: R.sm, fontWeight: 700, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{issue.severity}</span></div><div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 9, color: t.textMut }}><span>{issue.zone}</span><span>{issue.site_name}</span><span style={{ color: issue.status === "open" ? ORANGE : GREEN, fontWeight: 700, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{issue.status}</span></div></div>); })}
@@ -2953,16 +3004,16 @@ function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submi
 
   if (!clockStatus?.clockedIn) return (
     <div style={{ padding: "16px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supplies")}</div><div style={{ fontSize: 11, color: t.textSec }}>{tr("Start your shift to log usage. Requests can be submitted anytime.")}</div></div><button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={{ padding: "7px 13px", borderRadius: R.sm, border: "none", background: GOLD, color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("+ Request")}</button></div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supplies")}</div><div style={{ fontSize: 11, color: t.textSec }}>{tr("Start your shift to log usage. Requests can be submitted anytime.")}</div></div><button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "7px 13px", borderRadius: R.sm, background: GOLD, color: NAVY, fontSize: 12, fontWeight: 700, fontFamily: FONT_HEAD }}>{tr("+ Request")}</span></button></div>
       {reqFormUI}
     </div>
   );
 
   return (
     <div style={{ padding: "16px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supply Tracking")}</div><div style={{ fontSize: 11, color: t.textSec }}>{tr("Log usage or submit a request")}</div></div><button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={{ padding: "7px 13px", borderRadius: R.sm, border: "none", background: GOLD, color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("+ Request")}</button></div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supply Tracking")}</div><div style={{ fontSize: 11, color: t.textSec }}>{tr("Log usage or submit a request")}</div></div><button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "7px 13px", borderRadius: R.sm, background: GOLD, color: NAVY, fontSize: 12, fontWeight: 700, fontFamily: FONT_HEAD }}>{tr("+ Request")}</span></button></div>
       {reqFormUI}
-      {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: t.textMut, fontFamily: "monospace" }}>{tr("QR")}</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div><div style={{ display: "flex", gap: 6, marginTop: 2, fontSize: 9 }}><span style={{ color: t.textMut }}>{sup.qr_code}</span>{isLow && <span style={{ color: ORANGE, fontWeight: 600 }}>{tr("LOW")}</span>}</div></div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} style={qtyBtn}><MinusIco sz={14} /></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 700, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} style={qtyBtn}><PlusIco sz={14} /></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Log Usage")}</button></div>)}</div>); })}
+      {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: t.textMut, fontFamily: "monospace" }}>{tr("QR")}</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div><div style={{ display: "flex", gap: 6, marginTop: 2, fontSize: 9 }}><span style={{ color: t.textMut }}>{sup.qr_code}</span>{isLow && <span style={{ color: ORANGE, fontWeight: 600 }}>{tr("LOW")}</span>}</div></div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} aria-label={tr("One less")} style={mkTapFrame()}><span style={qtyBtn}><MinusIco sz={14} /></span></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 700, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} aria-label={tr("One more")} style={mkTapFrame()}><span style={qtyBtn}><PlusIco sz={14} /></span></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 700, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Log Usage")}</button></div>)}</div>); })}
       {supplyLogs.length > 0 && (<div style={{ marginTop: 18 }}><label style={{ ...labelSt, display: "block", marginBottom: 8 }}>{tr("This Shift's Log")}</label>{supplyLogs.map((log, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", marginBottom: 3, background: t.hover, borderRadius: R.sm, fontSize: 11 }}><span style={{ fontWeight: 600, color: t.text }}>{log.supply_name || tr("Item")} <span style={{ color: t.textMut, fontWeight: 400 }}>{log.quantity} {log.unit}</span></span><span style={{ color: t.textMut, fontSize: 9 }}>{formatTime(log.loggedAt || log.scanned_at)}</span></div>))}</div>)}
     </div>
   );
@@ -3085,6 +3136,10 @@ function SpeakUpView({ token, t }) {
 // not on the bar is listed under More, so nothing can be lost here. The
 // draft lives in this component, so closing without Done changes nothing.
 function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
+  // The preview draws the bar, so its labels stop growing where the
+  // bar's do.
+  const { textSize } = useContext(TextSizeCtx);
+  const zoom = zoomOf(textSize);
   const [draft, setDraft] = useState(() => {
     const ids = (current || []).slice(0, SHORTCUT_SLOTS);
     while (ids.length < SHORTCUT_SLOTS) ids.push(null);
@@ -3122,8 +3177,8 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
   const rowBtn = { minHeight: 44, minWidth: 44, padding: "0 10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 };
   const wideBtn = { width: "100%", minHeight: 44, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD };
   const sectionSt = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 700, margin: "16px 0 8px", fontFamily: FONT_HEAD };
-  const rowSt = { display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md };
-  const nameSt = { flex: 1, minWidth: 0, fontSize: 14, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+  const rowSt = { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "8px 10px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md };
+  const nameSt = { flex: "1 1 120px", minWidth: 0, fontSize: 14, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
   const fixedSt = { ...rowSt, background: t.hover, border: "1px dashed " + t.borderSolid };
 
   // The bar as it would be, so the result is visible before it is saved.
@@ -3135,13 +3190,13 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
         return (
           <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minWidth: 0, padding: "0 2px" }}>
             {Ic ? <Ic sz={18} c={t.textMut} /> : <div style={{ width: 18, height: 18, borderRadius: 4, border: "1px dashed " + t.textMut }} />}
-            <span style={{ fontSize: 8, color: t.textMut, letterSpacing: "0.3px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{id ? nameOf(id) : "-"}</span>
+            <span style={{ fontSize: barFontSize(8, zoom), color: t.textMut, letterSpacing: "0.3px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{id ? nameOf(id) : "-"}</span>
           </div>
         );
       })}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minWidth: 0, padding: "0 2px" }}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={t.textMut} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" /></svg>
-        <span style={{ fontSize: 8, color: t.textMut, letterSpacing: "0.3px" }}>{tr("More")}</span>
+        <span style={{ fontSize: barFontSize(8, zoom), color: t.textMut, letterSpacing: "0.3px" }}>{tr("More")}</span>
       </div>
     </div>
   );
@@ -3563,15 +3618,33 @@ const formOptionLabel = (f, v) => {
 };
 // An answer as a person reads it: an option's label rather than the
 // value behind it, a multiselect joined, and null when nothing was
-// answered.
+// answered. An answer of a shape this page cannot read yet says
+// Answered rather than showing the object behind it.
+const formPlainValue = (v) => typeof v === "string" || typeof v === "number" || typeof v === "boolean";
 function formReadAnswer(f, v) {
   if (!formHasAnswer(v)) return null;
   if (Array.isArray(v)) {
+    if (!v.every(formPlainValue)) return tr(FORMS_ANSWERED);
     const parts = v.map(x => formOptionLabel(f, x)).filter(x => x !== "");
     return parts.length ? parts.join(", ") : null;
   }
+  if (!formPlainValue(v)) return tr(FORMS_ANSWERED);
   return formOptionLabel(f, v);
 }
+
+// What a draft with no name of its own is called. Report on its own is
+// the tab, which is a different thing.
+const FORMS_UNTITLED = "Untitled report";
+// A question of a type this screen does not draw yet, and an answer of a
+// shape it cannot read.
+const FORMS_UNKNOWN_TYPE = "This question cannot be answered here yet. Your supervisor will finish it.";
+const FORMS_ANSWERED = "Answered";
+// The types this screen draws. Anything else says the line above and
+// asks for nothing, so a type the forms engine adds later cannot quietly
+// become a text box. A question with no type at all is text, which is
+// what it has always been.
+const FORM_TYPES_DRAWN = ["", "text", "textarea", "select", "multiselect", "date", "time"];
+const formTypeOf = (f) => (f && f.type ? String(f.type) : "");
 
 const formDraftOf = (r) => (r && r.draft ? r.draft : r);
 
@@ -3669,7 +3742,7 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
         </div>
       )}
 
-      {!loading && !failed && (forms || []).length === 0 && <EmptyState icon={DocIco} text="No forms to fill right now." t={t} />}
+      {!loading && !failed && (forms || []).length === 0 && <EmptyState icon={DocIco} text={tr("No forms to fill right now.")} t={t} />}
 
       {!loading && !failed && (forms || []).map(f => {
         const d = draftFor(f.code);
@@ -3813,7 +3886,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     if (sending) return;
     setSending(true); setSendErr(null);
     try {
-      await api("/api/forms/drafts/" + encodeURIComponent(current.id) + "/submit", { method: "POST", token });
+      await api("/api/forms/drafts/" + encodeURIComponent(current.id) + "/submit?locale=" + locale, { method: "POST", token });
       setSent("sent");
     } catch (err) {
       if (err.status === 409) setSent("already");
@@ -3848,6 +3921,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
 
   const renderInput = (f) => {
     const v = values[f.key];
+    if (FORM_TYPES_DRAWN.indexOf(formTypeOf(f)) === -1) return <div style={mkHelp(t)}>{tr(FORMS_UNKNOWN_TYPE)}</div>;
     if (f.type === "select" || f.type === "multiselect") {
       const many = f.type === "multiselect";
       const chosen = many ? (Array.isArray(v) ? v : []) : v;
@@ -3884,7 +3958,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
       <div style={{ padding: "12px 16px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 0", minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{current.formName || (form && form.title) || tr("Report")}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{current.formName || (form && form.title) || tr(FORMS_UNTITLED)}</div>
             {sections.length > 0 && <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{review ? tr("Review") : tr("Section {n} of {total}", { n: at + 1, total: sections.length })}</div>}
           </div>
           <button onClick={() => setConfirmLeave(true)} style={{ minHeight: 44, padding: "0 14px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Close")}</button>
@@ -4042,7 +4116,7 @@ function PickupView({ token, user, showToast, t }) {
       <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
         {[{ id: "available", l: tr("Available"), count: available.length }, { id: "mine", l: tr("My Pickups"), count: myPickups.length }].map(tb => (
           <button key={tb.id} onClick={() => setTab(tb.id)} style={{
-            flex: 1, padding: "10px 0", borderRadius: R.sm,
+            flex: 1, minHeight: TAP, padding: "10px 0", borderRadius: R.sm,
             border: tab === tb.id ? "1px solid " + t.goldBorder : "1px solid transparent",
             background: tab === tb.id ? t.goldBg : "transparent",
             color: tab === tb.id ? t.goldText : t.textMut,
@@ -4095,7 +4169,7 @@ function PickupView({ token, user, showToast, t }) {
                 onClick={() => claimShift(s.id)}
                 disabled={claiming === s.id}
                 style={{
-                  width: "100%", padding: "12px", borderRadius: R.md, border: "none",
+                  width: "100%", minHeight: TAP, padding: "12px", borderRadius: R.md, border: "none",
                   background: claiming === s.id ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")",
                   color: claiming === s.id ? t.textMut : NAVY,
                   fontSize: 14, fontWeight: 700, cursor: claiming === s.id ? "default" : "pointer",
@@ -4387,7 +4461,7 @@ function InspectView({ token, user, showToast, t }) {
           <div style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "24px 20px 40px", maxHeight: "85vh", overflowY: "auto", boxShadow: t.popShadow }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("Schedule Inspection")}</div>
-              <button onClick={() => setScheduleModal(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: t.textMut, lineHeight: 1 }}>{tr("x")}</button>
+              <button onClick={() => setScheduleModal(false)} aria-label={tr("Close")} style={mkTapFrame({ fontSize: 20, color: t.textMut, lineHeight: 1 })}>{tr("x")}</button>
             </div>
             <div style={{ marginBottom: 14 }}>
               <label style={labelSt}>{tr("Template *")}</label>
@@ -4445,7 +4519,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
         method: "POST", headers: { "Authorization": "Bearer " + token, "Content-Type": "image/jpeg" }, body: compressed
       });
       if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Upload failed"); }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || UPLOAD_FAILED); }
       const r = await res.json();
       await api("/api/users/profile/photo", { method: "POST", body: { photoUrl: r.url }, token });
       showToast(tr("Photo updated"));
@@ -4489,7 +4563,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
 
   return (
     <div style={{ padding: "16px" }}>
-      <button onClick={() => setActiveTab("clock")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 0", background: "none", border: "none", color: t.goldText, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 12 }}>
+      <button onClick={() => setActiveTab("clock")} style={{ display: "flex", alignItems: "center", gap: 6, minHeight: TAP, padding: "6px 0", background: "none", border: "none", color: t.goldText, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 12 }}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.goldText} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg> {tr("Back")}
       </button>
 
@@ -4528,7 +4602,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
       <div style={cardSt}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={labelSt}>{tr("Personal Information")}</div>
-          {!editing && <button onClick={startEditing} style={{ padding: "4px 10px", borderRadius: R.sm, border: "1px solid " + GOLD, background: "transparent", color: t.goldText, fontSize: 10, cursor: "pointer", fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Edit")}</button>}
+          {!editing && <button onClick={startEditing} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "4px 10px", borderRadius: R.sm, border: "1px solid " + GOLD, color: t.goldText, fontSize: 10, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Edit")}</span></button>}
         </div>
         {!editing ? <div>
           <div style={{ fontSize: 11, color: t.textMut }}>{tr("Birthday")}<div style={valSt}>{u.birthday ? fmtDate(u.birthday) : tr("Not set")}</div></div>

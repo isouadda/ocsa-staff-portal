@@ -4,16 +4,19 @@
 
 const { openApp, letSheetOffer } = require("./browser");
 const { INSPECT, rowsFrom } = require("./checks");
-const { LEAKABLE, say } = require("./words");
+const { LEAKABLE, SPANISH, SPANISH_PATTERNS, say } = require("./words");
 const { SCREEN_CASES, SHEET_CASES } = require("./inventory");
 const { timeOffRow } = require("./stub");
 
 const SIZES = ["standard", "large", "xlarge", "largest"];
 const LANGUAGES = ["en", "es"];
 
-// Invented values the stub serves, plus the app's own name. None of them
-// is a translation fault when it shows on a Spanish screen.
+// Invented values the stub serves, the app's own name, and the name of
+// each language, which is always written in that language so a person
+// can find their own. None of them is a translation fault when it shows
+// on a Spanish screen.
 const ALLOWED = [
+  "English", "Espa\u00f1ol",
   "OCSA Staff", "OCSA Cleaning", "OCSA-0001", "OCSA-FIX-101",
   "Alex", "Tester", "Alex Tester", "Sam", "Second", "Sam Second",
   "North Building", "South Building", "Main Hall",
@@ -187,9 +190,15 @@ async function openForm(page, language) {
   await pause(page, 1300);
 }
 
-// One screen or sheet, in one language at one size.
-async function inspect(page, scope, caseName, language, size) {
-  const found = await page.evaluate(INSPECT, { leakable: LEAKABLE, allowed: ALLOWED, language: language, scope: scope });
+// One screen or sheet, in one language at one size. The stub's served
+// values go in with the rest, so a name it invented is never read as an
+// English word the app forgot.
+async function inspect(page, scope, caseName, language, size, stub) {
+  const found = await page.evaluate(INSPECT, {
+    leakable: LEAKABLE, allowed: ALLOWED, language: language, scope: scope,
+    spanish: SPANISH, patterns: SPANISH_PATTERNS,
+    served: stub ? Array.from(stub.state.served) : [],
+  });
   return rowsFrom(found, caseName, language, size);
 }
 
@@ -216,13 +225,13 @@ async function runScreens(browser, base, opts) {
       const app = await openApp(browser, base, { language: language, textSize: size, signedIn: true, stubOptions: stubFor(language, size) });
       try {
         // The portal itself, before any tab is chosen.
-        rows.push(...await inspect(app.page, null, "The portal itself", language, size));
+        rows.push(...await inspect(app.page, null, "The portal itself", language, size, app.stub));
         if (covered.screens.indexOf("main") === -1) covered.screens.push("main");
         combinations += 1;
         for (const sc of tabCases) {
           const ok = await openTab(app.page, sc.id, language);
           if (!ok) rows.push({ where: sc.label + " [" + language + "/" + size + "]", check: "reachable", detail: "the tab could not be opened" });
-          rows.push(...await inspect(app.page, null, sc.label, language, size));
+          rows.push(...await inspect(app.page, null, sc.label, language, size, app.stub));
           if (covered.screens.indexOf(sc.id) === -1) covered.screens.push(sc.id);
           combinations += 1;
         }
@@ -239,7 +248,7 @@ async function runScreens(browser, base, opts) {
         try {
           if (sc.via === "register") await clickText(one.page, say("Register Here", language));
           if (sc.via === "forgot") await clickText(one.page, say("Forgot your PIN?", language));
-          rows.push(...await inspect(one.page, null, sc.label, language, size));
+          rows.push(...await inspect(one.page, null, sc.label, language, size, one.stub));
           if (covered.screens.indexOf(sc.id) === -1) covered.screens.push(sc.id);
           combinations += 1;
         } finally {
@@ -284,7 +293,7 @@ async function runScreens(browser, base, opts) {
               }).pop();
               if (sheet) sheet.setAttribute("data-audit-sheet", "1");
             });
-            rows.push(...await inspect(app.page, "[data-audit-sheet]", sh.label, language, size));
+            rows.push(...await inspect(app.page, "[data-audit-sheet]", sh.label, language, size, app.stub));
             if (covered.sheets.indexOf(sh.id) === -1) covered.sheets.push(sh.id);
           }
           combinations += 1;

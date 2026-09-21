@@ -185,7 +185,7 @@ const JOURNEYS = [
 
         await clickText(app.page, say("Request time off", language));
         await type(app.page, 'div[style*="z-index: 200"] select', "jury_duty");
-        await app.page.evaluate(() => { const c = document.querySelector('div[style*="z-index: 200"] input[type="checkbox"]'); if (c) c.click(); });
+        await app.page.evaluate(() => { const c = document.querySelector('div[style*="z-index: 200"] [role="checkbox"]'); if (c) c.click(); });
         await pause(app.page, 400);
         await typeNth(app.page, 'div[style*="z-index: 200"] input[type="time"]', 0, "11:00");
         await typeNth(app.page, 'div[style*="z-index: 200"] input[type="time"]', 1, "15:00");

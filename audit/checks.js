@@ -72,28 +72,64 @@ const INSPECT = function (args) {
   });
   window.scrollTo(0, scrolled);
 
-  // 4. English on a Spanish screen. Only a string the app itself has a
-  // different Spanish word for can be a leak, so an invented name or a
-  // form title the stub serves cannot be flagged by accident.
+  // 4. English on a Spanish screen, judged two ways.
+  //
+  // The first is a leak: a string the app itself has a different Spanish
+  // word for, showing in English.
+  //
+  // The second is the one that catches a word added tomorrow. Every
+  // piece of text on a Spanish screen has to be one of four things: a
+  // Spanish value out of the app's own table, a value the stub served, a
+  // number, or a date or a time the phone's own formatter drew. Anything
+  // else is English that never went through the table. The stub's values
+  // are known to the suite, so an invented name is never ambiguous.
   if (args.language === "es") {
     const set = new Set(leakable);
     const ok = new Set(allowed);
+    const spanish = new Set(args.spanish || []);
+    const patterns = (args.patterns || []).map(p => new RegExp(p));
+    // A served value is matched on its words rather than letter for
+    // letter, since a screen may draw one title cased or with its
+    // underscores taken out.
+    const plain = (v) => String(v).toLowerCase().replace(/[\s_\u00a0-]+/g, " ").trim();
+    const served = new Set((args.served || []).map(plain));
+    // The words in a date or a time come from the phone's formatter, not
+    // from anything the app chose.
+    const DATE_WORD = "ene|feb|mar|abr|may|jun|jul|ago|sep|sept|oct|nov|dic|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|lun|mar|mi\u00e9|mie|jue|vie|s\u00e1b|sab|dom|lunes|martes|mi\u00e9rcoles|miercoles|jueves|viernes|s\u00e1bado|sabado|domingo|de|del|a|p|m|h|hrs|am|pm";
+    const counted = new RegExp("^(?:[0-9\\s.,:;/()%+#\u00b0\u2013-]|(?:" + DATE_WORD + ")(?![a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1]))+$", "i");
+    // One piece of text. Under three letters is not a word, which is the
+    // same line the leak list draws.
+    const one = (text) => text.length < 3 || spanish.has(text) || ok.has(text) || served.has(plain(text))
+      || counted.test(text) || patterns.some(re => re.test(text));
+    // A line built by joining a value to a word, like a building and its
+    // floor, is judged piece by piece.
+    const strip = (v) => v.replace(/^[\s|>\u00b7\u2013-]+/, "").replace(/[\s|>\u00b7\u2013-]+$/, "");
+    const spoken = (text) => one(text) || strip(text).split(/\s*[>|\u00b7]\s*|\s+[-\u2013]\s+|,\s+/).every(part => !part.trim() || one(part.trim()));
+
+    const skip = { STYLE: 1, SCRIPT: 1, TITLE: 1, NOSCRIPT: 1 };
     const walk = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, null);
     const hits = new Set();
+    const strays = new Set();
     let node;
     while ((node = walk.nextNode())) {
+      const parent = node.parentElement;
+      if (!parent || skip[parent.tagName] || !seen(parent)) continue;
       const text = String(node.nodeValue || "").trim();
       if (!text || ok.has(text)) continue;
-      if (set.has(text)) hits.add(text);
+      if (set.has(text)) { hits.add(text); continue; }
+      if (!spoken(text)) strays.add(text);
     }
     // A control's own label, which is often an attribute rather than text.
     controls.forEach((el) => {
-      const a = (el.getAttribute("aria-label") || "").trim();
-      if (a && !ok.has(a) && set.has(a)) hits.add(a);
-      const ph = (el.getAttribute("placeholder") || "").trim();
-      if (ph && !ok.has(ph) && set.has(ph)) hits.add(ph);
+      ["aria-label", "placeholder"].forEach((name) => {
+        const v = (el.getAttribute(name) || "").trim();
+        if (!v || ok.has(v)) return;
+        if (set.has(v)) { hits.add(v); return; }
+        if (!spoken(v)) strays.add(v);
+      });
     });
     out.english = Array.from(hits);
+    out.stray = Array.from(strays);
   }
 
   // 5. The bottom bar, measured on every screen, since two faults have
@@ -125,6 +161,7 @@ function rowsFrom(found, caseName, language, size) {
   found.unreachable.forEach(u => rows.push({ where: where, check: "covered", detail: JSON.stringify(u.control) + " at " + u.at.join(",") + " hits " + u.hit }));
   found.small.forEach(s => rows.push({ where: where, check: "too small", detail: JSON.stringify(s.control) + " is " + s.size.join(" by ") }));
   (found.english || []).forEach(e => rows.push({ where: where, check: "english", detail: JSON.stringify(e) + " on a Spanish screen" }));
+  (found.stray || []).forEach(e => rows.push({ where: where, check: "not translated", detail: JSON.stringify(e) + " on a Spanish screen is not a Spanish word, a value the stub served, a number, a date or a time" }));
   if (found.bar && (!found.bar.insideTheScreen || !found.bar.everyButtonInside)) {
     rows.push({ where: where, check: "bottom bar", detail: "left " + found.bar.left + " right " + found.bar.right + " against a 375 screen" });
   }
