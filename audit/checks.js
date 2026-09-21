@@ -6,13 +6,13 @@
 // trips.
 
 // Returns { sideways, clipped, unreachable, small, english, contrast,
-// lightFaults }. Each is a list of what went wrong, empty when the
-// screen is right.
+// lightFaults, filling }. Each is a list of what went wrong, empty when
+// the screen is right.
 const INSPECT = function (args) {
   const leakable = args.leakable;
   const allowed = args.allowed;
   const scope = args.scope ? document.querySelector(args.scope) : document.body;
-  const out = { sideways: null, clipped: [], unreachable: [], small: [], english: [], contrast: [], lightFaults: [] };
+  const out = { sideways: null, clipped: [], unreachable: [], small: [], english: [], contrast: [], lightFaults: [], filling: null };
   if (!scope) return { missing: args.scope };
 
   const doc = document.documentElement;
@@ -320,6 +320,22 @@ const INSPECT = function (args) {
       }
     }
   }
+
+  // 8. The three pages that fill the window. Each one writes its height
+  // against the window, which is the mark the suite finds it by, and the
+  // root that sets the variables never does. Such a page has to end at
+  // the bar, within 4 pixels, and the page it sits on must not scroll:
+  // the two together are what says the header and the bar were measured
+  // rather than guessed. The mark holds whatever the height is written
+  // against, so a page pinned back to a fixed number is still read.
+  if (!args.scope) {
+    const fills = document.querySelector('[style*="calc(var(--ocsa-vh"]');
+    if (fills && bar) {
+      const gap = Math.round((bar.getBoundingClientRect().top - fills.getBoundingClientRect().bottom) * 100) / 100;
+      const down = doc.scrollHeight - doc.clientHeight;
+      if (gap < -0.5 || gap > 4 || down > 1) out.filling = { gap: gap, down: down };
+    }
+  }
   return out;
 };
 
@@ -345,6 +361,12 @@ function rowsFrom(found, caseName, language, size, theme) {
   (found.lightFaults || []).forEach(l => rows.push({
     where: where, check: "light mode", detail: l.what + " is " + l.found + ", not " + l.wanted,
   }));
+  if (found.filling) {
+    const said = found.filling.gap < -0.5 ? "runs " + (-found.filling.gap) + " pixels under the bar"
+      : found.filling.gap > 4 ? "ends " + found.filling.gap + " pixels above the bar"
+        : "leaves the page scrolling " + found.filling.down + " pixels";
+    rows.push({ where: where, check: "fills the window", detail: "the page that fills the window " + said });
+  }
   return rows;
 }
 

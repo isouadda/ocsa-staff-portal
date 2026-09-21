@@ -10,21 +10,25 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <script>
     // The first frame, before React loads. A stored choice decides; where
-    // there is none the phone's own setting does. The two colors are
-    // LIGHT.bg and DARK.bg in src/App.js, which is what the app paints a
-    // moment later, so a phone set to light never shows a dark frame.
+    // there is none the phone's own setting does. The screen behind the app
+    // takes the background token and the bar at the top of the browser takes
+    // the header's own color, so the phone's chrome and the app meet without
+    // a seam. The four colors are LIGHT.bg, DARK.bg, LIGHT.headerBg and
+    // DARK.headerBg in src/App.js, which is what the app paints a moment
+    // later, so a phone set to light never shows a dark frame.
     (function () {
       try {
         var stored = null;
         try { stored = window.localStorage.getItem("ocsa-staff-theme"); } catch (e) {}
         var mode = (stored === "light" || stored === "dark") ? stored
           : ((window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark");
-        var color = mode === "light" ? "#F4F7FB" : "#0A1628";
+        var background = mode === "light" ? "#F4F7FB" : "#0A1628";
+        var header = mode === "light" ? "#15558F" : "#0A1628";
         var rule = document.createElement("style");
-        rule.textContent = "body { background: " + color + "; }";
+        rule.textContent = "body { background: " + background + "; }";
         document.head.appendChild(rule);
         var meta = document.querySelector('meta[name="theme-color"]');
-        if (meta) meta.setAttribute("content", color);
+        if (meta) meta.setAttribute("content", header);
       } catch (e) {}
     })();
   </script>

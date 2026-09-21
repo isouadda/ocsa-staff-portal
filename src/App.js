@@ -752,14 +752,29 @@ export const storedZoom = () => zoomOf(readTextSize());
 function viewportVars(z) {
   return { "--ocsa-vh": "calc(100vh / " + z + ")", "--ocsa-dvh": "calc(100dvh / " + z + ")" };
 }
-// What the three pages that fill the window have to leave for the header
-// above them and the bottom bar below them. Measured on the screen at all
-// four text sizes: the header draws 69 pixels at Standard and Large, and
-// 121 at Extra large and Largest, where the row it carries takes two
-// lines, and the page leaves a further 76 below its content to clear the
-// bar. The tallest of the four decides, so no page grows past the bottom
-// of the phone at any size, in either language.
-const HEADER_AND_BAR = 197;
+// The header and the bottom bar are measured on the screen, not guessed,
+// because the header is one row at the two smaller text sizes and two at
+// the larger ones, and no single number is right at all four. These two
+// are written beside the pair above, in the page's own pixels rather than
+// the screen's, so the zoom is divided out the same way.
+//
+//   --ocsa-chrome  the header and the bar together, what the three pages
+//                  that fill the window subtract
+//   --ocsa-bar     the bar alone, what the page leaves below its content
+//                  so a screen that scrolls can clear it
+function chromeVars(headerPx, barPx, z) {
+  if (!(headerPx > 0) || !(barPx > 0)) return {};
+  return { "--ocsa-chrome": (headerPx + barPx) / z + "px", "--ocsa-bar": barPx / z + "px" };
+}
+// Until the two have been measured, and anywhere ResizeObserver is
+// missing, the three pages fall back to this. It is the tallest the pair
+// was ever measured at, so nothing runs past the bottom of the phone
+// before the real value lands.
+const CHROME_FALLBACK = 197;
+const fillsTheWindow = () => ({
+  height: "calc(var(--ocsa-vh, 100vh) - var(--ocsa-chrome, " + CHROME_FALLBACK + "px))",
+  maxHeight: "calc(var(--ocsa-dvh, 100dvh) - var(--ocsa-chrome, " + CHROME_FALLBACK + "px))",
+});
 
 // The setting reaches the sign-in screens and Profile through context, so
 // no screen has to thread it down.
@@ -873,6 +888,40 @@ export default function OCSAStaffPortal() {
   const chosenOnEntryRef = useRef(null);
   const [themeMode, setThemeMode] = useState(firstTheme);
   const t = themeMode === "light" ? LIGHT : DARK;
+  // The header and the bar, as the screen actually draws them. A
+  // ResizeObserver on each catches the header taking a second row at the
+  // larger text sizes, a language whose words run longer, and anything a
+  // later build puts in either of them.
+  const headerRef = useRef(null);
+  const barRef = useRef(null);
+  const [chrome, setChrome] = useState({ header: 0, bar: 0 });
+  useEffect(() => {
+    const read = () => {
+      const h = headerRef.current ? headerRef.current.getBoundingClientRect().height : 0;
+      const b = barRef.current ? barRef.current.getBoundingClientRect().height : 0;
+      // Nothing is written back unless the screen really moved, so a
+      // measurement can never set off another one.
+      setChrome(was => (Math.abs(was.header - h) < 0.5 && Math.abs(was.bar - b) < 0.5) ? was : { header: h, bar: b });
+    };
+    read();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const watch = new ResizeObserver(read);
+    if (headerRef.current) watch.observe(headerRef.current);
+    if (barRef.current) watch.observe(barRef.current);
+    return () => watch.disconnect();
+  }, [booting, screen]);
+  // The bar at the top of the browser takes the header's own color, so the
+  // phone's chrome and the app meet without a seam, and the screen behind
+  // the app takes the background. The first frame is painted by the script
+  // at the top of public/index.html; this keeps both right when someone
+  // changes the setting.
+  useEffect(() => {
+    try {
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute("content", t.headerBg);
+      document.body.style.background = t.bg;
+    } catch (e) {}
+  }, [t]);
   const setTheme = (next) => { setThemeMode(next); saveTheme(next); queuePref({ theme: next }); };
   // The sign in screen keeps its own toggle, which now goes through the same
   // path, so a choice made before signing in is sent up afterwards.
@@ -1261,7 +1310,7 @@ export default function OCSAStaffPortal() {
 
   return (
     <TextSizeCtx.Provider value={{ textSize, setTextSize }}>
-    <div style={{ width: "100%", minHeight: "var(--ocsa-vh)", background: t.bg, fontFamily: FONT_BODY, color: t.text, position: "relative", display: "flex", flexDirection: "column", zoom: zoom, ...viewportVars(zoom) }}>
+    <div style={{ width: "100%", minHeight: "var(--ocsa-vh)", background: t.bg, fontFamily: FONT_BODY, color: t.text, position: "relative", display: "flex", flexDirection: "column", zoom: zoom, ...viewportVars(zoom), ...chromeVars(chrome.header, chrome.bar, zoom) }}>
 
       {/* Only while an update is waiting on someone to finish. It takes
           its own space rather than covering anything, sticks to the top
@@ -1283,7 +1332,7 @@ export default function OCSAStaffPortal() {
       {screen === "setpin" && <SetPinScreen token={token} user={user} onDone={handlePinSet} onSignOut={handleLogout} showToast={showToast} t={t} />}
       {!booting && screen === "main" && (
         <>
-          <div style={{ backgroundImage: (themeMode === "light" ? SWEEP_LIGHT : SWEEP) + ", linear-gradient(135deg, " + t.headerBg + " 0%, " + t.headerBg2 + " 100%)", backgroundSize: "100% 2px, 100% 100%", backgroundPosition: "bottom left, top left", backgroundRepeat: "no-repeat, no-repeat", padding: "14px 16px 10px", borderBottom: "1px solid transparent" }}>
+          <div ref={headerRef} style={{ backgroundImage: (themeMode === "light" ? SWEEP_LIGHT : SWEEP) + ", linear-gradient(135deg, " + t.headerBg + " 0%, " + t.headerBg2 + " 100%)", backgroundSize: "100% 2px, 100% 100%", backgroundPosition: "bottom left, top left", backgroundRepeat: "no-repeat, no-repeat", padding: "14px 16px 10px", borderBottom: "1px solid transparent" }}>
             <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: TAP, flex: "1 1 0" }}>
                 <button onClick={() => setActiveTab("profile")} aria-label={tr("Profile")} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, minWidth: TAP, minHeight: TAP }}>
@@ -1306,7 +1355,7 @@ export default function OCSAStaffPortal() {
             </div>
           </div>
 
-          <div style={{ padding: "0 0 76px 0", flex: 1, display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "0 0 var(--ocsa-bar, 76px) 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
               {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} loading={loading} completedCount={homeDone} taskCount={homeTasks ? homeTasks.length : 0} taskListLoaded={!!homeTasks} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
@@ -1344,7 +1393,7 @@ export default function OCSAStaffPortal() {
           </div>}
 
           {/* Bottom navigation */}
-          <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 960, background: t.navBg, borderTop: "1px solid " + t.navBorder, display: "flex", padding: "8px 0 12px", zIndex: 100, boxShadow: themeMode === "light" ? "0 -2px 10px rgba(0,0,0,0.06)" : "0 -2px 10px rgba(0,0,0,0.2)" }}>
+          <div ref={barRef} style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 960, background: t.navBg, borderTop: "1px solid " + t.navBorder, display: "flex", padding: "8px 0 12px", zIndex: 100, boxShadow: themeMode === "light" ? "0 -2px 10px rgba(0,0,0,0.06)" : "0 -2px 10px rgba(0,0,0,0.2)" }}>
             {primaryTabs.map(tab => {
               const active = activeTab === tab.id;
               const TabIco = tab.icon;
@@ -1915,7 +1964,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
 
   // The five controls in the header above the calendar. Each drawing
   // stays the size it was; the button around it carries the tap area.
-  const viewChip = (on) => ({ display: "inline-flex", alignItems: "center", padding: "5px 12px", borderRadius: R.sm, fontSize: 10, fontWeight: on ? 600 : 600, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px", background: on ? t.goldBg : "transparent", color: on ? t.goldText : t.textMut, border: on ? "1px solid " + t.goldBorder : "1px solid transparent" });
+  const viewChip = (on) => ({ display: "inline-flex", alignItems: "center", padding: "5px 12px", borderRadius: R.sm, fontSize: 10, fontWeight: on ? 600 : 500, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px", background: on ? t.goldBg : "transparent", color: on ? t.goldText : t.textMut, border: on ? "1px solid " + t.goldBorder : "1px solid transparent" });
   const stepChip = { display: "inline-flex", alignItems: "center", background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.sm, padding: "6px 12px", color: t.textMut, fontSize: 14 };
   const todayChip = { display: "inline-flex", alignItems: "center", fontSize: 9, padding: "3px 9px", borderRadius: R.sm, border: "1px solid " + BLUE, background: "transparent", color: BLUE, fontWeight: 600, fontFamily: FONT_HEAD };
 
@@ -2582,10 +2631,10 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
     // viewport, a vertical scrollbar appeared, and the bottom bar,
     // whose width is 100 percent of the initial containing block, came
     // out 10 pixels wider than the screen and scrolled it sideways.
-    <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", height: "calc(var(--ocsa-vh, 100vh) - " + HEADER_AND_BAR + "px)", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - " + HEADER_AND_BAR + "px)", minHeight: 0, overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", ...fillsTheWindow(), minHeight: 0, overflow: "hidden" }}>
       <div style={{ padding: "10px 12px 0", borderBottom: "1px solid " + t.borderSolid, paddingBottom: 10 }}>
         <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 600 : 500, fontFamily: FONT_HEAD }}>{ch.name || ch.siteName}</span></button>))}</div>
-        {dmChannel && (<button onClick={() => setActiveChannel(dmChannel.id)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", minHeight: TAP, padding: "8px 12px", borderRadius: R.md, background: isDm ? t.blueSubtle : t.hover, border: isDm ? "1.5px solid " + t.blueBorder : "1px solid " + t.borderSolid, boxShadow: isDm ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><LockIco c={isDm ? BLUE : t.textMut} /><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: isDm ? 600 : 600, color: isDm ? BLUE : t.textSec, fontFamily: FONT_HEAD }}>{tr("Admin (Private)")}</div><div style={{ fontSize: 9, color: t.textMut }}>{tr("Only you and management can see these messages")}</div></div>{dmChannel.unreadCount > 0 && <div style={{ background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{dmChannel.unreadCount}</div>}</button>)}
+        {dmChannel && (<button onClick={() => setActiveChannel(dmChannel.id)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", minHeight: TAP, padding: "8px 12px", borderRadius: R.md, background: isDm ? t.blueSubtle : t.hover, border: isDm ? "1.5px solid " + t.blueBorder : "1px solid " + t.borderSolid, boxShadow: isDm ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><LockIco c={isDm ? BLUE : t.textMut} /><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: isDm ? 600 : 500, color: isDm ? BLUE : t.textSec, fontFamily: FONT_HEAD }}>{tr("Admin (Private)")}</div><div style={{ fontSize: 9, color: t.textMut }}>{tr("Only you and management can see these messages")}</div></div>{dmChannel.unreadCount > 0 && <div style={{ background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{dmChannel.unreadCount}</div>}</button>)}
       </div>
       {isDm && (<div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: t.blueSubtle, borderBottom: "1px solid " + t.blueBorder, fontSize: 10, color: BLUE }}><LockIco /> {tr("Private conversation with admin.")}</div>)}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 12px 0" }}>
@@ -2874,7 +2923,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
   // Pinned to the space between the header and the bottom navigation, so the
   // thread scrolls inside it and the form card and composer stay in view.
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", height: "calc(var(--ocsa-vh, 100vh) - " + HEADER_AND_BAR + "px)", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - " + HEADER_AND_BAR + "px)", minHeight: 0, overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", ...fillsTheWindow(), minHeight: 0, overflow: "hidden" }}>
       {openDrafts.length > 0 && (<div style={{ padding: "10px 12px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0, maxHeight: 180, overflowY: "auto" }}>
         <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Unfinished reports")}</div>
         {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: "1 1 140px", minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d) || tr(FORMS_UNTITLED)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div><button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Fill in form")}</button><button onClick={() => resume(d)} style={smallBtn}>{tr("Resume")}</button></div>))}
@@ -3997,7 +4046,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "calc(var(--ocsa-vh, 100vh) - " + HEADER_AND_BAR + "px)", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - " + HEADER_AND_BAR + "px)", minHeight: 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", ...fillsTheWindow(), minHeight: 0 }}>
       <div style={{ padding: "12px 16px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 0", minWidth: 0 }}>
