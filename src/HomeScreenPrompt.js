@@ -129,7 +129,7 @@ export default function HomeScreenPrompt() {
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 10 }}>
           <img src={ICON} alt="" width="56" height="56" style={{ width: 56, height: 56, borderRadius: 12, border: "1px solid #E4EAF2", flexShrink: 0 }} />
           <div>
-            <div id="ocsa-a2hs-title" style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.25 }}>{tr("Add {app} to your home screen", { app: APP_NAME })}</div>
+            <div id="ocsa-a2hs-title" style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.25 }}>{tr("Add {app} to your home screen", { app: APP_NAME })}</div>
             <div style={{ fontSize: 14, color: "#4A5C70", marginTop: 4, lineHeight: 1.4 }}>{tr("It opens like an app, one tap from your home screen.")}</div>
           </div>
         </div>
