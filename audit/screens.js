@@ -1,6 +1,7 @@
 // Every screen and every sheet, in English and Spanish, at all four text
-// sizes. The inventory says what has to be covered; this says how each
-// one is reached and puts it through the checks.
+// sizes, and in light as well as dark. The inventory says what has to be
+// covered; this says how each one is reached and puts it through the
+// checks.
 
 const { openApp, letSheetOffer } = require("./browser");
 const { INSPECT, rowsFrom } = require("./checks");
@@ -10,6 +11,19 @@ const { timeOffRow } = require("./stub");
 
 const SIZES = ["standard", "large", "xlarge", "largest"];
 const LANGUAGES = ["en", "es"];
+// Light mode is seen at the two ends of the text size scale, in both
+// languages. Every other combination is dark, which is where all eight
+// of them ran before.
+const LIGHT_SIZES = ["standard", "largest"];
+const COMBINATIONS = [];
+LANGUAGES.forEach(language => SIZES.forEach(size => COMBINATIONS.push({ language: language, size: size, theme: "dark" })));
+LANGUAGES.forEach(language => LIGHT_SIZES.forEach(size => COMBINATIONS.push({ language: language, size: size, theme: "light" })));
+
+// What light mode draws on every screen that carries them. The header is
+// the steel blue the brand uses for panels; the bar is white, the way the
+// phone's own tab bars are.
+const LIGHT_HEADER = "#15558F";
+const LIGHT_BAR = "#FFFFFF";
 
 // Invented values the stub serves, the app's own name, and the name of
 // each language, which is always written in that language so a person
@@ -190,16 +204,17 @@ async function openForm(page, language) {
   await pause(page, 1300);
 }
 
-// One screen or sheet, in one language at one size. The stub's served
-// values go in with the rest, so a name it invented is never read as an
-// English word the app forgot.
-async function inspect(page, scope, caseName, language, size, stub) {
+// One screen or sheet, in one language at one size in one theme. The
+// stub's served values go in with the rest, so a name it invented is
+// never read as an English word the app forgot.
+async function inspect(page, scope, caseName, language, size, stub, theme) {
   const found = await page.evaluate(INSPECT, {
     leakable: LEAKABLE, allowed: ALLOWED, language: language, scope: scope,
     spanish: SPANISH, patterns: SPANISH_PATTERNS,
     served: stub ? Array.from(stub.state.served) : [],
+    light: theme === "light" ? { header: LIGHT_HEADER, bar: LIGHT_BAR } : null,
   });
-  return rowsFrom(found, caseName, language, size);
+  return rowsFrom(found, caseName, language, size, theme);
 }
 
 // The whole sweep. Returns rows for anything that went wrong plus what
@@ -218,42 +233,41 @@ async function runScreens(browser, base, opts) {
     notifications: [{ id: "n-1", subjectType: "supply_request", subjectId: "sr-1", title: "Supply request approved", body: "Two cases of paper towels.", link: null, createdAt: "2026-10-01T18:00:00.000Z", readAt: null }],
   });
 
-  for (const language of LANGUAGES) {
-    for (const size of SIZES) {
-      // Every tab in one session, the way a person moves through them.
-      const tabCases = SCREEN_CASES.filter(c => c.kind === "tab");
-      const app = await openApp(browser, base, { language: language, textSize: size, signedIn: true, stubOptions: stubFor(language, size) });
-      try {
-        // The portal itself, before any tab is chosen.
-        rows.push(...await inspect(app.page, null, "The portal itself", language, size, app.stub));
-        if (covered.screens.indexOf("main") === -1) covered.screens.push("main");
+  for (const combination of COMBINATIONS) {
+    const language = combination.language, size = combination.size, theme = combination.theme;
+    // Every tab in one session, the way a person moves through them.
+    const tabCases = SCREEN_CASES.filter(c => c.kind === "tab");
+    const app = await openApp(browser, base, { language: language, textSize: size, theme: theme, signedIn: true, stubOptions: stubFor(language, size) });
+    try {
+      // The portal itself, before any tab is chosen.
+      rows.push(...await inspect(app.page, null, "The portal itself", language, size, app.stub, theme));
+      if (covered.screens.indexOf("main") === -1) covered.screens.push("main");
+      combinations += 1;
+      for (const sc of tabCases) {
+        const ok = await openTab(app.page, sc.id, language);
+        if (!ok) rows.push({ where: sc.label + " [" + language + "/" + size + "/" + theme + "]", check: "reachable", detail: "the tab could not be opened" });
+        rows.push(...await inspect(app.page, null, sc.label, language, size, app.stub, theme));
+        if (covered.screens.indexOf(sc.id) === -1) covered.screens.push(sc.id);
         combinations += 1;
-        for (const sc of tabCases) {
-          const ok = await openTab(app.page, sc.id, language);
-          if (!ok) rows.push({ where: sc.label + " [" + language + "/" + size + "]", check: "reachable", detail: "the tab could not be opened" });
-          rows.push(...await inspect(app.page, null, sc.label, language, size, app.stub));
-          if (covered.screens.indexOf(sc.id) === -1) covered.screens.push(sc.id);
-          combinations += 1;
-        }
-      } finally {
-        await app.context.close();
       }
+    } finally {
+      await app.context.close();
+    }
 
-      // Everything before signing in wants its own session.
-      for (const sc of SCREEN_CASES.filter(c => c.kind === "screen" && c.id !== "main")) {
-        const one = await openApp(browser, base, {
-          language: language, textSize: size, signedIn: sc.signedIn !== false,
-          path: sc.path || "/", stubOptions: stubFor(language, size),
-        });
-        try {
-          if (sc.via === "register") await clickText(one.page, say("Register Here", language));
-          if (sc.via === "forgot") await clickText(one.page, say("Forgot your PIN?", language));
-          rows.push(...await inspect(one.page, null, sc.label, language, size, one.stub));
-          if (covered.screens.indexOf(sc.id) === -1) covered.screens.push(sc.id);
-          combinations += 1;
-        } finally {
-          await one.context.close();
-        }
+    // Everything before signing in wants its own session.
+    for (const sc of SCREEN_CASES.filter(c => c.kind === "screen" && c.id !== "main")) {
+      const one = await openApp(browser, base, {
+        language: language, textSize: size, theme: theme, signedIn: sc.signedIn !== false,
+        path: sc.path || "/", stubOptions: stubFor(language, size),
+      });
+      try {
+        if (sc.via === "register") await clickText(one.page, say("Register Here", language));
+        if (sc.via === "forgot") await clickText(one.page, say("Forgot your PIN?", language));
+        rows.push(...await inspect(one.page, null, sc.label, language, size, one.stub, theme));
+        if (covered.screens.indexOf(sc.id) === -1) covered.screens.push(sc.id);
+        combinations += 1;
+      } finally {
+        await one.context.close();
       }
     }
   }
@@ -293,7 +307,7 @@ async function runScreens(browser, base, opts) {
               }).pop();
               if (sheet) sheet.setAttribute("data-audit-sheet", "1");
             });
-            rows.push(...await inspect(app.page, "[data-audit-sheet]", sh.label, language, size, app.stub));
+            rows.push(...await inspect(app.page, "[data-audit-sheet]", sh.label, language, size, app.stub, "dark"));
             if (covered.sheets.indexOf(sh.id) === -1) covered.sheets.push(sh.id);
           }
           combinations += 1;
@@ -304,7 +318,7 @@ async function runScreens(browser, base, opts) {
     }
   }
 
-  return { rows: rows, covered: covered, gaps: gaps, combinations: LANGUAGES.length * SIZES.length };
+  return { rows: rows, covered: covered, gaps: gaps, combinations: COMBINATIONS.length };
 }
 
-module.exports = { runScreens, openTab, clickText, SIZES, LANGUAGES, ALLOWED };
+module.exports = { runScreens, openTab, clickText, SIZES, LANGUAGES, COMBINATIONS, ALLOWED };

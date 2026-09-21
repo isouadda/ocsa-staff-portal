@@ -21,9 +21,12 @@ function load() {
 
 // An entry matches a row when the check is the same, the detail carries
 // the text it names, and the screen is the one it names or any screen.
+// An entry may also name a theme, since a color pair can be wrong in one
+// theme and right in the other. One that names no theme matches both.
 function matches(entry, row) {
   if (entry.check !== row.check) return false;
   if (entry.where !== "*" && row.where.indexOf(entry.where) !== 0) return false;
+  if (entry.theme && row.where.indexOf("/" + entry.theme + "]") === -1) return false;
   return String(row.detail || "").indexOf(entry.what) !== -1;
 }
 
@@ -41,9 +44,13 @@ function sort(rows) {
   rows.forEach((row) => {
     const okAt = allowed.findIndex(e => matches(e, row));
     if (okAt !== -1) { accepted.push(Object.assign({}, row, { why: allowed[okAt].why })); return; }
-    const at = list.findIndex(e => matches(e, row));
-    if (at === -1) fresh.push(row);
-    else { hit[at] += 1; known.push(Object.assign({}, row, { why: list[at].why })); }
+    // Every entry that names this row is credited, not just the first.
+    // One screen's name can be the start of another's, and an entry the
+    // longer name's rows also answer to is not a fixed one.
+    const at = [];
+    list.forEach((e, i) => { if (matches(e, row)) at.push(i); });
+    if (at.length === 0) fresh.push(row);
+    else { at.forEach(i => { hit[i] += 1; }); known.push(Object.assign({}, row, { why: list[at[0]].why })); }
   });
   const fixed = list.filter((e, i) => hit[i] === 0);
   return { fresh: fresh, known: known, accepted: accepted, fixed: fixed, list: list };
