@@ -3659,6 +3659,7 @@ function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize
 const FORMS_LOAD_FAILED = "Forms could not load. Check your signal and try again.";
 const FORMS_NOT_SAVED = "Not saved yet. Check your signal and tap Next again.";
 const FORMS_NOT_SENT = "Not sent yet. Check your signal and tap Submit report again.";
+const FORMS_NOT_SIGNED = "Not signed yet. Check your signal and tap Sign again.";
 const FORMS_SEND_LINE = "Send this report? You cannot change it after it is sent.";
 const FORMS_SENT_LINE = "Report sent. The people who handle these reports have been told.";
 const FORMS_ALREADY_LINE = "This report was already sent.";
@@ -3736,6 +3737,14 @@ const formRowDone = (columns, row) => (columns || []).every(c => !c.required || 
 // A grid whose rows the form names is a checklist; one with no rows of
 // its own is a table a person adds rows to.
 const formIsChecklist = (f) => Array.isArray(f.rows);
+// A sign-off belongs either to the person filing the report or to the
+// supervisor half, which the portal has never drawn. The report keeps
+// whatever it already carries for one it does not draw.
+const formDrawnOnPortal = (f) => formTypeOf(f) !== "signoff" || String(f.signer || "") === "filer";
+// One sign-off as a person reads it, in the phone's own time.
+const formStampLine = (v) => (v && typeof v === "object" && v.at
+  ? tr("Signed by {name} on {date} at {time}", { name: v.name || "", date: formatDate(v.at), time: formatTime(v.at) })
+  : null);
 
 // What a draft with no name of its own is called. Report on its own is
 // the tab, which is a different thing.
@@ -3748,7 +3757,7 @@ const FORMS_ANSWERED = "Answered";
 // asks for nothing, so a type the forms engine adds later cannot quietly
 // become a text box. A question with no type at all is text, which is
 // what it has always been.
-const FORM_TYPES_DRAWN = ["", "text", "textarea", "select", "multiselect", "date", "time", "grid"];
+const FORM_TYPES_DRAWN = ["", "text", "textarea", "select", "multiselect", "date", "time", "grid", "signoff"];
 const formTypeOf = (f) => (f && f.type ? String(f.type) : "");
 
 const formDraftOf = (r) => (r && r.draft ? r.draft : r);
@@ -3881,6 +3890,9 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   const [confirmLeave, setConfirmLeave] = useState(false);
   // Which cards of a table a person has opened again after they folded.
   const [openRows, setOpenRows] = useState({});
+  // The sign-off on its way to the API, and what it said if it refused.
+  const [signing, setSigning] = useState(null);
+  const [signErr, setSignErr] = useState({});
   const [review, setReview] = useState(false);
   const [confirmSend, setConfirmSend] = useState(false);
   const [sending, setSending] = useState(false);
@@ -3890,14 +3902,17 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   // An answer typed and not yet saved, or a save or a send on its way.
   useBusy("report form", Object.keys(dirty).length > 0 || saving || sending);
 
+  // Every question in play, which is what a save is judged against, and
+  // the ones this screen draws, which is what a person walks through.
   const fields = formFieldsInPlay(form, values);
-  const sections = formSectionsOf(fields);
+  const shown = fields.filter(formDrawnOnPortal);
+  const sections = formSectionsOf(shown);
   // A section cannot empty from an answer given inside it, because
   // the answer that governs it is somewhere else. If one ever did,
   // the first section is where this lands rather than nowhere.
   const here = sections.indexOf(sectionKey) !== -1 ? sectionKey : (sections.length > 0 ? sections[0] : null);
   const at = sections.indexOf(here);
-  const pageFields = fields.filter(f => formSectionOf(f) === here);
+  const pageFields = shown.filter(f => formSectionOf(f) === here);
 
   // What is still unanswered is the server's judgement, never this
   // screen's: it already reads the same rules over the same answers.
@@ -3963,13 +3978,38 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     }
   };
 
+  // A sign-off is made with its own request, never written as an answer,
+  // and nothing is drawn until the API has answered with the stamp it
+  // made. One press sends one request.
+  const sign = async (f) => {
+    if (signing) return;
+    setSigning(f.key);
+    setSignErr(prev => Object.assign({}, prev, { [f.key]: null }));
+    try {
+      const r = await api("/api/forms/responses/" + encodeURIComponent(current.id) + "/signoff?locale=" + locale, { method: "POST", token, body: { key: f.key } });
+      const d = formDraftOf(r && r.response ? r.response : r);
+      setCurrent(d);
+      // The answers come back from the server, and anything typed on
+      // this page and not saved yet stays where the person left it.
+      setValues(prev => {
+        const next = Object.assign({}, d.answers || {});
+        Object.keys(dirty).forEach(k => { if (formHasAnswer(prev[k])) next[k] = prev[k]; else delete next[k]; });
+        return next;
+      });
+    } catch (err) {
+      const said = (err.status === undefined || err.status === null) ? tr(FORMS_NOT_SIGNED) : tr(err.message);
+      setSignErr(prev => Object.assign({}, prev, { [f.key]: said }));
+    }
+    setSigning(null);
+  };
+
   const toTop = () => { if (bodyRef.current) bodyRef.current.scrollTop = 0; };
 
   const goNext = async () => {
     if (saving) return;
     const after = await save();
     if (!after) return;
-    const list = formSectionsOf(formFieldsInPlay(form, after));
+    const list = formSectionsOf(formFieldsInPlay(form, after).filter(formDrawnOnPortal));
     const i = list.indexOf(here);
     if (i === -1 || i + 1 >= list.length) { setSendErr(null); setReview(true); toTop(); return; }
     setSectionKey(list[i + 1]); toTop();
@@ -3980,7 +4020,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     if (review) { setReview(false); setSectionKey(sections[sections.length - 1] || null); toTop(); return; }
     const after = await save();
     if (!after) return;
-    const list = formSectionsOf(formFieldsInPlay(form, after));
+    const list = formSectionsOf(formFieldsInPlay(form, after).filter(formDrawnOnPortal));
     const i = list.indexOf(here);
     if (i <= 0) return;
     setSectionKey(list[i - 1]); toTop();
@@ -4129,10 +4169,24 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     );
   };
 
+  // One sign-off: the stamp the API made, or the button that asks for it.
+  const renderSignoff = (f) => {
+    const line = formStampLine(values[f.key]);
+    if (line) return <div style={{ fontSize: 14, color: t.text, marginTop: 8, lineHeight: 1.5, overflowWrap: "anywhere" }}>{line}</div>;
+    const busy = signing === f.key;
+    return (
+      <>
+        <button type="button" onClick={() => sign(f)} disabled={busy} style={{ ...gridBtn, border: "1px solid " + GOLD, background: busy ? "transparent" : t.goldBg, color: t.goldText, opacity: busy ? 0.6 : 1 }}>{busy ? tr("Sending") : tr("Sign")}</button>
+        {signErr[f.key] && <div style={{ ...mkFieldErr(t), marginTop: 8 }}>{signErr[f.key]}</div>}
+      </>
+    );
+  };
+
   const renderInput = (f) => {
     const v = values[f.key];
     if (FORM_TYPES_DRAWN.indexOf(formTypeOf(f)) === -1) return <div style={mkHelp(t)}>{tr(FORMS_UNKNOWN_TYPE)}</div>;
     if (formTypeOf(f) === "grid") return formIsChecklist(f) ? renderChecklist(f) : renderRowTable(f);
+    if (formTypeOf(f) === "signoff") return renderSignoff(f);
     return renderControl(f, v, (next) => setVal(f.key, next), f.key + ":");
   };
 
@@ -4187,12 +4241,13 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
               <div style={{ ...mkLabel(t), marginBottom: 0, flex: "1 1 auto", minWidth: 0 }}>{tr("Section {n}", { n: i + 1 })}</div>
               <button onClick={() => editSection(sk)} style={{ minHeight: 44, padding: "0 16px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Edit")}</button>
             </div>
-            {fields.filter(f => formSectionOf(f) === sk).map(f => {
-              const read = formReadAnswer(f, values[f.key]);
+            {shown.filter(f => formSectionOf(f) === sk).map(f => {
+              const signoff = formTypeOf(f) === "signoff";
+              const read = signoff ? formStampLine(values[f.key]) : formReadAnswer(f, values[f.key]);
               return (
                 <div key={f.key} style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{f.label}</div>
-                  <div style={{ fontSize: 14, color: read ? t.text : t.textMut, fontWeight: read ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{read || tr("Not answered")}</div>
+                  <div style={{ fontSize: 14, color: read ? t.text : t.textMut, fontWeight: read ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{read || tr(signoff ? "Not signed" : "Not answered")}</div>
                 </div>
               );
             })}

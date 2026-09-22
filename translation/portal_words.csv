@@ -455,6 +455,8 @@ No forms to fill right now.,No hay formularios para llenar ahora.,Forms
 Not answered,Sin responder,Forms
 Not saved yet. Check your signal and tap Next again.,Todavía no se guardó. Revise su señal y toque Siguiente otra vez.,Forms
 Not sent yet. Check your signal and tap Submit report again.,Todavía no se envió. Revise su señal y toque Enviar reporte otra vez.,Forms
+Not signed,Sin firmar,Forms
+Not signed yet. Check your signal and tap Sign again.,Todavía no se firmó. Revise su señal y toque Firmar otra vez.,Forms
 Not yet,Todavía no,Forms
 Opening,Abriendo,Forms
 Report,Reportar,"Forms, Bar and More"
@@ -469,6 +471,8 @@ Section {n} of {total},Sección {n} de {total},Forms
 Send it,Enviarlo,Forms
 Send this report? You cannot change it after it is sent.,¿Enviar este reporte? No lo podrá cambiar después de enviarlo.,Forms
 Sending,Enviando,Forms
+Sign,Firmar,Forms
+Signed by {name} on {date} at {time},Firmado por {name} el {date} a las {time},Forms
 Start report,Comenzar reporte,Forms
 These still need an answer,Estas todavía necesitan respuesta,Forms
 This question cannot be answered here yet. Your supervisor will finish it.,Esta pregunta todavía no se puede responder aquí. Su supervisor la completará.,Forms

@@ -464,6 +464,12 @@ const JOURNEYS = [
         await clickText(app.page, say("Next", language));
         await pause(app.page, 700);
         text = await bodyText(app.page);
+        // The words a stamp starts with. The person's name is in the
+        // header on every screen, so it says nothing about a sign-off.
+        const stampStarts = say("Signed by {name} on {date} at {time}", language).split("{")[0].trim();
+        // The button itself, counted rather than looked for in the page's
+        // words, where Sign is also the start of Signed by.
+        const signButtons = () => app.page.evaluate((want) => Array.from(document.querySelectorAll("button")).filter(b => b.textContent.trim() === want).length, say("Sign", language));
         expect("the sign-off draws its own button", text.indexOf(say("Sign", language)) !== -1, text.slice(0, 260));
         expect("the supervisor's sign-off is not drawn here",
           text.indexOf(formP(language).fields.find(f => f.key === "managerSign").label) === -1, text.slice(0, 260));
@@ -478,18 +484,18 @@ const JOURNEYS = [
         expect("a refused sign-off says what the API said, word for word",
           text.indexOf(say(refusal, language)) !== -1, text.slice(0, 300));
         expect("a refused sign-off stamps nothing",
-          text.indexOf("Alex Tester") === -1 && text.indexOf(say("Sign", language)) !== -1, text.slice(0, 300));
+          text.indexOf(stampStarts) === -1 && (await signButtons()) === 1, text.slice(0, 300));
 
         // Then the real one.
         await clickText(app.page, say("Sign", language));
         await pause(app.page, 900);
-        const signed = lastSent(app.stub, "POST", "/signoff");
+        const signed = lastSent(app.stub, "POST", "/api/forms/responses/");
         expect("one press sends one sign-off", !!signed && signed.body && signed.body.key === "leadSign", JSON.stringify(signed && signed.body));
         const asked = app.stub.state.calls.filter(c => /\/signoff$/.test(c.path)).length;
         expect("one press sends one request, not two", asked === 2, "requests to the sign-off route: " + asked);
         text = await bodyText(app.page);
         expect("the stamp shows the person and the time the API answered with",
-          text.indexOf("Alex Tester") !== -1 && text.indexOf(say("Sign", language)) === -1, text.slice(0, 300));
+          text.indexOf(stampStarts) !== -1 && (await signButtons()) === 0, text.slice(0, 300));
       } finally { await app.context.close(); }
     },
   },

@@ -317,42 +317,6 @@
       "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
     },
     {
-      "where": "A checklist, and a sign-off that waits for the API",
-      "check": "the sign-off draws its own button",
-      "what": "",
-      "why": "The portal draws no sign-off yet: the button, the stamp and a refusal all arrive in commit three."
-    },
-    {
-      "where": "A checklist, and a sign-off that waits for the API",
-      "check": "the supervisor's sign-off is not drawn here",
-      "what": "",
-      "why": "The portal draws no sign-off yet: the button, the stamp and a refusal all arrive in commit three."
-    },
-    {
-      "where": "A checklist, and a sign-off that waits for the API",
-      "check": "a refused sign-off says what the API said, word for word",
-      "what": "",
-      "why": "The portal draws no sign-off yet: the button, the stamp and a refusal all arrive in commit three."
-    },
-    {
-      "where": "A checklist, and a sign-off that waits for the API",
-      "check": "a refused sign-off stamps nothing",
-      "what": "",
-      "why": "The portal draws no sign-off yet: the button, the stamp and a refusal all arrive in commit three."
-    },
-    {
-      "where": "A checklist, and a sign-off that waits for the API",
-      "check": "one press sends one sign-off",
-      "what": "",
-      "why": "The portal draws no sign-off yet: the button, the stamp and a refusal all arrive in commit three."
-    },
-    {
-      "where": "A checklist, and a sign-off that waits for the API",
-      "check": "one press sends one request, not two",
-      "what": "",
-      "why": "The portal draws no checklist yet, for the same reason. Commit two draws it."
-    },
-    {
       "where": "A half filled row is named in the missing list",
       "check": "the missing list names the rows still to answer",
       "what": "",
