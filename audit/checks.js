@@ -5,18 +5,21 @@
 // person would meet it rather than element by element over many round
 // trips.
 
-// Returns { sideways, clipped, unreachable, small, english, contrast,
-// lightFaults, filling }. Each is a list of what went wrong, empty when
-// the screen is right.
+// Returns { sideways, clipped, unreachable, small, english, words, codes,
+// stray, contrast, lightFaults, filling }. Each is a list of what went
+// wrong, empty when the screen is right. With languageOnly set, only the
+// Spanish check runs, which is what a journey asks for at a screen it
+// has reached.
 const INSPECT = function (args) {
   const leakable = args.leakable;
   const allowed = args.allowed;
   const scope = args.scope ? document.querySelector(args.scope) : document.body;
-  const out = { sideways: null, clipped: [], unreachable: [], small: [], english: [], contrast: [], lightFaults: [], filling: null };
+  const out = { sideways: null, clipped: [], unreachable: [], small: [], english: [], words: [], codes: [], stray: [], contrast: [], lightFaults: [], filling: null };
   if (!scope) return { missing: args.scope };
+  const whole = !args.languageOnly;
 
   const doc = document.documentElement;
-  if (doc.scrollWidth > doc.clientWidth) {
+  if (whole && doc.scrollWidth > doc.clientWidth) {
     out.sideways = { scrollWidth: doc.scrollWidth, clientWidth: doc.clientWidth, over: doc.scrollWidth - doc.clientWidth };
   }
 
@@ -140,7 +143,7 @@ const INSPECT = function (args) {
 
   // 1. Text cut off, by its own box or by an ancestor that hides what
   // sticks out of it.
-  Array.from(scope.querySelectorAll("*")).forEach((el) => {
+  if (whole) Array.from(scope.querySelectorAll("*")).forEach((el) => {
     if (el.children.length > 0 || !seen(el)) return;
     const text = (el.innerText || el.textContent || "").trim();
     if (!text) return;
@@ -159,7 +162,7 @@ const INSPECT = function (args) {
 
   // 2. Every control reachable, and 3. big enough to hit.
   const controls = Array.from(scope.querySelectorAll("button, a[href], input, select, textarea")).filter(seen);
-  controls.forEach((el) => {
+  if (whole) controls.forEach((el) => {
     const r = el.getBoundingClientRect();
     if (r.width < 44 || r.height < 44) out.small.push({ control: label(el), size: [Math.round(r.width), Math.round(r.height)] });
   });
@@ -169,7 +172,7 @@ const INSPECT = function (args) {
   // that happens to sit under the bottom bar right now is not a fault.
   // What is left is something genuinely covering it.
   const scrolled = window.scrollY;
-  controls.forEach((el) => {
+  if (whole) controls.forEach((el) => {
     try { el.scrollIntoView({ block: "center", inline: "center" }); } catch (e) {}
     const r = el.getBoundingClientRect();
     const x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2);
@@ -183,65 +186,139 @@ const INSPECT = function (args) {
   });
   window.scrollTo(0, scrolled);
 
-  // 4. English on a Spanish screen, judged two ways.
+  // 4. English on a Spanish screen.
   //
-  // The first is a leak: a string the app itself has a different Spanish
-  // word for, showing in English.
+  // Every piece of text on a Spanish screen has to be one of these: a
+  // Spanish value out of the app's own table, a name the stub served, a
+  // word the stub served in Spanish, a number, or a date or a time the
+  // phone's own formatter drew. What is not is reported one of four ways:
   //
-  // The second is the one that catches a word added tomorrow. Every
-  // piece of text on a Spanish screen has to be one of four things: a
-  // Spanish value out of the app's own table, a value the stub served, a
-  // number, or a date or a time the phone's own formatter drew. Anything
-  // else is English that never went through the table. The stub's values
-  // are known to the suite, so an invented name is never ambiguous.
+  //   english          an English key the app has a different Spanish
+  //                    word for, drawn in English
+  //   english, a word  a word the stub served in English, with its kind:
+  //                    a to-do item, a notice, a pick list choice and so
+  //                    on, which the API has not sent in Spanish yet
+  //   english, a code  a status, a role or a priority drawn as it was
+  //                    sent, which the screen is meant to put into words
+  //   not translated   anything else, English that never went through
+  //                    the table
+  //
+  // A value written with a {placeholder} is judged whole and then by what
+  // fills it, so a Spanish sentence around an English word fails. The
+  // stub's names are known to the suite, so an invented name is never
+  // ambiguous.
   if (args.language === "es") {
     const set = new Set(leakable);
     const ok = new Set(allowed);
     const spanish = new Set(args.spanish || []);
-    const patterns = (args.patterns || []).map(p => new RegExp(p));
     // A served value is matched on its words rather than letter for
     // letter, since a screen may draw one title cased or with its
     // underscores taken out.
     const plain = (v) => String(v).toLowerCase().replace(/[\s_\u00a0-]+/g, " ").trim();
-    const served = new Set((args.served || []).map(plain));
+    const names = new Set((args.names || []).map(plain));
+    const codes = new Set((args.codes || []).map(plain));
+    const englishWords = new Map();
+    const spanishWords = new Set();
+    // A code and a word can share their letters, like a task's priority
+    // "high" and the pick list's "High". The text as the page holds it,
+    // before any style turns it to capitals, tells them apart when it is
+    // the value exactly as it was sent.
+    const codesExact = new Set(args.codes || []);
+    const wordsExact = new Map();
+    (args.words || []).forEach((w) => {
+      if (w.es) spanishWords.add(plain(w.es));
+      if (w.value === w.en && w.es !== w.en) { englishWords.set(plain(w.en), w.kind); wordsExact.set(w.en, w.kind); }
+    });
+    // Each placeholder is a group, so what fills it can be judged too. A
+    // value with nothing around its placeholder would match anything,
+    // and is left out.
+    const patterns = (args.patterns || []).map(p => new RegExp(p)).filter(re => !/^\^\(\[\\s\\S\]\*\?\)\$$/.test(re.source));
     // The words in a date or a time come from the phone's formatter, not
     // from anything the app chose.
     const DATE_WORD = "ene|feb|mar|abr|may|jun|jul|ago|sep|sept|oct|nov|dic|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|lun|mar|mi\u00e9|mie|jue|vie|s\u00e1b|sab|dom|lunes|martes|mi\u00e9rcoles|miercoles|jueves|viernes|s\u00e1bado|sabado|domingo|de|del|a|p|m|h|hrs|am|pm";
     const counted = new RegExp("^(?:[0-9\\s.,:;/()%+#\u00b0\u2013-]|(?:" + DATE_WORD + ")(?![a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1]))+$", "i");
-    // One piece of text. Under three letters is not a word, which is the
-    // same line the leak list draws.
-    const one = (text) => text.length < 3 || spanish.has(text) || ok.has(text) || served.has(plain(text))
-      || counted.test(text) || patterns.some(re => re.test(text));
     // A line built by joining a value to a word, like a building and its
     // floor, or a question to the rows it is still short, is judged piece
     // by piece.
     const strip = (v) => v.replace(/^[\s|>\u00b7\u2013-]+/, "").replace(/[\s|>\u00b7\u2013-]+$/, "");
-    const spoken = (text) => one(text) || strip(text).split(/\s*[>|\u00b7]\s*|\s+[-\u2013]\s+|,\s+|:\s+/).every(part => !part.trim() || one(part.trim()));
+    const piecesOf = (v) => strip(v).split(/\s*[>|\u00b7]\s*|\s+[-\u2013]\s+|,\s+|:\s+/).map(x => x.trim()).filter(x => x);
+    const named = (f) => !!(f && (f.word || f.leak || f.code));
+    // One piece of text: null when it is fine, or what is wrong with it.
+    // Under three letters is not a word, which is the same line the leak
+    // list draws.
+    let judge = null;
+    const spokenFault = (text, depth) => {
+      const found = judge(text, depth);
+      if (!found || named(found)) return found;
+      const parts = piecesOf(text);
+      if (parts.length === 1 && parts[0] === text) return found;
+      const faults = parts.map(x => judge(x, depth)).filter(Boolean);
+      if (!faults.length) return null;
+      return faults.find(named) || found;
+    };
+    judge = (text, depth) => {
+      if (text.length < 3 || spanish.has(text) || ok.has(text)) return null;
+      if (wordsExact.has(text)) return { word: text, kind: wordsExact.get(text) };
+      if (codesExact.has(text)) return { code: text };
+      const p = plain(text);
+      if (englishWords.has(p)) return { word: text, kind: englishWords.get(p) };
+      if (set.has(text)) return { leak: text };
+      if (spanishWords.has(p) || names.has(p)) return null;
+      if (codes.has(p)) return { code: text };
+      if (counted.test(text)) return null;
+      // More than one value can fit the same text, "Agregar {name} a la
+      // barra" and "Agregar {name}" both fit "Agregar Ajustes a la barra",
+      // so the text passes when any of them fits with nothing English in
+      // what fills it.
+      if (depth < 4) {
+        let first = null;
+        for (const re of patterns) {
+          const m = text.match(re);
+          if (!m) continue;
+          const fills = m.slice(1).map(x => (x || "").trim()).filter(x => x);
+          const faults = fills.map(f => spokenFault(f, depth + 1)).filter(Boolean);
+          if (!faults.length) return null;
+          if (!first) first = faults.find(named) || { stray: text };
+        }
+        if (first) return first;
+      }
+      return { stray: text };
+    };
 
-    const walk = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, null);
     const hits = new Set();
+    const words = new Map();
+    const drawnCodes = new Set();
     const strays = new Set();
+    const note = (text, fault) => {
+      if (!fault) return;
+      if (fault.word) words.set(fault.word, fault.kind);
+      else if (fault.leak) hits.add(fault.leak);
+      else if (fault.code) drawnCodes.add(fault.code);
+      else strays.add(text);
+    };
+    const walk = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, null);
     let node;
     while ((node = walk.nextNode())) {
       const parent = node.parentElement;
       if (!parent || SKIP[parent.tagName] || !seen(parent)) continue;
       const text = String(node.nodeValue || "").trim();
-      if (!text || ok.has(text)) continue;
-      if (set.has(text)) { hits.add(text); continue; }
-      if (!spoken(text)) strays.add(text);
+      if (!text) continue;
+      note(text, spokenFault(text, 0));
     }
     // A control's own label, which is often an attribute rather than text.
     controls.forEach((el) => {
       ["aria-label", "placeholder"].forEach((name) => {
         const v = (el.getAttribute(name) || "").trim();
-        if (!v || ok.has(v)) return;
-        if (set.has(v)) { hits.add(v); return; }
-        if (!spoken(v)) strays.add(v);
+        if (!v) return;
+        note(v, spokenFault(v, 0));
       });
     });
     out.english = Array.from(hits);
+    out.words = Array.from(words.entries()).map(([text, kind]) => ({ text: text, kind: kind }));
+    out.codes = Array.from(drawnCodes);
     out.stray = Array.from(strays);
   }
+  if (!whole) return out;
 
   // 5. The bottom bar, measured on every screen, since two faults have
   // already landed there.
@@ -340,6 +417,17 @@ const INSPECT = function (args) {
   return out;
 };
 
+// What the Spanish check found, as rows without a place. A screen puts
+// its own name on them, and so does a journey.
+function languageRows(found) {
+  const rows = [];
+  (found.english || []).forEach(e => rows.push({ check: "english", detail: JSON.stringify(e) + " on a Spanish screen" }));
+  (found.words || []).forEach(w => rows.push({ check: "english", detail: JSON.stringify(w.text) + " on a Spanish screen is " + (/^[aeiou]/i.test(w.kind) ? "an " : "a ") + w.kind + " the API sent in English" }));
+  (found.codes || []).forEach(c => rows.push({ check: "english", detail: JSON.stringify(c) + " on a Spanish screen is a code the screen drew as a word" }));
+  (found.stray || []).forEach(e => rows.push({ check: "not translated", detail: JSON.stringify(e) + " on a Spanish screen is not a Spanish word, a value the stub served, a number, a date or a time" }));
+  return rows;
+}
+
 // Turns one inspection into failure rows.
 function rowsFrom(found, caseName, language, size, theme) {
   const where = caseName + " [" + language + "/" + size + "/" + (theme || "dark") + "]";
@@ -349,8 +437,7 @@ function rowsFrom(found, caseName, language, size, theme) {
   found.clipped.forEach(c => rows.push({ where: where, check: "clipped", detail: JSON.stringify(c.text) + " cut off by " + c.by }));
   found.unreachable.forEach(u => rows.push({ where: where, check: "covered", detail: JSON.stringify(u.control) + " at " + u.at.join(",") + " hits " + u.hit }));
   found.small.forEach(s => rows.push({ where: where, check: "too small", detail: JSON.stringify(s.control) + " is " + s.size.join(" by ") }));
-  (found.english || []).forEach(e => rows.push({ where: where, check: "english", detail: JSON.stringify(e) + " on a Spanish screen" }));
-  (found.stray || []).forEach(e => rows.push({ where: where, check: "not translated", detail: JSON.stringify(e) + " on a Spanish screen is not a Spanish word, a value the stub served, a number, a date or a time" }));
+  languageRows(found).forEach(r => rows.push(Object.assign({ where: where }, r)));
   if (found.bar && (!found.bar.insideTheScreen || !found.bar.everyButtonInside)) {
     rows.push({ where: where, check: "bottom bar", detail: "left " + found.bar.left + " right " + found.bar.right + " against a 375 screen" });
   }
@@ -371,4 +458,4 @@ function rowsFrom(found, caseName, language, size, theme) {
   return rows;
 }
 
-module.exports = { INSPECT, rowsFrom };
+module.exports = { INSPECT, rowsFrom, languageRows };

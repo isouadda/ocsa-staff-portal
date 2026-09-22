@@ -39,7 +39,11 @@ async function launch() {
   return chromium.launch();
 }
 
-// opts: { language, textSize, theme, signedIn, installSheet, stub, locale }
+// opts: { language, textSize, theme, signedIn, installSheet, stub, locale,
+//         storeLanguage }
+// storeLanguage: false opens a phone that has never chosen a language:
+// nothing is stored on the first load, the phone itself is set to the
+// case's language, and whatever the app stores after that is kept.
 // installSheet: "dismissed" (the default, so it is out of the way of
 // every other case) or "fresh" (nothing stored, so it offers itself).
 // theme: "dark", which is what every case ran in before light mode
@@ -76,14 +80,19 @@ async function openApp(browser, base, opts) {
   });
 
   await context.clock.install({ time: NOW });
-  await context.addInitScript(([signedIn, language, textSize, theme, sheet, keys]) => {
+  await context.addInitScript(([signedIn, language, textSize, theme, sheet, keys, fresh]) => {
     try {
       const ls = window.localStorage;
       // Stamped with whatever the faked clock reads, so a case that moves
       // days forward does not age the token past the app's own ceiling.
       if (signedIn) ls.setItem(keys.auth, JSON.stringify({ token: "token-one", savedAt: Date.now() }));
       else ls.removeItem(keys.auth);
-      if (language) ls.setItem(keys.language, language); else ls.removeItem(keys.language);
+      if (fresh) {
+        if (!window.sessionStorage.getItem("audit-language-fresh")) {
+          window.sessionStorage.setItem("audit-language-fresh", "1");
+          ls.removeItem(keys.language);
+        }
+      } else if (language) ls.setItem(keys.language, language); else ls.removeItem(keys.language);
       if (textSize) ls.setItem(keys.textSize, textSize); else ls.removeItem(keys.textSize);
       if (theme) ls.setItem(keys.theme, theme); else ls.removeItem(keys.theme);
       if (sheet === "dismissed") ls.setItem(keys.prompt, JSON.stringify({ never: true }));
@@ -93,7 +102,7 @@ async function openApp(browser, base, opts) {
       }
     } catch (e) {}
   }, [o.signedIn !== false, o.language || "en", o.textSize || "standard", theme, o.installSheet || "dismissed",
-      { auth: AUTH_KEY, language: LANGUAGE_KEY, textSize: TEXT_SIZE_KEY, theme: THEME_KEY, prompt: PROMPT_KEY }]);
+      { auth: AUTH_KEY, language: LANGUAGE_KEY, textSize: TEXT_SIZE_KEY, theme: THEME_KEY, prompt: PROMPT_KEY }, o.storeLanguage === false]);
 
   const page = await context.newPage();
   // One screen still asks through the browser's own confirm box. Left

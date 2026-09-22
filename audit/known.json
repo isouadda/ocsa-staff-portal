@@ -1,5 +1,5 @@
 {
-  "notes": "What the app gets wrong today. Each entry prints as KNOWN on every run and does not fail it. An entry that stops matching fails the run until it is taken off the list, so a fix is always noticed. The contrast entries are one per screen, theme and color pair, each with the ratio the app draws.",
+  "notes": "What the app gets wrong today. Each entry prints as KNOWN on every run and does not fail it. An entry that stops matching fails the run until it is taken off the list, so a fix is always noticed. The contrast entries are one per screen, theme and color pair, each with the ratio the app draws. The language entries are one per kind of word the API cannot send in Spanish yet, which stay until it does, and one per place the portal itself still draws English, which the build that fixes it takes off.",
   "accepted": [
     {
       "where": "*",
@@ -12,6 +12,12 @@
       "check": "clipped",
       "what": "Custodian",
       "why": "The role under the name runs to one line and ends in an ellipsis the same way, and for the same reason."
+    },
+    {
+      "where": "Help",
+      "check": "clipped",
+      "what": "Reporte de incidente",
+      "why": "An unfinished report's title on Help runs to one line and ends in an ellipsis when there is no room, the way a name does. The stub serves the first form's title in Spanish from this build on, and the Spanish is longer."
     }
   ],
   "failures": [
@@ -170,27 +176,6 @@
       "why": "Orange on a white card in light mode. 2.19 to 1 against the 4.5 to 1 small text needs."
     },
     {
-      "where": "Set your PIN",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Set your PIN",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#24A4F4 on #F4F7FB\"",
-      "why": "Blue on light mode's background. 2.54 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Set your PIN",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#2ECC71 on #EEFBF3\"",
-      "why": "Green on light mode's green wash. 1.97 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
       "where": "Settings",
       "theme": "dark",
       "check": "contrast",
@@ -315,6 +300,368 @@
       "check": "contrast",
       "what": "\"#F8F7F4 on #E74C3C\"",
       "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a to-do item the API sent in English",
+      "why": "A to-do item and its instructions are written in English in the database and the API sends them as written. The API's build gives them Spanish and sends the language the request asks for."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a to-do zone the API sent in English",
+      "why": "A to-do item's zone is written in English in the database and sent as written, the same as the item."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a supply the API sent in English",
+      "why": "A supply's name and its unit are written in English in the database and sent as written."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a notice the API sent in English",
+      "why": "An in-app notice is written by the API in English at the moment it is sent. The API's build writes it in the person's saved language."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is an inspection item the API sent in English",
+      "why": "An inspection's name, its items and their zones are written in English in the database and sent as written."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a service the API sent in English",
+      "why": "A shift's service is written in English in the database and sent as written."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a site role the API sent in English",
+      "why": "A person's role at a site is typed by an admin, in English today, and sent as typed."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a shift name the API sent in English",
+      "why": "A shift's name is typed by an admin, in English today, and sent as typed."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a Help reply the API sent in English",
+      "why": "Help's replies, the fixed ones included, arrive from the API in English. The route already carries the language; the reply's language is the API's to change."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a refusal the API sent in English",
+      "why": "The API's refusals are English sentences. The portal draws one in Spanish when the table holds that exact sentence and every other one as sent, so a refusal outside the table stays English until the API sends the person's language. The wrong PIN is the one the table holds and the sign-in screen still draws as sent."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a pick list choice the API sent in English",
+      "why": "The four pick lists the API sends carry English labels, and the screens draw them as sent, outside the table."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a code the screen drew as a word",
+      "why": "The screen draws a code the API sends, a role, a status, a severity, a priority or an origin, the way it was sent, title cased at most, where it is meant to put it into words."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Fri, Oct 2, 9:30 AM\" on a Spanish screen",
+      "why": "The activation and reset links say when they run out through a formatter pinned to English, so the Spanish sentence carries an English weekday, month and AM."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Aug 14, 1990\" on a Spanish screen",
+      "why": "The Profile birthday is written with the code's own English month list."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Failed to fetch\" on a Spanish screen",
+      "why": "A request that never reaches OCSA shows the browser's own words on every path the app does not guard."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"General\" on a Spanish screen",
+      "why": "A task with no zone is gathered under the word General, written outside the table."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"PIN must be exactly 4 digits.\" on a Spanish screen",
+      "why": "The PIN rules and the PIN errors are written in the code outside the table, so every screen that checks a PIN says them in English."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Four of the same digit is too easy to guess. Use a mix of digits.\" on a Spanish screen",
+      "why": "The PIN rules are written outside the table, the same as the one above."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.\" on a Spanish screen",
+      "why": "The PIN rules are written outside the table, the same as the one above."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Your PIN cannot be your badge number or its last four digits.\" on a Spanish screen",
+      "why": "The PIN rules are written outside the table, the same as the one above."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Enter the badge number from your email.\" on a Spanish screen",
+      "why": "The activation screen's badge number error is written outside the table."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Enter your current 4-digit PIN.\" on a Spanish screen",
+      "why": "Change PIN's own errors are written outside the table."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Your new PIN must be different from your current PIN.\" on a Spanish screen",
+      "why": "Change PIN's own errors are written outside the table."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"A shift is still open at South Building. End it before starting another.\" on a Spanish screen",
+      "why": "The notice for a shift still open at another site is built by joining English pieces around the site's name, outside the table."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Tarea actualizada a in progress\" on a Spanish screen",
+      "why": "The line after an assigned task changes puts its status inside the Spanish sentence as the code's own words, in English."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Could not read image\" on a Spanish screen",
+      "why": "A photo the phone cannot read says the line the code throws, which has no entry in the table."
+    },
+    {
+      "where": "Before signing in:",
+      "check": "not translated",
+      "what": "\"Welcome, Alex.\" on a Spanish screen",
+      "why": "A phone set to Spanish that has never chosen a language opens every screen before signing in in English, the activation greeting included."
+    },
+    {
+      "where": "Before signing in:",
+      "check": "english",
+      "what": "",
+      "why": "A phone set to Spanish that has never chosen a language opens sign in, Register, Forgot PIN and the activation and reset links in English, so every word on them is English."
+    },
+    {
+      "where": "Every PIN rule and PIN error",
+      "check": "english",
+      "what": "\"Request failed\" on a Spanish screen",
+      "why": "Change PIN draws the API's refusal as sent, so a refusal with no sentence of its own shows the English fallback although the table holds its Spanish."
+    },
+    {
+      "where": "Before signing in:",
+      "check": "the sign-in screen offers the other language, named in its own language",
+      "what": "",
+      "why": "No screen before signing in offers a language."
+    },
+    {
+      "where": "Before signing in:",
+      "check": "choosing it turns the screen and keeps the choice",
+      "what": "",
+      "why": "No screen before signing in offers a language, so none can be chosen there."
+    },
+    {
+      "where": "Before signing in:",
+      "check": "the choice beats the phone after a reload",
+      "what": "",
+      "why": "No screen before signing in offers a language, so there is no choice to keep."
+    },
+    {
+      "where": "Before signing in:",
+      "check": "an activation link opens in the account's language",
+      "what": "",
+      "why": "An activation link opens in the language stored on the phone, or English, whatever the account's saved language."
+    },
+    {
+      "where": "Before signing in:",
+      "check": "a reset link follows the language chosen on it",
+      "what": "",
+      "why": "A reset link offers no language."
+    },
+    {
+      "where": "Before signing in:",
+      "check": "a phone that has never chosen opens in its own language",
+      "what": "",
+      "why": "With nothing stored the portal opens in English on any phone."
+    },
+    {
+      "where": "Before signing in:",
+      "check": "the sign-in screen is drawn in the phone's language",
+      "what": "",
+      "why": "With nothing stored the portal opens in English on any phone."
+    },
+    {
+      "where": "Before signing in:",
+      "check": "Register is drawn in the chosen language",
+      "what": "",
+      "why": "Register opens in English on a phone that has never chosen a language."
+    },
+    {
+      "where": "Before signing in:",
+      "check": "Forgot your PIN is drawn in the chosen language",
+      "what": "",
+      "why": "Forgot your PIN opens in English on a phone that has never chosen a language."
+    },
+    {
+      "where": "Before signing in:",
+      "check": "the activation screen follows its own picker",
+      "what": "",
+      "why": "The activation picker only sets the language sent with the activation; the screen itself stays in the language stored on the phone."
+    },
+    {
+      "where": "Sign in, a wrong PIN",
+      "check": "a wrong PIN says so in the person's language",
+      "what": "",
+      "why": "The sign-in screen draws the API's refusal as sent, although the table holds its Spanish."
+    },
+    {
+      "where": "Start a shift, then end it",
+      "check": "a shift still open elsewhere is named, in the person's language",
+      "what": "",
+      "why": "The notice for a shift still open at another site is English on every screen."
+    },
+    {
+      "where": "The four pick lists",
+      "check": "the issue severities are drawn in the person's language",
+      "what": "",
+      "why": "The screens draw the pick list labels the API sends as sent. Medium is also missing from the table, where the built-in fallback says Med."
+    },
+    {
+      "where": "The four pick lists",
+      "check": "the supply request types are drawn in the person's language",
+      "what": "",
+      "why": "The screens draw the pick list labels the API sends as sent."
+    },
+    {
+      "where": "The four pick lists",
+      "check": "the urgency levels are drawn in the person's language",
+      "what": "",
+      "why": "The screens draw the pick list labels the API sends as sent."
+    },
+    {
+      "where": "The four pick lists",
+      "check": "the reasons to drop a shift are drawn in the person's language",
+      "what": "",
+      "why": "The screens draw the pick list labels the API sends as sent."
+    },
+    {
+      "where": "Every PIN rule and PIN error",
+      "check": "Set your PIN says \"PIN must be exactly 4 digits.\" in the person's language",
+      "what": "",
+      "why": "The PIN rules are written outside the table."
+    },
+    {
+      "where": "Every PIN rule and PIN error",
+      "check": "Set your PIN says \"Four of the same digit is too easy to guess. Use a mix of digits.\" in the person's language",
+      "what": "",
+      "why": "The PIN rules are written outside the table."
+    },
+    {
+      "where": "Every PIN rule and PIN error",
+      "check": "Set your PIN says \"Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.\" in the person's language",
+      "what": "",
+      "why": "The PIN rules are written outside the table."
+    },
+    {
+      "where": "Every PIN rule and PIN error",
+      "check": "Set your PIN says \"Your PIN cannot be your badge number or its last four digits.\" in the person's language",
+      "what": "",
+      "why": "The PIN rules are written outside the table."
+    },
+    {
+      "where": "Every PIN rule and PIN error",
+      "check": "Change PIN says \"Enter your current 4-digit PIN.\" in the person's language",
+      "what": "",
+      "why": "Change PIN's own errors are written outside the table."
+    },
+    {
+      "where": "Every PIN rule and PIN error",
+      "check": "Change PIN says \"Your new PIN must be different from your current PIN.\" in the person's language",
+      "what": "",
+      "why": "Change PIN's own errors are written outside the table."
+    },
+    {
+      "where": "Every PIN rule and PIN error",
+      "check": "Change PIN says \"Request failed\" in the person's language",
+      "what": "",
+      "why": "Change PIN draws the API's refusal as sent."
+    },
+    {
+      "where": "Every PIN rule and PIN error",
+      "check": "An activation link says \"Enter the badge number from your email.\" in the person's language",
+      "what": "",
+      "why": "The activation screen's badge number error is written outside the table."
+    },
+    {
+      "where": "Every PIN rule and PIN error",
+      "check": "A reset link says \"PIN must be exactly 4 digits.\" in the person's language",
+      "what": "",
+      "why": "The reset screen's PIN error is written outside the table."
+    },
+    {
+      "where": "An assigned task marked in progress",
+      "check": "the update is told in the person's language",
+      "what": "",
+      "why": "The status inside the line is the code's own words, in English."
+    },
+    {
+      "where": "A profile photo the phone cannot read",
+      "check": "a photo the phone cannot read says so in the person's language",
+      "what": "",
+      "why": "The line the code throws has no entry in the table."
+    },
+    {
+      "where": "Set your PIN",
+      "check": "too small",
+      "what": "\"Not you? Sign out\" is",
+      "why": "The sign out line under Set your PIN is a bare text button, about 20 pixels tall at the standard size. The case drew Home behind it until this build, so the suite never measured it."
+    },
+    {
+      "where": "Set your PIN",
+      "check": "too small",
+      "what": "\"\u00bfNo es usted? Cerrar sesi\u00f3n\" is",
+      "why": "The same button, in Spanish."
+    },
+    {
+      "where": "Pickup",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#8899AA on #1B3058\"",
+      "why": "The service on an open shift, muted text on its chip. 4.46 to 1 against the 4.5 to 1 small text needs. The stub serves a service on its open shift from this build on."
+    },
+    {
+      "where": "Pickup",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#24A4F4 on #EAF6FE\"",
+      "why": "Blue on light mode's blue wash, the badge of a shift someone dropped. 2.49 to 1 against the 4.5 to 1 small text needs. The stub's open shift carries a real origin code from this build on."
     }
   ]
 }
