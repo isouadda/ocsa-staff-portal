@@ -3150,16 +3150,21 @@ const CASE_MAX = 4000;
 const caseMaxText = () => CASE_MAX.toLocaleString(dateLocale());
 function SpeakUpView({ token, t }) {
   const [text, setText] = useState("");
-  // "" is nobody in particular and sends no subject_user_id.
-  const [subjectId, setSubjectId] = useState("");
-  // Three states. null is loading: the choice is not drawn yet. An
-  // array is loaded: an empty one hides the choice and the form still
-  // sends, which is a correct state. listFailed is the third: the
-  // request did not come back, the choice cannot be offered, and the
-  // screen says so where the choice would be, with a way to try again.
-  // A failure is never read as an empty list, because a report about
-  // a manager sent with no name goes to that manager.
-  const [subjects, setSubjects] = useState(null);
+  // The management question. null until it is answered, then true or
+  // false. Send waits for an answer either way, and a Yes waits for at
+  // least one person as well.
+  const [aboutManagement, setAboutManagement] = useState(null);
+  // The people this report is about, as ids, in the order they were
+  // picked. Their names are read off the list below.
+  const [picked, setPicked] = useState([]);
+  const [search, setSearch] = useState("");
+  // Three states. null is loading: the names are not drawn yet. An
+  // array is loaded, and an empty one is a correct state. listFailed is
+  // the third: the request did not come back, nobody can be picked, and
+  // the screen says so where the names would be, with a way to try
+  // again. A failure is never read as an empty list, because a report
+  // about a manager sent with nobody picked goes to that manager.
+  const [people, setPeople] = useState(null);
   const [listFailed, setListFailed] = useState(false);
   // Bumped by Try again, which re-runs the same request. The activation
   // screen's pattern.
@@ -3176,29 +3181,55 @@ function SpeakUpView({ token, t }) {
   // stays on screen underneath it.
   const [problem, setProblem] = useState(null);
   useBusy("speak up composer", text.trim().length > 0 || sending);
-  useEffect(() => { let live = true; setSubjects(null); setListFailed(false); api("/api/contacts/case-subjects", { token }).then(d => { if (live) setSubjects(Array.isArray(d?.subjects) ? d.subjects : []); }).catch(() => { if (live) setListFailed(true); }); return () => { live = false; }; }, [token, attempt]);
+  useEffect(() => { let live = true; setPeople(null); setListFailed(false); api("/api/hr/cases/people", { token }).then(d => { if (live) setPeople(Array.isArray(d?.people) ? d.people : []); }).catch(() => { if (live) setListFailed(true); }); return () => { live = false; }; }, [token, attempt]);
   const labelSt = mkLabel(t);
   const inputSt = mkInput(t);
   const helpSt = mkHelp(t);
   const nearLimit = text.length >= CASE_MAX - 200;
-  const canSend = text.trim().length > 0 && !sending;
+  const aboutBosses = aboutManagement === true;
+  const canSend = text.trim().length > 0 && aboutManagement !== null && (!aboutBosses || picked.length > 0) && !sending;
   const send = async () => {
     if (!canSend || inFlight.current) return;
     inFlight.current = true; setSending(true); setProblem(null);
-    const body = { summary: text.trim() };
-    if (subjectId) body.subject_user_id = subjectId;
+    const body = { summary: text.trim(), aboutManagement: aboutBosses, subjectUserIds: picked.slice() };
     try {
       const data = await api("/api/hr-cases", { method: "POST", body, token });
-      setText(""); setSubjectId("");
+      setText(""); setAboutManagement(null); setPicked([]); setSearch("");
       setSent({ id: data && data.id ? String(data.id) : "" });
     } catch (err) {
-      // 503 carries the API's own sentence, which names nobody. Every
-      // other failure gets plain words. Never the raw body, never a code.
-      const own = err && err.status === 503 && typeof err.message === "string" && err.message.trim() ? tr(err.message.trim()) : null;
-      setProblem("Your report was not sent. " + (own || "Please try again."));
+      // A refusal carries the API's own sentence, which names nobody.
+      // It is drawn word for word, so the person is told what to change
+      // rather than to try the same thing again. A request that never
+      // reached OCSA carries no sentence of its own, and the browser's
+      // words are never read as one. Never the raw body, never a code.
+      const gone = wentNowhere(err);
+      const own = !gone && err && typeof err.message === "string" && err.message.trim() ? tr(err.message.trim()) : null;
+      setProblem(tr("Your report was not sent.") + " " + (own || tr(gone ? ERR_OFFLINE : "Please try again.")));
     } finally { inFlight.current = false; setSending(false); }
   };
-  const choices = subjects && subjects.length > 0 ? [{ id: "", name: tr("A co-worker, or no one in particular"), title: null }, ...subjects] : [];
+  // Everyone the list still offers: whoever is not picked already,
+  // narrowed by what has been typed in the search box.
+  const staff = Array.isArray(people) ? people : [];
+  const needle = search.trim().toLowerCase();
+  const offered = staff.filter(p => picked.indexOf(p.id) === -1 && (needle === "" || String(p.name || "").toLowerCase().indexOf(needle) !== -1));
+  const chosen = picked.map(id => staff.find(p => p.id === id)).filter(Boolean);
+  // The question's two buttons and the names under the search box are
+  // the app's own pick one row, so the two states read the same here as
+  // they do on a form.
+  const askSt = { fontSize: 14, fontWeight: 600, color: t.text, lineHeight: 1.45, fontFamily: FONT_HEAD, overflowWrap: "anywhere" };
+  const optSt = { fontSize: 11, fontWeight: 600, color: t.textMut, marginLeft: 6, whiteSpace: "nowrap" };
+  const optRow = (on) => ({
+    width: "100%", minHeight: TAP, marginTop: 8, padding: "10px 12px", borderRadius: R.md, cursor: sending ? "default" : "pointer",
+    display: "flex", alignItems: "center", gap: 10, textAlign: "left", fontSize: 14, fontFamily: FONT_BODY, lineHeight: 1.4,
+    background: on ? t.goldBg : t.card, border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text,
+  });
+  const mark = (on) => ({ width: 16, height: 16, flexShrink: 0, borderRadius: "50%", background: on ? GOLD : "transparent", border: on ? "none" : "2px solid " + t.borderSolid });
+  const chipSt = {
+    display: "inline-flex", alignItems: "center", gap: 8, maxWidth: "100%", minWidth: TAP, minHeight: TAP,
+    padding: "8px 12px", borderRadius: R.pill, cursor: sending ? "default" : "pointer",
+    background: t.goldBg, border: "1px solid " + t.goldBorder, color: t.text,
+    fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, textAlign: "left", lineHeight: 1.35,
+  };
   if (sent) return (
     <div style={{ padding: "16px" }}>
       <div style={{ padding: "28px 20px", textAlign: "center", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.lg, boxShadow: t.popShadow }}>
@@ -3221,25 +3252,53 @@ function SpeakUpView({ token, t }) {
           <textarea value={text} onChange={e => setText(e.target.value.slice(0, CASE_MAX))} maxLength={CASE_MAX} disabled={sending} placeholder={tr("Write what happened in your own words. One sentence is enough.")} rows={6} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }} />
           <div style={{ ...helpSt, color: nearLimit ? ORANGE : t.textMut }}>{nearLimit ? tr("{used} of {max} characters used.", { used: text.length.toLocaleString(dateLocale()), max: caseMaxText() }) : tr("You can write up to {max} characters.", { max: caseMaxText() })}</div>
         </div>
-        {listFailed && (
-          <div style={{ marginBottom: 14 }}>
-            <label style={labelSt}>{tr("Who is it about")}</label>
-            <div style={{ padding: "10px 12px", background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, borderRadius: R.sm, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>{tr("The list of names did not load. If your report is about a manager, try again before you send, so it does not go to them.")}</div>
-            <button onClick={() => setAttempt(a => a + 1)} disabled={sending} style={{ ...mkGhostBtn(t), marginTop: 8 }}>{tr("Try again")}</button>
+        <div style={{ marginBottom: 14 }}>
+          <div style={askSt}>{tr("Is this about someone in management?")}</div>
+          <div style={{ ...helpSt, marginTop: 4 }}>{tr("Anyone you pick below will not be able to see this report.")}</div>
+          {[true, false].map(answer => { const on = aboutManagement === answer; return (
+            <button key={answer ? "yes" : "no"} type="button" onClick={() => setAboutManagement(answer)} disabled={sending} aria-pressed={on} style={optRow(on)}>
+              <span style={mark(on)} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr(answer ? "Yes" : "No")}</span>
+            </button>
+          ); })}
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <div style={askSt}>
+            {tr(aboutBosses ? "Who is it about? Pick at least one person." : "Who is involved?")}
+            {!aboutBosses && <span style={optSt}>{tr("Optional")}</span>}
           </div>
-        )}
-        {choices.length > 0 && (
-          <div style={{ marginBottom: 14 }}>
-            <label style={labelSt}>{tr("Who is it about")}</label>
-            <div style={{ ...helpSt, marginTop: 0, marginBottom: 8 }}>{tr("If it is about one of the people named here, pick their name so your report does not go to them.")}</div>
-            {choices.map(p => { const picked = subjectId === p.id; return (
-              <button key={p.id || "nobody"} onClick={() => setSubjectId(p.id)} disabled={sending} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", marginBottom: 8, background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: R.md, cursor: "pointer", color: t.text, textAlign: "left" }}>
-                <div style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: picked ? GOLD : "transparent", border: picked ? "none" : "2px solid " + t.borderSolid }} />
-                <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>{p.title && <div style={{ fontSize: 10, color: t.textSec, marginTop: 2 }}>{p.title}</div>}</div>
-              </button>
-            ); })}
-          </div>
-        )}
+          {listFailed ? (
+            <>
+              <div style={{ marginTop: 8, padding: "10px 12px", background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, borderRadius: R.sm, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>{tr("The staff list did not load. Try again in a minute.")}</div>
+              <button onClick={() => setAttempt(a => a + 1)} disabled={sending} style={{ ...mkGhostBtn(t), marginTop: 8 }}>{tr("Try again")}</button>
+            </>
+          ) : (
+            <>
+              {chosen.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+                  {chosen.map(p => (
+                    <button key={p.id} type="button" onClick={() => setPicked(ids => ids.filter(id => id !== p.id))} disabled={sending} aria-label={tr("Remove {name}", { name: p.name })} style={chipSt}>
+                      <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{p.name}</span>
+                      <span aria-hidden="true" style={{ flexShrink: 0, fontSize: 14, lineHeight: 1, color: t.textSec }}>{tr("x")}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <input type="text" value={search} onChange={e => setSearch(e.target.value.slice(0, 80))} disabled={sending || people === null} placeholder={tr("Search by name")} aria-label={tr("Search by name")} style={{ ...inputSt, marginTop: 10 }} />
+              {/* The names scroll in their own box, so a staff list of any
+                  length leaves Send where a thumb can reach it. */}
+              {offered.length > 0 && (
+                <div style={{ maxHeight: 264, overflowY: "auto", marginTop: 2 }}>
+                  {offered.map(p => (
+                    <button key={p.id} type="button" onClick={() => setPicked(ids => ids.indexOf(p.id) === -1 ? ids.concat([p.id]) : ids)} disabled={sending} style={optRow(false)}>
+                      <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{p.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {people !== null && offered.length === 0 && needle !== "" && (<div style={{ ...helpSt, marginTop: 10 }}>{tr("No one matches that name.")}</div>)}
+            </>
+          )}
+        </div>
         {problem && <div style={{ padding: "10px 12px", marginBottom: 12, background: t.redSubtle, border: "1px solid " + t.redBorder, borderRadius: R.sm, fontSize: 12, color: RED, lineHeight: 1.5 }}>{problem}</div>}
         <button onClick={send} disabled={!canSend} style={{ ...mkPrimaryBtn(t, !canSend), cursor: canSend ? "pointer" : "default" }}>{sending ? tr("Sending...") : tr("Send")}</button>
       </div>
