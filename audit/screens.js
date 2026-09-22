@@ -7,7 +7,7 @@ const { openApp, letSheetOffer } = require("./browser");
 const { INSPECT, rowsFrom } = require("./checks");
 const { LEAKABLE, SPANISH, SPANISH_PATTERNS, say } = require("./words");
 const { SCREEN_CASES, SHEET_CASES } = require("./inventory");
-const { timeOffRow, formP } = require("./stub");
+const { timeOffRow, formP, STAFF } = require("./stub");
 
 const SIZES = ["standard", "large", "xlarge", "largest"];
 const LANGUAGES = ["en", "es"];
@@ -40,7 +40,11 @@ const ALLOWED = [
   "Mop the corridor end to end", "Restock paper towels and soap",
   "Refill the sanitizer stands", "Replace the cracked light cover",
   "Take the pads from the second floor store room.",
-];
+// The staff list the Speak Up picker draws. The route sends a first and
+// a last name, and the screen joins them, so the whole name is read
+// here as one value rather than as two the suite has never seen
+// together.
+].concat(STAFF.map(p => p.firstName + " " + p.lastName));
 
 // The second form's pages, in order, walked in every combination the
 // sweep drives. The form the portal has always drawn is covered by the

@@ -424,19 +424,27 @@ Tap an inspection to begin scoring.,Toque una inspección para empezar a calific
 Tap to start scoring,Toque para empezar a calificar,Inspect
 Template *,Plantilla *,Inspect
 "Template, site, and date are required","Se necesitan la plantilla, el sitio y la fecha",Inspect
-"A co-worker, or no one in particular","Un compañero de trabajo, o nadie en particular",Speak Up
-"If it is about one of the people named here, pick their name so your report does not go to them.","Si es sobre una de las personas de esta lista, elija su nombre para que el reporte no le llegue a esa persona.",Speak Up
+Anyone you pick below will not be able to see this report.,Nadie que usted elija abajo podrá ver este reporte.,Speak Up
+Is this about someone in management?,¿Es sobre alguien de la gerencia?,Speak Up
+No,No,Speak Up
+No one matches that name.,Nadie tiene ese nombre.,Speak Up
 "Nothing you write here is kept. If you leave this screen before you send, it is gone.","Nada de lo que escriba aquí se guarda. Si sale de esta pantalla antes de enviar, se pierde.",Speak Up
+Optional,Opcional,Speak Up
+Please try again.,Intente de nuevo.,Speak Up
 Quote this if you follow up.,Menciónelo si vuelve a preguntar.,Speak Up
 Report a problem with someone,Reportar un problema con alguien,Speak Up
+Search by name,Buscar por nombre,Speak Up
 Someone will be in touch with you within 72 hours.,Alguien se comunicará con usted en un plazo de 72 horas.,Speak Up
-"The list of names did not load. If your report is about a manager, try again before you send, so it does not go to them.","La lista de nombres no cargó. Si su reporte es sobre un gerente, intente de nuevo antes de enviar, para que no le llegue a esa persona.",Speak Up
+The staff list did not load. Try again in a minute.,La lista del personal no cargó. Intente de nuevo en un minuto.,Speak Up
 We got your report.,Recibimos su reporte.,Speak Up
 What happened,Qué pasó,Speak Up
-Who is it about,Sobre quién es,Speak Up
+Who is involved?,¿Quién está involucrado?,Speak Up
+Who is it about? Pick at least one person.,¿Sobre quién es? Elija al menos una persona.,Speak Up
 Write what happened in your own words. One sentence is enough.,Escriba lo que pasó con sus propias palabras. Con una frase basta.,Speak Up
+Yes,Sí,Speak Up
 You can write up to {max} characters.,Puede escribir hasta {max} caracteres.,Speak Up
 Your reference,Su número de referencia,Speak Up
+Your report was not sent.,Su reporte no se envió.,Speak Up
 {used} of {max} characters used.,{used} de {max} caracteres usados.,Speak Up
 Add row,Agregar fila,Forms
 Answered,Respondida,Forms
@@ -496,7 +504,7 @@ On your bar,En su barra,Shortcuts
 Pick something for this spot,Elija algo para este lugar,Shortcuts
 Put the bar back the way it came?,¿Dejar la barra como estaba al principio?,Shortcuts
 Remove,Quitar,Shortcuts
-Remove {name},Quitar {name},Shortcuts
+Remove {name},Quitar a {name},"Shortcuts, Speak Up"
 Replace which one?,¿Cuál quiere reemplazar?,Shortcuts
 Reset,Restablecer,Shortcuts
 Reset to default,Volver a lo original,Shortcuts
@@ -566,10 +574,14 @@ Form not found,No se encontró el formulario,"API message, shown word for word"
 Hours must be a number from 0 to 999.99,Las horas deben ser un número de 0 a 999.99,"API message, shown word for word"
 Keep the reason under 1000 characters,Escriba el motivo con menos de 1000 caracteres,"API message, shown word for word"
 language must be en or es,el idioma debe ser en o es,"API message, shown word for word"
+One of the people picked is not on the staff list,Una de las personas elegidas no está en la lista del personal,"API message, shown word for word"
 Photo upload failed,No se pudo subir la foto,"API message, shown word for word"
+Pick at least one person this is about,Elija al menos a una persona de quien trata este reporte,"API message, shown word for word"
+Pick up to 10 people,Elija hasta 10 personas,"API message, shown word for word"
 Request failed,La solicitud falló,"API message, shown word for word"
 Request not found,No se encontró la solicitud,"API message, shown word for word"
 Required fields are unanswered,Faltan campos obligatorios por responder,"API message, shown word for word"
+Say whether this is about someone in management,Indique si esto es sobre alguien de la gerencia,"API message, shown word for word"
 Send answers as an object of key and value,Envíe las respuestas como un objeto de clave y valor,"API message, shown word for word"
 Send at most 3 photos with one message.,Envíe como máximo 3 fotos en un mensaje.,"API message, shown word for word"
 Server error,Error del servidor,"API message, shown word for word"
@@ -599,6 +611,7 @@ Time off can start at most one year ahead,El tiempo libre puede comenzar un año
 Upload failed,No se pudo subir el archivo,"API message, shown word for word"
 User not found,No se encontró el usuario,"API message, shown word for word"
 You already have time off requested or approved for those days,Ya tiene tiempo libre solicitado o aprobado para esos días,"API message, shown word for word"
+You cannot pick yourself,No puede elegirse a sí mismo,"API message, shown word for word"
 You cannot sign this part of the form,Usted no puede firmar esta parte del formulario,"API message, shown word for word"
 Chat,Mensajes,Bar and More
 Help,Ayuda,Bar and More
