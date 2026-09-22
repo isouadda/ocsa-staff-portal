@@ -105,6 +105,9 @@ function makeState(opts) {
     prefsPatches: [],
     // The second form's answers, and the sign-offs stamped on it.
     answersP: o.answersP ? Object.assign({}, o.answersP) : {},
+    // Everyone Speak Up can name, and every report filed through it.
+    staff: o.staff || STAFF.slice(),
+    filed: [],
   };
 }
 
@@ -229,6 +232,34 @@ function draftP(state, lang) {
     missing: missingFields.map(m => m.key), missingFields: missingFields,
   };
 }
+
+// Everyone the Speak Up picker can offer, invented, sorted by last name
+// the way the route sorts them. The signed in person is not among them,
+// because the route leaves the caller out.
+// The API's own words when it turns a report away, each one a 400. The
+// route below answers with them, and the cases ask for them by name, so
+// the suite never invents a sentence the API does not say.
+const HR_CASE_REFUSALS = [
+  "Pick at least one person this is about",
+  "You cannot pick yourself",
+  "One of the people picked is not on the staff list",
+  "Pick up to 10 people",
+];
+
+const STAFF = [
+  { id: "s-01", name: "Ana Alvarez" },
+  { id: "s-02", name: "Ben Brooks" },
+  { id: "s-03", name: "Carla Castro" },
+  { id: "s-04", name: "Dan Delgado" },
+  { id: "s-05", name: "Eve Everett" },
+  { id: "s-06", name: "Femi Fisher" },
+  { id: "s-07", name: "Gina Gomez" },
+  { id: "s-08", name: "Hal Hunter" },
+  { id: "s-09", name: "Ida Ibarra" },
+  { id: "s-10", name: "Jon Jenkins" },
+  { id: "s-11", name: "Kay Kowalski" },
+  { id: "s-12", name: "Luis Lozano" },
+];
 
 const json = (status, body) => ({ status: status, contentType: "application/json", body: JSON.stringify(body) });
 
@@ -435,8 +466,26 @@ function createStub(opts) {
     if (key === "POST /api/inspections/scheduled") return json(200, { ok: true });
 
     // --- Speak Up
+    //
+    // The picker's list: every active person, name and id, sorted by last
+    // name, with the caller left out. A case can empty it or make it fail.
+    if (key === "GET /api/hr/cases/people") {
+      return json(200, { people: state.staff.filter(p => p.id !== state.person.id) });
+    }
     if (key === "GET /api/contacts/case-subjects") return json(200, { subjects: [{ id: "p-1", name: "A shift supervisor", title: "Supervisor" }, { id: "p-2", name: "An area manager", title: "Area Manager" }] });
-    if (key === "POST /api/hr-cases") return json(200, { caseNumber: "HR-0001" });
+    // Filing. The body carries what was written, whether it is about
+    // someone in management, and the people it names. Each refusal below
+    // is the API's own, word for word, and a case asks for one by name.
+    if (key === "POST /api/hr-cases") {
+      const said = body || {};
+      const ids = Array.isArray(said.subjectUserIds) ? said.subjectUserIds : [];
+      if (said.aboutManagement === true && ids.length === 0) return json(400, { error: HR_CASE_REFUSALS[0] });
+      if (ids.indexOf(state.person.id) !== -1) return json(400, { error: HR_CASE_REFUSALS[1] });
+      if (ids.some(id => !state.staff.some(p => p.id === id))) return json(400, { error: HR_CASE_REFUSALS[2] });
+      if (ids.length > 10) return json(400, { error: HR_CASE_REFUSALS[3] });
+      state.filed.push(said);
+      return json(200, { id: "hr-case-one", caseNumber: "HR-0001" });
+    }
 
     // --- the bell
     if (pathname === "/api/notifications/unread-count") return json(200, { unread: state.notifications.filter(n => !n.readAt).length });
@@ -484,4 +533,4 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, NOW, PERSON, SECOND_PERSON, SITES, LEAVE_TYPES, TIME_OFF_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, formP, timeOffRow, ymd, iso, DAY };
+module.exports = { createStub, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, formP, timeOffRow, ymd, iso, DAY };

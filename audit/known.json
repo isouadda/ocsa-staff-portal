@@ -1,5 +1,5 @@
 {
-  "notes": "What the app gets wrong today. Each entry prints as KNOWN on every run and does not fail it. An entry that stops matching fails the run until it is taken off the list, so a fix is always noticed. The contrast entries are one per screen, theme and color pair, each with the ratio the app draws.",
+  "notes": "What the app gets wrong today. Each entry prints as KNOWN on every run and does not fail it. An entry that stops matching fails the run until it is taken off the list, so a fix is always noticed. The contrast entries are one per screen, theme and color pair, each with the ratio the app draws. A journey entry names its journey and the one check inside it, so its what is empty: the check's own name says what failed, and the line beside it reads differently in each language.",
   "accepted": [
     {
       "where": "*",
@@ -315,6 +315,126 @@
       "check": "contrast",
       "what": "\"#F8F7F4 on #E74C3C\"",
       "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
+    },
+    {
+      "where": "Speak Up: the management question, and what Send waits for",
+      "check": "the screen asks whether it is about someone in management",
+      "what": "",
+      "why": "The screen does not ask the question yet. It draws the radio list of three names in its place."
+    },
+    {
+      "where": "Speak Up: the management question, and what Send waits for",
+      "check": "it says a person picked cannot see the report",
+      "what": "",
+      "why": "The line under the question is not drawn yet, because the question is not drawn yet."
+    },
+    {
+      "where": "Speak Up: the management question, and what Send waits for",
+      "check": "the three names are gone",
+      "what": "",
+      "why": "The radio list of three case team names is still what the screen offers."
+    },
+    {
+      "where": "Speak Up: the management question, and what Send waits for",
+      "check": "every word this screen draws has its own Spanish",
+      "what": "",
+      "why": "None of the words this build brings in has a Spanish entry yet. Commit three writes them."
+    },
+    {
+      "where": "Speak Up: the management question, and what Send waits for",
+      "check": "Send waits for the question to be answered",
+      "what": "",
+      "why": "Send goes live as soon as the box has words, because there is no question for it to wait on."
+    },
+    {
+      "where": "Speak Up: the management question, and what Send waits for",
+      "check": "with Yes and nobody picked, Send waits",
+      "what": "",
+      "why": "Nothing on the screen makes picking a person required, because neither the question nor the picker is drawn."
+    },
+    {
+      "where": "Speak Up: the management question, and what Send waits for",
+      "check": "with Yes, the picker asks for at least one person",
+      "what": "",
+      "why": "The picker's label does not change with the answer, because there is no picker."
+    },
+    {
+      "where": "Speak Up: the management question, and what Send waits for",
+      "check": "with No, the picker is optional",
+      "what": "",
+      "why": "The picker's label does not change with the answer, because there is no picker."
+    },
+    {
+      "where": "Speak Up: the management question, and what Send waits for",
+      "check": "No with nobody picked sends the new body",
+      "what": "",
+      "why": "The post sends only summary, and names the person it is about as subject_user_id when one is picked."
+    },
+    {
+      "where": "Speak Up: searching, picking, removing, and a list that will not load",
+      "check": "searching narrows the list to the name typed",
+      "what": "",
+      "why": "There is no search box. The screen offers three fixed names and no way to look for anyone else."
+    },
+    {
+      "where": "Speak Up: searching, picking, removing, and a list that will not load",
+      "check": "a name nobody has says so",
+      "what": "",
+      "why": "There is nothing to search, so there is no line for a search that finds no one."
+    },
+    {
+      "where": "Speak Up: searching, picking, removing, and a list that will not load",
+      "check": "a name picked shows as a chip",
+      "what": "",
+      "why": "A name picked fills in a radio button. Nothing is drawn above the list."
+    },
+    {
+      "where": "Speak Up: searching, picking, removing, and a list that will not load",
+      "check": "a second name picked shows beside it",
+      "what": "",
+      "why": "Only one name can be picked at a time, because the list is a radio list."
+    },
+    {
+      "where": "Speak Up: searching, picking, removing, and a list that will not load",
+      "check": "the report names both people",
+      "what": "",
+      "why": "The post carries at most one person, under the old name, so two people cannot be sent."
+    },
+    {
+      "where": "Speak Up: searching, picking, removing, and a list that will not load",
+      "check": "a chip comes off on a tap",
+      "what": "",
+      "why": "There are no chips to take off."
+    },
+    {
+      "where": "Speak Up: searching, picking, removing, and a list that will not load",
+      "check": "a list that will not load says so in one line",
+      "what": "",
+      "why": "The screen loads a different list, and its line for a list that will not load names the three people instead of the staff."
+    },
+    {
+      "where": "Speak Up: every refusal, word for word",
+      "check": "the refusal is drawn word for word: Pick at least one person this is about",
+      "what": "",
+      "why": "A refused report says Your report was not sent. Please try again. The API's own sentence is read only on a 503."
+    },
+    {
+      "where": "Speak Up: every refusal, word for word",
+      "check": "the refusal is drawn word for word: You cannot pick yourself",
+      "what": "",
+      "why": "A refused report says Your report was not sent. Please try again. The API's own sentence is read only on a 503."
+    },
+    {
+      "where": "Speak Up: every refusal, word for word",
+      "check": "the refusal is drawn word for word: One of the people picked is not on the staff list",
+      "what": "",
+      "why": "A refused report says Your report was not sent. Please try again. The API's own sentence is read only on a 503."
+    },
+    {
+      "where": "Speak Up: every refusal, word for word",
+      "check": "the refusal is drawn word for word: Pick up to 10 people",
+      "what": "",
+      "why": "A refused report says Your report was not sent. Please try again. The API's own sentence is read only on a 503."
     }
   ]
 }

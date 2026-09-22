@@ -4,9 +4,9 @@
 // when a word changes, and then on what the screen said.
 
 const { openApp, letSheetOffer } = require("./browser");
-const { say } = require("./words");
+const { say, ES } = require("./words");
 const { openTab, clickText, startForm } = require("./screens");
-const { TIME_OFF_REFUSALS, timeOffRow, SECOND_PERSON, formP } = require("./stub");
+const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, STAFF } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -44,6 +44,8 @@ const tapLabel = (page, label) => page.evaluate((l) => {
 }, label);
 
 const bodyText = (page) => page.evaluate(() => document.body.innerText.replace(/\s+/g, " "));
+// What a box still holds, read back off the screen.
+const boxText = (page, selector) => page.evaluate((sel) => { const e = document.querySelector(sel); return e ? e.value : null; }, selector);
 const sheetText = (page) => page.evaluate(() => {
   const d = Array.from(document.querySelectorAll("div")).filter((x) => {
     const s = getComputedStyle(x);
@@ -67,6 +69,61 @@ const answerEveryBox = (page) => page.evaluate(() => {
     e.dispatchEvent(new Event("input", { bubbles: true }));
   });
 });
+
+// Every word Speak Up draws that Step 109 brings in. A word with no
+// Spanish entry falls back to English in the app and in say() alike, so
+// a case written with say() would pass on a screen that was never
+// translated. This list is read against the table itself instead.
+const SPEAKUP_WORDS = [
+  "Is this about someone in management?",
+  "Anyone you pick below will not be able to see this report.",
+  "Who is involved?",
+  "Optional",
+  "Who is it about? Pick at least one person.",
+  "Search by name",
+  "Remove {name}",
+  "No one matches that name.",
+  "The staff list did not load. Try again in a minute.",
+  "Yes",
+  "No",
+].concat(HR_CASE_REFUSALS);
+const untranslated = (list) => list.filter(w => !Object.prototype.hasOwnProperty.call(ES, w));
+
+// Is Send off, which is what waiting for an answer looks like.
+const sendIsOff = (page, language) => page.evaluate((want) => {
+  const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.textContent.trim() === want);
+  return !b || b.disabled;
+}, say("Send", language));
+
+// Is a name offered on the picker's list, read without tapping it.
+// The header draws the signed in person's name too, so only a button
+// inside the screen counts.
+const nameIsOffered = (page, name) => page.evaluate((want) => Array.from(document.querySelectorAll(".sp-content button"))
+  .some(x => x.textContent.trim() === want), name);
+
+// One name on the picker's list, tapped.
+const pickPerson = (page, name) => page.evaluate((want) => {
+  const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.textContent.trim() === want);
+  if (b) b.click();
+  return !!b;
+}, name);
+
+// The chips above the search box, each one a button that takes its own
+// name off, which is what its label says.
+const chipLabel = (language) => say("Remove {name}", language).split("{")[0].trim();
+const chipCount = (page, language) => page.evaluate((mark) => Array.from(document.querySelectorAll(".sp-content button"))
+  .filter(b => (b.getAttribute("aria-label") || "").indexOf(mark) === 0).length, chipLabel(language));
+const removeEveryChip = async (page, language) => {
+  for (let i = 0; i < 12; i += 1) {
+    const went = await page.evaluate((mark) => {
+      const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => (x.getAttribute("aria-label") || "").indexOf(mark) === 0);
+      if (b) { b.click(); return true; }
+      return false;
+    }, chipLabel(language));
+    if (!went) return;
+    await pause(page, 200);
+  }
+};
 
 const lastSent = (stub, method, pathLike) => { const all = sent(stub, method, pathLike); return all.length ? all[all.length - 1] : null; };
 
@@ -538,31 +595,159 @@ const JOURNEYS = [
   },
   {
     id: "speakup",
-    label: "Speak Up, sent and refused",
+    label: "Speak Up: the management question, and what Send waits for",
     run: async (open, language, expect) => {
       const app = await open({});
       try {
         await openTab(app.page, "speakup", language);
-        await pause(app.page, 900);
-        await type(app.page, ".sp-content textarea", "An invented account of something that needs looking at.");
+        await pause(app.page, 1200);
+        const written = "An invented account of something that needs looking at.";
+        await type(app.page, ".sp-content textarea", written);
+        await pause(app.page, 400);
+
+        // The question is asked, and Send waits for its answer.
+        let text = await bodyText(app.page);
+        expect("the screen asks whether it is about someone in management",
+          text.indexOf(say("Is this about someone in management?", language)) !== -1, text.slice(0, 300));
+        expect("it says a person picked cannot see the report",
+          text.indexOf(say("Anyone you pick below will not be able to see this report.", language)) !== -1, text.slice(0, 300));
+        expect("the three names are gone",
+          text.indexOf(say("A co-worker, or no one in particular", language)) === -1, text.slice(0, 300));
+        expect("every word this screen draws has its own Spanish",
+          untranslated(SPEAKUP_WORDS).length === 0, "no Spanish entry: " + untranslated(SPEAKUP_WORDS).join(", "));
+        expect("Send waits for the question to be answered", await sendIsOff(app.page, language), "Send is live with no answer to the question");
+
+        // Yes: Send waits for a person as well.
+        await clickText(app.page, say("Yes", language));
+        await pause(app.page, 500);
+        expect("with Yes and nobody picked, Send waits", await sendIsOff(app.page, language), "Send is live with Yes and nobody picked");
+        expect("with Yes, the picker asks for at least one person",
+          (await bodyText(app.page)).indexOf(say("Who is it about? Pick at least one person.", language)) !== -1,
+          (await bodyText(app.page)).slice(0, 300));
+        await pickPerson(app.page, STAFF[0].name);
+        await pause(app.page, 500);
+        expect("with Yes and one person picked, Send is live", !(await sendIsOff(app.page, language)), "Send is still off");
+
+        // No: the picker is optional, and the report goes with nobody named.
+        await clickText(app.page, say("No", language));
+        await pause(app.page, 500);
+        text = await bodyText(app.page);
+        expect("with No, the picker is optional",
+          text.indexOf(say("Who is involved?", language)) !== -1 && text.indexOf(say("Optional", language)) !== -1, text.slice(0, 300));
+        await removeEveryChip(app.page, language);
         await pause(app.page, 400);
         await clickText(app.page, say("Send", language));
-        await pause(app.page, 1300);
+        await pause(app.page, 1400);
         const one = lastSent(app.stub, "POST", "/api/hr-cases");
-        expect("Speak Up sends what was written", one && one.body, one ? JSON.stringify(one.body).slice(0, 120) : "nothing sent");
+        expect("No with nobody picked sends the new body",
+          !!one && !!one.body && one.body.summary === written && one.body.aboutManagement === false
+            && Array.isArray(one.body.subjectUserIds) && one.body.subjectUserIds.length === 0,
+          JSON.stringify(one && one.body));
+        expect("nothing is sent under the old name", !one || one.body.subject_user_id === undefined, JSON.stringify(one && one.body));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "speakuppicker",
+    label: "Speak Up: searching, picking, removing, and a list that will not load",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "speakup", language);
+        await pause(app.page, 1200);
+        await type(app.page, ".sp-content textarea", "An invented account.");
+        await clickText(app.page, say("No", language));
+        await pause(app.page, 500);
 
-        const app2 = await open({});
+        // The route leaves the caller out, and the screen draws what the
+        // route sends. A person who could pick themselves would file a
+        // report that locks them out of it.
+        expect("the signed in person is not on the list",
+          !(await nameIsOffered(app.page, PERSON.firstName + " " + PERSON.lastName)), "the person's own name is offered on the picker");
+
+        // Searching narrows the list.
+        const wanted = STAFF[2];
+        await type(app.page, ".sp-content input[type=\"text\"]", wanted.name.split(" ")[1]);
+        await pause(app.page, 500);
+        let text = await bodyText(app.page);
+        expect("searching narrows the list to the name typed",
+          text.indexOf(wanted.name) !== -1 && text.indexOf(STAFF[0].name) === -1, text.slice(0, 300));
+
+        // A name nobody has.
+        await type(app.page, ".sp-content input[type=\"text\"]", "Zzz");
+        await pause(app.page, 500);
+        expect("a name nobody has says so",
+          (await bodyText(app.page)).indexOf(say("No one matches that name.", language)) !== -1,
+          (await bodyText(app.page)).slice(0, 300));
+
+        // Picking, then removing.
+        await type(app.page, ".sp-content input[type=\"text\"]", "");
+        await pause(app.page, 400);
+        await pickPerson(app.page, wanted.name);
+        await pause(app.page, 500);
+        expect("a name picked shows as a chip", await chipCount(app.page, language) === 1, "chips on screen: " + (await chipCount(app.page, language)));
+        await pickPerson(app.page, STAFF[4].name);
+        await pause(app.page, 500);
+        expect("a second name picked shows beside it", await chipCount(app.page, language) === 2, "chips on screen: " + (await chipCount(app.page, language)));
+
+        // Both chips taken off again, then picked again, so what is sent
+        // is what is on the screen at the end rather than everything
+        // ever tapped.
+        const before = await chipCount(app.page, language);
+        await removeEveryChip(app.page, language);
+        await pause(app.page, 400);
+        const after = await chipCount(app.page, language);
+        expect("a chip comes off on a tap", before === 2 && after === 0, "chips before: " + before + ", after: " + after);
+        await pickPerson(app.page, wanted.name);
+        await pause(app.page, 400);
+        await pickPerson(app.page, STAFF[4].name);
+        await pause(app.page, 500);
+        await clickText(app.page, say("Send", language));
+        await pause(app.page, 1400);
+        const two = lastSent(app.stub, "POST", "/api/hr-cases");
+        expect("the report names both people",
+          !!two && Array.isArray(two.body.subjectUserIds) && two.body.subjectUserIds.length === 2
+            && two.body.subjectUserIds.indexOf(wanted.id) !== -1 && two.body.subjectUserIds.indexOf(STAFF[4].id) !== -1,
+          JSON.stringify(two && two.body));
+
+        // A list that will not load.
+        const app3 = await open({ stubOptions: {} });
         try {
-          await openTab(app2.page, "speakup", language);
-          await pause(app2.page, 900);
-          app2.stub.state.refuse["POST /api/hr-cases"] = { status: 500, error: "Something went wrong on our end. Try again in a minute." };
-          await type(app2.page, ".sp-content textarea", "Another invented account.");
-          await pause(app2.page, 400);
-          await clickText(app2.page, say("Send", language));
-          await pause(app2.page, 1300);
-          const said = await bodyText(app2.page);
-          expect.notYet("what a refused Speak Up says, which arrives as a toast");
-        } finally { await app2.context.close(); }
+          app3.stub.state.refuse["GET /api/hr/cases/people"] = { status: 500, error: "Something went wrong on our end. Try again in a minute." };
+          await openTab(app3.page, "speakup", language);
+          await pause(app3.page, 1400);
+          expect("a list that will not load says so in one line",
+            (await bodyText(app3.page)).indexOf(say("The staff list did not load. Try again in a minute.", language)) !== -1,
+            (await bodyText(app3.page)).slice(0, 300));
+        } finally { await app3.context.close(); }
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "speakuprefusals",
+    label: "Speak Up: every refusal, word for word",
+    run: async (open, language, expect, extra) => {
+      // One screen answers every refusal in turn, which also proves what
+      // was written survives each one and Send comes back.
+      const app = await open({});
+      try {
+        await openTab(app.page, "speakup", language);
+        await pause(app.page, 1200);
+        const written = "An invented account.";
+        await type(app.page, ".sp-content textarea", written);
+        await clickText(app.page, say("No", language));
+        await pause(app.page, 400);
+        for (const said of HR_CASE_REFUSALS) {
+          app.stub.state.refuse["POST /api/hr-cases"] = { status: 400, error: said };
+          await clickText(app.page, say("Send", language));
+          await pause(app.page, 1400);
+          const text = await bodyText(app.page);
+          const drawn = text.indexOf(say(said, language)) !== -1;
+          expect("the refusal is drawn word for word: " + said, drawn, text.slice(0, 300));
+          extra.refusalsShown += drawn ? 1 : 0;
+          expect("what was written is still on the screen after: " + said,
+            (await boxText(app.page, ".sp-content textarea")) === written, "the box now holds " + JSON.stringify(await boxText(app.page, ".sp-content textarea")));
+        }
       } finally { await app.context.close(); }
     },
   },
@@ -824,7 +1009,7 @@ async function runJourneys(browser, base, opts) {
       if (covered.indexOf(journey.id) === -1) covered.push(journey.id);
     }
   }
-  return { rows: rows, covered: covered, journeys: JOURNEYS.length, refusalsShown: extra.refusalsShown, refusalsTotal: TIME_OFF_REFUSALS.length * LANGUAGES.length, gaps: gaps };
+  return { rows: rows, covered: covered, journeys: JOURNEYS.length, refusalsShown: extra.refusalsShown, refusalsTotal: (TIME_OFF_REFUSALS.length + HR_CASE_REFUSALS.length) * LANGUAGES.length, gaps: gaps };
 }
 
 module.exports = { runJourneys, JOURNEYS };
