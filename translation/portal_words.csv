@@ -18,6 +18,7 @@ Confirm PIN,Confirmar PIN,Sign in
 Confirm PIN *,Confirmar PIN *,Sign in
 Confirm your badge number and choose your 4-digit PIN.,Confirme su número de empleado y elija su PIN de 4 dígitos.,Sign in
 Contact your supervisor to have a new link sent.,Hable con su supervisor para que le envíen un enlace nuevo.,Sign in
+Could not reach OCSA. Check your connection and try again.,No se pudo conectar con OCSA. Revise su conexión e intente de nuevo.,Sign in
 Dark Mode,Modo oscuro,Sign in
 Email Address,Correo electrónico,Sign in
 Email Address *,Correo electrónico *,Sign in
@@ -437,6 +438,7 @@ Write what happened in your own words. One sentence is enough.,Escriba lo que pa
 You can write up to {max} characters.,Puede escribir hasta {max} caracteres.,Speak Up
 Your reference,Su número de referencia,Speak Up
 {used} of {max} characters used.,{used} de {max} caracteres usados.,Speak Up
+Add row,Agregar fila,Forms
 Answered,Respondida,Forms
 Back,Atrás,"Forms, Profile"
 Check this answer,Revise esta respuesta,Forms
@@ -454,22 +456,29 @@ No forms to fill right now.,No hay formularios para llenar ahora.,Forms
 Not answered,Sin responder,Forms
 Not saved yet. Check your signal and tap Next again.,Todavía no se guardó. Revise su señal y toque Siguiente otra vez.,Forms
 Not sent yet. Check your signal and tap Submit report again.,Todavía no se envió. Revise su señal y toque Enviar reporte otra vez.,Forms
+Not signed,Sin firmar,Forms
+Not signed yet. Check your signal and tap Sign again.,Todavía no se firmó. Revise su señal y toque Firmar otra vez.,Forms
 Not yet,Todavía no,Forms
 Opening,Abriendo,Forms
 Report,Reportar,"Forms, Bar and More"
+Remove row,Quitar fila,Forms
 Report sent. The people who handle these reports have been told.,Reporte enviado. Ya se avisó a las personas que atienden estos reportes.,Forms
 Required,Obligatorio,Forms
 Review,Revisar,Forms
+Row {n},Fila {n},Forms
 Saving,Guardando,Forms
 Section {n},Sección {n},Forms
 Section {n} of {total},Sección {n} de {total},Forms
 Send it,Enviarlo,Forms
 Send this report? You cannot change it after it is sent.,¿Enviar este reporte? No lo podrá cambiar después de enviarlo.,Forms
 Sending,Enviando,Forms
+Sign,Firmar,Forms
+Signed by {name} on {date} at {time},Firmado por {name} el {date} a las {time},Forms
 Start report,Comenzar reporte,Forms
 These still need an answer,Estas todavía necesitan respuesta,Forms
 This question cannot be answered here yet. Your supervisor will finish it.,Esta pregunta todavía no se puede responder aquí. Su supervisor la completará.,Forms
 This report was already sent.,Este reporte ya se había enviado.,Forms
+This table is full.,Esta tabla está llena.,Forms
 Untitled report,Reporte sin título,Forms
 {answered} answered,{answered} respondidas,Forms
 "{answered} answered, {remaining} to go","{answered} respondidas, faltan {remaining}",Forms
@@ -547,9 +556,12 @@ Zip,Código postal,Profile
 A photo could not be read. Upload it again and resend it.,Una foto no se pudo leer. Súbala otra vez y vuelva a enviarla.,"API message, shown word for word"
 A photo is larger than 5 MB. Send a smaller photo.,Una foto pesa más de 5 MB. Envíe una foto más pequeña.,"API message, shown word for word"
 "A photo must be a JPEG, PNG or WebP image.","La foto debe ser una imagen JPEG, PNG o WebP.","API message, shown word for word"
+A sign-off is made with its own button,La firma se hace con su propio botón,"API message, shown word for word"
 Choose a type of time off,Elija un tipo de tiempo libre,"API message, shown word for word"
 Dates must be YYYY-MM-DD,Las fechas deben ser YYYY-MM-DD,"API message, shown word for word"
 Draft not found,No se encontró el reporte,"API message, shown word for word"
+Enter a real date,Escriba una fecha real,"API message, shown word for word"
+Enter a real time,Escriba una hora real,"API message, shown word for word"
 Form not found,No se encontró el formulario,"API message, shown word for word"
 Hours must be a number from 0 to 999.99,Las horas deben ser un número de 0 a 999.99,"API message, shown word for word"
 Keep the reason under 1000 characters,Escriba el motivo con menos de 1000 caracteres,"API message, shown word for word"
@@ -565,12 +577,19 @@ Session expired,Su sesión venció,"API message, shown word for word"
 shortcuts must be four different tab ids,los accesos directos deben ser cuatro pestañas distintas,"API message, shown word for word"
 Some answers are not valid,Algunas respuestas no son válidas,"API message, shown word for word"
 "textSize must be standard, large, xlarge or largest","el tamaño del texto debe ser standard, large, xlarge o largest","API message, shown word for word"
+That column is not on this form,Esa columna no está en este formulario,"API message, shown word for word"
+That is not a sign-off on this form,Eso no es una firma de este formulario,"API message, shown word for word"
 That photo was not uploaded by you. Upload the photo again and resend it.,Esa foto no la subió usted. Suba la foto otra vez y vuelva a enviarla.,"API message, shown word for word"
+That row is not on this form,Esa fila no está en este formulario,"API message, shown word for word"
+That table has no room for another row,Esa tabla no tiene espacio para otra fila,"API message, shown word for word"
 The last day cannot be before the first day,El último día no puede ser anterior al primer día,"API message, shown word for word"
 theme must be light or dark,el tema debe ser light o dark,"API message, shown word for word"
 These fields cannot be answered here,Estos campos no se pueden responder aquí,"API message, shown word for word"
+This form is not available to you,Este formulario no está disponible para usted,"API message, shown word for word"
+This part is already signed,Esta parte ya está firmada,"API message, shown word for word"
 This report is already submitted,Este reporte ya está enviado,"API message, shown word for word"
 This report was already submitted,Este reporte ya se había enviado,"API message, shown word for word"
+This report was voided,Este reporte fue anulado,"API message, shown word for word"
 This request was already approved,Esta solicitud ya estaba aprobada,"API message, shown word for word"
 This request was already cancelled,Esta solicitud ya estaba cancelada,"API message, shown word for word"
 This request was already denied,Esta solicitud ya estaba denegada,"API message, shown word for word"
@@ -580,6 +599,7 @@ Time off can start at most one year ahead,El tiempo libre puede comenzar un año
 Upload failed,No se pudo subir el archivo,"API message, shown word for word"
 User not found,No se encontró el usuario,"API message, shown word for word"
 You already have time off requested or approved for those days,Ya tiene tiempo libre solicitado o aprobado para esos días,"API message, shown word for word"
+You cannot sign this part of the form,Usted no puede firmar esta parte del formulario,"API message, shown word for word"
 Chat,Mensajes,Bar and More
 Help,Ayuda,Bar and More
 Inspect,Inspección,Bar and More

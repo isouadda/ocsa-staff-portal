@@ -280,6 +280,41 @@
       "check": "contrast",
       "what": "\"#2ECC71 on #EEFBF3\"",
       "why": "Green on light mode's green wash. 1.97 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Site walk, the walk",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
+    },
+    {
+      "where": "Site walk, every area",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
+    },
+    {
+      "where": "Site walk, the rooms",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
+    },
+    {
+      "where": "Site walk, sign it",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
+    },
+    {
+      "where": "Site walk, review",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
     }
   ]
 }

@@ -5,8 +5,8 @@
 
 const { openApp, letSheetOffer } = require("./browser");
 const { say } = require("./words");
-const { openTab, clickText } = require("./screens");
-const { TIME_OFF_REFUSALS, timeOffRow, SECOND_PERSON } = require("./stub");
+const { openTab, clickText, startForm } = require("./screens");
+const { TIME_OFF_REFUSALS, timeOffRow, SECOND_PERSON, formP } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -57,6 +57,17 @@ const toastText = (page) => page.evaluate(() => {
 });
 
 const sent = (stub, method, pathLike) => stub.state.calls.filter(c => c.method === method && c.path.indexOf(pathLike) === 0);
+// Every box on the page, filled with something the API will take.
+const answerEveryBox = (page) => page.evaluate(() => {
+  Array.from(document.querySelectorAll(".sp-content input, .sp-content textarea")).forEach((e, i) => {
+    if (e.type === "checkbox" || e.type === "radio" || e.type === "file") return;
+    const proto = e.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+    const value = e.type === "date" ? "2026-10-01" : e.type === "time" ? "09:00" : "An invented answer " + i;
+    Object.getOwnPropertyDescriptor(proto, "value").set.call(e, value);
+    e.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+});
+
 const lastSent = (stub, method, pathLike) => { const all = sent(stub, method, pathLike); return all.length ? all[all.length - 1] : null; };
 
 // A photo the browser will accept, made in the page so no file is read
@@ -89,6 +100,23 @@ const JOURNEYS = [
         await pause(app.page, 900);
         expect("a wrong PIN is refused", !!lastSent(app.stub, "POST", "/api/auth/login"), "no login was sent");
         expect("a wrong PIN says so", /did not match|no coinciden/i.test(await bodyText(app.page)), await bodyText(app.page));
+
+        // A sign-in that never reaches OCSA at all. The PIN is fine, and
+        // the line about a sign-in not matching is for the API's own
+        // refusal, so it must not show here.
+        // The toast before this one is still up, and its own timer would
+        // take this one down with it, so it is let go first.
+        await app.page.waitForFunction(() => !/did not match|no coinciden/i.test(document.body.innerText), { timeout: 5000 }).catch(() => {});
+        app.stub.state.offline = true;
+        await type(app.page, 'input[type="password"]', "4907");
+        await clickText(app.page, say("Sign In", language));
+        await pause(app.page, 900);
+        const nowhere = await bodyText(app.page);
+        expect("a sign-in that cannot reach OCSA says so",
+          nowhere.indexOf(say("Could not reach OCSA. Check your connection and try again.", language)) !== -1, nowhere.slice(0, 260));
+        expect("a sign-in that cannot reach OCSA leaves the PIN out of it",
+          !/did not match|no coinciden/i.test(nowhere), nowhere.slice(0, 260));
+        app.stub.state.offline = false;
 
         app.stub.state.refuse["POST /api/auth/login"] = { status: 423, error: "This account is locked. Ask your supervisor to unlock it." };
         await type(app.page, 'input[type="password"]', "4907");
@@ -366,6 +394,145 @@ const JOURNEYS = [
         await pause(app.page, 1200);
         const text = await bodyText(app.page);
         expect.notYet("a report submit refused for a missing answer, which needs the form filled in first");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "formptable",
+    label: "A table a person adds rows to: three rows, a fourth refused, one taken out, a card folded and opened",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        const started = await startForm(app.page, formP(language).title);
+        expect("the second form opens from its own card", started, "no card on the Forms screen carried its title");
+        // Past the questions and the checklist, to the table.
+        await clickText(app.page, say("Next", language));
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 700);
+
+        const addRow = say("Add row", language);
+        const removeRow = say("Remove row", language);
+        let text = await bodyText(app.page);
+        expect("the table offers a row to add", text.indexOf(addRow) !== -1, text.slice(0, 200));
+
+        // Three rows, then the fourth refused on screen.
+        for (let i = 0; i < 3; i += 1) { await clickText(app.page, addRow); }
+        text = await bodyText(app.page);
+        const rowWord = say("Row {n}", language).replace("{n}", "3");
+        expect("a third row is there", text.indexOf(rowWord) !== -1, text.slice(0, 260));
+        expect("a fourth row is refused on the screen itself",
+          text.indexOf(say("This table is full.", language)) !== -1 && text.indexOf(addRow) === -1, text.slice(0, 260));
+
+        // One row taken out.
+        const before = (text.match(new RegExp(say("Row {n}", language).replace("{n}", "\\d"), "g")) || []).length;
+        await clickText(app.page, removeRow);
+        text = await bodyText(app.page);
+        const after = (text.match(new RegExp(say("Row {n}", language).replace("{n}", "\\d"), "g")) || []).length;
+        expect("a row comes out again", after === before - 1, "rows went from " + before + " to " + after);
+
+        // A card folds once its required cells are filled, and opens on a tap.
+        await answerEveryBox(app.page);
+        await pause(app.page, 600);
+        const folded = await app.page.evaluate(() => document.querySelectorAll(".sp-content input").length);
+        await clickText(app.page, say("Row {n}", language).replace("{n}", "1"));
+        await pause(app.page, 500);
+        const opened = await app.page.evaluate(() => document.querySelectorAll(".sp-content input").length);
+        expect("a filled card folds to one line and opens on a tap", opened > folded, "boxes on screen went from " + folded + " to " + opened);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "formpchecklist",
+    label: "A checklist, and a sign-off that waits for the API",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, formP(language).title);
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 700);
+
+        // Every item on the checklist, by the name the form gives it.
+        const checklist = formP(language).fields.find(f => f.key === "check");
+        let text = await bodyText(app.page);
+        checklist.rows.forEach((row) => {
+          expect("the checklist names every item", text.indexOf(row.label) !== -1, row.label + " is not on: " + text.slice(0, 220));
+        });
+        const pass = checklist.columns[0].options[0].label;
+        const picks = await app.page.evaluate((want) => {
+          const on = Array.from(document.querySelectorAll(".sp-content button")).filter(b => b.textContent.trim() === want);
+          on.forEach(b => b.click());
+          return on.length;
+        }, pass);
+        expect("every item on the checklist can be answered", picks >= 3, "buttons reading the first choice: " + picks);
+        // Answers go up on Next, the way this screen has always saved.
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        const saved = lastSent(app.stub, "PATCH", "/api/forms/drafts/");
+        expect("the checklist saves as one value keyed by row",
+          !!saved && !!saved.body && !!saved.body.answers && !!saved.body.answers.check
+            && typeof saved.body.answers.check === "object" && !Array.isArray(saved.body.answers.check),
+          JSON.stringify(saved && saved.body));
+
+        // The sign-off: one press, one request, and no stamp before the answer.
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 700);
+        text = await bodyText(app.page);
+        // The words a stamp starts with. The person's name is in the
+        // header on every screen, so it says nothing about a sign-off.
+        const stampStarts = say("Signed by {name} on {date} at {time}", language).split("{")[0].trim();
+        // The button itself, counted rather than looked for in the page's
+        // words, where Sign is also the start of Signed by.
+        const signButtons = () => app.page.evaluate((want) => Array.from(document.querySelectorAll("button")).filter(b => b.textContent.trim() === want).length, say("Sign", language));
+        expect("the sign-off draws its own button", text.indexOf(say("Sign", language)) !== -1, text.slice(0, 260));
+        expect("the supervisor's sign-off is not drawn here",
+          text.indexOf(formP(language).fields.find(f => f.key === "managerSign").label) === -1, text.slice(0, 260));
+
+        // A refusal first: nothing is stamped on the person's behalf, and
+        // the API's own words reach the screen.
+        const refusal = "You cannot sign this part of the form";
+        app.stub.state.refuse["POST /api/forms/responses/draft-two/signoff"] = { status: 403, body: { error: refusal }, once: true };
+        await clickText(app.page, say("Sign", language));
+        await pause(app.page, 900);
+        text = await bodyText(app.page);
+        expect("a refused sign-off says what the API said, word for word",
+          text.indexOf(say(refusal, language)) !== -1, text.slice(0, 300));
+        expect("a refused sign-off stamps nothing",
+          text.indexOf(stampStarts) === -1 && (await signButtons()) === 1, text.slice(0, 300));
+
+        // Then the real one.
+        await clickText(app.page, say("Sign", language));
+        await pause(app.page, 900);
+        const signed = lastSent(app.stub, "POST", "/api/forms/responses/");
+        expect("one press sends one sign-off", !!signed && signed.body && signed.body.key === "leadSign", JSON.stringify(signed && signed.body));
+        const asked = app.stub.state.calls.filter(c => /\/signoff$/.test(c.path)).length;
+        expect("one press sends one request, not two", asked === 2, "requests to the sign-off route: " + asked);
+        text = await bodyText(app.page);
+        expect("the stamp shows the person and the time the API answered with",
+          text.indexOf(stampStarts) !== -1 && (await signButtons()) === 0, text.slice(0, 300));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "formpmissing",
+    label: "A half filled row is named in the missing list",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, formP(language).title);
+        // Straight to the review page, leaving every answer out.
+        for (let i = 0; i < 4; i += 1) await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        const text = await bodyText(app.page);
+        const check = formP(language).fields.find(f => f.key === "check");
+        expect("the missing list names the question by its label", text.indexOf(check.label) !== -1, text.slice(0, 320));
+        expect("the missing list names the rows still to answer",
+          text.indexOf(check.rows[0].label) !== -1 && text.indexOf(check.rows[1].label) !== -1, text.slice(0, 320));
       } finally { await app.context.close(); }
     },
   },

@@ -213,9 +213,10 @@ const INSPECT = function (args) {
     const one = (text) => text.length < 3 || spanish.has(text) || ok.has(text) || served.has(plain(text))
       || counted.test(text) || patterns.some(re => re.test(text));
     // A line built by joining a value to a word, like a building and its
-    // floor, is judged piece by piece.
+    // floor, or a question to the rows it is still short, is judged piece
+    // by piece.
     const strip = (v) => v.replace(/^[\s|>\u00b7\u2013-]+/, "").replace(/[\s|>\u00b7\u2013-]+$/, "");
-    const spoken = (text) => one(text) || strip(text).split(/\s*[>|\u00b7]\s*|\s+[-\u2013]\s+|,\s+/).every(part => !part.trim() || one(part.trim()));
+    const spoken = (text) => one(text) || strip(text).split(/\s*[>|\u00b7]\s*|\s+[-\u2013]\s+|,\s+|:\s+/).every(part => !part.trim() || one(part.trim()));
 
     const walk = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, null);
     const hits = new Set();

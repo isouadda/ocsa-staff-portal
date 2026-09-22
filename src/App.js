@@ -1001,7 +1001,8 @@ export default function OCSAStaffPortal() {
       showToast(tr("Welcome, {name}", { name: me.firstName }));
     } catch (err) {
       const said = err && err.body && err.body.error ? String(err.body.error) : "";
-      showToast(said || tr("That sign-in did not match. Check your badge, phone or email and your PIN."), "error");
+      if (!said && wentNowhere(err)) showToast(tr(ERR_OFFLINE), "error");
+      else showToast(said || tr("That sign-in did not match. Check your badge, phone or email and your PIN."), "error");
     }
     setLoading(false);
   };
@@ -1561,6 +1562,11 @@ function LangPicker({ value, onChange, t }) {
 
 const fmtExpiry = (v) => { try { return new Date(v).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; } };
 const ERR_GENERIC = "Something went wrong on our end. Try again in a minute.";
+// A request that never reached OCSA carries no status. The line about a
+// sign-in not matching is for the API's own refusal, so a signal that
+// dropped is never blamed on the person's PIN.
+const ERR_OFFLINE = "Could not reach OCSA. Check your connection and try again.";
+const wentNowhere = (err) => !!err && (err.status === undefined || err.status === null);
 const ERR_PIN_MISMATCH = "The two PINs do not match. Type the same 4 digits in both fields.";
 const MSG_LINK_INVALID = "This link is no longer valid. Links expire, and each one can only be used once.";
 
@@ -1583,7 +1589,7 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
     setPhase("checking");
     api("/api/auth/activate/" + encodeURIComponent(token), { noAuthEvent: true })
       .then(d => { if (!alive) return; setInfo(d); setLocale(d.preferredLanguage === "es" ? "es" : "en"); setPhase("form"); })
-      .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(ERR_GENERIC) }); setPhase("error"); } });
+      .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(wentNowhere(e) ? ERR_OFFLINE : ERR_GENERIC) }); setPhase("error"); } });
     return () => { alive = false; };
   }, [token, attempt]);
 
@@ -1709,7 +1715,7 @@ function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
     } catch (err) {
       if (err.code === "TOKEN_INVALID") { setPhase("invalid"); return; }
       if (err.status === 400) { setErrs({ pin: tr(err.message) }); setPhase("form"); return; }
-      setFail({ from: "post", msg: tr(ERR_GENERIC) }); setPhase("error");
+      setFail({ from: "post", msg: tr(wentNowhere(err) ? ERR_OFFLINE : ERR_GENERIC) }); setPhase("error");
     }
   };
   const retry = () => { setErrs({}); if (fail.from === "get") setAttempt(a => a + 1); else setPhase("form"); };
@@ -2657,6 +2663,17 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
 const agentField = (o, keys, fallback) => { for (const k of keys) { if (o && o[k] !== undefined && o[k] !== null) return o[k]; } return fallback; };
 const agentList = (d, keys) => { if (Array.isArray(d)) return d; for (const k of keys) { if (d && Array.isArray(d[k])) return d[k]; } return []; };
 const agentKeyWords = (k) => String(k).replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/^\w/, c => c.toUpperCase());
+// One line of a missing list. The API names the question and, for a
+// table or a checklist, the rows still short an answer. A refusal that
+// carries only keys reads the way it always has.
+const agentMissingLine = (m) => {
+  if (m && typeof m === "object") {
+    const label = m.label ? String(m.label) : agentKeyWords(m.key || "");
+    const rows = Array.isArray(m.rows) ? m.rows.filter(Boolean) : [];
+    return rows.length > 0 ? label + ": " + rows.join(", ") : label;
+  }
+  return agentKeyWords(m);
+};
 const agentDraftId = (d) => agentField(d, ["id", "formResponseId", "form_response_id"], null);
 // No fallback here: the word a missing name falls back to is drawn on
 // screen, so it is translated at each call site instead.
@@ -2900,7 +2917,14 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
     if (!formResponse || submitBusy) return;
     setSubmitBusy(true); setMissing([]);
     try { await api("/api/agent/drafts/" + formResponse.id + "/submit?locale=" + locale, { method: "POST", token }); setFormResponse(null); setSubmitted(true); loadDrafts(); }
-    catch (err) { const b = err.body || {}; const keys = agentList(agentField(b, ["missing", "missingKeys", "missingFields", "missing_keys", "missing_fields"], []), []); setMissing(keys.length > 0 ? keys.map(agentKeyWords) : [tr(err.message)]); }
+    catch (err) {
+      const b = err.body || {};
+      // The named list wins where the API sends one, since it carries the
+      // question's own words and the rows it is short.
+      const named = agentList(agentField(b, ["missingFields", "missing_fields"], []), []);
+      const keys = named.length > 0 ? named : agentList(agentField(b, ["missing", "missingKeys", "missing_keys"], []), []);
+      setMissing(keys.length > 0 ? keys.map(agentMissingLine) : [tr(err.message)]);
+    }
     setSubmitBusy(false);
   };
 
@@ -3659,6 +3683,7 @@ function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize
 const FORMS_LOAD_FAILED = "Forms could not load. Check your signal and try again.";
 const FORMS_NOT_SAVED = "Not saved yet. Check your signal and tap Next again.";
 const FORMS_NOT_SENT = "Not sent yet. Check your signal and tap Submit report again.";
+const FORMS_NOT_SIGNED = "Not signed yet. Check your signal and tap Sign again.";
 const FORMS_SEND_LINE = "Send this report? You cannot change it after it is sent.";
 const FORMS_SENT_LINE = "Report sent. The people who handle these reports have been told.";
 const FORMS_ALREADY_LINE = "This report was already sent.";
@@ -3724,6 +3749,27 @@ function formReadAnswer(f, v) {
   return formOptionLabel(f, v);
 }
 
+// One cell as a person reads it: an option's label rather than the value
+// behind it, and an empty string where nothing was answered.
+const formCellRead = (col, v) => {
+  if (v === undefined || v === null || v === "") return "";
+  if (col.type === "select" || col.type === "multiselect") return formReadAnswer(col, v) || "";
+  return String(v);
+};
+// A row is finished when every column that asks for an answer has one.
+const formRowDone = (columns, row) => (columns || []).every(c => !c.required || formHasAnswer((row || {})[c.key]));
+// A grid whose rows the form names is a checklist; one with no rows of
+// its own is a table a person adds rows to.
+const formIsChecklist = (f) => Array.isArray(f.rows);
+// A sign-off belongs either to the person filing the report or to the
+// supervisor half, which the portal has never drawn. The report keeps
+// whatever it already carries for one it does not draw.
+const formDrawnOnPortal = (f) => formTypeOf(f) !== "signoff" || String(f.signer || "") === "filer";
+// One sign-off as a person reads it, in the phone's own time.
+const formStampLine = (v) => (v && typeof v === "object" && v.at
+  ? tr("Signed by {name} on {date} at {time}", { name: v.name || "", date: formatDate(v.at), time: formatTime(v.at) })
+  : null);
+
 // What a draft with no name of its own is called. Report on its own is
 // the tab, which is a different thing.
 const FORMS_UNTITLED = "Untitled report";
@@ -3735,7 +3781,7 @@ const FORMS_ANSWERED = "Answered";
 // asks for nothing, so a type the forms engine adds later cannot quietly
 // become a text box. A question with no type at all is text, which is
 // what it has always been.
-const FORM_TYPES_DRAWN = ["", "text", "textarea", "select", "multiselect", "date", "time"];
+const FORM_TYPES_DRAWN = ["", "text", "textarea", "select", "multiselect", "date", "time", "grid", "signoff"];
 const formTypeOf = (f) => (f && f.type ? String(f.type) : "");
 
 const formDraftOf = (r) => (r && r.draft ? r.draft : r);
@@ -3866,6 +3912,11 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   const [saveErr, setSaveErr] = useState(null);
   const [badKeys, setBadKeys] = useState([]);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  // Which cards of a table a person has opened again after they folded.
+  const [openRows, setOpenRows] = useState({});
+  // The sign-off on its way to the API, and what it said if it refused.
+  const [signing, setSigning] = useState(null);
+  const [signErr, setSignErr] = useState({});
   const [review, setReview] = useState(false);
   const [confirmSend, setConfirmSend] = useState(false);
   const [sending, setSending] = useState(false);
@@ -3875,19 +3926,31 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   // An answer typed and not yet saved, or a save or a send on its way.
   useBusy("report form", Object.keys(dirty).length > 0 || saving || sending);
 
+  // Every question in play, which is what a save is judged against, and
+  // the ones this screen draws, which is what a person walks through.
   const fields = formFieldsInPlay(form, values);
-  const sections = formSectionsOf(fields);
+  const shown = fields.filter(formDrawnOnPortal);
+  const sections = formSectionsOf(shown);
   // A section cannot empty from an answer given inside it, because
   // the answer that governs it is somewhere else. If one ever did,
   // the first section is where this lands rather than nowhere.
   const here = sections.indexOf(sectionKey) !== -1 ? sectionKey : (sections.length > 0 ? sections[0] : null);
   const at = sections.indexOf(here);
-  const pageFields = fields.filter(f => formSectionOf(f) === here);
+  const pageFields = shown.filter(f => formSectionOf(f) === here);
 
   // What is still unanswered is the server's judgement, never this
   // screen's: it already reads the same rules over the same answers.
   const missing = Array.isArray(current.missing) ? current.missing : [];
   const fieldByKey = (k) => (form && Array.isArray(form.fields) ? form.fields : []).find(f => f.key === k) || null;
+  // What is still short an answer, in the words the API uses: the
+  // question's own label, and for a table or a checklist the rows it is
+  // short. Where the API names only keys, the form's own labels stand in,
+  // which is what this screen has always shown.
+  const missingNamed = () => {
+    const named = Array.isArray(current.missingFields) ? current.missingFields : null;
+    if (named) return named.map(m => ({ key: m.key, label: m.label ? String(m.label) : String(m.key || ""), rows: Array.isArray(m.rows) ? m.rows.filter(Boolean) : [] }));
+    return missing.map(k => { const f = fieldByKey(k); return { key: k, label: f ? f.label : k, rows: [] }; });
+  };
 
   const answered = Number(current.answered || 0);
   const remaining = Number(current.remaining || 0);
@@ -3948,13 +4011,38 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     }
   };
 
+  // A sign-off is made with its own request, never written as an answer,
+  // and nothing is drawn until the API has answered with the stamp it
+  // made. One press sends one request.
+  const sign = async (f) => {
+    if (signing) return;
+    setSigning(f.key);
+    setSignErr(prev => Object.assign({}, prev, { [f.key]: null }));
+    try {
+      const r = await api("/api/forms/responses/" + encodeURIComponent(current.id) + "/signoff?locale=" + locale, { method: "POST", token, body: { key: f.key } });
+      const d = formDraftOf(r && r.response ? r.response : r);
+      setCurrent(d);
+      // The answers come back from the server, and anything typed on
+      // this page and not saved yet stays where the person left it.
+      setValues(prev => {
+        const next = Object.assign({}, d.answers || {});
+        Object.keys(dirty).forEach(k => { if (formHasAnswer(prev[k])) next[k] = prev[k]; else delete next[k]; });
+        return next;
+      });
+    } catch (err) {
+      const said = (err.status === undefined || err.status === null) ? tr(FORMS_NOT_SIGNED) : tr(err.message);
+      setSignErr(prev => Object.assign({}, prev, { [f.key]: said }));
+    }
+    setSigning(null);
+  };
+
   const toTop = () => { if (bodyRef.current) bodyRef.current.scrollTop = 0; };
 
   const goNext = async () => {
     if (saving) return;
     const after = await save();
     if (!after) return;
-    const list = formSectionsOf(formFieldsInPlay(form, after));
+    const list = formSectionsOf(formFieldsInPlay(form, after).filter(formDrawnOnPortal));
     const i = list.indexOf(here);
     if (i === -1 || i + 1 >= list.length) { setSendErr(null); setReview(true); toTop(); return; }
     setSectionKey(list[i + 1]); toTop();
@@ -3965,7 +4053,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     if (review) { setReview(false); setSectionKey(sections[sections.length - 1] || null); toTop(); return; }
     const after = await save();
     if (!after) return;
-    const list = formSectionsOf(formFieldsInPlay(form, after));
+    const list = formSectionsOf(formFieldsInPlay(form, after).filter(formDrawnOnPortal));
     const i = list.indexOf(here);
     if (i <= 0) return;
     setSectionKey(list[i - 1]); toTop();
@@ -3984,7 +4072,13 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
       if (err.status === 409) setSent("already");
       // The server decides what is still unanswered, so a refusal
       // naming keys replaces the list rather than arguing with it.
-      else if (err.status === 400 && Array.isArray(err.body && err.body.missing)) { setCurrent(prev => Object.assign({}, prev, { missing: err.body.missing })); setSendErr(tr(err.message)); toTop(); }
+      else if (err.status === 400 && Array.isArray(err.body && err.body.missing)) {
+        setCurrent(prev => Object.assign({}, prev, {
+          missing: err.body.missing,
+          missingFields: Array.isArray(err.body.missingFields) ? err.body.missingFields : null,
+        }));
+        setSendErr(tr(err.message)); toTop();
+      }
       else if (err.status === undefined || err.status === null) setSendErr(tr(FORMS_NOT_SENT));
       else setSendErr(tr(err.message));
     }
@@ -4011,25 +4105,128 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     border: primary ? "1px solid " + GOLD : "1px solid " + t.borderSolid, background: primary ? t.goldBg : "transparent", color: primary ? t.goldText : t.textSec,
   });
 
+  // A block inside a grid: one item of a checklist, or one row of a
+  // table. Drawn as a card rather than as a cell in a row, because at
+  // the Largest text size the body is about 218 pixels across, which
+  // holds one field and nothing beside it.
+  const gridCard = { marginTop: 10, padding: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid };
+  const gridName = { fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const cellLabelSt = { fontSize: 12, color: t.textSec, marginTop: 10, lineHeight: 1.45, overflowWrap: "anywhere" };
+  const gridBtn = {
+    width: "100%", minHeight: TAP, marginTop: 10, padding: "10px 12px", borderRadius: R.md, cursor: "pointer",
+    border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec,
+    fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, textAlign: "center",
+  };
+  const foldedBtn = { ...gridBtn, background: t.card, color: t.text, textAlign: "left", fontWeight: 400, fontFamily: FONT_BODY, lineHeight: 1.45, overflowWrap: "anywhere" };
+
+  // One control, for a question or for one cell inside a grid. A cell
+  // gets the same input its type gets as a question, the date and the
+  // time pickers included.
+  const renderControl = (spec, v, onChange, at) => {
+    if (spec.type === "select" || spec.type === "multiselect") {
+      const many = spec.type === "multiselect";
+      const chosen = many ? (Array.isArray(v) ? v : []) : v;
+      return (spec.options || []).map(o => {
+        const picked = many ? chosen.indexOf(o.value) !== -1 : chosen === o.value;
+        const toggle = () => {
+          if (!many) { onChange(picked ? null : o.value); return; }
+          onChange(picked ? chosen.filter(x => x !== o.value) : chosen.concat([o.value]));
+        };
+        return <button key={at + o.value} type="button" onClick={toggle} aria-pressed={picked} style={optRow(picked)}><span style={mark(picked, !many)} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{o.label}</span></button>;
+      });
+    }
+    if (spec.type === "textarea") return <textarea rows={4} maxLength={FORM_VALUE_MAX} value={v === undefined || v === null ? "" : v} onChange={e => onChange(e.target.value)} style={{ ...inputSt, minHeight: 104, resize: "vertical", lineHeight: 1.5 }} />;
+    const kind = spec.type === "date" ? "date" : (spec.type === "time" ? "time" : "text");
+    return <input type={kind} maxLength={kind === "text" ? FORM_VALUE_MAX : undefined} value={v === undefined || v === null ? "" : v} onChange={e => onChange(e.target.value)} style={inputSt} />;
+  };
+
+  // Every column of one block. The pick one column is the row of
+  // buttons pick one already draws, and its name is left to the block's
+  // own heading above it.
+  const renderCells = (f, row, at, write) => (f.columns || []).map(c => (
+    <div key={c.key}>
+      {c.type !== "select" && <div style={cellLabelSt}>{c.label}{c.required && <span style={reqSt}>{tr("Required")}</span>}</div>}
+      {renderControl(c, (row || {})[c.key], v => write(c.key, v), f.key + ":" + at + ":" + c.key + ":")}
+    </div>
+  ));
+
+  // A checklist: one block per item the form names, keyed by row.
+  const renderChecklist = (f) => {
+    const all = (values[f.key] && typeof values[f.key] === "object" && !Array.isArray(values[f.key])) ? values[f.key] : {};
+    const write = (rowKey, colKey, v) => {
+      const next = Object.assign({}, all);
+      const row = Object.assign({}, next[rowKey] || {});
+      if (!formHasAnswer(v)) delete row[colKey]; else row[colKey] = v;
+      if (Object.keys(row).length === 0) delete next[rowKey]; else next[rowKey] = row;
+      setVal(f.key, Object.keys(next).length === 0 ? null : next);
+    };
+    return (f.rows || []).map(r => (
+      <div key={r.key} style={gridCard}>
+        <div style={gridName}>{r.label}</div>
+        {renderCells(f, all[r.key], r.key, (colKey, v) => write(r.key, colKey, v))}
+      </div>
+    ));
+  };
+
+  // A table a person adds rows to: one card per row, folded to a line
+  // once every column that asks for an answer has one, and opened again
+  // on a tap.
+  const renderRowTable = (f) => {
+    const list = Array.isArray(values[f.key]) ? values[f.key] : [];
+    const put = (next) => setVal(f.key, next.length === 0 ? null : next);
+    const write = (i, colKey, v) => {
+      const next = list.map((row, j) => (j === i ? Object.assign({}, row) : row));
+      if (!formHasAnswer(v)) delete next[i][colKey]; else next[i][colKey] = v;
+      put(next);
+    };
+    const open = (i, yes) => setOpenRows(prev => Object.assign({}, prev, { [f.key + ":" + i]: yes }));
+    const remove = (i) => { setOpenRows({}); put(list.filter((row, j) => j !== i)); };
+    const full = Number(f.maxRows) > 0 && list.length >= Number(f.maxRows);
+    const first = (f.columns || [])[0];
+    return (
+      <>
+        {list.map((row, i) => {
+          if (formRowDone(f.columns, row) && !openRows[f.key + ":" + i]) {
+            return (
+              <button key={i} type="button" onClick={() => open(i, true)} style={foldedBtn}>
+                {tr("Row {n}", { n: i + 1 })}: {first ? formCellRead(first, row[first.key]) : ""}
+              </button>
+            );
+          }
+          return (
+            <div key={i} style={gridCard}>
+              <div style={gridName}>{tr("Row {n}", { n: i + 1 })}</div>
+              {renderCells(f, row, i, (colKey, v) => write(i, colKey, v))}
+              <button type="button" onClick={() => remove(i)} style={gridBtn}>{tr("Remove row")}</button>
+            </div>
+          );
+        })}
+        {full
+          ? <div style={{ ...mkHelp(t), marginTop: 10 }}>{tr("This table is full.")}</div>
+          : <button type="button" onClick={() => { open(list.length, true); put(list.concat([{}])); }} style={gridBtn}>{tr("Add row")}</button>}
+      </>
+    );
+  };
+
+  // One sign-off: the stamp the API made, or the button that asks for it.
+  const renderSignoff = (f) => {
+    const line = formStampLine(values[f.key]);
+    if (line) return <div style={{ fontSize: 14, color: t.text, marginTop: 8, lineHeight: 1.5, overflowWrap: "anywhere" }}>{line}</div>;
+    const busy = signing === f.key;
+    return (
+      <>
+        <button type="button" onClick={() => sign(f)} disabled={busy} style={{ ...gridBtn, border: "1px solid " + GOLD, background: busy ? "transparent" : t.goldBg, color: t.goldText, opacity: busy ? 0.6 : 1 }}>{busy ? tr("Sending") : tr("Sign")}</button>
+        {signErr[f.key] && <div style={{ ...mkFieldErr(t), marginTop: 8 }}>{signErr[f.key]}</div>}
+      </>
+    );
+  };
+
   const renderInput = (f) => {
     const v = values[f.key];
     if (FORM_TYPES_DRAWN.indexOf(formTypeOf(f)) === -1) return <div style={mkHelp(t)}>{tr(FORMS_UNKNOWN_TYPE)}</div>;
-    if (f.type === "select" || f.type === "multiselect") {
-      const many = f.type === "multiselect";
-      const chosen = many ? (Array.isArray(v) ? v : []) : v;
-      return (f.options || []).map(o => {
-        const picked = many ? chosen.indexOf(o.value) !== -1 : chosen === o.value;
-        const toggle = () => {
-          if (!many) { setVal(f.key, picked ? null : o.value); return; }
-          const next = picked ? chosen.filter(x => x !== o.value) : chosen.concat([o.value]);
-          setVal(f.key, next);
-        };
-        return <button key={o.value} type="button" onClick={toggle} aria-pressed={picked} style={optRow(picked)}><span style={mark(picked, !many)} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{o.label}</span></button>;
-      });
-    }
-    if (f.type === "textarea") return <textarea rows={4} maxLength={FORM_VALUE_MAX} value={v === undefined || v === null ? "" : v} onChange={e => setVal(f.key, e.target.value)} style={{ ...inputSt, minHeight: 104, resize: "vertical", lineHeight: 1.5 }} />;
-    const kind = f.type === "date" ? "date" : (f.type === "time" ? "time" : "text");
-    return <input type={kind} maxLength={kind === "text" ? FORM_VALUE_MAX : undefined} value={v === undefined || v === null ? "" : v} onChange={e => setVal(f.key, e.target.value)} style={inputSt} />;
+    if (formTypeOf(f) === "grid") return formIsChecklist(f) ? renderChecklist(f) : renderRowTable(f);
+    if (formTypeOf(f) === "signoff") return renderSignoff(f);
+    return renderControl(f, v, (next) => setVal(f.key, next), f.key + ":");
   };
 
   // Leaving unmounts this component, which is what clears the draft
@@ -4070,9 +4267,9 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
         {review && missing.length > 0 && (
           <div style={{ padding: 14, marginBottom: 18, borderRadius: R.md, background: t.goldSubtle, border: "1px solid " + t.goldBorder }}>
             <div style={{ ...mkLabel(t), marginBottom: 10 }}>{tr("These still need an answer")}</div>
-            {missing.map(k => {
-              const f = fieldByKey(k);
-              return <button key={k} onClick={() => editSection(f ? formSectionOf(f) : null)} style={{ width: "100%", minHeight: 44, marginBottom: 8, padding: "10px 12px", textAlign: "left", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.card, color: t.text, fontSize: 13, lineHeight: 1.4, cursor: "pointer", fontFamily: FONT_BODY, overflowWrap: "anywhere" }}>{f ? f.label : k}</button>;
+            {missingNamed().map(m => {
+              const f = fieldByKey(m.key);
+              return <button key={m.key} onClick={() => editSection(f ? formSectionOf(f) : null)} style={{ width: "100%", minHeight: 44, marginBottom: 8, padding: "10px 12px", textAlign: "left", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.card, color: t.text, fontSize: 13, lineHeight: 1.4, cursor: "pointer", fontFamily: FONT_BODY, overflowWrap: "anywhere" }}>{m.rows.length > 0 ? m.label + ": " + m.rows.join(", ") : m.label}</button>;
             })}
           </div>
         )}
@@ -4083,12 +4280,13 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
               <div style={{ ...mkLabel(t), marginBottom: 0, flex: "1 1 auto", minWidth: 0 }}>{tr("Section {n}", { n: i + 1 })}</div>
               <button onClick={() => editSection(sk)} style={{ minHeight: 44, padding: "0 16px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Edit")}</button>
             </div>
-            {fields.filter(f => formSectionOf(f) === sk).map(f => {
-              const read = formReadAnswer(f, values[f.key]);
+            {shown.filter(f => formSectionOf(f) === sk).map(f => {
+              const signoff = formTypeOf(f) === "signoff";
+              const read = signoff ? formStampLine(values[f.key]) : formReadAnswer(f, values[f.key]);
               return (
                 <div key={f.key} style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{f.label}</div>
-                  <div style={{ fontSize: 14, color: read ? t.text : t.textMut, fontWeight: read ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{read || tr("Not answered")}</div>
+                  <div style={{ fontSize: 14, color: read ? t.text : t.textMut, fontWeight: read ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{read || tr(signoff ? "Not signed" : "Not answered")}</div>
                 </div>
               );
             })}
