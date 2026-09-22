@@ -103,6 +103,130 @@ function makeState(opts) {
     conversationId: "cv-one",
     uploadsFail: false,
     prefsPatches: [],
+    // The second form's answers, and the sign-offs stamped on it.
+    answersP: o.answersP ? Object.assign({}, o.answersP) : {},
+  };
+}
+
+
+// A second form, invented like everything else here, carrying the three
+// parts Step 101 taught the API: a checklist of fixed rows, a table a
+// person adds rows to, and a sign-off. Served in the language the
+// request asks for, the way the real catalog is.
+const FORM_P_CODE = "TEST-FORM-P";
+const FORM_P_WORDS = {
+  en: {
+    title: "Site walk",
+    walk: "The walk", areas: "Every area", rooms: "Rooms", signIt: "Sign it",
+    day: "What day did you walk it", start: "What time did you start",
+    where: "Where did you start", notes: "Anything worth adding",
+    shift: "Which shift", shiftDay: "Day", shiftEvening: "Evening",
+    carried: "What did you carry", cart: "Cart", vacuum: "Vacuum", ladder: "Ladder",
+    check: "Check each area", result: "Result", pass: "Pass", fail: "Fail", note: "Note",
+    hallway: "Hallway", restroom: "Restroom", entry: "Entry",
+    visits: "Rooms you entered", visitDay: "Date", visitAt: "Time", room: "Room",
+    lead: "Crew lead", manager: "Area manager",
+  },
+  es: {
+    title: "Recorrido del sitio",
+    walk: "El recorrido", areas: "Cada area", rooms: "Cuartos", signIt: "Firme",
+    day: "Que dia lo recorrio", start: "A que hora empezo",
+    where: "Donde empezo", notes: "Algo mas que agregar",
+    shift: "Cual turno", shiftDay: "Dia", shiftEvening: "Tarde",
+    carried: "Que llevo", cart: "Carro", vacuum: "Aspiradora", ladder: "Escalera",
+    check: "Revise cada area", result: "Resultado", pass: "Aprobado", fail: "Falla", note: "Nota",
+    hallway: "Pasillo", restroom: "Bano", entry: "Entrada",
+    visits: "Cuartos en los que entro", visitDay: "Fecha", visitAt: "Hora", room: "Cuarto",
+    lead: "Lider de equipo", manager: "Gerente de area",
+  },
+};
+// Rows the checklist asks about, and the row a table somebody added is
+// named by when it is short an answer.
+const FORM_P_ROWS = ["hallway", "restroom", "entry"];
+const ROW_WORD = { en: "Row", es: "Fila" };
+
+function formP(lang) {
+  const w = FORM_P_WORDS[lang === "es" ? "es" : "en"];
+  return {
+    code: FORM_P_CODE,
+    title: w.title,
+    fields: [
+      { key: "day", label: w.day, type: "date", section: w.walk, required: true },
+      { key: "start", label: w.start, type: "time", section: w.walk, required: true },
+      { key: "where", label: w.where, type: "text", section: w.walk, required: true },
+      { key: "notes", label: w.notes, type: "textarea", section: w.walk, required: false },
+      { key: "shift", label: w.shift, type: "select", section: w.walk, required: true,
+        options: [{ value: "day", label: w.shiftDay }, { value: "evening", label: w.shiftEvening }] },
+      { key: "carried", label: w.carried, type: "multiselect", section: w.walk, required: false,
+        options: [{ value: "cart", label: w.cart }, { value: "vacuum", label: w.vacuum }, { value: "ladder", label: w.ladder }] },
+      // A checklist: the rows are the form's, and a person answers each one.
+      { key: "check", label: w.check, type: "grid", section: w.areas, required: true,
+        columns: [
+          { key: "result", label: w.result, type: "select", required: true,
+            options: [{ value: "pass", label: w.pass }, { value: "fail", label: w.fail }] },
+          { key: "note", label: w.note, type: "text", required: false },
+        ],
+        rows: FORM_P_ROWS.map(k => ({ key: k, label: w[k] })) },
+      // A table a person adds rows to, one to three of them.
+      { key: "visits", label: w.visits, type: "grid", section: w.rooms, required: true,
+        columns: [
+          { key: "day", label: w.visitDay, type: "date", required: true },
+          { key: "at", label: w.visitAt, type: "time", required: true },
+          { key: "room", label: w.room, type: "text", required: true },
+        ],
+        rows: null, minRows: 1, maxRows: 3 },
+      // The one the person filing makes, and one that belongs to the
+      // supervisor half and is never drawn on the portal.
+      { key: "leadSign", label: w.lead, type: "signoff", section: w.signIt, signer: "filer", required: true },
+      { key: "managerSign", label: w.manager, type: "signoff", section: w.signIt, signer: "area_manager" },
+    ],
+  };
+}
+
+// What is still short an answer on the second form, as the API says it:
+// the keys, and for each one a label, with a grid's incomplete rows
+// named after it.
+function formPMissing(answers, lang) {
+  const form = formP(lang);
+  const w = FORM_P_WORDS[lang === "es" ? "es" : "en"];
+  const out = [];
+  form.fields.forEach((f) => {
+    if (!f.required) return;
+    const v = answers[f.key];
+    if (f.type === "grid" && Array.isArray(f.rows)) {
+      const rows = f.rows.filter((r) => {
+        const cells = (v && typeof v === "object" ? v[r.key] : null) || {};
+        return f.columns.some(c => c.required && !cells[c.key]);
+      }).map(r => r.label);
+      if (rows.length > 0) out.push({ key: f.key, label: f.label, rows: rows });
+      return;
+    }
+    if (f.type === "grid") {
+      const list = Array.isArray(v) ? v : [];
+      const rows = [];
+      if (list.length < (f.minRows || 0)) rows.push(ROW_WORD[lang === "es" ? "es" : "en"] + " " + (list.length + 1));
+      list.forEach((cells, i) => {
+        if (f.columns.some(c => c.required && !(cells || {})[c.key])) rows.push(ROW_WORD[lang === "es" ? "es" : "en"] + " " + (i + 1));
+      });
+      if (rows.length > 0) out.push({ key: f.key, label: f.label, rows: rows });
+      return;
+    }
+    if (f.type === "signoff") { if (!v) out.push({ key: f.key, label: f.label }); return; }
+    if (v === undefined || v === null || v === "" || (Array.isArray(v) && v.length === 0)) out.push({ key: f.key, label: f.label });
+  });
+  return out;
+}
+
+function draftP(state, lang) {
+  const form = formP(lang);
+  const answers = state.answersP;
+  const answered = form.fields.filter(f => answers[f.key] !== undefined && answers[f.key] !== null && answers[f.key] !== "").length;
+  const missingFields = formPMissing(answers, lang);
+  return {
+    id: "draft-two", formCode: form.code, formName: form.title,
+    answers: Object.assign({}, answers),
+    status: "draft", answered: answered, remaining: form.fields.length - answered,
+    missing: missingFields.map(m => m.key), missingFields: missingFields,
   };
 }
 
@@ -237,19 +361,64 @@ function createStub(opts) {
     if (method === "POST" && /^\/api\/agent\/drafts\/[^/]+\/submit$/.test(pathname)) return json(200, { ok: true });
 
     // --- report forms
-    if (pathname === "/api/forms") return json(200, { forms: [{ code: FORM.code, title: FORM.title }] });
-    if (method === "GET" && /^\/api\/forms\/drafts\//.test(pathname)) return json(200, { draft: draftOf(state), form: FORM });
-    if (method === "POST" && /^\/api\/forms\/[^/]+\/drafts$/.test(pathname)) return json(200, { draft: draftOf(state), form: FORM });
+    //
+    // Two forms now: the one built today, and the second one carrying a
+    // checklist, a table a person adds rows to, and a sign-off. Which
+    // one a request means is read from the code in the path, or from the
+    // draft id, the way the real API reads it.
+    const lang = /locale=es/.test(String(search || "")) ? "es" : "en";
+    const second = (p) => /TEST-FORM-P/.test(p) || /draft-two/.test(p);
+    // The catalog carries each form whole, fields and all, because the
+    // form is what says which questions a report has and the screen
+    // reads them from here. It served only the code and the title until
+    // now, which is why no question has ever drawn in the suite.
+    if (pathname === "/api/forms") {
+      return json(200, { forms: [FORM, formP(lang)] });
+    }
+    if (method === "GET" && /^\/api\/forms\/drafts\//.test(pathname)) {
+      return second(pathname) ? json(200, { draft: draftP(state, lang), form: formP(lang) }) : json(200, { draft: draftOf(state), form: FORM });
+    }
+    if (method === "POST" && /^\/api\/forms\/[^/]+\/drafts$/.test(pathname)) {
+      return second(pathname) ? json(200, { draft: draftP(state, lang), form: formP(lang) }) : json(200, { draft: draftOf(state), form: FORM });
+    }
     if (method === "PATCH" && /^\/api\/forms\/drafts\//.test(pathname)) {
-      Object.assign(state.answers, (body && body.answers) || {});
-      return json(200, { draft: draftOf(state), form: FORM });
+      const bag = second(pathname) ? state.answersP : state.answers;
+      const written = (body && body.answers) || {};
+      // A sign-off is never written this way, which is what the API says.
+      const signoff = Object.keys(written).find(k => /Sign$/.test(k));
+      if (second(pathname) && signoff) return json(400, { error: "A sign-off is made with its own button" });
+      Object.keys(written).forEach((k) => { if (written[k] === null) delete bag[k]; else bag[k] = written[k]; });
+      return second(pathname) ? json(200, { draft: draftP(state, lang), form: formP(lang) }) : json(200, { draft: draftOf(state), form: FORM });
     }
     if (method === "POST" && /^\/api\/forms\/drafts\/[^/]+\/submit$/.test(pathname)) {
+      if (second(pathname)) {
+        const short = formPMissing(state.answersP, lang);
+        if (short.length > 0) {
+          return json(400, { error: "Answer every required question before sending", missing: short.map(m => m.key), missingFields: short });
+        }
+        return json(200, { ok: true, reference: "TEST-FORM-P-0001" });
+      }
       const missing = FORM.fields.filter(f => f.required && !state.answers[f.key]).map(f => f.key);
       if (missing.length > 0) return json(400, { error: "Answer every required question before sending", missing: missing });
       return json(200, { ok: true, reference: "OCSA-FIX-101-0001" });
     }
-    if (method === "GET" && /^\/api\/forms\/[^/]+$/.test(pathname)) return json(200, { form: FORM });
+    // One sign-off, made with its own button, stamped by the server with
+    // the person signing and the clock.
+    if (method === "POST" && /^\/api\/forms\/responses\/[^/]+\/signoff$/.test(pathname)) {
+      const wanted = String((body && body.key) || "");
+      const field = formP(lang).fields.find(f => f.key === wanted && f.type === "signoff");
+      if (!field) return json(400, { error: "That is not a sign-off on this form" });
+      if (field.signer !== "filer") return json(403, { error: "You cannot sign this part of the form" });
+      if (state.answersP[wanted]) return json(409, { error: "This part is already signed" });
+      state.answersP[wanted] = {
+        userId: state.person.id, name: state.person.firstName + " " + state.person.lastName,
+        role: state.person.role, at: iso(NOW.getTime()),
+      };
+      return json(200, { response: draftP(state, lang) });
+    }
+    if (method === "GET" && /^\/api\/forms\/[^/]+$/.test(pathname)) {
+      return second(pathname) ? json(200, { form: formP(lang) }) : json(200, { form: FORM });
+    }
 
     // --- reporting and supplies
     if (key === "GET /api/issues") return json(200, []);
@@ -315,4 +484,4 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, NOW, PERSON, SECOND_PERSON, SITES, LEAVE_TYPES, TIME_OFF_REFUSALS, FORM, timeOffRow, ymd, iso, DAY };
+module.exports = { createStub, NOW, PERSON, SECOND_PERSON, SITES, LEAVE_TYPES, TIME_OFF_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, formP, timeOffRow, ymd, iso, DAY };

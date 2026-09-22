@@ -7,7 +7,7 @@ const { openApp, letSheetOffer } = require("./browser");
 const { INSPECT, rowsFrom } = require("./checks");
 const { LEAKABLE, SPANISH, SPANISH_PATTERNS, say } = require("./words");
 const { SCREEN_CASES, SHEET_CASES } = require("./inventory");
-const { timeOffRow } = require("./stub");
+const { timeOffRow, formP } = require("./stub");
 
 const SIZES = ["standard", "large", "xlarge", "largest"];
 const LANGUAGES = ["en", "es"];
@@ -40,6 +40,18 @@ const ALLOWED = [
   "Mop the corridor end to end", "Restock paper towels and soap",
   "Refill the sanitizer stands", "Replace the cracked light cover",
   "Take the pads from the second floor store room.",
+];
+
+// The second form's pages, in order, walked in every combination the
+// sweep drives. The form the portal has always drawn is covered by the
+// cases above; this one carries the checklist, the table a person adds
+// rows to and the sign-off.
+const FORM_P_PAGES = [
+  "Site walk, the walk",
+  "Site walk, every area",
+  "Site walk, the rooms",
+  "Site walk, sign it",
+  "Site walk, review",
 ];
 
 const TAB_LABEL = {
@@ -172,6 +184,20 @@ const SHEET_OPENERS = {
   "HomeScreenPrompt#0": async (page) => { await letSheetOffer(page); },
 };
 
+// The Forms screen lists more than one form now, so a case says which
+// card it means by the title on it.
+async function startForm(page, title) {
+  const hit = await page.evaluate((want) => {
+    const cards = Array.from(document.querySelectorAll(".sp-content div"));
+    const card = cards.find(d => d.querySelector(":scope > button") && d.textContent.indexOf(want) === 0);
+    const b = card && card.querySelector(":scope > button");
+    if (b) { b.click(); return true; }
+    return false;
+  }, title);
+  await pause(page, 1500);
+  return hit;
+}
+
 async function clickText(page, text) {
   const hit = await page.evaluate((t) => {
     const on = Array.from(document.querySelectorAll("button")).filter(x => x.offsetParent !== null && !x.disabled);
@@ -250,6 +276,18 @@ async function runScreens(browser, base, opts) {
         if (covered.screens.indexOf(sc.id) === -1) covered.screens.push(sc.id);
         combinations += 1;
       }
+
+      // The second form, page by page, in this same session.
+      await openTab(app.page, "forms", language);
+      const started = await startForm(app.page, formP(language).title);
+      if (!started) {
+        rows.push({ where: FORM_P_PAGES[0] + " [" + language + "/" + size + "/" + theme + "]", check: "reachable", detail: "the second form could not be started" });
+      } else {
+        for (let i = 0; i < FORM_P_PAGES.length; i += 1) {
+          rows.push(...await inspect(app.page, null, FORM_P_PAGES[i], language, size, app.stub, theme));
+          if (i < FORM_P_PAGES.length - 1) await clickText(app.page, say("Next", language));
+        }
+      }
     } finally {
       await app.context.close();
     }
@@ -321,4 +359,4 @@ async function runScreens(browser, base, opts) {
   return { rows: rows, covered: covered, gaps: gaps, combinations: COMBINATIONS.length };
 }
 
-module.exports = { runScreens, openTab, clickText, SIZES, LANGUAGES, COMBINATIONS, ALLOWED };
+module.exports = { runScreens, openTab, clickText, startForm, SIZES, LANGUAGES, COMBINATIONS, FORM_P_PAGES, ALLOWED };

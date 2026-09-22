@@ -280,6 +280,131 @@
       "check": "contrast",
       "what": "\"#2ECC71 on #EEFBF3\"",
       "why": "Green on light mode's green wash. 1.97 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Site walk, the walk",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
+    },
+    {
+      "where": "Site walk, every area",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
+    },
+    {
+      "where": "Site walk, the rooms",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
+    },
+    {
+      "where": "Site walk, sign it",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
+    },
+    {
+      "where": "Site walk, review",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
+    },
+    {
+      "where": "A table a person adds rows to: three rows, a fourth refused, one taken out, a card folded and opened",
+      "check": "the table offers a row to add",
+      "what": "",
+      "why": "The portal draws no table a person adds rows to yet: a grid is a type it does not know, so it says so and asks for nothing. Commit two draws it."
+    },
+    {
+      "where": "A table a person adds rows to: three rows, a fourth refused, one taken out, a card folded and opened",
+      "check": "a third row is there",
+      "what": "",
+      "why": "The portal draws no table a person adds rows to yet: a grid is a type it does not know, so it says so and asks for nothing. Commit two draws it."
+    },
+    {
+      "where": "A table a person adds rows to: three rows, a fourth refused, one taken out, a card folded and opened",
+      "check": "a fourth row is refused on the screen itself",
+      "what": "",
+      "why": "The portal draws no table a person adds rows to yet: a grid is a type it does not know, so it says so and asks for nothing. Commit two draws it."
+    },
+    {
+      "where": "A table a person adds rows to: three rows, a fourth refused, one taken out, a card folded and opened",
+      "check": "a row comes out again",
+      "what": "",
+      "why": "The portal draws no table a person adds rows to yet: a grid is a type it does not know, so it says so and asks for nothing. Commit two draws it."
+    },
+    {
+      "where": "A table a person adds rows to: three rows, a fourth refused, one taken out, a card folded and opened",
+      "check": "a filled card folds to one line and opens on a tap",
+      "what": "",
+      "why": "The portal draws no table a person adds rows to yet: a grid is a type it does not know, so it says so and asks for nothing. Commit two draws it."
+    },
+    {
+      "where": "A checklist, and a sign-off that waits for the API",
+      "check": "the checklist names every item",
+      "what": "",
+      "why": "The portal draws no checklist yet, for the same reason. Commit two draws it."
+    },
+    {
+      "where": "A checklist, and a sign-off that waits for the API",
+      "check": "every item on the checklist can be answered",
+      "what": "",
+      "why": "The portal draws no checklist yet, for the same reason. Commit two draws it."
+    },
+    {
+      "where": "A checklist, and a sign-off that waits for the API",
+      "check": "the checklist saves as one value keyed by row",
+      "what": "",
+      "why": "The portal draws no checklist yet, for the same reason. Commit two draws it."
+    },
+    {
+      "where": "A checklist, and a sign-off that waits for the API",
+      "check": "the sign-off draws its own button",
+      "what": "",
+      "why": "The portal draws no sign-off yet: the button, the stamp and a refusal all arrive in commit three."
+    },
+    {
+      "where": "A checklist, and a sign-off that waits for the API",
+      "check": "the supervisor's sign-off is not drawn here",
+      "what": "",
+      "why": "The portal draws no sign-off yet: the button, the stamp and a refusal all arrive in commit three."
+    },
+    {
+      "where": "A checklist, and a sign-off that waits for the API",
+      "check": "a refused sign-off says what the API said, word for word",
+      "what": "",
+      "why": "The portal draws no sign-off yet: the button, the stamp and a refusal all arrive in commit three."
+    },
+    {
+      "where": "A checklist, and a sign-off that waits for the API",
+      "check": "a refused sign-off stamps nothing",
+      "what": "",
+      "why": "The portal draws no sign-off yet: the button, the stamp and a refusal all arrive in commit three."
+    },
+    {
+      "where": "A checklist, and a sign-off that waits for the API",
+      "check": "one press sends one sign-off",
+      "what": "",
+      "why": "The portal draws no sign-off yet: the button, the stamp and a refusal all arrive in commit three."
+    },
+    {
+      "where": "A checklist, and a sign-off that waits for the API",
+      "check": "one press sends one request, not two",
+      "what": "",
+      "why": "The portal draws no checklist yet, for the same reason. Commit two draws it."
+    },
+    {
+      "where": "A half filled row is named in the missing list",
+      "check": "the missing list names the rows still to answer",
+      "what": "",
+      "why": "The missing list names the question but not the rows it is short. Commit four reads the rows off missingFields."
     }
   ]
 }
