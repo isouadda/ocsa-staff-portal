@@ -315,12 +315,6 @@
       "check": "contrast",
       "what": "\"#F8F7F4 on #E74C3C\"",
       "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
-    },
-    {
-      "where": "A half filled row is named in the missing list",
-      "check": "the missing list names the rows still to answer",
-      "what": "",
-      "why": "The missing list names the question but not the rows it is short. Commit four reads the rows off missingFields."
     }
   ]
 }

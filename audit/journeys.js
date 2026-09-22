@@ -101,6 +101,23 @@ const JOURNEYS = [
         expect("a wrong PIN is refused", !!lastSent(app.stub, "POST", "/api/auth/login"), "no login was sent");
         expect("a wrong PIN says so", /did not match|no coinciden/i.test(await bodyText(app.page)), await bodyText(app.page));
 
+        // A sign-in that never reaches OCSA at all. The PIN is fine, and
+        // the line about a sign-in not matching is for the API's own
+        // refusal, so it must not show here.
+        // The toast before this one is still up, and its own timer would
+        // take this one down with it, so it is let go first.
+        await app.page.waitForFunction(() => !/did not match|no coinciden/i.test(document.body.innerText), { timeout: 5000 }).catch(() => {});
+        app.stub.state.offline = true;
+        await type(app.page, 'input[type="password"]', "4907");
+        await clickText(app.page, say("Sign In", language));
+        await pause(app.page, 900);
+        const nowhere = await bodyText(app.page);
+        expect("a sign-in that cannot reach OCSA says so",
+          nowhere.indexOf(say("Could not reach OCSA. Check your connection and try again.", language)) !== -1, nowhere.slice(0, 260));
+        expect("a sign-in that cannot reach OCSA leaves the PIN out of it",
+          !/did not match|no coinciden/i.test(nowhere), nowhere.slice(0, 260));
+        app.stub.state.offline = false;
+
         app.stub.state.refuse["POST /api/auth/login"] = { status: 423, error: "This account is locked. Ask your supervisor to unlock it." };
         await type(app.page, 'input[type="password"]', "4907");
         await clickText(app.page, say("Sign In", language));

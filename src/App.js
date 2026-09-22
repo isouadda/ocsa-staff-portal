@@ -1001,7 +1001,8 @@ export default function OCSAStaffPortal() {
       showToast(tr("Welcome, {name}", { name: me.firstName }));
     } catch (err) {
       const said = err && err.body && err.body.error ? String(err.body.error) : "";
-      showToast(said || tr("That sign-in did not match. Check your badge, phone or email and your PIN."), "error");
+      if (!said && wentNowhere(err)) showToast(tr(ERR_OFFLINE), "error");
+      else showToast(said || tr("That sign-in did not match. Check your badge, phone or email and your PIN."), "error");
     }
     setLoading(false);
   };
@@ -1561,6 +1562,11 @@ function LangPicker({ value, onChange, t }) {
 
 const fmtExpiry = (v) => { try { return new Date(v).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; } };
 const ERR_GENERIC = "Something went wrong on our end. Try again in a minute.";
+// A request that never reached OCSA carries no status. The line about a
+// sign-in not matching is for the API's own refusal, so a signal that
+// dropped is never blamed on the person's PIN.
+const ERR_OFFLINE = "Could not reach OCSA. Check your connection and try again.";
+const wentNowhere = (err) => !!err && (err.status === undefined || err.status === null);
 const ERR_PIN_MISMATCH = "The two PINs do not match. Type the same 4 digits in both fields.";
 const MSG_LINK_INVALID = "This link is no longer valid. Links expire, and each one can only be used once.";
 
@@ -1583,7 +1589,7 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
     setPhase("checking");
     api("/api/auth/activate/" + encodeURIComponent(token), { noAuthEvent: true })
       .then(d => { if (!alive) return; setInfo(d); setLocale(d.preferredLanguage === "es" ? "es" : "en"); setPhase("form"); })
-      .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(ERR_GENERIC) }); setPhase("error"); } });
+      .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(wentNowhere(e) ? ERR_OFFLINE : ERR_GENERIC) }); setPhase("error"); } });
     return () => { alive = false; };
   }, [token, attempt]);
 
@@ -1709,7 +1715,7 @@ function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
     } catch (err) {
       if (err.code === "TOKEN_INVALID") { setPhase("invalid"); return; }
       if (err.status === 400) { setErrs({ pin: tr(err.message) }); setPhase("form"); return; }
-      setFail({ from: "post", msg: tr(ERR_GENERIC) }); setPhase("error");
+      setFail({ from: "post", msg: tr(wentNowhere(err) ? ERR_OFFLINE : ERR_GENERIC) }); setPhase("error");
     }
   };
   const retry = () => { setErrs({}); if (fail.from === "get") setAttempt(a => a + 1); else setPhase("form"); };
@@ -2657,6 +2663,17 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
 const agentField = (o, keys, fallback) => { for (const k of keys) { if (o && o[k] !== undefined && o[k] !== null) return o[k]; } return fallback; };
 const agentList = (d, keys) => { if (Array.isArray(d)) return d; for (const k of keys) { if (d && Array.isArray(d[k])) return d[k]; } return []; };
 const agentKeyWords = (k) => String(k).replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/^\w/, c => c.toUpperCase());
+// One line of a missing list. The API names the question and, for a
+// table or a checklist, the rows still short an answer. A refusal that
+// carries only keys reads the way it always has.
+const agentMissingLine = (m) => {
+  if (m && typeof m === "object") {
+    const label = m.label ? String(m.label) : agentKeyWords(m.key || "");
+    const rows = Array.isArray(m.rows) ? m.rows.filter(Boolean) : [];
+    return rows.length > 0 ? label + ": " + rows.join(", ") : label;
+  }
+  return agentKeyWords(m);
+};
 const agentDraftId = (d) => agentField(d, ["id", "formResponseId", "form_response_id"], null);
 // No fallback here: the word a missing name falls back to is drawn on
 // screen, so it is translated at each call site instead.
@@ -2900,7 +2917,14 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
     if (!formResponse || submitBusy) return;
     setSubmitBusy(true); setMissing([]);
     try { await api("/api/agent/drafts/" + formResponse.id + "/submit?locale=" + locale, { method: "POST", token }); setFormResponse(null); setSubmitted(true); loadDrafts(); }
-    catch (err) { const b = err.body || {}; const keys = agentList(agentField(b, ["missing", "missingKeys", "missingFields", "missing_keys", "missing_fields"], []), []); setMissing(keys.length > 0 ? keys.map(agentKeyWords) : [tr(err.message)]); }
+    catch (err) {
+      const b = err.body || {};
+      // The named list wins where the API sends one, since it carries the
+      // question's own words and the rows it is short.
+      const named = agentList(agentField(b, ["missingFields", "missing_fields"], []), []);
+      const keys = named.length > 0 ? named : agentList(agentField(b, ["missing", "missingKeys", "missing_keys"], []), []);
+      setMissing(keys.length > 0 ? keys.map(agentMissingLine) : [tr(err.message)]);
+    }
     setSubmitBusy(false);
   };
 
@@ -3918,6 +3942,15 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   // screen's: it already reads the same rules over the same answers.
   const missing = Array.isArray(current.missing) ? current.missing : [];
   const fieldByKey = (k) => (form && Array.isArray(form.fields) ? form.fields : []).find(f => f.key === k) || null;
+  // What is still short an answer, in the words the API uses: the
+  // question's own label, and for a table or a checklist the rows it is
+  // short. Where the API names only keys, the form's own labels stand in,
+  // which is what this screen has always shown.
+  const missingNamed = () => {
+    const named = Array.isArray(current.missingFields) ? current.missingFields : null;
+    if (named) return named.map(m => ({ key: m.key, label: m.label ? String(m.label) : String(m.key || ""), rows: Array.isArray(m.rows) ? m.rows.filter(Boolean) : [] }));
+    return missing.map(k => { const f = fieldByKey(k); return { key: k, label: f ? f.label : k, rows: [] }; });
+  };
 
   const answered = Number(current.answered || 0);
   const remaining = Number(current.remaining || 0);
@@ -4039,7 +4072,13 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
       if (err.status === 409) setSent("already");
       // The server decides what is still unanswered, so a refusal
       // naming keys replaces the list rather than arguing with it.
-      else if (err.status === 400 && Array.isArray(err.body && err.body.missing)) { setCurrent(prev => Object.assign({}, prev, { missing: err.body.missing })); setSendErr(tr(err.message)); toTop(); }
+      else if (err.status === 400 && Array.isArray(err.body && err.body.missing)) {
+        setCurrent(prev => Object.assign({}, prev, {
+          missing: err.body.missing,
+          missingFields: Array.isArray(err.body.missingFields) ? err.body.missingFields : null,
+        }));
+        setSendErr(tr(err.message)); toTop();
+      }
       else if (err.status === undefined || err.status === null) setSendErr(tr(FORMS_NOT_SENT));
       else setSendErr(tr(err.message));
     }
@@ -4228,9 +4267,9 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
         {review && missing.length > 0 && (
           <div style={{ padding: 14, marginBottom: 18, borderRadius: R.md, background: t.goldSubtle, border: "1px solid " + t.goldBorder }}>
             <div style={{ ...mkLabel(t), marginBottom: 10 }}>{tr("These still need an answer")}</div>
-            {missing.map(k => {
-              const f = fieldByKey(k);
-              return <button key={k} onClick={() => editSection(f ? formSectionOf(f) : null)} style={{ width: "100%", minHeight: 44, marginBottom: 8, padding: "10px 12px", textAlign: "left", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.card, color: t.text, fontSize: 13, lineHeight: 1.4, cursor: "pointer", fontFamily: FONT_BODY, overflowWrap: "anywhere" }}>{f ? f.label : k}</button>;
+            {missingNamed().map(m => {
+              const f = fieldByKey(m.key);
+              return <button key={m.key} onClick={() => editSection(f ? formSectionOf(f) : null)} style={{ width: "100%", minHeight: 44, marginBottom: 8, padding: "10px 12px", textAlign: "left", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.card, color: t.text, fontSize: 13, lineHeight: 1.4, cursor: "pointer", fontFamily: FONT_BODY, overflowWrap: "anywhere" }}>{m.rows.length > 0 ? m.label + ": " + m.rows.join(", ") : m.label}</button>;
             })}
           </div>
         )}
