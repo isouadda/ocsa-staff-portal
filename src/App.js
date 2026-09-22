@@ -3181,7 +3181,7 @@ function SpeakUpView({ token, t }) {
   // stays on screen underneath it.
   const [problem, setProblem] = useState(null);
   useBusy("speak up composer", text.trim().length > 0 || sending);
-  useEffect(() => { let live = true; setPeople(null); setListFailed(false); api("/api/hr/cases/people", { token }).then(d => { if (live) setPeople(Array.isArray(d?.people) ? d.people : []); }).catch(() => { if (live) setListFailed(true); }); return () => { live = false; }; }, [token, attempt]);
+  useEffect(() => { let live = true; setPeople(null); setListFailed(false); api("/api/hr-cases/people", { token }).then(d => { if (live) setPeople(Array.isArray(d?.people) ? d.people : []); }).catch(() => { if (live) setListFailed(true); }); return () => { live = false; }; }, [token, attempt]);
   const labelSt = mkLabel(t);
   const inputSt = mkInput(t);
   const helpSt = mkHelp(t);
@@ -3207,11 +3207,15 @@ function SpeakUpView({ token, t }) {
       setProblem(tr("Your report was not sent.") + " " + (own || tr(gone ? ERR_OFFLINE : "Please try again.")));
     } finally { inFlight.current = false; setSending(false); }
   };
+  // The API sends a first and a last name. The screen draws them the way
+  // a person says them, and searches the whole of it, so either half of
+  // a name finds the person.
+  const whole = (p) => String(p && p.firstName ? p.firstName : "") + " " + String(p && p.lastName ? p.lastName : "");
   // Everyone the list still offers: whoever is not picked already,
   // narrowed by what has been typed in the search box.
   const staff = Array.isArray(people) ? people : [];
   const needle = search.trim().toLowerCase();
-  const offered = staff.filter(p => picked.indexOf(p.id) === -1 && (needle === "" || String(p.name || "").toLowerCase().indexOf(needle) !== -1));
+  const offered = staff.filter(p => picked.indexOf(p.id) === -1 && (needle === "" || whole(p).toLowerCase().indexOf(needle) !== -1));
   const chosen = picked.map(id => staff.find(p => p.id === id)).filter(Boolean);
   // The question's two buttons and the names under the search box are
   // the app's own pick one row, so the two states read the same here as
@@ -3276,8 +3280,8 @@ function SpeakUpView({ token, t }) {
               {chosen.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
                   {chosen.map(p => (
-                    <button key={p.id} type="button" onClick={() => setPicked(ids => ids.filter(id => id !== p.id))} disabled={sending} aria-label={tr("Remove {name}", { name: p.name })} style={chipSt}>
-                      <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{p.name}</span>
+                    <button key={p.id} type="button" onClick={() => setPicked(ids => ids.filter(id => id !== p.id))} disabled={sending} aria-label={tr("Remove {name}", { name: whole(p).trim() })} style={chipSt}>
+                      <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{whole(p).trim()}</span>
                       <span aria-hidden="true" style={{ flexShrink: 0, fontSize: 14, lineHeight: 1, color: t.textSec }}>{tr("x")}</span>
                     </button>
                   ))}
@@ -3290,7 +3294,7 @@ function SpeakUpView({ token, t }) {
                 <div style={{ maxHeight: 264, overflowY: "auto", marginTop: 2 }}>
                   {offered.map(p => (
                     <button key={p.id} type="button" onClick={() => setPicked(ids => ids.indexOf(p.id) === -1 ? ids.concat([p.id]) : ids)} disabled={sending} style={optRow(false)}>
-                      <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{p.name}</span>
+                      <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{whole(p).trim()}</span>
                     </button>
                   ))}
                 </div>

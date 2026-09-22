@@ -233,13 +233,15 @@ function draftP(state, lang) {
   };
 }
 
-// Everyone the Speak Up picker can offer, invented, sorted by last name
-// the way the route sorts them. The signed in person is not among them,
-// because the route leaves the caller out.
+// Everyone the Speak Up picker can offer, invented, each one a first and
+// a last name, sorted by last name then first name the way the route
+// sorts them. The signed in person is not among them, because the route
+// leaves the caller out.
 // The API's own words when it turns a report away, each one a 400. The
 // route below answers with them, and the cases ask for them by name, so
 // the suite never invents a sentence the API does not say.
 const HR_CASE_REFUSALS = [
+  "Say whether this is about someone in management",
   "Pick at least one person this is about",
   "You cannot pick yourself",
   "One of the people picked is not on the staff list",
@@ -247,18 +249,18 @@ const HR_CASE_REFUSALS = [
 ];
 
 const STAFF = [
-  { id: "s-01", name: "Ana Alvarez" },
-  { id: "s-02", name: "Ben Brooks" },
-  { id: "s-03", name: "Carla Castro" },
-  { id: "s-04", name: "Dan Delgado" },
-  { id: "s-05", name: "Eve Everett" },
-  { id: "s-06", name: "Femi Fisher" },
-  { id: "s-07", name: "Gina Gomez" },
-  { id: "s-08", name: "Hal Hunter" },
-  { id: "s-09", name: "Ida Ibarra" },
-  { id: "s-10", name: "Jon Jenkins" },
-  { id: "s-11", name: "Kay Kowalski" },
-  { id: "s-12", name: "Luis Lozano" },
+  { id: "s-01", firstName: "Ana", lastName: "Alvarez" },
+  { id: "s-02", firstName: "Ben", lastName: "Brooks" },
+  { id: "s-03", firstName: "Carla", lastName: "Castro" },
+  { id: "s-04", firstName: "Dan", lastName: "Delgado" },
+  { id: "s-05", firstName: "Eve", lastName: "Everett" },
+  { id: "s-06", firstName: "Femi", lastName: "Fisher" },
+  { id: "s-07", firstName: "Gina", lastName: "Gomez" },
+  { id: "s-08", firstName: "Hal", lastName: "Hunter" },
+  { id: "s-09", firstName: "Ida", lastName: "Ibarra" },
+  { id: "s-10", firstName: "Jon", lastName: "Jenkins" },
+  { id: "s-11", firstName: "Kay", lastName: "Kowalski" },
+  { id: "s-12", firstName: "Luis", lastName: "Lozano" },
 ];
 
 const json = (status, body) => ({ status: status, contentType: "application/json", body: JSON.stringify(body) });
@@ -469,7 +471,7 @@ function createStub(opts) {
     //
     // The picker's list: every active person, name and id, sorted by last
     // name, with the caller left out. A case can empty it or make it fail.
-    if (key === "GET /api/hr/cases/people") {
+    if (key === "GET /api/hr-cases/people") {
       return json(200, { people: state.staff.filter(p => p.id !== state.person.id) });
     }
     if (key === "GET /api/contacts/case-subjects") return json(200, { subjects: [{ id: "p-1", name: "A shift supervisor", title: "Supervisor" }, { id: "p-2", name: "An area manager", title: "Area Manager" }] });
@@ -479,12 +481,13 @@ function createStub(opts) {
     if (key === "POST /api/hr-cases") {
       const said = body || {};
       const ids = Array.isArray(said.subjectUserIds) ? said.subjectUserIds : [];
-      if (said.aboutManagement === true && ids.length === 0) return json(400, { error: HR_CASE_REFUSALS[0] });
-      if (ids.indexOf(state.person.id) !== -1) return json(400, { error: HR_CASE_REFUSALS[1] });
-      if (ids.some(id => !state.staff.some(p => p.id === id))) return json(400, { error: HR_CASE_REFUSALS[2] });
-      if (ids.length > 10) return json(400, { error: HR_CASE_REFUSALS[3] });
+      if (said.aboutManagement !== true && said.aboutManagement !== false) return json(400, { error: HR_CASE_REFUSALS[0] });
+      if (said.aboutManagement === true && ids.length === 0) return json(400, { error: HR_CASE_REFUSALS[1] });
+      if (ids.indexOf(state.person.id) !== -1) return json(400, { error: HR_CASE_REFUSALS[2] });
+      if (ids.some(id => !state.staff.some(p => p.id === id))) return json(400, { error: HR_CASE_REFUSALS[3] });
+      if (ids.length > 10) return json(400, { error: HR_CASE_REFUSALS[4] });
       state.filed.push(said);
-      return json(200, { id: "hr-case-one", caseNumber: "HR-0001" });
+      return json(201, { id: "hr-case-one", status: "open", createdAt: iso(NOW), updatedAt: iso(NOW) });
     }
 
     // --- the bell

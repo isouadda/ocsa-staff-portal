@@ -504,7 +504,7 @@ On your bar,En su barra,Shortcuts
 Pick something for this spot,Elija algo para este lugar,Shortcuts
 Put the bar back the way it came?,¿Dejar la barra como estaba al principio?,Shortcuts
 Remove,Quitar,Shortcuts
-Remove {name},Quitar {name},Shortcuts
+Remove {name},Quitar a {name},"Shortcuts, Speak Up"
 Replace which one?,¿Cuál quiere reemplazar?,Shortcuts
 Reset,Restablecer,Shortcuts
 Reset to default,Volver a lo original,Shortcuts
@@ -576,11 +576,12 @@ Keep the reason under 1000 characters,Escriba el motivo con menos de 1000 caract
 language must be en or es,el idioma debe ser en o es,"API message, shown word for word"
 One of the people picked is not on the staff list,Una de las personas elegidas no está en la lista del personal,"API message, shown word for word"
 Photo upload failed,No se pudo subir la foto,"API message, shown word for word"
-Pick at least one person this is about,Elija al menos una persona sobre quién es esto,"API message, shown word for word"
+Pick at least one person this is about,Elija al menos a una persona de quien trata este reporte,"API message, shown word for word"
 Pick up to 10 people,Elija hasta 10 personas,"API message, shown word for word"
 Request failed,La solicitud falló,"API message, shown word for word"
 Request not found,No se encontró la solicitud,"API message, shown word for word"
 Required fields are unanswered,Faltan campos obligatorios por responder,"API message, shown word for word"
+Say whether this is about someone in management,Indique si esto es sobre alguien de la gerencia,"API message, shown word for word"
 Send answers as an object of key and value,Envíe las respuestas como un objeto de clave y valor,"API message, shown word for word"
 Send at most 3 photos with one message.,Envíe como máximo 3 fotos en un mensaje.,"API message, shown word for word"
 Server error,Error del servidor,"API message, shown word for word"
@@ -610,7 +611,7 @@ Time off can start at most one year ahead,El tiempo libre puede comenzar un año
 Upload failed,No se pudo subir el archivo,"API message, shown word for word"
 User not found,No se encontró el usuario,"API message, shown word for word"
 You already have time off requested or approved for those days,Ya tiene tiempo libre solicitado o aprobado para esos días,"API message, shown word for word"
-You cannot pick yourself,No puede elegirse a usted mismo,"API message, shown word for word"
+You cannot pick yourself,No puede elegirse a sí mismo,"API message, shown word for word"
 You cannot sign this part of the form,Usted no puede firmar esta parte del formulario,"API message, shown word for word"
 Chat,Mensajes,Bar and More
 Help,Ayuda,Bar and More

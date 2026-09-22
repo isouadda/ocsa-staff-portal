@@ -95,6 +95,10 @@ const sendIsOff = (page, language) => page.evaluate((want) => {
   return !b || b.disabled;
 }, say("Send", language));
 
+// The API sends a first and a last name, and the screen draws them the
+// way a person says them.
+const whole = (p) => p.firstName + " " + p.lastName;
+
 // Is a name offered on the picker's list, read without tapping it.
 // The header draws the signed in person's name too, so only a button
 // inside the screen counts.
@@ -624,7 +628,7 @@ const JOURNEYS = [
         expect("with Yes, the picker asks for at least one person",
           (await bodyText(app.page)).indexOf(say("Who is it about? Pick at least one person.", language)) !== -1,
           (await bodyText(app.page)).slice(0, 300));
-        await pickPerson(app.page, STAFF[0].name);
+        await pickPerson(app.page, whole(STAFF[0]));
         await pause(app.page, 500);
         expect("with Yes and one person picked, Send is live", !(await sendIsOff(app.page, language)), "Send is still off");
 
@@ -667,11 +671,11 @@ const JOURNEYS = [
 
         // Searching narrows the list.
         const wanted = STAFF[2];
-        await type(app.page, ".sp-content input[type=\"text\"]", wanted.name.split(" ")[1]);
+        await type(app.page, ".sp-content input[type=\"text\"]", wanted.lastName);
         await pause(app.page, 500);
         let text = await bodyText(app.page);
         expect("searching narrows the list to the name typed",
-          text.indexOf(wanted.name) !== -1 && text.indexOf(STAFF[0].name) === -1, text.slice(0, 300));
+          text.indexOf(whole(wanted)) !== -1 && text.indexOf(whole(STAFF[0])) === -1, text.slice(0, 300));
 
         // A name nobody has.
         await type(app.page, ".sp-content input[type=\"text\"]", "Zzz");
@@ -683,10 +687,10 @@ const JOURNEYS = [
         // Picking, then removing.
         await type(app.page, ".sp-content input[type=\"text\"]", "");
         await pause(app.page, 400);
-        await pickPerson(app.page, wanted.name);
+        await pickPerson(app.page, whole(wanted));
         await pause(app.page, 500);
         expect("a name picked shows as a chip", await chipCount(app.page, language) === 1, "chips on screen: " + (await chipCount(app.page, language)));
-        await pickPerson(app.page, STAFF[4].name);
+        await pickPerson(app.page, whole(STAFF[4]));
         await pause(app.page, 500);
         expect("a second name picked shows beside it", await chipCount(app.page, language) === 2, "chips on screen: " + (await chipCount(app.page, language)));
 
@@ -698,9 +702,9 @@ const JOURNEYS = [
         await pause(app.page, 400);
         const after = await chipCount(app.page, language);
         expect("a chip comes off on a tap", before === 2 && after === 0, "chips before: " + before + ", after: " + after);
-        await pickPerson(app.page, wanted.name);
+        await pickPerson(app.page, whole(wanted));
         await pause(app.page, 400);
-        await pickPerson(app.page, STAFF[4].name);
+        await pickPerson(app.page, whole(STAFF[4]));
         await pause(app.page, 500);
         await clickText(app.page, say("Send", language));
         await pause(app.page, 1400);
@@ -713,7 +717,7 @@ const JOURNEYS = [
         // A list that will not load.
         const app3 = await open({ stubOptions: {} });
         try {
-          app3.stub.state.refuse["GET /api/hr/cases/people"] = { status: 500, error: "Something went wrong on our end. Try again in a minute." };
+          app3.stub.state.refuse["GET /api/hr-cases/people"] = { status: 500, error: "Something went wrong on our end. Try again in a minute." };
           await openTab(app3.page, "speakup", language);
           await pause(app3.page, 1400);
           expect("a list that will not load says so in one line",
