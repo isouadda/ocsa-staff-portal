@@ -59,6 +59,13 @@ by its kind. The day the API sends a kind in Spanish, it joins
 `LIVE_KINDS`, its entry stops matching, and the run fails until the entry
 comes off.
 
+The seven calls made before anyone signs in are the exception, the way
+Step 113 made them in the API: every word on them is served in the
+language the request asks for, `?locale=` first and the browser's own
+`Accept-Language` after it. A call that forgets `?locale=` hears back in
+the phone's language, which is what a case with a phone set to the other
+language catches.
+
 A value written with a `{placeholder}` is judged by what fills it too, so
 a Spanish sentence with an English word inside it still fails. What a
 journey types is the person's own words, and passes as a name when a
@@ -71,6 +78,13 @@ a phone that has never chosen a language. Nothing is stored on the first
 load, the phone itself is set to the case's language, and whatever the
 app stores after that is kept through a reload. The `beforesignin`
 journey uses it.
+
+`openApp(browser, base, { language: "en", phone: "es" })` opens a phone
+set to one language showing the portal in the other: the language is
+stored as the case's, and the browser's own language, which it sends as
+`Accept-Language`, is the phone's. The `signedoutlocale` journey uses it
+to prove each of the seven calls made before signing in carries
+`?locale=`.
 
 ## Coverage proves itself
 

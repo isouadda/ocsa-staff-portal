@@ -58,6 +58,8 @@ const INSPECTION = {
     { id: "it-2", label: "Floor mats are straight and dry", zone: "Lobby", max_score: 5 },
   ],
 };
+// One on the list that the API no longer has when it is opened.
+const INSPECTION_GONE = { id: "in-gone", template_name: "Stairwell walk", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled", gone: true };
 
 // Every refusal the time off routes can answer with, in the order the
 // Step 79 contract lists them. The suite shows each one word for word.
@@ -369,6 +371,8 @@ const TWIN_PAIRS = [
   ["Floor mats are straight and dry", "Los tapetes est\u00e1n derechos y secos"],
   ["Lobby", "Vest\u00edbulo"],
   ["Inspection not found", "No se encontr\u00f3 la inspecci\u00f3n"],
+  ["Stairwell walk", "Recorrido de la escalera"],
+  ["The badge number does not match this account.", "El n\u00famero de empleado no coincide con esta cuenta."],
   // The one pick list label the portal's own table does not carry yet.
   ["Medium", "Media"],
 ]
@@ -419,6 +423,21 @@ const kindsFor = (method, pathname) => {
   const hit = ROUTE_WORDS.find(r => r[0].test(method + " " + pathname));
   const own = hit ? hit[1] : {};
   return (field) => own[field] || WORD_FIELDS[field] || (CODE_FIELDS.has(field) ? "code" : "name");
+};
+
+// Step 113 in the API: the seven calls made before anyone signs in are
+// answered in the language the request asks for, ?locale= first and the
+// browser's Accept-Language after it. Every word on them is served that
+// way, so a call that forgets ?locale= hears back in the phone's language.
+const SIGNED_OUT = [
+  /^POST \/api\/auth\/login$/, /^POST \/api\/auth\/register$/,
+  /^GET \/api\/auth\/activate\/[^/]+$/, /^POST \/api\/auth\/activate$/,
+  /^POST \/api\/auth\/reset\/request$/, /^GET \/api\/auth\/reset\/[^/]+$/, /^POST \/api\/auth\/reset$/,
+];
+const signedOutLanguage = (search, accept) => {
+  const m = String(search || "").match(/[?&]locale=(en|es)\b/);
+  if (m) return m[1];
+  return /^\s*es\b/i.test(String(accept || "")) ? "es" : "en";
 };
 
 // The language one request asked for.
@@ -491,7 +510,14 @@ function createStub(opts) {
     const linkInfo = () => Object.assign({ firstName: state.person.firstName, expiresAt: iso(NOW.getTime() + 12 * 60 * 60 * 1000) },
       (state.accountPreferences && (state.accountPreferences.language === "en" || state.accountPreferences.language === "es")) ? { preferredLanguage: state.accountPreferences.language } : {});
     if (method === "GET" && /^\/api\/auth\/activate\//.test(pathname)) return json(200, Object.assign(linkInfo(), { badgeAssigned: state.activationBadge }));
-    if (key === "POST /api/auth/activate") return json(200, { token: "token-one" });
+    // A link whose row carries a badge number turns away one that does
+    // not match, with a code the screen reads and a sentence it does not.
+    if (key === "POST /api/auth/activate") {
+      if (state.activationBadge && body && body.badgeNumber && body.badgeNumber !== state.person.badgeNumber) {
+        return json(400, { error: "The badge number does not match this account.", code: "BADGE_MISMATCH" });
+      }
+      return json(200, { token: "token-one" });
+    }
     if (method === "GET" && /^\/api\/auth\/reset\//.test(pathname)) return json(200, { firstName: state.person.firstName, expiresAt: linkInfo().expiresAt });
     if (key === "POST /api/auth/reset") return json(200, { token: "token-one" });
 
@@ -641,9 +667,9 @@ function createStub(opts) {
     if (key === "POST /api/supplies/requests") return json(200, { ok: true });
 
     // --- inspections
-    if (pathname === "/api/inspections/scheduled" && method === "GET") return json(200, state.inspections.map(i => Object.assign({}, i, { items: undefined })));
+    if (pathname === "/api/inspections/scheduled" && method === "GET") return json(200, state.inspections.map(i => Object.assign({}, i, { items: undefined, gone: undefined })));
     if (method === "GET" && /^\/api\/inspections\/scheduled\/[^/]+$/.test(pathname)) {
-      const one = state.inspections.find(i => pathname.endsWith("/" + i.id));
+      const one = state.inspections.find(i => pathname.endsWith("/" + i.id) && !i.gone);
       return one ? json(200, one) : json(404, { error: "Inspection not found" });
     }
     if (pathname === "/api/inspections/scheduled") return json(200, []);
@@ -696,12 +722,13 @@ function createStub(opts) {
   // live API already sends in Spanish is served in the language the
   // request asked for, and every string is recorded as a name, a word or
   // a code, so the Spanish check knows what the screens were given.
-  function remember(answer, method, pathname, search) {
+  function remember(answer, method, pathname, search, accept) {
     if (!answer || typeof answer.body !== "string") return answer;
     let data;
     try { data = JSON.parse(answer.body); } catch (e) { return answer; }
     const kindOf = kindsFor(method, pathname);
-    const spanish = languageOf(search, state) === "es";
+    const signedOut = SIGNED_OUT.some(re => re.test(method + " " + pathname));
+    const spanish = (signedOut ? signedOutLanguage(search, accept) : languageOf(search, state)) === "es";
     const record = (v, kind) => {
       if (kind === "name") { state.served.add(v); return; }
       if (kind === "code") { state.codes.add(v); return; }
@@ -712,7 +739,7 @@ function createStub(opts) {
     const walk = (v, field) => {
       if (typeof v === "string") {
         const kind = kindOf(field);
-        const out = (spanish && LIVE_KINDS.has(kind) && TWIN_ES.has(v)) ? TWIN_ES.get(v) : v;
+        const out = (spanish && (signedOut || LIVE_KINDS.has(kind)) && TWIN_ES.has(v)) ? TWIN_ES.get(v) : v;
         record(out, kind);
         return out;
       }
@@ -727,7 +754,7 @@ function createStub(opts) {
     return Object.assign({}, answer, { body: JSON.stringify(walk(data, "")) });
   }
 
-  return { handle: (method, pathname, search, body) => remember(handle(method, pathname, search, body), method, pathname, search), state: state };
+  return { handle: (method, pathname, search, body, accept) => remember(handle(method, pathname, search, body), method, pathname, search, accept), state: state };
 }
 
 function draftOf(state) {
@@ -740,4 +767,4 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, formP, timeOffRow, ymd, iso, DAY };
+module.exports = { createStub, servedFor, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, formP, timeOffRow, ymd, iso, DAY };

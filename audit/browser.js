@@ -40,7 +40,10 @@ async function launch() {
 }
 
 // opts: { language, textSize, theme, signedIn, installSheet, stub, locale,
-//         storeLanguage }
+//         storeLanguage, phone }
+// phone: "en" or "es", the language the phone itself is set to, which is
+// the case's language unless a case says otherwise. The browser sends it
+// on every request as Accept-Language.
 // storeLanguage: false opens a phone that has never chosen a language:
 // nothing is stored on the first load, the phone itself is set to the
 // case's language, and whatever the app stores after that is kept.
@@ -58,7 +61,7 @@ async function openApp(browser, base, opts) {
   // reached the app, and a stored choice still beats what the phone says.
   const theme = o.theme === "light" ? "light" : "dark";
   const context = await browser.newContext(Object.assign({}, PHONE, {
-    locale: o.language === "es" ? "es-US" : "en-US",
+    locale: (o.phone || o.language) === "es" ? "es-US" : "en-US",
     colorScheme: "dark",
   }));
 
@@ -68,7 +71,7 @@ async function openApp(browser, base, opts) {
     let body = null;
     const raw = req.postData();
     if (raw) { try { body = JSON.parse(raw); } catch (e) { body = raw; } }
-    const answer = stub.handle(req.method(), url.pathname, url.search, body);
+    const answer = stub.handle(req.method(), url.pathname, url.search, body, (req.headers() || {})["accept-language"] || "");
     if (answer && answer.abort) { await route.abort("failed"); return; }
     await route.fulfill(answer);
   });

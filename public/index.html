@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -16,6 +16,21 @@
     // a seam. The four colors are LIGHT.bg, DARK.bg, LIGHT.headerBg and
     // DARK.headerBg in src/App.js, which is what the app paints a moment
     // later, so a phone set to light never shows a dark frame.
+    //
+    // The language is decided the same way, the choice stored on this phone
+    // or else the phone's own language, and the page is marked with it
+    // before anything is drawn, so a Spanish screen is never declared an
+    // English one. src/App.js keeps it right from there.
+    (function () {
+      var lang = "en";
+      try {
+        var chosen = null;
+        try { chosen = window.localStorage.getItem("ocsa-staff-language"); } catch (e) {}
+        var phone = String((navigator.languages && navigator.languages[0]) || navigator.language || "");
+        lang = (chosen === "en" || chosen === "es") ? chosen : (/^es\b/i.test(phone) ? "es" : "en");
+      } catch (e) {}
+      document.documentElement.lang = lang;
+    })();
     (function () {
       try {
         var stored = null;

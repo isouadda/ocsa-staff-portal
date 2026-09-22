@@ -7,7 +7,7 @@ const { openApp, letSheetOffer } = require("./browser");
 const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
 const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
-const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, STAFF, LOOKUPS, INSPECTION, TWIN_ES, servedFor } = require("./stub");
+const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, TWIN_ES, servedFor } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -324,6 +324,83 @@ const JOURNEYS = [
         await pause(reset.page, 600);
         const turned = await bodyText(reset.page);
         expect("a reset link follows the language chosen on it", has(turned, spanishOf("Save PIN", other)), turned.slice(0, 200));
+      } finally { await reset.context.close(); }
+    },
+  },
+  {
+    id: "signedoutlocale",
+    label: "The seven calls made before signing in carry the screen's language, and a phone set to the other one hears back in the screen's",
+    run: async (open, language, expect) => {
+      const other = language === "es" ? "en" : "es";
+      // Each of the seven, by method and path, with what a person is doing.
+      const SEVEN = [
+        ["POST", /^\/api\/auth\/login$/, "signing in"],
+        ["POST", /^\/api\/auth\/register$/, "registering"],
+        ["POST", /^\/api\/auth\/reset\/request$/, "asking for a reset link"],
+        ["GET", /^\/api\/auth\/activate\/[^/]+$/, "opening an activation link"],
+        ["POST", /^\/api\/auth\/activate$/, "activating"],
+        ["GET", /^\/api\/auth\/reset\/[^/]+$/, "opening a reset link"],
+        ["POST", /^\/api\/auth\/reset$/, "saving a PIN from a reset link"],
+      ];
+      const wanted = new RegExp("[?&]locale=" + language + "\\b");
+      const judge = (stub, rows) => rows.forEach(([method, re, what]) => {
+        const calls = stub.state.calls.filter(c => c.method === method && re.test(c.path));
+        const bad = calls.filter(c => !wanted.test(c.search));
+        expect(what + " carries the screen's language as ?locale=", calls.length > 0 && bad.length === 0,
+          calls.length ? calls.map(c => c.method + " " + c.path + c.search).join(", ") : "never sent");
+      });
+
+      // Sign in, Register and Forgot PIN, the screen in this language and
+      // the phone in the other.
+      const app = await open({ signedIn: false, phone: other });
+      try {
+        await type(app.page, 'input[autocomplete="username"]', "4821");
+        await type(app.page, 'input[type="password"]', "0000");
+        await clickText(app.page, say("Sign In", language));
+        await pause(app.page, 900);
+        const told = (await toastText(app.page)) || (await bodyText(app.page));
+        expect("a wrong PIN is answered in the screen's language, whatever the phone's",
+          has(told, spanishOf("That sign-in did not match. Check your badge, phone or email and your PIN.", language)), told.slice(0, 200));
+        await clickText(app.page, say("New Employee? Register Here", language));
+        await pause(app.page, 700);
+        const person = ["Riley", "Invented", "0000000009", "nine@example.invalid", "5739", "5739"];
+        for (let i = 0; i < person.length; i += 1) await typeNth(app.page, "input", i, person[i]);
+        await clickText(app.page, say("Register", language));
+        await pause(app.page, 900);
+        await clickText(app.page, say("Forgot your PIN?", language));
+        await pause(app.page, 700);
+        await type(app.page, "input", "4821");
+        await clickText(app.page, say("Send Reset Link", language));
+        await pause(app.page, 900);
+        judge(app.stub, SEVEN.slice(0, 3));
+      } finally { await app.context.close(); }
+
+      // An activation link on the same phone, with a badge number that
+      // does not match. The answer's code says so; its sentence, in either
+      // language, is never read.
+      const link = await open({ signedIn: false, phone: other, path: "/activate?token=fixture", stubOptions: { activationBadge: true } });
+      try {
+        await pause(link.page, 1200);
+        await typeNth(link.page, 'input:not([type="password"])', 0, "9999");
+        await typeNth(link.page, 'input[type="password"]', 0, "5739");
+        await typeNth(link.page, 'input[type="password"]', 1, "5739");
+        await clickText(link.page, say("Activate Account", language));
+        await pause(link.page, 900);
+        const said = await bodyText(link.page);
+        expect("a badge number that does not match is read off the answer's code and said in the screen's language",
+          has(said, spanishOf("That badge number does not match our records. Check the number in your email.", language)), said.slice(0, 220));
+        judge(link.stub, SEVEN.slice(3, 5));
+      } finally { await link.context.close(); }
+
+      // A reset link on the same phone.
+      const reset = await open({ signedIn: false, phone: other, path: "/reset-pin?token=fixture" });
+      try {
+        await pause(reset.page, 1200);
+        await typeNth(reset.page, 'input[type="password"]', 0, "5739");
+        await typeNth(reset.page, 'input[type="password"]', 1, "5739");
+        await clickText(reset.page, say("Save PIN", language));
+        await pause(reset.page, 900);
+        judge(reset.stub, SEVEN.slice(5, 7));
       } finally { await reset.context.close(); }
     },
   },
@@ -1127,6 +1204,22 @@ const JOURNEYS = [
         expect("the inspection opens on its items", has(opened, first) || has(opened, inSpanish(first)), opened.slice(0, 200));
         await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
+
+      // One on the list that the API no longer has. Its refusal comes from
+      // a route that still answers in English, whatever the request asks.
+      const gone = await open({ stubOptions: { inspections: [INSPECTION_GONE] } });
+      try {
+        await openTab(gone.page, "inspect", language);
+        await pause(gone.page, 900);
+        await gone.page.evaluate((names) => {
+          const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => names.some(n => x.textContent.indexOf(n) !== -1));
+          if (b) b.click();
+        }, [INSPECTION_GONE.template_name, inSpanish(INSPECTION_GONE.template_name)]);
+        await pause(gone.page, 700);
+        const told = (await toastText(gone.page)) || (await bodyText(gone.page));
+        expect("an inspection the API no longer has says so", has(told, "Inspection not found") || has(told, inSpanish("Inspection not found")), told.slice(0, 200));
+        await spokenHere(gone, language, expect);
+      } finally { await gone.context.close(); }
     },
   },
   {

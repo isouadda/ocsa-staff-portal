@@ -359,7 +359,7 @@
       "where": "*",
       "check": "english",
       "what": "is a refusal the API sent in English",
-      "why": "The API's refusals are English sentences. The portal draws one in Spanish when the table holds that exact sentence and every other one as sent, so a refusal outside the table stays English until the API sends the person's language. The wrong PIN is the one the table holds and the sign-in screen still draws as sent."
+      "why": "The API's refusals are English sentences on every route but the seven calls made before signing in, which Step 113 answers in the language the request asks for. The portal draws a refusal in Spanish when the table holds that exact sentence and every other one as sent, so a refusal from any other route stays English until the API sends the person's language there too."
     },
     {
       "where": "*",
@@ -458,88 +458,10 @@
       "why": "A photo the phone cannot read says the line the code throws, which has no entry in the table."
     },
     {
-      "where": "Before signing in:",
-      "check": "not translated",
-      "what": "\"Welcome, Alex.\" on a Spanish screen",
-      "why": "A phone set to Spanish that has never chosen a language opens every screen before signing in in English, the activation greeting included."
-    },
-    {
-      "where": "Before signing in:",
-      "check": "english",
-      "what": "",
-      "why": "A phone set to Spanish that has never chosen a language opens sign in, Register, Forgot PIN and the activation and reset links in English, so every word on them is English."
-    },
-    {
       "where": "Every PIN rule and PIN error",
       "check": "english",
       "what": "\"Request failed\" on a Spanish screen",
       "why": "Change PIN draws the API's refusal as sent, so a refusal with no sentence of its own shows the English fallback although the table holds its Spanish."
-    },
-    {
-      "where": "Before signing in:",
-      "check": "the sign-in screen offers the other language, named in its own language",
-      "what": "",
-      "why": "No screen before signing in offers a language."
-    },
-    {
-      "where": "Before signing in:",
-      "check": "choosing it turns the screen and keeps the choice",
-      "what": "",
-      "why": "No screen before signing in offers a language, so none can be chosen there."
-    },
-    {
-      "where": "Before signing in:",
-      "check": "the choice beats the phone after a reload",
-      "what": "",
-      "why": "No screen before signing in offers a language, so there is no choice to keep."
-    },
-    {
-      "where": "Before signing in:",
-      "check": "an activation link opens in the account's language",
-      "what": "",
-      "why": "An activation link opens in the language stored on the phone, or English, whatever the account's saved language."
-    },
-    {
-      "where": "Before signing in:",
-      "check": "a reset link follows the language chosen on it",
-      "what": "",
-      "why": "A reset link offers no language."
-    },
-    {
-      "where": "Before signing in:",
-      "check": "a phone that has never chosen opens in its own language",
-      "what": "",
-      "why": "With nothing stored the portal opens in English on any phone."
-    },
-    {
-      "where": "Before signing in:",
-      "check": "the sign-in screen is drawn in the phone's language",
-      "what": "",
-      "why": "With nothing stored the portal opens in English on any phone."
-    },
-    {
-      "where": "Before signing in:",
-      "check": "Register is drawn in the chosen language",
-      "what": "",
-      "why": "Register opens in English on a phone that has never chosen a language."
-    },
-    {
-      "where": "Before signing in:",
-      "check": "Forgot your PIN is drawn in the chosen language",
-      "what": "",
-      "why": "Forgot your PIN opens in English on a phone that has never chosen a language."
-    },
-    {
-      "where": "Before signing in:",
-      "check": "the activation screen follows its own picker",
-      "what": "",
-      "why": "The activation picker only sets the language sent with the activation; the screen itself stays in the language stored on the phone."
-    },
-    {
-      "where": "Sign in, a wrong PIN",
-      "check": "a wrong PIN says so in the person's language",
-      "what": "",
-      "why": "The sign-in screen draws the API's refusal as sent, although the table holds its Spanish."
     },
     {
       "where": "Start a shift, then end it",
@@ -662,6 +584,12 @@
       "check": "contrast",
       "what": "\"#24A4F4 on #EAF6FE\"",
       "why": "Blue on light mode's blue wash, the badge of a shift someone dropped. 2.49 to 1 against the 4.5 to 1 small text needs. The stub's open shift carries a real origin code from this build on."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"{brand} Staff Portal\" has no Spanish entry",
+      "why": "The page title, which follows the language from this commit on. Its Spanish is written in commit five, with every other word this build needs."
     }
   ]
 }

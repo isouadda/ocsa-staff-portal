@@ -488,6 +488,7 @@ const SwapIco = (p) => <Ico d="M16 3l4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" {...p
 const CalIco = (p) => <Ico d="M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM16 2v4M8 2v4M3 10h18" {...p} />;
 const HomeIco = (p) => <Ico d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" {...p} />;
 const HelpIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01" {...p} />;
+const GlobeIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" {...p} />;
 const PersonIco = (p) => <Ico d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" {...p} />;
 const GearIco = (p) => <Ico d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" {...p} />;
 const BellIco = (p) => <Ico d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0" {...p} />;
@@ -675,15 +676,33 @@ function phoneTheme() {
 }
 function firstTheme() { return storedTheme() || phoneTheme(); }
 
-// The language the Help agent answers in. The portal's own screens are
-// English, which the Settings card says plainly.
+// The language every screen reads, Help answers in and the report forms
+// ask their questions in. A choice stored on this phone wins. Until there
+// is one the phone's own language decides, the way the theme follows the
+// phone until a person picks one, so a phone set to Spanish opens the
+// portal in Spanish from its very first screen. An account's own value
+// still arrives with signing in and applies the way it always has. The
+// small script at the top of public/index.html reads these same two
+// answers, so the page is marked with its language from the first frame.
 const LANGUAGE_KEY = "ocsa-staff-language";
 const LANGUAGES = [{ id: "en", label: "English" }, { id: "es", label: "Espa\u00f1ol" }];
-function readLanguage() {
-  try { var v = window.localStorage.getItem(LANGUAGE_KEY); return (v === "en" || v === "es") ? v : "en"; } catch (e) { return "en"; }
-}
 function storedLanguage() {
   try { var v = window.localStorage.getItem(LANGUAGE_KEY); return (v === "en" || v === "es") ? v : null; } catch (e) { return null; }
+}
+function phoneLanguage() {
+  try {
+    var first = (navigator.languages && navigator.languages[0]) || navigator.language || "";
+    return /^es\b/i.test(String(first)) ? "es" : "en";
+  } catch (e) { return "en"; }
+}
+function firstLanguage() { return storedLanguage() || phoneLanguage(); }
+// The seven calls made before anyone is signed in carry the language on
+// the screen. The API answers them in the language the request asks for,
+// ?locale= first and the browser's own language after it, so without this
+// a phone set to Spanish would get Spanish refusals on a screen set to
+// English, and the other way round.
+function signedOut(path, language) {
+  return path + (path.indexOf("?") === -1 ? "?" : "&") + "locale=" + (language === "es" ? "es" : "en");
 }
 function saveLanguage(v) { try { window.localStorage.setItem(LANGUAGE_KEY, v); } catch (e) {} }
 
@@ -779,6 +798,8 @@ const fillsTheWindow = () => ({
 // The setting reaches the sign-in screens and Profile through context, so
 // no screen has to thread it down.
 const TextSizeCtx = createContext({ textSize: "standard", setTextSize: () => {} });
+// The language, and the way to change it, reach them the same way.
+const LanguageCtx = createContext({ language: "en", setLanguage: () => {} });
 
 // The four choices, as buttons. Used on the sign-in screens and in Profile.
 function TextSizeChoices({ value, onChange, t }) {
@@ -823,6 +844,20 @@ function TextSizeButton({ t }) {
         </div>
       )}
     </>
+  );
+}
+
+// The screens before signing in offer the other language beside the text
+// size and the theme, named in its own language so a person who reads
+// only that one can find it. One tap turns every screen at once and is
+// kept on this phone, the same as a choice made in Settings.
+function LanguageButton({ t }) {
+  const { language, setLanguage } = useContext(LanguageCtx);
+  const other = LANGUAGES.find(l => l.id !== language) || LANGUAGES[0];
+  return (
+    <button type="button" onClick={() => setLanguage(other.id)} style={mkTapFrame()}>
+      <span lang={other.id} style={mkSmallPill(t)}><GlobeIco sz={14} c={t.textMut} />{other.label}</span>
+    </button>
   );
 }
 
@@ -926,8 +961,17 @@ export default function OCSAStaffPortal() {
   // The sign in screen keeps its own toggle, which now goes through the same
   // path, so a choice made before signing in is sent up afterwards.
   const toggleTheme = () => setTheme(themeMode === "dark" ? "light" : "dark");
-  const [language, setLanguageState] = useState(readLanguage);
+  const [language, setLanguageState] = useState(firstLanguage);
   const setLanguage = (v) => { setLanguageState(v); saveLanguage(v); queuePref({ language: v }); };
+  // The page says which language it is in, so a screen reader reads it in
+  // the right voice and the browser never offers to translate it, and the
+  // tab and the app switcher name it in the same language.
+  useEffect(() => {
+    try {
+      document.documentElement.lang = language;
+      document.title = tr("{brand} Staff Portal", { brand: clientConfig.company.brandTag });
+    } catch (e) {}
+  }, [language]);
   // Every screen below reads its words from this. Set during the
   // render that carries the new value, so the whole portal turns
   // at once; an effect would run after the first paint and show
@@ -995,14 +1039,14 @@ export default function OCSAStaffPortal() {
     try {
       // noAuthEvent, so a refused PIN is not read as an expired session.
       // Nothing is signed in yet, so there is no session to end.
-      const data = await api("/api/auth/login", { method: "POST", body: { phone, pin }, noAuthEvent: true });
+      const data = await api(signedOut("/api/auth/login", language), { method: "POST", body: { phone, pin }, noAuthEvent: true });
       setToken(data.token); saveAuth(data.token);
       const me = await hydrateSession(data.token);
       showToast(tr("Welcome, {name}", { name: me.firstName }));
     } catch (err) {
       const said = err && err.body && err.body.error ? String(err.body.error) : "";
       if (!said && wentNowhere(err)) showToast(tr(ERR_OFFLINE), "error");
-      else showToast(said || tr("That sign-in did not match. Check your badge, phone or email and your PIN."), "error");
+      else showToast(said ? tr(said) : tr("That sign-in did not match. Check your badge, phone or email and your PIN."), "error");
     }
     setLoading(false);
   };
@@ -1025,7 +1069,7 @@ export default function OCSAStaffPortal() {
 
   const handleRegister = async (firstName, lastName, phone, email, pin) => {
     setLoading(true);
-    try { await api("/api/auth/register", { method: "POST", body: { firstName, lastName, phone, email, pin } }); showToast(tr("Registration submitted. Pending supervisor approval.")); setScreen("login"); } catch (err) { showToast(tr(err.message), "error"); }
+    try { await api(signedOut("/api/auth/register", language), { method: "POST", body: { firstName, lastName, phone, email, pin } }); showToast(tr("Registration submitted. Pending supervisor approval.")); setScreen("login"); } catch (err) { showToast(tr(err.message), "error"); }
     setLoading(false);
   };
 
@@ -1311,6 +1355,7 @@ export default function OCSAStaffPortal() {
 
   return (
     <TextSizeCtx.Provider value={{ textSize, setTextSize }}>
+    <LanguageCtx.Provider value={{ language, setLanguage }}>
     <div style={{ width: "100%", minHeight: "var(--ocsa-vh)", background: t.bg, fontFamily: FONT_BODY, color: t.text, position: "relative", display: "flex", flexDirection: "column", zoom: zoom, ...viewportVars(zoom), ...chromeVars(chrome.header, chrome.bar, zoom) }}>
 
       {/* Only while an update is waiting on someone to finish. It takes
@@ -1458,6 +1503,7 @@ export default function OCSAStaffPortal() {
         button:active { opacity: 0.8; }
       `}</style>
     </div>
+    </LanguageCtx.Provider>
     </TextSizeCtx.Provider>
   );
 }
@@ -1480,7 +1526,7 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, showToast, t,
         <div style={{ textAlign: "right", marginBottom: 24 }}><button onClick={onGoForgot} style={{ background: "none", border: "none", minHeight: TAP, padding: "4px 0", color: t.textSec, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>{tr("Forgot your PIN?")}</button></div>
         <button onClick={() => onLogin(phone, pin)} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Signing in...") : tr("Sign In")}</button>
         <button onClick={onGoRegister} style={mkGhostBtn(t)}>{tr("New Employee? Register Here")}</button>
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><button onClick={toggleTheme} style={mkTapFrame()}><span style={mkSmallPill(t)}>{themeMode === "dark" ? <SunIco sz={14} c={t.textMut} /> : <MoonIco sz={14} c={t.textMut} />}{themeMode === "dark" ? tr("Light Mode") : tr("Dark Mode")}</span></button><TextSizeButton t={t} /></div>
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><button onClick={toggleTheme} style={mkTapFrame()}><span style={mkSmallPill(t)}>{themeMode === "dark" ? <SunIco sz={14} c={t.textMut} /> : <MoonIco sz={14} c={t.textMut} />}{themeMode === "dark" ? tr("Light Mode") : tr("Dark Mode")}</span></button><TextSizeButton t={t} /><LanguageButton t={t} /></div>
       </div>
     </div>
   );
@@ -1518,13 +1564,13 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
         <div style={{ marginBottom: 24 }}><label style={labelSt}>{tr("Confirm PIN *")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
         <button onClick={submit} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Registering...") : tr("Register")}</button>
         <button onClick={onBack} style={mkGhostBtn(t)}>{tr("Back to Login")}</button>
-        <div style={{ display: "flex", justifyContent: "center", marginTop: 20 }}><TextSizeButton t={t} /></div>
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><TextSizeButton t={t} /><LanguageButton t={t} /></div>
       </div>
     </div>
   );
 }
 
-function AuthCard({ t, title, children }) {
+function AuthCard({ t, title, children, ownLanguage }) {
   return (
     <div style={{ width: "100%", minHeight: "var(--ocsa-vh, 100vh)", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
       <div style={{ width: "100%", maxWidth: 420, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: "28px 24px", boxShadow: t.popShadow }}>
@@ -1533,7 +1579,7 @@ function AuthCard({ t, title, children }) {
           <div style={{ fontSize: 12, color: t.textSec, letterSpacing: "2px", textTransform: "uppercase", marginTop: 8, fontFamily: FONT_HEAD, fontWeight: 600 }}>{title}</div>
         </div>
         {children}
-        <div style={{ display: "flex", justifyContent: "center", marginTop: 20 }}><TextSizeButton t={t} /></div>
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><TextSizeButton t={t} />{!ownLanguage && <LanguageButton t={t} />}</div>
       </div>
     </div>
   );
@@ -1577,7 +1623,15 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
   const [badge, setBadge] = useState("");
   const [pin, setPin] = useState("");
   const [pin2, setPin2] = useState("");
-  const [locale, setLocale] = useState("en");
+  // The picker on this screen is the portal's own language: choosing one
+  // turns the screen at once, and it is the language sent with the
+  // activation. The account's saved language, when the link carries one,
+  // is where it starts.
+  const { language: locale, setLanguage: setLocale } = useContext(LanguageCtx);
+  const chooseRef = useRef(setLocale);
+  chooseRef.current = setLocale;
+  const localeRef = useRef(locale);
+  localeRef.current = locale;
   const [errs, setErrs] = useState({});
   const [mismatches, setMismatches] = useState(0);
   const [attempt, setAttempt] = useState(0);
@@ -1587,8 +1641,8 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
     if (!token) return;
     let alive = true;
     setPhase("checking");
-    api("/api/auth/activate/" + encodeURIComponent(token), { noAuthEvent: true })
-      .then(d => { if (!alive) return; setInfo(d); setLocale(d.preferredLanguage === "es" ? "es" : "en"); setPhase("form"); })
+    api(signedOut("/api/auth/activate/" + encodeURIComponent(token), localeRef.current), { noAuthEvent: true })
+      .then(d => { if (!alive) return; setInfo(d); if (d && (d.preferredLanguage === "en" || d.preferredLanguage === "es")) chooseRef.current(d.preferredLanguage); setPhase("form"); })
       .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(wentNowhere(e) ? ERR_OFFLINE : ERR_GENERIC) }); setPhase("error"); } });
     return () => { alive = false; };
   }, [token, attempt]);
@@ -1612,7 +1666,7 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
     try {
       const body = { token, pin, locale };
       if (needBadge) body.badgeNumber = b;
-      const d = await api("/api/auth/activate", { method: "POST", body, noAuthEvent: true });
+      const d = await api(signedOut("/api/auth/activate", locale), { method: "POST", body, noAuthEvent: true });
       if (d.token) { setPhase("done"); onActivated(d.token, locale); return; }
       setFail({ from: "post", msg: tr(d.message) || tr("Your account is activated but not currently active. Contact your supervisor.") });
       setPhase("inactive");
@@ -1662,7 +1716,7 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
     </AuthCard>
   );
   return (
-    <AuthCard t={t} title={tr("Account Activation")}>
+    <AuthCard t={t} title={tr("Account Activation")} ownLanguage>
       <div style={textSt}>{info && info.firstName ? tr("Welcome, {name}.", { name: info.firstName }) + " " : ""}{tr("Confirm your badge number and choose your 4-digit PIN.")}</div>
       {info && info.expiresAt && <div style={{ ...helpSt, marginTop: 0, marginBottom: 16 }}>{tr("This link works until")} {fmtExpiry(info.expiresAt)} {tr("and can be used once.")}</div>}
       {needBadge && <div style={{ marginBottom: 14 }}>
@@ -1681,6 +1735,13 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
 }
 
 function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
+  // The account's saved language, when the link carries one, is where
+  // the screen starts. The pill on the card changes it from there.
+  const { language, setLanguage } = useContext(LanguageCtx);
+  const chooseRef = useRef(setLanguage);
+  chooseRef.current = setLanguage;
+  const languageRef = useRef(language);
+  languageRef.current = language;
   const [phase, setPhase] = useState(token ? "checking" : "incomplete");
   const [info, setInfo] = useState(null);
   const [fail, setFail] = useState({ from: "", msg: "" });
@@ -1694,8 +1755,8 @@ function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
     if (!token) return;
     let alive = true;
     setPhase("checking");
-    api("/api/auth/reset/" + encodeURIComponent(token), { noAuthEvent: true })
-      .then(d => { if (!alive) return; setInfo(d); setPhase("form"); })
+    api(signedOut("/api/auth/reset/" + encodeURIComponent(token), languageRef.current), { noAuthEvent: true })
+      .then(d => { if (!alive) return; setInfo(d); if (d && (d.preferredLanguage === "en" || d.preferredLanguage === "es")) chooseRef.current(d.preferredLanguage); setPhase("form"); })
       .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(ERR_GENERIC) }); setPhase("error"); } });
     return () => { alive = false; };
   }, [token, attempt]);
@@ -1708,7 +1769,7 @@ function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
     if (Object.keys(e).length) return;
     setPhase("working");
     try {
-      const d = await api("/api/auth/reset", { method: "POST", body: { token, pin }, noAuthEvent: true });
+      const d = await api(signedOut("/api/auth/reset", language), { method: "POST", body: { token, pin }, noAuthEvent: true });
       if (d.token) { setPhase("done"); onReset(d.token); return; }
       setFail({ from: "post", msg: tr(d.message) || tr("Your PIN has been changed. Contact your supervisor about your account status.") });
       setPhase("inactive");
@@ -1766,6 +1827,7 @@ function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
 }
 
 function ForgotScreen({ onGoLogin, showToast, t }) {
+  const { language } = useContext(LanguageCtx);
   const [ident, setIdent] = useState("");
   const [err, setErr] = useState("");
   const [phase, setPhase] = useState("form");
@@ -1776,7 +1838,7 @@ function ForgotScreen({ onGoLogin, showToast, t }) {
     if (!v) { setErr(tr("Enter your badge number, phone number or email address.")); return; }
     setErr(""); setPhase("working");
     try {
-      await api("/api/auth/reset/request", { method: "POST", body: { identifier: v }, noAuthEvent: true });
+      await api(signedOut("/api/auth/reset/request", language), { method: "POST", body: { identifier: v }, noAuthEvent: true });
       setPhase("sent");
     } catch (e) {
       setPhase("form");
