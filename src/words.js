@@ -502,6 +502,7 @@ export const WORDS = {
   "{used} of {max} characters used.": "{used} de {max} caracteres usados.",
 
   // Forms
+  "Add row": "Agregar fila",
   "Answered": "Respondida",
   "Back": "Atr\u00e1s",
   "Check this answer": "Revise esta respuesta",
@@ -521,10 +522,12 @@ export const WORDS = {
   "Not sent yet. Check your signal and tap Submit report again.": "Todav\u00eda no se envi\u00f3. Revise su se\u00f1al y toque Enviar reporte otra vez.",
   "Not yet": "Todav\u00eda no",
   "Opening": "Abriendo",
+  "Remove row": "Quitar fila",
   "Report": "Reportar",
   "Report sent. The people who handle these reports have been told.": "Reporte enviado. Ya se avis\u00f3 a las personas que atienden estos reportes.",
   "Required": "Obligatorio",
   "Review": "Revisar",
+  "Row {n}": "Fila {n}",
   "Saving": "Guardando",
   "Section {n}": "Secci\u00f3n {n}",
   "Section {n} of {total}": "Secci\u00f3n {n} de {total}",
@@ -535,6 +538,7 @@ export const WORDS = {
   "These still need an answer": "Estas todav\u00eda necesitan respuesta",
   "This question cannot be answered here yet. Your supervisor will finish it.": "Esta pregunta todav\u00eda no se puede responder aqu\u00ed. Su supervisor la completar\u00e1.",
   "This report was already sent.": "Este reporte ya se hab\u00eda enviado.",
+  "This table is full.": "Esta tabla est\u00e1 llena.",
   "Untitled report": "Reporte sin t\u00edtulo",
   "{answered} answered": "{answered} respondidas",
   "{answered} answered, {remaining} to go": "{answered} respondidas, faltan {remaining}",

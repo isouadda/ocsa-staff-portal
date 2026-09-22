@@ -3724,6 +3724,19 @@ function formReadAnswer(f, v) {
   return formOptionLabel(f, v);
 }
 
+// One cell as a person reads it: an option's label rather than the value
+// behind it, and an empty string where nothing was answered.
+const formCellRead = (col, v) => {
+  if (v === undefined || v === null || v === "") return "";
+  if (col.type === "select" || col.type === "multiselect") return formReadAnswer(col, v) || "";
+  return String(v);
+};
+// A row is finished when every column that asks for an answer has one.
+const formRowDone = (columns, row) => (columns || []).every(c => !c.required || formHasAnswer((row || {})[c.key]));
+// A grid whose rows the form names is a checklist; one with no rows of
+// its own is a table a person adds rows to.
+const formIsChecklist = (f) => Array.isArray(f.rows);
+
 // What a draft with no name of its own is called. Report on its own is
 // the tab, which is a different thing.
 const FORMS_UNTITLED = "Untitled report";
@@ -3735,7 +3748,7 @@ const FORMS_ANSWERED = "Answered";
 // asks for nothing, so a type the forms engine adds later cannot quietly
 // become a text box. A question with no type at all is text, which is
 // what it has always been.
-const FORM_TYPES_DRAWN = ["", "text", "textarea", "select", "multiselect", "date", "time"];
+const FORM_TYPES_DRAWN = ["", "text", "textarea", "select", "multiselect", "date", "time", "grid"];
 const formTypeOf = (f) => (f && f.type ? String(f.type) : "");
 
 const formDraftOf = (r) => (r && r.draft ? r.draft : r);
@@ -3866,6 +3879,8 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   const [saveErr, setSaveErr] = useState(null);
   const [badKeys, setBadKeys] = useState([]);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  // Which cards of a table a person has opened again after they folded.
+  const [openRows, setOpenRows] = useState({});
   const [review, setReview] = useState(false);
   const [confirmSend, setConfirmSend] = useState(false);
   const [sending, setSending] = useState(false);
@@ -4011,25 +4026,114 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     border: primary ? "1px solid " + GOLD : "1px solid " + t.borderSolid, background: primary ? t.goldBg : "transparent", color: primary ? t.goldText : t.textSec,
   });
 
+  // A block inside a grid: one item of a checklist, or one row of a
+  // table. Drawn as a card rather than as a cell in a row, because at
+  // the Largest text size the body is about 218 pixels across, which
+  // holds one field and nothing beside it.
+  const gridCard = { marginTop: 10, padding: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid };
+  const gridName = { fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const cellLabelSt = { fontSize: 12, color: t.textSec, marginTop: 10, lineHeight: 1.45, overflowWrap: "anywhere" };
+  const gridBtn = {
+    width: "100%", minHeight: TAP, marginTop: 10, padding: "10px 12px", borderRadius: R.md, cursor: "pointer",
+    border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec,
+    fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, textAlign: "center",
+  };
+  const foldedBtn = { ...gridBtn, background: t.card, color: t.text, textAlign: "left", fontWeight: 400, fontFamily: FONT_BODY, lineHeight: 1.45, overflowWrap: "anywhere" };
+
+  // One control, for a question or for one cell inside a grid. A cell
+  // gets the same input its type gets as a question, the date and the
+  // time pickers included.
+  const renderControl = (spec, v, onChange, at) => {
+    if (spec.type === "select" || spec.type === "multiselect") {
+      const many = spec.type === "multiselect";
+      const chosen = many ? (Array.isArray(v) ? v : []) : v;
+      return (spec.options || []).map(o => {
+        const picked = many ? chosen.indexOf(o.value) !== -1 : chosen === o.value;
+        const toggle = () => {
+          if (!many) { onChange(picked ? null : o.value); return; }
+          onChange(picked ? chosen.filter(x => x !== o.value) : chosen.concat([o.value]));
+        };
+        return <button key={at + o.value} type="button" onClick={toggle} aria-pressed={picked} style={optRow(picked)}><span style={mark(picked, !many)} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{o.label}</span></button>;
+      });
+    }
+    if (spec.type === "textarea") return <textarea rows={4} maxLength={FORM_VALUE_MAX} value={v === undefined || v === null ? "" : v} onChange={e => onChange(e.target.value)} style={{ ...inputSt, minHeight: 104, resize: "vertical", lineHeight: 1.5 }} />;
+    const kind = spec.type === "date" ? "date" : (spec.type === "time" ? "time" : "text");
+    return <input type={kind} maxLength={kind === "text" ? FORM_VALUE_MAX : undefined} value={v === undefined || v === null ? "" : v} onChange={e => onChange(e.target.value)} style={inputSt} />;
+  };
+
+  // Every column of one block. The pick one column is the row of
+  // buttons pick one already draws, and its name is left to the block's
+  // own heading above it.
+  const renderCells = (f, row, at, write) => (f.columns || []).map(c => (
+    <div key={c.key}>
+      {c.type !== "select" && <div style={cellLabelSt}>{c.label}{c.required && <span style={reqSt}>{tr("Required")}</span>}</div>}
+      {renderControl(c, (row || {})[c.key], v => write(c.key, v), f.key + ":" + at + ":" + c.key + ":")}
+    </div>
+  ));
+
+  // A checklist: one block per item the form names, keyed by row.
+  const renderChecklist = (f) => {
+    const all = (values[f.key] && typeof values[f.key] === "object" && !Array.isArray(values[f.key])) ? values[f.key] : {};
+    const write = (rowKey, colKey, v) => {
+      const next = Object.assign({}, all);
+      const row = Object.assign({}, next[rowKey] || {});
+      if (!formHasAnswer(v)) delete row[colKey]; else row[colKey] = v;
+      if (Object.keys(row).length === 0) delete next[rowKey]; else next[rowKey] = row;
+      setVal(f.key, Object.keys(next).length === 0 ? null : next);
+    };
+    return (f.rows || []).map(r => (
+      <div key={r.key} style={gridCard}>
+        <div style={gridName}>{r.label}</div>
+        {renderCells(f, all[r.key], r.key, (colKey, v) => write(r.key, colKey, v))}
+      </div>
+    ));
+  };
+
+  // A table a person adds rows to: one card per row, folded to a line
+  // once every column that asks for an answer has one, and opened again
+  // on a tap.
+  const renderRowTable = (f) => {
+    const list = Array.isArray(values[f.key]) ? values[f.key] : [];
+    const put = (next) => setVal(f.key, next.length === 0 ? null : next);
+    const write = (i, colKey, v) => {
+      const next = list.map((row, j) => (j === i ? Object.assign({}, row) : row));
+      if (!formHasAnswer(v)) delete next[i][colKey]; else next[i][colKey] = v;
+      put(next);
+    };
+    const open = (i, yes) => setOpenRows(prev => Object.assign({}, prev, { [f.key + ":" + i]: yes }));
+    const remove = (i) => { setOpenRows({}); put(list.filter((row, j) => j !== i)); };
+    const full = Number(f.maxRows) > 0 && list.length >= Number(f.maxRows);
+    const first = (f.columns || [])[0];
+    return (
+      <>
+        {list.map((row, i) => {
+          if (formRowDone(f.columns, row) && !openRows[f.key + ":" + i]) {
+            return (
+              <button key={i} type="button" onClick={() => open(i, true)} style={foldedBtn}>
+                {tr("Row {n}", { n: i + 1 })}: {first ? formCellRead(first, row[first.key]) : ""}
+              </button>
+            );
+          }
+          return (
+            <div key={i} style={gridCard}>
+              <div style={gridName}>{tr("Row {n}", { n: i + 1 })}</div>
+              {renderCells(f, row, i, (colKey, v) => write(i, colKey, v))}
+              <button type="button" onClick={() => remove(i)} style={gridBtn}>{tr("Remove row")}</button>
+            </div>
+          );
+        })}
+        {full
+          ? <div style={{ ...mkHelp(t), marginTop: 10 }}>{tr("This table is full.")}</div>
+          : <button type="button" onClick={() => { open(list.length, true); put(list.concat([{}])); }} style={gridBtn}>{tr("Add row")}</button>}
+      </>
+    );
+  };
+
   const renderInput = (f) => {
     const v = values[f.key];
     if (FORM_TYPES_DRAWN.indexOf(formTypeOf(f)) === -1) return <div style={mkHelp(t)}>{tr(FORMS_UNKNOWN_TYPE)}</div>;
-    if (f.type === "select" || f.type === "multiselect") {
-      const many = f.type === "multiselect";
-      const chosen = many ? (Array.isArray(v) ? v : []) : v;
-      return (f.options || []).map(o => {
-        const picked = many ? chosen.indexOf(o.value) !== -1 : chosen === o.value;
-        const toggle = () => {
-          if (!many) { setVal(f.key, picked ? null : o.value); return; }
-          const next = picked ? chosen.filter(x => x !== o.value) : chosen.concat([o.value]);
-          setVal(f.key, next);
-        };
-        return <button key={o.value} type="button" onClick={toggle} aria-pressed={picked} style={optRow(picked)}><span style={mark(picked, !many)} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{o.label}</span></button>;
-      });
-    }
-    if (f.type === "textarea") return <textarea rows={4} maxLength={FORM_VALUE_MAX} value={v === undefined || v === null ? "" : v} onChange={e => setVal(f.key, e.target.value)} style={{ ...inputSt, minHeight: 104, resize: "vertical", lineHeight: 1.5 }} />;
-    const kind = f.type === "date" ? "date" : (f.type === "time" ? "time" : "text");
-    return <input type={kind} maxLength={kind === "text" ? FORM_VALUE_MAX : undefined} value={v === undefined || v === null ? "" : v} onChange={e => setVal(f.key, e.target.value)} style={inputSt} />;
+    if (formTypeOf(f) === "grid") return formIsChecklist(f) ? renderChecklist(f) : renderRowTable(f);
+    return renderControl(f, v, (next) => setVal(f.key, next), f.key + ":");
   };
 
   // Leaving unmounts this component, which is what clears the draft

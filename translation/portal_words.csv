@@ -437,6 +437,7 @@ Write what happened in your own words. One sentence is enough.,Escriba lo que pa
 You can write up to {max} characters.,Puede escribir hasta {max} caracteres.,Speak Up
 Your reference,Su número de referencia,Speak Up
 {used} of {max} characters used.,{used} de {max} caracteres usados.,Speak Up
+Add row,Agregar fila,Forms
 Answered,Respondida,Forms
 Back,Atrás,"Forms, Profile"
 Check this answer,Revise esta respuesta,Forms
@@ -457,9 +458,11 @@ Not sent yet. Check your signal and tap Submit report again.,Todavía no se envi
 Not yet,Todavía no,Forms
 Opening,Abriendo,Forms
 Report,Reportar,"Forms, Bar and More"
+Remove row,Quitar fila,Forms
 Report sent. The people who handle these reports have been told.,Reporte enviado. Ya se avisó a las personas que atienden estos reportes.,Forms
 Required,Obligatorio,Forms
 Review,Revisar,Forms
+Row {n},Fila {n},Forms
 Saving,Guardando,Forms
 Section {n},Sección {n},Forms
 Section {n} of {total},Sección {n} de {total},Forms
@@ -470,6 +473,7 @@ Start report,Comenzar reporte,Forms
 These still need an answer,Estas todavía necesitan respuesta,Forms
 This question cannot be answered here yet. Your supervisor will finish it.,Esta pregunta todavía no se puede responder aquí. Su supervisor la completará.,Forms
 This report was already sent.,Este reporte ya se había enviado.,Forms
+This table is full.,Esta tabla está llena.,Forms
 Untitled report,Reporte sin título,Forms
 {answered} answered,{answered} respondidas,Forms
 "{answered} answered, {remaining} to go","{answered} respondidas, faltan {remaining}",Forms

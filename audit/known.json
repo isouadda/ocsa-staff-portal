@@ -317,54 +317,6 @@
       "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
     },
     {
-      "where": "A table a person adds rows to: three rows, a fourth refused, one taken out, a card folded and opened",
-      "check": "the table offers a row to add",
-      "what": "",
-      "why": "The portal draws no table a person adds rows to yet: a grid is a type it does not know, so it says so and asks for nothing. Commit two draws it."
-    },
-    {
-      "where": "A table a person adds rows to: three rows, a fourth refused, one taken out, a card folded and opened",
-      "check": "a third row is there",
-      "what": "",
-      "why": "The portal draws no table a person adds rows to yet: a grid is a type it does not know, so it says so and asks for nothing. Commit two draws it."
-    },
-    {
-      "where": "A table a person adds rows to: three rows, a fourth refused, one taken out, a card folded and opened",
-      "check": "a fourth row is refused on the screen itself",
-      "what": "",
-      "why": "The portal draws no table a person adds rows to yet: a grid is a type it does not know, so it says so and asks for nothing. Commit two draws it."
-    },
-    {
-      "where": "A table a person adds rows to: three rows, a fourth refused, one taken out, a card folded and opened",
-      "check": "a row comes out again",
-      "what": "",
-      "why": "The portal draws no table a person adds rows to yet: a grid is a type it does not know, so it says so and asks for nothing. Commit two draws it."
-    },
-    {
-      "where": "A table a person adds rows to: three rows, a fourth refused, one taken out, a card folded and opened",
-      "check": "a filled card folds to one line and opens on a tap",
-      "what": "",
-      "why": "The portal draws no table a person adds rows to yet: a grid is a type it does not know, so it says so and asks for nothing. Commit two draws it."
-    },
-    {
-      "where": "A checklist, and a sign-off that waits for the API",
-      "check": "the checklist names every item",
-      "what": "",
-      "why": "The portal draws no checklist yet, for the same reason. Commit two draws it."
-    },
-    {
-      "where": "A checklist, and a sign-off that waits for the API",
-      "check": "every item on the checklist can be answered",
-      "what": "",
-      "why": "The portal draws no checklist yet, for the same reason. Commit two draws it."
-    },
-    {
-      "where": "A checklist, and a sign-off that waits for the API",
-      "check": "the checklist saves as one value keyed by row",
-      "what": "",
-      "why": "The portal draws no checklist yet, for the same reason. Commit two draws it."
-    },
-    {
       "where": "A checklist, and a sign-off that waits for the API",
       "check": "the sign-off draws its own button",
       "what": "",

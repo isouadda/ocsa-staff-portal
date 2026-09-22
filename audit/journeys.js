@@ -451,7 +451,9 @@ const JOURNEYS = [
           return on.length;
         }, pass);
         expect("every item on the checklist can be answered", picks >= 3, "buttons reading the first choice: " + picks);
-        await pause(app.page, 700);
+        // Answers go up on Next, the way this screen has always saved.
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
         const saved = lastSent(app.stub, "PATCH", "/api/forms/drafts/");
         expect("the checklist saves as one value keyed by row",
           !!saved && !!saved.body && !!saved.body.answers && !!saved.body.answers.check
@@ -459,7 +461,6 @@ const JOURNEYS = [
           JSON.stringify(saved && saved.body));
 
         // The sign-off: one press, one request, and no stamp before the answer.
-        await clickText(app.page, say("Next", language));
         await clickText(app.page, say("Next", language));
         await pause(app.page, 700);
         text = await bodyText(app.page);
