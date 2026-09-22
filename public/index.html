@@ -8,14 +8,35 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="OCSA Staff" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <script>
+    // The first frame, before React loads. A stored choice decides; where
+    // there is none the phone's own setting does. The screen behind the app
+    // takes the background token and the bar at the top of the browser takes
+    // the header's own color, so the phone's chrome and the app meet without
+    // a seam. The four colors are LIGHT.bg, DARK.bg, LIGHT.headerBg and
+    // DARK.headerBg in src/App.js, which is what the app paints a moment
+    // later, so a phone set to light never shows a dark frame.
+    (function () {
+      try {
+        var stored = null;
+        try { stored = window.localStorage.getItem("ocsa-staff-theme"); } catch (e) {}
+        var mode = (stored === "light" || stored === "dark") ? stored
+          : ((window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark");
+        var background = mode === "light" ? "#F4F7FB" : "#0A1628";
+        var header = mode === "light" ? "#15558F" : "#0A1628";
+        var rule = document.createElement("style");
+        rule.textContent = "body { background: " + background + "; }";
+        document.head.appendChild(rule);
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", header);
+      } catch (e) {}
+    })();
+  </script>
   <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
   <link rel="apple-touch-icon" sizes="180x180" href="%PUBLIC_URL%/icons/apple-touch-icon.png" />
   <title>OCSA Staff Portal</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet" />
   <style>
-    body { margin: 0; padding: 0; background: %REACT_APP_THEME_COLOR%; font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
   </style>
 </head>
 <body>

@@ -1,5 +1,5 @@
 {
-  "notes": "What the app gets wrong today. Each entry prints as KNOWN on every run and does not fail it. An entry that stops matching fails the run until it is taken off the list, so a fix is always noticed. The next build fixes these.",
+  "notes": "What the app gets wrong today. Each entry prints as KNOWN on every run and does not fail it. An entry that stops matching fails the run until it is taken off the list, so a fix is always noticed. The contrast entries are one per screen, theme and color pair, each with the ratio the app draws.",
   "accepted": [
     {
       "where": "*",
@@ -14,5 +14,272 @@
       "why": "The role under the name runs to one line and ends in an ellipsis the same way, and for the same reason."
     }
   ],
-  "failures": []
+  "failures": [
+    {
+      "where": "Assigned",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Assigned",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#F39C12 on #FEF6E9\"",
+      "why": "Orange on light mode's orange wash. 2.04 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Chat",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Forms",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Help",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Home",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Home",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#24A4F4 on #F4F7FB\"",
+      "why": "Blue on light mode's background. 2.54 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Home",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#2ECC71 on #EEFBF3\"",
+      "why": "Green on light mode's green wash. 1.97 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Inspect",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "More",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "One time off request",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#E74C3C on #132240\"",
+      "why": "Red on the dark theme's card, on the control that withdraws or removes. 4.13 to 1 against the 4.5 to 1 this text needs."
+    },
+    {
+      "where": "Pickup",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Profile",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Report",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#E74C3C on #132240\"",
+      "why": "Red on the dark theme's card, on the control that withdraws or removes. 4.13 to 1 against the 4.5 to 1 this text needs."
+    },
+    {
+      "where": "Report",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Report",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#2ECC71 on #FFFFFF\"",
+      "why": "Green on a white card in light mode. 2.10 to 1 against the 4.5 to 1 this text needs."
+    },
+    {
+      "where": "Report",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#E74C3C on #FFFFFF\"",
+      "why": "Red on a white card in light mode. 3.82 to 1 against the 4.5 to 1 this text needs."
+    },
+    {
+      "where": "Report",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#F39C12 on #FEF5E7\"",
+      "why": "Orange on light mode's orange wash over a white card. 2.03 to 1 against the 4.5 to 1 this text needs."
+    },
+    {
+      "where": "Schedule",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Schedule",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#24A4F4 on #F4F7FB\"",
+      "why": "Blue on light mode's background. 2.54 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Schedule",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#2ECC71 on #EEFBF3\"",
+      "why": "Green on light mode's green wash. 1.97 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Schedule",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#F39C12 on #FFFFFF\"",
+      "why": "Orange on a white card in light mode. 2.19 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Set your PIN",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Set your PIN",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#24A4F4 on #F4F7FB\"",
+      "why": "Blue on light mode's background. 2.54 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Set your PIN",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#2ECC71 on #EEFBF3\"",
+      "why": "Green on light mode's green wash. 1.97 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Settings",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Shortcuts",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#E74C3C on #132240\"",
+      "why": "Red on the dark theme's card, on the control that withdraws or removes. 4.13 to 1 against the 4.5 to 1 this text needs."
+    },
+    {
+      "where": "Shortcuts, pick something for this spot",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#E74C3C on #132240\"",
+      "why": "Red on the dark theme's card, on the control that withdraws or removes. 4.13 to 1 against the 4.5 to 1 this text needs."
+    },
+    {
+      "where": "Shortcuts, start over",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#E74C3C on #132240\"",
+      "why": "Red on the dark theme's card, on the control that withdraws or removes. 4.13 to 1 against the 4.5 to 1 this text needs."
+    },
+    {
+      "where": "Speak Up",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Supplies",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#8899AA on #1B3058\"",
+      "why": "The muted gray on the dark theme's panel. 4.46 to 1, just under the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Supplies",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Supplies",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#F39C12 on #F0F5FC\"",
+      "why": "Orange on a tinted row in light mode. 2.00 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Tasks",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Tasks",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#F39C12 on #E9EFE5\"",
+      "why": "Orange on a tinted row in light mode. 1.87 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "The portal itself",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "The portal itself",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#24A4F4 on #F4F7FB\"",
+      "why": "Blue on light mode's background. 2.54 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "The portal itself",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#2ECC71 on #EEFBF3\"",
+      "why": "Green on light mode's green wash. 1.97 to 1 against the 4.5 to 1 small text needs."
+    }
+  ]
 }

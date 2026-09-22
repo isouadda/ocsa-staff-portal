@@ -29,6 +29,7 @@ const PHONE = {
 const AUTH_KEY = "ocsa_auth";
 const LANGUAGE_KEY = "ocsa-staff-language";
 const TEXT_SIZE_KEY = "ocsa-staff-text-size";
+const THEME_KEY = "ocsa-staff-theme";
 const PROMPT_KEY = "ocsa-home-screen-prompt";
 
 // The sheet waits this long after a load before it offers itself.
@@ -38,14 +39,23 @@ async function launch() {
   return chromium.launch();
 }
 
-// opts: { language, textSize, signedIn, installSheet, stub, locale }
+// opts: { language, textSize, theme, signedIn, installSheet, stub, locale }
 // installSheet: "dismissed" (the default, so it is out of the way of
 // every other case) or "fresh" (nothing stored, so it offers itself).
+// theme: "dark", which is what every case ran in before light mode
+// joined the sweep, or "light". Seeded before the first paint, so the app
+// draws the theme the case asked for from the first frame rather than
+// turning into it.
 async function openApp(browser, base, opts) {
   const o = opts || {};
   const stub = o.stub || createStub(o.stubOptions);
+  // The phone itself is set to dark, the way every case has run until
+  // now. A light case therefore proves two things at once: the seed below
+  // reached the app, and a stored choice still beats what the phone says.
+  const theme = o.theme === "light" ? "light" : "dark";
   const context = await browser.newContext(Object.assign({}, PHONE, {
     locale: o.language === "es" ? "es-US" : "en-US",
+    colorScheme: "dark",
   }));
 
   await context.route("**/api/**", async (route) => {
@@ -66,7 +76,7 @@ async function openApp(browser, base, opts) {
   });
 
   await context.clock.install({ time: NOW });
-  await context.addInitScript(([signedIn, language, textSize, sheet, keys]) => {
+  await context.addInitScript(([signedIn, language, textSize, theme, sheet, keys]) => {
     try {
       const ls = window.localStorage;
       // Stamped with whatever the faked clock reads, so a case that moves
@@ -75,14 +85,15 @@ async function openApp(browser, base, opts) {
       else ls.removeItem(keys.auth);
       if (language) ls.setItem(keys.language, language); else ls.removeItem(keys.language);
       if (textSize) ls.setItem(keys.textSize, textSize); else ls.removeItem(keys.textSize);
+      if (theme) ls.setItem(keys.theme, theme); else ls.removeItem(keys.theme);
       if (sheet === "dismissed") ls.setItem(keys.prompt, JSON.stringify({ never: true }));
       else if (sheet === "fresh" && !window.sessionStorage.getItem("audit-sheet-live")) {
         window.sessionStorage.setItem("audit-sheet-live", "1");
         ls.removeItem(keys.prompt);
       }
     } catch (e) {}
-  }, [o.signedIn !== false, o.language || "en", o.textSize || "standard", o.installSheet || "dismissed",
-      { auth: AUTH_KEY, language: LANGUAGE_KEY, textSize: TEXT_SIZE_KEY, prompt: PROMPT_KEY }]);
+  }, [o.signedIn !== false, o.language || "en", o.textSize || "standard", theme, o.installSheet || "dismissed",
+      { auth: AUTH_KEY, language: LANGUAGE_KEY, textSize: TEXT_SIZE_KEY, theme: THEME_KEY, prompt: PROMPT_KEY }]);
 
   const page = await context.newPage();
   // One screen still asks through the browser's own confirm box. Left
@@ -106,4 +117,4 @@ async function letSheetOffer(page) {
   await page.waitForTimeout(400);
 }
 
-module.exports = { launch, openApp, letSheetOffer, PHONE, SHEET_SETTLE_MS, AUTH_KEY, LANGUAGE_KEY, TEXT_SIZE_KEY, PROMPT_KEY };
+module.exports = { launch, openApp, letSheetOffer, PHONE, SHEET_SETTLE_MS, AUTH_KEY, LANGUAGE_KEY, TEXT_SIZE_KEY, THEME_KEY, PROMPT_KEY };
