@@ -7,7 +7,7 @@ const { openApp, letSheetOffer } = require("./browser");
 const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
 const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
-const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, TWIN_ES, servedFor } = require("./stub");
+const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -174,6 +174,83 @@ const spanishOf = (english, language) => {
 };
 const fill = (line, vars) => String(line).replace(/\{(\w+)\}/g, (whole, k) => (vars && k in vars ? String(vars[k]) : whole));
 const has = (text, line) => String(text).toLowerCase().indexOf(String(line).toLowerCase()) !== -1;
+
+// --- the checklist ----------------------------------------------------
+
+// Every box on the checklist, in the order the screen draws them: the
+// item's name as the box's own label says it, and whether it is checked.
+// The label is the one a screen reader hears, so the name is read off it
+// in the case's language. The longer label is tried first, since in
+// English "Mark {name} done" would also fit "Mark x not done".
+const checklist = (page, language) => page.evaluate(([checked, open]) => {
+  const nameIn = (pattern, label) => {
+    const [before, after] = pattern.split("{name}");
+    const fits = label.indexOf(before) === 0 && label.length >= before.length + after.length && label.slice(label.length - after.length) === after;
+    return fits ? label.slice(before.length, label.length - after.length) : null;
+  };
+  const out = [];
+  Array.from(document.querySelectorAll(".sp-content button[aria-label]")).forEach((b) => {
+    const label = b.getAttribute("aria-label");
+    const done = nameIn(checked, label);
+    if (done !== null) { out.push({ name: done, done: true }); return; }
+    const todo = nameIn(open, label);
+    if (todo !== null) out.push({ name: todo, done: false });
+  });
+  return out;
+}, [say("Mark {name} not done", language), say("Mark {name} done", language)]);
+
+// The count on Home, read as it is drawn, done over total, beside its bar.
+const homeCount = (page) => page.evaluate(() => {
+  const s = Array.from(document.querySelectorAll(".sp-content span")).find(x => /^\d+\/\d+$/.test(x.textContent.trim()) && x.previousElementSibling && x.previousElementSibling.firstElementChild);
+  return s ? s.textContent.trim() : null;
+});
+// The percentage on the checklist's own card.
+const listPercent = (page) => page.evaluate(() => {
+  const d = Array.from(document.querySelectorAll(".sp-content div")).find(x => x.children.length === 0 && /^\d+%$/.test(x.textContent.trim()));
+  return d ? d.textContent.trim() : null;
+});
+// An item's name as a screen in one language should draw it: the API's
+// own words where it sends them, and the item's own where it does not.
+const itemName = (id, language) => taskWords(id, language).label;
+const siteNames = (site, language) => SITE_TASKS[site].map(r => itemName(r.id, language));
+
+// The list, the count on Home and the checklist's own percentage, all
+// read after a fresh look at each screen, and judged against each other:
+// the count is the checks drawn over the items drawn.
+async function countsAgree(app, language, expect, what) {
+  await openTab(app.page, "tasks", language);
+  await pause(app.page, 900);
+  const rows = await checklist(app.page, language);
+  const percent = await listPercent(app.page);
+  await openTab(app.page, "clock", language);
+  await pause(app.page, 900);
+  const home = await homeCount(app.page);
+  const ticked = rows.filter(r => r.done).length;
+  const wantHome = ticked + "/" + rows.length;
+  const wantPercent = rows.length ? Math.round((ticked / rows.length) * 100) + "%" : null;
+  expect(what, home === wantHome && percent === wantPercent,
+    "Home reads " + JSON.stringify(home) + " and the checklist " + JSON.stringify(percent) + ", with " + rows.length + " items drawn and " + ticked + " checked");
+  await openTab(app.page, "tasks", language);
+  await pause(app.page, 700);
+  return rows;
+}
+
+// Tap one item's box and wait for the answer.
+const tickItem = async (page, language, name) => {
+  const hit = await tapLabel(page, fill(say("Mark {name} done", language), { name: name }));
+  await pause(page, 900);
+  return hit;
+};
+
+// Start the app again on the same stub, the way a phone does when it is
+// opened later, and come back to the checklist.
+const reopen = async (page, language) => {
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".sp-content", { timeout: 20000 });
+  await pause(page, 1200);
+  await openTab(page, "tasks", language);
+  await pause(page, 1000);
+};
 
 // The Spanish check every screen in the sweep is put through, run on the
 // screen a journey has reached, with what this journey's stub served.
@@ -436,6 +513,145 @@ const JOURNEYS = [
         const end = app.stub.state.calls.filter(c => c.method === "PATCH" && /^\/api\/shift-sessions\//.test(c.path));
         expect.notYet("ending a shift, which asks through the browser own confirm box from a screen the app has just left");
       } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "checklistwhole",
+    label: "The whole site's checklist for a person linked to nothing: every item, building and floor hiding none, the count, and a check that holds",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { links: {} } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1200);
+        const asked = lastSent(app.stub, "GET", "/api/sites/site-north/tasks");
+        const said = asked ? asked.path + asked.search : "never sent";
+        expect("a person linked to nothing asks for the whole site, with no user_id", !!asked && !/[?&]user_id=/.test(asked.search), said);
+        expect("the checklist never asks by building or floor", !!asked && !/[?&](building_name|floor_number)=/.test(asked.search), said);
+        const rows = await checklist(app.page, language);
+        const missing = siteNames("site-north", language).filter(n => !rows.some(r => r.name === n));
+        expect("a person linked to nothing sees every item at the site", missing.length === 0, "not drawn: " + JSON.stringify(missing));
+        await spokenHere(app, language, expect);
+
+        // Step 118's words: an item that carries them is drawn in them, its
+        // zone and its instructions too, and an item that does not is drawn
+        // in its own.
+        const eight = taskWords("task-8", language), two = taskWords("task-2", language), one = taskWords("task-1", language);
+        const listed = await bodyText(app.page);
+        expect("an item is drawn in the API's own words where it sends them, and in its own where it does not",
+          rows.some(r => r.name === eight.label) && rows.some(r => r.name === two.label) && has(listed, eight.zone), "drawn: " + JSON.stringify(rows.map(r => r.name)));
+        await app.page.evaluate((name) => {
+          const d = Array.from(document.querySelectorAll(".sp-content div")).find(x => x.style.cursor === "pointer" && x.textContent.trim() === name);
+          if (d) d.click();
+        }, one.label);
+        await pause(app.page, 700);
+        const opened = await bodyText(app.page);
+        expect("an item's instructions are drawn in the API's own words", has(opened, one.description), opened.slice(0, 240));
+        await spokenHere(app, language, expect);
+        await clickText(app.page, say("Back to checklist", language));
+        await pause(app.page, 600);
+
+        // Everyone's checks at the site today, counted against the list.
+        const ticked = rows.filter(r => r.done).map(r => r.name);
+        const everyone = ["task-1", "task-2"].map(id => itemName(id, language));
+        expect("the whole site's list shows everyone's checks at the site today", JSON.stringify(ticked) === JSON.stringify(everyone), "checked: " + JSON.stringify(ticked));
+        await countsAgree(app, language, expect, "the count on Home and on the checklist is the checks drawn over the items drawn");
+
+        // A check on the whole site's list, sent the way it always was,
+        // drawn at once, and still there when the app is opened again.
+        const three = itemName("task-3", language);
+        const before = sent(app.stub, "POST", "/api/clock/tasks/").length;
+        await tickItem(app.page, language, three);
+        const posted = sent(app.stub, "POST", "/api/clock/tasks/");
+        const check = posted[posted.length - 1];
+        expect("checking an item on the whole site's list sends the check the way it always has",
+          posted.length === before + 1 && check.path === "/api/clock/tasks/task-3/complete" && JSON.stringify(check.body) === "{}",
+          check ? check.method + " " + check.path + " " + JSON.stringify(check.body) : "nothing sent");
+        expect("the check is drawn at once", (await checklist(app.page, language)).some(r => r.name === three && r.done), "not drawn as checked");
+        await reopen(app.page, language);
+        expect("the check holds when the app is opened again", (await checklist(app.page, language)).some(r => r.name === three && r.done), "not drawn as checked after a reload");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "checklistown",
+    label: "A person a manager linked to particular items sees just those, building and floor hiding none, with their own checks",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1200);
+        const asked = lastSent(app.stub, "GET", "/api/sites/site-north/tasks");
+        const said = asked ? asked.path + asked.search : "never sent";
+        expect("a person with links asks for their own items", !!asked && new RegExp("[?&]user_id=" + PERSON.id + "(&|$)").test(asked.search), said);
+        expect("the checklist never asks by building or floor", !!asked && !/[?&](building_name|floor_number)=/.test(asked.search), said);
+        const rows = await checklist(app.page, language);
+        const linked = LINKS[PERSON.id];
+        const theirs = linked.map(id => itemName(id, language));
+        const others = SITE_TASKS["site-north"].map(r => r.id).filter(id => linked.indexOf(id) === -1).map(id => itemName(id, language));
+        const missing = theirs.filter(n => !rows.some(r => r.name === n));
+        expect("a person with links sees every item they are linked to", missing.length === 0, "not drawn: " + JSON.stringify(missing));
+        const extra = others.filter(n => rows.some(r => r.name === n));
+        expect("a person with links sees nothing they are not linked to", extra.length === 0, "drawn: " + JSON.stringify(extra));
+        const ticked = rows.filter(r => r.done).map(r => r.name);
+        expect("a person with links sees their own checks and no one else's", JSON.stringify(ticked) === JSON.stringify([itemName("task-1", language)]), "checked: " + JSON.stringify(ticked));
+        await countsAgree(app, language, expect, "the count on Home and on the checklist is the checks drawn over the items drawn");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "checklistshifts",
+    label: "A site whose checklist is set out in shifts draws every item under its shift and block, in block order and then by time",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { site: "site-south", links: {} } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1200);
+        const rows = await checklist(app.page, language);
+        const missing = siteNames("site-south", language).filter(n => !rows.some(r => r.name === n));
+        expect("a person linked to nothing at a site set out in shifts sees every item", missing.length === 0, "not drawn: " + JSON.stringify(missing));
+        // The headers and the items, read down the screen. Each has to
+        // come after the one before it.
+        const text = (await bodyText(app.page)).toLowerCase();
+        const want = SHIFT_ORDER.map(x => (/^s-\d+$/.test(x) ? itemName(x, language) : x));
+        const astray = [];
+        let at = 0;
+        want.forEach((w) => { const i = text.indexOf(w.toLowerCase(), at); if (i === -1) astray.push(w); else at = i + w.length; });
+        expect("each item is drawn under its shift and block, in block order and then by time", astray.length === 0, "missing or out of order: " + JSON.stringify(astray));
+        await countsAgree(app, language, expect, "the count on Home and on the checklist is the checks drawn over the items drawn");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "checklisttwo",
+    label: "Two people at one site, neither linked to anything, see each other's checks on the whole site's list",
+    run: async (open, language, expect) => {
+      // One stub for both phones, so a check made on one is on the record
+      // the other reads. Whoever it answers as is whoever is holding the
+      // phone that asks.
+      const stub = createStub({ links: {}, accountPreferences: { language: language } });
+      const first = await open({ stub: stub });
+      let second = null;
+      try {
+        await openTab(first.page, "tasks", language);
+        await pause(first.page, 1200);
+        const four = itemName("task-4", language);
+        await tickItem(first.page, language, four);
+        stub.state.person = SECOND_PERSON;
+        second = await open({ stub: stub });
+        await openTab(second.page, "tasks", language);
+        await pause(second.page, 1200);
+        expect("a second person at the site sees the first person's check", (await checklist(second.page, language)).some(r => r.name === four && r.done), "not drawn as checked");
+        const six = itemName("task-6", language);
+        await tickItem(second.page, language, six);
+        stub.state.person = PERSON;
+        await reopen(first.page, language);
+        expect("the first person sees the second person's check", (await checklist(first.page, language)).some(r => r.name === six && r.done), "not drawn as checked");
+      } finally {
+        await first.context.close();
+        if (second) await second.context.close();
+      }
     },
   },
   {
@@ -1226,11 +1442,13 @@ const JOURNEYS = [
     id: "picklists",
     label: "The four pick lists, drawn from the list the API sends: severities, request types, urgency and the reasons to drop a shift",
     run: async (open, language, expect) => {
-      const labels = (slug) => (LOOKUPS.find(c => c.slug === slug) || { values: [] }).values.map(v => v.label);
+      // Each choice as the person's language should draw it: the API's own
+      // displayLabel where it sends one, and the table's word where not.
+      const labels = (slug) => (lookupsIn(language).find(c => c.slug === slug) || { values: [] }).values.map(v => v.displayLabel || spanishOf(v.label, language));
       // One line per list: every label in it, in the person's language,
       // or the ones that are not.
       const eachIn = (what, list, drawn) => {
-        const missing = list.filter(l => !drawn(spanishOf(l, language)));
+        const missing = list.filter(l => !drawn(l));
         expect(what + " are drawn in the person's language", missing.length === 0, "not drawn in it: " + JSON.stringify(missing));
       };
       const app = await open({});
@@ -1267,6 +1485,10 @@ const JOURNEYS = [
           return sel ? Array.from(sel.options).map(o => o.textContent.trim()) : [];
         });
         eachIn("the reasons to drop a shift", labels("drop_reasons"), l => reasons.indexOf(l) !== -1);
+        // A reason the portal's own table has never heard of, which only the
+        // API's displayLabel can put into the person's language.
+        const own = lookupsIn(language).find(c => c.slug === "drop_reasons").values.find(v => v.value === "car_trouble").displayLabel;
+        expect("a reason only the API knows is drawn in the API's own word", reasons.indexOf(own) !== -1, JSON.stringify(reasons));
       } finally { await app.context.close(); }
     },
   },
@@ -1342,6 +1564,45 @@ const JOURNEYS = [
         await pause(reset.page, 600);
         await said(reset, "A reset link", "PIN must be exactly 4 digits.");
       } finally { await reset.context.close(); }
+    },
+  },
+  {
+    id: "changepincodes",
+    label: "Change PIN turned away by the API: each refusal under its own box, read off its code, in the person's language",
+    run: async (open, language, expect) => {
+      // Each code the API sends, the box it belongs under, and what the
+      // screen says there.
+      const CASES = [
+        ["PIN_INCORRECT", 0, "That is not your current PIN."],
+        ["PIN_UNCHANGED", 1, "Your new PIN must be different from your current PIN."],
+        ["PIN_WEAK", 1, "That PIN is too easy to guess. Choose a different one."],
+        ["PIN_FORMAT", 1, "PIN must be exactly 4 digits."],
+      ];
+      const BOX = ["the current PIN", "the new PIN", "the repeated PIN"];
+      const app = await open({});
+      try {
+        await openTab(app.page, "settings", language);
+        await pause(app.page, 800);
+        for (const [code, box, line] of CASES) {
+          // A change the screen's own checks let through, so the API is
+          // what turns it away, with a sentence in the account's language.
+          app.stub.state.pinRefusal = code;
+          await typeNth(app.page, '.sp-content input[type="password"]', 0, "2468");
+          await typeNth(app.page, '.sp-content input[type="password"]', 1, "5739");
+          await typeNth(app.page, '.sp-content input[type="password"]', 2, "5739");
+          await clickText(app.page, say("Update PIN", language));
+          await pause(app.page, 800);
+          // What each box has under it, read off the screen.
+          const under = await app.page.evaluate(() => Array.from(document.querySelectorAll('.sp-content input[type="password"]')).map((i) => {
+            const e = i.nextElementSibling;
+            return e ? e.textContent.trim() : "";
+          }));
+          const said = under.filter(x => x.length > 0);
+          expect(code + " is said under " + BOX[box], said.length === 1 && under[box].length > 0, JSON.stringify(under));
+          expect(code + " is said in the person's language", has(under[box], spanishOf(line, language)), JSON.stringify(under));
+          await spokenHere(app, language, expect);
+        }
+      } finally { await app.context.close(); }
     },
   },
   {

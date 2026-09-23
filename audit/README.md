@@ -47,7 +47,7 @@ and codes".
 | Kind | What it is | On a Spanish screen |
 | --- | --- | --- |
 | a name | a site, a building, a person, an id, a date, a number | passes as it was sent |
-| a word | a refusal, a message, form text, a Help reply, a to-do item or its zone, a pick list choice, a notice, a supply, a leave type, a shift name, a site role | passes only as its Spanish twin |
+| a word | a refusal, a message, form text, a Help reply, a to-do item or its zone, a checklist's shift header, a pick list choice, a notice, a supply, a leave type, a shift name, a site role | passes only as its Spanish twin |
 | a code | a status, a role, a priority, a severity, an origin | fails when the screen draws it as it was sent |
 
 Every invented word has its Spanish twin in the stub, and the stub throws
@@ -85,6 +85,24 @@ stored as the case's, and the browser's own language, which it sends as
 `Accept-Language`, is the phone's. The `signedoutlocale` journey uses it
 to prove each of the seven calls made before signing in carries
 `?locale=`.
+
+## The checklist
+
+The stub answers `GET /api/sites/:id/tasks` the way the API does: called
+plainly, every active item at the site; called with `?user_id=`, only
+the items a manager linked to that person; and `building_name` and
+`floor_number` matched exactly, so an item with neither drops out when
+either is sent. North Building has items on two buildings, two floors
+and neither, and the person a case signs in as is linked to six of
+them. South Building's list is set out in shifts, served in no useful
+order, with nobody linked to anything. Start Shift and the status count
+both lists, `total` and `siteTotal`, and every check made today is kept
+by who made it, so `completedTaskIds` and `siteCompletedTaskIds` are
+read back the way the API reads them, and a check made on one phone is
+seen on another that shares the stub.
+
+The sweep draws the Tasks tab a second time, from South Building's
+whole list, as `Tasks, the whole site in shifts`.
 
 ## Coverage proves itself
 

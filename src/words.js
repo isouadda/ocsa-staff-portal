@@ -636,6 +636,8 @@ export const WORDS = {
   "Your PIN is 4 digits. Choose one that only you know.": "Su PIN es de 4 d\u00edgitos. Elija uno que solo usted sepa.",
   "Enter your current 4-digit PIN.": "Escriba su PIN actual de 4 d\u00edgitos.",
   "Your new PIN must be different from your current PIN.": "Su PIN nuevo debe ser distinto de su PIN actual.",
+  "That is not your current PIN.": "Ese no es su PIN actual.",
+  "That PIN is too easy to guess. Choose a different one.": "Ese PIN es muy f\u00e1cil de adivinar. Elija uno distinto.",
 
   // Profile
   "Address": "Direcci\u00f3n",

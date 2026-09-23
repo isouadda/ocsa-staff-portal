@@ -57,6 +57,11 @@ const FORM_P_PAGES = [
   "Site walk, review",
 ];
 
+// The Tasks tab a second time, drawn from the whole site's list in shifts.
+// Its name starts with the tab's, so what is known about the tab is known
+// about it too.
+const WHOLE_SITE_TASKS = "Tasks, the whole site in shifts";
+
 const TAB_LABEL = {
   clock: "Home", schedule: "Schedule", tasks: "Tasks", chat: "Chat",
   agent: "Help", issuetasks: "Assigned", issues: "Report", supplies: "Supplies",
@@ -295,6 +300,22 @@ async function runScreens(browser, base, opts) {
       }
     } finally {
       await app.context.close();
+    }
+
+    // The checklist most people open: the whole site's list, for someone
+    // linked to nothing, at a site whose long list is set out in shifts.
+    // Its own session, since the site and the links are the stub's.
+    const whole = await openApp(browser, base, {
+      language: language, textSize: size, theme: theme, signedIn: true,
+      stubOptions: Object.assign(stubFor(language, size), { site: "site-south", links: {} }),
+    });
+    try {
+      const ok = await openTab(whole.page, "tasks", language);
+      if (!ok) rows.push({ where: WHOLE_SITE_TASKS + " [" + language + "/" + size + "/" + theme + "]", check: "reachable", detail: "the tab could not be opened" });
+      await pause(whole.page, 900);
+      rows.push(...await inspect(whole.page, null, WHOLE_SITE_TASKS, language, size, whole.stub, theme));
+    } finally {
+      await whole.context.close();
     }
 
     // Everything before signing in wants its own session. Set your PIN is

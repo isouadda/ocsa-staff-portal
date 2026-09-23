@@ -322,6 +322,12 @@
     {
       "where": "*",
       "check": "english",
+      "what": "is a shift header the API sent in English",
+      "why": "A checklist's shift and block names are typed in English and sent as typed. Step 118 gives an item its own words in the request's language as display, and gives the headers none, so they stay English until the API sends them in Spanish too."
+    },
+    {
+      "where": "*",
+      "check": "english",
       "what": "is a supply the API sent in English",
       "why": "A supply's name and its unit are written in English in the database and sent as written."
     },
@@ -366,32 +372,6 @@
       "check": "english",
       "what": "is a refusal the API sent in English",
       "why": "The API's refusals are English sentences on every route but the seven calls made before signing in, which Step 113 answers in the language the request asks for. The portal draws a refusal in Spanish when the table holds that exact sentence and every other one as sent, so a refusal from any other route stays English until the API sends the person's language there too."
-    },
-    {
-      "where": "Set your PIN",
-      "check": "too small",
-      "what": "\"Not you? Sign out\" is",
-      "why": "The sign out line under Set your PIN is a bare text button, about 20 pixels tall at the standard size. The case drew Home behind it until this build, so the suite never measured it."
-    },
-    {
-      "where": "Set your PIN",
-      "check": "too small",
-      "what": "\"\u00bfNo es usted? Cerrar sesi\u00f3n\" is",
-      "why": "The same button, in Spanish."
-    },
-    {
-      "where": "Pickup",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#8899AA on #1B3058\"",
-      "why": "The service on an open shift, muted text on its chip. 4.46 to 1 against the 4.5 to 1 small text needs. The stub serves a service on its open shift from this build on."
-    },
-    {
-      "where": "Pickup",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#24A4F4 on #EAF6FE\"",
-      "why": "Blue on light mode's blue wash, the badge of a shift someone dropped. 2.49 to 1 against the 4.5 to 1 small text needs. The stub's open shift carries a real origin code from this build on."
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
 import clientConfig from './clientConfig';
-import { tr, dateLocale, setWordsLanguage } from "./words";
+import { tr, dateLocale, setWordsLanguage, wordsLanguage } from "./words";
 import { BUILD_STAMP } from "./buildStamp";
 
 const API = process.env.REACT_APP_API_URL || "https://ocsa-api-production.up.railway.app";
@@ -384,6 +384,10 @@ const LIGHT = {
 // The numeral on a badge: white on light mode's deeper red, and the off
 // white the dark theme draws everywhere else.
 const badgeInk = (th) => (th.badgeBg === LIGHT.badgeBg ? "#FFFFFF" : "#F8F7F4");
+// Words on a wash of their own color. Dark draws them in that color. On
+// light mode's white card none of the wash colors reads at 4.5 to 1, so
+// light mode draws them in its own text color over the same wash.
+const washInk = (th, color) => (th === LIGHT ? th.text : color);
 
 async function api(path, opts = {}) {
   const headers = { "Content-Type": "application/json", ...opts.headers };
@@ -666,6 +670,16 @@ function weakPinReason(pin, badgeNumber) {
   return null;
 }
 
+// What Change PIN says when the API turns a change away, by the refusal's
+// code, and which box it goes under. The code decides both. The API's own
+// sentence is in the account's language since Step 113, and is never read.
+const PIN_REFUSALS = {
+  PIN_INCORRECT: { box: "current", say: () => tr("That is not your current PIN.") },
+  PIN_UNCHANGED: { box: "next", say: () => tr("Your new PIN must be different from your current PIN.") },
+  PIN_WEAK: { box: "next", say: () => tr("That PIN is too easy to guess. Choose a different one.") },
+  PIN_FORMAT: { box: "next", say: () => tr("PIN must be exactly 4 digits.") },
+};
+
 // Entry from an emailed link. Read once at module scope, before the
 // first render, so it stays out of the render path.
 function readEntryFromUrl() {
@@ -937,19 +951,20 @@ export default function OCSAStaffPortal() {
   // which is a list still on its way.
   const [tasksFailed, setTasksFailed] = useState(false);
   const [completedTaskIds, setCompletedTaskIds] = useState(new Set());
-  // Which server list fills the checklist. True reads the building's list,
-  // so a task ticked by anyone on site today shows as ticked to everyone
-  // there. False reads only this person's own ticks. Flipping it is one word.
-  const SHARED_SITE_CHECKLIST = true;
+  // The language the list in tasks came back in, so an item's own words
+  // from the API are drawn only on a screen in that language.
+  const [tasksLang, setTasksLang] = useState(null);
   // Every clock status request takes a number and only the newest one may
   // fill the Set. An older response landing late would otherwise clear a
-  // box that was ticked after it was requested.
+  // box that was ticked after it was requested. A person's own list reads
+  // their own ticks, and the whole site's list reads everyone's there
+  // today, so the ticks always match the list on screen.
   const statusSeq = useRef(0);
   const nextStatusSeq = () => ++statusSeq.current;
   const hydrateCompleted = (cs, seq) => {
     if (seq !== statusSeq.current) return;
     const tk = cs ? cs.tasks : null;
-    const ids = tk ? (SHARED_SITE_CHECKLIST ? tk.siteCompletedTaskIds : tk.completedTaskIds) : null;
+    const ids = tk ? (checklistIsOwn(cs) ? tk.completedTaskIds : tk.siteCompletedTaskIds) : null;
     setCompletedTaskIds(new Set(Array.isArray(ids) ? ids : []));
   };
   // Task ids with a tick or untick request in flight. A second tap on the
@@ -1049,11 +1064,14 @@ export default function OCSAStaffPortal() {
     return cs;
   }, [token]);
   // A pick list the API sends: the drop reasons, the issue severities, the
-  // supply request types and the urgency. Its labels arrive in English and
-  // are drawn through the table, which already carries the English of every
-  // choice the screens fall back to, so a label that matches is drawn in
-  // the person's language and one that does not is drawn as sent.
-  const getOpts = useCallback((slug, placeholder) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return placeholder ? [{ v: "", l: placeholder }] : []; const opts = (cat.values || []).filter(v => v.is_active).sort((a, b) => a.sort_order - b.sort_order).map(v => ({ v: v.value, l: tr(v.label) })); return placeholder ? [{ v: "", l: placeholder }, ...opts] : opts; }, [lookups]);
+  // supply request types and the urgency. Step 118 in the API sends each
+  // choice's own word in the language asked for, as displayLabel, which is
+  // drawn first when the lists came back in the language on screen. Then
+  // the table, which already carries the English of every choice the
+  // screens fall back to, and then the label as sent.
+  const [lookupsLang, setLookupsLang] = useState(null);
+  const loadLookups = useCallback((tok, lang) => { api("/api/lookups?locale=" + (lang === "es" ? "es" : "en"), { token: tok }).then((list) => { setLookups(list); setLookupsLang(lang); }).catch(e => console.warn("Lookups:", e.message)); }, []);
+  const getOpts = useCallback((slug, placeholder) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return placeholder ? [{ v: "", l: placeholder }] : []; const own = lookupsLang === language; const opts = (cat.values || []).filter(v => v.is_active).sort((a, b) => a.sort_order - b.sort_order).map(v => ({ v: v.value, l: own && v.displayLabel ? v.displayLabel : tr(v.label) })); return placeholder ? [{ v: "", l: placeholder }, ...opts] : opts; }, [lookups, lookupsLang, language]);
   const lkMap = useCallback((slug) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return {}; const m = {}; (cat.values || []).forEach(v => { m[v.value] = v.label; }); return m; }, [lookups]);
   const lkColorMap = useCallback((slug) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return {}; const m = {}; (cat.values || []).forEach(v => { if (v.color) m[v.value] = v.color; }); return m; }, [lookups]);
   const lkHasOther = useCallback((slug, val) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return false; const v = (cat.values || []).find(x => x.value === val); return v?.show_other_input || false; }, [lookups]);
@@ -1069,13 +1087,16 @@ export default function OCSAStaffPortal() {
     try { const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token: tok }); setClockStatus(cs); hydrateCompleted(cs, seq); if (cs.clockedIn && cs.shift) setSelectedSite(cs.shift.siteId); } catch (e) { console.warn("Clock status:", e.message); }
     loadAssignedTasks(tok);
     loadSessionSites(tok);
-    api("/api/lookups", { token: tok }).then(setLookups).catch(e => console.warn("Lookups:", e.message));
+    loadLookups(tok, wordsLanguage());
     // The forced PIN set fires only when the API says so, strictly true.
     // mustSetPin sits at the top level of the /api/auth/me response,
     // beside user. While it is absent this branch stays dormant.
     setScreen(me.mustSetPin === true ? "setpin" : "main");
     return me.user;
-  }, [loadAssignedTasks, loadSessionSites]);
+  }, [loadAssignedTasks, loadSessionSites, loadLookups]);
+  // A switch of language asks for the pick lists again, in the new one,
+  // and so does a list that came back after the switch in the old one.
+  useEffect(() => { if (token && lookupsLang && lookupsLang !== language) loadLookups(token, language); }, [language, lookupsLang]);
 
   // Boot from a stored session. An emailed link wins over a stored session.
   const bootRan = useRef(false);
@@ -1183,13 +1204,18 @@ export default function OCSAStaffPortal() {
     setLoading(false);
   };
 
-  // The site the list in tasks came back for, and the site a fetch is in
-  // flight for. A second call for the same site while one is in flight
-  // does nothing. A failure clears the in-flight mark and leaves tasks
-  // null, so the bar stays hidden and nothing is said to the person.
-  const tasksSite = useRef(null);
-  const tasksReqSite = useRef(null);
-  const loadTasks = async () => { if (!clockStatus?.clockedIn || !clockStatus?.shift?.siteId) return; const siteId = clockStatus.shift.siteId; if (tasksReqSite.current === siteId) return; tasksReqSite.current = siteId; setTasksFailed(false); try { let taskUrl = "/api/sites/" + siteId + "/tasks?user_id=" + user.id; if (clockStatus.shift.buildingName) taskUrl += "&building_name=" + encodeURIComponent(clockStatus.shift.buildingName); if (clockStatus.shift.floorNumber) taskUrl += "&floor_number=" + encodeURIComponent(clockStatus.shift.floorNumber); const tt = await api(taskUrl, { token }); setTasks(tt); tasksSite.current = siteId; const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { console.error(err); setTasksFailed(true); } finally { tasksReqSite.current = null; } };
+  // The request the list in tasks came back for, and the one in flight.
+  // The request carries everything the list depends on: the site, whose
+  // list it is, and the language its words come back in. A second call
+  // for the same request while one is in flight does nothing, and an
+  // answer to a request something newer has replaced is dropped. A
+  // failure clears the in-flight mark and leaves tasks as it was, so a
+  // list that never came back keeps the bar hidden and nothing is said to
+  // the person.
+  const tasksAsked = useRef(null);
+  const tasksReqAsked = useRef(null);
+  const checklistAsk = checklistRequest(clockStatus, user && user.id, language);
+  const loadTasks = async () => { const path = checklistAsk; const lang = language; if (!path || tasksReqAsked.current === path) return; tasksReqAsked.current = path; setTasksFailed(false); try { const tt = await api(path, { token }); if (tasksReqAsked.current !== path) return; setTasks(tt); setTasksLang(lang); tasksAsked.current = path; const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { console.error(err); if (tasksReqAsked.current === path) setTasksFailed(true); } finally { if (tasksReqAsked.current === path) tasksReqAsked.current = null; } };
   const toggleTask = async (taskId) => { if (inFlightTaskIds.current.has(taskId)) return; inFlightTaskIds.current.add(taskId); try { if (completedTaskIds.has(taskId)) { await api("/api/clock/tasks/" + taskId + "/complete", { method: "DELETE", token }); setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); showToast(tr("Task unchecked")); } else { await api("/api/clock/tasks/" + taskId + "/complete", { method: "POST", body: {}, token }); setCompletedTaskIds(prev => new Set(prev).add(taskId)); showToast(tr("Task completed")); } const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { showToast(tr(err.message), "error"); } finally { inFlightTaskIds.current.delete(taskId); } };
   const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); } catch (err) { console.error(err); } };
   const resolveAssignedTask = async (taskId, status, note, photoUrl) => { try { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast(tr("Task updated to {status}", { status: taskStatusWord(status) })); loadAssignedTasks(); } catch (err) { showToast(tr(err.message), "error"); } };
@@ -1201,12 +1227,16 @@ export default function OCSAStaffPortal() {
   const loadMessages = async (channelId) => { try { const data = await api("/api/chat/channels/" + channelId + "/messages", { token }); setMessages(data); } catch (err) { console.error(err); } };
   const sendMessage = async (channelId, text) => { try { const data = await api("/api/chat/channels/" + channelId + "/messages", { method: "POST", body: { text }, token }); setMessages(prev => [...prev, data.message]); } catch (err) { showToast(tr(err.message), "error"); } };
 
+  useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "issues") loadIssues(); if (activeTab === "issuetasks") loadAssignedTasks(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId]);
   // The task list is fetched as soon as a session is seen open, whichever
   // tab the person is standing on, so the Home card has its bar at boot.
-  // Once per site: opening Tasks afterwards fires nothing new, and a
-  // status refresh at the same site fetches nothing. A session at a
-  // different site fetches that site's list. No session, no fetch.
-  useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (clockStatus?.clockedIn && clockStatus?.shift?.siteId && (tasks === null || tasksSite.current !== clockStatus.shift.siteId)) loadTasks(); if (activeTab === "issues") loadIssues(); if (activeTab === "issuetasks") loadAssignedTasks(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId]);
+  // Once per request: opening Tasks afterwards fires nothing new, and a
+  // status refresh that changes nothing the request carries fetches
+  // nothing. Another site, a list that is now the person's own or now the
+  // whole site's, or another language fetches again. A tab opened while
+  // no list has come back asks again, the way it always has. No session,
+  // no fetch.
+  useEffect(() => { if (checklistAsk && (tasks === null || tasksAsked.current !== checklistAsk)) loadTasks(); }, [activeTab, checklistAsk]);
   useEffect(() => { if (activeChannel) { loadMessages(activeChannel); setTimeout(() => loadChannels(), 600); } }, [activeChannel]);
   // An admin can end a session from the dashboard, and a second device
   // can end it too. Re-read clock status when the app comes back into
@@ -1345,16 +1375,16 @@ export default function OCSAStaffPortal() {
     clearAuth();
     setToken(null); setUser(null); setSites([]); setScreen("login");
     setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null);
-    setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set());
+    setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
     setChannels([]); setMessages([]); setActiveChannel(null);
     setAgentConversation(null); setFormsDraft(null);
     setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
-    setLookups([]); setToast(null); setLoading(false);
+    setLookups([]); setLookupsLang(null); setToast(null); setLoading(false);
     setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false);
     setActiveTab("clock");
     unreadWarned.current = false; prefsLive.current = false; chosenOnEntryRef.current = null;
-    tasksSite.current = null; tasksReqSite.current = null; inFlightTaskIds.current = new Set();
+    tasksAsked.current = null; tasksReqAsked.current = null; inFlightTaskIds.current = new Set();
   }, []);
   useEffect(() => {
     window.addEventListener("ocsa-session-expired", forgetPerson);
@@ -1405,8 +1435,10 @@ export default function OCSAStaffPortal() {
   // The count on More is what is waiting under More. With Assigned on the
   // bar its badge shows there instead, so the two never double up.
   const totalBadge = moreTabs.reduce((n, tab) => n + (tab.badge || 0), 0);
-  // The Home card counts this person's own checklist, the list the Tasks
-  // tab renders, and nothing wider. null until that list has come back.
+  // The Home card counts the list the Tasks tab renders, with the ticks
+  // that go with it: the person's own items and ticks, or the whole
+  // site's list and everyone's ticks there today. null until that list has
+  // come back.
   const homeTasks = Array.isArray(tasks) ? standardTasksOf(tasks) : null;
   const homeDone = homeTasks ? homeTasks.filter(tk => completedTaskIds.has(tk.id)).length : 0;
 
@@ -1462,7 +1494,7 @@ export default function OCSAStaffPortal() {
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
               {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} loading={loading} completedCount={homeDone} taskCount={homeTasks ? homeTasks.length : 0} taskListLoaded={!!homeTasks} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
-              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} t={t} />}
+              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} apiWords={tasksLang === language} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
@@ -1956,7 +1988,7 @@ function SetPinScreen({ token, user, onDone, onSignOut, showToast, t }) {
       <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("New PIN (4 digits)")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
       <div style={{ marginBottom: 22 }}><label style={labelSt}>{tr("Confirm PIN")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
       <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? tr("Saving...") : tr("Save PIN")}</button>
-      <div style={{ textAlign: "center", marginTop: 18 }}><button onClick={onSignOut} style={{ background: "none", border: "none", padding: "4px 0", color: t.textMut, fontSize: 11, cursor: "pointer", textDecoration: "underline" }}>{tr("Not you? Sign out")}</button></div>
+      <div style={{ textAlign: "center", marginTop: 18 }}><button onClick={onSignOut} style={mkTapFrame({ padding: "0 12px", color: t.textMut, fontSize: 11, textDecoration: "underline" })}>{tr("Not you? Sign out")}</button></div>
     </AuthCard>
   );
 }
@@ -2586,11 +2618,11 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
   const elapsed = ci && clockStatus.shift ? Math.floor((currentTime - new Date(clockStatus.shift.clockInTime)) / 1000) : 0;
   const h = Math.floor(elapsed / 3600), m = Math.floor((elapsed % 3600) / 60), s = elapsed % 60;
   const pad = (n) => String(n).padStart(2, "0");
-  // The bar counts the checklist's own list: this person's standard tasks
-  // at the site, ticked ones over all of them. It is the list the Tasks
-  // tab renders, filtered the same way, so the two never disagree. A
-  // person with nothing assigned reads 0/0. Until the list has come back
-  // there is nothing of this person's to count, so the bar waits.
+  // The bar counts the list the Tasks tab renders, filtered the same way,
+  // ticked items over all of them, so the two never disagree: a person's
+  // own items with their own ticks, or the whole site's list with
+  // everyone's there today. A site with no checklist reads 0/0. Until the
+  // list has come back there is nothing to count, so the bar waits.
   const total = taskCount || 0;
   const done = completedCount || 0;
   const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
@@ -2660,11 +2692,98 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
   );
 }
 
-function groupTasksByFloorZone(taskList) {
-  const groups = []; const floorMap = {};
-  taskList.forEach(t => { const floor = t.floor_number || null; const zone = t.zone || tr("General"); const key = (floor || "_none_") + "|" + zone; if (!floorMap[key]) { floorMap[key] = { floor, zone, tasks: [] }; groups.push(floorMap[key]); } floorMap[key].tasks.push(t); });
-  groups.sort((a, b) => { if (a.floor && !b.floor) return -1; if (!a.floor && b.floor) return 1; if (a.floor && b.floor && a.floor !== b.floor) { const aNum = parseInt(a.floor); const bNum = parseInt(b.floor); if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum; return a.floor.localeCompare(b.floor); } return a.zone.localeCompare(b.zone); });
-  return groups;
+// Which list the checklist reads, decided here and nowhere else. A
+// manager can link a person to particular items at a site, and
+// tasks.total on Start Shift and the status counts those links. A person
+// with links reads their own items and their own ticks. Everyone else
+// reads the whole site's list and everyone's ticks there today, since
+// nothing writes a link when a person joins a site or an item is added.
+function checklistIsOwn(cs) {
+  const tk = cs ? cs.tasks : null;
+  return !!tk && Number(tk.total) > 0;
+}
+// The request for the checklist an open shift needs, or null with no
+// shift open. Building and floor are never sent: the API matches them
+// exactly, so an item with neither would drop out, and the screen groups
+// by them instead. The language goes along for the words Step 118 in the
+// API sends with each item.
+function checklistRequest(cs, userId, lang) {
+  if (!cs || !cs.clockedIn || !cs.shift || !cs.shift.siteId) return null;
+  const own = checklistIsOwn(cs);
+  if (own && !userId) return null;
+  return "/api/sites/" + cs.shift.siteId + "/tasks?" + (own ? "user_id=" + userId + "&" : "") + "locale=" + (lang === "es" ? "es" : "en");
+}
+// An item's words as the screen draws them. Step 118 in the API sends
+// display: { label, description, zone } in the language asked for, and
+// each is drawn where it is sent, the item's own words where it is not.
+// live says the list came back in the language on screen, so a list
+// asked for before a switch never draws the other language's words.
+function itemWords(task, live) {
+  const d = live && task.display && typeof task.display === "object" ? task.display : {};
+  return { label: d.label || task.label, description: d.description || task.description, zone: d.zone || task.zone };
+}
+// The checklist set out the way a person reads it: sections, each an
+// optional card over groups, each an optional title over rows. Items with
+// a shift header come first, sorted by block_sort_order and then
+// anchor_time, with a card for each shift, a title each time the block
+// changes under it, and the place over any item whose place differs from
+// the one before it. The rest are grouped by building and floor, the open
+// shift's own first, and then by zone, and items that carry neither a
+// building nor a floor are listed under the site itself. Every item is
+// drawn somewhere.
+function checklistSections(list, shift, live) {
+  const text = (v) => (v === null || v === undefined ? "" : String(v).trim());
+  const inShift = (tk) => !!(text(tk.shift_label) || text(tk.block_label));
+  const areaOf = (bld, fl) => [bld, fl ? tr("Floor {n}", { n: fl }) : ""].filter(Boolean).join(" - ");
+  const rank = (v) => (text(v) === "" || isNaN(Number(v)) ? Infinity : Number(v));
+  // A time of day as seconds, so 9:00 comes before 10:00 however it is
+  // written. One that is not a time goes after every one that is.
+  const clock = (v) => { const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(text(v)); return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3] || 0) : null; };
+  const byTime = (a, b) => { const x = clock(a), y = clock(b); if (x === y) return 0; if (x === null) return 1; if (y === null) return -1; return x - y; };
+  const sections = [];
+
+  // Shift by shift, each placed where its first block comes, so a shift
+  // is never split however the blocks are numbered. Under each shift the
+  // items keep their order, and a block's title is drawn each time the
+  // block changes, so a block that comes round twice, a restroom round
+  // morning and noon, is drawn twice, each time in its place.
+  const timed = list.map((tk, i) => ({ tk, i })).filter(x => inShift(x.tk));
+  timed.sort((a, b) => (rank(a.tk.block_sort_order) - rank(b.tk.block_sort_order) || 0) || byTime(a.tk.anchor_time, b.tk.anchor_time) || a.i - b.i);
+  const shifts = new Map();
+  timed.forEach(({ tk }) => {
+    const s = text(tk.shift_label), b = text(tk.block_label);
+    if (!shifts.has(s)) { const sec = { head: s || null, groups: [] }; shifts.set(s, sec); sections.push(sec); }
+    const sec = shifts.get(s);
+    let g = sec.groups[sec.groups.length - 1];
+    if (!g || g.key !== b) { g = { key: b, title: b || null, block: true, rows: [] }; sec.groups.push(g); }
+    const place = [areaOf(text(tk.building_name), text(tk.floor_number)), text(itemWords(tk, live).zone)].filter(Boolean).join(" - ");
+    const before = g.rows.length ? g.rows[g.rows.length - 1].at : null;
+    g.rows.push({ task: tk, at: place, place: place && place !== before ? place : null });
+  });
+
+  const areas = new Map();
+  list.filter(tk => !inShift(tk)).forEach((tk) => {
+    const bld = text(tk.building_name), fl = text(tk.floor_number), key = bld + "|" + fl;
+    if (!areas.has(key)) areas.set(key, { bld: bld, fl: fl, zones: new Map() });
+    const zone = text(itemWords(tk, live).zone) || tr("General");
+    const a = areas.get(key);
+    if (!a.zones.has(zone)) a.zones.set(zone, []);
+    a.zones.get(zone).push({ task: tk, place: null });
+  });
+  const sb = text(shift && shift.buildingName), sf = text(shift && shift.floorNumber);
+  const site = (a) => !a.bld && !a.fl;
+  const own = (a) => !site(a) && !!(sb || sf) && (!sb || a.bld === sb) && (!sf || a.fl === sf);
+  const floorOrder = (x, y) => { if (x === y) return 0; if (!x) return 1; if (!y) return -1; const nx = parseInt(x, 10), ny = parseInt(y, 10); if (!isNaN(nx) && !isNaN(ny) && nx !== ny) return nx - ny; return x.localeCompare(y); };
+  Array.from(areas.values()).sort((a, b) => {
+    if (site(a) !== site(b)) return site(a) ? 1 : -1;
+    if (own(a) !== own(b)) return own(a) ? -1 : 1;
+    if (a.bld !== b.bld) { if (!a.bld) return 1; if (!b.bld) return -1; return a.bld.localeCompare(b.bld); }
+    return floorOrder(a.fl, b.fl);
+  }).forEach((a) => {
+    const head = site(a) ? (text(shift && shift.siteName) || null) : areaOf(a.bld, a.fl);
+    sections.push({ head: head, groups: Array.from(a.zones.keys()).sort((x, y) => x.localeCompare(y)).map(z => ({ title: z, block: false, rows: a.zones.get(z) })) });
+  });
+  return sections;
 }
 // The checklist and the Home card count the same list through the same
 // filter. Both call this, so the two numbers cannot drift apart.
@@ -2672,13 +2791,19 @@ function standardTasksOf(taskList) {
   return (Array.isArray(taskList) ? taskList : []).filter(tk => !tk.task_type || tk.task_type === "standard");
 }
 
-function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, toggleTask, t }) {
+function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, toggleTask, apiWords, t }) {
   const [detail, setDetail] = useState(null);
   const loaded = Array.isArray(tasks);
   const standardTasks = standardTasksOf(tasks);
   const labelSt = mkLabel(t);
   const floorHeadSt = { fontSize: 11, color: t.text, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, padding: "7px 11px", background: t.card, borderRadius: R.sm, border: "1px solid " + t.borderSolid, fontFamily: FONT_HEAD };
   const zoneSt = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: 8, fontFamily: FONT_HEAD };
+  // A block's own title under its shift's card, above the zones.
+  const blockSt = { fontSize: 12, color: t.text, fontWeight: 600, marginBottom: 8, fontFamily: FONT_HEAD };
+  // The list, section by section: the card, then each group's title, then
+  // its rows, each row after the place it is in whenever that changes.
+  // Everything under a card sits in from it.
+  const drawSections = (sections, row) => sections.map((sec, si) => (<div key={si}>{sec.head && (<div style={{ ...floorHeadSt, marginTop: si > 0 ? 10 : 0 }}>{sec.head}</div>)}{sec.groups.map((g, gi) => { const inset = sec.head ? 8 : 0; return (<div key={gi} style={{ marginBottom: 16 }}>{g.title && <div style={{ ...(g.block ? blockSt : zoneSt), paddingLeft: inset }}>{g.title}</div>}{g.rows.reduce((out, r) => { if (r.place) out.push(<div key={"at-" + r.task.id} style={{ ...zoneSt, paddingLeft: inset }}>{r.place}</div>); out.push(row(r.task, inset)); return out; }, [])}</div>); })}</div>));
   const rowBase = { display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 11, padding: "11px 13px", marginBottom: 6, borderRadius: R.md, boxShadow: t.shadow };
   const chipPriority = { fontSize: 9, color: ORANGE, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600, letterSpacing: "0.5px" };
   const chipCat = { fontSize: 9, color: t.textMut, background: t.cardAlt, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600 };
@@ -2688,8 +2813,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
     <div style={{ padding: "16px" }}>
       <div style={{ padding: "12px 14px", marginBottom: 14, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow }}><div style={{ fontSize: 12, color: ORANGE }}>{tr("Start your shift to see and check off your tasks.")}</div></div>
       {standardTasks.length === 0 ? <EmptyState icon={CheckIco} text={tr("No tasks loaded. Start your shift at a site to see your checklist.")} t={t} /> : (() => {
-        const groups = groupTasksByFloorZone(standardTasks); let lastFloor = undefined;
-        return groups.map((g, gi) => { const showFloor = g.floor && g.floor !== lastFloor; lastFloor = g.floor; return (<div key={gi} style={{ marginBottom: 16 }}>{showFloor && (<div style={{ ...floorHeadSt, marginTop: gi > 0 ? 10 : 0 }}>{tr("Floor")} {g.floor}</div>)}<div style={{ ...zoneSt, paddingLeft: g.floor ? 8 : 0 }}>{g.zone}</div>{g.tasks.map(task => { const hasInfo = task.has_details || task.description || task.media_url; return (<div key={task.id} onClick={() => hasInfo ? setDetail(task) : null} style={{ ...rowBase, background: t.card, border: "1px solid " + t.borderSolid, cursor: hasInfo ? "pointer" : "default", opacity: 0.6, marginLeft: g.floor ? 8 : 0 }}><div style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + t.textMut, background: "transparent", flexShrink: 0, marginTop: 1 }} /><div style={{ flex: 1, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{task.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div>); })}</div>); });
+        return drawSections(checklistSections(standardTasks, clockStatus && clockStatus.shift, apiWords), (task, inset) => { const w = itemWords(task, apiWords); const hasInfo = task.has_details || w.description || task.media_url; return (<div key={task.id} onClick={() => hasInfo ? setDetail(task) : null} style={{ ...rowBase, background: t.card, border: "1px solid " + t.borderSolid, cursor: hasInfo ? "pointer" : "default", opacity: 0.6, marginLeft: inset }}><div style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + t.textMut, background: "transparent", flexShrink: 0, marginTop: 1 }} /><div style={{ flex: 1, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{w.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div>); });
       })()}
     </div>
   );
@@ -2702,20 +2826,22 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   );
   if (!loaded) return <EmptyState icon={CheckIco} text={tr("Loading tasks...")} t={t} />;
   if (standardTasks.length === 0) return <EmptyState icon={CheckIco} text={tr("No checklist is set up for this building yet.")} t={t} />;
-  const groups = groupTasksByFloorZone(standardTasks);
+  const sections = checklistSections(standardTasks, clockStatus.shift, apiWords);
   const completed = standardTasks.filter(tk => completedTaskIds.has(tk.id)).length;
   const pct = Math.round((completed / standardTasks.length) * 100);
 
   if (detail) {
     const done = completedTaskIds.has(detail.id);
+    const w = itemWords(detail, apiWords);
+    const place = [detail.building_name, detail.floor_number ? tr("Floor {n}", { n: detail.floor_number }) : "", w.zone].filter(Boolean).join(" - ");
     return (
       <div style={{ padding: "16px" }}>
         <button onClick={() => setDetail(null)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", marginBottom: 14, background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.md, color: t.textSec, fontSize: 12, cursor: "pointer", fontWeight: 600 }}><Ico d="M15 18l-6-6 6-6" sz={14} c={t.textSec} /> {tr("Back to checklist")}</button>
         <div style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, overflow: "hidden", boxShadow: t.popShadow }}>
           <div style={{ padding: "16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{detail.label}</div><div style={{ display: "flex", gap: 4, flexShrink: 0 }}>{detail.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}<span style={chipCat}>{detail.cims_category}</span></div></div>
-            <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{detail.floor_number ? tr("Floor {n}", { n: detail.floor_number }) + " - " : ""}{detail.zone}</div>
-            {detail.description && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Instructions")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{detail.description}</div></div>)}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{w.label}</div><div style={{ display: "flex", gap: 4, flexShrink: 0 }}>{detail.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}<span style={chipCat}>{detail.cims_category}</span></div></div>
+            <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{place}</div>
+            {w.description && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Instructions")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{w.description}</div></div>)}
             {detail.media_url && detail.media_type === "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Video")}</div><video src={detail.media_url} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} /></div>)}
             {detail.media_url && detail.media_type !== "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Photo")}</div><img src={detail.media_url} alt={tr("Task reference")} style={{ width: "100%", borderRadius: R.md, maxHeight: 240, objectFit: "cover" }} /></div>)}
             {detail.due_date && (<div style={{ display: "flex", gap: 12, marginBottom: 14 }}><div style={{ fontSize: 11, color: t.textMut }}>{tr("Due Date:")} <span style={{ color: t.text, fontWeight: 500 }}>{new Date(detail.due_date).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}</span></div>{detail.due_time && <div style={{ fontSize: 11, color: t.textMut }}>{tr("Time:")} <span style={{ color: t.text, fontWeight: 500 }}>{clockTime(detail.due_time)}</span></div>}</div>)}
@@ -2726,14 +2852,13 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
     );
   }
 
-  let lastFloor = undefined;
   return (
     <div style={{ padding: "16px" }}>
       <div style={{ padding: "14px 16px", marginBottom: 16, background: t.goldBg, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Your Assignment")}</div><div style={{ fontSize: 15, fontWeight: 600, marginTop: 3, color: t.text, fontFamily: FONT_HEAD }}>{clockStatus.shift.siteName}</div>{(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.textSec, marginTop: 2 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>}</div><div style={{ background: pct === 100 ? t.greenSubtle : t.card, padding: "6px 14px", borderRadius: R.pill, border: "1px solid " + (pct === 100 ? t.greenBorder : t.borderSolid) }}><div style={{ fontSize: 18, fontWeight: 600, color: pct === 100 ? GREEN : t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</div></div></div>
         <div style={{ height: 5, borderRadius: R.pill, background: t.cardAlt, marginTop: 12, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.4s ease" }} /></div>
       </div>
-      {groups.map((g, gi) => { const showFloor = g.floor && g.floor !== lastFloor; lastFloor = g.floor; return (<div key={gi} style={{ marginBottom: 16 }}>{showFloor && (<div style={{ ...floorHeadSt, marginTop: gi > 0 ? 10 : 0 }}>{tr("Floor")} {g.floor}</div>)}<div style={{ ...zoneSt, paddingLeft: g.floor ? 8 : 0 }}>{g.zone}</div>{g.tasks.map(task => { const done = completedTaskIds.has(task.id); const hasInfo = task.has_details || task.description || task.media_url; return (<div key={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: g.floor ? 8 : 0 }}><button onClick={() => toggleTask(task.id)} aria-label={tr(done ? "Mark {name} not done" : "Mark {name} done", { name: task.label })} style={mkTapFrame({ flexShrink: 0, marginTop: 1 })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></button><div onClick={() => hasInfo ? setDetail(task) : toggleTask(task.id)} style={{ flex: "1 1 120px", minWidth: 0, cursor: "pointer" }}><div style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{task.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>{task.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}<span style={chipCat}>{task.cims_category}</span></div></div>); })}</div>); })}
+      {drawSections(sections, (task, inset) => { const w = itemWords(task, apiWords); const done = completedTaskIds.has(task.id); const hasInfo = task.has_details || w.description || task.media_url; return (<div key={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: inset }}><button onClick={() => toggleTask(task.id)} aria-label={tr(done ? "Mark {name} not done" : "Mark {name} done", { name: w.label })} style={mkTapFrame({ flexShrink: 0, marginTop: 1 })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></button><div onClick={() => hasInfo ? setDetail(task) : toggleTask(task.id)} style={{ flex: "1 1 120px", minWidth: 0, cursor: "pointer" }}><div style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{w.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>{task.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}<span style={chipCat}>{task.cims_category}</span></div></div>); })}
     </div>
   );
 }
@@ -3769,11 +3894,11 @@ function ChangePinCard({ token, user, showToast, t, cardSt }) {
       showToast(tr("PIN updated"));
       setPinForm({ current: "", next: "", confirm: "" });
     } catch (err) {
-      // The API's own sentence says which PIN it means; it is read in
-      // English, and drawn in the person's language.
-      const said = err.message || "Could not update your PIN.";
-      const msg = tr(said);
-      setPinErrs(/new/i.test(said) ? { next: msg } : { current: msg });
+      // A refusal with a code the screen knows goes under its own box in
+      // the screen's own words. Anything else is drawn as sent, under the
+      // current PIN, the way it always was.
+      const known = err.code ? PIN_REFUSALS[err.code] : null;
+      setPinErrs(known ? { [known.box]: known.say() } : { current: tr(err.message || "Could not update your PIN.") });
     }
     setPinSaving(false);
   };
@@ -4620,7 +4745,7 @@ function PickupView({ token, user, showToast, t }) {
                   </div>
                   <div style={{ fontSize: 12, color: t.textSec, fontVariantNumeric: "tabular-nums" }}>{fmtDate(s.scheduled_date)}</div>
                 </div>
-                <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 7px", borderRadius: R.sm, background: (originColor[s.origin] || GOLD) + "18", color: originColor[s.origin] || t.goldText, fontFamily: FONT_HEAD }}>{ORIGIN_WORDS[s.origin] ? ORIGIN_WORDS[s.origin]() : s.origin}</span>
+                <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 7px", borderRadius: R.sm, background: (originColor[s.origin] || GOLD) + "18", color: washInk(t, originColor[s.origin] || t.goldText), fontFamily: FONT_HEAD }}>{ORIGIN_WORDS[s.origin] ? ORIGIN_WORDS[s.origin]() : s.origin}</span>
               </div>
 
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, padding: "8px 10px", borderRadius: R.md, background: t.cardAlt }}>
@@ -4629,9 +4754,9 @@ function PickupView({ token, user, showToast, t }) {
               </div>
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                {s.building_name && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Bldg:")} {s.building_name}</span>}
-                {s.floor_number && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Floor:")} {s.floor_number}</span>}
-                {s.service_category && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{s.service_category}</span>}
+                {s.building_name && <span style={{ fontSize: 10, color: t.textSec, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Bldg:")} {s.building_name}</span>}
+                {s.floor_number && <span style={{ fontSize: 10, color: t.textSec, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Floor:")} {s.floor_number}</span>}
+                {s.service_category && <span style={{ fontSize: 10, color: t.textSec, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{s.service_category}</span>}
               </div>
 
               {s.notes && <div style={{ fontSize: 11, color: t.textSec, marginBottom: 10, fontStyle: "italic" }}>{s.notes}</div>}
@@ -4683,8 +4808,8 @@ function PickupView({ token, user, showToast, t }) {
                 </div>
 
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                  {s.building_name && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Bldg:")} {s.building_name}</span>}
-                  {s.floor_number && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Floor:")} {s.floor_number}</span>}
+                  {s.building_name && <span style={{ fontSize: 10, color: t.textSec, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Bldg:")} {s.building_name}</span>}
+                  {s.floor_number && <span style={{ fontSize: 10, color: t.textSec, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Floor:")} {s.floor_number}</span>}
                 </div>
 
                 {s.status === "claimed" && (
