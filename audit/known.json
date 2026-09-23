@@ -371,25 +371,7 @@
       "where": "*",
       "check": "english",
       "what": "is a code the screen drew as a word",
-      "why": "The screen draws a code the API sends, a role, a status, a severity, a priority or an origin, the way it was sent, title cased at most, where it is meant to put it into words."
-    },
-    {
-      "where": "*",
-      "check": "not translated",
-      "what": "\"Fri, Oct 2, 9:30 AM\" on a Spanish screen",
-      "why": "The activation and reset links say when they run out through a formatter pinned to English, so the Spanish sentence carries an English weekday, month and AM."
-    },
-    {
-      "where": "*",
-      "check": "not translated",
-      "what": "\"Aug 14, 1990\" on a Spanish screen",
-      "why": "The Profile birthday is written with the code's own English month list."
-    },
-    {
-      "where": "*",
-      "check": "not translated",
-      "what": "\"Failed to fetch\" on a Spanish screen",
-      "why": "A request that never reaches OCSA shows the browser's own words on every path the app does not guard."
+      "why": "The role in the header and on Profile is put into words from the table from commit three on, and the table has no entry for it until commit five, so the word drawn is still the English one."
     },
     {
       "where": "*",
@@ -456,12 +438,6 @@
       "check": "not translated",
       "what": "\"Could not read image\" on a Spanish screen",
       "why": "A photo the phone cannot read says the line the code throws, which has no entry in the table."
-    },
-    {
-      "where": "Every PIN rule and PIN error",
-      "check": "english",
-      "what": "\"Request failed\" on a Spanish screen",
-      "why": "Change PIN draws the API's refusal as sent, so a refusal with no sentence of its own shows the English fallback although the table holds its Spanish."
     },
     {
       "where": "Start a shift, then end it",
@@ -531,12 +507,6 @@
     },
     {
       "where": "Every PIN rule and PIN error",
-      "check": "Change PIN says \"Request failed\" in the person's language",
-      "what": "",
-      "why": "Change PIN draws the API's refusal as sent."
-    },
-    {
-      "where": "Every PIN rule and PIN error",
       "check": "An activation link says \"Enter the badge number from your email.\" in the person's language",
       "what": "",
       "why": "The activation screen's badge number error is written outside the table."
@@ -590,6 +560,174 @@
       "check": "no Spanish entry",
       "what": "\"{brand} Staff Portal\" has no Spanish entry",
       "why": "The page title, which follows the language from this commit on. Its Spanish is written in commit five, with every other word this build needs."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Custodian\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Custodial Lead\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Lead\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Supervisor\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Admin\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Pending\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Claimed\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Filled\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Unable to resolve\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Open\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Closed\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Medium\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Critical\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"in progress\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"resolved\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"unable to resolve\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"PIN must be exactly 4 digits.\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Four of the same digit is too easy to guess. Use a mix of digits.\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Your PIN cannot be your badge number or its last four digits.\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Enter the badge number from your email.\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Enter your current 4-digit PIN.\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Your new PIN must be different from your current PIN.\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"A shift is still open at {site}. End it before starting another.\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"A shift is still open. End it before starting another.\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"General\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Remove {name} from the bar\" has no Spanish entry",
+      "why": "Written through the table by commit three, with its Spanish in commit five."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "from the bar\" on a Spanish screen",
+      "why": "The shortcuts sheet's remove button has its own line from commit three on, and the line has no Spanish until commit five, so a screen reader hears English around the Spanish name."
     }
   ]
 }
