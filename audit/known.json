@@ -378,6 +378,397 @@
       "check": "english",
       "what": "is a procedure name the API sent in English",
       "why": "The procedures an answer cites are named the way the API writes them, in English. Their names are the API's to send in the person's language, with Help's replies. The suite draws one for the first time in this build."
+    },
+    {
+      "where": "Start Shift at a site with shifts asks which shift, the suggested one chosen: Use this shift keeps it, choosing the other sends it, and the list is that shift's items and the items tied to no shift",
+      "check": "Start Shift at a site with shifts asks which shift",
+      "what": "no sheet",
+      "why": "Start Shift sends the site and opens the checklist, and nothing reads the session's shifts, so nothing asks which one. The next commit asks."
+    },
+    {
+      "where": "Start Shift at a site with shifts asks which shift, the suggested one chosen: Use this shift keeps it, choosing the other sends it, and the list is that shift's items and the items tied to no shift",
+      "check": "Start Shift at a site with shifts asks which shift at 9:00 AM",
+      "what": "no sheet",
+      "why": "Start Shift sends the site and opens the checklist, and nothing reads the session's shifts, so nothing asks which one. The next commit asks."
+    },
+    {
+      "where": "An open session with no shift at a site with shifts asks once, over the checklist only, and the bottom bar stays in reach",
+      "check": "an open session with no shift asks when the checklist opens",
+      "what": "no sheet",
+      "why": "The checklist draws the whole site's list for a session with no shift and asks nothing. The next commit asks, over the checklist."
+    },
+    {
+      "where": "Change shift from the checklist: the shift in use, the sheet with it chosen, the change sent and the list drawn again",
+      "check": "the checklist names the shift in use, with Change shift",
+      "what": "null",
+      "why": "The checklist does not say which shift a session carries and has no way to change it. The next commit draws the shift in use under the top card, with Change shift."
+    },
+    {
+      "where": "Change shift from the checklist: the shift in use, the sheet with it chosen, the change sent and the list drawn again",
+      "check": "Change shift opens the sheet with the shift in use chosen",
+      "what": "[]",
+      "why": "There is no Change shift to open anything. The next commit adds it."
+    },
+    {
+      "where": "Change shift from the checklist: the shift in use, the sheet with it chosen, the change sent and the list drawn again",
+      "check": "the change is sent in the person's language",
+      "what": "nothing sent",
+      "why": "Nothing on the screen changes a session's shift, so PATCH /api/shift-sessions/:id/shift is never sent. The next commit sends it, with ?locale= the way the checklist read carries it."
+    },
+    {
+      "where": "Change shift from the checklist: the shift in use, the sheet with it chosen, the change sent and the list drawn again",
+      "check": "the list is drawn again for the new shift",
+      "what": "drawn:",
+      "why": "With no change sent the list stays the night shift's. The next commit reads the list again once the change is answered."
+    },
+    {
+      "where": "Change shift from the checklist: the shift in use, the sheet with it chosen, the change sent and the list drawn again",
+      "check": "the checklist names the new shift",
+      "what": "null",
+      "why": "The checklist does not say which shift a session carries and has no way to change it. The next commit draws the shift in use under the top card, with Change shift."
+    },
+    {
+      "where": "Change shift from the checklist: the shift in use, the sheet with it chosen, the change sent and the list drawn again",
+      "check": "Change shift is in the person's language",
+      "what": "null",
+      "why": "There is no Change shift yet. The next commit adds it, and the words commit gives it its Spanish."
+    },
+    {
+      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
+      "check": "refusal shown: Choose one of this site's shifts: {shifts}",
+      "what": "wanted",
+      "why": "There is no sheet to change a shift from, so no refusal of a change can show. The next commit shows each one's own sentence under the choices."
+    },
+    {
+      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
+      "check": "refusal keeps the sheet open: Choose one of this site's shifts: {shifts}",
+      "what": "the sheet closed",
+      "why": "There is no sheet to keep open. The next commit keeps it open on a refusal, with the sentence under the choices."
+    },
+    {
+      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
+      "check": "refusal shown: You can only change your own shift",
+      "what": "wanted",
+      "why": "There is no sheet to change a shift from, so no refusal of a change can show. The next commit shows each one's own sentence under the choices."
+    },
+    {
+      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
+      "check": "refusal keeps the sheet open: You can only change your own shift",
+      "what": "the sheet closed",
+      "why": "There is no sheet to keep open. The next commit keeps it open on a refusal, with the sentence under the choices."
+    },
+    {
+      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
+      "check": "refusal shown: Session not found",
+      "what": "wanted",
+      "why": "There is no sheet to change a shift from, so no refusal of a change can show. The next commit shows each one's own sentence under the choices."
+    },
+    {
+      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
+      "check": "refusal keeps the sheet open: Session not found",
+      "what": "the sheet closed",
+      "why": "There is no sheet to keep open. The next commit keeps it open on a refusal, with the sentence under the choices."
+    },
+    {
+      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
+      "check": "refusal shown: This shift has already ended",
+      "what": "wanted",
+      "why": "There is no sheet to change a shift from, so no refusal of a change can show. The next commit shows each one's own sentence under the choices."
+    },
+    {
+      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
+      "check": "refusal shown: Something went wrong on our end. Try again in a minute.",
+      "what": "wanted",
+      "why": "There is no sheet to change a shift from, so no refusal of a change can show. The next commit shows each one's own sentence under the choices."
+    },
+    {
+      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
+      "check": "refusal keeps the sheet open: Something went wrong on our end. Try again in a minute.",
+      "what": "the sheet closed",
+      "why": "There is no sheet to keep open. The next commit keeps it open on a refusal, with the sentence under the choices."
+    },
+    {
+      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
+      "check": "a shift that already ended closes the sheet and reads the status again",
+      "what": "the status was not read again",
+      "why": "There is no sheet, so nothing is sent and nothing is read again. The next commit closes the sheet and reads the status again on 409 SESSION_ALREADY_ENDED."
+    },
+    {
+      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
+      "check": "no signal says so under the choices, with Try again",
+      "what": "",
+      "why": "There is no sheet. The next commit says the line every screen says for no signal under the choices, with Try again."
+    },
+    {
+      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
+      "check": "Try again sends the change and the sheet goes",
+      "what": "the change was not sent again",
+      "why": "There is no sheet and no Try again on it. The next commit adds both."
+    },
+    {
+      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
+      "check": "every checklist read asks for today, in the person's language, on the whole site's list",
+      "what": "/api/sites/site-west/tasks?",
+      "why": "The checklist read sends ?locale= and no day. The API then answers today's items for a person with an open session, and every item to a manager with none. Commit three sends day=today on every read."
+    },
+    {
+      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
+      "check": "the checklist's percentage counts only the rows due today, on the whole site's list",
+      "what": "wanted",
+      "why": "The percentage counts every row drawn, weekly, monthly and seasonal work included, so this list reads 13%, not 29%. Commit three counts only the rows due today."
+    },
+    {
+      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
+      "check": "today comes first, then each period with work, in order, then as needed, on the whole site's list",
+      "what": "@-1",
+      "why": "The checklist draws every row under its shift and block, with no sections. Commit three draws Today first and then a section for each period with work."
+    },
+    {
+      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
+      "check": "each period's count is the one the status sends, on the whole site's list",
+      "what": "\"ok\":false",
+      "why": "There are no period sections, so there is no count. Commit three titles each section with its count."
+    },
+    {
+      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
+      "check": "Home counts only the rows due today, on the whole site's list",
+      "what": "Home reads",
+      "why": "Home counts every row the checklist draws. Commit three counts tasks.completed of tasks.total on a person's own list, and siteCompletedTaskIds of siteTotal on the site's."
+    },
+    {
+      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
+      "check": "the section titles are in the person's language, on the whole site's list",
+      "what": "",
+      "why": "There are no section titles yet. Commit three draws them, and the words commit gives them their Spanish."
+    },
+    {
+      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
+      "check": "every checklist read asks for today, in the person's language, on a person's own list",
+      "what": "/api/sites/site-west/tasks?",
+      "why": "The checklist read sends ?locale= and no day. The API then answers today's items for a person with an open session, and every item to a manager with none. Commit three sends day=today on every read."
+    },
+    {
+      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
+      "check": "the checklist's percentage counts only the rows due today, on a person's own list",
+      "what": "wanted",
+      "why": "The percentage counts every row drawn, weekly, monthly and seasonal work included, so this list reads 33%, not 50%. Commit three counts only the rows due today."
+    },
+    {
+      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
+      "check": "today comes first, then each period with work, in order, then as needed, on a person's own list",
+      "what": "@-1",
+      "why": "The checklist draws every row under its shift and block, with no sections. Commit three draws Today first and then a section for each period with work."
+    },
+    {
+      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
+      "check": "each period's count is the one the status sends, on a person's own list",
+      "what": "\"ok\":false",
+      "why": "There are no period sections, so there is no count. Commit three titles each section with its count."
+    },
+    {
+      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
+      "check": "Home counts only the rows due today, on a person's own list",
+      "what": "Home reads",
+      "why": "Home counts every row the checklist draws. Commit three counts tasks.completed of tasks.total on a person's own list, and siteCompletedTaskIds of siteTotal on the site's."
+    },
+    {
+      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
+      "check": "the section titles are in the person's language, on a person's own list",
+      "what": "",
+      "why": "There are no section titles yet. Commit three draws them, and the words commit gives them their Spanish."
+    },
+    {
+      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
+      "check": "as needed work is listed with no count",
+      "what": "",
+      "why": "There is no As needed section. Commit three lists as needed work under it, with no count."
+    },
+    {
+      "where": "A person linked to items, none of them due today, still sees their own list",
+      "check": "a person with links, none due today, asks for their own items",
+      "what": "/api/sites/site-west/tasks?locale=",
+      "why": "The screen decides whose list it is from tasks.total, which now counts only linked items due today, so a person whose linked items are weekly or quarterly reads the whole site's list. Commit three decides from hasLinkedItems."
+    },
+    {
+      "where": "A person linked to items, none of them due today, still sees their own list",
+      "check": "a person with links, none due today, sees just their own items",
+      "what": "drawn:",
+      "why": "The screen decides whose list it is from tasks.total, which now counts only linked items due today, so a person whose linked items are weekly or quarterly reads the whole site's list. Commit three decides from hasLinkedItems."
+    },
+    {
+      "where": "A person linked to items, none of them due today, still sees their own list",
+      "check": "Home counts nothing due today for them",
+      "what": "Home reads",
+      "why": "Home counts the whole site's list drawn for them. Commit three counts tasks.completed of tasks.total, 0/0."
+    },
+    {
+      "where": "A weekly item checked off stays checked after the status is read again and after the app is opened again",
+      "check": "a weekly item checked off stays checked after the status is read again",
+      "what": "\"done\":false",
+      "why": "The tick comes from completedTaskIds, which now holds only today's due items, so the status read after the check takes it off. Commit three draws a periodic row's tick from doneThisPeriod and reads the list again after a check."
+    },
+    {
+      "where": "A weekly item checked off stays checked after the status is read again and after the app is opened again",
+      "check": "the week's count takes the check in",
+      "what": "wanted",
+      "why": "There is no week section and no count. Commit three adds them."
+    },
+    {
+      "where": "A weekly item checked off stays checked after the status is read again and after the app is opened again",
+      "check": "a weekly item checked off stays checked when the app is opened again",
+      "what": "\"done\":false",
+      "why": "The tick comes from completedTaskIds, which now holds only today's due items, so the status read after the check takes it off. Commit three draws a periodic row's tick from doneThisPeriod and reads the list again after a check."
+    },
+    {
+      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
+      "check": "work done in its period shows done: w-9",
+      "what": "\"done\":false",
+      "why": "A row's tick comes from the id lists, which now hold only today's due items, so work done in its period, by a coworker or on an earlier day, reads as not done. Commit three draws it from doneThisPeriod."
+    },
+    {
+      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
+      "check": "work done in its period says who and when: w-9",
+      "what": "wanted",
+      "why": "Nothing under a row says who did it or when. Commit three draws the line from doneThisPeriod, and the words commit gives it its Spanish."
+    },
+    {
+      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
+      "check": "work done in its period shows done: w-12",
+      "what": "\"done\":false",
+      "why": "A row's tick comes from the id lists, which now hold only today's due items, so work done in its period, by a coworker or on an earlier day, reads as not done. Commit three draws it from doneThisPeriod."
+    },
+    {
+      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
+      "check": "work done in its period says who and when: w-12",
+      "what": "wanted",
+      "why": "Nothing under a row says who did it or when. Commit three draws the line from doneThisPeriod, and the words commit gives it its Spanish."
+    },
+    {
+      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
+      "check": "work done in its period shows done: w-16",
+      "what": "\"done\":false",
+      "why": "A row's tick comes from the id lists, which now hold only today's due items, so work done in its period, by a coworker or on an earlier day, reads as not done. Commit three draws it from doneThisPeriod."
+    },
+    {
+      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
+      "check": "work done in its period says who and when: w-16",
+      "what": "wanted",
+      "why": "Nothing under a row says who did it or when. Commit three draws the line from doneThisPeriod, and the words commit gives it its Spanish."
+    },
+    {
+      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
+      "check": "work done in its period shows done: w-14",
+      "what": "\"done\":false",
+      "why": "A row's tick comes from the id lists, which now hold only today's due items, so work done in its period, by a coworker or on an earlier day, reads as not done. Commit three draws it from doneThisPeriod."
+    },
+    {
+      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
+      "check": "work done in its period says who and when: w-14",
+      "what": "wanted",
+      "why": "Nothing under a row says who did it or when. Commit three draws the line from doneThisPeriod, and the words commit gives it its Spanish."
+    },
+    {
+      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
+      "check": "work done in its period shows done: w-11",
+      "what": "\"done\":false",
+      "why": "A row's tick comes from the id lists, which now hold only today's due items, so work done in its period, by a coworker or on an earlier day, reads as not done. Commit three draws it from doneThisPeriod."
+    },
+    {
+      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
+      "check": "work done in its period says who and when: w-11",
+      "what": "wanted",
+      "why": "Nothing under a row says who did it or when. Commit three draws the line from doneThisPeriod, and the words commit gives it its Spanish."
+    },
+    {
+      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
+      "check": "work done on an earlier day offers no uncheck: w-9",
+      "what": "an uncheck was sent, or the box cleared",
+      "why": "The row reads as not done, so a tap checks it again; once it reads done, a tap would send an uncheck that the API answers with 200 and removes nothing. Commit four offers no uncheck on it."
+    },
+    {
+      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
+      "check": "work done on an earlier day offers no uncheck: w-11",
+      "what": "an uncheck was sent, or the box cleared",
+      "why": "The row reads as not done, so a tap checks it again; once it reads done, a tap would send an uncheck that the API answers with 200 and removes nothing. Commit four offers no uncheck on it."
+    },
+    {
+      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
+      "check": "an every other day item done yesterday is not counted today",
+      "what": "drawn",
+      "why": "The percentage counts every row drawn. Commit three counts only the rows due today."
+    },
+    {
+      "where": "A coworker's check today says who made it, stays checked, and a tap says only they can uncheck it",
+      "check": "a coworker's check today says who made it",
+      "what": "wanted",
+      "why": "Nothing under a row says who checked it. Commit four draws Checked by and the first name from checkedToday."
+    },
+    {
+      "where": "A coworker's check today says who made it, stays checked, and a tap says only they can uncheck it",
+      "check": "a tap on a coworker's check sends no uncheck",
+      "what": "an uncheck was sent",
+      "why": "A tap on any checked box sends the uncheck, which the API now turns away with 403 NOT_YOUR_CHECK. Commit four sends nothing and says why."
+    },
+    {
+      "where": "A coworker's check today says who made it, stays checked, and a tap says only they can uncheck it",
+      "check": "a tap on a coworker's check says only they can uncheck it, under the row",
+      "what": "",
+      "why": "The API's refusal shows in a toast, and nothing is said under the row. Commit four says the owner's sentence under the row."
+    },
+    {
+      "where": "A coworker's check today says who made it, stays checked, and a tap says only they can uncheck it",
+      "check": "who checked it is said in the person's language",
+      "what": "",
+      "why": "Neither line is drawn yet. Commit four draws them, and the words commit gives them their Spanish."
+    },
+    {
+      "where": "Each block's title shows its time first, and a block with no time shows its title alone",
+      "check": "a block's title shows its time first: Restroom Round 1",
+      "what": "wanted",
+      "why": "A block's title is its name alone. Commit three draws the block's time before it, from anchor_time."
+    },
+    {
+      "where": "Each block's title shows its time first, and a block with no time shows its title alone",
+      "check": "a block's title shows its time first: Office sweep",
+      "what": "wanted",
+      "why": "A block's title is its name alone. Commit three draws the block's time before it, from anchor_time."
+    },
+    {
+      "where": "Each block's title shows its time first, and a block with no time shows its title alone",
+      "check": "a block's title shows its time first: Common areas",
+      "what": "wanted",
+      "why": "A block's title is its name alone. Commit three draws the block's time before it, from anchor_time."
+    },
+    {
+      "where": "Each block's title shows its time first, and a block with no time shows its title alone",
+      "check": "a block's title shows its time first: Late round",
+      "what": "wanted",
+      "why": "A block's title is its name alone. Commit three draws the block's time before it, from anchor_time."
+    },
+    {
+      "where": "No item on any screen shows its category code: the checklist, an item opened, an assigned task, an inspection",
+      "check": "the checklist shows no category code",
+      "what": "SD",
+      "why": "Every row draws its category code, SD on every live item, in a small tag. Commit four stops drawing it."
+    },
+    {
+      "where": "No item on any screen shows its category code: the checklist, an item opened, an assigned task, an inspection",
+      "check": "an item opened shows no category code",
+      "what": "SD",
+      "why": "An item opened draws its category code beside its name. Commit four stops drawing it."
+    },
+    {
+      "where": "No item on any screen shows its category code: the checklist, an item opened, an assigned task, an inspection",
+      "check": "an inspection's items show no category code",
+      "what": "SD",
+      "why": "Each inspection item draws its category code in a colored square. Commit four stops drawing it."
+    },
+    {
+      "where": "Tasks",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#8899AA on #1B3058\"",
+      "why": "The category code the stub now sends on every item, the way the live API does, drawn in the muted gray on the dark theme's panel. 4.46 to 1, just under the 4.5 to 1 small text needs. Commit four stops drawing the code."
     }
   ]
 }
