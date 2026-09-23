@@ -384,6 +384,10 @@ const LIGHT = {
 // The numeral on a badge: white on light mode's deeper red, and the off
 // white the dark theme draws everywhere else.
 const badgeInk = (th) => (th.badgeBg === LIGHT.badgeBg ? "#FFFFFF" : "#F8F7F4");
+// Words on a wash of their own color. Dark draws them in that color. On
+// light mode's white card none of the wash colors reads at 4.5 to 1, so
+// light mode draws them in its own text color over the same wash.
+const washInk = (th, color) => (th === LIGHT ? th.text : color);
 
 async function api(path, opts = {}) {
   const headers = { "Content-Type": "application/json", ...opts.headers };
@@ -665,6 +669,16 @@ function weakPinReason(pin, badgeNumber) {
   if (badge && (pin === badge || pin === badge.slice(-4))) return tr("Your PIN cannot be your badge number or its last four digits.");
   return null;
 }
+
+// What Change PIN says when the API turns a change away, by the refusal's
+// code, and which box it goes under. The code decides both. The API's own
+// sentence is in the account's language since Step 113, and is never read.
+const PIN_REFUSALS = {
+  PIN_INCORRECT: { box: "current", say: () => tr("That is not your current PIN.") },
+  PIN_UNCHANGED: { box: "next", say: () => tr("Your new PIN must be different from your current PIN.") },
+  PIN_WEAK: { box: "next", say: () => tr("That PIN is too easy to guess. Choose a different one.") },
+  PIN_FORMAT: { box: "next", say: () => tr("PIN must be exactly 4 digits.") },
+};
 
 // Entry from an emailed link. Read once at module scope, before the
 // first render, so it stays out of the render path.
@@ -1974,7 +1988,7 @@ function SetPinScreen({ token, user, onDone, onSignOut, showToast, t }) {
       <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("New PIN (4 digits)")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
       <div style={{ marginBottom: 22 }}><label style={labelSt}>{tr("Confirm PIN")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
       <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? tr("Saving...") : tr("Save PIN")}</button>
-      <div style={{ textAlign: "center", marginTop: 18 }}><button onClick={onSignOut} style={{ background: "none", border: "none", padding: "4px 0", color: t.textMut, fontSize: 11, cursor: "pointer", textDecoration: "underline" }}>{tr("Not you? Sign out")}</button></div>
+      <div style={{ textAlign: "center", marginTop: 18 }}><button onClick={onSignOut} style={mkTapFrame({ padding: "0 12px", color: t.textMut, fontSize: 11, textDecoration: "underline" })}>{tr("Not you? Sign out")}</button></div>
     </AuthCard>
   );
 }
@@ -3880,11 +3894,11 @@ function ChangePinCard({ token, user, showToast, t, cardSt }) {
       showToast(tr("PIN updated"));
       setPinForm({ current: "", next: "", confirm: "" });
     } catch (err) {
-      // The API's own sentence says which PIN it means; it is read in
-      // English, and drawn in the person's language.
-      const said = err.message || "Could not update your PIN.";
-      const msg = tr(said);
-      setPinErrs(/new/i.test(said) ? { next: msg } : { current: msg });
+      // A refusal with a code the screen knows goes under its own box in
+      // the screen's own words. Anything else is drawn as sent, under the
+      // current PIN, the way it always was.
+      const known = err.code ? PIN_REFUSALS[err.code] : null;
+      setPinErrs(known ? { [known.box]: known.say() } : { current: tr(err.message || "Could not update your PIN.") });
     }
     setPinSaving(false);
   };
@@ -4731,7 +4745,7 @@ function PickupView({ token, user, showToast, t }) {
                   </div>
                   <div style={{ fontSize: 12, color: t.textSec, fontVariantNumeric: "tabular-nums" }}>{fmtDate(s.scheduled_date)}</div>
                 </div>
-                <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 7px", borderRadius: R.sm, background: (originColor[s.origin] || GOLD) + "18", color: originColor[s.origin] || t.goldText, fontFamily: FONT_HEAD }}>{ORIGIN_WORDS[s.origin] ? ORIGIN_WORDS[s.origin]() : s.origin}</span>
+                <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 7px", borderRadius: R.sm, background: (originColor[s.origin] || GOLD) + "18", color: washInk(t, originColor[s.origin] || t.goldText), fontFamily: FONT_HEAD }}>{ORIGIN_WORDS[s.origin] ? ORIGIN_WORDS[s.origin]() : s.origin}</span>
               </div>
 
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, padding: "8px 10px", borderRadius: R.md, background: t.cardAlt }}>
@@ -4740,9 +4754,9 @@ function PickupView({ token, user, showToast, t }) {
               </div>
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                {s.building_name && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Bldg:")} {s.building_name}</span>}
-                {s.floor_number && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Floor:")} {s.floor_number}</span>}
-                {s.service_category && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{s.service_category}</span>}
+                {s.building_name && <span style={{ fontSize: 10, color: t.textSec, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Bldg:")} {s.building_name}</span>}
+                {s.floor_number && <span style={{ fontSize: 10, color: t.textSec, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Floor:")} {s.floor_number}</span>}
+                {s.service_category && <span style={{ fontSize: 10, color: t.textSec, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{s.service_category}</span>}
               </div>
 
               {s.notes && <div style={{ fontSize: 11, color: t.textSec, marginBottom: 10, fontStyle: "italic" }}>{s.notes}</div>}
@@ -4794,8 +4808,8 @@ function PickupView({ token, user, showToast, t }) {
                 </div>
 
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                  {s.building_name && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Bldg:")} {s.building_name}</span>}
-                  {s.floor_number && <span style={{ fontSize: 10, color: t.textMut, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Floor:")} {s.floor_number}</span>}
+                  {s.building_name && <span style={{ fontSize: 10, color: t.textSec, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Bldg:")} {s.building_name}</span>}
+                  {s.floor_number && <span style={{ fontSize: 10, color: t.textSec, padding: "2px 6px", borderRadius: R.sm, background: t.cardAlt, fontFamily: FONT_HEAD }}>{tr("Floor:")} {s.floor_number}</span>}
                 </div>
 
                 {s.status === "claimed" && (

@@ -1567,6 +1567,45 @@ const JOURNEYS = [
     },
   },
   {
+    id: "changepincodes",
+    label: "Change PIN turned away by the API: each refusal under its own box, read off its code, in the person's language",
+    run: async (open, language, expect) => {
+      // Each code the API sends, the box it belongs under, and what the
+      // screen says there.
+      const CASES = [
+        ["PIN_INCORRECT", 0, "That is not your current PIN."],
+        ["PIN_UNCHANGED", 1, "Your new PIN must be different from your current PIN."],
+        ["PIN_WEAK", 1, "That PIN is too easy to guess. Choose a different one."],
+        ["PIN_FORMAT", 1, "PIN must be exactly 4 digits."],
+      ];
+      const BOX = ["the current PIN", "the new PIN", "the repeated PIN"];
+      const app = await open({});
+      try {
+        await openTab(app.page, "settings", language);
+        await pause(app.page, 800);
+        for (const [code, box, line] of CASES) {
+          // A change the screen's own checks let through, so the API is
+          // what turns it away, with a sentence in the account's language.
+          app.stub.state.pinRefusal = code;
+          await typeNth(app.page, '.sp-content input[type="password"]', 0, "2468");
+          await typeNth(app.page, '.sp-content input[type="password"]', 1, "5739");
+          await typeNth(app.page, '.sp-content input[type="password"]', 2, "5739");
+          await clickText(app.page, say("Update PIN", language));
+          await pause(app.page, 800);
+          // What each box has under it, read off the screen.
+          const under = await app.page.evaluate(() => Array.from(document.querySelectorAll('.sp-content input[type="password"]')).map((i) => {
+            const e = i.nextElementSibling;
+            return e ? e.textContent.trim() : "";
+          }));
+          const said = under.filter(x => x.length > 0);
+          expect(code + " is said under " + BOX[box], said.length === 1 && under[box].length > 0, JSON.stringify(under));
+          expect(code + " is said in the person's language", has(under[box], spanishOf(line, language)), JSON.stringify(under));
+          await spokenHere(app, language, expect);
+        }
+      } finally { await app.context.close(); }
+    },
+  },
+  {
     id: "assignedstatus",
     label: "An assigned task marked in progress, and the line that says so",
     run: async (open, language, expect) => {

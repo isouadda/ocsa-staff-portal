@@ -152,6 +152,16 @@ const INSPECTION = {
 // One on the list that the API no longer has when it is opened.
 const INSPECTION_GONE = { id: "in-gone", template_name: "Stairwell walk", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled", gone: true };
 
+// Every refusal Change PIN can answer with, by its code, in English and in
+// Spanish. Since Step 113 the API writes the sentence in the account's
+// language; the code is the same in both.
+const PIN_REFUSALS = {
+  PIN_INCORRECT: ["Current PIN is incorrect", "El PIN actual no es correcto"],
+  PIN_UNCHANGED: ["New PIN must be different from the current PIN", "El PIN nuevo debe ser distinto del actual"],
+  PIN_WEAK: ["New PIN is too easy to guess", "El PIN nuevo es muy f\u00e1cil de adivinar"],
+  PIN_FORMAT: ["New PIN must be exactly 4 digits", "El PIN nuevo debe tener exactamente 4 d\u00edgitos"],
+};
+
 // Every refusal the time off routes can answer with, in the order the
 // Step 79 contract lists them. The suite shows each one word for word.
 const TIME_OFF_REFUSALS = [
@@ -220,6 +230,8 @@ function makeState(opts) {
     person: o.person || PERSON,
     accountPreferences: o.accountPreferences === undefined ? {} : o.accountPreferences,
     clockedIn: o.clockedIn !== false,
+    // The code the next Change PIN is turned away with, once.
+    pinRefusal: null,
     // The open shift's site, who is linked to what, and every check made
     // today. A check made on one phone is seen on another through here.
     site: o.site || "site-north",
@@ -508,6 +520,7 @@ const TWIN_PAIRS = [
   .concat(LEAVE_TYPES.map(t => tableTwin(t.label)))
   .concat(TIME_OFF_REFUSALS.map(r => tableTwin(r.error)))
   .concat(HR_CASE_REFUSALS.map(tableTwin))
+  .concat(Object.keys(PIN_REFUSALS).map(k => PIN_REFUSALS[k]))
   .concat(["That sign-in did not match. Check your badge, phone or email and your PIN.", "Session expired", "Request failed",
     "Photo upload failed", "A sign-off is made with its own button", "That is not a sign-off on this form",
     "You cannot sign this part of the form", "This part is already signed"].map(tableTwin))
@@ -653,7 +666,17 @@ function createStub(opts) {
     if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: SITES, preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
     if (key === "POST /api/auth/register") return json(200, { ok: true });
     if (key === "POST /api/auth/reset/request") return json(200, { ok: true });
-    if (key === "POST /api/auth/change-pin") { state.mustSetPin = false; return json(200, { ok: true }); }
+    if (key === "POST /api/auth/change-pin") {
+      // A refusal a case asked for: its code, and its sentence in the
+      // account's language, the way Step 113 answers.
+      if (state.pinRefusal) {
+        const code = state.pinRefusal;
+        state.pinRefusal = null;
+        return json(400, { error: PIN_REFUSALS[code][state.accountPreferences && state.accountPreferences.language === "es" ? 1 : 0], code: code });
+      }
+      state.mustSetPin = false;
+      return json(200, { ok: true });
+    }
     // A link is good for twelve hours from the suite's clock. The account's
     // saved language rides along when the account has one.
     const linkInfo = () => Object.assign({ firstName: state.person.firstName, expiresAt: iso(NOW.getTime() + 12 * 60 * 60 * 1000) },
@@ -931,4 +954,4 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, timeOffRow, ymd, iso, DAY };
+module.exports = { createStub, servedFor, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, timeOffRow, ymd, iso, DAY };

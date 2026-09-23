@@ -374,30 +374,40 @@
       "why": "The API's refusals are English sentences on every route but the seven calls made before signing in, which Step 113 answers in the language the request asks for. The portal draws a refusal in Spanish when the table holds that exact sentence and every other one as sent, so a refusal from any other route stays English until the API sends the person's language there too."
     },
     {
-      "where": "Set your PIN",
-      "check": "too small",
-      "what": "\"Not you? Sign out\" is",
-      "why": "The sign out line under Set your PIN is a bare text button, about 20 pixels tall at the standard size. The case drew Home behind it until this build, so the suite never measured it."
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"That is not your current PIN.\"",
+      "why": "What Change PIN says under the current PIN for a refusal coded PIN_INCORRECT, new in commit three. Its Spanish comes in commit four, with every new word."
     },
     {
-      "where": "Set your PIN",
-      "check": "too small",
-      "what": "\"\u00bfNo es usted? Cerrar sesi\u00f3n\" is",
-      "why": "The same button, in Spanish."
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"That PIN is too easy to guess. Choose a different one.\"",
+      "why": "What Change PIN says under the new PIN for a refusal coded PIN_WEAK, new in commit three. Its Spanish comes in commit four, with every new word."
     },
     {
-      "where": "Pickup",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#8899AA on #1B3058\"",
-      "why": "The service on an open shift, muted text on its chip. 4.46 to 1 against the 4.5 to 1 small text needs. The stub serves a service on its open shift from this build on."
+      "where": "Change PIN turned away by the API: each refusal under its own box, read off its code, in the person's language",
+      "check": "PIN_INCORRECT is said in the person's language",
+      "what": "That is not your current PIN.",
+      "why": "The line has no Spanish entry yet, so a Spanish screen draws its English. Its Spanish comes in commit four, with every new word."
     },
     {
-      "where": "Pickup",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#24A4F4 on #EAF6FE\"",
-      "why": "Blue on light mode's blue wash, the badge of a shift someone dropped. 2.49 to 1 against the 4.5 to 1 small text needs. The stub's open shift carries a real origin code from this build on."
+      "where": "Change PIN turned away by the API: each refusal under its own box, read off its code, in the person's language",
+      "check": "PIN_WEAK is said in the person's language",
+      "what": "That PIN is too easy to guess.",
+      "why": "The line has no Spanish entry yet, so a Spanish screen draws its English. Its Spanish comes in commit four, with every new word."
+    },
+    {
+      "where": "Change PIN turned away by the API: each refusal under its own box, read off its code, in the person's language",
+      "check": "not translated",
+      "what": "\"That is not your current PIN.\"",
+      "why": "The same line, English on a Spanish screen. Its Spanish comes in commit four, with every new word."
+    },
+    {
+      "where": "Change PIN turned away by the API: each refusal under its own box, read off its code, in the person's language",
+      "check": "not translated",
+      "what": "\"That PIN is too easy to guess. Choose a different one.\"",
+      "why": "The same line, English on a Spanish screen. Its Spanish comes in commit four, with every new word."
     }
   ]
 }
