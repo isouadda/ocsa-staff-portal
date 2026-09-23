@@ -38,7 +38,7 @@ const ALLOWED = [
   "English", "Espa\u00f1ol",
   "OCSA Staff", "OCSA Cleaning", "OCSA-0001", "OCSA-FIX-101",
   "Alex", "Tester", "Alex Tester", "Sam", "Second", "Sam Second",
-  "North Building", "South Building", "Main Hall",
+  "North Building", "South Building", "West Building", "Main Hall", "Robin",
 // The staff list the Speak Up picker draws. The route sends a first and
 // a last name, and the screen joins them, so the whole name is read
 // here as one value rather than as two the suite has never seen
@@ -61,6 +61,15 @@ const FORM_P_PAGES = [
 // Its name starts with the tab's, so what is known about the tab is known
 // about it too.
 const WHOLE_SITE_TASKS = "Tasks, the whole site in shifts";
+
+// The Tasks tab three more times, at West Building, whose list is shaped
+// like the busiest live one: the sheet that asks which shift, the same
+// sheet once a change could not reach OCSA, and the night shift's list,
+// Today and each period's section with its count, who did what and when,
+// a coworker's check, and the line a tap on it says.
+const SHIFT_SHEET = "Tasks, which shift";
+const SHIFT_SHEET_OFFLINE = "Tasks, which shift, no signal";
+const PERIOD_LIST = "Tasks, today and the periods";
 
 // Help three more times, with answers on it: while one is being written,
 // once it is done, and once a connection has dropped and the answer could
@@ -358,6 +367,44 @@ async function runScreens(browser, base, opts) {
       rows.push(...await inspect(whole.page, null, WHOLE_SITE_TASKS, language, size, whole.stub, theme));
     } finally {
       await whole.context.close();
+    }
+
+    // West Building three times, each in a session of its own. The sheet
+    // first, in a session that carries no shift yet; then the same sheet
+    // after Use this shift could not reach OCSA; then the night shift's
+    // list, with the coworker's check tapped so the line it says is on
+    // the screen, the clock held while the checks read it.
+    const whereAt = (name) => name + " [" + language + "/" + size + "/" + theme + "]";
+    for (const variant of [SHIFT_SHEET, SHIFT_SHEET_OFFLINE, PERIOD_LIST]) {
+      const west = await openApp(browser, base, {
+        language: language, textSize: size, theme: theme, signedIn: true,
+        stubOptions: Object.assign(stubFor(language, size), { site: "site-west", links: {} }, variant === PERIOD_LIST ? { shiftLabel: "Night shift" } : {}),
+      });
+      try {
+        const ok = await openTab(west.page, "tasks", language);
+        if (!ok) rows.push({ where: whereAt(variant), check: "reachable", detail: "the tab could not be opened" });
+        await pause(west.page, 1200);
+        if (variant === SHIFT_SHEET_OFFLINE) {
+          west.stub.state.offline = true;
+          await clickText(west.page, say("Use this shift", language));
+          await pause(west.page, 900);
+        }
+        let held = false;
+        if (variant === PERIOD_LIST) {
+          await west.page.evaluate((label) => {
+            const b = Array.from(document.querySelectorAll(".sp-content button[aria-label]")).find(x => x.getAttribute("aria-label") === label);
+            if (b) b.click();
+          }, say("Mark {name} not done", language).replace("{name}", "Wipe the restroom sinks"));
+          await pause(west.page, 300);
+          const pageNow = await west.page.evaluate(() => Date.now());
+          await west.page.clock.pauseAt(pageNow + 50).catch(() => {});
+          held = true;
+        }
+        rows.push(...await inspect(west.page, null, variant, language, size, west.stub, theme));
+        if (held) await west.page.clock.resume().catch(() => {});
+      } finally {
+        await west.context.close();
+      }
     }
 
     // Help with answers on it, in its own session. A report started first,

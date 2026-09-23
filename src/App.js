@@ -613,6 +613,9 @@ function clockTime(v) {
   if (!m) return String(v || "");
   return new Date(2024, 0, 1, Number(m[1]), Number(m[2])).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" });
 }
+// The same time kept on one line, so a narrow screen at a large text size
+// never parts the hour from its a.m. or p.m.
+const clockTimeKept = (v) => clockTime(v).replace(/\s/g, "\u00a0");
 
 const Ico = ({ d, sz = 18, c = "currentColor", style: s, ...p }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={s} {...p}><path d={d} /></svg>);
 const ClockIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 0v10l4 4" {...p} />;
@@ -1612,10 +1615,10 @@ export default function OCSAStaffPortal() {
   // the same function: today's due work on the list the Tasks tab draws,
   // and the checks of it, the person's own on their own list and everyone's
   // there today on the site's. Nothing periodic. null until the list has
-  // come back. On the stub these are the status's completed of total and
-  // siteCompletedTaskIds of siteTotal, except where a person with links
-  // has checked an item outside them, which completed counts and total
-  // does not.
+  // come back. These are the status's completed of total, or its
+  // siteCompletedTaskIds of siteTotal, whenever a person's checks are among
+  // their own items; completed also counts a check of an item outside them,
+  // which total does not, and would read more than the whole.
   const homeCounts = Array.isArray(tasks) ? todayCount(tasks, completedTaskIds) : null;
   // The sheet that asks which shift, while it is needed: after Start Shift
   // or Change shift, and whenever the session at a site with shifts
@@ -3058,7 +3061,7 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
         <div role="radiogroup" aria-labelledby="ocsa-shift-sheet-title" style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
           {shifts.map(s => {
             const picked = chosen === s.label;
-            const hours = s.window && s.window.startsAt && s.window.endsAt ? tr("{start} to {end}", { start: clockTime(s.window.startsAt), end: clockTime(s.window.endsAt) }) : null;
+            const hours = s.window && s.window.startsAt && s.window.endsAt ? tr("{start} to {end}", { start: clockTimeKept(s.window.startsAt), end: clockTimeKept(s.window.endsAt) }) : null;
             return (
               <button key={s.label} type="button" role="radio" aria-checked={picked} onClick={() => { setChosen(s.label); onChoose(); }} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: TAP, padding: "11px 14px", borderRadius: R.md, cursor: "pointer", textAlign: "left", background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text }}>
                 <span style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: picked ? GOLD : "transparent", border: picked ? "none" : "2px solid " + t.borderSolid }} />
@@ -3091,7 +3094,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   // The list, section by section: the card, then each group's title, then
   // its rows, each row after the place it is in whenever that changes.
   // Everything under a card sits in from it.
-  const drawSections = (sections, row) => sections.map((sec, si) => (<div key={si}>{sec.head && (<div style={{ ...floorHeadSt, marginTop: si > 0 ? 10 : 0 }}>{sec.head}</div>)}{sec.groups.map((g, gi) => { const inset = sec.head ? 8 : 0; return (<div key={gi} style={{ marginBottom: 16 }}>{g.title && <div style={{ ...(g.block ? blockSt : zoneSt), paddingLeft: inset }}>{g.time ? <><span style={{ fontVariantNumeric: "tabular-nums" }}>{clockTime(g.time)}</span>{" "}</> : null}<span>{g.title}</span></div>}{g.rows.reduce((out, r) => { if (r.place) out.push(<div key={"at-" + r.task.id} style={{ ...zoneSt, paddingLeft: inset }}>{r.place}</div>); out.push(row(r.task, inset)); return out; }, [])}</div>); })}</div>));
+  const drawSections = (sections, row) => sections.map((sec, si) => (<div key={si}>{sec.head && (<div style={{ ...floorHeadSt, marginTop: si > 0 ? 10 : 0 }}>{sec.head}</div>)}{sec.groups.map((g, gi) => { const inset = sec.head ? 8 : 0; return (<div key={gi} style={{ marginBottom: 16 }}>{g.title && <div style={{ ...(g.block ? blockSt : zoneSt), paddingLeft: inset }}>{g.time ? <><span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{clockTime(g.time)}</span>{" "}</> : null}<span>{g.title}</span></div>}{g.rows.reduce((out, r) => { if (r.place) out.push(<div key={"at-" + r.task.id} style={{ ...zoneSt, paddingLeft: inset }}>{r.place}</div>); out.push(row(r.task, inset)); return out; }, [])}</div>); })}</div>));
   const rowBase = { display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 11, padding: "11px 13px", marginBottom: 6, borderRadius: R.md, boxShadow: t.shadow };
   const chipPriority = { fontSize: 9, color: ORANGE, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600, letterSpacing: "0.5px" };
   const detailSecLabel = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD };

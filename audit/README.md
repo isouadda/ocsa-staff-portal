@@ -138,6 +138,15 @@ show, and two items tied to no shift. Its session carries no shift until a
 case names one. North Building has no shifts, and the session at South
 Building was started on the morning shift.
 
+The sweep draws the Tasks tab three more times, at West Building, in
+every combination: `Tasks, which shift`, the sheet in a session that
+carries no shift yet; `Tasks, which shift, no signal`, the same sheet
+once Use this shift could not reach OCSA, with its line and Try again;
+and `Tasks, today and the periods`, the night shift's list with a
+coworker's check tapped, its clock held while the checks read the line
+the tap says. Each name starts with the tab's, so what is known about the
+tab is known about them too.
+
 `stub.peek` reads what the API would answer right now without asking it,
 so nothing is recorded: `progress()`, `rows(site, search)` and
 `session()`. A journey judges the screen by it. `openApp(browser, base, {
