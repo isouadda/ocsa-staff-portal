@@ -372,42 +372,6 @@
       "check": "english",
       "what": "is a refusal the API sent in English",
       "why": "The API's refusals are English sentences on every route but the seven calls made before signing in, which Step 113 answers in the language the request asks for. The portal draws a refusal in Spanish when the table holds that exact sentence and every other one as sent, so a refusal from any other route stays English until the API sends the person's language there too."
-    },
-    {
-      "where": "src/App.js",
-      "check": "no Spanish entry",
-      "what": "\"That is not your current PIN.\"",
-      "why": "What Change PIN says under the current PIN for a refusal coded PIN_INCORRECT, new in commit three. Its Spanish comes in commit four, with every new word."
-    },
-    {
-      "where": "src/App.js",
-      "check": "no Spanish entry",
-      "what": "\"That PIN is too easy to guess. Choose a different one.\"",
-      "why": "What Change PIN says under the new PIN for a refusal coded PIN_WEAK, new in commit three. Its Spanish comes in commit four, with every new word."
-    },
-    {
-      "where": "Change PIN turned away by the API: each refusal under its own box, read off its code, in the person's language",
-      "check": "PIN_INCORRECT is said in the person's language",
-      "what": "That is not your current PIN.",
-      "why": "The line has no Spanish entry yet, so a Spanish screen draws its English. Its Spanish comes in commit four, with every new word."
-    },
-    {
-      "where": "Change PIN turned away by the API: each refusal under its own box, read off its code, in the person's language",
-      "check": "PIN_WEAK is said in the person's language",
-      "what": "That PIN is too easy to guess.",
-      "why": "The line has no Spanish entry yet, so a Spanish screen draws its English. Its Spanish comes in commit four, with every new word."
-    },
-    {
-      "where": "Change PIN turned away by the API: each refusal under its own box, read off its code, in the person's language",
-      "check": "not translated",
-      "what": "\"That is not your current PIN.\"",
-      "why": "The same line, English on a Spanish screen. Its Spanish comes in commit four, with every new word."
-    },
-    {
-      "where": "Change PIN turned away by the API: each refusal under its own box, read off its code, in the person's language",
-      "check": "not translated",
-      "what": "\"That PIN is too easy to guess. Choose a different one.\"",
-      "why": "The same line, English on a Spanish screen. Its Spanish comes in commit four, with every new word."
     }
   ]
 }
