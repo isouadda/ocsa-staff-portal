@@ -116,6 +116,11 @@ export const WORDS = {
   "Your account is activated but not currently active. Contact your supervisor.": "Su cuenta est\u00e1 activada pero no est\u00e1 activa en este momento. Hable con su supervisor.",
   "Your PIN has been changed. Contact your supervisor about your account status.": "Su PIN fue cambiado. Hable con su supervisor sobre el estado de su cuenta.",
   "Your PIN has been saved. Signing in will work once your account is active.": "Su PIN se guard\u00f3. Podr\u00e1 iniciar sesi\u00f3n cuando su cuenta est\u00e9 activa.",
+  "PIN must be exactly 4 digits.": "El PIN debe tener exactamente 4 d\u00edgitos.",
+  "Four of the same digit is too easy to guess. Use a mix of digits.": "Cuatro d\u00edgitos iguales son muy f\u00e1ciles de adivinar. Use d\u00edgitos distintos.",
+  "Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.": "Los d\u00edgitos seguidos, como 1234 o 4321, son muy f\u00e1ciles de adivinar. Use otro orden.",
+  "Your PIN cannot be your badge number or its last four digits.": "Su PIN no puede ser su n\u00famero de empleado ni sus \u00faltimos cuatro d\u00edgitos.",
+  "Enter the badge number from your email.": "Escriba el n\u00famero de empleado que aparece en su correo.",
 
   // App wide
   "A new version is ready": "Hay una versi\u00f3n nueva lista",
@@ -161,7 +166,7 @@ export const WORDS = {
   "Tap the Share button {share} in the address bar.": "Toque el bot\u00f3n Compartir {share} en la barra de direcciones.",
   "Task completed": "Tarea completada",
   "Task unchecked": "Tarea desmarcada",
-  "Task updated to {status}": "Tarea actualizada a {status}",
+  "Task updated to {status}": "Estado de la tarea: {status}",
   "That sign-in did not match. Check your badge, phone or email and your PIN.": "Esos datos no coinciden. Revise su n\u00famero de empleado, tel\u00e9fono o correo y su PIN.",
   "This page is open inside another app. Open it in Safari or Chrome first, then add it to your home screen.": "Esta p\u00e1gina est\u00e1 abierta dentro de otra aplicaci\u00f3n. \u00c1brala primero en Safari o Chrome y luego agr\u00e9guela a su pantalla de inicio.",
   "This shift was already ended": "Este turno ya estaba terminado",
@@ -169,6 +174,17 @@ export const WORDS = {
   "Update now": "Actualizar ahora",
   "Welcome, {name}": "Bienvenido, {name}",
   "{count} unread notifications": "{count} notificaciones sin leer",
+  "{brand} Staff Portal": "Portal del Personal de {brand}",
+  "Could not read image": "No se pudo leer la imagen",
+  "Compression failed": "No se pudo preparar la foto",
+  "Custodian": "Conserje",
+  "Custodial Lead": "L\u00edder de conserjes",
+  "Lead": "L\u00edder",
+  "Supervisor": "Supervisor",
+  "Admin": "Administrador",
+  "in progress": "en proceso",
+  "resolved": "resuelta",
+  "unable to resolve": "sin resolver",
 
   // Home
   "All Other Sites": "Todos los dem\u00e1s sitios",
@@ -191,6 +207,8 @@ export const WORDS = {
   "Time on Site": "Tiempo en el sitio",
   "You asked to drop this shift. Waiting for a decision.": "Usted pidi\u00f3 dejar este turno. Espera una decisi\u00f3n.",
   "Your Assigned Sites": "Sus sitios asignados",
+  "A shift is still open at {site}. End it before starting another.": "Todav\u00eda hay un turno abierto en {site}. Term\u00ednelo antes de comenzar otro.",
+  "A shift is still open. End it before starting another.": "Todav\u00eda hay un turno abierto. Term\u00ednelo antes de comenzar otro.",
 
   // Schedule
   " (live)": " (en curso)",
@@ -288,6 +306,9 @@ export const WORDS = {
   "{n} hours": "{n} horas",
   "{start} to {end}": "{start} a {end}",
   "{start} to {end}, {year}": "{start} a {end}, {year}",
+  "Pending": "Pendiente",
+  "Claimed": "Tomado",
+  "Filled": "Cubierto",
 
   // Tasks
   "Back to checklist": "Volver a la lista",
@@ -309,6 +330,7 @@ export const WORDS = {
   "Uncheck Task": "Desmarcar tarea",
   "Your Assignment": "Su asignaci\u00f3n",
   "Your tasks did not load.": "Sus tareas no cargaron.",
+  "General": "General",
 
   // Chat
   "Admin (Private)": "Administraci\u00f3n (privado)",
@@ -379,6 +401,9 @@ export const WORDS = {
   "When a supervisor assigns a task to you, it will appear here.": "Cuando un supervisor le asigne una tarea, aparecer\u00e1 aqu\u00ed.",
   "{n} task assigned to you": "{n} tarea asignada a usted",
   "{n} tasks assigned to you": "{n} tareas asignadas a usted",
+  "Unable to resolve": "Sin resolver",
+  "Medium": "Media",
+  "Critical": "Cr\u00edtica",
 
   // Report
   "+ Report": "+ Reportar",
@@ -403,6 +428,8 @@ export const WORDS = {
   "Take Photo or Choose from Gallery": "Tomar foto o elegir de la galer\u00eda",
   "Title": "T\u00edtulo",
   "Zone": "Zona",
+  "Open": "Abierto",
+  "Closed": "Cerrado",
 
   // Supplies
   "+ Request": "+ Solicitar",
@@ -579,6 +606,7 @@ export const WORDS = {
   "Under More": "En M\u00e1s",
   "will take the place of the one you pick.": "tomar\u00e1 el lugar del que elija.",
   "Your bar is full.": "Su barra est\u00e1 llena.",
+  "Remove {name} from the bar": "Quitar {name} de la barra",
 
   // Notifications
   "Load more": "Cargar m\u00e1s",
@@ -606,6 +634,8 @@ export const WORDS = {
   "The app, Help and report forms use this language.": "La aplicaci\u00f3n, Ayuda y los formularios usan este idioma.",
   "Update PIN": "Actualizar PIN",
   "Your PIN is 4 digits. Choose one that only you know.": "Su PIN es de 4 d\u00edgitos. Elija uno que solo usted sepa.",
+  "Enter your current 4-digit PIN.": "Escriba su PIN actual de 4 d\u00edgitos.",
+  "Your new PIN must be different from your current PIN.": "Su PIN nuevo debe ser distinto de su PIN actual.",
 
   // Profile
   "Address": "Direcci\u00f3n",
@@ -616,8 +646,8 @@ export const WORDS = {
   "City": "Ciudad",
   "Emergency Contact": "Contacto de emergencia",
   "Emergency Phone": "Tel\u00e9fono de emergencia",
-  "Employee ID": "N\u00famero de empleado",
-  "Employee ID not assigned. Ask your supervisor.": "No tiene n\u00famero de empleado asignado. Preg\u00fantele a su supervisor.",
+  "Employee ID": "ID de empleado",
+  "Employee ID not assigned. Ask your supervisor.": "No tiene ID de empleado asignado. Preg\u00fantele a su supervisor.",
   "Full name": "Nombre completo",
   "Loading profile...": "Cargando perfil...",
   "No shift": "Sin turno",
