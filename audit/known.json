@@ -378,24 +378,6 @@
       "check": "english",
       "what": "is a procedure name the API sent in English",
       "why": "The procedures an answer cites are named the way the API writes them, in English. Their names are the API's to send in the person's language, with Help's replies. The suite draws one for the first time in this build."
-    },
-    {
-      "where": "src/App.js",
-      "check": "no Spanish entry",
-      "what": "\"The connection dropped. Your answer is saved.\"",
-      "why": "What Help says under an answer whose connection dropped, new in this commit. Its Spanish comes in the next commit."
-    },
-    {
-      "where": "A connection that drops once the answer has started: one line says so, the conversation is read back and the kept answer shows, and when that fails, Try again [es]",
-      "check": "one line says the connection dropped",
-      "what": "no such line",
-      "why": "The line has no Spanish entry yet, so a Spanish screen draws its English. Its Spanish comes in the next commit."
-    },
-    {
-      "where": "A connection that drops once the answer has started: one line says so, the conversation is read back and the kept answer shows, and when that fails, Try again [es]",
-      "check": "when the conversation cannot be read back, the line and the refusal show with Try again",
-      "what": "no such line",
-      "why": "The line has no Spanish entry yet, so a Spanish screen draws its English. Its Spanish comes in the next commit."
     }
   ]
 }
