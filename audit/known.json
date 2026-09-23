@@ -372,6 +372,126 @@
       "check": "english",
       "what": "is a refusal the API sent in English",
       "why": "The API's refusals are English sentences on every route but the seven calls made before signing in, which Step 113 answers in the language the request asks for. The portal draws a refusal in Spanish when the table holds that exact sentence and every other one as sent, so a refusal from any other route stays English until the API sends the person's language there too."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a procedure name the API sent in English",
+      "why": "The procedures an answer cites are named the way the API writes them, in English. Their names are the API's to send in the person's language, with Help's replies. The suite draws one for the first time in this build."
+    },
+    {
+      "where": "Help's answer as it is written: the first words before it is done, a bold phrase cut in two, and the finished answer drawn the way it always was",
+      "check": "the question goes to the streaming route with the body, the query and the headers the message route has always had",
+      "what": "POST /api/agent/message {",
+      "why": "Help sends every question to POST /api/agent/message and waits for the whole reply. The next commit sends the same body, query and headers to the streaming route."
+    },
+    {
+      "where": "Help's answer as it is written: the first words before it is done, a bold phrase cut in two, and the finished answer drawn the way it always was",
+      "check": "the first words appear before the answer is done",
+      "what": "nothing was drawn while the answer was being written",
+      "why": "The screen reads the reply only once it is whole, so nothing shows until the last word is written. The next commit draws each piece as it arrives."
+    },
+    {
+      "where": "Help's answer as it is written: the first words before it is done, a bold phrase cut in two, and the finished answer drawn the way it always was",
+      "check": "a bold phrase cut in two shows its words and never its marks",
+      "what": "nothing drawn",
+      "why": "Nothing is drawn while the answer is written, so there is no half-written bold to judge. The next commit draws the arriving answer without its marks."
+    },
+    {
+      "where": "Help's answer as it is written: the first words before it is done, a bold phrase cut in two, and the finished answer drawn the way it always was",
+      "check": "a screen reader hears the answer once, when it is done",
+      "what": "heard 0 times",
+      "why": "Help has no live region, so a screen reader is never told an answer arrived. The next commit says the finished answer once, when it is done."
+    },
+    {
+      "where": "Everything a streamed answer does today's answer does: a report it starts, a photo sent with the question, and an answer with no written procedure",
+      "check": "each question goes to the streaming route",
+      "what": "POST /api/agent/message {",
+      "why": "Help sends every question to POST /api/agent/message and waits for the whole reply. The next commit sends the same body, query and headers to the streaming route."
+    },
+    {
+      "where": "An answer the API writes again: reset clears what was drawn, and the answer written after it is the one that stays",
+      "check": "the first try shows as it is written",
+      "what": "nothing was drawn while the first try was being written",
+      "why": "Nothing is drawn until the reply is whole, so the try the API throws away never shows and there is nothing for reset to clear. The next commit draws it, and clears it at reset."
+    },
+    {
+      "where": "An answer the API writes again: reset clears what was drawn, and the answer written after it is the one that stays",
+      "check": "a screen reader hears only the answer that stays, once",
+      "what": "heard 0 times",
+      "why": "Help has no live region, so a screen reader is never told an answer arrived. The next commit says the finished answer once, when it is done."
+    },
+    {
+      "where": "An answer that fails: turned away before it starts, and an error part way, each shown the way a refusal with its status always has been",
+      "check": "a question turned away is asked on the streaming route",
+      "what": "POST /api/agent/message {",
+      "why": "Help sends every question to POST /api/agent/message and waits for the whole reply. The next commit sends the same body, query and headers to the streaming route."
+    },
+    {
+      "where": "An answer that fails: turned away before it starts, and an error part way, each shown the way a refusal with its status always has been",
+      "check": "Retry asks again and the answer comes",
+      "what": "POST /api/agent/message {",
+      "why": "Retry asks the message route again. The next commit asks the streaming route, the way the first send does."
+    },
+    {
+      "where": "An answer that fails: turned away before it starts, and an error part way, each shown the way a refusal with its status always has been",
+      "check": "the answer shows as it is written until the error",
+      "what": "nothing was drawn while the answer was being written",
+      "why": "The screen reads the reply only once it is whole, so nothing shows until the last word is written. The next commit draws each piece as it arrives."
+    },
+    {
+      "where": "A connection that drops once the answer has started: one line says so, the conversation is read back and the kept answer shows, and when that fails, Try again",
+      "check": "the answer shows as it is written until the connection drops",
+      "what": "nothing was drawn while the answer was being written",
+      "why": "The screen reads the reply only once it is whole, so nothing shows until the last word is written. The next commit draws each piece as it arrives."
+    },
+    {
+      "where": "A connection that drops once the answer has started: one line says so, the conversation is read back and the kept answer shows, and when that fails, Try again",
+      "check": "a dropped connection reads the conversation back",
+      "what": "[]",
+      "why": "When the connection drops, the screen says the message was not sent and offers Retry, which asks the question again. It never reads the conversation back, where the API keeps the answer. The next commit does."
+    },
+    {
+      "where": "A connection that drops once the answer has started: one line says so, the conversation is read back and the kept answer shows, and when that fails, Try again",
+      "check": "the kept answer shows in place of what was drawn, the way an answer always is",
+      "what": "the kept answer never showed",
+      "why": "The answer the API kept is never read back, so it never shows. The next commit reads it back and draws it."
+    },
+    {
+      "where": "A connection that drops once the answer has started: one line says so, the conversation is read back and the kept answer shows, and when that fails, Try again",
+      "check": "a screen reader hears the kept answer once",
+      "what": "heard 0 times",
+      "why": "Help has no live region, so a screen reader is never told an answer arrived. The next commit says the finished answer once, when it is done."
+    },
+    {
+      "where": "A connection that drops once the answer has started: one line says so, the conversation is read back and the kept answer shows, and when that fails, Try again",
+      "check": "one line says the connection dropped",
+      "what": "no such line",
+      "why": "The screen has no line for a dropped connection. It says the message was not sent, which stops being true once the API has the question. The next commit adds the line, and the one after gives it its Spanish."
+    },
+    {
+      "where": "A connection that drops once the answer has started: one line says so, the conversation is read back and the kept answer shows, and when that fails, Try again",
+      "check": "with no answer kept yet, Try again is offered",
+      "what": "no Try again",
+      "why": "The screen offers Retry, which asks the question again, and nothing that reads the kept answer back. The next commit offers Try again."
+    },
+    {
+      "where": "A connection that drops once the answer has started: one line says so, the conversation is read back and the kept answer shows, and when that fails, Try again",
+      "check": "Try again reads the conversation back again and the kept answer shows",
+      "what": "the kept answer never showed",
+      "why": "There is no Try again to read the answer back. The next commit adds it."
+    },
+    {
+      "where": "A connection that drops once the answer has started: one line says so, the conversation is read back and the kept answer shows, and when that fails, Try again",
+      "check": "when the conversation cannot be read back, the line and the refusal show with Try again",
+      "what": "no such line",
+      "why": "The screen has no line for a dropped connection and never reads the conversation back. The next commit adds both, and the one after gives the line its Spanish."
+    },
+    {
+      "where": "A connection that drops once the answer has started: one line says so, the conversation is read back and the kept answer shows, and when that fails, Try again",
+      "check": "Try again after a failed read shows the kept answer",
+      "what": "the kept answer never showed",
+      "why": "There is no Try again to read the answer back. The next commit adds it."
     }
   ]
 }

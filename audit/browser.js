@@ -2,6 +2,7 @@
 // by the stub, the clock fixed, and storage seeded the way a case wants.
 const { chromium } = require("playwright");
 const { createStub, NOW } = require("./stub");
+const { streamUrl } = require("./stream");
 const fs = require("fs");
 const path = require("path");
 
@@ -71,9 +72,20 @@ async function openApp(browser, base, opts) {
     let body = null;
     const raw = req.postData();
     if (raw) { try { body = JSON.parse(raw); } catch (e) { body = raw; } }
-    const answer = stub.handle(req.method(), url.pathname, url.search, body, (req.headers() || {})["accept-language"] || "");
-    if (answer && answer.abort) { await route.abort("failed"); return; }
-    await route.fulfill(answer);
+    const headers = req.headers() || {};
+    const answer = stub.handle(req.method(), url.pathname, url.search, body, headers["accept-language"] || "", headers);
+    const { after, stream, ...reply } = answer || {};
+    // A page can close while an answer is still being written, and an
+    // answer with nobody left to take it is not a fault of the run.
+    try {
+      // Help's message route answers once the whole answer is written.
+      if (after) await after;
+      if (reply.abort) { await route.abort("failed"); return; }
+      // Help's streaming route is sent to stream.js, which writes the
+      // answer over a real connection a piece at a time.
+      if (stream) { await route.fulfill({ status: 307, headers: { location: await streamUrl(stream) } }); return; }
+      await route.fulfill(reply);
+    } catch (e) {}
   });
 
   // The app's own version check asks for this file. The suite answers it

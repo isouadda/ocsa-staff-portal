@@ -152,6 +152,50 @@ const INSPECTION = {
 // One on the list that the API no longer has when it is opened.
 const INSPECTION_GONE = { id: "in-gone", template_name: "Stairwell walk", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled", gone: true };
 
+// --- Help ----------------------------------------------------------------
+//
+// Help's answers, each written in the pieces the streaming route sends,
+// cut wherever the writing happened to be: in the middle of a word, and in
+// the middle of a bold phrase, marks and all. Joined, the pieces are the
+// reply the message route sends whole. Every key besides the pieces is a
+// key of that reply, the way the API sends it.
+const HELP_ANSWERS = {
+  // The one every question gets unless a case asks for another.
+  pads: { pieces: ["Take the pa", "ds from the se", "cond floor store", " room."] },
+  // A bold phrase cut in two, its opening marks cut in two as well, and
+  // numbered steps, citing a procedure and working from the written one.
+  spill: {
+    pieces: ["Put a *", "*wet fl", "oor sign** by the spill", " first.\n1. Wipe up wh", "at you can with paper tow", "els.\n2. Mop the spot with", " the blue mop from the clo", "set."],
+    // The same answer in Spanish, cut the same way, for a reading that
+    // asks for it. A letter with an accent is cut through its bytes.
+    piecesEs: ["Ponga primero un *", "*letrero de pi", "so mojado** junto al", " derrame.\n1. Limpie lo q", "ue pueda con toallas de pa", "pel.\n2. Trapee el \u00e1r", "ea con el trapeador azul del cua", "rto de limpieza."],
+    citedDocs: ["Spill response"], degraded: true,
+  },
+  // One that starts a report, the way an answer opens a form today.
+  report: {
+    pieces: ["I started an incid", "ent report for you. Tell me wh", "en it happened."],
+    formResponse: { id: "draft-one", formCode: "OCSA-FIX-101", formName: "Incident report", status: "draft", answered: 1, remaining: 4, nextQuestion: "When did it happen" },
+  },
+  // One with no written procedure behind it.
+  unknown: { pieces: ["I do not have a writ", "ten procedure for that. Ask your super", "visor."], noProcedure: true },
+  // The first try at an answer the API throws away and writes again.
+  firstTry: { pieces: ["Mop the spill right aw", "ay with any mop."] },
+};
+const helpReply = (a) => a.pieces.join("");
+// The refusals a case can ask Help for, each a sentence the API writes.
+const HELP_REFUSALS = {
+  busy: { status: 429, error: "Too many questions at once. Wait a minute and ask again." },
+  unfinished: { status: 502, error: "The answer could not be finished. Ask again." },
+};
+// One answer cut into n pieces of about the same length, for a reading
+// that wants a set number of them.
+const cutInto = (text, n) => {
+  const out = [];
+  const size = Math.ceil(text.length / n);
+  for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size));
+  return out;
+};
+
 // Every refusal Change PIN can answer with, by its code, in English and in
 // Spanish. Since Step 113 the API writes the sentence in the account's
 // language; the code is the same in both.
@@ -244,6 +288,11 @@ function makeState(opts) {
     notifications: o.notifications || [],
     inspections: o.inspections || [],
     conversationId: "cv-one",
+    // Help: what the next question is answered with, the points the one
+    // being answered can be stopped at, and the conversation as the API
+    // keeps it. See helpPlay below.
+    help: { next: null, holds: {}, asked: 0 },
+    stored: [],
     uploadsFail: false,
     prefsPatches: [],
     // The second form's answers, and the sign-offs stamped on it.
@@ -432,6 +481,7 @@ const STAFF = [
 const LIVE_KINDS = new Set(["form text"]);
 
 const { ES } = require("./words");
+const { silently } = require("./stream");
 const tableTwin = (en) => [en, Object.prototype.hasOwnProperty.call(ES, en) ? ES[en] : null];
 
 const TWIN_PAIRS = [
@@ -488,6 +538,14 @@ const TWIN_PAIRS = [
   // Messages and Help's reply.
   ["Usage logged", "Uso registrado"],
   ["Take the pads from the second floor store room.", "Tome los pa\u00f1os del almac\u00e9n del segundo piso."],
+  // Help's other answers, the procedure one cites, and its refusals.
+  [helpReply(HELP_ANSWERS.spill), HELP_ANSWERS.spill.piecesEs.join("")],
+  ["I started an incident report for you. Tell me when it happened.", "Empec\u00e9 un reporte de incidente para usted. D\u00edgame cu\u00e1ndo pas\u00f3."],
+  ["I do not have a written procedure for that. Ask your supervisor.", "No tengo un procedimiento escrito para eso. Pregunte a su supervisor."],
+  ["Mop the spill right away with any mop.", "Trapee el derrame de inmediato con cualquier trapeador."],
+  ["Spill response", "Respuesta a derrames"],
+  [HELP_REFUSALS.busy.error, "Demasiadas preguntas a la vez. Espere un minuto y vuelva a preguntar."],
+  [HELP_REFUSALS.unfinished.error, "No se pudo terminar la respuesta. Vuelva a preguntar."],
   // Refusals the portal's own table does not carry.
   ["Answer every required question before sending", "Responda todas las preguntas obligatorias antes de enviar"],
   ["This account is locked. Ask your supervisor to unlock it.", "Esta cuenta est\u00e1 bloqueada. Pida a su supervisor que la desbloquee."],
@@ -556,6 +614,8 @@ const ROUTE_WORDS = [
   [/^GET \/api\/time-off\/types$/, { label: "leave type" }],
   [/^[A-Z]+ \/api\/forms/, { title: "form text", label: "form text", rows: "form text" }],
   [/^GET \/api\/inspections\//, { name: "inspection item", label: "inspection item", zone: "inspection item" }],
+  // A piece of Help's answer, as the streaming route sends it.
+  [/^POST \/api\/agent\/message\/stream$/, { text: "Help reply" }],
 ];
 const kindsFor = (method, pathname) => {
   const hit = ROUTE_WORDS.find(r => r[0].test(method + " " + pathname));
@@ -594,8 +654,114 @@ function servedFor(stub) {
 
 const json = (status, body) => ({ status: status, contentType: "application/json", body: JSON.stringify(body) });
 
+// A reply the way the screen draws it: a line at a time, a numbered
+// step's words apart from its number, and a bold phrase apart from the
+// words around it. Each piece is a text of its own on the screen, so each
+// is a word the screen was given. The same reading as agentReplyParts in
+// src/App.js, written again here because the suite never imports the app.
+function replyPieces(text) {
+  const out = [];
+  String(text == null ? "" : text).split("\n").forEach((line) => {
+    const step = /^\s*(\d{1,2})\.\s+(.+)$/.exec(line);
+    const s = step ? step[2] : line;
+    let i = 0;
+    while (i < s.length) {
+      const open = s.indexOf("**", i);
+      const close = open === -1 ? -1 : s.indexOf("**", open + 2);
+      if (open === -1 || close === -1) { out.push(s.slice(i)); break; }
+      if (open > i) out.push(s.slice(i, open));
+      out.push(s.slice(open + 2, close));
+      i = close + 2;
+    }
+  });
+  return out.map(p => p.trim()).filter(p => p.length > 0);
+}
+
+// A point a case stops Help's answer at. reached turns true when the
+// answer gets there, and open lets it go on. Each one opens by itself
+// after 20 seconds, so a case that never lets go cannot hang the run.
+function makeGate(name) {
+  let open = null;
+  const opened = new Promise((done) => { open = done; });
+  const gate = { name: name, reached: false, opened: opened, open: () => open() };
+  setTimeout(() => open(), 20000).unref();
+  return gate;
+}
+
 function createStub(opts) {
   const state = makeState(opts);
+
+  // --- Help's answer, as the API writes it
+  //
+  // One question, answered with state.help.next when a case set it and
+  // with the answer every question gets otherwise. Both routes play the
+  // same steps: the streaming route sends each one as it is written, and
+  // the message route waits until the last is written and sends the reply
+  // whole, the way it always has.
+  //
+  // state.help.next, all optional, used once:
+  //   answer   a key of HELP_ANSWERS
+  //   rewrite  a key of HELP_ANSWERS written first and cleared with reset
+  //   holds    { name: n } stops after the nth piece, or at "meta" or
+  //            "reset"; state.help.holds names the gates to let go
+  //   error    { after, status, error } sends the error after n pieces
+  //   refuse   a key of HELP_REFUSALS, turned away before any stream
+  //   drop     { after, storedAfterMs } drops the connection after n
+  //            pieces; the answer is kept storedAfterMs later
+  //   pauseMs  the pause before each event, 120 by default
+  //   pieces   cuts the answer into this many pieces instead
+  //   split    the pieces, counted from 1, that arrive in two parts
+  //   language "es" writes the answer's Spanish twin, for a reading
+  function helpPlay(body) {
+    const next = state.help.next || {};
+    state.help.next = null;
+    state.help.asked += 1;
+    // Turned away before anything is written or kept, on either route,
+    // since both answer to the same gates.
+    if (next.refuse) return { refuse: HELP_REFUSALS[next.refuse] };
+    const answer = HELP_ANSWERS[next.answer || "pads"];
+    let pieces = next.language === "es" && answer.piecesEs ? answer.piecesEs : answer.pieces;
+    if (next.pieces) pieces = cutInto(pieces.join(""), next.pieces);
+    const reply = pieces.join("");
+    const holds = {};
+    Object.keys(next.holds || {}).forEach((name) => { holds[name] = makeGate(name); });
+    const steps = [];
+    const holdAt = (mark) => Object.keys(next.holds || {}).filter(n => next.holds[n] === mark).forEach(n => steps.push({ hold: n }));
+    let sent = 0;
+    const piece = (text) => {
+      sent += 1;
+      steps.push({ event: "delta", data: { text: text }, split: (next.split || []).indexOf(sent) !== -1 });
+      holdAt(sent);
+    };
+    steps.push({ event: "meta", data: { conversationId: state.conversationId, requestId: "rq-" + state.help.asked } });
+    holdAt("meta");
+    if (next.rewrite) {
+      HELP_ANSWERS[next.rewrite].pieces.forEach(piece);
+      steps.push({ event: "reset", data: {} });
+      holdAt("reset");
+    }
+    const upTo = next.error ? next.error.after : next.drop ? next.drop.after : pieces.length;
+    pieces.slice(0, upTo).forEach(piece);
+    const done = Object.assign({
+      reply: reply, conversationId: state.conversationId,
+      citedDocs: answer.citedDocs || [], degraded: !!answer.degraded, noProcedure: !!answer.noProcedure,
+    }, answer.formResponse ? { formResponse: answer.formResponse } : {});
+    if (next.error) steps.push({ event: "error", data: { error: next.error.error, status: next.error.status } });
+    else if (next.drop) steps.push({ drop: true });
+    else steps.push({ event: "done", data: done });
+    // The question is kept at once and the answer once it is written. A
+    // dropped connection still finishes the answer and keeps it; an error
+    // keeps nothing.
+    state.stored.push({ role: "user", text: body && typeof body.text === "string" ? body.text : "", at: 0 });
+    const kept = { role: "assistant", text: reply, citedDocs: done.citedDocs, degraded: done.degraded, noProcedure: done.noProcedure, at: Infinity };
+    if (!next.error) state.stored.push(kept);
+    state.help.holds = holds;
+    return {
+      steps: steps, holds: holds, pauseMs: next.pauseMs !== undefined ? next.pauseMs : 120,
+      done: done, error: next.error || null, drop: next.drop || null, refuse: null,
+      finished: () => { kept.at = Date.now() + ((next.drop && next.drop.storedAfterMs) || 0); },
+    };
+  }
 
   const schedule = () => state.schedule || {
     scheduled: [{ id: "sh-1", scheduled_date: "2026-10-02", start_time: "17:00", end_time: "23:00", site_name: "North Building", status: "scheduled", building_name: "Main Hall", floor_number: "2" }],
@@ -651,9 +817,9 @@ function createStub(opts) {
     return json(r.status || 400, r.body || { error: r.error || "Request failed" });
   }
 
-  function handle(method, pathname, search, body) {
+  function handle(method, pathname, search, body, headers) {
     const key = method + " " + pathname;
-    state.calls.push({ method: method, path: pathname, search: search || "", body: body || null });
+    state.calls.push({ method: method, path: pathname, search: search || "", body: body || null, headers: headers || {} });
     if (state.offline) return { abort: true };
     const refused = refusalFor(key);
     if (refused) return refused;
@@ -774,15 +940,41 @@ function createStub(opts) {
     if (method === "POST" && /^\/api\/chat\/channels\/[^/]+\/messages$/.test(pathname)) return json(200, { message: { id: "msg-1", text: body && body.text, senderName: "Alex Tester", createdAt: iso(NOW.getTime()) } });
 
     // --- Help
+    //
+    // The streaming route answers with the steps themselves, which
+    // browser.js hands to stream.js to send as they are written. A refusal
+    // before the stream opens is JSON, the same refusal the message route
+    // gives.
+    if (key === "POST /api/agent/message/stream") {
+      const play = helpPlay(body);
+      if (play.refuse) return json(play.refuse.status, { error: play.refuse.error });
+      return { stream: play };
+    }
+    // The message route answers once the whole answer is written: done's
+    // body as it is, an error as a refusal with its status, and a dropped
+    // connection as no answer at all.
     if (key === "POST /api/agent/message") {
-      return json(200, {
-        reply: "Take the pads from the second floor store room.",
-        conversationId: state.conversationId,
-        citedDocs: [], degraded: false, noProcedure: false,
-      });
+      const play = helpPlay(body);
+      if (play.refuse) return json(play.refuse.status, { error: play.refuse.error });
+      const after = silently(play);
+      if (play.drop) return { abort: true, after: after };
+      if (play.error) return Object.assign(json(play.error.status, { error: play.error.error }), { after: after });
+      return Object.assign(json(200, play.done), { after: after });
     }
     if (pathname === "/api/agent/drafts" && method === "GET") return json(200, state.drafts);
-    if (method === "GET" && /^\/api\/agent\/conversations\//.test(pathname)) return json(200, { messages: [] });
+    // The conversation as the API keeps it: every question, and every
+    // answer once it is written. An answer is a Help reply, and a question
+    // is the person's own words.
+    if (method === "GET" && /^\/api\/agent\/conversations\//.test(pathname)) {
+      const now = Date.now();
+      const messages = pathname.split("/").pop() === state.conversationId
+        ? state.stored.filter(m => m.at <= now).map(m => (m.role === "assistant"
+          ? { role: m.role, text: m.text, citedDocs: m.citedDocs, degraded: m.degraded, noProcedure: m.noProcedure }
+          : { role: m.role, text: m.text }))
+        : [];
+      messages.forEach((m) => { if (m.role === "assistant") recordWord(m.text, "Help reply"); });
+      return json(200, { messages: messages });
+    }
     if (method === "POST" && /^\/api\/agent\/drafts\/[^/]+\/submit$/.test(pathname)) return json(200, { ok: true });
 
     // --- report forms
@@ -905,29 +1097,39 @@ function createStub(opts) {
   }
 
   state.answers = {};
+  // Every string is recorded as a name, a word or a code, so the Spanish
+  // check knows what the screens were given. A Help reply is drawn a line,
+  // a step and a bold phrase at a time, so each of those pieces is
+  // recorded as well, beside its piece of the Spanish twin.
+  function recordWord(v, kind) {
+    if (kind === "name") { state.served.add(v); return; }
+    if (kind === "code") { state.codes.add(v); return; }
+    const en = TWIN_ES.has(v) ? v : (TWIN_EN.get(v) || v);
+    const es = TWIN_ES.has(v) ? TWIN_ES.get(v) : (TWIN_EN.has(v) ? v : null);
+    state.words.set(v, { value: v, en: en, es: es, kind: kind });
+    if (kind !== "Help reply") return;
+    const drawn = replyPieces(v), enPieces = replyPieces(en), esPieces = es ? replyPieces(es) : [];
+    if (drawn.length < 2) return;
+    drawn.forEach((p, i) => {
+      if (state.words.has(p)) return;
+      const pe = enPieces.length === drawn.length ? enPieces[i] : p;
+      const ps = esPieces.length === drawn.length ? esPieces[i] : null;
+      state.words.set(p, { value: p, en: pe, es: ps, kind: kind });
+    });
+  }
+
   // Every answer goes through here on its way out. A word of a kind the
   // live API already sends in Spanish is served in the language the
-  // request asked for, and every string is recorded as a name, a word or
-  // a code, so the Spanish check knows what the screens were given.
-  function remember(answer, method, pathname, search, accept) {
-    if (!answer || typeof answer.body !== "string") return answer;
-    let data;
-    try { data = JSON.parse(answer.body); } catch (e) { return answer; }
+  // request asked for, and every string is recorded.
+  function translate(data, method, pathname, search, accept) {
     const kindOf = kindsFor(method, pathname);
     const signedOut = SIGNED_OUT.some(re => re.test(method + " " + pathname));
     const spanish = (signedOut ? signedOutLanguage(search, accept) : languageOf(search, state)) === "es";
-    const record = (v, kind) => {
-      if (kind === "name") { state.served.add(v); return; }
-      if (kind === "code") { state.codes.add(v); return; }
-      const en = TWIN_ES.has(v) ? v : (TWIN_EN.get(v) || v);
-      const es = TWIN_ES.has(v) ? TWIN_ES.get(v) : (TWIN_EN.has(v) ? v : null);
-      state.words.set(v, { value: v, en: en, es: es, kind: kind });
-    };
     const walk = (v, field) => {
       if (typeof v === "string") {
         const kind = kindOf(field);
         const out = (spanish && (signedOut || LIVE_KINDS.has(kind)) && TWIN_ES.has(v)) ? TWIN_ES.get(v) : v;
-        record(out, kind);
+        recordWord(out, kind);
         return out;
       }
       if (Array.isArray(v)) return v.map(x => walk(x, field));
@@ -938,10 +1140,23 @@ function createStub(opts) {
       }
       return v;
     };
-    return Object.assign({}, answer, { body: JSON.stringify(walk(data, "")) });
+    return walk(data, "");
   }
 
-  return { handle: (method, pathname, search, body, accept) => remember(handle(method, pathname, search, body), method, pathname, search, accept), state: state };
+  function remember(answer, method, pathname, search, accept) {
+    // A stream's events are each an answer of their own, and each goes
+    // through the same reading on its way out.
+    if (answer && answer.stream) {
+      answer.stream.steps.forEach((s) => { if (s.data) s.data = translate(s.data, method, pathname, search, accept); });
+      return answer;
+    }
+    if (!answer || typeof answer.body !== "string") return answer;
+    let data;
+    try { data = JSON.parse(answer.body); } catch (e) { return answer; }
+    return Object.assign({}, answer, { body: JSON.stringify(translate(data, method, pathname, search, accept)) });
+  }
+
+  return { handle: (method, pathname, search, body, accept, headers) => remember(handle(method, pathname, search, body, headers), method, pathname, search, accept), state: state };
 }
 
 function draftOf(state) {
@@ -954,4 +1169,4 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, timeOffRow, ymd, iso, DAY };
+module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, timeOffRow, ymd, iso, DAY };

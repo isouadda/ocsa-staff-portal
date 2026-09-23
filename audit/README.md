@@ -104,6 +104,39 @@ seen on another that shares the stub.
 The sweep draws the Tasks tab a second time, from South Building's
 whole list, as `Tasks, the whole site in shifts`.
 
+## Help's answer, as it is written
+
+The stub answers both of Help's routes from the same steps. The
+streaming route, `POST /api/agent/message/stream`, sends them the way
+the API does: `meta`, the answer in `delta` pieces cut wherever the
+writing was, in the middle of a word or of a bold phrase, then `done`
+with the reply the message route sends, key for key. The message route,
+`POST /api/agent/message`, waits until the last step is written and
+sends that reply whole, the way it always has.
+
+Playwright's `route.fulfill` hands the browser a body whole, so a stream
+cannot go through it. The route in `browser.js` answers the streaming
+route with a 307 to a small server in `stream.js`, and the browser
+follows it there: the request the app made is the one the stub records,
+headers included, and the answer comes over a real connection a piece at
+a time, with a pause before each one. A dropped connection is the socket
+destroyed part way, so the app meets the error a phone losing signal
+meets.
+
+A case sets `state.help.next` before it asks, and the next question on
+either route is answered that way: another answer, a `reset` and an
+answer written again, an `error` part way, a JSON refusal before any
+stream, a connection dropped after `meta`, a piece that arrives in two
+parts, or holds, named points the answer stops at until the case lets it
+go. Every question is kept in the conversation at once and its answer
+once it is written, a dropped one included, so
+`GET /api/agent/conversations/:id` reads back what the API would. The
+list of options is in `helpPlay` in `stub.js`.
+
+A Help reply is drawn a line, a step and a bold phrase at a time, so the
+stub records each of those pieces as a word beside its piece of the
+Spanish twin.
+
 ## Coverage proves itself
 
 `audit/inventory.js` reads the tabs, the sign in screens and the full
@@ -138,6 +171,7 @@ fails a run, whether it shows up or not.
 | `run.js` | the one process: build, serve, drive, print the table, set the exit code |
 | `serve.js` | a static server for the build, on Node's own http module |
 | `stub.js` | the whole API in one file, so the next build extends it in one place. Every value in it is invented, and every value it serves is sorted into a name, a word or a code |
+| `stream.js` | Help's streaming route played over a real connection, a piece at a time |
 | `browser.js` | a phone shaped page with the clock fixed and storage seeded |
 | `inventory.js` | what the app can show, read out of `src`, and what the suite drives |
 | `checks.js` | the checks every screen is put through |
