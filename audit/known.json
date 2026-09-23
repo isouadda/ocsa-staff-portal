@@ -392,65 +392,10 @@
       "why": "The section titles have no Spanish entry yet, so a Spanish screen draws them in English. The words commit gives them their Spanish."
     },
     {
-      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
-      "check": "work done on an earlier day offers no uncheck: w-9",
-      "what": "an uncheck was sent, or the box cleared",
-      "why": "The row reads as not done, so a tap checks it again; once it reads done, a tap would send an uncheck that the API answers with 200 and removes nothing. Commit four offers no uncheck on it."
-    },
-    {
-      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
-      "check": "work done on an earlier day offers no uncheck: w-11",
-      "what": "an uncheck was sent, or the box cleared",
-      "why": "The row reads as not done, so a tap checks it again; once it reads done, a tap would send an uncheck that the API answers with 200 and removes nothing. Commit four offers no uncheck on it."
-    },
-    {
-      "where": "A coworker's check today says who made it, stays checked, and a tap says only they can uncheck it",
-      "check": "a coworker's check today says who made it",
-      "what": "wanted",
-      "why": "Nothing under a row says who checked it. Commit four draws Checked by and the first name from checkedToday."
-    },
-    {
-      "where": "A coworker's check today says who made it, stays checked, and a tap says only they can uncheck it",
-      "check": "a tap on a coworker's check sends no uncheck",
-      "what": "an uncheck was sent",
-      "why": "A tap on any checked box sends the uncheck, which the API now turns away with 403 NOT_YOUR_CHECK. Commit four sends nothing and says why."
-    },
-    {
-      "where": "A coworker's check today says who made it, stays checked, and a tap says only they can uncheck it",
-      "check": "a tap on a coworker's check says only they can uncheck it, under the row",
-      "what": "",
-      "why": "The API's refusal shows in a toast, and nothing is said under the row. Commit four says the owner's sentence under the row."
-    },
-    {
       "where": "A coworker's check today says who made it, stays checked, and a tap says only they can uncheck it",
       "check": "who checked it is said in the person's language",
       "what": "",
-      "why": "Neither line is drawn yet. Commit four draws them, and the words commit gives them their Spanish."
-    },
-    {
-      "where": "No item on any screen shows its category code: the checklist, an item opened, an assigned task, an inspection",
-      "check": "the checklist shows no category code",
-      "what": "SD",
-      "why": "Every row draws its category code, SD on every live item, in a small tag. Commit four stops drawing it."
-    },
-    {
-      "where": "No item on any screen shows its category code: the checklist, an item opened, an assigned task, an inspection",
-      "check": "an item opened shows no category code",
-      "what": "SD",
-      "why": "An item opened draws its category code beside its name. Commit four stops drawing it."
-    },
-    {
-      "where": "No item on any screen shows its category code: the checklist, an item opened, an assigned task, an inspection",
-      "check": "an inspection's items show no category code",
-      "what": "SD",
-      "why": "Each inspection item draws its category code in a colored square. Commit four stops drawing it."
-    },
-    {
-      "where": "Tasks",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#8899AA on #1B3058\"",
-      "why": "The category code the stub now sends on every item, the way the live API does, drawn in the muted gray on the dark theme's panel. 4.46 to 1, just under the 4.5 to 1 small text needs. Commit four stops drawing the code."
+      "why": "Checked by and the line a tap says have no Spanish entry yet, so a Spanish screen draws them in English. The words commit gives them their Spanish."
     },
     {
       "where": "Start Shift at a site with shifts asks which shift, the suggested one chosen: Use this shift keeps it, choosing the other sends it, and the list is that shift's items and the items tied to no shift",
@@ -631,6 +576,30 @@
       "check": "no Spanish entry",
       "what": "\"Done {date} by {firstName}\"",
       "why": "A line the checklist's sections draw, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Checked by ",
+      "why": "Who checked a row today, new in this build, with no Spanish entry yet. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Only the person who checked this can uncheck it.\"",
+      "why": "What a tap on a coworker's check says, new in this build, with no Spanish entry yet. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Checked by {firstName}\"",
+      "why": "A line a checklist row draws, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Only the person who checked this can uncheck it.\"",
+      "why": "A line a checklist row draws, new in this build. The words commit gives it its Spanish."
     }
   ]
 }

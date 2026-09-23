@@ -1084,6 +1084,16 @@ export default function OCSAStaffPortal() {
   // hold only today's due items, so a status read would otherwise take the
   // tick straight back off.
   const [tickOverrides, setTickOverrides] = useState(new Map());
+  // One line said under one row for a few seconds: why a coworker's check
+  // cannot be unchecked here, or the API's own sentence when it turned an
+  // uncheck away. null clears it.
+  const [rowNote, setRowNote] = useState(null);
+  const rowNoteTimer = useRef(null);
+  const showRowNote = useCallback((id, text) => {
+    if (rowNoteTimer.current) { clearTimeout(rowNoteTimer.current); rowNoteTimer.current = null; }
+    setRowNote(prev => (text ? { id, text } : (prev && prev.id === id ? null : prev)));
+    if (text) rowNoteTimer.current = setTimeout(() => { setRowNote(null); rowNoteTimer.current = null; }, 4000);
+  }, []);
   const [issues, setIssues] = useState([]);
   const [assignedTasks, setAssignedTasks] = useState([]);
   const [supplies, setSupplies] = useState([]);
@@ -1346,7 +1356,7 @@ export default function OCSAStaffPortal() {
   // phone's own tap until the list comes back. Then the list and the
   // status are both read again, since a periodic row's tick lives on the
   // row and not in the status.
-  const toggleTask = async (task, done) => { const taskId = task.id; if (inFlightTaskIds.current.has(taskId)) return; inFlightTaskIds.current.add(taskId); const counted = isDueToday(task); const mark = (on) => setTickOverrides(prev => { const n = new Map(prev); n.set(taskId, { done: on, doneThisPeriod: on ? { completedAt: new Date().toISOString(), firstName: user && user.firstName } : null, at: Date.now() }); return n; }); try { if (done) { await api("/api/clock/tasks/" + taskId + "/complete", { method: "DELETE", token }); if (counted) setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); else mark(false); showToast(tr("Task unchecked")); } else { await api("/api/clock/tasks/" + taskId + "/complete", { method: "POST", body: {}, token }); if (counted) setCompletedTaskIds(prev => new Set(prev).add(taskId)); else mark(true); showToast(tr("Task completed")); } loadTasks(true); } catch (err) { showToast(tr(err.message), "error"); } finally { inFlightTaskIds.current.delete(taskId); } };
+  const toggleTask = async (task, done) => { const taskId = task.id; if (inFlightTaskIds.current.has(taskId)) return; inFlightTaskIds.current.add(taskId); const counted = isDueToday(task); const mark = (on) => setTickOverrides(prev => { const n = new Map(prev); n.set(taskId, { done: on, doneThisPeriod: on ? { completedAt: new Date().toISOString(), firstName: user && user.firstName } : null, checkedToday: on ? { byCaller: true, firstName: user && user.firstName, completedAt: new Date().toISOString() } : null, at: Date.now() }); return n; }); try { if (done) { await api("/api/clock/tasks/" + taskId + "/complete", { method: "DELETE", token }); showRowNote(taskId, null); if (counted) setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); else mark(false); showToast(tr("Task unchecked")); } else { await api("/api/clock/tasks/" + taskId + "/complete", { method: "POST", body: {}, token }); if (counted) setCompletedTaskIds(prev => new Set(prev).add(taskId)); else mark(true); showToast(tr("Task completed")); } loadTasks(true); } catch (err) { if (done && err.code === "NOT_YOUR_CHECK") { showRowNote(taskId, tr(err.message)); loadTasks(true); } else showToast(tr(err.message), "error"); } finally { inFlightTaskIds.current.delete(taskId); } };
   // The shift a session carries, sent as the person chose it on the sheet.
   // Keeping the shift in use sends nothing. The answer is the session and
   // its counts, which replace what the screen holds, and the list is read
@@ -1537,7 +1547,7 @@ export default function OCSAStaffPortal() {
     clearAuth();
     setToken(null); setUser(null); setSites([]); setScreen("login");
     setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null);
-    setShiftAsk(null); setShiftBusy(false); setShiftFault(null); setTickOverrides(new Map());
+    setShiftAsk(null); setShiftBusy(false); setShiftFault(null); setTickOverrides(new Map()); setRowNote(null);
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
     setChannels([]); setMessages([]); setActiveChannel(null);
@@ -1667,7 +1677,7 @@ export default function OCSAStaffPortal() {
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
               {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
-              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} tickOverrides={tickOverrides} toggleTask={toggleTask} apiWords={tasksLang === language} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
+              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
@@ -3069,7 +3079,7 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
   );
 }
 
-function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, tickOverrides, toggleTask, apiWords, shiftSheet, onChangeShift, t }) {
+function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, shiftSheet, onChangeShift, t }) {
   const [detail, setDetail] = useState(null);
   const loaded = Array.isArray(tasks);
   const standardTasks = standardTasksOf(tasks);
@@ -3084,7 +3094,6 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   const drawSections = (sections, row) => sections.map((sec, si) => (<div key={si}>{sec.head && (<div style={{ ...floorHeadSt, marginTop: si > 0 ? 10 : 0 }}>{sec.head}</div>)}{sec.groups.map((g, gi) => { const inset = sec.head ? 8 : 0; return (<div key={gi} style={{ marginBottom: 16 }}>{g.title && <div style={{ ...(g.block ? blockSt : zoneSt), paddingLeft: inset }}>{g.time ? <><span style={{ fontVariantNumeric: "tabular-nums" }}>{clockTime(g.time)}</span>{" "}</> : null}<span>{g.title}</span></div>}{g.rows.reduce((out, r) => { if (r.place) out.push(<div key={"at-" + r.task.id} style={{ ...zoneSt, paddingLeft: inset }}>{r.place}</div>); out.push(row(r.task, inset)); return out; }, [])}</div>); })}</div>));
   const rowBase = { display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 11, padding: "11px 13px", marginBottom: 6, borderRadius: R.md, boxShadow: t.shadow };
   const chipPriority = { fontSize: 9, color: ORANGE, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600, letterSpacing: "0.5px" };
-  const chipCat = { fontSize: 9, color: t.textMut, background: t.cardAlt, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600 };
   const detailSecLabel = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD };
   // A section's title, Today or a period, with its count at the other end.
   const periodHeadSt = { display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: "2px 10px", marginBottom: 10 };
@@ -3128,8 +3137,30 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   // the API says it was done in its period, or when this phone has just
   // checked or unchecked it and the list has not come back since; the id
   // lists never hold them.
-  const rowNow = (tk) => { const o = tickOverrides.get(tk.id); return o && !isDueToday(tk) ? { ...tk, doneThisPeriod: o.done ? o.doneThisPeriod : null } : tk; };
+  const rowNow = (tk) => { const o = tickOverrides.get(tk.id); return o && !isDueToday(tk) ? { ...tk, doneThisPeriod: o.done ? o.doneThisPeriod : null, checkedToday: o.checkedToday, tapped: true } : tk; };
   const isDone = (tk) => (isDueToday(tk) ? completedTaskIds.has(tk.id) : !!tk.doneThisPeriod);
+  // Who checked a row today, the person's own check first: this phone's
+  // own tap, then the status, which is read after every check, then the
+  // row as the list sent it.
+  const statusChecks = clockStatus && clockStatus.tasks && Array.isArray(clockStatus.tasks.checkedToday) ? new Map(clockStatus.tasks.checkedToday.map(c => [c.taskId, c])) : null;
+  const checkedOf = (tk) => (tk.tapped ? tk.checkedToday : statusChecks ? statusChecks.get(tk.id) || null : tk.checkedToday || null);
+  // What a tap on a done row may do. Only a check the person made today
+  // can be unchecked. A coworker's check today is theirs, and a tap says so.
+  // Work done in its period on an earlier day is not offered at all: the
+  // API would answer the uncheck and remove nothing. A due row whose
+  // checker nothing names is the person's own, the way every tick was.
+  const lockOf = (tk, done) => {
+    if (!done) return null;
+    const c = checkedOf(tk);
+    if (c && c.byCaller === true) return null;
+    if (c && c.byCaller === false) return "other";
+    return isDueToday(tk) ? null : "earlier";
+  };
+  const tap = (tk, done, lock) => {
+    if (lock === "other") { onRowNote(tk.id, tr("Only the person who checked this can uncheck it.")); return; }
+    if (lock === "earlier") return;
+    toggleTask(tk, done);
+  };
   // Who did it and when, under a periodic row that is done and under a
   // day's row done on an earlier day, the every other day row checked the
   // day before.
@@ -3153,6 +3184,8 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   if (detail) {
     const current = rows.find(tk => tk.id === detail.id) || rowNow(detail);
     const done = isDone(current);
+    const lock = lockOf(current, done);
+    const byWho = done ? whenOf(current) || (lock === "other" ? tr("Checked by {firstName}", { firstName: checkedOf(current).firstName }) : null) : null;
     const w = itemWords(detail, apiWords);
     const place = [detail.building_name, detail.floor_number ? tr("Floor {n}", { n: detail.floor_number }) : "", w.zone].filter(Boolean).join(" - ");
     return (
@@ -3160,14 +3193,15 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
         <button onClick={() => setDetail(null)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", marginBottom: 14, background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.md, color: t.textSec, fontSize: 12, cursor: "pointer", fontWeight: 600 }}><Ico d="M15 18l-6-6 6-6" sz={14} c={t.textSec} /> {tr("Back to checklist")}</button>
         <div style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, overflow: "hidden", boxShadow: t.popShadow }}>
           <div style={{ padding: "16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{w.label}</div><div style={{ display: "flex", gap: 4, flexShrink: 0 }}>{detail.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}<span style={chipCat}>{detail.cims_category}</span></div></div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{w.label}</div>{detail.priority === "high" && <div style={{ display: "flex", gap: 4, flexShrink: 0 }}><span style={chipPriority}>{tr("PRIORITY")}</span></div>}</div>
             <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{place}</div>
+            {byWho && <div style={{ ...rowLineSt, fontSize: 12, marginTop: 0, marginBottom: 12 }}>{byWho}</div>}
             {w.description && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Instructions")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{w.description}</div></div>)}
             {detail.media_url && detail.media_type === "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Video")}</div><video src={detail.media_url} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} /></div>)}
             {detail.media_url && detail.media_type !== "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Photo")}</div><img src={detail.media_url} alt={tr("Task reference")} style={{ width: "100%", borderRadius: R.md, maxHeight: 240, objectFit: "cover" }} /></div>)}
             {detail.due_date && (<div style={{ display: "flex", gap: 12, marginBottom: 14 }}><div style={{ fontSize: 11, color: t.textMut }}>{tr("Due Date:")} <span style={{ color: t.text, fontWeight: 500 }}>{new Date(detail.due_date).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}</span></div>{detail.due_time && <div style={{ fontSize: 11, color: t.textMut }}>{tr("Time:")} <span style={{ color: t.text, fontWeight: 500 }}>{clockTime(detail.due_time)}</span></div>}</div>)}
           </div>
-          <button onClick={() => { toggleTask(current, done); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? tr("Uncheck Task") : tr("Mark Complete")}</button>
+          {lock !== "earlier" && <button onClick={() => { tap(current, done, lock); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? tr("Uncheck Task") : tr("Mark Complete")}</button>}
         </div>
       </div>
     );
@@ -3186,16 +3220,21 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
           {drawSections(checklistSections(sec.rows, clockStatus.shift, apiWords), (task, inset) => {
             const w = itemWords(task, apiWords);
             const done = isDone(task);
-            const when = done ? whenOf(task) : null;
+            const lock = lockOf(task, done);
+            // Who did it and when for periodic work and a day's work done
+            // before today; for a coworker's check today, who made it.
+            const when = done ? whenOf(task) || (lock === "other" ? tr("Checked by {firstName}", { firstName: checkedOf(task).firstName }) : null) : null;
+            const note = rowNote && rowNote.id === task.id ? rowNote.text : null;
             const hasInfo = task.has_details || w.description || task.media_url;
             return (
               <div key={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: inset }}>
-                <button onClick={() => toggleTask(task, done)} aria-label={tr(done ? "Mark {name} not done" : "Mark {name} done", { name: w.label })} style={mkTapFrame({ flexShrink: 0, marginTop: 1 })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></button>
+                <button onClick={() => tap(task, done, lock)} disabled={lock === "earlier"} aria-label={tr(done ? "Mark {name} not done" : "Mark {name} done", { name: w.label })} style={mkTapFrame({ flexShrink: 0, marginTop: 1, cursor: lock === "earlier" ? "default" : "pointer" })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></button>
                 <div style={{ flex: "1 1 120px", minWidth: 0 }}>
-                  <div onClick={() => hasInfo ? setDetail(task) : toggleTask(task, done)} style={{ cursor: "pointer" }}><div style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{w.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div>
+                  <div onClick={() => hasInfo ? setDetail(task) : tap(task, done, lock)} style={{ cursor: "pointer" }}><div style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{w.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div>
                   {when && <div style={rowLineSt}>{when}</div>}
+                  {note && <div role="alert" style={{ ...rowLineSt, color: t.text, fontWeight: 600 }}>{note}</div>}
                 </div>
-                <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>{task.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}<span style={chipCat}>{task.cims_category}</span></div>
+                {task.priority === "high" && <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}><span style={chipPriority}>{tr("PRIORITY")}</span></div>}
               </div>
             );
           })}
@@ -5287,7 +5326,6 @@ function PickupView({ token, user, showToast, t }) {
 }
 
 function InspectView({ token, user, showToast, t }) {
-  const CIMS_C = { SD: "#24A4F4", HSE: "#F39C12", GB: "#2ECC71", QS: GOLD, HR: "#9B59B6", MC: "#2C3E50" };
   const STATUS_C = { scheduled: "#24A4F4", in_progress: "#F39C12", completed: "#2ECC71" };
   const fmtDate = (d) => d ? new Date(d.slice(0, 10) + "T00:00:00").toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" }) : "--";
 
@@ -5428,7 +5466,6 @@ function InspectView({ token, user, showToast, t }) {
             return (
               <div key={item.id} style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "14px 14px 12px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                  <div style={{ width: 26, height: 26, borderRadius: R.sm, background: (CIMS_C[item.cims_category] || BLUE) + "1A", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 600, color: CIMS_C[item.cims_category] || BLUE, flexShrink: 0, fontFamily: FONT_HEAD }}>{item.cims_category}</div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: t.text, lineHeight: 1.3, fontFamily: FONT_HEAD }}>{item.label}</div>
                     <div style={{ fontSize: 10, color: t.textMut }}>{item.zone}</div>
