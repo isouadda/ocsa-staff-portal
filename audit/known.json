@@ -365,7 +365,7 @@
       "where": "*",
       "check": "english",
       "what": "is a pick list choice the API sent in English",
-      "why": "The four pick lists the API sends carry English labels, and the screens draw them as sent, outside the table."
+      "why": "The pick list labels go through the table from commit four on. Medium is the one label the API sends that the table has no entry for until commit five, where the built-in fallback says Med."
     },
     {
       "where": "*",
@@ -449,25 +449,7 @@
       "where": "The four pick lists",
       "check": "the issue severities are drawn in the person's language",
       "what": "",
-      "why": "The screens draw the pick list labels the API sends as sent. Medium is also missing from the table, where the built-in fallback says Med."
-    },
-    {
-      "where": "The four pick lists",
-      "check": "the supply request types are drawn in the person's language",
-      "what": "",
-      "why": "The screens draw the pick list labels the API sends as sent."
-    },
-    {
-      "where": "The four pick lists",
-      "check": "the urgency levels are drawn in the person's language",
-      "what": "",
-      "why": "The screens draw the pick list labels the API sends as sent."
-    },
-    {
-      "where": "The four pick lists",
-      "check": "the reasons to drop a shift are drawn in the person's language",
-      "what": "",
-      "why": "The screens draw the pick list labels the API sends as sent."
+      "why": "Medium has no entry in the table until commit five, where the built-in fallback says Med."
     },
     {
       "where": "Every PIN rule and PIN error",
