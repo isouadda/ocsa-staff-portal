@@ -389,17 +389,108 @@ const badgeInk = (th) => (th.badgeBg === LIGHT.badgeBg ? "#FFFFFF" : "#F8F7F4");
 // light mode draws them in its own text color over the same wash.
 const washInk = (th, color) => (th === LIGHT ? th.text : color);
 
-async function api(path, opts = {}) {
+// What every request to OCSA carries, and what every refusal becomes.
+// api() and apiStream() both go through these, so Help's streaming route
+// is asked exactly the way every other route is, and a refusal before its
+// stream opens reads exactly the way one always has.
+const requestInit = (opts) => {
   const headers = { "Content-Type": "application/json", ...opts.headers };
   if (opts.token) headers["Authorization"] = "Bearer " + opts.token;
+  return { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined };
+};
+// A 401 signs the person out, the way it does on every route.
+function refusalOf(status, err, opts) {
+  if (status === 401 && !opts.noAuthEvent) { window.dispatchEvent(new Event("ocsa-session-expired")); return new Error("Session expired"); }
+  const e = new Error(err.error || "Request failed"); e.status = status; e.code = err.code || null; e.body = err;
+  return e;
+}
+async function refuseUnlessOk(res, opts) {
+  if (res.status === 401 && !opts.noAuthEvent) throw refusalOf(401, {}, opts);
+  if (!res.ok) throw refusalOf(res.status, await res.json().catch(() => ({ error: "Request failed" })), opts);
+}
+
+async function api(path, opts = {}) {
+  const init = requestInit(opts);
   flightUp();
   let res;
   try {
-    res = await reach(API + path, { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
+    res = await reach(API + path, init);
   } finally { flightDown(); }
-  if (res.status === 401 && !opts.noAuthEvent) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-  if (!res.ok) { const err = await res.json().catch(() => ({ error: "Request failed" })); const e = new Error(err.error || "Request failed"); e.status = res.status; e.code = err.code || null; e.body = err; throw e; }
+  await refuseUnlessOk(res, opts);
   return readJson(res);
+}
+
+// One event off a stream, read the way a browser's EventSource reads one:
+// its name, and its data, which is JSON. Data that is not JSON reads as
+// nothing.
+function streamEvent(block) {
+  let name = "message";
+  const lines = [];
+  block.split(/\r\n|\r|\n/).forEach((line) => {
+    if (!line || line[0] === ":") return;
+    const at = line.indexOf(":");
+    const field = at === -1 ? line : line.slice(0, at);
+    const value = at === -1 ? "" : line.slice(at + 1).replace(/^ /, "");
+    if (field === "event") name = value;
+    else if (field === "data") lines.push(value);
+  });
+  if (lines.length === 0) return name === "message" ? null : { name, data: {} };
+  let data;
+  try { data = JSON.parse(lines.join("\n")); } catch (e) { data = undefined; }
+  return { name, data };
+}
+
+// Help's streaming route. The request is the one api() makes, and a
+// refusal before the stream opens is the JSON api() reads. After that the
+// body is Server-Sent Events, read with fetch and a stream reader, since
+// EventSource cannot send a POST:
+//   meta   names the conversation, before a word is written
+//   delta  the next piece of the answer, cut anywhere
+//   reset  what was written since meta or the last reset is thrown away
+//   done   the reply the message route sends, key for key, returned
+//   error  a refusal with its own status, thrown the way api() throws one
+// A connection that ends before done or error throws the line every
+// screen says for a request that never got its answer, marked dropped and
+// carrying meta, so Help can read the answer the API kept.
+async function apiStream(path, opts, on) {
+  const init = requestInit(opts);
+  flightUp();
+  let reader = null;
+  try {
+    const res = await reach(API + path, init);
+    await refuseUnlessOk(res, opts);
+    // A reply sent whole is the message route's reply, and is taken as done.
+    if (!/text\/event-stream/i.test(res.headers.get("Content-Type") || "")) return await readJson(res);
+    reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "", meta = null;
+    const dropped = () => { const e = new Error(ERR_OFFLINE); e.dropped = true; e.meta = meta; return e; };
+    for (;;) {
+      let piece;
+      try { piece = await reader.read(); } catch (e) { throw dropped(); }
+      if (piece.done) throw dropped();
+      buffer += decoder.decode(piece.value, { stream: true });
+      // An event ends at a blank line. Whatever follows the last one waits
+      // for the next piece.
+      let end;
+      while ((end = buffer.search(/\r\n\r\n|\n\n|\r\r/)) !== -1) {
+        const ev = streamEvent(buffer.slice(0, end));
+        buffer = buffer.slice(end).replace(/^(\r\n\r\n|\n\n|\r\r)/, "");
+        if (!ev) continue;
+        if (ev.name === "meta") meta = ev.data || {};
+        else if (ev.name === "delta") { if (ev.data && typeof ev.data.text === "string" && on.delta) on.delta(ev.data.text); }
+        else if (ev.name === "reset") { if (on.reset) on.reset(); }
+        else if (ev.name === "error") throw refusalOf((ev.data || {}).status, ev.data || {}, opts);
+        else if (ev.name === "done") {
+          if (!ev.data || typeof ev.data !== "object") { const x = new Error(ERR_GENERIC); x.status = res.status; throw x; }
+          return ev.data;
+        }
+      }
+    }
+  } finally {
+    if (reader) reader.cancel().catch(() => {});
+    flightDown();
+  }
 }
 
 const formatTime = (d) => new Date(d).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit", hour12: true });
@@ -2978,6 +3069,42 @@ function AgentReply({ text }) {
   );
 }
 
+// While an answer is arriving it is drawn as plain words: every bold mark
+// taken out, and a lone star at the end held back, since it may be the
+// first half of a mark. Once it is done the answer is drawn by AgentReply,
+// the way every answer is.
+const agentArriving = (text) => String(text == null ? "" : text).replace(/\*\*/g, "").replace(/\*$/, "");
+
+// An answer's words the way AgentReply draws them, a line at a time with
+// the marks taken out. What a screen reader hears when the answer is done.
+const agentSpoken = (text) => agentReplyParts(text).map(ln => (ln.type === "step" ? ln.number + ". " : "") + ln.parts.map(p => p.text).join("")).join("\n").trim();
+
+// One message of a conversation the API keeps, read the same way for
+// resuming a report and for an answer whose connection dropped.
+const agentStored = (m) => ({
+  role: String(agentField(m, ["role", "sender"], "assistant")).toLowerCase() === "user" ? "user" : "assistant",
+  text: String(agentField(m, ["text", "content", "reply"], "")),
+  citedDocs: agentList(agentField(m, ["citedDocs", "cited_doc_codes", "citedDocCodes"], []), []),
+  degraded: agentField(m, ["degraded"], false) === true,
+  noProcedure: agentField(m, ["noProcedure", "no_procedure"], false) === true,
+});
+// The answer the API kept for one question: the message right after the
+// last question that reads the same, when it is the assistant's. Nothing
+// while the API has not kept it yet.
+const agentKeptAnswer = (list, question) => {
+  const said = String(question == null ? "" : question).trim();
+  const read = list.map(agentStored);
+  for (let i = read.length - 1; i >= 0; i -= 1) {
+    if (read[i].role !== "user" || read[i].text.trim() !== said) continue;
+    return read[i + 1] && read[i + 1].role === "assistant" ? read[i + 1] : null;
+  }
+  return null;
+};
+
+// Words for a screen reader alone: a box one pixel square with everything
+// clipped away, so nothing is drawn and a screen reader still reads it.
+const HEARD_ONLY = { position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0 0 0 0)", clipPath: "inset(50%)", whiteSpace: "nowrap", border: 0 };
+
 function AgentView({ token, showToast, t, language, onFillForm, conversationId, onConversation }) {
   // The same shape the Forms screen uses, so a Spanish screen never
   // lists English form names.
@@ -2996,6 +3123,11 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
   const [submitted, setSubmitted] = useState(false);
   const endRef = useRef(null); const taRef = useRef(null); const seqRef = useRef(0);
   const inputSt = mkInput(t);
+  // What a screen reader says by itself: each answer once, when it is
+  // done. Each is said as its own line, so the same words twice are still
+  // said twice.
+  const [heard, setHeard] = useState({ n: 0, text: "" });
+  const hear = (text) => setHeard(prev => ({ n: prev.n + 1, text: agentSpoken(text) }));
 
   // Photos waiting to go with the next message. Each one holds the object
   // URL its thumbnail is drawn from, the prepared bytes, and the storage
@@ -3087,6 +3219,14 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
   const loadDrafts = useCallback(async () => { try { const d = await api("/api/agent/drafts?locale=" + locale, { token }); setDrafts(agentList(d, ["drafts", "items", "rows"])); } catch (err) { console.warn("Drafts:", err.message); } }, [token, locale]);
   useEffect(() => { loadDrafts(); }, [loadDrafts]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [thread.length, formResponse]);
+  // While an answer arrives the thread follows it, so its newest words are
+  // in view the way a finished answer's last words are, unless the person
+  // has scrolled up to read.
+  const listRef = useRef(null);
+  const following = useRef(true);
+  const arrivingText = (thread.find(m => m.arriving) || {}).text || "";
+  useEffect(() => { if (arrivingText && following.current) endRef.current?.scrollIntoView({ block: "nearest" }); }, [arrivingText]);
+  const noteScroll = () => { const el = listRef.current; if (el) following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48; };
   // The composer grows to a few lines and then scrolls.
   const grow = (el) => { if (!el) return; el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 120) + "px"; };
   useEffect(() => { grow(taRef.current); }, [text]);
@@ -3094,10 +3234,29 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
   // One request per press. While one is in flight the send button, the
   // composer and every Retry are disabled, so a person on bad signal
   // pressing three times sends once. No automatic retry anywhere.
+  //
+  // The answer is drawn as it is written. It holds one place in the
+  // thread from its first word to its last, drawn without its marks until
+  // done, when the finished answer takes that place and everything the
+  // answer does happens exactly as it always has.
   const send = async (msgId, msgText, paths) => {
     if (sending) return;
     setSending(true);
     setThread(prev => prev.map(m => m.id === msgId ? { ...m, pending: true, failed: false, error: null } : m));
+    const answerId = "a" + (++seqRef.current);
+    let drawn = "";
+    // The question stops waiting once its answer starts to show, and a
+    // reset that leaves nothing written takes the answer's place away.
+    const draw = () => setThread(prev => {
+      const shown = { id: answerId, role: "assistant", text: drawn, arriving: true, citedDocs: [], degraded: false, noProcedure: false };
+      const rest = prev.map(m => m.id === msgId ? { ...m, pending: false } : m).filter(m => m.id !== answerId || drawn);
+      if (!drawn) return rest;
+      return rest.some(m => m.id === answerId) ? rest.map(m => m.id === answerId ? shown : m) : [...rest, shown];
+    });
+    const place = (answer) => setThread(prev => {
+      const rest = prev.map(m => m.id === msgId ? { ...m, pending: false } : m);
+      return rest.some(m => m.id === answerId) ? rest.map(m => m.id === answerId ? answer : m) : [...rest, answer];
+    });
     try {
       // text is always present, empty when the message is photos alone.
       // app says which app the message came from, so the API can tell one
@@ -3113,17 +3272,54 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
       if (language === "en" || language === "es") body.locale = language;
       if (paths && paths.length > 0) body.photoPaths = paths;
       if (conversationId) body.conversationId = conversationId;
-      const data = await api("/api/agent/message", { method: "POST", body, token });
+      const data = await apiStream("/api/agent/message/stream", { method: "POST", body, token }, {
+        delta: (piece) => { drawn += piece; draw(); },
+        reset: () => { drawn = ""; draw(); },
+      });
       if (data.conversationId) setConversationId(data.conversationId);
       // The composer clears only now, and only if it still holds what was sent.
       setText(prev => prev.trim() === msgText ? "" : prev);
       setPhotos(prev => (prev.length > 0 && paths && paths.length > 0) ? [] : prev);
-      setThread(prev => [...prev.map(m => m.id === msgId ? { ...m, pending: false } : m), { id: "a" + (++seqRef.current), role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], degraded: data.degraded === true, noProcedure: data.noProcedure === true }]);
+      const answer = { id: answerId, role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], degraded: data.degraded === true, noProcedure: data.noProcedure === true };
+      place(answer);
       if (data.formResponse) { setFormResponse(data.formResponse); setMissing([]); setSubmitted(false); }
+      hear(answer.text);
     } catch (err) {
-      setThread(prev => prev.map(m => m.id === msgId ? { ...m, pending: false, failed: true, error: tr(err.message) } : m));
+      const cid = err.dropped && err.meta ? err.meta.conversationId : null;
+      if (cid) {
+        // The connection dropped after the API took the question. The API
+        // finishes the answer and keeps it, so the question counts as sent,
+        // what was drawn stays with one line under it, and the answer is
+        // read back from the conversation.
+        setConversationId(cid);
+        setText(prev => prev.trim() === msgText ? "" : prev);
+        setPhotos(prev => (prev.length > 0 && paths && paths.length > 0) ? [] : prev);
+        place({ id: answerId, role: "assistant", text: drawn, dropped: true, reading: true, error: null, question: msgText, conversationId: cid, citedDocs: [], degraded: false, noProcedure: false });
+        await readBack(answerId, cid, msgText);
+      } else {
+        setThread(prev => prev.filter(m => m.id !== answerId).map(m => m.id === msgId ? { ...m, pending: false, failed: true, error: tr(err.message) } : m));
+      }
     }
     setSending(false);
+  };
+
+  // An answer whose connection dropped, read back from the conversation
+  // the API keeps it in. Found, it takes the place of what was drawn and
+  // is said once, the way a finished answer is, and a report it started
+  // shows under Unfinished reports. Not kept yet, or not read, the line
+  // stays with Try again, which reads it back again.
+  const readBack = async (answerId, cid, question) => {
+    setThread(prev => prev.map(m => m.id === answerId ? { ...m, reading: true, error: null } : m));
+    try {
+      const h = await api("/api/agent/conversations/" + cid + "?locale=" + locale, { token });
+      const kept = agentKeptAnswer(agentList(h, ["messages", "turns", "history"]), question);
+      if (!kept) { setThread(prev => prev.map(m => m.id === answerId ? { ...m, reading: false } : m)); return; }
+      setThread(prev => prev.map(m => m.id === answerId ? { id: answerId, ...kept } : m));
+      hear(kept.text);
+      loadDrafts();
+    } catch (err) {
+      setThread(prev => prev.map(m => m.id === answerId ? { ...m, reading: false, error: tr(err.message) } : m));
+    }
   };
   const handleSend = () => {
     if (!canSend) return;
@@ -3147,7 +3343,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
       try {
         const h = await api("/api/agent/conversations/" + cid + "?locale=" + locale, { token });
         const list = agentList(h, ["messages", "turns", "history"]);
-        setThread(list.map((m, i) => ({ id: "h" + i, role: String(agentField(m, ["role", "sender"], "assistant")).toLowerCase() === "user" ? "user" : "assistant", text: String(agentField(m, ["text", "content", "reply"], "")), citedDocs: agentList(agentField(m, ["citedDocs", "cited_doc_codes", "citedDocCodes"], []), []), degraded: agentField(m, ["degraded"], false) === true, noProcedure: agentField(m, ["noProcedure", "no_procedure"], false) === true })));
+        setThread(list.map((m, i) => ({ id: "h" + i, ...agentStored(m) })));
         setConversationId(cid);
       } catch (err) { showToast(tr(err.message), "error"); }
     }
@@ -3193,19 +3389,20 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
         <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Unfinished reports")}</div>
         {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: "1 1 140px", minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d) || tr(FORMS_UNTITLED)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div><button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Fill in form")}</button><button onClick={() => resume(d)} style={smallBtn}>{tr("Resume")}</button></div>))}
       </div>)}
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 12px 0" }}>
+      <div ref={listRef} onScroll={noteScroll} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 12px 0" }}>
         {thread.length === 0 && (<div style={{ textAlign: "center", padding: "40px 20px" }}><HelpIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>{tr("Tell me what happened and I will tell you what to do.")}</div></div>)}
-        {thread.map(m => { const isMe = m.role === "user"; return (<div key={m.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", marginBottom: 12 }}><div style={{ maxWidth: "85%" }}>
-          <div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: isMe ? GOLD : (m.noProcedure ? t.goldSubtle : t.card), border: isMe ? "none" : "1px solid " + (m.noProcedure ? t.goldBorder : t.borderSolid), color: isMe ? NAVY : t.text, fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", opacity: m.pending ? 0.6 : 1 }}>
+        {thread.map(m => { const isMe = m.role === "user"; const boxed = isMe || !m.dropped || !!m.text; return (<div key={m.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", marginBottom: 12 }}><div style={{ maxWidth: "85%" }}>
+          {boxed && <div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: isMe ? GOLD : (m.noProcedure ? t.goldSubtle : t.card), border: isMe ? "none" : "1px solid " + (m.noProcedure ? t.goldBorder : t.borderSolid), color: isMe ? NAVY : t.text, fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", opacity: m.pending ? 0.6 : 1 }}>
             {isMe && m.photoUrls && m.photoUrls.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: m.text ? 8 : 0 }}>
                 {m.photoUrls.map((u, i) => <img key={i} src={u} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: R.sm, border: "1px solid rgba(10,22,40,0.25)" }} />)}
               </div>
             )}
-            {isMe ? m.text : <AgentReply text={m.text} />}
-          </div>
+            {isMe ? m.text : (m.arriving || m.dropped) ? agentArriving(m.text) : <AgentReply text={m.text} />}
+          </div>}
           {!isMe && m.citedDocs.length > 0 && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>{tr("Based on")} {m.citedDocs.join(", ")}</div>}
           {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>{tr("Working from the written procedure only right now.")}</div>}
+          {!isMe && m.dropped && <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("The connection dropped. Your answer is saved.")}{m.error ? " " + m.error : ""}</span>{!m.reading && <button onClick={() => readBack(m.id, m.conversationId, m.question)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Try again")}</button>}</div>}
           {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("Not sent.")}{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text, m.photoPaths)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Retry")}</button></div>}
         </div></div>); })}
         <div ref={endRef} />
@@ -3246,6 +3443,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
         <button onClick={handleSend} disabled={!canSend} aria-label={tr("Send")} style={{ width: 44, height: 44, flexShrink: 0, borderRadius: "50%", background: canSend ? GOLD : t.cardAlt, border: "none", cursor: canSend ? "pointer" : "default", boxShadow: canSend ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={canSend ? NAVY : t.textMut} /></button>
       </div>
       {photoProblem && <div style={{ padding: "0 12px 10px", fontSize: 11, color: RED, lineHeight: 1.4, flexShrink: 0 }}>{photoProblem}</div>}
+      <div role="status" aria-live="polite" aria-atomic="true" style={HEARD_ONLY}>{heard.text ? <span key={heard.n}>{heard.text}</span> : null}</div>
     </div>
   );
 }

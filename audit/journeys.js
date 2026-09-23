@@ -310,6 +310,18 @@ const waitForMessage = async (page, words, ms) => {
   return null;
 };
 const messagesHolding = async (page, words) => (await helpMessages(page)).filter(m => m.text.indexOf(words) !== -1).length;
+// Waits until Help takes the next question, which is when the answer to
+// the last one is done: the question box takes typing again. The last
+// words of an answer are on the screen a moment before it is done.
+const answerDone = async (page, ms) => {
+  const until = Date.now() + (ms || 6000);
+  while (Date.now() < until) {
+    const busy = await page.evaluate(() => { const box = document.querySelector(".sp-content textarea"); return !box || box.disabled; });
+    if (!busy) return true;
+    await pause(page, 100);
+  }
+  return false;
+};
 
 // The points the stub was told to stop an answer at, reached and let go.
 const heldAt = async (app, name) => {
@@ -1380,7 +1392,8 @@ const JOURNEYS = [
           cut ? JSON.stringify(cut.text) + " bold " + JSON.stringify(cut.bold) : "nothing drawn");
         letGo(app, "cut");
         const whole = drawnWhole(helpReply(spill));
-        const done = await waitForMessage(app.page, "closet", 6000);
+        await answerDone(app.page, 8000);
+        const done = await waitForMessage(app.page, "closet", 1000);
         expect("the finished answer replaces what was drawn, its bold phrase and its steps drawn the way an answer always is",
           !!done && done.text === whole && done.bold.join("|") === "wet floor sign" && (await messagesHolding(app.page, "Put a")) === 1,
           done ? JSON.stringify(done.text) + " bold " + JSON.stringify(done.bold) + ", " + (await messagesHolding(app.page, "Put a")) + " messages hold it" : "the answer never finished");
@@ -1393,7 +1406,7 @@ const JOURNEYS = [
 
         // The next question carries the conversation the answer named.
         await askHelp(app.page, language, "And after that");
-        await waitForMessage(app.page, "store room", 5000);
+        await answerDone(app.page, 6000);
         const after = lastSent(app.stub, "POST", "/api/agent/message");
         expect("the conversation carries on from the answer", !!after && !!after.body && after.body.conversationId === "cv-one", sentWith(after));
         await spokenHere(app, language, expect);
@@ -1414,7 +1427,8 @@ const JOURNEYS = [
         // back until nothing is missing.
         app.stub.state.help.next = { answer: "report" };
         await askHelp(app.page, language, "Someone slipped in the hall");
-        const started = await waitForMessage(app.page, "incident report", 5000);
+        await answerDone(app.page, 6000);
+        const started = await waitForMessage(app.page, "incident report", 1000);
         await pause(app.page, 500);
         const card = await bodyText(app.page);
         const submit = await app.page.evaluate((label) => {
@@ -1433,7 +1447,8 @@ const JOURNEYS = [
         await attachPhoto(app.page, '.sp-content input[type="file"]');
         await pause(app.page, 1500);
         await askHelp(app.page, language, "What is this on the floor");
-        const answered = await waitForMessage(app.page, "store room", 5000);
+        await answerDone(app.page, 6000);
+        const answered = await waitForMessage(app.page, "store room", 1000);
         await pause(app.page, 400);
         const photoSent = lastSent(app.stub, "POST", "/api/agent/message");
         const tray = await app.page.evaluate((label) => Array.from(document.querySelectorAll(".sp-content button")).filter(b => b.getAttribute("aria-label") === label).length, say("Remove photo", language));
@@ -1446,7 +1461,8 @@ const JOURNEYS = [
         // gold wash it has always had.
         app.stub.state.help.next = { answer: "unknown" };
         await askHelp(app.page, language, "Can I bring my dog");
-        const unknown = await waitForMessage(app.page, "supervisor", 5000);
+        await answerDone(app.page, 6000);
+        const unknown = await waitForMessage(app.page, "supervisor", 1000);
         expect("an answer with no written procedure is drawn the way it always is", !!unknown && /231, 176, 23/.test(unknown.edge), unknown ? unknown.edge : "the answer never finished");
         await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
@@ -1472,7 +1488,8 @@ const JOURNEYS = [
         const cleared = await bodyText(app.page);
         expect("reset clears what was drawn since the answer began", !has(cleared, "Mop the spill"), cleared.slice(-200));
         letGo(app, "cleared");
-        const done = await waitForMessage(app.page, "closet", 6000);
+        await answerDone(app.page, 8000);
+        const done = await waitForMessage(app.page, "closet", 1000);
         const after = await bodyText(app.page);
         expect("the answer written after the reset is the one that stays, and the first try is nowhere",
           !!done && done.text === drawnWhole(helpReply(HELP_ANSWERS.spill)) && !has(after, "Mop the spill"), done ? JSON.stringify(done.text) : after.slice(-200));
@@ -1504,7 +1521,8 @@ const JOURNEYS = [
         expect("a refusal before the answer starts is shown the way a refusal with its status always is",
           has(refused, say("Not sent.", language) + " " + busy.error) && (await retryShown(app.page)), refused.slice(-240));
         await clickText(app.page, say("Retry", language));
-        const again = await waitForMessage(app.page, "store room", 5000);
+        await answerDone(app.page, 6000);
+        const again = await waitForMessage(app.page, "store room", 1000);
         expect("Retry asks again and the answer comes", !!again && lastSent(app.stub, "POST", "/api/agent/message").path === "/api/agent/message/stream", sentWith(lastSent(app.stub, "POST", "/api/agent/message")));
 
         // An error part way: what was written is taken away, and the
@@ -1544,7 +1562,8 @@ const JOURNEYS = [
         const partway = await waitForMessage(app.page, "Put a wet fl", 3000);
         expect("the answer shows as it is written until the connection drops", !!partway, "nothing was drawn while the answer was being written");
         letGo(app, "partway");
-        const kept = await waitForMessage(app.page, "closet", 5000);
+        await answerDone(app.page, 6000);
+        const kept = await waitForMessage(app.page, "closet", 3000);
         expect("a dropped connection reads the conversation back", readBacks().length > 0 && /[?&]locale=(en|es)/.test(readBacks()[0].search), JSON.stringify(readBacks().map(c => c.path + c.search)));
         expect("the kept answer shows in place of what was drawn, the way an answer always is",
           !!kept && kept.text === drawnWhole(helpReply(HELP_ANSWERS.spill)) && kept.bold.join("|") === "wet floor sign" && (await messagesHolding(app.page, "Put a")) === 1,

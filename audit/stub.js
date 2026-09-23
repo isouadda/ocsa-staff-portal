@@ -677,6 +677,16 @@ function replyPieces(text) {
   return out.map(p => p.trim()).filter(p => p.length > 0);
 }
 
+// A reply the way a screen reader hears it once it is done: each line in
+// turn, a step with its number, and every bold mark taken out. The same
+// reading as agentSpoken in src/App.js.
+function replySpoken(text) {
+  return String(text == null ? "" : text).split("\n").map((line) => {
+    const step = /^\s*(\d{1,2})\.\s+(.+)$/.exec(line);
+    return (step ? step[1] + ". " + step[2] : line).replace(/\*\*([\s\S]*?)\*\*/g, "$1");
+  }).join("\n").trim();
+}
+
 // A point a case stops Help's answer at. reached turns true when the
 // answer gets there, and open lets it go on. Each one opens by itself
 // after 20 seconds, so a case that never lets go cannot hang the run.
@@ -1099,8 +1109,9 @@ function createStub(opts) {
   state.answers = {};
   // Every string is recorded as a name, a word or a code, so the Spanish
   // check knows what the screens were given. A Help reply is drawn a line,
-  // a step and a bold phrase at a time, so each of those pieces is
-  // recorded as well, beside its piece of the Spanish twin.
+  // a step and a bold phrase at a time, and heard whole by a screen
+  // reader, so each of those is recorded as well, beside the same of the
+  // Spanish twin.
   function recordWord(v, kind) {
     if (kind === "name") { state.served.add(v); return; }
     if (kind === "code") { state.codes.add(v); return; }
@@ -1108,6 +1119,10 @@ function createStub(opts) {
     const es = TWIN_ES.has(v) ? TWIN_ES.get(v) : (TWIN_EN.has(v) ? v : null);
     state.words.set(v, { value: v, en: en, es: es, kind: kind });
     if (kind !== "Help reply") return;
+    // What a screen reader hears once the answer is done, beside the
+    // same of the Spanish twin.
+    const heard = replySpoken(v);
+    if (heard !== v && !state.words.has(heard)) state.words.set(heard, { value: heard, en: replySpoken(en), es: es ? replySpoken(es) : null, kind: kind });
     const drawn = replyPieces(v), enPieces = replyPieces(en), esPieces = es ? replyPieces(es) : [];
     if (drawn.length < 2) return;
     drawn.forEach((p, i) => {
