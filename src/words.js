@@ -357,6 +357,7 @@ export const WORDS = {
   "Submit report": "Enviar reporte",
   "Submitting...": "Enviando...",
   "Tell me what happened and I will tell you what to do.": "Cu\u00e9nteme qu\u00e9 pas\u00f3 y le digo qu\u00e9 hacer.",
+  "The connection dropped. Your answer is saved.": "Se perdi\u00f3 la conexi\u00f3n. La respuesta qued\u00f3 guardada.",
   "This photo could not be read here. Choose a JPEG or PNG, or take a screenshot of it.": "Esta foto no se pudo leer aqu\u00ed. Elija un JPEG o PNG, o tome una captura de pantalla.",
   "Unfinished reports": "Reportes sin terminar",
   "Uploading...": "Subiendo...",

@@ -62,6 +62,13 @@ const FORM_P_PAGES = [
 // about it too.
 const WHOLE_SITE_TASKS = "Tasks, the whole site in shifts";
 
+// Help three more times, with answers on it: while one is being written,
+// once it is done, and once a connection has dropped and the answer could
+// not be read back yet. Each name starts with the tab's, the same way.
+const HELP_ARRIVING = "Help, while the answer arrives";
+const HELP_DONE = "Help, the answer done";
+const HELP_DROPPED = "Help, the connection dropped";
+
 const TAB_LABEL = {
   clock: "Home", schedule: "Schedule", tasks: "Tasks", chat: "Chat",
   agent: "Help", issuetasks: "Assigned", issues: "Report", supplies: "Supplies",
@@ -217,6 +224,41 @@ async function clickText(page, text) {
   return hit;
 }
 
+// One question to Help, typed and sent. What a person types is theirs, a
+// name wherever it shows, the way the journeys count it.
+async function askHelp(page, stub, language, question) {
+  stub.state.served.add(question);
+  await page.evaluate((v) => {
+    const box = document.querySelector(".sp-content textarea");
+    if (!box) return;
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set.call(box, v);
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  }, question);
+  await pause(page, 300);
+  await page.evaluate((label) => {
+    const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.getAttribute("aria-label") === label && !x.disabled);
+    if (b) b.click();
+  }, say("Send", language));
+}
+// Help takes the next question once the answer to the last one is done.
+async function helpAnswered(page) {
+  for (let i = 0; i < 100; i += 1) {
+    const busy = await page.evaluate(() => { const box = document.querySelector(".sp-content textarea"); return !box || box.disabled; });
+    if (!busy) return true;
+    await pause(page, 100);
+  }
+  return false;
+}
+// The answer stopped at a point the stub was told to hold it at.
+async function helpHeld(page, stub, name) {
+  for (let i = 0; i < 100; i += 1) {
+    const gate = stub.state.help.holds[name];
+    if (gate && gate.reached) { await pause(page, 500); return true; }
+    await pause(page, 100);
+  }
+  return false;
+}
+
 // Fills whatever the page in front of a person is asking for.
 async function answerThisPage(page) {
   await page.evaluate(() => {
@@ -316,6 +358,38 @@ async function runScreens(browser, base, opts) {
       rows.push(...await inspect(whole.page, null, WHOLE_SITE_TASKS, language, size, whole.stub, theme));
     } finally {
       await whole.context.close();
+    }
+
+    // Help with answers on it, in its own session. A report started first,
+    // so its card is on the screen, then an answer stopped halfway through
+    // being written, a bold phrase and a step drawn and more to come, then
+    // the same answer done. Last, one whose connection dropped after its
+    // first words and whose conversation could not be read back, so the
+    // line and Try again stay.
+    const help = await openApp(browser, base, { language: language, textSize: size, theme: theme, signedIn: true, stubOptions: stubFor(language, size) });
+    try {
+      const where = " [" + language + "/" + size + "/" + theme + "]";
+      const ok = await openTab(help.page, "agent", language);
+      if (!ok) rows.push({ where: HELP_ARRIVING + where, check: "reachable", detail: "the tab could not be opened" });
+      await pause(help.page, 800);
+      help.stub.state.help.next = { answer: "report" };
+      await askHelp(help.page, help.stub, language, "Someone slipped in the hall");
+      await helpAnswered(help.page);
+      help.stub.state.help.next = { answer: "spill", holds: { halfway: 4 } };
+      await askHelp(help.page, help.stub, language, "What do I do about a spill");
+      if (!(await helpHeld(help.page, help.stub, "halfway"))) rows.push({ where: HELP_ARRIVING + where, check: "reachable", detail: "the answer never started" });
+      rows.push(...await inspect(help.page, null, HELP_ARRIVING, language, size, help.stub, theme));
+      help.stub.state.help.holds.halfway.open();
+      await helpAnswered(help.page);
+      rows.push(...await inspect(help.page, null, HELP_DONE, language, size, help.stub, theme));
+      help.stub.state.help.next = { answer: "pads", drop: { after: 1 } };
+      help.stub.state.refuse["GET /api/agent/conversations/cv-one"] = { status: 500, error: "Something went wrong on our end. Try again in a minute.", once: true };
+      await askHelp(help.page, help.stub, language, "Where are the floor pads");
+      await helpAnswered(help.page);
+      await pause(help.page, 300);
+      rows.push(...await inspect(help.page, null, HELP_DROPPED, language, size, help.stub, theme));
+    } finally {
+      await help.context.close();
     }
 
     // Everything before signing in wants its own session. Set your PIN is

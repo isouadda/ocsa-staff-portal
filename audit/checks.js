@@ -30,6 +30,18 @@ const INSPECT = function (args) {
     return s.visibility !== "hidden" && s.display !== "none" && Number(s.opacity) > 0.05;
   };
   const label = (el) => String(el.getAttribute("aria-label") || el.innerText || el.textContent || el.getAttribute("placeholder") || el.tagName).trim().replace(/\s+/g, " ").slice(0, 40);
+  // Words for a screen reader alone: a box clipped to nothing on purpose,
+  // which no eye sees and every screen reader reads. What it holds is never
+  // cut off for anyone and never painted, so the checks that measure what
+  // is drawn pass it by. The Spanish check still reads it, since it is
+  // heard.
+  const heardOnly = (el) => {
+    for (let a = el; a && a !== doc; a = a.parentElement) {
+      const s = window.getComputedStyle(a);
+      if (s.clipPath === "inset(50%)" || /^rect\(0px,? 0px,? 0px,? 0px\)$/.test(s.clip)) return true;
+    }
+    return false;
+  };
   const SKIP = { STYLE: 1, SCRIPT: 1, TITLE: 1, NOSCRIPT: 1 };
 
   // --- color, for the contrast check ----------------------------------
@@ -157,7 +169,7 @@ const INSPECT = function (args) {
       const ar = a.getBoundingClientRect();
       if (r.right > ar.right + 0.5 || r.left < ar.left - 0.5) byAncestor = label(a);
     }
-    if (ownClip || byAncestor) out.clipped.push({ text: text.slice(0, 40), by: byAncestor || "its own box" });
+    if ((ownClip || byAncestor) && !heardOnly(el)) out.clipped.push({ text: text.slice(0, 40), by: byAncestor || "its own box" });
   });
 
   // 2. Every control reachable, and 3. big enough to hit.
@@ -361,7 +373,7 @@ const INSPECT = function (args) {
       const r = ratioOf(drawn, bg);
       if (!worst || r < worst.r) worst = { r: r, ink: drawn, bg: bg };
     });
-    if (!worst || worst.r >= needs) continue;
+    if (!worst || worst.r >= needs || heardOnly(el)) continue;
     const key = hex(worst.ink) + "|" + hex(worst.bg) + "|" + needs;
     if (pairs[key]) continue;
     pairs[key] = 1;

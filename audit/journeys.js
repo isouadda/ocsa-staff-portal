@@ -7,7 +7,7 @@ const { openApp, letSheetOffer } = require("./browser");
 const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
 const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
-const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn } = require("./stub");
+const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -266,6 +266,124 @@ async function spokenHere(app, language, expect) {
   });
   languageRows(found).forEach(r => expect(r.check, false, r.detail));
 }
+
+// --- Help's answer as it is written ------------------------------------
+
+// The one line a dropped connection is told in, from the build that draws
+// it. Its Spanish is read off the table, so a screen with no Spanish for it
+// fails.
+const HELP_DROPPED = "The connection dropped. Your answer is saved.";
+
+// One question to Help, typed and sent.
+const askHelp = async (page, language, question) => {
+  await type(page, ".sp-content textarea", question);
+  await pause(page, 300);
+  return tapLabel(page, say("Send", language));
+};
+
+// Help's thread as a person reads it. A message is the box that keeps its
+// own line breaks, which every message on Help is; the lines inside it
+// inherit that, so only the outermost box counts. Each one's words with
+// the spaces evened out, the words drawn bold in it, whether it holds a
+// picture, and the color of its edge.
+const helpMessages = (page) => page.evaluate(() => {
+  const content = document.querySelector(".sp-content");
+  if (!content) return [];
+  const wraps = (el) => !!el && getComputedStyle(el).whiteSpace === "pre-wrap";
+  return Array.from(content.querySelectorAll("div")).filter(d => wraps(d) && !wraps(d.parentElement) && d.offsetParent !== null).map(d => ({
+    text: d.innerText.replace(/\s+/g, " ").trim(),
+    bold: Array.from(d.querySelectorAll("strong")).map(s => s.textContent),
+    picture: !!d.querySelector("img"),
+    edge: getComputedStyle(d).borderTopColor,
+  }));
+});
+
+// Waits for the message holding these words and returns it, or null when
+// none shows in time.
+const waitForMessage = async (page, words, ms) => {
+  const until = Date.now() + (ms || 3000);
+  while (Date.now() < until) {
+    const hit = (await helpMessages(page)).filter(m => m.text.indexOf(words) !== -1).pop();
+    if (hit) return hit;
+    await pause(page, 100);
+  }
+  return null;
+};
+const messagesHolding = async (page, words) => (await helpMessages(page)).filter(m => m.text.indexOf(words) !== -1).length;
+// Waits until Help takes the next question, which is when the answer to
+// the last one is done: the question box takes typing again. The last
+// words of an answer are on the screen a moment before it is done.
+const answerDone = async (page, ms) => {
+  const until = Date.now() + (ms || 6000);
+  while (Date.now() < until) {
+    const busy = await page.evaluate(() => { const box = document.querySelector(".sp-content textarea"); return !box || box.disabled; });
+    if (!busy) return true;
+    await pause(page, 100);
+  }
+  return false;
+};
+
+// The points the stub was told to stop an answer at, reached and let go.
+const heldAt = async (app, name) => {
+  for (let i = 0; i < 80; i += 1) {
+    const gate = app.stub.state.help.holds[name];
+    if (gate && gate.reached) { await pause(app.page, 250); return true; }
+    await pause(app.page, 100);
+  }
+  return false;
+};
+const letGo = (app, name) => { const gate = app.stub.state.help.holds[name]; if (gate) gate.open(); };
+
+// An answer's words as the screen draws them once it is done: its marks
+// gone, each line and step on its own, the spaces evened out.
+const drawnWhole = (reply) => String(reply).split("\n").map((line) => {
+  const step = /^\s*(\d{1,2})\.\s+(.+)$/.exec(line);
+  return (step ? step[1] + ". " + step[2] : line).replace(/\*\*([^*]+)\*\*/g, "$1");
+}).join(" ").replace(/\s+/g, " ").trim();
+
+// What a screen reader says by itself: every change inside a live region,
+// read the moment it happens. A region marked busy waits until it is done.
+// Started before a question, so what it heard is that question's.
+const listen = (page) => page.evaluate(() => {
+  window.__auditHeard = [];
+  if (window.__auditEar) return;
+  const regionOf = (node) => {
+    for (let el = node && (node.nodeType === 1 ? node : node.parentElement); el; el = el.parentElement) {
+      const live = el.getAttribute("aria-live"), role = el.getAttribute("role");
+      if ((live && live !== "off") || role === "status" || role === "alert" || role === "log") return el;
+    }
+    return null;
+  };
+  window.__auditEar = new MutationObserver((changes) => {
+    const regions = new Set();
+    changes.forEach((c) => { const r = regionOf(c.target); if (r) regions.add(r); });
+    regions.forEach((r) => {
+      if (r.closest('[aria-busy="true"]')) return;
+      const said = r.textContent.replace(/\s+/g, " ").trim();
+      if (said) window.__auditHeard.push(said);
+    });
+  });
+  window.__auditEar.observe(document.body, { subtree: true, childList: true, characterData: true });
+});
+const heard = (page) => page.evaluate(() => window.__auditHeard || []);
+// Once means one thing said that holds the whole answer, and nothing else
+// said that holds any of it.
+const heardOnce = (said, reply) => {
+  const whole = drawnWhole(reply);
+  const opening = whole.slice(0, 5);
+  const about = said.filter(s => s.indexOf(opening) !== -1);
+  return { ok: about.length === 1 && about[0].indexOf(whole) !== -1, detail: "heard " + about.length + " time" + (about.length === 1 ? "" : "s") + ": " + JSON.stringify(about).slice(0, 160) };
+};
+
+// What a question was sent with: the route, the query, the body's keys,
+// and the headers the app set itself, leaving out the ones the browser
+// adds on its own. The message route has always been asked with exactly
+// these, so the streaming route is asked the same way.
+const OWN_HEADERS = "accept: */* | authorization: Bearer token-one | content-type: application/json";
+const ownHeaders = (h) => Object.keys(h || {}).filter(k => !/^(origin|referer|user-agent|sec-|accept-language$)/i.test(k)).sort().map(k => k + ": " + h[k]).join(" | ");
+const sentAsAlways = (call, keys) => !!call && call.path === "/api/agent/message/stream" && call.search === ""
+  && Object.keys(call.body || {}).sort().join(",") === keys.slice().sort().join(",") && ownHeaders(call.headers) === OWN_HEADERS;
+const sentWith = (call) => (call ? call.method + " " + call.path + call.search + " " + JSON.stringify(call.body) + " " + ownHeaders(call.headers) : "nothing sent");
 
 // --- the journeys -----------------------------------------------------
 
@@ -1208,8 +1326,12 @@ const JOURNEYS = [
         const uploaded = app.stub.state.calls.filter(c => c.path === "/api/uploads");
         expect("a photo is uploaded before it is sent", uploaded.length > 0, JSON.stringify(app.stub.state.calls.slice(-4).map(c => c.method + " " + c.path)));
 
-        // A message that failed, then sent again.
-        app.stub.state.refuse["POST /api/agent/message"] = { status: 500, error: "Something went wrong on our end. Try again in a minute.", once: true };
+        // A message that failed, then sent again. Both of Help's routes
+        // answer to the same gates, so the refusal waits on each and the
+        // screen meets it on whichever one it asks.
+        ["POST /api/agent/message", "POST /api/agent/message/stream"].forEach((k) => {
+          app.stub.state.refuse[k] = { status: 500, error: "Something went wrong on our end. Try again in a minute.", once: true };
+        });
         await type(app.page, ".sp-content textarea", "A question that fails the first time");
         await pause(app.page, 400);
         await tapLabel(app.page, say("Send", language));
@@ -1238,6 +1360,246 @@ const JOURNEYS = [
         await pause(app.page, 1800);
         const failed = await bodyText(app.page);
         expect("a photo that will not upload says so in the person's language", failed.indexOf(say("Photo upload failed", language)) !== -1, failed.slice(-220));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "helpstream",
+    label: "Help's answer as it is written: the first words before it is done, a bold phrase cut in two, and the finished answer drawn the way it always was",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      const spill = HELP_ANSWERS.spill;
+      try {
+        await openTab(app.page, "agent", language);
+        await pause(app.page, 800);
+        await listen(app.page);
+        // Stopped after "Put a *", the first half of a bold's opening marks,
+        // and again after "*wet fl", inside the bold. The third piece
+        // arrives in two parts.
+        app.stub.state.help.next = { answer: "spill", holds: { first: 1, cut: 2 }, split: [3] };
+        await askHelp(app.page, language, "What do I do about a spill");
+        await heldAt(app, "first");
+        const asked = lastSent(app.stub, "POST", "/api/agent/message");
+        expect("the question goes to the streaming route with the body, the query and the headers the message route has always had",
+          sentAsAlways(asked, ["text", "app", "locale"]) && asked.body.locale === language && asked.body.app === "portal", sentWith(asked));
+        const first = await waitForMessage(app.page, "Put a", 3000);
+        expect("the first words appear before the answer is done", !!first, "nothing was drawn while the answer was being written");
+        expect("a half-written bold never shows its marks", !first || first.text.indexOf("*") === -1, first ? JSON.stringify(first.text) : "nothing drawn");
+        letGo(app, "first");
+        await heldAt(app, "cut");
+        const cut = await waitForMessage(app.page, "Put a wet fl", 3000);
+        expect("a bold phrase cut in two shows its words and never its marks", !!cut && cut.text.indexOf("*") === -1 && cut.bold.length === 0,
+          cut ? JSON.stringify(cut.text) + " bold " + JSON.stringify(cut.bold) : "nothing drawn");
+        letGo(app, "cut");
+        const whole = drawnWhole(helpReply(spill));
+        await answerDone(app.page, 8000);
+        const done = await waitForMessage(app.page, "closet", 1000);
+        expect("the finished answer replaces what was drawn, its bold phrase and its steps drawn the way an answer always is",
+          !!done && done.text === whole && done.bold.join("|") === "wet floor sign" && (await messagesHolding(app.page, "Put a")) === 1,
+          done ? JSON.stringify(done.text) + " bold " + JSON.stringify(done.bold) + ", " + (await messagesHolding(app.page, "Put a")) + " messages hold it" : "the answer never finished");
+        const shown = await bodyText(app.page);
+        expect("the procedure it cites and the written procedure line show as they always have",
+          has(shown, say("Based on", language) + " " + spill.citedDocs[0]) && has(shown, say("Working from the written procedure only right now.", language)), shown.slice(-260));
+        const said = heardOnce(await heard(app.page), helpReply(spill));
+        expect("a screen reader hears the answer once, when it is done", said.ok, said.detail);
+        expect("the question box is cleared once the answer is done", (await boxText(app.page, ".sp-content textarea")) === "", JSON.stringify(await boxText(app.page, ".sp-content textarea")));
+
+        // The next question carries the conversation the answer named.
+        await askHelp(app.page, language, "And after that");
+        await answerDone(app.page, 6000);
+        const after = lastSent(app.stub, "POST", "/api/agent/message");
+        expect("the conversation carries on from the answer", !!after && !!after.body && after.body.conversationId === "cv-one", sentWith(after));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "helpstreamdoes",
+    label: "Everything a streamed answer does today's answer does: a report it starts, a photo sent with the question, and an answer with no written procedure",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "agent", language);
+        await pause(app.page, 800);
+
+        // An answer that starts a report opens its card, the way it does
+        // today: the form's name, what is answered, and Submit report held
+        // back until nothing is missing.
+        app.stub.state.help.next = { answer: "report" };
+        await askHelp(app.page, language, "Someone slipped in the hall");
+        await answerDone(app.page, 6000);
+        const started = await waitForMessage(app.page, "incident report", 1000);
+        await pause(app.page, 500);
+        const card = await bodyText(app.page);
+        const submit = await app.page.evaluate((label) => {
+          const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.textContent.trim() === label);
+          return b ? (b.disabled ? "off" : "on") : "none";
+        }, say("Submit report", language));
+        const asked = lastSent(app.stub, "POST", "/api/agent/message");
+        expect("each question goes to the streaming route", !!asked && asked.path === "/api/agent/message/stream", sentWith(asked));
+        expect("an answer that starts a report opens it the way it always has",
+          !!started && has(card, say("Report in progress", language)) && has(card, language === "es" ? "Reporte de incidente" : "Incident report")
+            && has(card, fill(say("{answered} of {total} answered", language), { answered: 1, total: 5 })) && submit === "off",
+          "Submit report is " + submit + ": " + card.slice(-240));
+
+        // A photo sent with the question goes with it, and the tray empties
+        // once the answer is done.
+        await attachPhoto(app.page, '.sp-content input[type="file"]');
+        await pause(app.page, 1500);
+        await askHelp(app.page, language, "What is this on the floor");
+        await answerDone(app.page, 6000);
+        const answered = await waitForMessage(app.page, "store room", 1000);
+        await pause(app.page, 400);
+        const photoSent = lastSent(app.stub, "POST", "/api/agent/message");
+        const tray = await app.page.evaluate((label) => Array.from(document.querySelectorAll(".sp-content button")).filter(b => b.getAttribute("aria-label") === label).length, say("Remove photo", language));
+        const pictured = (await helpMessages(app.page)).some(m => m.picture);
+        expect("a photo goes with its question and shows in it, and the tray empties when the answer is done",
+          !!answered && !!photoSent && Array.isArray(photoSent.body.photoPaths) && photoSent.body.photoPaths.join() === "agent-photos/one.jpg" && pictured && tray === 0,
+          sentWith(photoSent) + ", picture " + pictured + ", tray " + tray);
+
+        // An answer with no written procedure behind it is drawn on the
+        // gold wash it has always had.
+        app.stub.state.help.next = { answer: "unknown" };
+        await askHelp(app.page, language, "Can I bring my dog");
+        await answerDone(app.page, 6000);
+        const unknown = await waitForMessage(app.page, "supervisor", 1000);
+        expect("an answer with no written procedure is drawn the way it always is", !!unknown && /231, 176, 23/.test(unknown.edge), unknown ? unknown.edge : "the answer never finished");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "helpstreamreset",
+    label: "An answer the API writes again: reset clears what was drawn, and the answer written after it is the one that stays",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "agent", language);
+        await pause(app.page, 800);
+        await listen(app.page);
+        app.stub.state.help.next = { answer: "spill", rewrite: "firstTry", holds: { written: 2, cleared: "reset" } };
+        await askHelp(app.page, language, "What do I do about a spill");
+        await heldAt(app, "written");
+        const tried = await waitForMessage(app.page, "Mop the spill right away", 3000);
+        expect("the first try shows as it is written", !!tried, "nothing was drawn while the first try was being written");
+        letGo(app, "written");
+        await heldAt(app, "cleared");
+        await pause(app.page, 300);
+        const cleared = await bodyText(app.page);
+        expect("reset clears what was drawn since the answer began", !has(cleared, "Mop the spill"), cleared.slice(-200));
+        letGo(app, "cleared");
+        await answerDone(app.page, 8000);
+        const done = await waitForMessage(app.page, "closet", 1000);
+        const after = await bodyText(app.page);
+        expect("the answer written after the reset is the one that stays, and the first try is nowhere",
+          !!done && done.text === drawnWhole(helpReply(HELP_ANSWERS.spill)) && !has(after, "Mop the spill"), done ? JSON.stringify(done.text) : after.slice(-200));
+        const said = heardOnce(await heard(app.page), helpReply(HELP_ANSWERS.spill));
+        expect("a screen reader hears only the answer that stays, once", said.ok && !(await heard(app.page)).some(s => has(s, "Mop the spill")), said.detail);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "helpstreamrefused",
+    label: "An answer that fails: turned away before it starts, and an error part way, each shown the way a refusal with its status always has been",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      const busy = HELP_REFUSALS.busy, unfinished = HELP_REFUSALS.unfinished;
+      const retryShown = (page) => page.evaluate((label) => Array.from(document.querySelectorAll(".sp-content button")).some(b => b.textContent.trim() === label && !b.disabled), say("Retry", language));
+      try {
+        await openTab(app.page, "agent", language);
+        await pause(app.page, 800);
+
+        // Turned away before the stream opens: the same JSON the message
+        // route has always refused with.
+        app.stub.state.help.next = { refuse: "busy" };
+        await askHelp(app.page, language, "Where is the ladder");
+        await pause(app.page, 1200);
+        const refusedCall = lastSent(app.stub, "POST", "/api/agent/message");
+        const refused = await bodyText(app.page);
+        expect("a question turned away is asked on the streaming route", !!refusedCall && refusedCall.path === "/api/agent/message/stream", sentWith(refusedCall));
+        expect("a refusal before the answer starts is shown the way a refusal with its status always is",
+          has(refused, say("Not sent.", language) + " " + busy.error) && (await retryShown(app.page)), refused.slice(-240));
+        await clickText(app.page, say("Retry", language));
+        await answerDone(app.page, 6000);
+        const again = await waitForMessage(app.page, "store room", 1000);
+        expect("Retry asks again and the answer comes", !!again && lastSent(app.stub, "POST", "/api/agent/message").path === "/api/agent/message/stream", sentWith(lastSent(app.stub, "POST", "/api/agent/message")));
+
+        // An error part way: what was written is taken away, and the
+        // question is shown failed with the error's own words.
+        app.stub.state.help.next = { answer: "spill", error: { after: 3, status: unfinished.status, error: unfinished.error }, holds: { partway: 2 } };
+        await askHelp(app.page, language, "What about a big spill");
+        await heldAt(app, "partway");
+        const partway = await waitForMessage(app.page, "Put a wet fl", 3000);
+        expect("the answer shows as it is written until the error", !!partway, "nothing was drawn while the answer was being written");
+        letGo(app, "partway");
+        await pause(app.page, 1400);
+        const failed = await bodyText(app.page);
+        expect("an error part way is shown the way a refusal with its status always is",
+          has(failed, say("Not sent.", language) + " " + unfinished.error) && (await retryShown(app.page)), failed.slice(-240));
+        expect("the words written before the error are taken away", !has(failed, "wet fl"), failed.slice(-240));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "helpstreamdrop",
+    label: "A connection that drops once the answer has started: one line says so, the conversation is read back and the kept answer shows, and when that fails, Try again",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      const readBacks = () => app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/agent/conversations/cv-one");
+      const tryAgain = (page) => page.evaluate((label) => Array.from(document.querySelectorAll(".sp-content button")).some(b => b.textContent.trim() === label && !b.disabled), say("Try again", language));
+      try {
+        await openTab(app.page, "agent", language);
+        await pause(app.page, 800);
+        await listen(app.page);
+
+        // Dropped after two pieces. The API finishes the answer and keeps
+        // it, so reading the conversation back finds it.
+        app.stub.state.help.next = { answer: "spill", drop: { after: 2 }, holds: { partway: 2 } };
+        await askHelp(app.page, language, "What do I do about a spill");
+        await heldAt(app, "partway");
+        const partway = await waitForMessage(app.page, "Put a wet fl", 3000);
+        expect("the answer shows as it is written until the connection drops", !!partway, "nothing was drawn while the answer was being written");
+        letGo(app, "partway");
+        await answerDone(app.page, 6000);
+        const kept = await waitForMessage(app.page, "closet", 3000);
+        expect("a dropped connection reads the conversation back", readBacks().length > 0 && /[?&]locale=(en|es)/.test(readBacks()[0].search), JSON.stringify(readBacks().map(c => c.path + c.search)));
+        expect("the kept answer shows in place of what was drawn, the way an answer always is",
+          !!kept && kept.text === drawnWhole(helpReply(HELP_ANSWERS.spill)) && kept.bold.join("|") === "wet floor sign" && (await messagesHolding(app.page, "Put a")) === 1,
+          kept ? JSON.stringify(kept.text) + " bold " + JSON.stringify(kept.bold) : "the kept answer never showed: " + (await bodyText(app.page)).slice(-200));
+        const said = heardOnce(await heard(app.page), helpReply(HELP_ANSWERS.spill));
+        expect("a screen reader hears the kept answer once", said.ok, said.detail);
+
+        // Dropped again, and the answer is kept a moment later than the
+        // screen first looks for it: the line stays with Try again, and
+        // Try again finds it.
+        app.stub.state.help.next = { answer: "pads", drop: { after: 1, storedAfterMs: 2000 } };
+        await askHelp(app.page, language, "Where are the floor pads");
+        await pause(app.page, 1500);
+        const told = await bodyText(app.page);
+        expect("one line says the connection dropped", has(told, spanishOf(HELP_DROPPED, language)), "no such line: " + told.slice(-200));
+        expect("with no answer kept yet, Try again is offered", await tryAgain(app.page), "no Try again: " + told.slice(-200));
+        await pause(app.page, 2000);
+        const looked = readBacks().length;
+        await clickText(app.page, say("Try again", language));
+        const later = await waitForMessage(app.page, "store room", 4000);
+        expect("Try again reads the conversation back again and the kept answer shows", readBacks().length > looked && !!later && !has(await bodyText(app.page), spanishOf(HELP_DROPPED, language)),
+          "read back " + readBacks().length + " times, " + (later ? "the answer shown, " : "the kept answer never showed, ") + (await bodyText(app.page)).slice(-160));
+
+        // Dropped, and the conversation cannot be read back either.
+        app.stub.state.help.next = { answer: "pads", drop: { after: 1 } };
+        app.stub.state.refuse["GET /api/agent/conversations/cv-one"] = { status: 500, error: "Something went wrong on our end. Try again in a minute.", once: true };
+        await askHelp(app.page, language, "Where are the pads kept");
+        await pause(app.page, 1500);
+        const failed = await bodyText(app.page);
+        expect("when the conversation cannot be read back, the line and the refusal show with Try again",
+          has(failed, spanishOf(HELP_DROPPED, language)) && has(failed, say("Something went wrong on our end. Try again in a minute.", language)) && (await tryAgain(app.page)), "no such line: " + failed.slice(-200));
+        await clickText(app.page, say("Try again", language));
+        const found = await waitForMessage(app.page, "store room", 4000);
+        expect("Try again after a failed read shows the kept answer", !!found && (await messagesHolding(app.page, "Take the pads")) === 2,
+          (found ? (await messagesHolding(app.page, "Take the pads")) + " answers hold it: " : "the kept answer never showed: ") + (await bodyText(app.page)).slice(-200));
+        await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
     },
   },

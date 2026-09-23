@@ -372,6 +372,12 @@
       "check": "english",
       "what": "is a refusal the API sent in English",
       "why": "The API's refusals are English sentences on every route but the seven calls made before signing in, which Step 113 answers in the language the request asks for. The portal draws a refusal in Spanish when the table holds that exact sentence and every other one as sent, so a refusal from any other route stays English until the API sends the person's language there too."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a procedure name the API sent in English",
+      "why": "The procedures an answer cites are named the way the API writes them, in English. Their names are the API's to send in the person's language, with Help's replies. The suite draws one for the first time in this build."
     }
   ]
 }
