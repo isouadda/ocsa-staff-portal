@@ -5,6 +5,25 @@ import { BUILD_STAMP } from "./buildStamp";
 
 const API = process.env.REACT_APP_API_URL || "https://ocsa-api-production.up.railway.app";
 
+// The two lines every screen says when a request fails with no sentence of
+// its own. A request that never reached OCSA carries no status. The line
+// about a sign-in not matching is for the API's own refusal, so a signal
+// that dropped is never blamed on the person's PIN.
+const ERR_GENERIC = "Something went wrong on our end. Try again in a minute.";
+const ERR_OFFLINE = "Could not reach OCSA. Check your connection and try again.";
+
+// Every request to OCSA goes through these two. A request that never gets
+// an answer, no signal or the server out of reach, throws the browser's
+// own words, which are never the app's, so it says the line every screen
+// says for it instead, in the person's language, and still carries no
+// status. An answer that cannot be read says the other one.
+async function reach(url, init) {
+  try { return await fetch(url, init); } catch (e) { throw new Error(ERR_OFFLINE); }
+}
+async function readJson(res) {
+  try { return await res.json(); } catch (e) { const x = new Error(ERR_GENERIC); x.status = res.status; throw x; }
+}
+
 // --- Part way through ---------------------------------------------------
 // One place that answers whether a person is in the middle of something,
 // so the update check has a single thing to ask.
@@ -193,7 +212,7 @@ async function uploadPhoto(file, token) {
   flightUp();
   let res;
   try {
-    res = await fetch(API + "/api/uploads?bucket=issue-photos&ext=" + encodeURIComponent(ext), {
+    res = await reach(API + "/api/uploads?bucket=issue-photos&ext=" + encodeURIComponent(ext), {
       method: "POST",
       headers: { "Authorization": "Bearer " + token, "Content-Type": file.type },
       body: file,
@@ -201,20 +220,20 @@ async function uploadPhoto(file, token) {
   } finally { flightDown(); }
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
   if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || AGENT_PHOTO_FAILED); }
-  const data = await res.json();
+  const data = await readJson(res);
   return data.url;
 }
 
 async function uploadTaskMedia(file, token) {
   const ext = file.name.split(".").pop().toLowerCase();
-  const res = await fetch(API + "/api/uploads?bucket=task-media&ext=" + encodeURIComponent(ext), {
+  const res = await reach(API + "/api/uploads?bucket=task-media&ext=" + encodeURIComponent(ext), {
     method: "POST",
     headers: { "Authorization": "Bearer " + token, "Content-Type": file.type },
     body: file,
   });
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
   if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || UPLOAD_FAILED); }
-  return res.json();
+  return readJson(res);
 }
 
 // Photos sent to the agent from the Help tab. Each one is prepared in the
@@ -274,7 +293,7 @@ async function prepareAgentPhoto(file) {
 // The response carries a storage path and no URL of any kind. The path is
 // what goes to the message route; the thumbnail is drawn from memory.
 async function uploadAgentPhoto(blob, token) {
-  const res = await fetch(API + "/api/uploads?bucket=agent-photos&ext=jpg", {
+  const res = await reach(API + "/api/uploads?bucket=agent-photos&ext=jpg", {
     method: "POST",
     headers: { "Authorization": "Bearer " + token, "Content-Type": "application/octet-stream" },
     body: blob,
@@ -372,11 +391,11 @@ async function api(path, opts = {}) {
   flightUp();
   let res;
   try {
-    res = await fetch(API + path, { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
+    res = await reach(API + path, { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
   } finally { flightDown(); }
   if (res.status === 401 && !opts.noAuthEvent) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
   if (!res.ok) { const err = await res.json().catch(() => ({ error: "Request failed" })); const e = new Error(err.error || "Request failed"); e.status = res.status; e.code = err.code || null; e.body = err; throw e; }
-  return res.json();
+  return readJson(res);
 }
 
 const formatTime = (d) => new Date(d).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit", hour12: true });
@@ -467,6 +486,39 @@ const timeOffHours = (h) => {
   return n === 1 ? tr("{n} hour", { n: shown }) : tr("{n} hours", { n: shown });
 };
 
+// --- Codes, put into words ---------------------------------------------
+const titleCase = (code) => String(code || "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+const ROLE_WORDS = {
+  custodian: () => tr("Custodian"), custodial_lead: () => tr("Custodial Lead"), lead: () => tr("Lead"),
+  supervisor: () => tr("Supervisor"), admin: () => tr("Admin"),
+};
+const roleWord = (code) => (ROLE_WORDS[code] ? ROLE_WORDS[code]() : titleCase(code));
+// A shift, a pickup, an inspection, an assigned task or a reported issue.
+const STATUS_WORDS = {
+  scheduled: () => tr("Scheduled"), completed: () => tr("Completed"), pending: () => tr("Pending"),
+  claimed: () => tr("Claimed"), filled: () => tr("Filled"), approved: () => tr("Approved"), denied: () => tr("Denied"),
+  cancelled: () => tr("Cancelled"), in_progress: () => tr("In Progress"), resolved: () => tr("Resolved"),
+  unable_to_resolve: () => tr("Unable to resolve"), open: () => tr("Open"), closed: () => tr("Closed"),
+};
+const statusWord = (code) => (STATUS_WORDS[code] ? STATUS_WORDS[code]() : titleCase(code));
+// A severity or a priority.
+const LEVEL_WORDS = { low: () => tr("Low"), medium: () => tr("Medium"), high: () => tr("High"), critical: () => tr("Critical") };
+const levelWord = (code) => (LEVEL_WORDS[code] ? LEVEL_WORDS[code]() : code);
+// Where an open shift came from.
+const ORIGIN_WORDS = {
+  callout: () => tr("Callout"), no_show: () => tr("No-Show"), extra_coverage: () => tr("Extra Coverage"),
+  voluntary_drop: () => tr("Voluntary Drop"), new_shift: () => tr("New Shift"),
+};
+// The word in the toast that says what an assigned task became.
+const taskStatusWord = (s) => (s === "in_progress" ? tr("in progress") : s === "resolved" ? tr("resolved") : s === "unable_to_resolve" ? tr("unable to resolve") : tr(String(s).replace(/_/g, " ")));
+// A time of day the API sends as HH:MM or HH:MM:SS, drawn the way every
+// other time is, in the reader's language. Anything else is drawn as sent.
+function clockTime(v) {
+  const m = String(v || "").match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return String(v || "");
+  return new Date(2024, 0, 1, Number(m[1]), Number(m[2])).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" });
+}
+
 const Ico = ({ d, sz = 18, c = "currentColor", style: s, ...p }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={s} {...p}><path d={d} /></svg>);
 const ClockIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 0v10l4 4" {...p} />;
 const CheckIco = (p) => <Ico d="M20 6L9 17l-5-5" {...p} />;
@@ -488,6 +540,7 @@ const SwapIco = (p) => <Ico d="M16 3l4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" {...p
 const CalIco = (p) => <Ico d="M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM16 2v4M8 2v4M3 10h18" {...p} />;
 const HomeIco = (p) => <Ico d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" {...p} />;
 const HelpIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01" {...p} />;
+const GlobeIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" {...p} />;
 const PersonIco = (p) => <Ico d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" {...p} />;
 const GearIco = (p) => <Ico d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" {...p} />;
 const BellIco = (p) => <Ico d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0" {...p} />;
@@ -599,17 +652,17 @@ const mkCardText = (t) => ({ fontSize: 14, color: t.text, lineHeight: 1.55, marg
 // Weak PIN rules, client side. The API checks shape only. Returns a
 // message naming what is wrong, or null when the PIN is acceptable.
 function weakPinReason(pin, badgeNumber) {
-  if (!PIN_RE.test(pin)) return "PIN must be exactly 4 digits.";
-  if (/^([0-9])\1{3}$/.test(pin)) return "Four of the same digit is too easy to guess. Use a mix of digits.";
+  if (!PIN_RE.test(pin)) return tr("PIN must be exactly 4 digits.");
+  if (/^([0-9])\1{3}$/.test(pin)) return tr("Four of the same digit is too easy to guess. Use a mix of digits.");
   var d = pin.split("").map(Number);
   var up = true, down = true;
   for (var i = 1; i < 4; i++) {
     if ((d[i] - d[i - 1] + 10) % 10 !== 1) up = false;
     if ((d[i - 1] - d[i] + 10) % 10 !== 1) down = false;
   }
-  if (up || down) return "Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.";
+  if (up || down) return tr("Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.");
   var badge = badgeNumber ? String(badgeNumber).trim() : "";
-  if (badge && (pin === badge || pin === badge.slice(-4))) return "Your PIN cannot be your badge number or its last four digits.";
+  if (badge && (pin === badge || pin === badge.slice(-4))) return tr("Your PIN cannot be your badge number or its last four digits.");
   return null;
 }
 
@@ -675,15 +728,33 @@ function phoneTheme() {
 }
 function firstTheme() { return storedTheme() || phoneTheme(); }
 
-// The language the Help agent answers in. The portal's own screens are
-// English, which the Settings card says plainly.
+// The language every screen reads, Help answers in and the report forms
+// ask their questions in. A choice stored on this phone wins. Until there
+// is one the phone's own language decides, the way the theme follows the
+// phone until a person picks one, so a phone set to Spanish opens the
+// portal in Spanish from its very first screen. An account's own value
+// still arrives with signing in and applies the way it always has. The
+// small script at the top of public/index.html reads these same two
+// answers, so the page is marked with its language from the first frame.
 const LANGUAGE_KEY = "ocsa-staff-language";
 const LANGUAGES = [{ id: "en", label: "English" }, { id: "es", label: "Espa\u00f1ol" }];
-function readLanguage() {
-  try { var v = window.localStorage.getItem(LANGUAGE_KEY); return (v === "en" || v === "es") ? v : "en"; } catch (e) { return "en"; }
-}
 function storedLanguage() {
   try { var v = window.localStorage.getItem(LANGUAGE_KEY); return (v === "en" || v === "es") ? v : null; } catch (e) { return null; }
+}
+function phoneLanguage() {
+  try {
+    var first = (navigator.languages && navigator.languages[0]) || navigator.language || "";
+    return /^es\b/i.test(String(first)) ? "es" : "en";
+  } catch (e) { return "en"; }
+}
+function firstLanguage() { return storedLanguage() || phoneLanguage(); }
+// The seven calls made before anyone is signed in carry the language on
+// the screen. The API answers them in the language the request asks for,
+// ?locale= first and the browser's own language after it, so without this
+// a phone set to Spanish would get Spanish refusals on a screen set to
+// English, and the other way round.
+function signedOut(path, language) {
+  return path + (path.indexOf("?") === -1 ? "?" : "&") + "locale=" + (language === "es" ? "es" : "en");
 }
 function saveLanguage(v) { try { window.localStorage.setItem(LANGUAGE_KEY, v); } catch (e) {} }
 
@@ -779,6 +850,8 @@ const fillsTheWindow = () => ({
 // The setting reaches the sign-in screens and Profile through context, so
 // no screen has to thread it down.
 const TextSizeCtx = createContext({ textSize: "standard", setTextSize: () => {} });
+// The language, and the way to change it, reach them the same way.
+const LanguageCtx = createContext({ language: "en", setLanguage: () => {} });
 
 // The four choices, as buttons. Used on the sign-in screens and in Profile.
 function TextSizeChoices({ value, onChange, t }) {
@@ -823,6 +896,20 @@ function TextSizeButton({ t }) {
         </div>
       )}
     </>
+  );
+}
+
+// The screens before signing in offer the other language beside the text
+// size and the theme, named in its own language so a person who reads
+// only that one can find it. One tap turns every screen at once and is
+// kept on this phone, the same as a choice made in Settings.
+function LanguageButton({ t }) {
+  const { language, setLanguage } = useContext(LanguageCtx);
+  const other = LANGUAGES.find(l => l.id !== language) || LANGUAGES[0];
+  return (
+    <button type="button" onClick={() => setLanguage(other.id)} style={mkTapFrame()}>
+      <span lang={other.id} style={mkSmallPill(t)}><GlobeIco sz={14} c={t.textMut} />{other.label}</span>
+    </button>
   );
 }
 
@@ -926,8 +1013,17 @@ export default function OCSAStaffPortal() {
   // The sign in screen keeps its own toggle, which now goes through the same
   // path, so a choice made before signing in is sent up afterwards.
   const toggleTheme = () => setTheme(themeMode === "dark" ? "light" : "dark");
-  const [language, setLanguageState] = useState(readLanguage);
+  const [language, setLanguageState] = useState(firstLanguage);
   const setLanguage = (v) => { setLanguageState(v); saveLanguage(v); queuePref({ language: v }); };
+  // The page says which language it is in, so a screen reader reads it in
+  // the right voice and the browser never offers to translate it, and the
+  // tab and the app switcher name it in the same language.
+  useEffect(() => {
+    try {
+      document.documentElement.lang = language;
+      document.title = tr("{brand} Staff Portal", { brand: clientConfig.company.brandTag });
+    } catch (e) {}
+  }, [language]);
   // Every screen below reads its words from this. Set during the
   // render that carries the new value, so the whole portal turns
   // at once; an effect would run after the first paint and show
@@ -952,7 +1048,12 @@ export default function OCSAStaffPortal() {
     setSelectedSite(cs.clockedIn && cs.shift ? cs.shift.siteId : null);
     return cs;
   }, [token]);
-  const getOpts = useCallback((slug, placeholder) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return placeholder ? [{ v: "", l: placeholder }] : []; const opts = (cat.values || []).filter(v => v.is_active).sort((a, b) => a.sort_order - b.sort_order).map(v => ({ v: v.value, l: v.label })); return placeholder ? [{ v: "", l: placeholder }, ...opts] : opts; }, [lookups]);
+  // A pick list the API sends: the drop reasons, the issue severities, the
+  // supply request types and the urgency. Its labels arrive in English and
+  // are drawn through the table, which already carries the English of every
+  // choice the screens fall back to, so a label that matches is drawn in
+  // the person's language and one that does not is drawn as sent.
+  const getOpts = useCallback((slug, placeholder) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return placeholder ? [{ v: "", l: placeholder }] : []; const opts = (cat.values || []).filter(v => v.is_active).sort((a, b) => a.sort_order - b.sort_order).map(v => ({ v: v.value, l: tr(v.label) })); return placeholder ? [{ v: "", l: placeholder }, ...opts] : opts; }, [lookups]);
   const lkMap = useCallback((slug) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return {}; const m = {}; (cat.values || []).forEach(v => { m[v.value] = v.label; }); return m; }, [lookups]);
   const lkColorMap = useCallback((slug) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return {}; const m = {}; (cat.values || []).forEach(v => { if (v.color) m[v.value] = v.color; }); return m; }, [lookups]);
   const lkHasOther = useCallback((slug, val) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return false; const v = (cat.values || []).find(x => x.value === val); return v?.show_other_input || false; }, [lookups]);
@@ -995,14 +1096,14 @@ export default function OCSAStaffPortal() {
     try {
       // noAuthEvent, so a refused PIN is not read as an expired session.
       // Nothing is signed in yet, so there is no session to end.
-      const data = await api("/api/auth/login", { method: "POST", body: { phone, pin }, noAuthEvent: true });
+      const data = await api(signedOut("/api/auth/login", language), { method: "POST", body: { phone, pin }, noAuthEvent: true });
       setToken(data.token); saveAuth(data.token);
       const me = await hydrateSession(data.token);
       showToast(tr("Welcome, {name}", { name: me.firstName }));
     } catch (err) {
       const said = err && err.body && err.body.error ? String(err.body.error) : "";
       if (!said && wentNowhere(err)) showToast(tr(ERR_OFFLINE), "error");
-      else showToast(said || tr("That sign-in did not match. Check your badge, phone or email and your PIN."), "error");
+      else showToast(said ? tr(said) : tr("That sign-in did not match. Check your badge, phone or email and your PIN."), "error");
     }
     setLoading(false);
   };
@@ -1025,7 +1126,7 @@ export default function OCSAStaffPortal() {
 
   const handleRegister = async (firstName, lastName, phone, email, pin) => {
     setLoading(true);
-    try { await api("/api/auth/register", { method: "POST", body: { firstName, lastName, phone, email, pin } }); showToast(tr("Registration submitted. Pending supervisor approval.")); setScreen("login"); } catch (err) { showToast(tr(err.message), "error"); }
+    try { await api(signedOut("/api/auth/register", language), { method: "POST", body: { firstName, lastName, phone, email, pin } }); showToast(tr("Registration submitted. Pending supervisor approval.")); setScreen("login"); } catch (err) { showToast(tr(err.message), "error"); }
     setLoading(false);
   };
 
@@ -1050,7 +1151,7 @@ export default function OCSAStaffPortal() {
         // A shift is still open at another site. Say so and show it. It
         // is never ended from here as a side effect of starting another.
         const at = err.body && err.body.openSession ? err.body.openSession.siteName : null;
-        setStartBlock("A shift is still open" + (at ? " at " + at : "") + ". End it before starting another.");
+        setStartBlock(at ? tr("A shift is still open at {site}. End it before starting another.", { site: at }) : tr("A shift is still open. End it before starting another."));
         refreshClockStatus().catch(e => console.warn("Clock status:", e.message));
       } else { showToast(tr(err.message), "error"); }
     }
@@ -1091,7 +1192,7 @@ export default function OCSAStaffPortal() {
   const loadTasks = async () => { if (!clockStatus?.clockedIn || !clockStatus?.shift?.siteId) return; const siteId = clockStatus.shift.siteId; if (tasksReqSite.current === siteId) return; tasksReqSite.current = siteId; setTasksFailed(false); try { let taskUrl = "/api/sites/" + siteId + "/tasks?user_id=" + user.id; if (clockStatus.shift.buildingName) taskUrl += "&building_name=" + encodeURIComponent(clockStatus.shift.buildingName); if (clockStatus.shift.floorNumber) taskUrl += "&floor_number=" + encodeURIComponent(clockStatus.shift.floorNumber); const tt = await api(taskUrl, { token }); setTasks(tt); tasksSite.current = siteId; const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { console.error(err); setTasksFailed(true); } finally { tasksReqSite.current = null; } };
   const toggleTask = async (taskId) => { if (inFlightTaskIds.current.has(taskId)) return; inFlightTaskIds.current.add(taskId); try { if (completedTaskIds.has(taskId)) { await api("/api/clock/tasks/" + taskId + "/complete", { method: "DELETE", token }); setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); showToast(tr("Task unchecked")); } else { await api("/api/clock/tasks/" + taskId + "/complete", { method: "POST", body: {}, token }); setCompletedTaskIds(prev => new Set(prev).add(taskId)); showToast(tr("Task completed")); } const seq = nextStatusSeq(); const cs = await api("/api/clock/status", { token }); setClockStatus(cs); hydrateCompleted(cs, seq); } catch (err) { showToast(tr(err.message), "error"); } finally { inFlightTaskIds.current.delete(taskId); } };
   const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); } catch (err) { console.error(err); } };
-  const resolveAssignedTask = async (taskId, status, note, photoUrl) => { try { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast(tr("Task updated to {status}", { status: tr(status.replace(/_/g, " ")) })); loadAssignedTasks(); } catch (err) { showToast(tr(err.message), "error"); } };
+  const resolveAssignedTask = async (taskId, status, note, photoUrl) => { try { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast(tr("Task updated to {status}", { status: taskStatusWord(status) })); loadAssignedTasks(); } catch (err) { showToast(tr(err.message), "error"); } };
   const submitIssue = async (title, description, zone, severity, photoUrl, siteId) => { const actualSiteId = siteId || clockStatus?.shift?.siteId; if (!actualSiteId) { showToast(tr("Select a site first"), "error"); return; } try { const data = await api("/api/issues", { method: "POST", body: { siteId: actualSiteId, title, description, zone, severity }, token }); if (photoUrl && data.issue) { await api("/api/issues/" + data.issue.id + "/photos", { method: "POST", body: { photoUrl }, token }); } showToast(tr("Issue reported")); loadIssues(); } catch (err) { showToast(tr(err.message), "error"); } };
   const loadSupplies = async () => { try { const url = clockStatus?.shift?.siteId ? "/api/supplies?site_id=" + clockStatus.shift.siteId : "/api/supplies"; const data = await api(url, { token }); setSupplies(data); } catch (err) { console.error(err); } };
   const logSupplyUsage = async (supplyId, quantity) => { try { const data = await api("/api/supplies/log-usage", { method: "POST", body: { supplyId, quantity, siteId: clockStatus.shift.siteId, scanMethod: "manual" }, token }); showToast(data.message); setSupplyLogs(prev => [{ ...data.log, loggedAt: now().toISOString() }, ...prev]); if (data.lowStockAlert) showToast(tr("Low stock alert!"), "notice"); } catch (err) { showToast(tr(err.message), "error"); } };
@@ -1311,6 +1412,7 @@ export default function OCSAStaffPortal() {
 
   return (
     <TextSizeCtx.Provider value={{ textSize, setTextSize }}>
+    <LanguageCtx.Provider value={{ language, setLanguage }}>
     <div style={{ width: "100%", minHeight: "var(--ocsa-vh)", background: t.bg, fontFamily: FONT_BODY, color: t.text, position: "relative", display: "flex", flexDirection: "column", zoom: zoom, ...viewportVars(zoom), ...chromeVars(chrome.header, chrome.bar, zoom) }}>
 
       {/* Only while an update is waiting on someone to finish. It takes
@@ -1341,7 +1443,7 @@ export default function OCSAStaffPortal() {
                 </button>
                 <div style={{ minWidth: 0, flex: "1 1 auto" }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: "#F8F7F4", fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.firstName} {user?.lastName}</div>
-                  <div style={{ fontSize: 10, color: themeMode === "light" ? "rgba(255,255,255,0.82)" : GOLD, letterSpacing: "0.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.role?.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
+                  <div style={{ fontSize: 10, color: themeMode === "light" ? "rgba(255,255,255,0.82)" : GOLD, letterSpacing: "0.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.role ? roleWord(user.role) : ""}</div>
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
@@ -1458,6 +1560,7 @@ export default function OCSAStaffPortal() {
         button:active { opacity: 0.8; }
       `}</style>
     </div>
+    </LanguageCtx.Provider>
     </TextSizeCtx.Provider>
   );
 }
@@ -1480,7 +1583,7 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, showToast, t,
         <div style={{ textAlign: "right", marginBottom: 24 }}><button onClick={onGoForgot} style={{ background: "none", border: "none", minHeight: TAP, padding: "4px 0", color: t.textSec, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>{tr("Forgot your PIN?")}</button></div>
         <button onClick={() => onLogin(phone, pin)} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Signing in...") : tr("Sign In")}</button>
         <button onClick={onGoRegister} style={mkGhostBtn(t)}>{tr("New Employee? Register Here")}</button>
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><button onClick={toggleTheme} style={mkTapFrame()}><span style={mkSmallPill(t)}>{themeMode === "dark" ? <SunIco sz={14} c={t.textMut} /> : <MoonIco sz={14} c={t.textMut} />}{themeMode === "dark" ? tr("Light Mode") : tr("Dark Mode")}</span></button><TextSizeButton t={t} /></div>
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><button onClick={toggleTheme} style={mkTapFrame()}><span style={mkSmallPill(t)}>{themeMode === "dark" ? <SunIco sz={14} c={t.textMut} /> : <MoonIco sz={14} c={t.textMut} />}{themeMode === "dark" ? tr("Light Mode") : tr("Dark Mode")}</span></button><TextSizeButton t={t} /><LanguageButton t={t} /></div>
       </div>
     </div>
   );
@@ -1518,13 +1621,13 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
         <div style={{ marginBottom: 24 }}><label style={labelSt}>{tr("Confirm PIN *")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
         <button onClick={submit} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Registering...") : tr("Register")}</button>
         <button onClick={onBack} style={mkGhostBtn(t)}>{tr("Back to Login")}</button>
-        <div style={{ display: "flex", justifyContent: "center", marginTop: 20 }}><TextSizeButton t={t} /></div>
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><TextSizeButton t={t} /><LanguageButton t={t} /></div>
       </div>
     </div>
   );
 }
 
-function AuthCard({ t, title, children }) {
+function AuthCard({ t, title, children, ownLanguage }) {
   return (
     <div style={{ width: "100%", minHeight: "var(--ocsa-vh, 100vh)", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
       <div style={{ width: "100%", maxWidth: 420, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: "28px 24px", boxShadow: t.popShadow }}>
@@ -1533,7 +1636,7 @@ function AuthCard({ t, title, children }) {
           <div style={{ fontSize: 12, color: t.textSec, letterSpacing: "2px", textTransform: "uppercase", marginTop: 8, fontFamily: FONT_HEAD, fontWeight: 600 }}>{title}</div>
         </div>
         {children}
-        <div style={{ display: "flex", justifyContent: "center", marginTop: 20 }}><TextSizeButton t={t} /></div>
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><TextSizeButton t={t} />{!ownLanguage && <LanguageButton t={t} />}</div>
       </div>
     </div>
   );
@@ -1560,12 +1663,9 @@ function LangPicker({ value, onChange, t }) {
   );
 }
 
-const fmtExpiry = (v) => { try { return new Date(v).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; } };
-const ERR_GENERIC = "Something went wrong on our end. Try again in a minute.";
-// A request that never reached OCSA carries no status. The line about a
-// sign-in not matching is for the API's own refusal, so a signal that
-// dropped is never blamed on the person's PIN.
-const ERR_OFFLINE = "Could not reach OCSA. Check your connection and try again.";
+// A link's last good moment, in the reader's language like every other
+// date and time.
+const fmtExpiry = (v) => { try { return new Date(v).toLocaleString(dateLocale(), { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; } };
 const wentNowhere = (err) => !!err && (err.status === undefined || err.status === null);
 const ERR_PIN_MISMATCH = "The two PINs do not match. Type the same 4 digits in both fields.";
 const MSG_LINK_INVALID = "This link is no longer valid. Links expire, and each one can only be used once.";
@@ -1577,7 +1677,15 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
   const [badge, setBadge] = useState("");
   const [pin, setPin] = useState("");
   const [pin2, setPin2] = useState("");
-  const [locale, setLocale] = useState("en");
+  // The picker on this screen is the portal's own language: choosing one
+  // turns the screen at once, and it is the language sent with the
+  // activation. The account's saved language, when the link carries one,
+  // is where it starts.
+  const { language: locale, setLanguage: setLocale } = useContext(LanguageCtx);
+  const chooseRef = useRef(setLocale);
+  chooseRef.current = setLocale;
+  const localeRef = useRef(locale);
+  localeRef.current = locale;
   const [errs, setErrs] = useState({});
   const [mismatches, setMismatches] = useState(0);
   const [attempt, setAttempt] = useState(0);
@@ -1587,8 +1695,8 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
     if (!token) return;
     let alive = true;
     setPhase("checking");
-    api("/api/auth/activate/" + encodeURIComponent(token), { noAuthEvent: true })
-      .then(d => { if (!alive) return; setInfo(d); setLocale(d.preferredLanguage === "es" ? "es" : "en"); setPhase("form"); })
+    api(signedOut("/api/auth/activate/" + encodeURIComponent(token), localeRef.current), { noAuthEvent: true })
+      .then(d => { if (!alive) return; setInfo(d); if (d && (d.preferredLanguage === "en" || d.preferredLanguage === "es")) chooseRef.current(d.preferredLanguage); setPhase("form"); })
       .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(wentNowhere(e) ? ERR_OFFLINE : ERR_GENERIC) }); setPhase("error"); } });
     return () => { alive = false; };
   }, [token, attempt]);
@@ -1600,7 +1708,7 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
   const submit = async () => {
     const e = {};
     const b = badge.trim();
-    if (needBadge && !b) e.badge = "Enter the badge number from your email.";
+    if (needBadge && !b) e.badge = tr("Enter the badge number from your email.");
     // The same rules Set Your PIN applies, so a PIN accepted here is never
     // refused a moment later.
     const why = weakPinReason(pin, b);
@@ -1612,7 +1720,7 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
     try {
       const body = { token, pin, locale };
       if (needBadge) body.badgeNumber = b;
-      const d = await api("/api/auth/activate", { method: "POST", body, noAuthEvent: true });
+      const d = await api(signedOut("/api/auth/activate", locale), { method: "POST", body, noAuthEvent: true });
       if (d.token) { setPhase("done"); onActivated(d.token, locale); return; }
       setFail({ from: "post", msg: tr(d.message) || tr("Your account is activated but not currently active. Contact your supervisor.") });
       setPhase("inactive");
@@ -1662,7 +1770,7 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
     </AuthCard>
   );
   return (
-    <AuthCard t={t} title={tr("Account Activation")}>
+    <AuthCard t={t} title={tr("Account Activation")} ownLanguage>
       <div style={textSt}>{info && info.firstName ? tr("Welcome, {name}.", { name: info.firstName }) + " " : ""}{tr("Confirm your badge number and choose your 4-digit PIN.")}</div>
       {info && info.expiresAt && <div style={{ ...helpSt, marginTop: 0, marginBottom: 16 }}>{tr("This link works until")} {fmtExpiry(info.expiresAt)} {tr("and can be used once.")}</div>}
       {needBadge && <div style={{ marginBottom: 14 }}>
@@ -1681,6 +1789,13 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
 }
 
 function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
+  // The account's saved language, when the link carries one, is where
+  // the screen starts. The pill on the card changes it from there.
+  const { language, setLanguage } = useContext(LanguageCtx);
+  const chooseRef = useRef(setLanguage);
+  chooseRef.current = setLanguage;
+  const languageRef = useRef(language);
+  languageRef.current = language;
   const [phase, setPhase] = useState(token ? "checking" : "incomplete");
   const [info, setInfo] = useState(null);
   const [fail, setFail] = useState({ from: "", msg: "" });
@@ -1694,21 +1809,21 @@ function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
     if (!token) return;
     let alive = true;
     setPhase("checking");
-    api("/api/auth/reset/" + encodeURIComponent(token), { noAuthEvent: true })
-      .then(d => { if (!alive) return; setInfo(d); setPhase("form"); })
+    api(signedOut("/api/auth/reset/" + encodeURIComponent(token), languageRef.current), { noAuthEvent: true })
+      .then(d => { if (!alive) return; setInfo(d); if (d && (d.preferredLanguage === "en" || d.preferredLanguage === "es")) chooseRef.current(d.preferredLanguage); setPhase("form"); })
       .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(ERR_GENERIC) }); setPhase("error"); } });
     return () => { alive = false; };
   }, [token, attempt]);
 
   const submit = async () => {
     const e = {};
-    if (!PIN_RE.test(pin)) e.pin = "PIN must be exactly 4 digits.";
+    if (!PIN_RE.test(pin)) e.pin = tr("PIN must be exactly 4 digits.");
     else if (pin2 !== pin) e.pin2 = tr(ERR_PIN_MISMATCH);
     setErrs(e);
     if (Object.keys(e).length) return;
     setPhase("working");
     try {
-      const d = await api("/api/auth/reset", { method: "POST", body: { token, pin }, noAuthEvent: true });
+      const d = await api(signedOut("/api/auth/reset", language), { method: "POST", body: { token, pin }, noAuthEvent: true });
       if (d.token) { setPhase("done"); onReset(d.token); return; }
       setFail({ from: "post", msg: tr(d.message) || tr("Your PIN has been changed. Contact your supervisor about your account status.") });
       setPhase("inactive");
@@ -1766,6 +1881,7 @@ function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
 }
 
 function ForgotScreen({ onGoLogin, showToast, t }) {
+  const { language } = useContext(LanguageCtx);
   const [ident, setIdent] = useState("");
   const [err, setErr] = useState("");
   const [phase, setPhase] = useState("form");
@@ -1776,7 +1892,7 @@ function ForgotScreen({ onGoLogin, showToast, t }) {
     if (!v) { setErr(tr("Enter your badge number, phone number or email address.")); return; }
     setErr(""); setPhase("working");
     try {
-      await api("/api/auth/reset/request", { method: "POST", body: { identifier: v }, noAuthEvent: true });
+      await api(signedOut("/api/auth/reset/request", language), { method: "POST", body: { identifier: v }, noAuthEvent: true });
       setPhase("sent");
     } catch (e) {
       setPhase("form");
@@ -2356,7 +2472,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
               <div>
                 <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3, fontFamily: FONT_HEAD }}>{tr("Status")}</div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: detail.type === "actual" ? GREEN : detail.type === "pickup" ? (detail.status === "approved" ? GREEN : ORANGE) : t.goldText }}>
-                  {detail.type === "actual" ? (detail.shift_status === "active" ? tr("On Site") : tr("Completed")) : detail.type === "pickup" ? (detail.status || "").charAt(0).toUpperCase() + (detail.status || "").slice(1) : (detail.status || "scheduled").charAt(0).toUpperCase() + (detail.status || "scheduled").slice(1)}
+                  {detail.type === "actual" ? (detail.shift_status === "active" ? tr("On Site") : tr("Completed")) : detail.type === "pickup" ? statusWord(detail.status || "") : statusWord(detail.status || "scheduled")}
                 </div>
               </div>
             </div>
@@ -2408,7 +2524,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
             {detail.type === "pickup" && detail.origin && (
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3, fontFamily: FONT_HEAD }}>{tr("Reason")}</div>
-                <div style={{ fontSize: 13, color: t.text }}>{detail.origin.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
+                <div style={{ fontSize: 13, color: t.text }}>{ORIGIN_WORDS[detail.origin] ? ORIGIN_WORDS[detail.origin]() : titleCase(detail.origin)}</div>
               </div>
             )}
             {detail.type === "scheduled" && detail.status !== "cancelled" && isDropRequested(detail.id) && (
@@ -2546,7 +2662,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
 
 function groupTasksByFloorZone(taskList) {
   const groups = []; const floorMap = {};
-  taskList.forEach(t => { const floor = t.floor_number || null; const zone = t.zone || "General"; const key = (floor || "_none_") + "|" + zone; if (!floorMap[key]) { floorMap[key] = { floor, zone, tasks: [] }; groups.push(floorMap[key]); } floorMap[key].tasks.push(t); });
+  taskList.forEach(t => { const floor = t.floor_number || null; const zone = t.zone || tr("General"); const key = (floor || "_none_") + "|" + zone; if (!floorMap[key]) { floorMap[key] = { floor, zone, tasks: [] }; groups.push(floorMap[key]); } floorMap[key].tasks.push(t); });
   groups.sort((a, b) => { if (a.floor && !b.floor) return -1; if (!a.floor && b.floor) return 1; if (a.floor && b.floor && a.floor !== b.floor) { const aNum = parseInt(a.floor); const bNum = parseInt(b.floor); if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum; return a.floor.localeCompare(b.floor); } return a.zone.localeCompare(b.zone); });
   return groups;
 }
@@ -2602,7 +2718,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
             {detail.description && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Instructions")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{detail.description}</div></div>)}
             {detail.media_url && detail.media_type === "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Video")}</div><video src={detail.media_url} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} /></div>)}
             {detail.media_url && detail.media_type !== "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Photo")}</div><img src={detail.media_url} alt={tr("Task reference")} style={{ width: "100%", borderRadius: R.md, maxHeight: 240, objectFit: "cover" }} /></div>)}
-            {detail.due_date && (<div style={{ display: "flex", gap: 12, marginBottom: 14 }}><div style={{ fontSize: 11, color: t.textMut }}>{tr("Due Date:")} <span style={{ color: t.text, fontWeight: 500 }}>{new Date(detail.due_date).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}</span></div>{detail.due_time && <div style={{ fontSize: 11, color: t.textMut }}>{tr("Time:")} <span style={{ color: t.text, fontWeight: 500 }}>{detail.due_time}</span></div>}</div>)}
+            {detail.due_date && (<div style={{ display: "flex", gap: 12, marginBottom: 14 }}><div style={{ fontSize: 11, color: t.textMut }}>{tr("Due Date:")} <span style={{ color: t.text, fontWeight: 500 }}>{new Date(detail.due_date).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}</span></div>{detail.due_time && <div style={{ fontSize: 11, color: t.textMut }}>{tr("Time:")} <span style={{ color: t.text, fontWeight: 500 }}>{clockTime(detail.due_time)}</span></div>}</div>)}
           </div>
           <button onClick={() => { toggleTask(detail.id); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? tr("Uncheck Task") : tr("Mark Complete")}</button>
         </div>
@@ -3021,7 +3137,7 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lk
   const clearForm = () => { setActivePanel(null); setNote(""); setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; };
   const handleResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Describe what you did to complete this task"), "error"); return; } if (!photo) { showToast(tr("A photo of the completed task is required"), "error"); return; } setUploading(true); try { const photoUrl = await uploadPhoto(photo, token); await resolveTask(taskId, "resolved", note.trim(), photoUrl); clearForm(); setDetail(null); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
   const handleCantResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Please provide a reason"), "error"); return; } await resolveTask(taskId, "unable_to_resolve", note.trim(), null); clearForm(); setDetail(null); };
-  const getTaskInfo = (task) => { const isIssueLinked = !!task.source_issue_id; const title = isIssueLinked ? (task.issue_title || task.label) : task.label; const desc = isIssueLinked ? task.issue_description : task.description; const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD); const photoUrl = isIssueLinked ? task.issue_photo_url : (task.media_url || null); const mediaType = isIssueLinked ? "image" : (task.media_type || "image"); const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name; const assignedByLabel = isIssueLinked ? tr("Reported by") : tr("Assigned by"); const locationParts = [task.site_name]; if (task.building_name) locationParts.push(task.building_name); if (task.floor_number) locationParts.push(tr("Floor {n}", { n: task.floor_number })); locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || "General"); const locationStr = locationParts.filter(Boolean).join(" > "); return { isIssueLinked, title, desc, borderColor, photoUrl, mediaType, assignedBy, assignedByLabel, locationStr }; };
+  const getTaskInfo = (task) => { const isIssueLinked = !!task.source_issue_id; const title = isIssueLinked ? (task.issue_title || task.label) : task.label; const desc = isIssueLinked ? task.issue_description : task.description; const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD); const photoUrl = isIssueLinked ? task.issue_photo_url : (task.media_url || null); const mediaType = isIssueLinked ? "image" : (task.media_type || "image"); const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name; const assignedByLabel = isIssueLinked ? tr("Reported by") : tr("Assigned by"); const locationParts = [task.site_name]; if (task.building_name) locationParts.push(task.building_name); if (task.floor_number) locationParts.push(tr("Floor {n}", { n: task.floor_number })); locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || tr("General")); const locationStr = locationParts.filter(Boolean).join(" > "); return { isIssueLinked, title, desc, borderColor, photoUrl, mediaType, assignedBy, assignedByLabel, locationStr }; };
 
   if (assignedTasks.length === 0) return (<div style={{ padding: "16px" }}><div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><AlertIco sz={40} c={t.borderSolid} /><div style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{tr("No assigned tasks right now.")}</div><div style={{ fontSize: 12, color: t.textMut, marginTop: 4 }}>{tr("When a supervisor assigns a task to you, it will appear here.")}</div></div></div>);
 
@@ -3033,11 +3149,11 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lk
         <button onClick={() => { setDetail(null); clearForm(); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", marginBottom: 14, background: "none", border: "1px solid " + t.borderSolid, borderRadius: R.sm, color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}><Ico d="M15 18l-6-6 6-6" sz={14} c={t.textSec} /> {tr("Back to assigned tasks")}</button>
         <div style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", boxShadow: t.popShadow }}>
           <div style={{ padding: "16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div><div style={{ display: "flex", gap: 4, flexShrink: 0 }}>{info.isIssueLinked && detail.severity && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (sevC[detail.severity] || ORANGE) + "18", color: sevC[detail.severity] || ORANGE, fontFamily: FONT_HEAD }}>{detail.severity}</span>}{!info.isIssueLinked && detail.priority && detail.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[detail.priority] || GOLD) + "18", color: priC[detail.priority] || t.goldText, fontFamily: FONT_HEAD }}>{detail.priority}</span>}{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>{tr("ISSUE")}</span>}</div></div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div><div style={{ display: "flex", gap: 4, flexShrink: 0 }}>{info.isIssueLinked && detail.severity && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (sevC[detail.severity] || ORANGE) + "18", color: sevC[detail.severity] || ORANGE, fontFamily: FONT_HEAD }}>{levelWord(detail.severity)}</span>}{!info.isIssueLinked && detail.priority && detail.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[detail.priority] || GOLD) + "18", color: priC[detail.priority] || t.goldText, fontFamily: FONT_HEAD }}>{levelWord(detail.priority)}</span>}{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>{tr("ISSUE")}</span>}</div></div>
             <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontFamily: FONT_HEAD, fontWeight: 600 }}>{info.locationStr}</div>
-            {detail.resolution_status && (<div style={{ marginBottom: 12 }}><span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "3px 8px", borderRadius: R.sm, background: detail.resolution_status === "in_progress" ? ORANGE + "18" : GOLD + "18", color: detail.resolution_status === "in_progress" ? ORANGE : t.goldText, fontFamily: FONT_HEAD }}>{detail.resolution_status.replace(/_/g, " ")}</span></div>)}
+            {detail.resolution_status && (<div style={{ marginBottom: 12 }}><span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "3px 8px", borderRadius: R.sm, background: detail.resolution_status === "in_progress" ? ORANGE + "18" : GOLD + "18", color: detail.resolution_status === "in_progress" ? ORANGE : t.goldText, fontFamily: FONT_HEAD }}>{statusWord(detail.resolution_status)}</span></div>)}
             {info.desc && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Description")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{info.desc}</div></div>)}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{info.assignedByLabel}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{info.assignedBy}</div></div><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Site")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{detail.site_name}</div></div>{detail.due_date && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Due Date")}</div><div style={{ fontSize: 13, color: ORANGE, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.due_date).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}{detail.due_time ? " " + tr("at {time}", { time: detail.due_time }) : ""}</div></div>}{detail.task_created_at && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Assigned")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.task_created_at).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })}</div></div>}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{info.assignedByLabel}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{info.assignedBy}</div></div><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Site")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{detail.site_name}</div></div>{detail.due_date && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Due Date")}</div><div style={{ fontSize: 13, color: ORANGE, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.due_date).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}{detail.due_time ? " " + tr("at {time}", { time: clockTime(detail.due_time) }) : ""}</div></div>}{detail.task_created_at && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Assigned")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.task_created_at).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })}</div></div>}</div>
             {info.photoUrl && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{info.mediaType === "video" ? tr("Attached Video") : tr("Attached Photo")}</div>{info.mediaType === "video" ? (<video src={info.photoUrl} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} />) : (<img src={info.photoUrl} alt={tr("Task")} style={{ width: "100%", borderRadius: R.md, maxHeight: 200, objectFit: "cover", border: "1px solid " + t.borderSolid }} />)}</div>)}
             {!isResolving && !isCantResolve && (<div style={{ display: "flex", gap: 6, marginTop: 10 }}>{detail.resolution_status !== "in_progress" && (<button onClick={() => { resolveTask(detail.task_id, "in_progress", null, null); setDetail(null); }} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + ORANGE, background: "transparent", color: ORANGE, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("In Progress")}</button>)}<button onClick={() => { clearForm(); setActivePanel("resolve"); }} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + GREEN, background: "transparent", color: GREEN, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Resolved")}</button><button onClick={() => { clearForm(); setActivePanel("cantresolve"); }} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cannot Resolve")}</button></div>)}
           </div>
@@ -3061,7 +3177,7 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lk
     <div style={{ padding: "16px" }}>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />
       <div style={{ marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Assigned Tasks")}</div><div style={{ fontSize: 11, color: t.textSec }}>{assignedTasks.length === 1 ? tr("{n} task assigned to you", { n: assignedTasks.length }) : tr("{n} tasks assigned to you", { n: assignedTasks.length })}</div></div>
-      {assignedTasks.map(task => { const info = getTaskInfo(task); return (<div key={task.task_id} onClick={() => setDetail(task)} style={{ marginBottom: 10, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", cursor: "pointer", boxShadow: t.shadow }}><div style={{ padding: "12px 14px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div>{info.desc && <div style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{info.desc}</div>}</div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8, alignItems: "center" }}>{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>{tr("ISSUE")}</span>}{!info.isIssueLinked && task.priority && task.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[task.priority] || GOLD) + "18", color: priC[task.priority] || t.goldText, fontFamily: FONT_HEAD }}>{task.priority}</span>}<Ico d="M9 18l6-6-6-6" sz={14} c={t.textMut} /></div></div><div style={{ display: "flex", gap: 8, marginTop: 8, fontSize: 10, color: t.textMut, flexWrap: "wrap", alignItems: "center" }}><span>{info.locationStr}</span><span>{info.assignedByLabel} {info.assignedBy}</span>{task.resolution_status === "in_progress" && <span style={{ fontSize: 9, fontWeight: 600, color: ORANGE, textTransform: "uppercase" }}>{tr("In Progress")}</span>}</div>{task.due_date && (<div style={{ marginTop: 6, fontSize: 10, color: ORANGE, fontVariantNumeric: "tabular-nums" }}>{tr("Due:")} {new Date(task.due_date).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })}{task.due_time ? " " + tr("at {time}", { time: task.due_time }) : ""}</div>)}</div></div>); })}
+      {assignedTasks.map(task => { const info = getTaskInfo(task); return (<div key={task.task_id} onClick={() => setDetail(task)} style={{ marginBottom: 10, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", cursor: "pointer", boxShadow: t.shadow }}><div style={{ padding: "12px 14px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div>{info.desc && <div style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{info.desc}</div>}</div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8, alignItems: "center" }}>{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>{tr("ISSUE")}</span>}{!info.isIssueLinked && task.priority && task.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[task.priority] || GOLD) + "18", color: priC[task.priority] || t.goldText, fontFamily: FONT_HEAD }}>{levelWord(task.priority)}</span>}<Ico d="M9 18l6-6-6-6" sz={14} c={t.textMut} /></div></div><div style={{ display: "flex", gap: 8, marginTop: 8, fontSize: 10, color: t.textMut, flexWrap: "wrap", alignItems: "center" }}><span>{info.locationStr}</span><span>{info.assignedByLabel} {info.assignedBy}</span>{task.resolution_status === "in_progress" && <span style={{ fontSize: 9, fontWeight: 600, color: ORANGE, textTransform: "uppercase" }}>{tr("In Progress")}</span>}</div>{task.due_date && (<div style={{ marginTop: 6, fontSize: 10, color: ORANGE, fontVariantNumeric: "tabular-nums" }}>{tr("Due:")} {new Date(task.due_date).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })}{task.due_time ? " " + tr("at {time}", { time: clockTime(task.due_time) }) : ""}</div>)}</div></div>); })}
     </div>
   );
 }
@@ -3095,7 +3211,7 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites, 
         <button onClick={handleSubmit} disabled={uploading} style={{ width: "100%", minHeight: TAP, padding: "13px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Issue")}</button>
       </div>)}
       {isAdmin && visibleIssues.length === 0 && !showForm && <div style={{ padding: "32px 20px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontSize: 13, color: t.textMut, boxShadow: t.shadow }}>{tr("No issues reported yet.")}</div>}
-      {isAdmin && visibleIssues.map(issue => { const sc = sevC[issue.severity] || ORANGE; return (<div key={issue.id} style={{ padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + sc, boxShadow: t.shadow }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><div style={{ fontSize: 13, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{issue.title}</div><span style={{ fontSize: 9, color: sc, background: sc + "20", padding: "3px 7px", borderRadius: R.sm, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{issue.severity}</span></div><div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 9, color: t.textMut }}><span>{issue.zone}</span><span>{issue.site_name}</span><span style={{ color: issue.status === "open" ? ORANGE : GREEN, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{issue.status}</span></div></div>); })}
+      {isAdmin && visibleIssues.map(issue => { const sc = sevC[issue.severity] || ORANGE; return (<div key={issue.id} style={{ padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + sc, boxShadow: t.shadow }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><div style={{ fontSize: 13, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{issue.title}</div><span style={{ fontSize: 9, color: sc, background: sc + "20", padding: "3px 7px", borderRadius: R.sm, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{levelWord(issue.severity)}</span></div><div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 9, color: t.textMut }}><span>{issue.zone}</span><span>{issue.site_name}</span><span style={{ color: issue.status === "open" ? ORANGE : GREEN, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{statusWord(issue.status)}</span></div></div>); })}
     </div>
   );
 }
@@ -3415,7 +3531,7 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                   <button onClick={() => move(i, -1)} disabled={i === 0} aria-label={tr("Move up {name}", { name })} style={{ ...rowBtn, flex: 1, opacity: i === 0 ? 0.4 : 1 }}>{tr("Move up")}</button>
                   <button onClick={() => move(i, 1)} disabled={i === SHORTCUT_SLOTS - 1} aria-label={tr("Move down {name}", { name })} style={{ ...rowBtn, flex: 1, opacity: i === SHORTCUT_SLOTS - 1 ? 0.4 : 1 }}>{tr("Move down")}</button>
-                  <button onClick={() => removeAt(i)} aria-label={tr("Remove {name}", { name })} style={{ ...rowBtn, flex: 1, color: RED, borderColor: RED }}>{tr("Remove")}</button>
+                  <button onClick={() => removeAt(i)} aria-label={tr("Remove {name} from the bar", { name })} style={{ ...rowBtn, flex: 1, color: RED, borderColor: RED }}>{tr("Remove")}</button>
                 </div>
               </div>
             );
@@ -3640,11 +3756,11 @@ function ChangePinCard({ token, user, showToast, t, cardSt }) {
 
   const changePin = async () => {
     const e = {};
-    if (!PIN_RE.test(pinForm.current)) e.current = "Enter your current 4-digit PIN.";
+    if (!PIN_RE.test(pinForm.current)) e.current = tr("Enter your current 4-digit PIN.");
     const why = weakPinReason(pinForm.next, user && user.badgeNumber);
     if (why) e.next = why;
     else if (pinForm.confirm !== pinForm.next) e.confirm = tr(ERR_PIN_MISMATCH);
-    else if (pinForm.next === pinForm.current) e.next = "Your new PIN must be different from your current PIN.";
+    else if (pinForm.next === pinForm.current) e.next = tr("Your new PIN must be different from your current PIN.");
     setPinErrs(e);
     if (Object.keys(e).length) return;
     setPinSaving(true);
@@ -3653,8 +3769,11 @@ function ChangePinCard({ token, user, showToast, t, cardSt }) {
       showToast(tr("PIN updated"));
       setPinForm({ current: "", next: "", confirm: "" });
     } catch (err) {
-      const msg = err.message || "Could not update your PIN.";
-      setPinErrs(/new/i.test(msg) ? { next: msg } : { current: msg });
+      // The API's own sentence says which PIN it means; it is read in
+      // English, and drawn in the person's language.
+      const said = err.message || "Could not update your PIN.";
+      const msg = tr(said);
+      setPinErrs(/new/i.test(said) ? { next: msg } : { current: msg });
     }
     setPinSaving(false);
   };
@@ -4413,7 +4532,6 @@ function PickupView({ token, user, showToast, t }) {
 
   const fmtDate = (d) => { const s = String(d).slice(0, 10); return new Date(s + "T00:00:00").toLocaleDateString(dateLocale(), { weekday: "short", month: "short", day: "numeric" }); };
   const fmtTm = (t) => { const [h, m] = String(t).split(":").map(Number); return new Date(2024, 0, 1, h, m || 0).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }); };
-  const originLabel = { callout: tr("Callout"), no_show: tr("No-Show"), extra_coverage: tr("Extra Coverage"), voluntary_drop: tr("Voluntary Drop"), new_shift: tr("New Shift") };
   const originColor = { callout: RED, no_show: RED, extra_coverage: ORANGE, voluntary_drop: BLUE, new_shift: GOLD };
 
   const loadAvailable = async () => {
@@ -4502,7 +4620,7 @@ function PickupView({ token, user, showToast, t }) {
                   </div>
                   <div style={{ fontSize: 12, color: t.textSec, fontVariantNumeric: "tabular-nums" }}>{fmtDate(s.scheduled_date)}</div>
                 </div>
-                <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 7px", borderRadius: R.sm, background: (originColor[s.origin] || GOLD) + "18", color: originColor[s.origin] || t.goldText, fontFamily: FONT_HEAD }}>{originLabel[s.origin] || s.origin}</span>
+                <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 7px", borderRadius: R.sm, background: (originColor[s.origin] || GOLD) + "18", color: originColor[s.origin] || t.goldText, fontFamily: FONT_HEAD }}>{ORIGIN_WORDS[s.origin] ? ORIGIN_WORDS[s.origin]() : s.origin}</span>
               </div>
 
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, padding: "8px 10px", borderRadius: R.md, background: t.cardAlt }}>
@@ -4556,7 +4674,7 @@ function PickupView({ token, user, showToast, t }) {
                     <div style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{s.site_name}</div>
                     <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{fmtDate(s.scheduled_date)}</div>
                   </div>
-                  <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 7px", borderRadius: R.sm, background: sColor + "18", color: sColor, textTransform: "uppercase", fontFamily: FONT_HEAD }}>{s.status}</span>
+                  <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 7px", borderRadius: R.sm, background: sColor + "18", color: sColor, textTransform: "uppercase", fontFamily: FONT_HEAD }}>{statusWord(s.status)}</span>
                 </div>
 
                 <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, padding: "8px 10px", borderRadius: R.md, background: t.cardAlt }}>
@@ -4797,7 +4915,7 @@ function InspectView({ token, user, showToast, t }) {
           <button key={si.id} onClick={() => openInspection(si.id)} style={{ width: "100%", display: "block", padding: "14px", borderRadius: R.md, border: "1.5px solid " + t.borderSolid, background: t.card, cursor: "pointer", textAlign: "left", boxShadow: t.shadow }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: t.text, flex: 1, marginRight: 8, fontFamily: FONT_HEAD }}>{si.template_name}</div>
-              <span style={{ fontSize: 9, fontWeight: 600, padding: "3px 8px", borderRadius: R.sm, background: (STATUS_C[si.status] || BLUE) + "18", color: STATUS_C[si.status] || BLUE, textTransform: "uppercase", flexShrink: 0, fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{si.status.replace("_", " ")}</span>
+              <span style={{ fontSize: 9, fontWeight: 600, padding: "3px 8px", borderRadius: R.sm, background: (STATUS_C[si.status] || BLUE) + "18", color: STATUS_C[si.status] || BLUE, textTransform: "uppercase", flexShrink: 0, fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{statusWord(si.status)}</span>
             </div>
             <div style={{ fontSize: 12, color: t.textSec }}>{si.site_name}</div>
             <div style={{ fontSize: 11, color: t.textMut, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{tr("Scheduled")} {fmtDate(si.scheduled_date)}</div>
@@ -4859,7 +4977,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
   };
   useEffect(() => { loadProfile(); }, []);
 
-  const fmtDate = d => { if (!d) return "Not set"; const dt = typeof d === "string" ? d.split("T")[0] : new Date(d).toISOString().split("T")[0]; const [y, m, dy] = dt.split("-"); const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]; return months[parseInt(m) - 1] + " " + parseInt(dy) + ", " + y; };
+  const fmtDate = d => { if (!d) return tr("Not set"); const dt = typeof d === "string" ? d.split("T")[0] : new Date(d).toISOString().split("T")[0]; const day = localDay(dt); return day ? day.toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" }) : dt; };
 
   const handlePhotoUpload = async (file) => {
     if (!file) return;
@@ -4868,12 +4986,12 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
     try {
       // Compress to 512x512 max, JPEG quality 80%
       const compressed = await compressImage(file, 800, 0.85);
-      const res = await fetch(API + "/api/uploads?bucket=profile-photos&ext=jpg", {
+      const res = await reach(API + "/api/uploads?bucket=profile-photos&ext=jpg", {
         method: "POST", headers: { "Authorization": "Bearer " + token, "Content-Type": "image/jpeg" }, body: compressed
       });
       if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || UPLOAD_FAILED); }
-      const r = await res.json();
+      const r = await readJson(res);
       await api("/api/users/profile/photo", { method: "POST", body: { photoUrl: r.url }, token });
       showToast(tr("Photo updated"));
       setUser(prev => ({ ...prev, profilePhotoUrl: r.url }));
@@ -4935,7 +5053,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
         </div>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 20, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{u.firstName} {u.lastName}</div>
-          <div style={{ fontSize: 12, color: t.goldText, marginTop: 2 }}>{u.role?.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
+          <div style={{ fontSize: 12, color: t.goldText, marginTop: 2 }}>{u.role ? roleWord(u.role) : ""}</div>
           <div style={{ fontSize: 10, color: t.textMut, marginTop: 4, overflowWrap: "anywhere" }}>{u.phone} | {u.email}</div>
           {u.employeeId
             ? <div style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", maxWidth: "100%", boxSizing: "border-box", gap: 6, marginTop: 8, padding: "3px 10px", borderRadius: R.sm, background: t.goldSubtle, border: "1px solid " + GOLD }}>
@@ -4990,7 +5108,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
         {profile.assignments.map((a, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", background: t.hover, borderRadius: R.sm, marginBottom: 4 }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{a.site_name}</div>
-            <div style={{ fontSize: 10, color: t.textMut, marginTop: 2 }}>{a.role_at_site || tr("Staff")} | {a.shift_name || tr("No shift")}{a.shift_start ? " | " + a.shift_start + " - " + a.shift_end : ""}</div>
+            <div style={{ fontSize: 10, color: t.textMut, marginTop: 2 }}>{a.role_at_site || tr("Staff")} | {a.shift_name || tr("No shift")}{a.shift_start ? " | " + clockTime(a.shift_start) + " - " + clockTime(a.shift_end) : ""}</div>
           </div>
         </div>)}
       </div>}

@@ -37,6 +37,30 @@ const LEAVE_TYPES = [
   { value: "military", label: "Military leave" },
 ];
 
+// The four pick lists the portal reads from /api/lookups. Every label is
+// English, the way the live API sends it, and every one is the English
+// the portal's own fallback draws when no list arrives.
+const pick = (slug, rows) => ({ slug: slug, values: rows.map((r, i) => Object.assign({ value: r[0], label: r[1], is_active: true, sort_order: i + 1 }, r[2] || {})) });
+const LOOKUPS = [
+  pick("drop_reasons", [["sick", "Sick"], ["personal", "Personal"], ["scheduling_conflict", "Scheduling Conflict"], ["emergency", "Emergency"], ["other", "Other", { show_other_input: true }]]),
+  pick("issue_severities", [["low", "Low", { color: "#2ECC71" }], ["medium", "Medium", { color: "#F39C12" }], ["high", "High", { color: "#E74C3C" }]]),
+  pick("request_types", [["refill", "Refill"], ["damage_report", "Damage Report"], ["new_gear", "New Gear"], ["new_supply", "New Supply"]]),
+  pick("urgency_levels", [["normal", "Normal"], ["urgent", "Urgent", { color: "#E74C3C" }]]),
+];
+
+// One scheduled inspection and the items it asks about. The template's
+// name, each item and each item's zone are English, the way the live API
+// sends them.
+const INSPECTION = {
+  id: "in-1", template_name: "Lobby walk", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled",
+  items: [
+    { id: "it-1", label: "Glass doors are free of smudges", zone: "Lobby", max_score: 5 },
+    { id: "it-2", label: "Floor mats are straight and dry", zone: "Lobby", max_score: 5 },
+  ],
+};
+// One on the list that the API no longer has when it is opened.
+const INSPECTION_GONE = { id: "in-gone", template_name: "Stairwell walk", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled", gone: true };
+
 // Every refusal the time off routes can answer with, in the order the
 // Step 79 contract lists them. The suite shows each one word for word.
 const TIME_OFF_REFUSALS = [
@@ -68,7 +92,9 @@ const timeOffRow = (o) => Object.assign({
 }, o || {});
 
 // One incident report, enough fields to walk a person through it and to
-// refuse a submit with one still missing.
+// refuse a submit with one still missing. Its words are written here in
+// English and served in the language the request asks for, the way the
+// real catalog serves every form.
 const FORM = {
   code: "OCSA-FIX-101",
   title: "Incident report",
@@ -86,9 +112,17 @@ function makeState(opts) {
   return {
     // Every request the app made, newest last.
     calls: [],
-    // Every string the stub has served. A Spanish screen showing one of
+    // Every name the stub has served. A Spanish screen showing one of
     // these is showing a value, not a word the app forgot to translate.
     served: new Set(),
+    // Every word it has served, by the value sent, with both twins and
+    // its kind, and every code. See "names, words and codes" below.
+    words: new Map(),
+    codes: new Set(),
+    // The account asks for a new PIN before anything else, and an
+    // activation link whose row carries a badge number.
+    mustSetPin: !!o.mustSetPin,
+    activationBadge: !!o.activationBadge,
     // Flip these from a case to make a route answer differently.
     refuse: o.refuse || {},          // "POST /api/time-off": { status, body }
     offline: false,                  // every call fails at the network
@@ -100,6 +134,7 @@ function makeState(opts) {
     myTimeOff: o.myTimeOff || [],
     drafts: o.drafts || [],
     notifications: o.notifications || [],
+    inspections: o.inspections || [],
     conversationId: "cv-one",
     uploadsFail: false,
     prefsPatches: [],
@@ -263,6 +298,162 @@ const STAFF = [
   { id: "s-12", firstName: "Luis", lastName: "Lozano" },
 ];
 
+// --- names, words and codes ---------------------------------------------
+//
+// Every string the stub serves is one of three things, and the Spanish
+// check treats each one its own way.
+//
+//   a name   a site, a building, a person, an id, a date, a number. Drawn
+//            the way it was sent, in any language.
+//   a word   something a person reads: a refusal, a message, form text, a
+//            Help reply, a to-do item or its zone, a pick list choice, a
+//            notice, a supply, an inspection item, a leave type, a shift
+//            name, a site role. On a Spanish screen it has to be Spanish.
+//   a code   a status, a role, a priority, a severity or an origin. The
+//            screen is meant to put it into words, never draw it as sent.
+//
+// Every invented word has a Spanish twin below. A kind the live API
+// already sends in Spanish is served in the language the request asked
+// for: the locale it carries, or the person's own saved language on a
+// route that carries none. Every other kind is served in English, the way
+// the live API serves it today, so a Spanish screen that draws one as
+// sent shows the gap, and audit/known.json names it with its reason. The
+// day the API sends a kind in Spanish, it joins LIVE_KINDS, its twins are
+// served, and the known entry stops matching and has to come off.
+const LIVE_KINDS = new Set(["form text"]);
+
+const { ES } = require("./words");
+const tableTwin = (en) => [en, Object.prototype.hasOwnProperty.call(ES, en) ? ES[en] : null];
+
+const TWIN_PAIRS = [
+  // To-do items, their instructions and their zones.
+  ["Wipe the entry doors and handles", "Limpie las puertas de entrada y las manijas"],
+  ["Work top to bottom.", "Trabaje de arriba hacia abajo."],
+  ["Empty every bin on the floor", "Vac\u00ede todos los botes de basura del piso"],
+  ["Mop the corridor end to end", "Trapee el pasillo de punta a punta"],
+  ["Restock paper towels and soap", "Reponga las toallas de papel y el jab\u00f3n"],
+  ["Refill the sanitizer stands", "Rellene los dispensadores de desinfectante"],
+  ["Replace the cracked light cover", "Cambie la cubierta rota de la l\u00e1mpara"],
+  ["Second floor corridor.", "Pasillo del segundo piso."],
+  ["Entrance", "Entrada"],
+  ["Corridor", "Pasillo"],
+  ["Restroom", "Ba\u00f1o"],
+  // Supplies.
+  ["Paper towels", "Toallas de papel"],
+  ["rolls", "rollos"],
+  // Notices.
+  ["Supply request approved", "Solicitud de insumos aprobada"],
+  ["Two cases of paper towels.", "Dos cajas de toallas de papel."],
+  ["Something happened", "Algo pas\u00f3"],
+  ["An invented notice.", "Un aviso inventado."],
+  // A site role, a shift name and a service.
+  ["Staff", "Personal"],
+  ["Evening", "Tarde"],
+  ["Day porter", "Conserje de d\u00eda"],
+  // Messages and Help's reply.
+  ["Usage logged", "Uso registrado"],
+  ["Take the pads from the second floor store room.", "Tome los pa\u00f1os del almac\u00e9n del segundo piso."],
+  // Refusals the portal's own table does not carry.
+  ["Answer every required question before sending", "Responda todas las preguntas obligatorias antes de enviar"],
+  ["This account is locked. Ask your supervisor to unlock it.", "Esta cuenta est\u00e1 bloqueada. Pida a su supervisor que la desbloquee."],
+  ["A shift is already open at another site", "Ya hay un turno abierto en otro sitio"],
+  ["Endpoint not found", "No se encontr\u00f3 la ruta"],
+  // The first form, which the catalog serves in either language.
+  ["Incident report", "Reporte de incidente"],
+  ["When did it happen", "Cu\u00e1ndo pas\u00f3"],
+  ["Where did it happen", "D\u00f3nde pas\u00f3"],
+  ["Was anyone hurt", "Alguien sali\u00f3 herido"],
+  ["People", "Personas"],
+  ["Who else was there", "Qui\u00e9n m\u00e1s estaba ah\u00ed"],
+  // An inspection, its items and their zone.
+  ["Lobby walk", "Recorrido del vest\u00edbulo"],
+  ["Glass doors are free of smudges", "Las puertas de vidrio no tienen manchas"],
+  ["Floor mats are straight and dry", "Los tapetes est\u00e1n derechos y secos"],
+  ["Lobby", "Vest\u00edbulo"],
+  ["Inspection not found", "No se encontr\u00f3 la inspecci\u00f3n"],
+  ["Stairwell walk", "Recorrido de la escalera"],
+  ["The badge number does not match this account.", "El n\u00famero de empleado no coincide con esta cuenta."],
+  // The one pick list label the portal's own table does not carry yet.
+  ["Medium", "Media"],
+]
+  // Words the portal's own table already carries, with its Spanish.
+  .concat(["Describe what happened", "What happened", "No", "Yes", "Shift started", "Shift ended",
+    "Sick", "Personal", "Scheduling Conflict", "Emergency", "Other", "Low", "High",
+    "Refill", "Damage Report", "New Gear", "New Supply", "Normal", "Urgent"].map(tableTwin))
+  .concat(LEAVE_TYPES.map(t => tableTwin(t.label)))
+  .concat(TIME_OFF_REFUSALS.map(r => tableTwin(r.error)))
+  .concat(HR_CASE_REFUSALS.map(tableTwin))
+  .concat(["That sign-in did not match. Check your badge, phone or email and your PIN.", "Session expired", "Request failed",
+    "Photo upload failed", "A sign-off is made with its own button", "That is not a sign-off on this form",
+    "You cannot sign this part of the form", "This part is already signed"].map(tableTwin))
+  // The second form, already written in both languages above.
+  .concat(Object.keys(FORM_P_WORDS.en).map(k => [FORM_P_WORDS.en[k], FORM_P_WORDS.es[k]]))
+  .concat([1, 2, 3, 4, 5].map(n => [ROW_WORD.en + " " + n, ROW_WORD.es + " " + n]));
+
+const TWIN_ES = new Map();
+const TWIN_EN = new Map();
+TWIN_PAIRS.forEach(([en, es]) => {
+  if (!en || !es) throw new Error("the stub has an English word with no Spanish twin: " + en);
+  if (!TWIN_ES.has(en)) TWIN_ES.set(en, es);
+  if (!TWIN_EN.has(es)) TWIN_EN.set(es, en);
+});
+
+// What a field carries. A field not named here holds a name.
+const CODE_FIELDS = new Set(["status", "role", "priority", "severity", "origin", "resolution_status", "shift_status"]);
+const WORD_FIELDS = {
+  error: "refusal", message: "message", reply: "Help reply", citedDocs: "procedure name",
+  leaveTypeLabel: "leave type", role_at_site: "site role", shift_name: "shift name",
+  service_category: "service", supply_name: "supply", unit: "supply",
+  template_name: "inspection item", description: "to-do item", zone: "to-do zone",
+  issue_title: "to-do item", issue_description: "to-do item",
+  formName: "form text", section: "form text", help: "form text",
+};
+// The fields whose meaning depends on the route that sent them.
+const ROUTE_WORDS = [
+  [/^GET \/api\/sites\/[^/]+\/tasks$/, { label: "to-do item" }],
+  [/^GET \/api\/clock\/tasks\/assigned$/, { label: "to-do item" }],
+  [/^GET \/api\/lookups$/, { label: "pick list choice" }],
+  [/^GET \/api\/notifications$/, { title: "notice", body: "notice" }],
+  [/^GET \/api\/supplies$/, { name: "supply" }],
+  [/^GET \/api\/time-off\/types$/, { label: "leave type" }],
+  [/^[A-Z]+ \/api\/forms/, { title: "form text", label: "form text", rows: "form text" }],
+  [/^GET \/api\/inspections\//, { name: "inspection item", label: "inspection item", zone: "inspection item" }],
+];
+const kindsFor = (method, pathname) => {
+  const hit = ROUTE_WORDS.find(r => r[0].test(method + " " + pathname));
+  const own = hit ? hit[1] : {};
+  return (field) => own[field] || WORD_FIELDS[field] || (CODE_FIELDS.has(field) ? "code" : "name");
+};
+
+// Step 113 in the API: the seven calls made before anyone signs in are
+// answered in the language the request asks for, ?locale= first and the
+// browser's Accept-Language after it. Every word on them is served that
+// way, so a call that forgets ?locale= hears back in the phone's language.
+const SIGNED_OUT = [
+  /^POST \/api\/auth\/login$/, /^POST \/api\/auth\/register$/,
+  /^GET \/api\/auth\/activate\/[^/]+$/, /^POST \/api\/auth\/activate$/,
+  /^POST \/api\/auth\/reset\/request$/, /^GET \/api\/auth\/reset\/[^/]+$/, /^POST \/api\/auth\/reset$/,
+];
+const signedOutLanguage = (search, accept) => {
+  const m = String(search || "").match(/[?&]locale=(en|es)\b/);
+  if (m) return m[1];
+  return /^\s*es\b/i.test(String(accept || "")) ? "es" : "en";
+};
+
+// The language one request asked for.
+const languageOf = (search, state) => {
+  const m = String(search || "").match(/[?&]locale=(en|es)\b/);
+  if (m) return m[1];
+  return state.accountPreferences && state.accountPreferences.language === "es" ? "es" : "en";
+};
+
+// What the Spanish check reads, from one stub.
+function servedFor(stub) {
+  const st = stub && stub.state;
+  if (!st) return { names: [], words: [], codes: [] };
+  return { names: Array.from(st.served), words: Array.from(st.words.values()), codes: Array.from(st.codes) };
+}
+
 const json = (status, body) => ({ status: status, contentType: "application/json", body: JSON.stringify(body) });
 
 function createStub(opts) {
@@ -286,7 +477,8 @@ function createStub(opts) {
     { id: "task-2", label: "Empty every bin on the floor", zone: "Entrance", floor_number: "2", task_type: "standard" },
     { id: "task-3", label: "Mop the corridor end to end", zone: "Corridor", floor_number: "2", task_type: "standard" },
     { id: "task-4", label: "Restock paper towels and soap", zone: "Restroom", floor_number: "2", task_type: "standard" },
-    { id: "task-5", label: "Refill the sanitizer stands", zone: "Restroom", floor_number: "2", task_type: "standard" },
+    // One with no zone, which the screen gathers under its own heading.
+    { id: "task-5", label: "Refill the sanitizer stands", floor_number: "2", task_type: "standard" },
   ]);
 
   // A route a case has asked to refuse wins over the answer below it.
@@ -309,13 +501,24 @@ function createStub(opts) {
       if (body && body.pin !== "4907") return json(401, { error: "That sign-in did not match. Check your badge, phone or email and your PIN." });
       return json(200, { token: "token-one" });
     }
-    if (key === "GET /api/auth/me") return json(200, { user: state.person, sites: SITES, preferences: state.accountPreferences });
+    if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: SITES, preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
     if (key === "POST /api/auth/register") return json(200, { ok: true });
     if (key === "POST /api/auth/reset/request") return json(200, { ok: true });
-    if (key === "POST /api/auth/change-pin") return json(200, { ok: true });
-    if (method === "GET" && /^\/api\/auth\/activate\//.test(pathname)) return json(200, { firstName: state.person.firstName, badgeAssigned: false, preferredLanguage: "en" });
-    if (key === "POST /api/auth/activate") return json(200, { token: "token-one" });
-    if (method === "GET" && /^\/api\/auth\/reset\//.test(pathname)) return json(200, { firstName: state.person.firstName });
+    if (key === "POST /api/auth/change-pin") { state.mustSetPin = false; return json(200, { ok: true }); }
+    // A link is good for twelve hours from the suite's clock. The account's
+    // saved language rides along when the account has one.
+    const linkInfo = () => Object.assign({ firstName: state.person.firstName, expiresAt: iso(NOW.getTime() + 12 * 60 * 60 * 1000) },
+      (state.accountPreferences && (state.accountPreferences.language === "en" || state.accountPreferences.language === "es")) ? { preferredLanguage: state.accountPreferences.language } : {});
+    if (method === "GET" && /^\/api\/auth\/activate\//.test(pathname)) return json(200, Object.assign(linkInfo(), { badgeAssigned: state.activationBadge }));
+    // A link whose row carries a badge number turns away one that does
+    // not match, with a code the screen reads and a sentence it does not.
+    if (key === "POST /api/auth/activate") {
+      if (state.activationBadge && body && body.badgeNumber && body.badgeNumber !== state.person.badgeNumber) {
+        return json(400, { error: "The badge number does not match this account.", code: "BADGE_MISMATCH" });
+      }
+      return json(200, { token: "token-one" });
+    }
+    if (method === "GET" && /^\/api\/auth\/reset\//.test(pathname)) return json(200, { firstName: state.person.firstName, expiresAt: linkInfo().expiresAt });
     if (key === "POST /api/auth/reset") return json(200, { token: "token-one" });
 
     // --- the person's own settings
@@ -327,7 +530,7 @@ function createStub(opts) {
       return json(200, { ok: true });
     }
     if (key === "GET /api/users/profile/me") return json(200, {
-      user: Object.assign({}, state.person, { employeeId: "OCSA-0001", preferredLanguage: "English", addressLine1: "", city: "", state: "", zipCode: "", emergencyContactName: "", emergencyContactPhone: "", birthday: null }),
+      user: Object.assign({}, state.person, { employeeId: "OCSA-0001", preferredLanguage: "English", addressLine1: "", city: "", state: "", zipCode: "", emergencyContactName: "", emergencyContactPhone: "", birthday: "1990-08-14" }),
       assignments: [{ site_name: "North Building", role_at_site: "Staff", shift_name: "Evening", shift_start: "17:00", shift_end: "23:00" }],
     });
     if (key === "PATCH /api/users/profile/me") return json(200, { ok: true });
@@ -350,12 +553,14 @@ function createStub(opts) {
     if (method === "PATCH" && /^\/api\/shift-sessions\//.test(pathname)) { state.clockedIn = false; return json(200, { message: "Shift ended" }); }
     if (key === "GET /api/sites") return json(200, SITES);
     if (method === "GET" && /^\/api\/sites\/[^/]+\/tasks$/.test(pathname)) return json(200, tasks());
-    if (key === "GET /api/lookups") return json(200, []);
+    // The four pick lists, in English, the way the live API sends them.
+    // The colors are the ones the screens draw when no list arrives.
+    if (key === "GET /api/lookups") return json(200, LOOKUPS);
 
     // --- the calendar
     if (pathname === "/api/pickups/my-schedule") return json(200, schedule());
     if (key === "GET /api/pickups/available") return json(200, [
-      { id: "pk-1", scheduled_date: "2026-10-08", start_time: "17:00", end_time: "23:00", site_name: "South Building", origin: "shift_drop" },
+      { id: "pk-1", scheduled_date: "2026-10-08", start_time: "17:00", end_time: "23:00", site_name: "South Building", origin: "voluntary_drop", service_category: "Day porter" },
     ]);
     if (key === "GET /api/pickups/my-pickups") return json(200, []);
     if (key === "POST /api/pickups/request-drop") return json(200, { ok: true });
@@ -462,6 +667,11 @@ function createStub(opts) {
     if (key === "POST /api/supplies/requests") return json(200, { ok: true });
 
     // --- inspections
+    if (pathname === "/api/inspections/scheduled" && method === "GET") return json(200, state.inspections.map(i => Object.assign({}, i, { items: undefined, gone: undefined })));
+    if (method === "GET" && /^\/api\/inspections\/scheduled\/[^/]+$/.test(pathname)) {
+      const one = state.inspections.find(i => pathname.endsWith("/" + i.id) && !i.gone);
+      return one ? json(200, one) : json(404, { error: "Inspection not found" });
+    }
     if (pathname === "/api/inspections/scheduled") return json(200, []);
     if (key === "GET /api/inspections/templates") return json(200, []);
     if (method === "PATCH" && /^\/api\/inspections\/scheduled\//.test(pathname)) return json(200, { ok: true });
@@ -508,22 +718,43 @@ function createStub(opts) {
   }
 
   state.answers = {};
-  // Every answer goes through here on its way out, so state.served
-  // holds what the screens were actually given.
-  function remember(answer) {
+  // Every answer goes through here on its way out. A word of a kind the
+  // live API already sends in Spanish is served in the language the
+  // request asked for, and every string is recorded as a name, a word or
+  // a code, so the Spanish check knows what the screens were given.
+  function remember(answer, method, pathname, search, accept) {
     if (!answer || typeof answer.body !== "string") return answer;
     let data;
     try { data = JSON.parse(answer.body); } catch (e) { return answer; }
-    const walk = (v) => {
-      if (typeof v === "string") { state.served.add(v); return; }
-      if (Array.isArray(v)) { v.forEach(walk); return; }
-      if (v && typeof v === "object") Object.keys(v).forEach(k => walk(v[k]));
+    const kindOf = kindsFor(method, pathname);
+    const signedOut = SIGNED_OUT.some(re => re.test(method + " " + pathname));
+    const spanish = (signedOut ? signedOutLanguage(search, accept) : languageOf(search, state)) === "es";
+    const record = (v, kind) => {
+      if (kind === "name") { state.served.add(v); return; }
+      if (kind === "code") { state.codes.add(v); return; }
+      const en = TWIN_ES.has(v) ? v : (TWIN_EN.get(v) || v);
+      const es = TWIN_ES.has(v) ? TWIN_ES.get(v) : (TWIN_EN.has(v) ? v : null);
+      state.words.set(v, { value: v, en: en, es: es, kind: kind });
     };
-    walk(data);
-    return answer;
+    const walk = (v, field) => {
+      if (typeof v === "string") {
+        const kind = kindOf(field);
+        const out = (spanish && (signedOut || LIVE_KINDS.has(kind)) && TWIN_ES.has(v)) ? TWIN_ES.get(v) : v;
+        record(out, kind);
+        return out;
+      }
+      if (Array.isArray(v)) return v.map(x => walk(x, field));
+      if (v && typeof v === "object") {
+        const o = {};
+        Object.keys(v).forEach((k) => { o[k] = walk(v[k], k); });
+        return o;
+      }
+      return v;
+    };
+    return Object.assign({}, answer, { body: JSON.stringify(walk(data, "")) });
   }
 
-  return { handle: (method, pathname, search, body) => remember(handle(method, pathname, search, body)), state: state };
+  return { handle: (method, pathname, search, body, accept) => remember(handle(method, pathname, search, body), method, pathname, search, accept), state: state };
 }
 
 function draftOf(state) {
@@ -536,4 +767,4 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, formP, timeOffRow, ymd, iso, DAY };
+module.exports = { createStub, servedFor, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, formP, timeOffRow, ymd, iso, DAY };

@@ -77,6 +77,11 @@ Try Again,Intentar de nuevo,Sign in
 Your account is activated but not currently active. Contact your supervisor.,Su cuenta está activada pero no está activa en este momento. Hable con su supervisor.,Sign in
 Your PIN has been changed. Contact your supervisor about your account status.,Su PIN fue cambiado. Hable con su supervisor sobre el estado de su cuenta.,Sign in
 Your PIN has been saved. Signing in will work once your account is active.,Su PIN se guardó. Podrá iniciar sesión cuando su cuenta esté activa.,Sign in
+PIN must be exactly 4 digits.,El PIN debe tener exactamente 4 dígitos.,"Sign in, Settings"
+Four of the same digit is too easy to guess. Use a mix of digits.,Cuatro dígitos iguales son muy fáciles de adivinar. Use dígitos distintos.,"Sign in, Settings"
+"Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.","Los dígitos seguidos, como 1234 o 4321, son muy fáciles de adivinar. Use otro orden.","Sign in, Settings"
+Your PIN cannot be your badge number or its last four digits.,Su PIN no puede ser su número de empleado ni sus últimos cuatro dígitos.,"Sign in, Settings"
+Enter the badge number from your email.,Escriba el número de empleado que aparece en su correo.,Sign in
 A new version is ready,Hay una versión nueva lista,"App wide, the update bar"
 Add {app} to your home screen,Agregue {app} a su pantalla de inicio,"App wide, the install sheet"
 Confirm on the next screen.,Confirme en la siguiente pantalla.,"App wide, the install sheet"
@@ -120,7 +125,7 @@ Tap the Share button {share} at the bottom of the screen.,Toque el botón Compar
 Tap the Share button {share} in the address bar.,Toque el botón Compartir {share} en la barra de direcciones.,"App wide, the install sheet"
 Task completed,Tarea completada,App wide
 Task unchecked,Tarea desmarcada,App wide
-Task updated to {status},Tarea actualizada a {status},App wide
+Task updated to {status},Estado de la tarea: {status},App wide
 "That sign-in did not match. Check your badge, phone or email and your PIN.","Esos datos no coinciden. Revise su número de empleado, teléfono o correo y su PIN.",App wide
 "This page is open inside another app. Open it in Safari or Chrome first, then add it to your home screen.",Esta página está abierta dentro de otra aplicación. Ábrala primero en Safari o Chrome y luego agréguela a su pantalla de inicio.,"App wide, the install sheet"
 This shift was already ended,Este turno ya estaba terminado,App wide
@@ -128,6 +133,17 @@ this site,este sitio,App wide
 Update now,Actualizar ahora,"App wide, the update bar"
 "Welcome, {name}","Bienvenido, {name}",App wide
 {count} unread notifications,{count} notificaciones sin leer,App wide
+{brand} Staff Portal,Portal del Personal de {brand},"App wide, the page title"
+Could not read image,No se pudo leer la imagen,"App wide, Profile"
+Compression failed,No se pudo preparar la foto,"App wide, Profile"
+Custodian,Conserje,"App wide, header, Profile"
+Custodial Lead,Líder de conserjes,"App wide, header, Profile"
+Lead,Líder,"App wide, header, Profile"
+Supervisor,Supervisor,"App wide, header, Profile"
+Admin,Administrador,"App wide, header, Profile"
+in progress,en proceso,"App wide, Assigned"
+resolved,resuelta,"App wide, Assigned"
+unable to resolve,sin resolver,"App wide, Assigned"
 All Other Sites,Todos los demás sitios,Home
 Choose a Site to Start,Elija un sitio para comenzar,Home
 Drop requested,Pidió dejarlo,"Home, Schedule"
@@ -148,6 +164,8 @@ Time off,Tiempo libre,"Home, Schedule"
 Time on Site,Tiempo en el sitio,Home
 You asked to drop this shift. Waiting for a decision.,Usted pidió dejar este turno. Espera una decisión.,"Home, Schedule"
 Your Assigned Sites,Sus sitios asignados,Home
+A shift is still open at {site}. End it before starting another.,Todavía hay un turno abierto en {site}. Termínelo antes de comenzar otro.,Home
+A shift is still open. End it before starting another.,Todavía hay un turno abierto. Termínelo antes de comenzar otro.,Home
  (live), (en curso),Schedule
  ({h}h), ({h} h),Schedule
 Any additional details...,Cualquier detalle adicional...,Schedule
@@ -243,6 +261,9 @@ You get a notice in the app when your request is decided.,Recibirá un aviso en 
 {n} hours,{n} horas,Schedule
 {start} to {end},{start} a {end},"Schedule, Pickup"
 "{start} to {end}, {year}","{start} a {end}, {year}",Schedule
+Pending,Pendiente,"Schedule, Pickup"
+Claimed,Tomado,"Schedule, Pickup"
+Filled,Cubierto,"Schedule, Pickup"
 Back to checklist,Volver a la lista,Tasks
 Due Date:,Fecha límite:,Tasks
 Instructions,Instrucciones,Tasks
@@ -262,6 +283,7 @@ Try again,Intentar de nuevo,"Tasks, Help, Speak Up, Forms, Notifications"
 Uncheck Task,Desmarcar tarea,Tasks
 Your Assignment,Su asignación,Tasks
 Your tasks did not load.,Sus tareas no cargaron.,Tasks
+General,General,"Tasks, Assigned"
 Admin (Private),Administración (privado),Chat
 No messages yet.,Todavía no hay mensajes.,Chat
 Only you and management can see these messages,Solo usted y la administración ven estos mensajes,Chat
@@ -326,6 +348,9 @@ What did you do to complete this? *,¿Qué hizo para completarla? *,Assigned
 "When a supervisor assigns a task to you, it will appear here.","Cuando un supervisor le asigne una tarea, aparecerá aquí.",Assigned
 {n} task assigned to you,{n} tarea asignada a usted,Assigned
 {n} tasks assigned to you,{n} tareas asignadas a usted,Assigned
+Unable to resolve,Sin resolver,Assigned
+Medium,Media,"Assigned, Report"
+Critical,Crítica,Assigned
 + Report,+ Reportar,Report
 Additional details...,Detalles adicionales...,Report
 Brief description,Descripción breve,Report
@@ -348,6 +373,8 @@ Submit Issue,Enviar problema,Report
 Take Photo or Choose from Gallery,Tomar foto o elegir de la galería,Report
 Title,Título,Report
 Zone,Zona,Report
+Open,Abierto,Report
+Closed,Cerrado,Report
 + Request,+ Solicitar,Supplies
 Damage Report,Reporte de daño,Supplies
 Describe the request...,Describa la solicitud...,Supplies
@@ -504,7 +531,7 @@ On your bar,En su barra,Shortcuts
 Pick something for this spot,Elija algo para este lugar,Shortcuts
 Put the bar back the way it came?,¿Dejar la barra como estaba al principio?,Shortcuts
 Remove,Quitar,Shortcuts
-Remove {name},Quitar a {name},"Shortcuts, Speak Up"
+Remove {name},Quitar a {name},Speak Up
 Replace which one?,¿Cuál quiere reemplazar?,Shortcuts
 Reset,Restablecer,Shortcuts
 Reset to default,Volver a lo original,Shortcuts
@@ -512,6 +539,7 @@ Shortcuts,Accesos directos,"Shortcuts, Settings"
 Under More,En Más,Shortcuts
 will take the place of the one you pick.,tomará el lugar del que elija.,Shortcuts
 Your bar is full.,Su barra está llena.,Shortcuts
+Remove {name} from the bar,Quitar {name} de la barra,Shortcuts
 Load more,Cargar más,Notifications
 Mark all read,Marcar todas como leídas,Notifications
 Marking...,Marcando...,Notifications
@@ -535,6 +563,8 @@ Text size,Tamaño del texto,Settings
 "The app, Help and report forms use this language.","La aplicación, Ayuda y los formularios usan este idioma.",Settings
 Update PIN,Actualizar PIN,Settings
 Your PIN is 4 digits. Choose one that only you know.,Su PIN es de 4 dígitos. Elija uno que solo usted sepa.,Settings
+Enter your current 4-digit PIN.,Escriba su PIN actual de 4 dígitos.,Settings
+Your new PIN must be different from your current PIN.,Su PIN nuevo debe ser distinto de su PIN actual.,Settings
 Address,Dirección,Profile
 Address Line 1,Dirección línea 1,Profile
 Address Line 2,Dirección línea 2,Profile
@@ -543,8 +573,8 @@ Birthday,Fecha de nacimiento,Profile
 City,Ciudad,Profile
 Emergency Contact,Contacto de emergencia,Profile
 Emergency Phone,Teléfono de emergencia,Profile
-Employee ID,Número de empleado,Profile
-Employee ID not assigned. Ask your supervisor.,No tiene número de empleado asignado. Pregúntele a su supervisor.,Profile
+Employee ID,ID de empleado,Profile
+Employee ID not assigned. Ask your supervisor.,No tiene ID de empleado asignado. Pregúntele a su supervisor.,Profile
 Full name,Nombre completo,Profile
 Loading profile...,Cargando perfil...,Profile
 No shift,Sin turno,Profile

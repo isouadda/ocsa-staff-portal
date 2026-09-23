@@ -15,6 +15,7 @@ const { runScreens } = require("./screens");
 const { coverage, SCREEN_CASES, SHEET_CASES, FORM_CASES } = require("./inventory");
 const { runJourneys } = require("./journeys");
 const { sort: sortKnown, write: writeKnown } = require("./known");
+const { literalWords, untranslated } = require("./words");
 
 const ROOT = path.join(__dirname, "..");
 const BUILD = path.join(ROOT, "build");
@@ -63,6 +64,7 @@ function table(counts) {
   out.push(line("forms covered", counts.forms));
   out.push(line("journeys", counts.journeys));
   out.push(line("refusals shown", counts.refusals));
+  out.push(line("words with Spanish", counts.words));
   out.push(line("languages x sizes", counts.combinations + " combinations"));
   out.push(line("accepted", String(counts.accepted)));
   out.push(line("known failures", String(counts.known)));
@@ -82,7 +84,7 @@ function table(counts) {
   const server = await serve(BUILD, PORT);
   const browser = await launch();
   let failures = 0;
-  const counts = { screens: "0 of 0", sheets: "0 of 0", forms: "0 of 0", journeys: "0 of 0", refusals: "0 of 0", combinations: 0, known: 0, accepted: 0, failures: 0 };
+  const counts = { screens: "0 of 0", sheets: "0 of 0", forms: "0 of 0", journeys: "0 of 0", refusals: "0 of 0", words: "0 of 0", combinations: 0, known: 0, accepted: 0, failures: 0 };
 
   try {
     // The app comes up at all. Everything else depends on this.
@@ -128,7 +130,13 @@ function table(counts) {
 
     // What the app gets wrong today is on the list and does not fail the
     // run. Anything else does, and so does a known failure that is fixed.
-    const everything = sweep.rows.concat(walk.rows);
+    // Every word the portal's own code writes has its Spanish, whether or
+    // not a case happens to draw it. One row per word with no entry.
+    const written = new Set(literalWords().map(w => w.key)).size;
+    const missing = untranslated();
+    counts.words = (written - missing.length) + " of " + written;
+    const wordRows = missing.map(w => ({ where: "src/" + w.file, check: "no Spanish entry", detail: JSON.stringify(w.key) + " has no Spanish entry (line " + w.line + ")" }));
+    const everything = sweep.rows.concat(walk.rows, wordRows);
     if (process.env.AUDIT_WRITE_KNOWN === "1") {
       const added = writeKnown(sortKnown(everything).fresh);
       process.stdout.write("wrote " + added + " entries into audit/known.json. Write the reason on each one.\n");

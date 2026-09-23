@@ -7,7 +7,7 @@ const { openApp, letSheetOffer } = require("./browser");
 const { INSPECT, rowsFrom } = require("./checks");
 const { LEAKABLE, SPANISH, SPANISH_PATTERNS, say } = require("./words");
 const { SCREEN_CASES, SHEET_CASES } = require("./inventory");
-const { timeOffRow, formP, STAFF } = require("./stub");
+const { timeOffRow, formP, STAFF, servedFor } = require("./stub");
 
 const SIZES = ["standard", "large", "xlarge", "largest"];
 const LANGUAGES = ["en", "es"];
@@ -25,21 +25,20 @@ LANGUAGES.forEach(language => LIGHT_SIZES.forEach(size => COMBINATIONS.push({ la
 const LIGHT_HEADER = "#15558F";
 const LIGHT_BAR = "#FFFFFF";
 
-// Invented values the stub serves, the app's own name, and the name of
-// each language, which is always written in that language so a person
-// can find their own. None of them is a translation fault when it shows
-// on a Spanish screen.
+// Names, and only names: the app's own name, invented codes, invented
+// people and invented places, and the name of each language, which is
+// always written in that language so a person can find their own. None
+// of them is a translation fault when it shows on a Spanish screen.
+//
+// No word is here. A word the stub serves, a to-do item, a supply, a
+// notice, a Help reply, a form's title, a shift name or a site role, is
+// judged by what it is: on a Spanish screen it passes only in Spanish.
+// See "names, words and codes" in audit/stub.js.
 const ALLOWED = [
   "English", "Espa\u00f1ol",
   "OCSA Staff", "OCSA Cleaning", "OCSA-0001", "OCSA-FIX-101",
   "Alex", "Tester", "Alex Tester", "Sam", "Second", "Sam Second",
   "North Building", "South Building", "Main Hall",
-  "Incident report", "Paper towels", "Office", "Evening", "Staff",
-  "A supervisor", "An area manager", "A shift supervisor",
-  "Wipe the entry doors and handles", "Empty every bin on the floor",
-  "Mop the corridor end to end", "Restock paper towels and soap",
-  "Refill the sanitizer stands", "Replace the cracked light cover",
-  "Take the pads from the second floor store room.",
 // The staff list the Speak Up picker draws. The route sends a first and
 // a last name, and the screen joins them, so the whole name is read
 // here as one value rather than as two the suite has never seen
@@ -234,14 +233,16 @@ async function openForm(page, language) {
   await pause(page, 1300);
 }
 
-// One screen or sheet, in one language at one size in one theme. The
-// stub's served values go in with the rest, so a name it invented is
-// never read as an English word the app forgot.
+// One screen or sheet, in one language at one size in one theme. What
+// the stub served goes in with the rest, sorted into names, words and
+// codes, so a name it invented is never read as an English word the app
+// forgot, and a word it served in English is never read as a name.
 async function inspect(page, scope, caseName, language, size, stub, theme) {
+  const served = servedFor(stub);
   const found = await page.evaluate(INSPECT, {
     leakable: LEAKABLE, allowed: ALLOWED, language: language, scope: scope,
     spanish: SPANISH, patterns: SPANISH_PATTERNS,
-    served: stub ? Array.from(stub.state.served) : [],
+    names: served.names, words: served.words, codes: served.codes,
     light: theme === "light" ? { header: LIGHT_HEADER, bar: LIGHT_BAR } : null,
   });
   return rowsFrom(found, caseName, language, size, theme);
@@ -296,11 +297,14 @@ async function runScreens(browser, base, opts) {
       await app.context.close();
     }
 
-    // Everything before signing in wants its own session.
+    // Everything before signing in wants its own session. Set your PIN is
+    // the screen an account that has to choose a new PIN opens on, so its
+    // case asks the stub for such an account; without it the case drew
+    // the portal behind it.
     for (const sc of SCREEN_CASES.filter(c => c.kind === "screen" && c.id !== "main")) {
       const one = await openApp(browser, base, {
         language: language, textSize: size, theme: theme, signedIn: sc.signedIn !== false,
-        path: sc.path || "/", stubOptions: stubFor(language, size),
+        path: sc.path || "/", stubOptions: Object.assign(stubFor(language, size), sc.mustSetPin ? { mustSetPin: true } : {}),
       });
       try {
         if (sc.via === "register") await clickText(one.page, say("Register Here", language));

@@ -4,16 +4,22 @@
 // when a word changes, and then on what the screen said.
 
 const { openApp, letSheetOffer } = require("./browser");
-const { say, ES } = require("./words");
-const { openTab, clickText, startForm } = require("./screens");
-const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, STAFF } = require("./stub");
+const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
+const { openTab, clickText, startForm, ALLOWED } = require("./screens");
+const { INSPECT, languageRows } = require("./checks");
+const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, TWIN_ES, servedFor } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
 
 // --- small hands ------------------------------------------------------
 
-const type = (page, selector, value) => page.evaluate(([sel, v]) => {
+// Everything a journey types, which is the person's own words: a Spanish
+// screen that shows a question back to the person who typed it is right
+// to show it as it was typed.
+const TYPED = new Set();
+
+const type = (page, selector, value) => { TYPED.add(String(value)); return page.evaluate(([sel, v]) => {
   const e = document.querySelector(sel);
   if (!e) return false;
   const proto = e.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype
@@ -23,9 +29,9 @@ const type = (page, selector, value) => page.evaluate(([sel, v]) => {
   e.dispatchEvent(new Event(e.tagName === "SELECT" ? "change" : "input", { bubbles: true }));
   if (e.tagName === "SELECT") e.dispatchEvent(new Event("change", { bubbles: true }));
   return true;
-}, [selector, value]);
+}, [selector, value]); };
 
-const typeNth = (page, selector, n, value) => page.evaluate(([sel, i, v]) => {
+const typeNth = (page, selector, n, value) => { TYPED.add(String(value)); return page.evaluate(([sel, i, v]) => {
   const e = document.querySelectorAll(sel)[i];
   if (!e) return false;
   const proto = e.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype
@@ -35,7 +41,7 @@ const typeNth = (page, selector, n, value) => page.evaluate(([sel, i, v]) => {
   e.dispatchEvent(new Event(e.tagName === "SELECT" ? "change" : "input", { bubbles: true }));
   if (e.tagName === "SELECT") e.dispatchEvent(new Event("change", { bubbles: true }));
   return true;
-}, [selector, n, value]);
+}, [selector, n, value]); };
 
 const tapLabel = (page, label) => page.evaluate((l) => {
   const b = Array.from(document.querySelectorAll("button")).find(x => (x.getAttribute("aria-label") || "").trim() === l && x.offsetParent !== null);
@@ -146,6 +152,44 @@ const attachPhoto = (page, selector) => page.evaluate((sel) => new Promise((done
   }, "image/jpeg");
 }), selector);
 
+// A file that says it is a photo and is not one, so the phone cannot
+// read it.
+const attachBroken = (page, selector) => page.evaluate((sel) => {
+  const input = document.querySelector(sel);
+  if (!input) return false;
+  const f = new File([new Blob(["not a photo"], { type: "image/jpeg" })], "photo.jpg", { type: "image/jpeg" });
+  const dt = new DataTransfer(); dt.items.add(f);
+  input.files = dt.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}, selector);
+
+// The Spanish of an English line, read off the table itself. say() falls
+// back to English exactly the way the app does, so a case written with
+// say() passes on a screen that was never translated. This does not: a
+// line with no Spanish entry reads as a line nothing can draw.
+const spanishOf = (english, language) => {
+  if (language !== "es") return english;
+  return Object.prototype.hasOwnProperty.call(ES, english) ? ES[english] : "(no Spanish entry for: " + english + ")";
+};
+const fill = (line, vars) => String(line).replace(/\{(\w+)\}/g, (whole, k) => (vars && k in vars ? String(vars[k]) : whole));
+const has = (text, line) => String(text).toLowerCase().indexOf(String(line).toLowerCase()) !== -1;
+
+// The Spanish check every screen in the sweep is put through, run on the
+// screen a journey has reached, with what this journey's stub served.
+// What the person typed is theirs, in whatever language they wrote it,
+// so it counts as a name. Its rows carry the journey's own name.
+async function spokenHere(app, language, expect) {
+  if (language !== "es") return;
+  const served = servedFor(app.stub);
+  const found = await app.page.evaluate(INSPECT, {
+    languageOnly: true, leakable: LEAKABLE, allowed: ALLOWED, language: language, scope: null,
+    spanish: SPANISH, patterns: SPANISH_PATTERNS,
+    names: served.names.concat(Array.from(TYPED)), words: served.words, codes: served.codes,
+  });
+  languageRows(found).forEach(r => expect(r.check, false, r.detail));
+}
+
 // --- the journeys -----------------------------------------------------
 
 const JOURNEYS = [
@@ -160,7 +204,12 @@ const JOURNEYS = [
         await clickText(app.page, say("Sign In", language));
         await pause(app.page, 900);
         expect("a wrong PIN is refused", !!lastSent(app.stub, "POST", "/api/auth/login"), "no login was sent");
-        expect("a wrong PIN says so", /did not match|no coinciden/i.test(await bodyText(app.page)), await bodyText(app.page));
+        // Word for word, out of the table: the API's sentence in English,
+        // its Spanish on a Spanish screen.
+        const refusedWith = await bodyText(app.page);
+        expect("a wrong PIN says so in the person's language",
+          has(refusedWith, spanishOf("That sign-in did not match. Check your badge, phone or email and your PIN.", language)), refusedWith.slice(0, 220));
+        await spokenHere(app, language, expect);
 
         // A sign-in that never reaches OCSA at all. The PIN is fine, and
         // the line about a sign-in not matching is for the API's own
@@ -179,11 +228,17 @@ const JOURNEYS = [
           !/did not match|no coinciden/i.test(nowhere), nowhere.slice(0, 260));
         app.stub.state.offline = false;
 
+        // What a locked account is told. The toast before this one is let
+        // go first, the same way, so its timer cannot take this one down.
+        await app.page.waitForFunction((gone) => document.body.innerText.indexOf(gone) === -1, spanishOf("Could not reach OCSA. Check your connection and try again.", language), { timeout: 5000 }).catch(() => {});
+        await pause(app.page, 300);
         app.stub.state.refuse["POST /api/auth/login"] = { status: 423, error: "This account is locked. Ask your supervisor to unlock it." };
         await type(app.page, 'input[type="password"]', "4907");
         await clickText(app.page, say("Sign In", language));
-        await pause(app.page, 1200);
-        expect.notYet("what a locked account is told, which arrives as a toast that has faded by the time the suite reads the screen");
+        await pause(app.page, 900);
+        const locked = await bodyText(app.page);
+        expect("a locked account is told so", has(locked, "locked") || has(locked, "bloquead"), locked.slice(0, 220));
+        await spokenHere(app, language, expect);
         delete app.stub.state.refuse["POST /api/auth/login"];
 
         await type(app.page, 'input[type="password"]', "4907");
@@ -201,6 +256,155 @@ const JOURNEYS = [
     },
   },
   {
+    id: "beforesignin",
+    label: "Before signing in: a phone that has never chosen a language, the choice the sign-in screen offers, and links that know the account",
+    run: async (open, language, expect) => {
+      const other = language === "es" ? "en" : "es";
+      const nameOf = (l) => (l === "es" ? "Espa\u00f1ol" : "English");
+      const langNow = (page) => page.evaluate(() => ({ lang: document.documentElement.lang, stored: window.localStorage.getItem("ocsa-staff-language") }));
+
+      // A phone set to this language that has never chosen one.
+      const app = await open({ signedIn: false, storeLanguage: false });
+      try {
+        const first = await langNow(app.page);
+        expect("a phone that has never chosen opens in its own language", first.lang === language && first.stored === null, JSON.stringify(first));
+        const signIn = await bodyText(app.page);
+        expect("the sign-in screen is drawn in the phone's language", has(signIn, spanishOf("Sign In", language)), signIn.slice(0, 200));
+        await spokenHere(app, language, expect);
+
+        // The other language, offered by its own name, and chosen.
+        const offered = await app.page.evaluate((n) => Array.from(document.querySelectorAll("button")).some(b => b.offsetParent !== null && b.textContent.trim() === n), nameOf(other));
+        expect("the sign-in screen offers the other language, named in its own language", offered, "no button reads " + nameOf(other));
+        await clickText(app.page, nameOf(other));
+        await pause(app.page, 600);
+        const chosen = await langNow(app.page);
+        expect("choosing it turns the screen and keeps the choice", chosen.lang === other && chosen.stored === other, JSON.stringify(chosen));
+
+        // A choice made here beats the phone, reload after reload.
+        await app.page.reload({ waitUntil: "domcontentloaded" });
+        await pause(app.page, 1200);
+        const held = await langNow(app.page);
+        expect("the choice beats the phone after a reload", held.lang === other && has(await bodyText(app.page), spanishOf("Sign In", other)), JSON.stringify(held));
+
+        // Back to the phone's own language, and every screen before signing
+        // in follows it.
+        await clickText(app.page, nameOf(language));
+        await pause(app.page, 600);
+        await clickText(app.page, say("New Employee? Register Here", language));
+        await pause(app.page, 800);
+        expect("Register is drawn in the chosen language", has(await bodyText(app.page), spanishOf("New Staff Registration", language)), (await bodyText(app.page)).slice(0, 200));
+        await spokenHere(app, language, expect);
+        await clickText(app.page, say("Back to Login", language));
+        await pause(app.page, 600);
+        await clickText(app.page, say("Forgot your PIN?", language));
+        await pause(app.page, 800);
+        expect("Forgot your PIN is drawn in the chosen language", has(await bodyText(app.page), spanishOf("Send Reset Link", language)), (await bodyText(app.page)).slice(0, 200));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+
+      // An activation link opens in the language the account carries, and
+      // its own picker turns the screen at once.
+      const link = await open({ signedIn: false, storeLanguage: false, path: "/activate?token=fixture", stubOptions: { accountPreferences: { language: other } } });
+      try {
+        await pause(link.page, 1200);
+        const opened = await langNow(link.page);
+        expect("an activation link opens in the account's language", opened.lang === other && has(await bodyText(link.page), spanishOf("Activate Account", other)), JSON.stringify(opened));
+        await clickText(link.page, nameOf(language));
+        await pause(link.page, 600);
+        const turned = await bodyText(link.page);
+        expect("the activation screen follows its own picker", has(turned, spanishOf("Activate Account", language)), turned.slice(0, 200));
+        await spokenHere(link, language, expect);
+      } finally { await link.context.close(); }
+
+      // A reset link follows the language chosen on it.
+      const reset = await open({ signedIn: false, storeLanguage: false, path: "/reset-pin?token=fixture" });
+      try {
+        await pause(reset.page, 1200);
+        await clickText(reset.page, nameOf(other));
+        await pause(reset.page, 600);
+        const turned = await bodyText(reset.page);
+        expect("a reset link follows the language chosen on it", has(turned, spanishOf("Save PIN", other)), turned.slice(0, 200));
+      } finally { await reset.context.close(); }
+    },
+  },
+  {
+    id: "signedoutlocale",
+    label: "The seven calls made before signing in carry the screen's language, and a phone set to the other one hears back in the screen's",
+    run: async (open, language, expect) => {
+      const other = language === "es" ? "en" : "es";
+      // Each of the seven, by method and path, with what a person is doing.
+      const SEVEN = [
+        ["POST", /^\/api\/auth\/login$/, "signing in"],
+        ["POST", /^\/api\/auth\/register$/, "registering"],
+        ["POST", /^\/api\/auth\/reset\/request$/, "asking for a reset link"],
+        ["GET", /^\/api\/auth\/activate\/[^/]+$/, "opening an activation link"],
+        ["POST", /^\/api\/auth\/activate$/, "activating"],
+        ["GET", /^\/api\/auth\/reset\/[^/]+$/, "opening a reset link"],
+        ["POST", /^\/api\/auth\/reset$/, "saving a PIN from a reset link"],
+      ];
+      const wanted = new RegExp("[?&]locale=" + language + "\\b");
+      const judge = (stub, rows) => rows.forEach(([method, re, what]) => {
+        const calls = stub.state.calls.filter(c => c.method === method && re.test(c.path));
+        const bad = calls.filter(c => !wanted.test(c.search));
+        expect(what + " carries the screen's language as ?locale=", calls.length > 0 && bad.length === 0,
+          calls.length ? calls.map(c => c.method + " " + c.path + c.search).join(", ") : "never sent");
+      });
+
+      // Sign in, Register and Forgot PIN, the screen in this language and
+      // the phone in the other.
+      const app = await open({ signedIn: false, phone: other });
+      try {
+        await type(app.page, 'input[autocomplete="username"]', "4821");
+        await type(app.page, 'input[type="password"]', "0000");
+        await clickText(app.page, say("Sign In", language));
+        await pause(app.page, 900);
+        const told = (await toastText(app.page)) || (await bodyText(app.page));
+        expect("a wrong PIN is answered in the screen's language, whatever the phone's",
+          has(told, spanishOf("That sign-in did not match. Check your badge, phone or email and your PIN.", language)), told.slice(0, 200));
+        await clickText(app.page, say("New Employee? Register Here", language));
+        await pause(app.page, 700);
+        const person = ["Riley", "Invented", "0000000009", "nine@example.invalid", "5739", "5739"];
+        for (let i = 0; i < person.length; i += 1) await typeNth(app.page, "input", i, person[i]);
+        await clickText(app.page, say("Register", language));
+        await pause(app.page, 900);
+        await clickText(app.page, say("Forgot your PIN?", language));
+        await pause(app.page, 700);
+        await type(app.page, "input", "4821");
+        await clickText(app.page, say("Send Reset Link", language));
+        await pause(app.page, 900);
+        judge(app.stub, SEVEN.slice(0, 3));
+      } finally { await app.context.close(); }
+
+      // An activation link on the same phone, with a badge number that
+      // does not match. The answer's code says so; its sentence, in either
+      // language, is never read.
+      const link = await open({ signedIn: false, phone: other, path: "/activate?token=fixture", stubOptions: { activationBadge: true } });
+      try {
+        await pause(link.page, 1200);
+        await typeNth(link.page, 'input:not([type="password"])', 0, "9999");
+        await typeNth(link.page, 'input[type="password"]', 0, "5739");
+        await typeNth(link.page, 'input[type="password"]', 1, "5739");
+        await clickText(link.page, say("Activate Account", language));
+        await pause(link.page, 900);
+        const said = await bodyText(link.page);
+        expect("a badge number that does not match is read off the answer's code and said in the screen's language",
+          has(said, spanishOf("That badge number does not match our records. Check the number in your email.", language)), said.slice(0, 220));
+        judge(link.stub, SEVEN.slice(3, 5));
+      } finally { await link.context.close(); }
+
+      // A reset link on the same phone.
+      const reset = await open({ signedIn: false, phone: other, path: "/reset-pin?token=fixture" });
+      try {
+        await pause(reset.page, 1200);
+        await typeNth(reset.page, 'input[type="password"]', 0, "5739");
+        await typeNth(reset.page, 'input[type="password"]', 1, "5739");
+        await clickText(reset.page, say("Save PIN", language));
+        await pause(reset.page, 900);
+        judge(reset.stub, SEVEN.slice(5, 7));
+      } finally { await reset.context.close(); }
+    },
+  },
+  {
     id: "shift",
     label: "Start a shift, then end it",
     run: async (open, language, expect) => {
@@ -208,6 +412,17 @@ const JOURNEYS = [
       try {
         await openTab(app.page, "clock", language);
         await pause(app.page, 800);
+        // A start turned away because a shift is still open at another
+        // site. The screen says so and names the site.
+        app.stub.state.refuse["POST /api/shift-sessions"] = { status: 409, once: true, body: { error: "A shift is already open at another site", code: "OPEN_SESSION_ELSEWHERE", openSession: { siteName: "South Building" } } };
+        await app.page.evaluate(() => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.offsetParent !== null); if (b) b.click(); });
+        await pause(app.page, 700);
+        await clickText(app.page, say("Start Shift", language));
+        await pause(app.page, 1200);
+        const blocked = await bodyText(app.page);
+        expect("a shift still open elsewhere is named, in the person's language",
+          has(blocked, fill(spanishOf("A shift is still open at {site}. End it before starting another.", language), { site: "South Building" })), blocked.slice(0, 260));
+        await spokenHere(app, language, expect);
         await app.page.evaluate(() => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.offsetParent !== null); if (b) b.click(); });
         await pause(app.page, 700);
         await clickText(app.page, say("Start Shift", language));
@@ -311,7 +526,7 @@ const JOURNEYS = [
           await clickText(app.page, say("Send request", language));
           await pause(app.page, 900);
           const shown = await sheetText(app.page);
-          const wanted = say(refusal.error, language);
+          const wanted = spanishOf(refusal.error, language);
           const ok = shown.indexOf(wanted) !== -1;
           expect("refusal shown: " + refusal.error, ok, "wanted " + JSON.stringify(wanted) + " in " + JSON.stringify(shown.slice(0, 200)));
           expect("refusal keeps the sheet open: " + refusal.error, shown.length > 0, "the sheet closed");
@@ -746,7 +961,7 @@ const JOURNEYS = [
           await clickText(app.page, say("Send", language));
           await pause(app.page, 1400);
           const text = await bodyText(app.page);
-          const drawn = text.indexOf(say(said, language)) !== -1;
+          const drawn = text.indexOf(spanishOf(said, language)) !== -1;
           expect("the refusal is drawn word for word: " + said, drawn, text.slice(0, 300));
           extra.refusalsShown += drawn ? 1 : 0;
           expect("what was written is still on the screen after: " + said,
@@ -769,6 +984,8 @@ const JOURNEYS = [
         await pause(app.page, 1300);
         const first = lastSent(app.stub, "POST", "/api/agent/message");
         expect("a question carries the language and the app", first && first.body && first.body.locale === language && first.body.app === "portal", first ? JSON.stringify(first.body) : "nothing sent");
+        // Help's answer, judged like every other word on the screen.
+        await spokenHere(app, language, expect);
 
         await attachPhoto(app.page, '.sp-content input[type="file"]');
         await pause(app.page, 1500);
@@ -820,10 +1037,10 @@ const JOURNEYS = [
         await app.page.evaluate((l) => {
           const b = Array.from(document.querySelectorAll("button")).find(x => (x.getAttribute("aria-label") || "") === l);
           if (b) b.click();
-        }, other === "es" ? "Español" : "English");
+        }, other === "es" ? "Espa\u00f1ol" : "English");
         await pause(app.page, 700);
         await app.page.evaluate(() => {
-          const b = Array.from(document.querySelectorAll("button")).find(x => /Largest|Más grande|Extra/i.test(x.textContent.trim()));
+          const b = Array.from(document.querySelectorAll("button")).find(x => /Largest|M\u00e1s grande|Extra/i.test(x.textContent.trim()));
           if (b) b.click();
         });
         await pause(app.page, 700);
@@ -852,7 +1069,7 @@ const JOURNEYS = [
         await app.page.evaluate((l) => {
           const b = Array.from(document.querySelectorAll("button")).find(x => (x.getAttribute("aria-label") || "") === l);
           if (b) b.click();
-        }, other === "es" ? "Español" : "English");
+        }, other === "es" ? "Espa\u00f1ol" : "English");
         await pause(app.page, 900);
         const pending = await app.page.evaluate(() => window.localStorage.getItem("ocsa-staff-prefs-pending:u-one"));
         expect("a refused save stays on the list", !!pending && pending.indexOf("language") !== -1, String(pending));
@@ -873,7 +1090,7 @@ const JOURNEYS = [
       const app = await open({ signedIn: false, path: "/activate?token=fixture", stubOptions: { accountPreferences: { language: "en" } } });
       try {
         await pause(app.page, 1200);
-        await app.page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => x.textContent.trim() === "Español"); if (b) b.click(); });
+        await app.page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => x.textContent.trim() === "Espa\u00f1ol"); if (b) b.click(); });
         await pause(app.page, 400);
         await app.page.evaluate(() => {
           Array.from(document.querySelectorAll('input[type="password"], input[inputmode="numeric"]')).forEach((e) => {
@@ -950,6 +1167,8 @@ const JOURNEYS = [
           await pause(app.page, 900);
           await app.page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaciones/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
           await pause(app.page, 900);
+          // The notice itself, as the sheet draws it.
+          await spokenHere(app, language, expect);
           await app.page.evaluate(() => { const r = document.querySelector('div[style*="z-index: 400"] button[style*="56px"]'); if (r) r.click(); });
           await pause(app.page, 1300);
           const on = await app.page.evaluate(() => {
@@ -961,6 +1180,206 @@ const JOURNEYS = [
           expect("a " + subject + " notice opens " + tab, !!on, String(on));
         } finally { await app.context.close(); }
       }
+    },
+  },
+  {
+    id: "inspection",
+    label: "An inspection on the list, opened on the items it asks about",
+    run: async (open, language, expect) => {
+      const inSpanish = (en) => (language === "es" && TWIN_ES.has(en) ? TWIN_ES.get(en) : en);
+      const app = await open({ stubOptions: { inspections: [INSPECTION] } });
+      try {
+        await openTab(app.page, "inspect", language);
+        await pause(app.page, 900);
+        const listed = await bodyText(app.page);
+        expect("the inspection is on the list", has(listed, INSPECTION.template_name) || has(listed, inSpanish(INSPECTION.template_name)), listed.slice(0, 200));
+        await spokenHere(app, language, expect);
+        await app.page.evaluate((names) => {
+          const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => names.some(n => x.textContent.indexOf(n) !== -1));
+          if (b) b.click();
+        }, [INSPECTION.template_name, inSpanish(INSPECTION.template_name)]);
+        await pause(app.page, 900);
+        const opened = await bodyText(app.page);
+        const first = INSPECTION.items[0].label;
+        expect("the inspection opens on its items", has(opened, first) || has(opened, inSpanish(first)), opened.slice(0, 200));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+
+      // One on the list that the API no longer has. Its refusal comes from
+      // a route that still answers in English, whatever the request asks.
+      const gone = await open({ stubOptions: { inspections: [INSPECTION_GONE] } });
+      try {
+        await openTab(gone.page, "inspect", language);
+        await pause(gone.page, 900);
+        await gone.page.evaluate((names) => {
+          const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => names.some(n => x.textContent.indexOf(n) !== -1));
+          if (b) b.click();
+        }, [INSPECTION_GONE.template_name, inSpanish(INSPECTION_GONE.template_name)]);
+        await pause(gone.page, 700);
+        const told = (await toastText(gone.page)) || (await bodyText(gone.page));
+        expect("an inspection the API no longer has says so", has(told, "Inspection not found") || has(told, inSpanish("Inspection not found")), told.slice(0, 200));
+        await spokenHere(gone, language, expect);
+      } finally { await gone.context.close(); }
+    },
+  },
+  {
+    id: "picklists",
+    label: "The four pick lists, drawn from the list the API sends: severities, request types, urgency and the reasons to drop a shift",
+    run: async (open, language, expect) => {
+      const labels = (slug) => (LOOKUPS.find(c => c.slug === slug) || { values: [] }).values.map(v => v.label);
+      // One line per list: every label in it, in the person's language,
+      // or the ones that are not.
+      const eachIn = (what, list, drawn) => {
+        const missing = list.filter(l => !drawn(spanishOf(l, language)));
+        expect(what + " are drawn in the person's language", missing.length === 0, "not drawn in it: " + JSON.stringify(missing));
+      };
+      const app = await open({});
+      try {
+        await openTab(app.page, "issues", language);
+        await pause(app.page, 800);
+        const report = await bodyText(app.page);
+        eachIn("the issue severities", labels("issue_severities"), l => has(report, l));
+        await spokenHere(app, language, expect);
+
+        await openTab(app.page, "supplies", language);
+        await pause(app.page, 800);
+        await clickText(app.page, say("+ Request", language));
+        await pause(app.page, 700);
+        const request = await bodyText(app.page);
+        eachIn("the supply request types", labels("request_types"), l => has(request, l));
+        eachIn("the urgency levels", labels("urgency_levels"), l => has(request, l));
+        await spokenHere(app, language, expect);
+
+        await openTab(app.page, "schedule", language);
+        let opened = false;
+        for (let i = 0; i < 6 && !opened; i += 1) {
+          await app.page.evaluate((n) => {
+            const grid = Array.from(document.querySelectorAll(".sp-content div")).find(d => getComputedStyle(d).display === "grid" && d.children.length === 7);
+            const cards = grid ? Array.from(grid.querySelectorAll("div")).filter(d => d.onclick) : [];
+            if (cards[n]) cards[n].click();
+          }, i);
+          await pause(app.page, 700);
+          opened = await clickText(app.page, say("Request to Drop This Shift", language));
+          if (!opened) await app.page.keyboard.press("Escape").catch(() => {});
+        }
+        const reasons = await app.page.evaluate(() => {
+          const sel = Array.from(document.querySelectorAll("select")).find(x => x.offsetParent !== null);
+          return sel ? Array.from(sel.options).map(o => o.textContent.trim()) : [];
+        });
+        eachIn("the reasons to drop a shift", labels("drop_reasons"), l => reasons.indexOf(l) !== -1);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "pinrules",
+    label: "Every PIN rule and PIN error, in the person's language: Set your PIN, Change PIN, an activation link and a reset link",
+    run: async (open, language, expect) => {
+      const RULES = [
+        ["12", "PIN must be exactly 4 digits."],
+        ["1111", "Four of the same digit is too easy to guess. Use a mix of digits."],
+        ["1234", "Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order."],
+        ["4821", "Your PIN cannot be your badge number or its last four digits."],
+      ];
+      const said = async (app, what, line) => {
+        const text = await bodyText(app.page);
+        expect(what + " says " + JSON.stringify(line) + " in the person's language", has(text, spanishOf(line, language)), text.slice(0, 220));
+        await spokenHere(app, language, expect);
+      };
+
+      // Set your PIN, where an account that has to choose a new PIN opens.
+      const app = await open({ stubOptions: { mustSetPin: true } });
+      try {
+        await pause(app.page, 600);
+        for (const [pin, rule] of RULES) {
+          await typeNth(app.page, 'input[type="password"]', 0, pin);
+          await typeNth(app.page, 'input[type="password"]', 1, pin);
+          await clickText(app.page, say("Save PIN", language));
+          await pause(app.page, 500);
+          await said(app, "Set your PIN", rule);
+        }
+      } finally { await app.context.close(); }
+
+      // Change PIN, in Settings.
+      const settings = await open({});
+      try {
+        await openTab(settings.page, "settings", language);
+        await pause(settings.page, 800);
+        const three = async (current, next) => {
+          await typeNth(settings.page, '.sp-content input[type="password"]', 0, current);
+          await typeNth(settings.page, '.sp-content input[type="password"]', 1, next);
+          await typeNth(settings.page, '.sp-content input[type="password"]', 2, next);
+          await clickText(settings.page, say("Update PIN", language));
+          await pause(settings.page, 800);
+        };
+        await three("", "5739");
+        await said(settings, "Change PIN", "Enter your current 4-digit PIN.");
+        await three("5739", "5739");
+        await said(settings, "Change PIN", "Your new PIN must be different from your current PIN.");
+        // The API turning it away with no sentence of its own.
+        settings.stub.state.refuse["POST /api/auth/change-pin"] = { status: 400, body: {}, once: true };
+        await three("2468", "5739");
+        await said(settings, "Change PIN", "Request failed");
+      } finally { await settings.context.close(); }
+
+      // An activation link whose row carries a badge number, sent without it.
+      const link = await open({ signedIn: false, path: "/activate?token=fixture", stubOptions: { activationBadge: true } });
+      try {
+        await pause(link.page, 1200);
+        await typeNth(link.page, 'input[type="password"]', 0, "5739");
+        await typeNth(link.page, 'input[type="password"]', 1, "5739");
+        await clickText(link.page, say("Activate Account", language));
+        await pause(link.page, 600);
+        await said(link, "An activation link", "Enter the badge number from your email.");
+      } finally { await link.context.close(); }
+
+      // A reset link, with a PIN that is not four digits.
+      const reset = await open({ signedIn: false, path: "/reset-pin?token=fixture" });
+      try {
+        await pause(reset.page, 1200);
+        await typeNth(reset.page, 'input[type="password"]', 0, "12");
+        await typeNth(reset.page, 'input[type="password"]', 1, "12");
+        await clickText(reset.page, say("Save PIN", language));
+        await pause(reset.page, 600);
+        await said(reset, "A reset link", "PIN must be exactly 4 digits.");
+      } finally { await reset.context.close(); }
+    },
+  },
+  {
+    id: "assignedstatus",
+    label: "An assigned task marked in progress, and the line that says so",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "issuetasks", language);
+        await pause(app.page, 900);
+        await app.page.evaluate((t) => {
+          const card = Array.from(document.querySelectorAll('.sp-content div[style*="cursor: pointer"]')).find(d => d.textContent.indexOf(t) !== -1);
+          if (card) card.click();
+        }, "Replace the cracked light cover");
+        await pause(app.page, 700);
+        await clickText(app.page, say("In Progress", language));
+        await pause(app.page, 500);
+        const told = (await toastText(app.page)) || (await bodyText(app.page));
+        expect("the update is told in the person's language",
+          has(told, fill(spanishOf("Task updated to {status}", language), { status: spanishOf("in progress", language) })), told.slice(0, 200));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "profilephoto",
+    label: "A profile photo the phone cannot read",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "profile", language);
+        await pause(app.page, 900);
+        await attachBroken(app.page, '.sp-content input[type="file"]');
+        await pause(app.page, 900);
+        const told = (await toastText(app.page)) || (await bodyText(app.page));
+        expect("a photo the phone cannot read says so in the person's language", has(told, spanishOf("Could not read image", language)), told.slice(0, 200));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
     },
   },
   {
@@ -983,6 +1402,8 @@ const JOURNEYS = [
         await pause(app.page, 1400);
         const said = await bodyText(app.page);
         expect("offline, a failed send says so in the person's language", said.indexOf(say("Not sent.", language)) !== -1 || /Retry|Reintentar/i.test(said), said.slice(-200));
+        // Whatever the failed send says, the browser's own words are not it.
+        await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
     },
   },
@@ -1013,6 +1434,11 @@ async function runJourneys(browser, base, opts) {
       if (covered.indexOf(journey.id) === -1) covered.push(journey.id);
     }
   }
+  // A journey that judges the same screen twice reports each fault once.
+  const once = new Set();
+  const unique = rows.filter((r) => { const k = r.where + "|" + r.check + "|" + r.detail; if (once.has(k)) return false; once.add(k); return true; });
+  rows.length = 0;
+  unique.forEach(r => rows.push(r));
   return { rows: rows, covered: covered, journeys: JOURNEYS.length, refusalsShown: extra.refusalsShown, refusalsTotal: (TIME_OFF_REFUSALS.length + HR_CASE_REFUSALS.length) * LANGUAGES.length, gaps: gaps };
 }
 

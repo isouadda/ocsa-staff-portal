@@ -1,5 +1,5 @@
 {
-  "notes": "What the app gets wrong today. Each entry prints as KNOWN on every run and does not fail it. An entry that stops matching fails the run until it is taken off the list, so a fix is always noticed. The contrast entries are one per screen, theme and color pair, each with the ratio the app draws.",
+  "notes": "What the app gets wrong today. Each entry prints as KNOWN on every run and does not fail it. An entry that stops matching fails the run until it is taken off the list, so a fix is always noticed. The contrast entries are one per screen, theme and color pair, each with the ratio the app draws. The language entries are one per kind of word the API cannot send in Spanish yet, which stay until it does, and one per place the portal itself still draws English, which the build that fixes it takes off.",
   "accepted": [
     {
       "where": "*",
@@ -12,6 +12,18 @@
       "check": "clipped",
       "what": "Custodian",
       "why": "The role under the name runs to one line and ends in an ellipsis the same way, and for the same reason."
+    },
+    {
+      "where": "Help",
+      "check": "clipped",
+      "what": "Reporte de incidente",
+      "why": "An unfinished report's title on Help runs to one line and ends in an ellipsis when there is no room, the way a name does. The stub serves the first form's title in Spanish from this build on, and the Spanish is longer."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "Conserje",
+      "why": "The role under the name, in Spanish now, runs to one line and ends in an ellipsis the same way the English one does, and for the same reason."
     }
   ],
   "failures": [
@@ -170,27 +182,6 @@
       "why": "Orange on a white card in light mode. 2.19 to 1 against the 4.5 to 1 small text needs."
     },
     {
-      "where": "Set your PIN",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Set your PIN",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#24A4F4 on #F4F7FB\"",
-      "why": "Blue on light mode's background. 2.54 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Set your PIN",
-      "theme": "light",
-      "check": "contrast",
-      "what": "\"#2ECC71 on #EEFBF3\"",
-      "why": "Green on light mode's green wash. 1.97 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
       "where": "Settings",
       "theme": "dark",
       "check": "contrast",
@@ -315,6 +306,92 @@
       "check": "contrast",
       "what": "\"#F8F7F4 on #E74C3C\"",
       "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a to-do item the API sent in English",
+      "why": "A to-do item and its instructions are written in English in the database and the API sends them as written. The API's build gives them Spanish and sends the language the request asks for."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a to-do zone the API sent in English",
+      "why": "A to-do item's zone is written in English in the database and sent as written, the same as the item."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a supply the API sent in English",
+      "why": "A supply's name and its unit are written in English in the database and sent as written."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a notice the API sent in English",
+      "why": "An in-app notice is written by the API in English at the moment it is sent. The API's build writes it in the person's saved language."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is an inspection item the API sent in English",
+      "why": "An inspection's name, its items and their zones are written in English in the database and sent as written."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a service the API sent in English",
+      "why": "A shift's service is written in English in the database and sent as written."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a site role the API sent in English",
+      "why": "A person's role at a site is typed by an admin, in English today, and sent as typed."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a shift name the API sent in English",
+      "why": "A shift's name is typed by an admin, in English today, and sent as typed."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a Help reply the API sent in English",
+      "why": "Help's replies, the fixed ones included, arrive from the API in English. The route already carries the language; the reply's language is the API's to change."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "is a refusal the API sent in English",
+      "why": "The API's refusals are English sentences on every route but the seven calls made before signing in, which Step 113 answers in the language the request asks for. The portal draws a refusal in Spanish when the table holds that exact sentence and every other one as sent, so a refusal from any other route stays English until the API sends the person's language there too."
+    },
+    {
+      "where": "Set your PIN",
+      "check": "too small",
+      "what": "\"Not you? Sign out\" is",
+      "why": "The sign out line under Set your PIN is a bare text button, about 20 pixels tall at the standard size. The case drew Home behind it until this build, so the suite never measured it."
+    },
+    {
+      "where": "Set your PIN",
+      "check": "too small",
+      "what": "\"\u00bfNo es usted? Cerrar sesi\u00f3n\" is",
+      "why": "The same button, in Spanish."
+    },
+    {
+      "where": "Pickup",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#8899AA on #1B3058\"",
+      "why": "The service on an open shift, muted text on its chip. 4.46 to 1 against the 4.5 to 1 small text needs. The stub serves a service on its open shift from this build on."
+    },
+    {
+      "where": "Pickup",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#24A4F4 on #EAF6FE\"",
+      "why": "Blue on light mode's blue wash, the badge of a shift someone dropped. 2.49 to 1 against the 4.5 to 1 small text needs. The stub's open shift carries a real origin code from this build on."
     }
   ]
 }

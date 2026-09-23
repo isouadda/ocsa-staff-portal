@@ -23,13 +23,68 @@ On every screen and every sheet, in both languages, at every text size:
   test at its center resolves to that control and not to something over it
 - every control is at least 44 by 44
 - no English text shows on a Spanish screen, judged against the app's own
-  word table
+  word table and against what the stub served, each value sorted into a
+  name, a word or a code (below)
 - the bottom bar sits inside the screen, measured on every screen, since
   two faults have already landed there
 
 Then it walks the journeys a person actually takes, in both languages,
 and judges each one first on what the app sent and then on what the
-screen said.
+screen said. A journey runs the same Spanish check at the screens it
+reaches, so a refusal, a toast or a reply that no sweep draws is judged
+the same way.
+
+Last, it reads every `tr()` call in `src`. **A word the portal writes
+with no Spanish entry fails the run**, one row each, whether or not a case
+happens to draw it. The table prints the count as `words with Spanish`.
+
+## Names, words and codes
+
+Every string the stub serves is one of three things, sorted by the field
+that carries it. The lists are in `audit/stub.js`, under "names, words
+and codes".
+
+| Kind | What it is | On a Spanish screen |
+| --- | --- | --- |
+| a name | a site, a building, a person, an id, a date, a number | passes as it was sent |
+| a word | a refusal, a message, form text, a Help reply, a to-do item or its zone, a pick list choice, a notice, a supply, a leave type, a shift name, a site role | passes only as its Spanish twin |
+| a code | a status, a role, a priority, a severity, an origin | fails when the screen draws it as it was sent |
+
+Every invented word has its Spanish twin in the stub, and the stub throws
+on one that has none. A kind the live API already sends in Spanish is in
+`LIVE_KINDS` and is served in the language the request asks for. Every
+other kind is served in English, the way the live API serves it today, so
+a Spanish screen that draws one shows the gap and `known.json` names it
+by its kind. The day the API sends a kind in Spanish, it joins
+`LIVE_KINDS`, its entry stops matching, and the run fails until the entry
+comes off.
+
+The seven calls made before anyone signs in are the exception, the way
+Step 113 made them in the API: every word on them is served in the
+language the request asks for, `?locale=` first and the browser's own
+`Accept-Language` after it. A call that forgets `?locale=` hears back in
+the phone's language, which is what a case with a phone set to the other
+language catches.
+
+A value written with a `{placeholder}` is judged by what fills it too, so
+a Spanish sentence with an English word inside it still fails. What a
+journey types is the person's own words, and passes as a name when a
+screen shows it back.
+
+## A fresh phone
+
+`openApp(browser, base, { language: "es", storeLanguage: false })` opens
+a phone that has never chosen a language. Nothing is stored on the first
+load, the phone itself is set to the case's language, and whatever the
+app stores after that is kept through a reload. The `beforesignin`
+journey uses it.
+
+`openApp(browser, base, { language: "en", phone: "es" })` opens a phone
+set to one language showing the portal in the other: the language is
+stored as the case's, and the browser's own language, which it sends as
+`Accept-Language`, is the phone's. The `signedoutlocale` journey uses it
+to prove each of the seven calls made before signing in carries
+`?locale=`.
 
 ## Coverage proves itself
 
@@ -64,7 +119,7 @@ fails a run, whether it shows up or not.
 | --- | --- |
 | `run.js` | the one process: build, serve, drive, print the table, set the exit code |
 | `serve.js` | a static server for the build, on Node's own http module |
-| `stub.js` | the whole API in one file, so the next build extends it in one place. Every value in it is invented |
+| `stub.js` | the whole API in one file, so the next build extends it in one place. Every value in it is invented, and every value it serves is sorted into a name, a word or a code |
 | `browser.js` | a phone shaped page with the clock fixed and storage seeded |
 | `inventory.js` | what the app can show, read out of `src`, and what the suite drives |
 | `checks.js` | the checks every screen is put through |
@@ -72,7 +127,7 @@ fails a run, whether it shows up or not.
 | `journeys.js` | the journeys, in both languages |
 | `known.js` | the known failure list and how a row is matched to it |
 | `known.json` | what the app gets wrong today |
-| `words.js` | the app's Spanish table, read without importing it |
+| `words.js` | the app's Spanish table, read without importing it, and every word the portal writes through `tr()` |
 
 ## The clock
 
