@@ -7,7 +7,7 @@ const { openApp, letSheetOffer } = require("./browser");
 const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
 const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
-const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS } = require("./stub");
+const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -209,9 +209,10 @@ const listPercent = (page) => page.evaluate(() => {
   const d = Array.from(document.querySelectorAll(".sp-content div")).find(x => x.children.length === 0 && /^\d+%$/.test(x.textContent.trim()));
   return d ? d.textContent.trim() : null;
 });
-// An item's name as the screen should draw it.
-const itemName = (id) => { const row = [].concat(...Object.values(SITE_TASKS)).find(r => r.id === id); return row ? row.label : id; };
-const siteNames = (site) => SITE_TASKS[site].map(r => itemName(r.id));
+// An item's name as a screen in one language should draw it: the API's
+// own words where it sends them, and the item's own where it does not.
+const itemName = (id, language) => taskWords(id, language).label;
+const siteNames = (site, language) => SITE_TASKS[site].map(r => itemName(r.id, language));
 
 // The list, the count on Home and the checklist's own percentage, all
 // read after a fresh look at each screen, and judged against each other:
@@ -527,19 +528,37 @@ const JOURNEYS = [
         expect("a person linked to nothing asks for the whole site, with no user_id", !!asked && !/[?&]user_id=/.test(asked.search), said);
         expect("the checklist never asks by building or floor", !!asked && !/[?&](building_name|floor_number)=/.test(asked.search), said);
         const rows = await checklist(app.page, language);
-        const missing = siteNames("site-north").filter(n => !rows.some(r => r.name === n));
+        const missing = siteNames("site-north", language).filter(n => !rows.some(r => r.name === n));
         expect("a person linked to nothing sees every item at the site", missing.length === 0, "not drawn: " + JSON.stringify(missing));
         await spokenHere(app, language, expect);
 
+        // Step 118's words: an item that carries them is drawn in them, its
+        // zone and its instructions too, and an item that does not is drawn
+        // in its own.
+        const eight = taskWords("task-8", language), two = taskWords("task-2", language), one = taskWords("task-1", language);
+        const listed = await bodyText(app.page);
+        expect("an item is drawn in the API's own words where it sends them, and in its own where it does not",
+          rows.some(r => r.name === eight.label) && rows.some(r => r.name === two.label) && has(listed, eight.zone), "drawn: " + JSON.stringify(rows.map(r => r.name)));
+        await app.page.evaluate((name) => {
+          const d = Array.from(document.querySelectorAll(".sp-content div")).find(x => x.style.cursor === "pointer" && x.textContent.trim() === name);
+          if (d) d.click();
+        }, one.label);
+        await pause(app.page, 700);
+        const opened = await bodyText(app.page);
+        expect("an item's instructions are drawn in the API's own words", has(opened, one.description), opened.slice(0, 240));
+        await spokenHere(app, language, expect);
+        await clickText(app.page, say("Back to checklist", language));
+        await pause(app.page, 600);
+
         // Everyone's checks at the site today, counted against the list.
         const ticked = rows.filter(r => r.done).map(r => r.name);
-        const everyone = ["task-1", "task-2"].map(itemName);
+        const everyone = ["task-1", "task-2"].map(id => itemName(id, language));
         expect("the whole site's list shows everyone's checks at the site today", JSON.stringify(ticked) === JSON.stringify(everyone), "checked: " + JSON.stringify(ticked));
         await countsAgree(app, language, expect, "the count on Home and on the checklist is the checks drawn over the items drawn");
 
         // A check on the whole site's list, sent the way it always was,
         // drawn at once, and still there when the app is opened again.
-        const three = itemName("task-3");
+        const three = itemName("task-3", language);
         const before = sent(app.stub, "POST", "/api/clock/tasks/").length;
         await tickItem(app.page, language, three);
         const posted = sent(app.stub, "POST", "/api/clock/tasks/");
@@ -567,14 +586,14 @@ const JOURNEYS = [
         expect("the checklist never asks by building or floor", !!asked && !/[?&](building_name|floor_number)=/.test(asked.search), said);
         const rows = await checklist(app.page, language);
         const linked = LINKS[PERSON.id];
-        const theirs = linked.map(itemName);
-        const others = SITE_TASKS["site-north"].map(r => r.id).filter(id => linked.indexOf(id) === -1).map(itemName);
+        const theirs = linked.map(id => itemName(id, language));
+        const others = SITE_TASKS["site-north"].map(r => r.id).filter(id => linked.indexOf(id) === -1).map(id => itemName(id, language));
         const missing = theirs.filter(n => !rows.some(r => r.name === n));
         expect("a person with links sees every item they are linked to", missing.length === 0, "not drawn: " + JSON.stringify(missing));
         const extra = others.filter(n => rows.some(r => r.name === n));
         expect("a person with links sees nothing they are not linked to", extra.length === 0, "drawn: " + JSON.stringify(extra));
         const ticked = rows.filter(r => r.done).map(r => r.name);
-        expect("a person with links sees their own checks and no one else's", JSON.stringify(ticked) === JSON.stringify([itemName("task-1")]), "checked: " + JSON.stringify(ticked));
+        expect("a person with links sees their own checks and no one else's", JSON.stringify(ticked) === JSON.stringify([itemName("task-1", language)]), "checked: " + JSON.stringify(ticked));
         await countsAgree(app, language, expect, "the count on Home and on the checklist is the checks drawn over the items drawn");
         await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
@@ -589,12 +608,12 @@ const JOURNEYS = [
         await openTab(app.page, "tasks", language);
         await pause(app.page, 1200);
         const rows = await checklist(app.page, language);
-        const missing = siteNames("site-south").filter(n => !rows.some(r => r.name === n));
+        const missing = siteNames("site-south", language).filter(n => !rows.some(r => r.name === n));
         expect("a person linked to nothing at a site set out in shifts sees every item", missing.length === 0, "not drawn: " + JSON.stringify(missing));
         // The headers and the items, read down the screen. Each has to
         // come after the one before it.
         const text = (await bodyText(app.page)).toLowerCase();
-        const want = SHIFT_ORDER.map(x => (/^s-\d+$/.test(x) ? itemName(x) : x));
+        const want = SHIFT_ORDER.map(x => (/^s-\d+$/.test(x) ? itemName(x, language) : x));
         const astray = [];
         let at = 0;
         want.forEach((w) => { const i = text.indexOf(w.toLowerCase(), at); if (i === -1) astray.push(w); else at = i + w.length; });
@@ -617,14 +636,14 @@ const JOURNEYS = [
       try {
         await openTab(first.page, "tasks", language);
         await pause(first.page, 1200);
-        const four = itemName("task-4");
+        const four = itemName("task-4", language);
         await tickItem(first.page, language, four);
         stub.state.person = SECOND_PERSON;
         second = await open({ stub: stub });
         await openTab(second.page, "tasks", language);
         await pause(second.page, 1200);
         expect("a second person at the site sees the first person's check", (await checklist(second.page, language)).some(r => r.name === four && r.done), "not drawn as checked");
-        const six = itemName("task-6");
+        const six = itemName("task-6", language);
         await tickItem(second.page, language, six);
         stub.state.person = PERSON;
         await reopen(first.page, language);
@@ -1423,11 +1442,13 @@ const JOURNEYS = [
     id: "picklists",
     label: "The four pick lists, drawn from the list the API sends: severities, request types, urgency and the reasons to drop a shift",
     run: async (open, language, expect) => {
-      const labels = (slug) => (LOOKUPS.find(c => c.slug === slug) || { values: [] }).values.map(v => v.label);
+      // Each choice as the person's language should draw it: the API's own
+      // displayLabel where it sends one, and the table's word where not.
+      const labels = (slug) => (lookupsIn(language).find(c => c.slug === slug) || { values: [] }).values.map(v => v.displayLabel || spanishOf(v.label, language));
       // One line per list: every label in it, in the person's language,
       // or the ones that are not.
       const eachIn = (what, list, drawn) => {
-        const missing = list.filter(l => !drawn(spanishOf(l, language)));
+        const missing = list.filter(l => !drawn(l));
         expect(what + " are drawn in the person's language", missing.length === 0, "not drawn in it: " + JSON.stringify(missing));
       };
       const app = await open({});
@@ -1464,6 +1485,10 @@ const JOURNEYS = [
           return sel ? Array.from(sel.options).map(o => o.textContent.trim()) : [];
         });
         eachIn("the reasons to drop a shift", labels("drop_reasons"), l => reasons.indexOf(l) !== -1);
+        // A reason the portal's own table has never heard of, which only the
+        // API's displayLabel can put into the person's language.
+        const own = lookupsIn(language).find(c => c.slug === "drop_reasons").values.find(v => v.value === "car_trouble").displayLabel;
+        expect("a reason only the API knows is drawn in the API's own word", reasons.indexOf(own) !== -1, JSON.stringify(reasons));
       } finally { await app.context.close(); }
     },
   },

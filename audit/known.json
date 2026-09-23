@@ -1,5 +1,5 @@
 {
-  "notes": "What the app gets wrong today. Each entry prints as KNOWN on every run and does not fail it. An entry that stops matching fails the run until it is taken off the list, so a fix is always noticed. The contrast entries are one per screen, theme and color pair, each with the ratio the app draws. The language entries are one per kind of word the API cannot send in Spanish yet, which stay until it does, and one per place the portal itself still draws English, which the build that fixes it takes off. The checklist entries are what the Tasks screen cannot do yet, which the next commit takes off.",
+  "notes": "What the app gets wrong today. Each entry prints as KNOWN on every run and does not fail it. An entry that stops matching fails the run until it is taken off the list, so a fix is always noticed. The contrast entries are one per screen, theme and color pair, each with the ratio the app draws. The language entries are one per kind of word the API cannot send in Spanish yet, which stay until it does, and one per place the portal itself still draws English, which the build that fixes it takes off.",
   "accepted": [
     {
       "where": "*",
@@ -322,6 +322,12 @@
     {
       "where": "*",
       "check": "english",
+      "what": "is a shift header the API sent in English",
+      "why": "A checklist's shift and block names are typed in English and sent as typed. Step 118 gives an item its own words in the request's language as display, and gives the headers none, so they stay English until the API sends them in Spanish too."
+    },
+    {
+      "where": "*",
+      "check": "english",
       "what": "is a supply the API sent in English",
       "why": "A supply's name and its unit are written in English in the database and sent as written."
     },
@@ -392,84 +398,6 @@
       "check": "contrast",
       "what": "\"#24A4F4 on #EAF6FE\"",
       "why": "Blue on light mode's blue wash, the badge of a shift someone dropped. 2.49 to 1 against the 4.5 to 1 small text needs. The stub's open shift carries a real origin code from this build on."
-    },
-    {
-      "where": "The whole site's checklist for a person linked to nothing: every item, building and floor hiding none, the count, and a check that holds",
-      "check": "a person linked to nothing asks for the whole site, with no user_id",
-      "what": "user_id=",
-      "why": "The Tasks screen asks with ?user_id= for everyone, and the API answers that with only the items linked to the person. Nothing writes a link when a person joins a site or an item is added, and four of six sites have none. The next commit asks for the whole site unless the status says the person has links of their own."
-    },
-    {
-      "where": "*",
-      "check": "the checklist never asks by building or floor",
-      "what": "floor_number=",
-      "why": "The request carries the open shift's building and floor, which the API matches exactly, so an item with no building or no floor drops out of the list. The next commit stops sending both and groups by them on the screen instead."
-    },
-    {
-      "where": "The whole site's checklist for a person linked to nothing: every item, building and floor hiding none, the count, and a check that holds",
-      "check": "a person linked to nothing sees every item at the site",
-      "what": "not drawn:",
-      "why": "The list comes back empty for a person with no links, so the screen says no checklist is set up for the building."
-    },
-    {
-      "where": "The whole site's checklist for a person linked to nothing: every item, building and floor hiding none, the count, and a check that holds",
-      "check": "the whole site's list shows everyone's checks at the site today",
-      "what": "checked: []",
-      "why": "The list is empty, so there is no check to draw."
-    },
-    {
-      "where": "The whole site's checklist for a person linked to nothing: every item, building and floor hiding none, the count, and a check that holds",
-      "check": "checking an item on the whole site's list sends the check the way it always has",
-      "what": "nothing sent",
-      "why": "The list is empty, so there is no item to check."
-    },
-    {
-      "where": "The whole site's checklist for a person linked to nothing: every item, building and floor hiding none, the count, and a check that holds",
-      "check": "the check is drawn at once",
-      "what": "not drawn as checked",
-      "why": "The list is empty, so there is no item to check."
-    },
-    {
-      "where": "The whole site's checklist for a person linked to nothing: every item, building and floor hiding none, the count, and a check that holds",
-      "check": "the check holds when the app is opened again",
-      "what": "not drawn as checked",
-      "why": "The list is empty, so there is no item to check."
-    },
-    {
-      "where": "A person a manager linked to particular items sees just those, building and floor hiding none, with their own checks",
-      "check": "a person with links sees every item they are linked to",
-      "what": "Wipe down the lobby benches",
-      "why": "The linked item with no building or floor drops out, since the request carries the shift's building and floor."
-    },
-    {
-      "where": "A person a manager linked to particular items sees just those, building and floor hiding none, with their own checks",
-      "check": "a person with links sees their own checks and no one else's",
-      "what": "Empty every bin on the floor",
-      "why": "Every list reads the site's checks, so another person's check shows on a list of the person's own, and the uncheck route can only take back the person's own. The next commit reads the person's own checks on their own list and the site's on the site's."
-    },
-    {
-      "where": "A site whose checklist is set out in shifts draws every item under its shift and block, in block order and then by time",
-      "check": "a person linked to nothing at a site set out in shifts sees every item",
-      "what": "not drawn:",
-      "why": "Nobody at the site is linked to anything, so the list comes back empty."
-    },
-    {
-      "where": "A site whose checklist is set out in shifts draws every item under its shift and block, in block order and then by time",
-      "check": "each item is drawn under its shift and block, in block order and then by time",
-      "what": "missing or out of order:",
-      "why": "The screen groups by floor and zone only and draws no shift header, and here the list is empty besides."
-    },
-    {
-      "where": "Two people at one site, neither linked to anything, see each other's checks on the whole site's list",
-      "check": "a second person at the site sees the first person's check",
-      "what": "not drawn as checked",
-      "why": "Neither person is linked to anything, so neither list has an item to check."
-    },
-    {
-      "where": "Two people at one site, neither linked to anything, see each other's checks on the whole site's list",
-      "check": "the first person sees the second person's check",
-      "what": "not drawn as checked",
-      "why": "Neither person is linked to anything, so neither list has an item to check."
     }
   ]
 }

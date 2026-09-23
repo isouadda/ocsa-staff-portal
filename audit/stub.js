@@ -41,12 +41,19 @@ const LEAVE_TYPES = [
 // English, the way the live API sends it, and every one is the English
 // the portal's own fallback draws when no list arrives.
 const pick = (slug, rows) => ({ slug: slug, values: rows.map((r, i) => Object.assign({ value: r[0], label: r[1], is_active: true, sort_order: i + 1 }, r[2] || {})) });
+// The drop reasons carry one choice the portal's own table does not know,
+// the way an admin can add one.
 const LOOKUPS = [
-  pick("drop_reasons", [["sick", "Sick"], ["personal", "Personal"], ["scheduling_conflict", "Scheduling Conflict"], ["emergency", "Emergency"], ["other", "Other", { show_other_input: true }]]),
+  pick("drop_reasons", [["sick", "Sick"], ["personal", "Personal"], ["scheduling_conflict", "Scheduling Conflict"], ["emergency", "Emergency"], ["car_trouble", "Car trouble"], ["other", "Other", { show_other_input: true }]]),
   pick("issue_severities", [["low", "Low", { color: "#2ECC71" }], ["medium", "Medium", { color: "#F39C12" }], ["high", "High", { color: "#E74C3C" }]]),
   pick("request_types", [["refill", "Refill"], ["damage_report", "Damage Report"], ["new_gear", "New Gear"], ["new_supply", "New Supply"]]),
   pick("urgency_levels", [["normal", "Normal"], ["urgent", "Urgent", { color: "#E74C3C" }]]),
 ];
+// Step 118 in the API sends a choice's own word as displayLabel, in the
+// language the request asks for. The stub sends it on two: one the
+// portal's table knows, and one it does not.
+const DISPLAY_CHOICES = new Set(["emergency", "car_trouble"]);
+const lookupsIn = (lang) => LOOKUPS.map(c => Object.assign({}, c, { values: c.values.map(v => (DISPLAY_CHOICES.has(v.value) ? Object.assign({}, v, { displayLabel: inLanguage(v.label, lang) }) : v)) }));
 
 // --- the checklist -------------------------------------------------------
 //
@@ -112,6 +119,19 @@ const OPEN_SHIFT = {
 // The person a case signs in as is linked to six items at North
 // Building, one of them with no building or floor. Nobody else is.
 const LINKS = { "u-one": ["task-1", "task-2", "task-3", "task-4", "task-5", "task-8"] };
+// Step 118 in the API sends each checklist item's own words as display:
+// { label, description, zone }, in the language the request asks for.
+// The stub sends them on these two and leaves them off the rest, so a
+// screen is seen drawing both.
+const DISPLAYED = new Set(["task-1", "task-8"]);
+const inLanguage = (en, lang) => (en && lang === "es" && TWIN_ES.has(en) ? TWIN_ES.get(en) : en);
+const displayOf = (row, lang) => ({ label: inLanguage(row.label, lang), description: row.description ? inLanguage(row.description, lang) : null, zone: row.zone ? inLanguage(row.zone, lang) : null });
+// An item's words as a screen in one language should draw them.
+const taskWords = (id, lang) => {
+  const row = [].concat(...Object.keys(SITE_TASKS).map(k => SITE_TASKS[k])).find(r => r.id === id);
+  if (!row) return { label: id, description: null, zone: null };
+  return DISPLAYED.has(id) ? displayOf(row, lang) : { label: row.label, description: row.description || null, zone: row.zone };
+};
 // Checked off today: one by this person, and two by someone else.
 const COMPLETIONS = [
   { taskId: "task-1", userId: "u-one" },
@@ -478,6 +498,8 @@ const TWIN_PAIRS = [
   ["The badge number does not match this account.", "El n\u00famero de empleado no coincide con esta cuenta."],
   // The one pick list label the portal's own table does not carry yet.
   ["Medium", "Media"],
+  // A drop reason an admin added, which only the API can put into Spanish.
+  ["Car trouble", "Problemas con el carro"],
 ]
   // Words the portal's own table already carries, with its Spanish.
   .concat(["Describe what happened", "What happened", "No", "Yes", "Shift started", "Shift ended",
@@ -515,7 +537,7 @@ const WORD_FIELDS = {
 const ROUTE_WORDS = [
   [/^GET \/api\/sites\/[^/]+\/tasks$/, { label: "to-do item", shift_label: "shift header", block_label: "shift header" }],
   [/^GET \/api\/clock\/tasks\/assigned$/, { label: "to-do item" }],
-  [/^GET \/api\/lookups$/, { label: "pick list choice" }],
+  [/^GET \/api\/lookups$/, { label: "pick list choice", displayLabel: "pick list choice" }],
   [/^GET \/api\/notifications$/, { title: "notice", body: "notice" }],
   [/^GET \/api\/supplies$/, { name: "supply" }],
   [/^GET \/api\/time-off\/types$/, { label: "leave type" }],
@@ -593,9 +615,11 @@ function createStub(opts) {
     tasks: progress(),
   } : { clockedIn: false, shift: null, session: null, tasks: null });
 
-  // One site's list, asked for the way the request asks.
+  // One site's list, asked for the way the request asks, with Step 118's
+  // words on the items that carry them.
   const tasks = (siteId, search) => {
     const q = new URLSearchParams(search || "");
+    const lang = languageOf(search, state);
     let rows = SITE_TASKS[siteId] || [];
     if (q.has("user_id")) {
       const linked = state.links[q.get("user_id")] || [];
@@ -603,7 +627,7 @@ function createStub(opts) {
     }
     if (q.has("building_name")) rows = rows.filter(r => r.building_name === q.get("building_name"));
     if (q.has("floor_number")) rows = rows.filter(r => r.floor_number === q.get("floor_number"));
-    return rows;
+    return rows.map(r => (DISPLAYED.has(r.id) ? Object.assign({}, r, { display: displayOf(r, lang) }) : r));
   };
 
   // A route a case has asked to refuse wins over the answer below it.
@@ -692,9 +716,10 @@ function createStub(opts) {
     if (method === "PATCH" && /^\/api\/shift-sessions\//.test(pathname)) { state.clockedIn = false; return json(200, { message: "Shift ended" }); }
     if (key === "GET /api/sites") return json(200, SITES);
     if (method === "GET" && /^\/api\/sites\/[^/]+\/tasks$/.test(pathname)) return json(200, tasks(pathname.split("/")[3], search));
-    // The four pick lists, in English, the way the live API sends them.
-    // The colors are the ones the screens draw when no list arrives.
-    if (key === "GET /api/lookups") return json(200, LOOKUPS);
+    // The four pick lists, their labels in English the way the live API
+    // sends them, with Step 118's displayLabel on two choices. The colors
+    // are the ones the screens draw when no list arrives.
+    if (key === "GET /api/lookups") return json(200, lookupsIn(languageOf(search, state)));
 
     // --- the calendar
     if (pathname === "/api/pickups/my-schedule") return json(200, schedule());
@@ -906,4 +931,4 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, formP, timeOffRow, ymd, iso, DAY };
+module.exports = { createStub, servedFor, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, timeOffRow, ymd, iso, DAY };
