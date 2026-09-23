@@ -323,7 +323,7 @@
       "where": "*",
       "check": "english",
       "what": "is a shift header the API sent in English",
-      "why": "A checklist's shift and block names are typed in English and sent as typed. Step 118 gives an item its own words in the request's language as display, and gives the headers none, so they stay English until the API sends them in Spanish too."
+      "why": "A checklist's shift and block names are typed in English. Step 124 sends them as display.shift and display.block, and each shift of a session as displayLabel, in the request's language once the names' Spanish is loaded. Until then they come back in English, and the screen draws them as sent."
     },
     {
       "where": "*",
@@ -381,177 +381,15 @@
     },
     {
       "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
-      "check": "every checklist read asks for today, in the person's language, on the whole site's list",
-      "what": "/api/sites/site-west/tasks?",
-      "why": "The checklist read sends ?locale= and no day. The API then answers today's items for a person with an open session, and every item to a manager with none. Commit three sends day=today on every read."
-    },
-    {
-      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
-      "check": "the checklist's percentage counts only the rows due today, on the whole site's list",
-      "what": "wanted",
-      "why": "The percentage counts every row drawn, weekly, monthly and seasonal work included, so this list reads 13%, not 29%. Commit three counts only the rows due today."
-    },
-    {
-      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
-      "check": "today comes first, then each period with work, in order, then as needed, on the whole site's list",
-      "what": "@-1",
-      "why": "The checklist draws every row under its shift and block, with no sections. Commit three draws Today first and then a section for each period with work."
-    },
-    {
-      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
-      "check": "each period's count is the one the status sends, on the whole site's list",
-      "what": "\"ok\":false",
-      "why": "There are no period sections, so there is no count. Commit three titles each section with its count."
-    },
-    {
-      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
-      "check": "Home counts only the rows due today, on the whole site's list",
-      "what": "Home reads",
-      "why": "Home counts every row the checklist draws. Commit three counts tasks.completed of tasks.total on a person's own list, and siteCompletedTaskIds of siteTotal on the site's."
-    },
-    {
-      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
       "check": "the section titles are in the person's language, on the whole site's list",
       "what": "",
-      "why": "There are no section titles yet. Commit three draws them, and the words commit gives them their Spanish."
-    },
-    {
-      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
-      "check": "every checklist read asks for today, in the person's language, on a person's own list",
-      "what": "/api/sites/site-west/tasks?",
-      "why": "The checklist read sends ?locale= and no day. The API then answers today's items for a person with an open session, and every item to a manager with none. Commit three sends day=today on every read."
-    },
-    {
-      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
-      "check": "the checklist's percentage counts only the rows due today, on a person's own list",
-      "what": "wanted",
-      "why": "The percentage counts every row drawn, weekly, monthly and seasonal work included, so this list reads 33%, not 50%. Commit three counts only the rows due today."
-    },
-    {
-      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
-      "check": "today comes first, then each period with work, in order, then as needed, on a person's own list",
-      "what": "@-1",
-      "why": "The checklist draws every row under its shift and block, with no sections. Commit three draws Today first and then a section for each period with work."
-    },
-    {
-      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
-      "check": "each period's count is the one the status sends, on a person's own list",
-      "what": "\"ok\":false",
-      "why": "There are no period sections, so there is no count. Commit three titles each section with its count."
-    },
-    {
-      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
-      "check": "Home counts only the rows due today, on a person's own list",
-      "what": "Home reads",
-      "why": "Home counts every row the checklist draws. Commit three counts tasks.completed of tasks.total on a person's own list, and siteCompletedTaskIds of siteTotal on the site's."
+      "why": "The section titles have no Spanish entry yet, so a Spanish screen draws them in English. The words commit gives them their Spanish."
     },
     {
       "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
       "check": "the section titles are in the person's language, on a person's own list",
       "what": "",
-      "why": "There are no section titles yet. Commit three draws them, and the words commit gives them their Spanish."
-    },
-    {
-      "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
-      "check": "as needed work is listed with no count",
-      "what": "",
-      "why": "There is no As needed section. Commit three lists as needed work under it, with no count."
-    },
-    {
-      "where": "A person linked to items, none of them due today, still sees their own list",
-      "check": "a person with links, none due today, asks for their own items",
-      "what": "/api/sites/site-west/tasks?locale=",
-      "why": "The screen decides whose list it is from tasks.total, which now counts only linked items due today, so a person whose linked items are weekly or quarterly reads the whole site's list. Commit three decides from hasLinkedItems."
-    },
-    {
-      "where": "A person linked to items, none of them due today, still sees their own list",
-      "check": "a person with links, none due today, sees just their own items",
-      "what": "drawn:",
-      "why": "The screen decides whose list it is from tasks.total, which now counts only linked items due today, so a person whose linked items are weekly or quarterly reads the whole site's list. Commit three decides from hasLinkedItems."
-    },
-    {
-      "where": "A person linked to items, none of them due today, still sees their own list",
-      "check": "Home counts nothing due today for them",
-      "what": "Home reads",
-      "why": "Home counts the whole site's list drawn for them. Commit three counts tasks.completed of tasks.total, 0/0."
-    },
-    {
-      "where": "A weekly item checked off stays checked after the status is read again and after the app is opened again",
-      "check": "a weekly item checked off stays checked after the status is read again",
-      "what": "\"done\":false",
-      "why": "The tick comes from completedTaskIds, which now holds only today's due items, so the status read after the check takes it off. Commit three draws a periodic row's tick from doneThisPeriod and reads the list again after a check."
-    },
-    {
-      "where": "A weekly item checked off stays checked after the status is read again and after the app is opened again",
-      "check": "the week's count takes the check in",
-      "what": "wanted",
-      "why": "There is no week section and no count. Commit three adds them."
-    },
-    {
-      "where": "A weekly item checked off stays checked after the status is read again and after the app is opened again",
-      "check": "a weekly item checked off stays checked when the app is opened again",
-      "what": "\"done\":false",
-      "why": "The tick comes from completedTaskIds, which now holds only today's due items, so the status read after the check takes it off. Commit three draws a periodic row's tick from doneThisPeriod and reads the list again after a check."
-    },
-    {
-      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
-      "check": "work done in its period shows done: w-9",
-      "what": "\"done\":false",
-      "why": "A row's tick comes from the id lists, which now hold only today's due items, so work done in its period, by a coworker or on an earlier day, reads as not done. Commit three draws it from doneThisPeriod."
-    },
-    {
-      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
-      "check": "work done in its period says who and when: w-9",
-      "what": "wanted",
-      "why": "Nothing under a row says who did it or when. Commit three draws the line from doneThisPeriod, and the words commit gives it its Spanish."
-    },
-    {
-      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
-      "check": "work done in its period shows done: w-12",
-      "what": "\"done\":false",
-      "why": "A row's tick comes from the id lists, which now hold only today's due items, so work done in its period, by a coworker or on an earlier day, reads as not done. Commit three draws it from doneThisPeriod."
-    },
-    {
-      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
-      "check": "work done in its period says who and when: w-12",
-      "what": "wanted",
-      "why": "Nothing under a row says who did it or when. Commit three draws the line from doneThisPeriod, and the words commit gives it its Spanish."
-    },
-    {
-      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
-      "check": "work done in its period shows done: w-16",
-      "what": "\"done\":false",
-      "why": "A row's tick comes from the id lists, which now hold only today's due items, so work done in its period, by a coworker or on an earlier day, reads as not done. Commit three draws it from doneThisPeriod."
-    },
-    {
-      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
-      "check": "work done in its period says who and when: w-16",
-      "what": "wanted",
-      "why": "Nothing under a row says who did it or when. Commit three draws the line from doneThisPeriod, and the words commit gives it its Spanish."
-    },
-    {
-      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
-      "check": "work done in its period shows done: w-14",
-      "what": "\"done\":false",
-      "why": "A row's tick comes from the id lists, which now hold only today's due items, so work done in its period, by a coworker or on an earlier day, reads as not done. Commit three draws it from doneThisPeriod."
-    },
-    {
-      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
-      "check": "work done in its period says who and when: w-14",
-      "what": "wanted",
-      "why": "Nothing under a row says who did it or when. Commit three draws the line from doneThisPeriod, and the words commit gives it its Spanish."
-    },
-    {
-      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
-      "check": "work done in its period shows done: w-11",
-      "what": "\"done\":false",
-      "why": "A row's tick comes from the id lists, which now hold only today's due items, so work done in its period, by a coworker or on an earlier day, reads as not done. Commit three draws it from doneThisPeriod."
-    },
-    {
-      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
-      "check": "work done in its period says who and when: w-11",
-      "what": "wanted",
-      "why": "Nothing under a row says who did it or when. Commit three draws the line from doneThisPeriod, and the words commit gives it its Spanish."
+      "why": "The section titles have no Spanish entry yet, so a Spanish screen draws them in English. The words commit gives them their Spanish."
     },
     {
       "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
@@ -564,12 +402,6 @@
       "check": "work done on an earlier day offers no uncheck: w-11",
       "what": "an uncheck was sent, or the box cleared",
       "why": "The row reads as not done, so a tap checks it again; once it reads done, a tap would send an uncheck that the API answers with 200 and removes nothing. Commit four offers no uncheck on it."
-    },
-    {
-      "where": "Work done in its period shows done with who did it and when, today, yesterday, a weekday or a date, and offers no uncheck",
-      "check": "an every other day item done yesterday is not counted today",
-      "what": "drawn",
-      "why": "The percentage counts every row drawn. Commit three counts only the rows due today."
     },
     {
       "where": "A coworker's check today says who made it, stays checked, and a tap says only they can uncheck it",
@@ -594,30 +426,6 @@
       "check": "who checked it is said in the person's language",
       "what": "",
       "why": "Neither line is drawn yet. Commit four draws them, and the words commit gives them their Spanish."
-    },
-    {
-      "where": "Each block's title shows its time first, and a block with no time shows its title alone",
-      "check": "a block's title shows its time first: Restroom Round 1",
-      "what": "wanted",
-      "why": "A block's title is its name alone. Commit three draws the block's time before it, from anchor_time."
-    },
-    {
-      "where": "Each block's title shows its time first, and a block with no time shows its title alone",
-      "check": "a block's title shows its time first: Office sweep",
-      "what": "wanted",
-      "why": "A block's title is its name alone. Commit three draws the block's time before it, from anchor_time."
-    },
-    {
-      "where": "Each block's title shows its time first, and a block with no time shows its title alone",
-      "check": "a block's title shows its time first: Common areas",
-      "what": "wanted",
-      "why": "A block's title is its name alone. Commit three draws the block's time before it, from anchor_time."
-    },
-    {
-      "where": "Each block's title shows its time first, and a block with no time shows its title alone",
-      "check": "a block's title shows its time first: Late round",
-      "what": "wanted",
-      "why": "A block's title is its name alone. Commit three draws the block's time before it, from anchor_time."
     },
     {
       "where": "No item on any screen shows its category code: the checklist, an item opened, an assigned task, an inspection",
@@ -709,6 +517,120 @@
       "check": "no Spanish entry",
       "what": "\"Change shift\"",
       "why": "A line the sheet that asks which shift draws, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"This week\"",
+      "why": "A period's section title, new in this build, with no Spanish entry yet. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Every two weeks\"",
+      "why": "A period's section title, new in this build, with no Spanish entry yet. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"This month\"",
+      "why": "A period's section title, new in this build, with no Spanish entry yet. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"This quarter\"",
+      "why": "A period's section title, new in this build, with no Spanish entry yet. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"This season\"",
+      "why": "A period's section title, new in this build, with no Spanish entry yet. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "english",
+      "what": "\"As needed\"",
+      "why": "The As needed section's title, new in this build, has no Spanish entry yet, and its English reads the same as the period code as_needed the stub sends. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": " done\" on a Spanish screen",
+      "why": "A period's count, {done} of {total} done, new in this build, with no Spanish entry yet. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Done ",
+      "why": "Who did the work and when, new in this build, with no Spanish entry yet: today, yesterday, a weekday or a date. The words commit gives each its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"This week\"",
+      "why": "A line the checklist's sections draw, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Every two weeks\"",
+      "why": "A line the checklist's sections draw, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"This month\"",
+      "why": "A line the checklist's sections draw, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"This quarter\"",
+      "why": "A line the checklist's sections draw, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"This season\"",
+      "why": "A line the checklist's sections draw, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"As needed\"",
+      "why": "A line the checklist's sections draw, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"{done} of {total} done\"",
+      "why": "A line the checklist's sections draw, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Done today by {firstName}\"",
+      "why": "A line the checklist's sections draw, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Done yesterday by {firstName}\"",
+      "why": "A line the checklist's sections draw, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Done {weekday} by {firstName}\"",
+      "why": "A line the checklist's sections draw, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Done {date} by {firstName}\"",
+      "why": "A line the checklist's sections draw, new in this build. The words commit gives it its Spanish."
     }
   ]
 }

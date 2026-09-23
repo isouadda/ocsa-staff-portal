@@ -1078,6 +1078,12 @@ export default function OCSAStaffPortal() {
   // Task ids with a tick or untick request in flight. A second tap on the
   // same task is ignored until the first answers. Other tasks stay tappable.
   const inFlightTaskIds = useRef(new Set());
+  // A row outside the id lists, periodic work or as needed work or the
+  // day's work done yesterday, that this phone just checked or unchecked,
+  // drawn that way until a list asked for after it comes back. The id lists
+  // hold only today's due items, so a status read would otherwise take the
+  // tick straight back off.
+  const [tickOverrides, setTickOverrides] = useState(new Map());
   const [issues, setIssues] = useState([]);
   const [assignedTasks, setAssignedTasks] = useState([]);
   const [supplies, setSupplies] = useState([]);
@@ -1301,7 +1307,7 @@ export default function OCSAStaffPortal() {
       const data = await api("/api/shift-sessions/" + id + "/end", { method: "POST", token });
       setClockStatus({ clockedIn: false, shift: null, session: null });
       setSelectedSite(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set());
-      setShiftAsk(null); setShiftFault(null);
+      setShiftAsk(null); setShiftFault(null); setTickOverrides(new Map());
       const endedAt = data && data.session ? data.session.endedAt : null;
       showToast(endedAt ? tr("Shift ended at {time}", { time: formatTime(endedAt) }) : tr("Shift ended"));
     } catch (err) {
@@ -1330,8 +1336,17 @@ export default function OCSAStaffPortal() {
   // reads from the session rather than from the request, so a change of
   // shift asks for the list again.
   const checklistKey = checklistAsk ? checklistAsk + "#" + (sessionShiftLabel(clockStatus) || "") : null;
-  const loadTasks = async () => { const path = checklistAsk; const key = checklistKey; const lang = language; if (!path || tasksReqAsked.current === key) return; tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (tasksReqAsked.current !== key) return; setTasks(tt); setTasksLang(lang); tasksAsked.current = key; const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); takeStatus(cs, seq); } catch (err) { console.error(err); if (tasksReqAsked.current === key) setTasksFailed(true); } finally { if (tasksReqAsked.current === key) tasksReqAsked.current = null; } };
-  const toggleTask = async (taskId) => { if (inFlightTaskIds.current.has(taskId)) return; inFlightTaskIds.current.add(taskId); try { if (completedTaskIds.has(taskId)) { await api("/api/clock/tasks/" + taskId + "/complete", { method: "DELETE", token }); setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); showToast(tr("Task unchecked")); } else { await api("/api/clock/tasks/" + taskId + "/complete", { method: "POST", body: {}, token }); setCompletedTaskIds(prev => new Set(prev).add(taskId)); showToast(tr("Task completed")); } const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); takeStatus(cs, seq); } catch (err) { showToast(tr(err.message), "error"); } finally { inFlightTaskIds.current.delete(taskId); } };
+  // again reads the list once more even while the same request is in
+  // flight, which a check or an uncheck needs: the list then carries what
+  // the API says was done. Only the newest request's answer is taken.
+  const tasksSeq = useRef(0);
+  const loadTasks = async (again) => { const path = checklistAsk; const key = checklistKey; const lang = language; if (!path || (again !== true && tasksReqAsked.current === key)) return; const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (mine !== tasksSeq.current) return; setTasks(tt); setTasksLang(lang); tasksAsked.current = key; setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; }); const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); takeStatus(cs, seq); } catch (err) { console.error(err); if (mine === tasksSeq.current) setTasksFailed(true); } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; } };
+  // A check or an uncheck, sent the way it always has been, for the row as
+  // the screen draws it. A row outside the id lists is drawn from this
+  // phone's own tap until the list comes back. Then the list and the
+  // status are both read again, since a periodic row's tick lives on the
+  // row and not in the status.
+  const toggleTask = async (task, done) => { const taskId = task.id; if (inFlightTaskIds.current.has(taskId)) return; inFlightTaskIds.current.add(taskId); const counted = isDueToday(task); const mark = (on) => setTickOverrides(prev => { const n = new Map(prev); n.set(taskId, { done: on, doneThisPeriod: on ? { completedAt: new Date().toISOString(), firstName: user && user.firstName } : null, at: Date.now() }); return n; }); try { if (done) { await api("/api/clock/tasks/" + taskId + "/complete", { method: "DELETE", token }); if (counted) setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); else mark(false); showToast(tr("Task unchecked")); } else { await api("/api/clock/tasks/" + taskId + "/complete", { method: "POST", body: {}, token }); if (counted) setCompletedTaskIds(prev => new Set(prev).add(taskId)); else mark(true); showToast(tr("Task completed")); } loadTasks(true); } catch (err) { showToast(tr(err.message), "error"); } finally { inFlightTaskIds.current.delete(taskId); } };
   // The shift a session carries, sent as the person chose it on the sheet.
   // Keeping the shift in use sends nothing. The answer is the session and
   // its counts, which replace what the screen holds, and the list is read
@@ -1522,7 +1537,7 @@ export default function OCSAStaffPortal() {
     clearAuth();
     setToken(null); setUser(null); setSites([]); setScreen("login");
     setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null);
-    setShiftAsk(null); setShiftBusy(false); setShiftFault(null);
+    setShiftAsk(null); setShiftBusy(false); setShiftFault(null); setTickOverrides(new Map());
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
     setChannels([]); setMessages([]); setActiveChannel(null);
@@ -1583,11 +1598,15 @@ export default function OCSAStaffPortal() {
   // The count on More is what is waiting under More. With Assigned on the
   // bar its badge shows there instead, so the two never double up.
   const totalBadge = moreTabs.reduce((n, tab) => n + (tab.badge || 0), 0);
-  // The Home card counts the list the Tasks tab renders, with the ticks
-  // that go with it: the person's own items and ticks, or the whole
-  // site's list and everyone's ticks there today. null until that list has
-  // come back.
-  const homeTasks = Array.isArray(tasks) ? standardTasksOf(tasks) : null;
+  // The Home card counts what the checklist's percentage counts, through
+  // the same function: today's due work on the list the Tasks tab draws,
+  // and the checks of it, the person's own on their own list and everyone's
+  // there today on the site's. Nothing periodic. null until the list has
+  // come back. On the stub these are the status's completed of total and
+  // siteCompletedTaskIds of siteTotal, except where a person with links
+  // has checked an item outside them, which completed counts and total
+  // does not.
+  const homeCounts = Array.isArray(tasks) ? todayCount(tasks, completedTaskIds) : null;
   // The sheet that asks which shift, while it is needed: after Start Shift
   // or Change shift, and whenever the session at a site with shifts
   // carries none.
@@ -1595,7 +1614,6 @@ export default function OCSAStaffPortal() {
   const shiftSheet = siteShifts.length > 0 && (!!shiftAsk || !sessionShiftLabel(clockStatus))
     ? { shifts: siteShifts, mode: shiftAsk || "ask", busy: shiftBusy, fault: shiftFault, onUse: chooseShift, onChoose: () => setShiftFault(null) }
     : null;
-  const homeDone = homeTasks ? homeTasks.filter(tk => completedTaskIds.has(tk.id)).length : 0;
 
   return (
     <TextSizeCtx.Provider value={{ textSize, setTextSize }}>
@@ -1647,9 +1665,9 @@ export default function OCSAStaffPortal() {
 
           <div style={{ padding: "0 0 var(--ocsa-bar, 76px) 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
-              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} loading={loading} completedCount={homeDone} taskCount={homeTasks ? homeTasks.length : 0} taskListLoaded={!!homeTasks} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
+              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
-              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} toggleTask={toggleTask} apiWords={tasksLang === language} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
+              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} tickOverrides={tickOverrides} toggleTask={toggleTask} apiWords={tasksLang === language} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
@@ -2773,11 +2791,12 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
   const elapsed = ci && clockStatus.shift ? Math.floor((currentTime - new Date(clockStatus.shift.clockInTime)) / 1000) : 0;
   const h = Math.floor(elapsed / 3600), m = Math.floor((elapsed % 3600) / 60), s = elapsed % 60;
   const pad = (n) => String(n).padStart(2, "0");
-  // The bar counts the list the Tasks tab renders, filtered the same way,
-  // ticked items over all of them, so the two never disagree: a person's
-  // own items with their own ticks, or the whole site's list with
-  // everyone's there today. A site with no checklist reads 0/0. Until the
-  // list has come back there is nothing to count, so the bar waits.
+  // The bar counts what the checklist's percentage counts, today's due
+  // work and the checks of it: a person's own items with their own checks,
+  // or the whole site's list with everyone's there today. Work that
+  // repeats over a week or longer is never in it. A site with nothing due
+  // today reads 0/0. Until the list has come back there is nothing to
+  // count, so the bar waits.
   const total = taskCount || 0;
   const done = completedCount || 0;
   const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
@@ -2861,25 +2880,62 @@ function sessionShifts(cs) {
 const sessionShiftLabel = (cs) => (cs && cs.clockedIn && cs.session && cs.session.shiftLabel ? cs.session.shiftLabel : null);
 
 // Which list the checklist reads, decided here and nowhere else. A
-// manager can link a person to particular items at a site, and
-// tasks.total on Start Shift and the status counts those links. A person
-// with links reads their own items and their own ticks. Everyone else
-// reads the whole site's list and everyone's ticks there today, since
-// nothing writes a link when a person joins a site or an item is added.
+// manager can link a person to particular items at a site. A person with
+// links reads their own items and their own ticks, whether or not any of
+// them is due today. Everyone else reads the whole site's list and
+// everyone's ticks there today, since nothing writes a link when a person
+// joins a site or an item is added. The status says which in
+// hasLinkedItems. Its total counts only the linked items due today, so a
+// person whose linked work is all weekly would read the whole site's list
+// by it, and it is never read for this.
 function checklistIsOwn(cs) {
   const tk = cs ? cs.tasks : null;
-  return !!tk && Number(tk.total) > 0;
+  return !!tk && tk.hasLinkedItems === true;
 }
 // The request for the checklist an open shift needs, or null with no
 // shift open. Building and floor are never sent: the API matches them
 // exactly, so an item with neither would drop out, and the screen groups
-// by them instead. The language goes along for the words Step 118 in the
-// API sends with each item.
+// by them instead. day=today asks for what the checklist day shows, so a
+// manager sees the list a cleaner sees. The language goes along for the
+// words Step 118 in the API sends with each item.
 function checklistRequest(cs, userId, lang) {
   if (!cs || !cs.clockedIn || !cs.shift || !cs.shift.siteId) return null;
   const own = checklistIsOwn(cs);
   if (own && !userId) return null;
-  return "/api/sites/" + cs.shift.siteId + "/tasks?" + (own ? "user_id=" + userId + "&" : "") + "locale=" + (lang === "es" ? "es" : "en");
+  return "/api/sites/" + cs.shift.siteId + "/tasks?" + (own ? "user_id=" + userId + "&" : "") + "day=today&locale=" + (lang === "es" ? "es" : "en");
+}
+// Where a row belongs on the checklist. The day's own work is counted in
+// its percentage when it is due today. Work that repeats over a week, two
+// weeks, a month, a quarter or a season has a section of its own, in
+// that order, and as needed work comes last and is never counted. A row
+// that names no period is the day's own work, the way every row was.
+const PERIOD_SECTIONS = [
+  { id: "week", title: () => tr("This week") },
+  { id: "biweekly", title: () => tr("Every two weeks") },
+  { id: "month", title: () => tr("This month") },
+  { id: "quarter", title: () => tr("This quarter") },
+  { id: "season", title: () => tr("This season") },
+];
+const isPeriodic = (tk) => PERIOD_SECTIONS.some(p => p.id === tk.period);
+const sectionOf = (tk) => (isPeriodic(tk) ? tk.period : tk.period === "as_needed" ? "as_needed" : "today");
+const isDueToday = (tk) => sectionOf(tk) === "today" && tk.dueToday !== false;
+// When and by whom work was done, the way a person says it: today,
+// yesterday, the weekday within the last six days, and a short date before
+// that, all on the company's calendar whatever zone the phone is in.
+function companyDay(ms) {
+  const p = {};
+  new Intl.DateTimeFormat("en-US", { timeZone: clientConfig.company.timeZone, year: "numeric", month: "numeric", day: "numeric" }).formatToParts(new Date(ms)).forEach((x) => { p[x.type] = Number(x.value); });
+  return Math.round(Date.UTC(p.year, p.month - 1, p.day) / 86400000);
+}
+function doneWhen(done) {
+  const at = done && done.completedAt ? new Date(done.completedAt) : null;
+  if (!at || isNaN(at.getTime()) || !done.firstName) return null;
+  const zone = clientConfig.company.timeZone;
+  const ago = companyDay(Date.now()) - companyDay(at.getTime());
+  if (ago <= 0) return tr("Done today by {firstName}", { firstName: done.firstName });
+  if (ago === 1) return tr("Done yesterday by {firstName}", { firstName: done.firstName });
+  if (ago <= 6) return tr("Done {weekday} by {firstName}", { weekday: at.toLocaleDateString(dateLocale(), { weekday: "long", timeZone: zone }), firstName: done.firstName });
+  return tr("Done {date} by {firstName}", { date: at.toLocaleDateString(dateLocale(), { month: "short", day: "numeric", timeZone: zone }), firstName: done.firstName });
 }
 // An item's words as the screen draws them. Step 118 in the API sends
 // display: { label, description, zone } in the language asked for, and
@@ -2894,8 +2950,11 @@ function itemWords(task, live) {
 // optional card over groups, each an optional title over rows. Items with
 // a shift header come first, sorted by block_sort_order and then
 // anchor_time, with a card for each shift, a title each time the block
-// changes under it, and the place over any item whose place differs from
-// the one before it. The rest are grouped by building and floor, the open
+// changes under it, the block's time before the title when it has one,
+// and the place over any item whose place differs from the one before it.
+// Shift and block names are Step 124's display.shift and display.block
+// where the list came back in the language on screen, and as sent where
+// not. The rest are grouped by building and floor, the open
 // shift's own first, and then by zone, and items that carry neither a
 // building nor a floor are listed under the site itself. Every item is
 // drawn somewhere.
@@ -2918,12 +2977,13 @@ function checklistSections(list, shift, live) {
   const timed = list.map((tk, i) => ({ tk, i })).filter(x => inShift(x.tk));
   timed.sort((a, b) => (rank(a.tk.block_sort_order) - rank(b.tk.block_sort_order) || 0) || byTime(a.tk.anchor_time, b.tk.anchor_time) || a.i - b.i);
   const shifts = new Map();
+  const shown = (tk) => (live && tk.display && typeof tk.display === "object" ? tk.display : {});
   timed.forEach(({ tk }) => {
     const s = text(tk.shift_label), b = text(tk.block_label);
-    if (!shifts.has(s)) { const sec = { head: s || null, groups: [] }; shifts.set(s, sec); sections.push(sec); }
+    if (!shifts.has(s)) { const sec = { head: text(shown(tk).shift) || s || null, groups: [] }; shifts.set(s, sec); sections.push(sec); }
     const sec = shifts.get(s);
     let g = sec.groups[sec.groups.length - 1];
-    if (!g || g.key !== b) { g = { key: b, title: b || null, block: true, rows: [] }; sec.groups.push(g); }
+    if (!g || g.key !== b) { g = { key: b, title: b ? text(shown(tk).block) || b : null, time: b && clock(tk.anchor_time) !== null ? text(tk.anchor_time) : null, block: true, rows: [] }; sec.groups.push(g); }
     const place = [areaOf(text(tk.building_name), text(tk.floor_number)), text(itemWords(tk, live).zone)].filter(Boolean).join(" - ");
     const before = g.rows.length ? g.rows[g.rows.length - 1].at : null;
     g.rows.push({ task: tk, at: place, place: place && place !== before ? place : null });
@@ -2957,6 +3017,14 @@ function checklistSections(list, shift, live) {
 // filter. Both call this, so the two numbers cannot drift apart.
 function standardTasksOf(taskList) {
   return (Array.isArray(taskList) ? taskList : []).filter(tk => !tk.task_type || tk.task_type === "standard");
+}
+// Today's due work on the list the checklist draws, and the checks of it,
+// the one count the checklist's percentage and the Home card both show.
+// Nothing periodic is in it. A tick of a due row comes from the id list:
+// the person's own checks on their own list, everyone's on the site's.
+function todayCount(taskList, ticks) {
+  const due = standardTasksOf(taskList).filter(isDueToday);
+  return { done: due.filter(tk => ticks.has(tk.id)).length, total: due.length };
 }
 
 // The sheet that asks which shift a session is working. It sits over the
@@ -3001,7 +3069,7 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
   );
 }
 
-function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, toggleTask, apiWords, shiftSheet, onChangeShift, t }) {
+function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, tickOverrides, toggleTask, apiWords, shiftSheet, onChangeShift, t }) {
   const [detail, setDetail] = useState(null);
   const loaded = Array.isArray(tasks);
   const standardTasks = standardTasksOf(tasks);
@@ -3013,11 +3081,17 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   // The list, section by section: the card, then each group's title, then
   // its rows, each row after the place it is in whenever that changes.
   // Everything under a card sits in from it.
-  const drawSections = (sections, row) => sections.map((sec, si) => (<div key={si}>{sec.head && (<div style={{ ...floorHeadSt, marginTop: si > 0 ? 10 : 0 }}>{sec.head}</div>)}{sec.groups.map((g, gi) => { const inset = sec.head ? 8 : 0; return (<div key={gi} style={{ marginBottom: 16 }}>{g.title && <div style={{ ...(g.block ? blockSt : zoneSt), paddingLeft: inset }}>{g.title}</div>}{g.rows.reduce((out, r) => { if (r.place) out.push(<div key={"at-" + r.task.id} style={{ ...zoneSt, paddingLeft: inset }}>{r.place}</div>); out.push(row(r.task, inset)); return out; }, [])}</div>); })}</div>));
+  const drawSections = (sections, row) => sections.map((sec, si) => (<div key={si}>{sec.head && (<div style={{ ...floorHeadSt, marginTop: si > 0 ? 10 : 0 }}>{sec.head}</div>)}{sec.groups.map((g, gi) => { const inset = sec.head ? 8 : 0; return (<div key={gi} style={{ marginBottom: 16 }}>{g.title && <div style={{ ...(g.block ? blockSt : zoneSt), paddingLeft: inset }}>{g.time ? <><span style={{ fontVariantNumeric: "tabular-nums" }}>{clockTime(g.time)}</span>{" "}</> : null}<span>{g.title}</span></div>}{g.rows.reduce((out, r) => { if (r.place) out.push(<div key={"at-" + r.task.id} style={{ ...zoneSt, paddingLeft: inset }}>{r.place}</div>); out.push(row(r.task, inset)); return out; }, [])}</div>); })}</div>));
   const rowBase = { display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 11, padding: "11px 13px", marginBottom: 6, borderRadius: R.md, boxShadow: t.shadow };
   const chipPriority = { fontSize: 9, color: ORANGE, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600, letterSpacing: "0.5px" };
   const chipCat = { fontSize: 9, color: t.textMut, background: t.cardAlt, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600 };
   const detailSecLabel = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD };
+  // A section's title, Today or a period, with its count at the other end.
+  const periodHeadSt = { display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: "2px 10px", marginBottom: 10 };
+  const periodTitleSt = { fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD };
+  const periodCountSt = { fontSize: 12, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" };
+  // A line under a row's name, saying who did it and when.
+  const rowLineSt = { fontSize: 11, color: t.textSec, marginTop: 3, lineHeight: 1.4 };
   // The shift in use at a site with shifts, by its own name, under the top
   // card, with the way to change it. Nothing at a site with fewer than two.
   const siteShifts = sessionShifts(clockStatus);
@@ -3049,12 +3123,36 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   );
   if (!loaded) return <EmptyState icon={CheckIco} text={tr("Loading tasks...")} t={t} />;
   if (standardTasks.length === 0) return shiftRow ? <div style={{ padding: "16px" }}>{shiftRow}<EmptyState icon={CheckIco} text={tr("No checklist is set up for this building yet.")} t={t} /></div> : <EmptyState icon={CheckIco} text={tr("No checklist is set up for this building yet.")} t={t} />;
-  const sections = checklistSections(standardTasks, clockStatus.shift, apiWords);
-  const completed = standardTasks.filter(tk => completedTaskIds.has(tk.id)).length;
-  const pct = Math.round((completed / standardTasks.length) * 100);
+  // Each row as the screen draws it. A tick of the day's own work due today
+  // comes from the id list, as it always has. Every other row is done when
+  // the API says it was done in its period, or when this phone has just
+  // checked or unchecked it and the list has not come back since; the id
+  // lists never hold them.
+  const rowNow = (tk) => { const o = tickOverrides.get(tk.id); return o && !isDueToday(tk) ? { ...tk, doneThisPeriod: o.done ? o.doneThisPeriod : null } : tk; };
+  const isDone = (tk) => (isDueToday(tk) ? completedTaskIds.has(tk.id) : !!tk.doneThisPeriod);
+  // Who did it and when, under a periodic row that is done and under a
+  // day's row done on an earlier day, the every other day row checked the
+  // day before.
+  const whenOf = (tk) => (tk.doneThisPeriod && (isPeriodic(tk) || (sectionOf(tk) === "today" && !isDueToday(tk))) ? doneWhen(tk.doneThisPeriod) : null);
+  const rows = standardTasks.map(rowNow);
+  // Today's own work first, counted in the percentage when it is due. Then
+  // each period with work, titled with its own count, and as needed work
+  // last, with none.
+  const today = rows.filter(tk => sectionOf(tk) === "today");
+  const counts = todayCount(tasks, completedTaskIds);
+  const pct = counts.total > 0 ? Math.round((counts.done / counts.total) * 100) : 0;
+  const listSections = [];
+  if (today.length > 0) listSections.push({ id: "today", title: tr("Today"), rows: today, count: null });
+  PERIOD_SECTIONS.forEach((p) => {
+    const list = rows.filter(tk => tk.period === p.id);
+    if (list.length > 0) listSections.push({ id: p.id, title: p.title(), rows: list, count: tr("{done} of {total} done", { done: list.filter(isDone).length, total: list.length }) });
+  });
+  const needed = rows.filter(tk => sectionOf(tk) === "as_needed");
+  if (needed.length > 0) listSections.push({ id: "as_needed", title: tr("As needed"), rows: needed, count: null });
 
   if (detail) {
-    const done = completedTaskIds.has(detail.id);
+    const current = rows.find(tk => tk.id === detail.id) || rowNow(detail);
+    const done = isDone(current);
     const w = itemWords(detail, apiWords);
     const place = [detail.building_name, detail.floor_number ? tr("Floor {n}", { n: detail.floor_number }) : "", w.zone].filter(Boolean).join(" - ");
     return (
@@ -3069,7 +3167,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
             {detail.media_url && detail.media_type !== "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Photo")}</div><img src={detail.media_url} alt={tr("Task reference")} style={{ width: "100%", borderRadius: R.md, maxHeight: 240, objectFit: "cover" }} /></div>)}
             {detail.due_date && (<div style={{ display: "flex", gap: 12, marginBottom: 14 }}><div style={{ fontSize: 11, color: t.textMut }}>{tr("Due Date:")} <span style={{ color: t.text, fontWeight: 500 }}>{new Date(detail.due_date).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}</span></div>{detail.due_time && <div style={{ fontSize: 11, color: t.textMut }}>{tr("Time:")} <span style={{ color: t.text, fontWeight: 500 }}>{clockTime(detail.due_time)}</span></div>}</div>)}
           </div>
-          <button onClick={() => { toggleTask(detail.id); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? tr("Uncheck Task") : tr("Mark Complete")}</button>
+          <button onClick={() => { toggleTask(current, done); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? tr("Uncheck Task") : tr("Mark Complete")}</button>
         </div>
       </div>
     );
@@ -3082,7 +3180,27 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
         <div style={{ height: 5, borderRadius: R.pill, background: t.cardAlt, marginTop: 12, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.4s ease" }} /></div>
       </div>
       {shiftRow}
-      {drawSections(sections, (task, inset) => { const w = itemWords(task, apiWords); const done = completedTaskIds.has(task.id); const hasInfo = task.has_details || w.description || task.media_url; return (<div key={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: inset }}><button onClick={() => toggleTask(task.id)} aria-label={tr(done ? "Mark {name} not done" : "Mark {name} done", { name: w.label })} style={mkTapFrame({ flexShrink: 0, marginTop: 1 })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></button><div onClick={() => hasInfo ? setDetail(task) : toggleTask(task.id)} style={{ flex: "1 1 120px", minWidth: 0, cursor: "pointer" }}><div style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{w.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>{task.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}<span style={chipCat}>{task.cims_category}</span></div></div>); })}
+      {listSections.map((sec, si) => (
+        <div key={sec.id} style={{ marginTop: si > 0 ? 22 : 0 }}>
+          <div style={periodHeadSt}><div role="heading" aria-level={2} style={periodTitleSt}>{sec.title}</div>{sec.count && <div style={periodCountSt}>{sec.count}</div>}</div>
+          {drawSections(checklistSections(sec.rows, clockStatus.shift, apiWords), (task, inset) => {
+            const w = itemWords(task, apiWords);
+            const done = isDone(task);
+            const when = done ? whenOf(task) : null;
+            const hasInfo = task.has_details || w.description || task.media_url;
+            return (
+              <div key={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: inset }}>
+                <button onClick={() => toggleTask(task, done)} aria-label={tr(done ? "Mark {name} not done" : "Mark {name} done", { name: w.label })} style={mkTapFrame({ flexShrink: 0, marginTop: 1 })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></button>
+                <div style={{ flex: "1 1 120px", minWidth: 0 }}>
+                  <div onClick={() => hasInfo ? setDetail(task) : toggleTask(task, done)} style={{ cursor: "pointer" }}><div style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{w.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div>
+                  {when && <div style={rowLineSt}>{when}</div>}
+                </div>
+                <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>{task.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}<span style={chipCat}>{task.cims_category}</span></div>
+              </div>
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }

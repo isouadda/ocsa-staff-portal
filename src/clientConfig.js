@@ -6,6 +6,9 @@ const clientConfig = {
     location: 'Philadelphia, PA',
     confidentialLabel: 'Confidential Record',
     footerLine: 'OCSA Cleaning Inc. | Philadelphia, PA | Confidential Record',
+    // The company's own clock, which says what today and yesterday are
+    // when the checklist says who did something and when.
+    timeZone: 'America/New_York',
   },
   brand: {
     navy: '#0A1628',
