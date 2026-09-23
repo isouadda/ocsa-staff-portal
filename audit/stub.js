@@ -48,6 +48,77 @@ const LOOKUPS = [
   pick("urgency_levels", [["normal", "Normal"], ["urgent", "Urgent", { color: "#E74C3C" }]]),
 ];
 
+// --- the checklist -------------------------------------------------------
+//
+// Every active item at each site, the way GET /api/sites/:id/tasks
+// answers when it is called plainly. Called with ?user_id=, it answers
+// only the items a manager has linked to that person. Links are rows in
+// task_assignments, and nothing writes one when a person joins a site or
+// an item is added, so most people at most sites have none.
+// building_name and floor_number are matched exactly, the way the API
+// matches them, so an item with no building or no floor drops out when
+// either is sent. Every row carries the four fields of its shift header,
+// null where it has none.
+const TASK_ROW = { building_name: null, floor_number: null, zone: null, task_type: "standard", shift_label: null, block_label: null, anchor_time: null, block_sort_order: null };
+const taskRow = (o) => Object.assign({}, TASK_ROW, o);
+const SITE_TASKS = {
+  // Some people here are linked to particular items and most are not.
+  // The open shift puts this person on Main Hall's second floor; the rest
+  // are elsewhere on the site, and two carry no building and no floor.
+  "site-north": [
+    taskRow({ id: "task-1", label: "Wipe the entry doors and handles", zone: "Entrance", building_name: "Main Hall", floor_number: "2", priority: "high", has_details: true, description: "Work top to bottom." }),
+    taskRow({ id: "task-2", label: "Empty every bin on the floor", zone: "Entrance", building_name: "Main Hall", floor_number: "2" }),
+    taskRow({ id: "task-3", label: "Mop the corridor end to end", zone: "Corridor", building_name: "Main Hall", floor_number: "2" }),
+    taskRow({ id: "task-4", label: "Restock paper towels and soap", zone: "Restroom", building_name: "Main Hall", floor_number: "2" }),
+    // One with no zone, which the screen gathers under its own heading.
+    taskRow({ id: "task-5", label: "Refill the sanitizer stands", building_name: "Main Hall", floor_number: "2" }),
+    taskRow({ id: "task-6", label: "Dust the stair rails", zone: "Stairwell", building_name: "Main Hall", floor_number: "1" }),
+    taskRow({ id: "task-7", label: "Sweep the loading dock", zone: "Loading dock", building_name: "Annex", floor_number: "1" }),
+    taskRow({ id: "task-8", label: "Wipe down the lobby benches", zone: "Lobby" }),
+    taskRow({ id: "task-9", label: "Check that the exit signs are lit" }),
+  ],
+  // A long list set out in shifts, with nobody linked to anything, served
+  // in no useful order. The morning's restroom round comes twice, around
+  // the midday block, so a block's name alone never says where it goes.
+  // The two evening blocks share a sort order, so the time is what puts
+  // one before the other. The last item has no shift at all.
+  "site-south": [
+    taskRow({ id: "s-8", label: "Turn off the hallway lights", zone: "Hallway", shift_label: "Evening", block_label: "Last round", anchor_time: "22:00:00", block_sort_order: 5 }),
+    taskRow({ id: "s-11", label: "Wipe the restroom mirrors", zone: "Restroom", shift_label: "Morning", block_label: "Restroom round", anchor_time: "13:00:00", block_sort_order: 4 }),
+    taskRow({ id: "s-3", label: "Wipe the front desk", zone: "Front desk", shift_label: "Morning", block_label: "Midday reset", anchor_time: "11:00:00", block_sort_order: 3 }),
+    taskRow({ id: "s-6", label: "Mop the restroom floors", zone: "Restroom", shift_label: "Evening", block_label: "Closing walk", anchor_time: "18:30:00", block_sort_order: 5 }),
+    taskRow({ id: "s-1", label: "Unlock the restroom doors", zone: "Restroom", shift_label: "Morning", block_label: "Opening walk", anchor_time: "06:00:00", block_sort_order: 1 }),
+    taskRow({ id: "s-9", label: "Refill the hand soap", zone: "Restroom" }),
+    taskRow({ id: "s-10", label: "Restock the restroom paper", zone: "Restroom", shift_label: "Morning", block_label: "Restroom round", anchor_time: "09:00:00", block_sort_order: 2 }),
+    taskRow({ id: "s-5", label: "Sweep the main hallway", zone: "Hallway", shift_label: "Evening", block_label: "Closing walk", anchor_time: "18:00:00", block_sort_order: 5 }),
+    taskRow({ id: "s-4", label: "Empty the break room bins", zone: "Break room", shift_label: "Morning", block_label: "Midday reset", anchor_time: "11:30:00", block_sort_order: 3 }),
+    taskRow({ id: "s-7", label: "Lock up the restrooms", zone: "Restroom", shift_label: "Evening", block_label: "Last round", anchor_time: "21:30:00", block_sort_order: 5 }),
+    taskRow({ id: "s-2", label: "Turn on the hallway lights", zone: "Hallway", shift_label: "Morning", block_label: "Opening walk", anchor_time: "06:30:00", block_sort_order: 1 }),
+  ],
+};
+// The order a person reads that list in, written out by hand: each shift,
+// each block under it, and each item under its block.
+const SHIFT_ORDER = [
+  "Morning", "Opening walk", "s-1", "s-2", "Restroom round", "s-10",
+  "Midday reset", "s-3", "s-4", "Restroom round", "s-11",
+  "Evening", "Closing walk", "s-5", "s-6", "Last round", "s-7", "s-8",
+  "s-9",
+];
+// Where an open shift at each site puts the person.
+const OPEN_SHIFT = {
+  "site-north": { siteId: "site-north", siteName: "North Building", buildingName: "Main Hall", floorNumber: "2" },
+  "site-south": { siteId: "site-south", siteName: "South Building", buildingName: null, floorNumber: null },
+};
+// The person a case signs in as is linked to six items at North
+// Building, one of them with no building or floor. Nobody else is.
+const LINKS = { "u-one": ["task-1", "task-2", "task-3", "task-4", "task-5", "task-8"] };
+// Checked off today: one by this person, and two by someone else.
+const COMPLETIONS = [
+  { taskId: "task-1", userId: "u-one" },
+  { taskId: "task-2", userId: "u-three" },
+  { taskId: "s-5", userId: "u-three" },
+];
+
 // One scheduled inspection and the items it asks about. The template's
 // name, each item and each item's zone are English, the way the live API
 // sends them.
@@ -129,6 +200,11 @@ function makeState(opts) {
     person: o.person || PERSON,
     accountPreferences: o.accountPreferences === undefined ? {} : o.accountPreferences,
     clockedIn: o.clockedIn !== false,
+    // The open shift's site, who is linked to what, and every check made
+    // today. A check made on one phone is seen on another through here.
+    site: o.site || "site-north",
+    links: o.links || LINKS,
+    completions: (o.completions || COMPLETIONS).map(c => Object.assign({}, c)),
     schedule: o.schedule || null,
     timeOffTypesLive: o.timeOffTypesLive !== false,
     myTimeOff: o.myTimeOff || [],
@@ -306,9 +382,10 @@ const STAFF = [
 //   a name   a site, a building, a person, an id, a date, a number. Drawn
 //            the way it was sent, in any language.
 //   a word   something a person reads: a refusal, a message, form text, a
-//            Help reply, a to-do item or its zone, a pick list choice, a
-//            notice, a supply, an inspection item, a leave type, a shift
-//            name, a site role. On a Spanish screen it has to be Spanish.
+//            Help reply, a to-do item or its zone, a checklist's shift
+//            header, a pick list choice, a notice, a supply, an inspection
+//            item, a leave type, a shift name, a site role. On a Spanish
+//            screen it has to be Spanish.
 //   a code   a status, a role, a priority, a severity or an origin. The
 //            screen is meant to put it into words, never draw it as sent.
 //
@@ -338,6 +415,32 @@ const TWIN_PAIRS = [
   ["Entrance", "Entrada"],
   ["Corridor", "Pasillo"],
   ["Restroom", "Ba\u00f1o"],
+  ["Dust the stair rails", "Sacuda los pasamanos de la escalera"],
+  ["Stairwell", "Escalera"],
+  ["Sweep the loading dock", "Barra el muelle de carga"],
+  ["Loading dock", "Muelle de carga"],
+  ["Wipe down the lobby benches", "Limpie las bancas del vest\u00edbulo"],
+  ["Check that the exit signs are lit", "Revise que los letreros de salida est\u00e9n encendidos"],
+  // A list set out in shifts: its items, their zones, and its headers.
+  ["Unlock the restroom doors", "Abra las puertas de los ba\u00f1os"],
+  ["Turn on the hallway lights", "Encienda las luces del pasillo"],
+  ["Wipe the front desk", "Limpie la recepci\u00f3n"],
+  ["Empty the break room bins", "Vac\u00ede los botes de la sala de descanso"],
+  ["Sweep the main hallway", "Barra el pasillo principal"],
+  ["Mop the restroom floors", "Trapee los pisos de los ba\u00f1os"],
+  ["Lock up the restrooms", "Cierre los ba\u00f1os con llave"],
+  ["Turn off the hallway lights", "Apague las luces del pasillo"],
+  ["Refill the hand soap", "Rellene el jab\u00f3n de manos"],
+  ["Restock the restroom paper", "Reponga el papel de los ba\u00f1os"],
+  ["Wipe the restroom mirrors", "Limpie los espejos de los ba\u00f1os"],
+  ["Front desk", "Recepci\u00f3n"],
+  ["Break room", "Sala de descanso"],
+  ["Morning", "Ma\u00f1ana"],
+  ["Opening walk", "Recorrido de apertura"],
+  ["Midday reset", "Repaso del mediod\u00eda"],
+  ["Restroom round", "Ronda de los ba\u00f1os"],
+  ["Closing walk", "Recorrido de cierre"],
+  ["Last round", "\u00daltima ronda"],
   // Supplies.
   ["Paper towels", "Toallas de papel"],
   ["rolls", "rollos"],
@@ -410,7 +513,7 @@ const WORD_FIELDS = {
 };
 // The fields whose meaning depends on the route that sent them.
 const ROUTE_WORDS = [
-  [/^GET \/api\/sites\/[^/]+\/tasks$/, { label: "to-do item" }],
+  [/^GET \/api\/sites\/[^/]+\/tasks$/, { label: "to-do item", shift_label: "shift header", block_label: "shift header" }],
   [/^GET \/api\/clock\/tasks\/assigned$/, { label: "to-do item" }],
   [/^GET \/api\/lookups$/, { label: "pick list choice" }],
   [/^GET \/api\/notifications$/, { title: "notice", body: "notice" }],
@@ -465,21 +568,43 @@ function createStub(opts) {
     pickups: [],
   };
 
+  // What Start Shift and the status say about the checklist: how many
+  // items this person is linked to and how many the site has, and what
+  // has been checked off, by this person and by anyone at the site today.
+  const progress = () => {
+    const items = SITE_TASKS[state.site] || [];
+    const here = new Set(items.map(r => r.id));
+    const done = state.completions.filter(c => here.has(c.taskId));
+    const once = (ids) => Array.from(new Set(ids));
+    const mine = once(done.filter(c => c.userId === state.person.id).map(c => c.taskId));
+    return {
+      total: (state.links[state.person.id] || []).filter(id => here.has(id)).length,
+      completed: mine.length,
+      siteTotal: items.length,
+      completedTaskIds: mine,
+      siteCompletedTaskIds: once(done.map(c => c.taskId)),
+    };
+  };
+
   const clockStatus = () => (state.clockedIn ? {
     clockedIn: true,
-    shift: { sessionId: "sess-1", id: "sess-1", siteId: "site-north", siteName: "North Building", buildingName: "Main Hall", floorNumber: "2", clockInTime: iso(NOW.getTime() - 3 * 60 * 60 * 1000) },
+    shift: Object.assign({ sessionId: "sess-1", id: "sess-1" }, OPEN_SHIFT[state.site], { clockInTime: iso(NOW.getTime() - 3 * 60 * 60 * 1000) }),
     session: { id: "sess-1" },
-    tasks: { total: 5, completed: 2, siteCompletedTaskIds: ["task-1", "task-2"], completedTaskIds: ["task-1"] },
+    tasks: progress(),
   } : { clockedIn: false, shift: null, session: null, tasks: null });
 
-  const tasks = () => ([
-    { id: "task-1", label: "Wipe the entry doors and handles", zone: "Entrance", floor_number: "2", priority: "high", task_type: "standard", has_details: true, description: "Work top to bottom." },
-    { id: "task-2", label: "Empty every bin on the floor", zone: "Entrance", floor_number: "2", task_type: "standard" },
-    { id: "task-3", label: "Mop the corridor end to end", zone: "Corridor", floor_number: "2", task_type: "standard" },
-    { id: "task-4", label: "Restock paper towels and soap", zone: "Restroom", floor_number: "2", task_type: "standard" },
-    // One with no zone, which the screen gathers under its own heading.
-    { id: "task-5", label: "Refill the sanitizer stands", floor_number: "2", task_type: "standard" },
-  ]);
+  // One site's list, asked for the way the request asks.
+  const tasks = (siteId, search) => {
+    const q = new URLSearchParams(search || "");
+    let rows = SITE_TASKS[siteId] || [];
+    if (q.has("user_id")) {
+      const linked = state.links[q.get("user_id")] || [];
+      rows = rows.filter(r => linked.indexOf(r.id) !== -1);
+    }
+    if (q.has("building_name")) rows = rows.filter(r => r.building_name === q.get("building_name"));
+    if (q.has("floor_number")) rows = rows.filter(r => r.floor_number === q.get("floor_number"));
+    return rows;
+  };
 
   // A route a case has asked to refuse wins over the answer below it.
   function refusalFor(key) {
@@ -541,18 +666,32 @@ function createStub(opts) {
     if (key === "GET /api/clock/tasks/assigned") return json(200, [
       { task_id: "at-1", label: "Replace the cracked light cover", description: "Second floor corridor.", site_name: "North Building", building_name: "Main Hall", floor_number: "2", zone: "Corridor", priority: "high", created_by_name: "A supervisor", task_created_at: iso(NOW.getTime() - DAY) },
     ]);
-    if (method === "POST" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(pathname)) return json(200, { ok: true });
-    if (method === "DELETE" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(pathname)) return json(200, { ok: true });
+    // A check needs no link, only an open session at the item's site. An
+    // uncheck takes back this person's own check and no one else's.
+    if (method === "POST" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(pathname)) {
+      const id = pathname.split("/")[4];
+      if (!state.completions.some(c => c.taskId === id && c.userId === state.person.id)) state.completions.push({ taskId: id, userId: state.person.id });
+      return json(200, { ok: true });
+    }
+    if (method === "DELETE" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(pathname)) {
+      const id = pathname.split("/")[4];
+      state.completions = state.completions.filter(c => !(c.taskId === id && c.userId === state.person.id));
+      return json(200, { ok: true });
+    }
     if (method === "PATCH" && /^\/api\/clock\/tasks\/resolve\//.test(pathname)) return json(200, { ok: true });
     if (key === "GET /api/shift-sessions/sites") return json(200, {
       scheduled: [{ siteId: "site-north", siteName: "North Building", address: "1 Example Way", city: "Philadelphia", buildingName: "Main Hall", floorNumber: "2" }],
       assigned: [{ siteId: "site-south", siteName: "South Building", address: "2 Example Way", city: "Philadelphia" }],
       all: SITES,
     });
-    if (key === "POST /api/shift-sessions") { state.clockedIn = true; return json(200, { message: "Shift started", session: { id: "sess-1" } }); }
+    if (key === "POST /api/shift-sessions") {
+      if (body && OPEN_SHIFT[body.siteId]) state.site = body.siteId;
+      state.clockedIn = true;
+      return json(200, { message: "Shift started", session: { id: "sess-1" }, tasks: progress() });
+    }
     if (method === "PATCH" && /^\/api\/shift-sessions\//.test(pathname)) { state.clockedIn = false; return json(200, { message: "Shift ended" }); }
     if (key === "GET /api/sites") return json(200, SITES);
-    if (method === "GET" && /^\/api\/sites\/[^/]+\/tasks$/.test(pathname)) return json(200, tasks());
+    if (method === "GET" && /^\/api\/sites\/[^/]+\/tasks$/.test(pathname)) return json(200, tasks(pathname.split("/")[3], search));
     // The four pick lists, in English, the way the live API sends them.
     // The colors are the ones the screens draw when no list arrives.
     if (key === "GET /api/lookups") return json(200, LOOKUPS);
@@ -767,4 +906,4 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, formP, timeOffRow, ymd, iso, DAY };
+module.exports = { createStub, servedFor, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, formP, timeOffRow, ymd, iso, DAY };
