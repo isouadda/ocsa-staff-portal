@@ -380,132 +380,6 @@
       "why": "The procedures an answer cites are named the way the API writes them, in English. Their names are the API's to send in the person's language, with Help's replies. The suite draws one for the first time in this build."
     },
     {
-      "where": "Start Shift at a site with shifts asks which shift, the suggested one chosen: Use this shift keeps it, choosing the other sends it, and the list is that shift's items and the items tied to no shift",
-      "check": "Start Shift at a site with shifts asks which shift",
-      "what": "no sheet",
-      "why": "Start Shift sends the site and opens the checklist, and nothing reads the session's shifts, so nothing asks which one. The next commit asks."
-    },
-    {
-      "where": "Start Shift at a site with shifts asks which shift, the suggested one chosen: Use this shift keeps it, choosing the other sends it, and the list is that shift's items and the items tied to no shift",
-      "check": "Start Shift at a site with shifts asks which shift at 9:00 AM",
-      "what": "no sheet",
-      "why": "Start Shift sends the site and opens the checklist, and nothing reads the session's shifts, so nothing asks which one. The next commit asks."
-    },
-    {
-      "where": "An open session with no shift at a site with shifts asks once, over the checklist only, and the bottom bar stays in reach",
-      "check": "an open session with no shift asks when the checklist opens",
-      "what": "no sheet",
-      "why": "The checklist draws the whole site's list for a session with no shift and asks nothing. The next commit asks, over the checklist."
-    },
-    {
-      "where": "Change shift from the checklist: the shift in use, the sheet with it chosen, the change sent and the list drawn again",
-      "check": "the checklist names the shift in use, with Change shift",
-      "what": "null",
-      "why": "The checklist does not say which shift a session carries and has no way to change it. The next commit draws the shift in use under the top card, with Change shift."
-    },
-    {
-      "where": "Change shift from the checklist: the shift in use, the sheet with it chosen, the change sent and the list drawn again",
-      "check": "Change shift opens the sheet with the shift in use chosen",
-      "what": "[]",
-      "why": "There is no Change shift to open anything. The next commit adds it."
-    },
-    {
-      "where": "Change shift from the checklist: the shift in use, the sheet with it chosen, the change sent and the list drawn again",
-      "check": "the change is sent in the person's language",
-      "what": "nothing sent",
-      "why": "Nothing on the screen changes a session's shift, so PATCH /api/shift-sessions/:id/shift is never sent. The next commit sends it, with ?locale= the way the checklist read carries it."
-    },
-    {
-      "where": "Change shift from the checklist: the shift in use, the sheet with it chosen, the change sent and the list drawn again",
-      "check": "the list is drawn again for the new shift",
-      "what": "drawn:",
-      "why": "With no change sent the list stays the night shift's. The next commit reads the list again once the change is answered."
-    },
-    {
-      "where": "Change shift from the checklist: the shift in use, the sheet with it chosen, the change sent and the list drawn again",
-      "check": "the checklist names the new shift",
-      "what": "null",
-      "why": "The checklist does not say which shift a session carries and has no way to change it. The next commit draws the shift in use under the top card, with Change shift."
-    },
-    {
-      "where": "Change shift from the checklist: the shift in use, the sheet with it chosen, the change sent and the list drawn again",
-      "check": "Change shift is in the person's language",
-      "what": "null",
-      "why": "There is no Change shift yet. The next commit adds it, and the words commit gives it its Spanish."
-    },
-    {
-      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
-      "check": "refusal shown: Choose one of this site's shifts: {shifts}",
-      "what": "wanted",
-      "why": "There is no sheet to change a shift from, so no refusal of a change can show. The next commit shows each one's own sentence under the choices."
-    },
-    {
-      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
-      "check": "refusal keeps the sheet open: Choose one of this site's shifts: {shifts}",
-      "what": "the sheet closed",
-      "why": "There is no sheet to keep open. The next commit keeps it open on a refusal, with the sentence under the choices."
-    },
-    {
-      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
-      "check": "refusal shown: You can only change your own shift",
-      "what": "wanted",
-      "why": "There is no sheet to change a shift from, so no refusal of a change can show. The next commit shows each one's own sentence under the choices."
-    },
-    {
-      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
-      "check": "refusal keeps the sheet open: You can only change your own shift",
-      "what": "the sheet closed",
-      "why": "There is no sheet to keep open. The next commit keeps it open on a refusal, with the sentence under the choices."
-    },
-    {
-      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
-      "check": "refusal shown: Session not found",
-      "what": "wanted",
-      "why": "There is no sheet to change a shift from, so no refusal of a change can show. The next commit shows each one's own sentence under the choices."
-    },
-    {
-      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
-      "check": "refusal keeps the sheet open: Session not found",
-      "what": "the sheet closed",
-      "why": "There is no sheet to keep open. The next commit keeps it open on a refusal, with the sentence under the choices."
-    },
-    {
-      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
-      "check": "refusal shown: This shift has already ended",
-      "what": "wanted",
-      "why": "There is no sheet to change a shift from, so no refusal of a change can show. The next commit shows each one's own sentence under the choices."
-    },
-    {
-      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
-      "check": "refusal shown: Something went wrong on our end. Try again in a minute.",
-      "what": "wanted",
-      "why": "There is no sheet to change a shift from, so no refusal of a change can show. The next commit shows each one's own sentence under the choices."
-    },
-    {
-      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
-      "check": "refusal keeps the sheet open: Something went wrong on our end. Try again in a minute.",
-      "what": "the sheet closed",
-      "why": "There is no sheet to keep open. The next commit keeps it open on a refusal, with the sentence under the choices."
-    },
-    {
-      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
-      "check": "a shift that already ended closes the sheet and reads the status again",
-      "what": "the status was not read again",
-      "why": "There is no sheet, so nothing is sent and nothing is read again. The next commit closes the sheet and reads the status again on 409 SESSION_ALREADY_ENDED."
-    },
-    {
-      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
-      "check": "no signal says so under the choices, with Try again",
-      "what": "",
-      "why": "There is no sheet. The next commit says the line every screen says for no signal under the choices, with Try again."
-    },
-    {
-      "where": "A shift change turned away: each refusal under the choices with the sheet kept, one that ended closes it, and no signal says so with Try again",
-      "check": "Try again sends the change and the sheet goes",
-      "what": "the change was not sent again",
-      "why": "There is no sheet and no Try again on it. The next commit adds both."
-    },
-    {
       "where": "Only today's work counts: the checklist and Home count the rows due today, and each repeating period has its own section and count",
       "check": "every checklist read asks for today, in the person's language, on the whole site's list",
       "what": "/api/sites/site-west/tasks?",
@@ -769,6 +643,72 @@
       "check": "contrast",
       "what": "\"#8899AA on #1B3058\"",
       "why": "The category code the stub now sends on every item, the way the live API does, drawn in the muted gray on the dark theme's panel. 4.46 to 1, just under the 4.5 to 1 small text needs. Commit four stops drawing the code."
+    },
+    {
+      "where": "Start Shift at a site with shifts asks which shift, the suggested one chosen: Use this shift keeps it, choosing the other sends it, and the list is that shift's items and the items tied to no shift",
+      "check": "the sheet's words are in the person's language",
+      "what": "",
+      "why": "The sheet's words have no Spanish entry yet, so a Spanish screen draws them in English. The words commit gives them their Spanish."
+    },
+    {
+      "where": "Start Shift at a site with shifts asks which shift, the suggested one chosen: Use this shift keeps it, choosing the other sends it, and the list is that shift's items and the items tied to no shift",
+      "check": "the sheet's words are in the person's language at 9:00 AM",
+      "what": "",
+      "why": "The sheet's words have no Spanish entry yet, so a Spanish screen draws them in English. The words commit gives them their Spanish."
+    },
+    {
+      "where": "Change shift from the checklist: the shift in use, the sheet with it chosen, the change sent and the list drawn again",
+      "check": "Change shift is in the person's language",
+      "what": "",
+      "why": "Change shift has no Spanish entry yet, so a Spanish screen draws it in English. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Which shift are you working?\"",
+      "why": "A line the sheet that asks which shift draws, new in this build, with no Spanish entry yet. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Which shift are you working?\"",
+      "why": "A line the sheet that asks which shift draws, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Chosen by the time you started. Change it if it is wrong.\"",
+      "why": "A line the sheet that asks which shift draws, new in this build, with no Spanish entry yet. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Chosen by the time you started. Change it if it is wrong.\"",
+      "why": "A line the sheet that asks which shift draws, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Use this shift\"",
+      "why": "A line the sheet that asks which shift draws, new in this build, with no Spanish entry yet. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Use this shift\"",
+      "why": "A line the sheet that asks which shift draws, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Change shift\"",
+      "why": "A line the sheet that asks which shift draws, new in this build, with no Spanish entry yet. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Change shift\"",
+      "why": "A line the sheet that asks which shift draws, new in this build. The words commit gives it its Spanish."
     }
   ]
 }
