@@ -737,9 +737,14 @@ function createStub(opts) {
     Object.keys(next.holds || {}).forEach((name) => { holds[name] = makeGate(name); });
     const steps = [];
     const holdAt = (mark) => Object.keys(next.holds || {}).filter(n => next.holds[n] === mark).forEach(n => steps.push({ hold: n }));
-    let sent = 0;
+    let sent = 0, written = "";
     const piece = (text) => {
       sent += 1;
+      written += text;
+      // The answer so far, the way the screen draws it while it arrives:
+      // its marks taken out and a lone star at the end held back. It is a
+      // Help reply too, and on a Spanish screen it is judged as one.
+      recordWord(written.replace(/\*\*/g, "").replace(/\*$/, "").trim(), "Help reply");
       steps.push({ event: "delta", data: { text: text }, split: (next.split || []).indexOf(sent) !== -1 });
       holdAt(sent);
     };
@@ -747,6 +752,7 @@ function createStub(opts) {
     holdAt("meta");
     if (next.rewrite) {
       HELP_ANSWERS[next.rewrite].pieces.forEach(piece);
+      written = "";
       steps.push({ event: "reset", data: {} });
       holdAt("reset");
     }

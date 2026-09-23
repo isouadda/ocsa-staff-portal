@@ -28,6 +28,11 @@ On every screen and every sheet, in both languages, at every text size:
 - the bottom bar sits inside the screen, measured on every screen, since
   two faults have already landed there
 
+Words drawn for a screen reader alone, in a box clipped to nothing on
+purpose, are never cut off for anyone and never painted, so the checks for
+text cut off and for contrast pass them by. The Spanish check still reads
+them, since they are heard.
+
 Then it walks the journeys a person actually takes, in both languages,
 and judges each one first on what the app sent and then on what the
 screen said. A journey runs the same Spanish check at the screens it
@@ -133,9 +138,17 @@ once it is written, a dropped one included, so
 `GET /api/agent/conversations/:id` reads back what the API would. The
 list of options is in `helpPlay` in `stub.js`.
 
-A Help reply is drawn a line, a step and a bold phrase at a time, so the
-stub records each of those pieces as a word beside its piece of the
-Spanish twin.
+A Help reply is drawn a line, a step and a bold phrase at a time, and
+heard whole by a screen reader once it is done, so the stub records each
+of those as a Help reply beside the same of its Spanish twin. The answer
+so far, drawn as plain words while it arrives, is recorded as a Help reply
+too, in the language it was sent.
+
+The sweep draws Help three more times in every combination, in a session
+of its own with a report started: `Help, while the answer arrives`,
+stopped halfway through an answer with a bold phrase and a step drawn;
+`Help, the answer done`; and `Help, the connection dropped`, with the
+conversation refused once so the line and Try again stay on the screen.
 
 ## Coverage proves itself
 
