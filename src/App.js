@@ -3349,7 +3349,10 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
   const list = Array.isArray(channels) ? channels : [];
   // Group chats wrap onto as many lines as they need, and private chats sit
   // in a row of their own that scrolls sideways, so every chat on the list
-  // can be reached at any width.
+  // can be reached at any width. At the larger text sizes the chats can
+  // run taller than the screen, so they take at most a little under half
+  // of it and scroll there, and give up their room before the messages
+  // do, which always keep a few lines between the chats and the box.
   const siteChannels = list.filter(c => c.type === "site" || c.type === "general");
   const privates = privateChatsOf(list);
   const active = list.find(c => c.id === activeChannel) || null;
@@ -3399,8 +3402,8 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
   };
   // No list yet, a list that did not load, and a list with nothing in it.
   const listLine = (icon, line, retryIt) => (
-    <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", ...fillsTheWindow(), minHeight: 0, overflow: "hidden" }}>
-      <div style={{ padding: "48px 24px", textAlign: "center" }}>
+    <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", ...fillsTheWindow(), minHeight: 0, overflowY: "auto" }}>
+      <div style={{ padding: "32px 24px", textAlign: "center" }}>
         {icon}
         <div style={{ fontSize: 14, color: t.textMut, marginTop: 14, lineHeight: 1.45, fontFamily: FONT_HEAD }}>{line}</div>
         {retryIt && <button type="button" onClick={retryIt} style={{ minHeight: TAP, marginTop: 16, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button>}
@@ -3419,7 +3422,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
     // whose width is 100 percent of the initial containing block, came
     // out 10 pixels wider than the screen and scrolled it sideways.
     <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", ...fillsTheWindow(), minHeight: 0, overflow: "hidden" }}>
-      <div style={{ padding: "10px 12px 0", borderBottom: "1px solid " + t.borderSolid, paddingBottom: 10 }}>
+      <div style={{ flex: "0 1 auto", maxHeight: "45%", overflowY: "auto", padding: "10px 12px 0", borderBottom: "1px solid " + t.borderSolid, paddingBottom: 10 }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={activeChannel === ch.id} style={mkTapFrame({ maxWidth: "100%" })}><span style={{ display: "inline-flex", alignItems: "center", padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 600 : 500, fontFamily: FONT_HEAD, textAlign: "left", overflowWrap: "anywhere" }}>{ch.name || ch.siteName}</span></button>))}</div>
         {privates.length > 0 && (<div>
           <div id="ocsa-private-chats" style={{ fontSize: 10, fontWeight: 600, color: t.textMut, textTransform: "uppercase", letterSpacing: "1px", margin: "2px 0 6px", fontFamily: FONT_HEAD }}>{tr("Private chats")}</div>
@@ -3434,7 +3437,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
         </div>)}
       </div>
       {isOwnDm && (<div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: t.blueSubtle, borderBottom: "1px solid " + t.blueBorder, fontSize: 10, color: BLUE }}><LockIco /> {tr("Private conversation with admin.")}</div>)}
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 12px 0" }}>
+      <div style={{ flex: 1, minHeight: "20%", overflowY: "auto", padding: "12px 12px 0" }}>
         {!activeChannel && <div style={{ textAlign: "center", padding: "40px 20px" }}><ChatIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>{tr("Pick a chat to start.")}</div></div>}
         {activeChannel && Array.isArray(messages) && shown.length === 0 && <div style={{ textAlign: "center", padding: "40px 20px", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("No messages yet.")}</div>}
         {shown.map((msg, idx) => {

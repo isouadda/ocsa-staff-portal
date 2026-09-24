@@ -162,9 +162,14 @@ const INSPECT = function (args) {
     const s = window.getComputedStyle(el);
     const ownClip = (s.overflowX === "hidden" || s.overflowX === "clip") && el.scrollWidth > el.clientWidth + 1;
     let byAncestor = null;
-    const r = el.getBoundingClientRect();
+    let r = el.getBoundingClientRect();
     for (let a = el.parentElement; a && !byAncestor; a = a.parentElement) {
       const as = window.getComputedStyle(a);
+      // A box that scrolls holds what sticks out of it: a person scrolls
+      // to it, the way Chat's row of private chats scrolls sideways. From
+      // there up, the box stands in for the text, and it is the box that
+      // has to fit inside anything that hides what sticks out of it.
+      if (as.overflowX === "auto" || as.overflowX === "scroll") { r = a.getBoundingClientRect(); continue; }
       if (as.overflowX !== "hidden" && as.overflowX !== "clip") continue;
       const ar = a.getBoundingClientRect();
       if (r.right > ar.right + 0.5 || r.left < ar.left - 0.5) byAncestor = label(a);

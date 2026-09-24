@@ -33,6 +33,11 @@ purpose, are never cut off for anyone and never painted, so the checks for
 text cut off and for contrast pass them by. The Spanish check still reads
 them, since they are heard.
 
+Text inside a box that scrolls is not cut off by it: a person scrolls to
+it, the way Chat's row of private chats scrolls sideways. From that box
+up, the box stands in for the text, and it is the box that has to fit
+inside anything that hides what sticks out of it.
+
 Then it walks the journeys a person actually takes, in both languages,
 and judges each one first on what the app sent and then on what the
 screen said. A journey runs the same Spanish check at the screens it
@@ -181,6 +186,15 @@ or answer it with no message (`state.chat.noMessage`). An update is held
 waiting by `openApp(browser, base, { buildStamp })`: the version check is
 answered with that stamp, which is not the build's, and the app reloads
 the moment nothing is underway.
+
+The sweep draws Chat four more times, each in a session of its own and
+in every combination: `Chat, every chat`, an admin's list of nine group
+chats and twenty private chats with a group chat open, the private row
+scrolling on its own; `Chat, a message not sent`, a site chat with words
+in the box and a send turned away, its line under the box with Try again;
+`Chat, pick a chat first`, words in the box and Send tapped with no chat
+chosen; and `Chat, the list did not load`. Each name starts with the
+tab's, so what is known about the tab is known about them too.
 
 ## Help's answer, as it is written
 
