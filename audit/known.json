@@ -393,147 +393,9 @@
     },
     {
       "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "a send turned away with 400 keeps the words in the box",
-      "what": "\"\"",
-      "why": "handleSend empties the box as the send leaves, so a send turned away takes the words with it. Commit three empties it only on a 201."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "a send turned away with 400 says Your message was not sent. with Try again",
-      "what": "",
-      "why": "A send turned away shows the API's sentence in a toast, with nothing to try again. Commit three says the line for it under the box, with Try again."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "Try again after 400 reads the chat before it sends",
-      "what": "no read",
-      "why": "There is no Try again. Commit three adds one that reads the chat before it sends."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "Try again after 400 sends it once more, and it shows once",
-      "what": "0 kept",
-      "why": "There is no Try again, and the words are gone. Commit three keeps them, and Try again sends them once the chat is read and they are not in it."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "a send turned away with 403 keeps the words in the box",
-      "what": "\"\"",
-      "why": "handleSend empties the box as the send leaves, so a send turned away takes the words with it. Commit three empties it only on a 201."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "a send turned away with 403 says You cannot send messages in this chat. with Try again",
-      "what": "",
-      "why": "A send turned away shows the API's sentence in a toast, with nothing to try again. Commit three says the line for it under the box, with Try again."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "Try again after 403 reads the chat before it sends",
-      "what": "no read",
-      "why": "There is no Try again. Commit three adds one that reads the chat before it sends."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "Try again after 403 sends it once more, and it shows once",
-      "what": "0 kept",
-      "why": "There is no Try again, and the words are gone. Commit three keeps them, and Try again sends them once the chat is read and they are not in it."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "a send turned away with 404 keeps the words in the box",
-      "what": "\"\"",
-      "why": "handleSend empties the box as the send leaves, so a send turned away takes the words with it. Commit three empties it only on a 201."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "a send turned away with 404 says Your message was not sent. with Try again",
-      "what": "",
-      "why": "A send turned away shows the API's sentence in a toast, with nothing to try again. Commit three says the line for it under the box, with Try again."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "Try again after 404 reads the chat before it sends",
-      "what": "no read",
-      "why": "There is no Try again. Commit three adds one that reads the chat before it sends."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "Try again after 404 sends it once more, and it shows once",
-      "what": "0 kept",
-      "why": "There is no Try again, and the words are gone. Commit three keeps them, and Try again sends them once the chat is read and they are not in it."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "a send turned away with 500 keeps the words in the box",
-      "what": "\"\"",
-      "why": "handleSend empties the box as the send leaves, so a send turned away takes the words with it. Commit three empties it only on a 201."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "a send turned away with 500 says Your message was not sent. with Try again",
-      "what": "",
-      "why": "A send turned away shows the API's sentence in a toast, with nothing to try again. Commit three says the line for it under the box, with Try again."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "Try again after 500 reads the chat before it sends",
-      "what": "no read",
-      "why": "There is no Try again. Commit three adds one that reads the chat before it sends."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "Try again after 500 sends it once more, and it shows once",
-      "what": "0 kept",
-      "why": "There is no Try again, and the words are gone. Commit three keeps them, and Try again sends them once the chat is read and they are not in it."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "a send turned away never shows the API's English sentence on a Spanish screen",
-      "what": "",
-      "why": "The toast draws the API's sentence as sent, and the chat routes answer in English with no code. Commit three says the portal's own line for each refusal instead of the API's sentence."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "a send with no signal keeps the words and says the portal's line for no signal, with Try again",
-      "what": "",
-      "why": "The box empties as the send leaves, and no signal is said in a toast with nothing to try again. Commit three keeps the words and says the line under the box, with Try again."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "Try again once the signal is back sends it once",
-      "what": "0 kept",
-      "why": "There is no Try again, and the words are gone. Commit three adds both back."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "a send whose answer never came keeps the words and says the line for no signal",
-      "what": "",
-      "why": "The box empties as the send leaves, and a dropped answer is said in a toast. Commit three keeps the words and says the line under the box, with Try again."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "Try again after a send that was saved reads the chat first",
-      "what": "no read",
-      "why": "There is no Try again. Commit three adds one that reads the chat first, so a send the API kept before its answer was lost never goes twice."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-      "check": "the message that was saved shows once and the box empties",
-      "what": "0 drawn",
-      "why": "Nothing reads the chat again after a send whose answer was lost, so the message the API kept waits for the next 12 second read. Commit three reads the chat from Try again and draws it."
-    },
-    {
-      "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
       "check": "each line is said in the person's language",
       "what": "Your message was not sent.",
       "why": "Neither line exists yet. Commit three draws them, and the words commit gives them their Spanish."
-    },
-    {
-      "where": "Chat: a list that did not load and a list that loaded empty each say their own line",
-      "check": "a list turned away says Your chats did not load, with Try again",
-      "what": "",
-      "why": "A list that did not load is logged to the console and shows the same empty screen as a list with nothing in it. Commit three says Your chats did not load, with Try again."
     },
     {
       "where": "Chat: a list that did not load and a list that loaded empty each say their own line",
@@ -543,63 +405,9 @@
     },
     {
       "where": "Chat: a list that did not load and a list that loaded empty each say their own line",
-      "check": "Try again reads the list and draws it",
-      "what": "[]",
-      "why": "There is no Try again. Commit three adds it."
-    },
-    {
-      "where": "Chat: a list that did not load and a list that loaded empty each say their own line",
-      "check": "a list whose connection dropped says Your chats did not load",
-      "what": "",
-      "why": "A list that did not load is logged to the console and shows the same empty screen as a list with nothing in it. Commit three says Your chats did not load, with Try again."
-    },
-    {
-      "where": "Chat: a list that did not load and a list that loaded empty each say their own line",
-      "check": "a list that loaded empty says No chats are set up for you yet",
-      "what": "",
-      "why": "A list that loaded empty says Select a channel to start chatting., the same as one that failed. Commit three says No chats are set up for you yet. Ask your supervisor."
-    },
-    {
-      "where": "Chat: a list that did not load and a list that loaded empty each say their own line",
       "check": "the line for an empty list is said in the person's language",
       "what": "",
       "why": "The line does not exist yet. Commit three draws it, and the words commit gives it its Spanish."
-    },
-    {
-      "where": "Chat: an update waiting while a message is on its way does not reload the app until the answer is drawn",
-      "check": "the app does not reload while the message is on its way",
-      "what": "before the answer was drawn",
-      "why": "The box empties as the send leaves, which drops the composer's busy key, and api() calls flightDown() once the answer arrives and before it is read, so a waiting update reloads the app before the message is drawn. Commit three holds the key until the answer is drawn."
-    },
-    {
-      "where": "Chat: an update waiting while a message is on its way does not reload the app until the answer is drawn",
-      "check": "once the answer is drawn, the update goes ahead",
-      "what": "before the answer was drawn",
-      "why": "The box empties as the send leaves, which drops the composer's busy key, and api() calls flightDown() once the answer arrives and before it is read, so a waiting update reloads the app before the message is drawn. Commit three holds the key until the answer is drawn."
-    },
-    {
-      "where": "Chat: a send answered without its message, and message rows missing a field, never blank the app",
-      "check": "a row with no time draws no broken time",
-      "what": "",
-      "why": "A row with no sentAt is drawn with Invalid Date under it (formatTime(undefined)). Commit three draws no time for it."
-    },
-    {
-      "where": "Chat: a send answered without its message, and message rows missing a field, never blank the app",
-      "check": "a send answered without its message leaves the app drawn",
-      "what": "blank",
-      "why": "sendMessage appends data.message whatever it is, and drawing undefined throws, which blanks the whole app. Commit three reads the chat again when a send's answer carries no message."
-    },
-    {
-      "where": "Chat: a send answered without its message, and message rows missing a field, never blank the app",
-      "check": "a send answered without its message reads the chat again",
-      "what": "no read",
-      "why": "sendMessage appends data.message whatever it is, and drawing undefined throws, which blanks the whole app. Commit three reads the chat again when a send's answer carries no message."
-    },
-    {
-      "where": "Chat: a send answered without its message, and message rows missing a field, never blank the app",
-      "check": "the message it sent shows once and the box empties",
-      "what": "0 drawn",
-      "why": "sendMessage appends data.message whatever it is, and drawing undefined throws, which blanks the whole app. Commit three reads the chat again when a send's answer carries no message."
     },
     {
       "where": "*",
@@ -636,6 +444,36 @@
       "check": "no Spanish entry",
       "what": "\"Private chats\"",
       "why": "A line Chat draws over the row of private chats, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Your message was not sent.\"",
+      "why": "A line Chat draws under the box when a send did not go, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"You cannot send messages in this chat.\"",
+      "why": "A line Chat draws under the box when a send is turned away as not this person's to make, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Your chats did not load. Try again in a minute.\"",
+      "why": "A line Chat draws when its list did not load, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"No chats are set up for you yet. Ask your supervisor.\"",
+      "why": "A line Chat draws when its list loaded empty, new in this build, with no Spanish entry yet. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"No chats are set up for you yet. Ask your supervisor.\"",
+      "why": "A line Chat draws when its list loaded empty, new in this build. The words commit gives it its Spanish."
     }
   ]
 }

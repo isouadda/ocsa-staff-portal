@@ -1101,9 +1101,17 @@ export default function OCSAStaffPortal() {
   const [assignedTasks, setAssignedTasks] = useState([]);
   const [supplies, setSupplies] = useState([]);
   const [supplyLogs, setSupplyLogs] = useState([]);
-  const [channels, setChannels] = useState([]);
+  // null until the list of chats has come back, so a list still on its
+  // way, a list that did not load and a list with nothing in it each say
+  // their own thing.
+  const [channels, setChannels] = useState(null);
+  const [channelsFailed, setChannelsFailed] = useState(false);
   const [messages, setMessages] = useState([]);
+  // The chat the messages in hand belong to, so one chat's messages are
+  // never drawn under another while its own are on their way.
+  const [messagesOf, setMessagesOf] = useState(null);
   const [activeChannel, setActiveChannel] = useState(null);
+  const activeChannelRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(now());
   const [toast, setToast] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -1398,9 +1406,23 @@ export default function OCSAStaffPortal() {
   const loadSupplies = async () => { try { const url = clockStatus?.shift?.siteId ? "/api/supplies?site_id=" + clockStatus.shift.siteId : "/api/supplies"; const data = await api(url, { token }); setSupplies(data); } catch (err) { console.error(err); } };
   const logSupplyUsage = async (supplyId, quantity) => { try { const data = await api("/api/supplies/log-usage", { method: "POST", body: { supplyId, quantity, siteId: clockStatus.shift.siteId, scanMethod: "manual" }, token }); showToast(data.message); setSupplyLogs(prev => [{ ...data.log, loggedAt: now().toISOString() }, ...prev]); if (data.lowStockAlert) showToast(tr("Low stock alert!"), "notice"); } catch (err) { showToast(tr(err.message), "error"); } };
   const submitSupplyRequest = async (requestType, itemName, description, urgency, supplyId) => { try { const siteId = clockStatus?.shift?.siteId || null; await api("/api/supplies/requests", { method: "POST", body: { requestType, itemName, description, urgency, supplyId, siteId }, token }); showToast(tr("Request submitted")); } catch (err) { showToast(tr(err.message), "error"); } };
-  const loadChannels = async () => { try { const data = await api("/api/chat/channels", { token }); setChannels(data); } catch (err) { console.error(err); } };
-  const loadMessages = async (channelId) => { try { const data = await api("/api/chat/channels/" + channelId + "/messages", { token }); setMessages(data); } catch (err) { console.error(err); } };
-  const sendMessage = async (channelId, text) => { try { const data = await api("/api/chat/channels/" + channelId + "/messages", { method: "POST", body: { text }, token }); setMessages(prev => [...prev, data.message]); } catch (err) { showToast(tr(err.message), "error"); } };
+  // The list of chats. One that did not load is said as such, apart from
+  // one with nothing in it, and a list already on the screen stays when a
+  // later read of it fails. A reply that is not a list counts as a list
+  // that did not load.
+  const loadChannels = async () => { try { const data = await api("/api/chat/channels", { token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.channels) ? data.channels : null); if (!list) throw new Error(ERR_GENERIC); setChannels(list.filter(ch => ch && typeof ch === "object" && ch.id)); setChannelsFailed(false); } catch (err) { console.error(err); setChannelsFailed(true); } };
+  const retryChannels = () => { setChannelsFailed(false); loadChannels(); };
+  // One chat's messages, drawn only while that chat is still the one open,
+  // so a slow answer for one chat never lands under another. Anything in
+  // the list that is not a message is left out; a message missing a field
+  // is kept and drawn with what it has. Returns the list for Try again.
+  const readMessages = async (channelId) => { const data = await api("/api/chat/channels/" + channelId + "/messages", { token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.messages) ? data.messages : null); if (!list) throw new Error(ERR_GENERIC); const rows = list.filter(m => m && typeof m === "object"); if (activeChannelRef.current === channelId) { setMessages(rows); setMessagesOf(channelId); } return rows; };
+  const loadMessages = async (channelId) => { try { await readMessages(channelId); } catch (err) { console.error(err); } };
+  // A send, as the API answers it. The message in the answer is drawn in
+  // its chat, once. An answer with no message reads the chat again. A
+  // refusal goes back to the composer, which keeps the words and says what
+  // happened, so nothing here speaks for it.
+  const sendMessage = async (channelId, text) => { const data = await api("/api/chat/channels/" + channelId + "/messages", { method: "POST", body: { text }, token }); const msg = data && data.message && typeof data.message === "object" ? data.message : null; if (!msg) { await readMessages(channelId).catch(e => console.error(e)); return; } if (activeChannelRef.current === channelId) setMessages(prev => (msg.id && prev.some(m => m.id === msg.id) ? prev : [...prev, msg])); };
 
   useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "issues") loadIssues(); if (activeTab === "issuetasks") loadAssignedTasks(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId]);
   // The task list is fetched as soon as a session is seen open, whichever
@@ -1412,7 +1434,7 @@ export default function OCSAStaffPortal() {
   // no list has come back asks again, the way it always has. No session,
   // no fetch.
   useEffect(() => { if (checklistKey && (tasks === null || tasksAsked.current !== checklistKey)) loadTasks(); }, [activeTab, checklistKey]);
-  useEffect(() => { if (activeChannel) { loadMessages(activeChannel); setTimeout(() => loadChannels(), 600); } }, [activeChannel]);
+  useEffect(() => { activeChannelRef.current = activeChannel; setMessages([]); setMessagesOf(null); if (activeChannel) { loadMessages(activeChannel); setTimeout(() => loadChannels(), 600); } }, [activeChannel]);
   // Chat opens on a chat: the one last chosen on this phone while it is
   // still on the list, or the only one when the list holds one. Never a
   // guess among several. A chat that leaves the list is let go.
@@ -1564,7 +1586,7 @@ export default function OCSAStaffPortal() {
     setShiftAsk(null); setShiftBusy(false); setShiftFault(null); setTickOverrides(new Map()); setRowNote(null);
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
-    setChannels([]); setMessages([]); setActiveChannel(null);
+    setChannels(null); setChannelsFailed(false); setMessages([]); setMessagesOf(null); setActiveChannel(null);
     setAgentConversation(null); setFormsDraft(null);
     setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
     setLookups([]); setLookupsLang(null); setToast(null); setLoading(false);
@@ -1693,7 +1715,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
-              {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} user={user} t={t} token={token} />}
+              {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
@@ -3294,32 +3316,101 @@ function privateChatsOf(list) {
   return all.filter(isOwnPrivate).concat(others);
 }
 
-function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMessage, user, t, token }) {
+// A message in a chat's list as the screen reads it: sent by this person,
+// with these words, and not one of the messages the chat already held.
+const isSentAgain = (m, userId, words, known) => !!m && m.senderId === userId && typeof m.text === "string" && m.text.trim() === words && !(m.id && known.has(m.id));
+// What happened to a send that did not go, which picks the line it is told
+// in: no signal, a chat this person cannot send in, or anything else.
+const chatFaultOf = (err) => (err && err.message === ERR_OFFLINE ? "offline" : err && err.status === 403 ? "denied" : "other");
+
+function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMessages, activeChannel, setActiveChannel, sendMessage, user, t, token }) {
   const [text, setText] = useState(""); const endRef = useRef(null);
   // A tap on Send with words in the box and no chat chosen.
   const [pickFirst, setPickFirst] = useState(false);
-  useBusy("chat composer", text.trim().length > 0);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length]);
+  // A send on its way, and one that did not go: the chat, the words, what
+  // happened, and the messages that chat held when it left, so Try again
+  // can tell a send the API kept before its answer was lost.
+  const [sending, setSending] = useState(false);
+  const [fault, setFault] = useState(null);
+  // Words in the box, or a send on its way, hold off an update. The box
+  // empties only once the API has taken the words and the answer is drawn,
+  // so the key goes only once the message is on the screen.
+  useBusy("chat composer", text.trim().length > 0 || sending);
+  const shown = Array.isArray(messages) ? messages : [];
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [shown.length]);
   useEffect(() => { if (activeChannel || !text.trim()) setPickFirst(false); }, [activeChannel, text]);
+  // A read of the chat that brings in the send that did not seem to go
+  // settles it: the API kept it, so the words leave the box and the line
+  // goes.
+  useEffect(() => {
+    if (!fault || sending || !fault.known || fault.chat !== activeChannel || !Array.isArray(messages)) return;
+    if (messages.some(m => isSentAgain(m, user?.id, fault.text, fault.known))) { setFault(null); setText(prev => (prev.trim() === fault.text ? "" : prev)); }
+  }, [messages]);
+  const list = Array.isArray(channels) ? channels : [];
   // Group chats wrap onto as many lines as they need, and private chats sit
   // in a row of their own that scrolls sideways, so every chat on the list
   // can be reached at any width.
-  const siteChannels = channels.filter(c => c && (c.type === "site" || c.type === "general"));
-  const privates = privateChatsOf(channels);
-  const active = channels.find(c => c && c.id === activeChannel) || null;
+  const siteChannels = list.filter(c => c.type === "site" || c.type === "general");
+  const privates = privateChatsOf(list);
+  const active = list.find(c => c.id === activeChannel) || null;
   const isDm = !!active && active.type === "admin_dm";
   // The words for a chat with admin are the person's own private chat's.
   // An admin's private chats are with staff, and read as any chat does.
   const isOwnDm = isDm && isOwnPrivate(active);
-  // Send is ready once the box has words and a chat is chosen. Words with
-  // no chat chosen stay put, and a tap or Enter says to pick one first.
-  const ready = text.trim().length > 0 && !!activeChannel;
-  const handleSend = () => {
-    const v = text.trim();
-    if (!v) return;
-    if (!activeChannel) { setPickFirst(true); return; }
-    sendMessage(activeChannel, v); setText("");
+  // Send is ready once the box has words and a chat is chosen, and off
+  // while a send is on its way. Words with no chat chosen stay put, and a
+  // tap or Enter says to pick one first.
+  const ready = text.trim().length > 0 && !!activeChannel && !sending;
+  const knownIds = () => (Array.isArray(messages) ? new Set(messages.filter(m => m.id).map(m => m.id)) : null);
+  const send = async (chatId, words, known) => {
+    setSending(true); setFault(null);
+    try {
+      await sendMessage(chatId, words);
+      setText(prev => (prev.trim() === words ? "" : prev));
+    } catch (err) {
+      setFault({ chat: chatId, text: words, known: known, kind: chatFaultOf(err) });
+    } finally { setSending(false); }
   };
+  // Try again reads the chat first. A message of this person's with these
+  // words that was not there when the send left is that send, kept by the
+  // API before its answer was lost, so it is drawn and never goes again.
+  // Otherwise the words in the box go now.
+  const retry = async () => {
+    const f = fault;
+    if (!f || sending) return;
+    setSending(true);
+    let rows;
+    try { rows = await readMessages(f.chat); } catch (err) { setFault({ ...f, kind: chatFaultOf(err) }); setSending(false); return; }
+    if (f.known && rows.some(m => isSentAgain(m, user?.id, f.text, f.known))) { setFault(null); setText(prev => (prev.trim() === f.text ? "" : prev)); setSending(false); return; }
+    const words = text.trim();
+    if (!words) { setFault(null); setSending(false); return; }
+    send(f.chat, words, new Set(rows.filter(m => m.id).map(m => m.id)));
+  };
+  // A send that did not go keeps its words in the box, and a line under
+  // the box says what happened, with Try again beside it, while its chat
+  // is the one open.
+  const showFault = !!fault && fault.chat === activeChannel;
+  const handleSend = () => {
+    const words = text.trim();
+    if (!words || sending) return;
+    if (!activeChannel) { setPickFirst(true); return; }
+    if (showFault) { retry(); return; }
+    send(activeChannel, words, knownIds());
+  };
+  // No list yet, a list that did not load, and a list with nothing in it.
+  const listLine = (icon, line, retryIt) => (
+    <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", ...fillsTheWindow(), minHeight: 0, overflow: "hidden" }}>
+      <div style={{ padding: "48px 24px", textAlign: "center" }}>
+        {icon}
+        <div style={{ fontSize: 14, color: t.textMut, marginTop: 14, lineHeight: 1.45, fontFamily: FONT_HEAD }}>{line}</div>
+        {retryIt && <button type="button" onClick={retryIt} style={{ minHeight: TAP, marginTop: 16, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button>}
+      </div>
+    </div>
+  );
+  if (!Array.isArray(channels)) return channelsFailed
+    ? listLine(<ChatIco sz={32} c={t.borderSolid} />, tr("Your chats did not load. Try again in a minute."), onRetryChannels)
+    : listLine(<ChatIco sz={32} c={t.borderSolid} />, tr("Loading..."), null);
+  if (list.length === 0) return listLine(<ChatIco sz={32} c={t.borderSolid} />, tr("No chats are set up for you yet. Ask your supervisor."), null);
   return (
     // The same ceiling every other full height screen carries. Chat
     // subtracted 128 where Help and Forms subtracted 136, and had no
@@ -3345,14 +3436,25 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
       {isOwnDm && (<div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: t.blueSubtle, borderBottom: "1px solid " + t.blueBorder, fontSize: 10, color: BLUE }}><LockIco /> {tr("Private conversation with admin.")}</div>)}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 12px 0" }}>
         {!activeChannel && <div style={{ textAlign: "center", padding: "40px 20px" }}><ChatIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>{tr("Pick a chat to start.")}</div></div>}
-        {activeChannel && messages.length === 0 && <div style={{ textAlign: "center", padding: "40px 20px", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("No messages yet.")}</div>}
-        {messages.map((msg, idx) => { const isMe = msg.senderId === user?.id; const isAdm = msg.senderRole === "admin" || msg.senderRole === "supervisor"; const showName = idx === 0 || messages[idx - 1].senderId !== msg.senderId; return (<div key={msg.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 8, marginBottom: showName ? 12 : 4, alignItems: "flex-end" }}>{!isMe && showName && (<div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdm ? (isDm ? "rgba(36,164,244,0.15)" : t.goldBg) : t.cardAlt, border: "1px solid " + (isAdm ? (isDm ? BLUE : GOLD) : t.borderSolid), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 600, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, flexShrink: 0, fontFamily: FONT_HEAD }}>{msg.senderName?.split(" ").map(n => n[0]).join("")}</div>)}{!isMe && !showName && <div style={{ width: 28, flexShrink: 0 }} />}<div style={{ maxWidth: "75%" }}>{!isMe && showName && <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 3, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, fontFamily: FONT_HEAD }}>{msg.senderName}</div>}<div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: isMe ? (isDm ? BLUE : GOLD) : (isDm && isAdm ? t.blueSubtle : t.card), border: isMe ? "none" : "1px solid " + (isDm && isAdm ? t.blueBorder : t.borderSolid), color: isMe ? (isDm ? "#F8F7F4" : NAVY) : t.text, fontSize: 13, lineHeight: 1.45 }}>{msg.text}</div><div style={{ fontSize: 9, color: t.textMut, marginTop: 2, textAlign: isMe ? "right" : "left", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{formatTime(msg.sentAt)}</div></div></div>); })}
+        {activeChannel && Array.isArray(messages) && shown.length === 0 && <div style={{ textAlign: "center", padding: "40px 20px", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("No messages yet.")}</div>}
+        {shown.map((msg, idx) => {
+          // A message is drawn with what it has: no name, no initials; no
+          // time the phone can read, no time; no words, no bubble.
+          const isMe = !!user && msg.senderId === user.id; const isAdm = msg.senderRole === "admin" || msg.senderRole === "supervisor"; const showName = idx === 0 || shown[idx - 1].senderId !== msg.senderId;
+          const name = typeof msg.senderName === "string" ? msg.senderName : ""; const initials = name.split(" ").filter(Boolean).map(n => n[0]).join("");
+          const at = msg.sentAt ? new Date(msg.sentAt) : null; const when = at && !isNaN(at.getTime()) ? formatTime(at) : null;
+          const words = typeof msg.text === "string" ? msg.text : "";
+          return (<div key={msg.id || "row-" + idx} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 8, marginBottom: showName ? 12 : 4, alignItems: "flex-end" }}>{!isMe && showName && (<div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdm ? (isDm ? "rgba(36,164,244,0.15)" : t.goldBg) : t.cardAlt, border: "1px solid " + (isAdm ? (isDm ? BLUE : GOLD) : t.borderSolid), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 600, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, flexShrink: 0, fontFamily: FONT_HEAD }}>{initials}</div>)}{!isMe && !showName && <div style={{ width: 28, flexShrink: 0 }} />}<div style={{ maxWidth: "75%", minWidth: 0 }}>{!isMe && showName && name && <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 3, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, fontFamily: FONT_HEAD }}>{name}</div>}{words && <div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: isMe ? (isDm ? BLUE : GOLD) : (isDm && isAdm ? t.blueSubtle : t.card), border: isMe ? "none" : "1px solid " + (isDm && isAdm ? t.blueBorder : t.borderSolid), color: isMe ? (isDm ? "#F8F7F4" : NAVY) : t.text, fontSize: 13, lineHeight: 1.45, overflowWrap: "anywhere" }}>{words}</div>}{when && <div style={{ fontSize: 9, color: t.textMut, marginTop: 2, textAlign: isMe ? "right" : "left", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{when}</div>}</div></div>);
+        })}
         <div ref={endRef} />
       </div>
       {pickFirst && !activeChannel && (<div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, margin: "0 12px 8px", padding: "10px 12px", borderRadius: R.md, background: t.goldBg, border: "1px solid " + t.goldBorder }}><AlertIco sz={16} c={t.goldText} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0 }}>{tr("Pick a chat at the top first.")}</div></div>)}
-      <div style={{ padding: "10px 12px", borderTop: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), display: "flex", gap: 8, alignItems: "center", background: t.bg }}>
-        <input value={text} onChange={e => setText(e.target.value)} placeholder={isOwnDm ? tr("Private message to admin...") : tr("Type a message...")} style={{ flex: 1, minWidth: 0, minHeight: TAP, padding: "10px 14px", borderRadius: R.pill, border: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.card, color: t.text, fontSize: 13, outline: "none", fontFamily: FONT_BODY }} onKeyDown={e => e.key === "Enter" && handleSend()} />
-        <button onClick={handleSend} aria-label={tr("Send")} aria-disabled={!ready} style={mkTapFrame({ flexShrink: 0, cursor: ready ? "pointer" : "default" })}><span style={{ width: 38, height: 38, borderRadius: "50%", background: ready ? (isDm ? BLUE : GOLD) : t.cardAlt, boxShadow: ready && !isDm ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={ready ? (isDm ? "#F8F7F4" : NAVY) : t.textMut} /></span></button>
+      <div style={{ padding: "10px 12px", borderTop: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.bg }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input value={text} onChange={e => setText(e.target.value)} placeholder={isOwnDm ? tr("Private message to admin...") : tr("Type a message...")} style={{ flex: 1, minWidth: 0, minHeight: TAP, padding: "10px 14px", borderRadius: R.pill, border: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.card, color: t.text, fontSize: 13, outline: "none", fontFamily: FONT_BODY }} onKeyDown={e => e.key === "Enter" && handleSend()} />
+          <button onClick={handleSend} aria-label={tr("Send")} aria-disabled={!ready} style={mkTapFrame({ flexShrink: 0, cursor: ready ? "pointer" : "default" })}><span style={{ width: 38, height: 38, borderRadius: "50%", background: ready ? (isDm ? BLUE : GOLD) : t.cardAlt, boxShadow: ready && !isDm ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={ready ? (isDm ? "#F8F7F4" : NAVY) : t.textMut} /></span></button>
+        </div>
+        {showFault && (<div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 8, padding: "8px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, flex: "1 1 160px", minWidth: 0 }}><AlertIco sz={16} c={RED} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0 }}>{fault.kind === "offline" ? tr(ERR_OFFLINE) : fault.kind === "denied" ? tr("You cannot send messages in this chat.") : tr("Your message was not sent.")}</div></div><button type="button" onClick={retry} disabled={sending} style={{ minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: sending ? "default" : "pointer", opacity: sending ? 0.6 : 1, flexShrink: 0, fontFamily: FONT_HEAD }}>{tr("Try again")}</button></div>)}
       </div>
     </div>
   );
