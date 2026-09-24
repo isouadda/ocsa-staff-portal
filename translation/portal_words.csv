@@ -302,12 +302,18 @@ Done {date} by {firstName},Hecho el {date} por {firstName},Tasks
 Checked by {firstName},Marcado por {firstName},Tasks
 Only the person who checked this can uncheck it.,Solo la persona que marcó esta tarea puede desmarcarla.,Tasks
 Admin (Private),Administración (privado),Chat
+No chats are set up for you yet. Ask your supervisor.,Todavía no hay chats para usted. Pregunte a su supervisor.,Chat
 No messages yet.,Todavía no hay mensajes.,Chat
 Only you and management can see these messages,Solo usted y la administración ven estos mensajes,Chat
+Pick a chat at the top first.,Primero elija un chat arriba.,Chat
+Pick a chat to start.,Elija un chat para empezar.,Chat
+Private chats,Chats privados,Chat
 Private conversation with admin.,Conversación privada con la administración.,Chat
 Private message to admin...,Mensaje privado a la administración...,Chat
-Select a channel to start chatting.,Elija un canal para empezar a escribir.,Chat
 Type a message...,Escriba un mensaje...,Chat
+You cannot send messages in this chat.,No puede enviar mensajes en este chat.,Chat
+Your chats did not load. Try again in a minute.,Sus chats no cargaron. Intente de nuevo en un minuto.,Chat
+Your message was not sent.,Su mensaje no fue enviado.,Chat
 Add a photo,Agregar una foto,Help
 Based on,Según,Help
 Describe what happened,Describa lo que pasó,Help
