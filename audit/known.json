@@ -24,6 +24,18 @@
       "check": "clipped",
       "what": "Conserje",
       "why": "The role under the name, in Spanish now, runs to one line and ends in an ellipsis the same way the English one does, and for the same reason."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "\"Admin\"",
+      "why": "An admin's role under the name runs to one line and ends in an ellipsis the same way a custodian's does, and for the same reason."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "\"Administrador\"",
+      "why": "An admin's role in Spanish, the same way, and for the same reason."
     }
   ],
   "failures": [

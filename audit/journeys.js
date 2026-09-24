@@ -8,7 +8,7 @@ const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
 const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
 const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
-  SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, refusalIn } = require("./stub");
+  SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -395,6 +395,99 @@ const barReachable = (page) => page.evaluate(() => {
     return !!hit && (hit === b || b.contains(hit));
   });
 });
+
+// --- Chat --------------------------------------------------------------
+
+// The composer's box, the one box on the Chat screen.
+const CHAT_BOX = ".sp-content input";
+// A chat's name as the screen should draw it: a private chat of the
+// person's own by the portal's own words for it, every other by the name
+// the API sent.
+const chatName = (ch, language) => (ch.type === "admin_dm" && !ch.staffUserId ? say("Admin (Private)", language) : ch.name);
+// Every button that names one of these chats, in the order the screen
+// draws them, with where it sits and whether it says it is chosen.
+const chatButtons = (page, names) => page.evaluate((list) => {
+  const out = [];
+  Array.from(document.querySelectorAll(".sp-content button")).forEach((b) => {
+    const text = b.innerText.replace(/\s+/g, " ").trim();
+    const name = list.find(n => text === n || text.indexOf(n + " ") === 0);
+    if (!name) return;
+    const r = b.getBoundingClientRect();
+    out.push({ name: name, pressed: b.getAttribute("aria-pressed"), left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) });
+  });
+  return out;
+}, names);
+// One chat tapped the way a person reaches it: brought into view first,
+// then tapped where it is drawn, only if nothing covers it there. A person
+// can scroll a row that scrolls and the page itself, and nothing else: a
+// box that hides what sticks out of it cannot be scrolled with a finger,
+// so it is left where it is.
+const tapChat = (page, name) => page.evaluate((want) => {
+  const b = Array.from(document.querySelectorAll(".sp-content button")).find((x) => {
+    const text = x.innerText.replace(/\s+/g, " ").trim();
+    return text === want || text.indexOf(want + " ") === 0;
+  });
+  if (!b) return "not drawn";
+  for (let a = b.parentElement; a && a !== document.body; a = a.parentElement) {
+    const s = getComputedStyle(a);
+    const ar = a.getBoundingClientRect(), br = b.getBoundingClientRect();
+    if ((s.overflowX === "auto" || s.overflowX === "scroll") && a.scrollWidth > a.clientWidth) a.scrollLeft += (br.left + br.width / 2) - (ar.left + ar.width / 2);
+    if ((s.overflowY === "auto" || s.overflowY === "scroll") && a.scrollHeight > a.clientHeight) a.scrollTop += (br.top + br.height / 2) - (ar.top + ar.height / 2);
+  }
+  const r0 = b.getBoundingClientRect();
+  if (r0.top < 0 || r0.bottom > window.innerHeight) window.scrollBy(0, r0.top + r0.height / 2 - window.innerHeight / 2);
+  const r = b.getBoundingClientRect();
+  const x = r.left + r.width / 2, y = r.top + r.height / 2;
+  if (x < 0 || x > window.innerWidth || y < 0 || y > window.innerHeight) return "off the screen at " + Math.round(x) + "," + Math.round(y);
+  const hit = document.elementFromPoint(x, y);
+  if (!hit || !(hit === b || b.contains(hit))) return "covered at " + Math.round(x) + "," + Math.round(y);
+  b.click();
+  return "tapped";
+}, name);
+// The chats whose messages the app read, in order.
+const chatReads = (stub) => stub.state.calls.filter(c => c.method === "GET" && /^\/api\/chat\/channels\/[^/]+\/messages$/.test(c.path)).map(c => c.path.split("/")[4]);
+const chatSends = (stub, text) => stub.state.calls.filter(c => c.method === "POST" && /^\/api\/chat\/channels\/[^/]+\/messages$/.test(c.path) && (text === undefined || (c.body && c.body.text === text)));
+// Each bubble that holds exactly this text, with where it sits and the
+// line drawn under it.
+const bubbles = (page, text) => page.evaluate((want) => Array.from(document.querySelectorAll(".sp-content div"))
+  .filter(d => d.children.length === 0 && d.offsetParent !== null && d.textContent.trim() === want)
+  .map((d) => {
+    const r = d.getBoundingClientRect();
+    const under = d.nextElementSibling ? d.nextElementSibling.textContent.trim() : "";
+    return { left: Math.round(r.left), right: Math.round(r.right), under: under, width: window.innerWidth };
+  }), text);
+// Is Send ready, the way it says so: a Send that is not ready says it is
+// not available.
+const sendReady = (page, language) => page.evaluate((want) => {
+  const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => (x.getAttribute("aria-label") || "").trim() === want);
+  if (!b) return null;
+  return !b.disabled && b.getAttribute("aria-disabled") !== "true";
+}, say("Send", language));
+// Send tapped even when it is not ready, which a person can do.
+const tapSend = (page, language) => page.evaluate((want) => {
+  const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => (x.getAttribute("aria-label") || "").trim() === want);
+  if (b) b.click();
+  return !!b;
+}, say("Send", language));
+// A button whose words are exactly these, tapped.
+const tapWords = (page, words) => page.evaluate((want) => {
+  const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.replace(/\s+/g, " ").trim() === want && x.offsetParent !== null);
+  if (b && !b.disabled) { b.click(); return true; }
+  return false;
+}, words);
+const hasButton = (page, words) => page.evaluate((want) => Array.from(document.querySelectorAll(".sp-content button")).some(x => x.innerText.replace(/\s+/g, " ").trim() === want && x.offsetParent !== null), words);
+const sidewaysBy = (page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+// The line for each refusal of a send.
+const chatSendLine = (status) => (status === 403 ? "You cannot send messages in this chat." : "Your message was not sent.");
+const OFFLINE_LINE = "Could not reach OCSA. Check your connection and try again.";
+// How many times the API kept a message with exactly this text.
+const chatSaved = (stub, id, text) => (stub.state.chat.messages[id] || []).filter(m => m.text === text).length;
+// Open Chat and give it time to read the list and, when it opens on a
+// chat, that chat.
+const openChat = async (page, language) => {
+  await openTab(page, "chat", language);
+  await pause(page, 1300);
+};
 
 // --- Help's answer as it is written ------------------------------------
 
@@ -2587,6 +2680,323 @@ const JOURNEYS = [
       } finally { await app.context.close(); }
     },
   },
+  // --- Chat. Step 130: every chat reachable, and every message accounted for.
+  {
+    id: "chatpickfirst",
+    label: "Chat: Send with words and no chat chosen says to pick a chat at the top first and sends nothing",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openChat(app.page, language);
+        expect("with several chats, Chat chooses none on its own", chatReads(app.stub).length === 0, "read " + JSON.stringify(chatReads(app.stub)));
+        const empty = await bodyText(app.page);
+        expect("the empty screen says Pick a chat to start.", has(empty, say("Pick a chat to start.", language)), empty.slice(0, 240));
+        const words = "A note typed before any chat is chosen";
+        await type(app.page, CHAT_BOX, words);
+        await pause(app.page, 300);
+        expect("with words and no chat chosen, Send says it is not ready", (await sendReady(app.page, language)) === false, "Send reads as ready");
+        await tapSend(app.page, language);
+        await pause(app.page, 500);
+        const told = await bodyText(app.page);
+        expect("a tap on Send with no chat chosen sends nothing", chatSends(app.stub).length === 0, "sent " + chatSends(app.stub).length);
+        expect("a tap on Send with no chat chosen says Pick a chat at the top first.", has(told, say("Pick a chat at the top first.", language)), told.slice(0, 240));
+        await app.page.focus(CHAT_BOX).catch(() => {});
+        await app.page.keyboard.press("Enter");
+        await pause(app.page, 400);
+        expect("Enter with no chat chosen sends nothing", chatSends(app.stub).length === 0, "sent " + chatSends(app.stub).length);
+        expect("the words stay in the box", (await boxText(app.page, CHAT_BOX)) === words, JSON.stringify(await boxText(app.page, CHAT_BOX)));
+        expect("both lines are said in the person's language", language !== "es" || (has(told, spanishOf("Pick a chat at the top first.", language)) && has(empty, spanishOf("Pick a chat to start.", language))), told.slice(0, 240));
+        await spokenHere(app, language, expect);
+        await tapChat(app.page, "North Building");
+        await pause(app.page, 900);
+        const after = await bodyText(app.page);
+        expect("once a chat is chosen, the line to pick one goes", !has(after, say("Pick a chat at the top first.", language)), after.slice(0, 240));
+        expect("once a chat is chosen, Send with words is ready", (await sendReady(app.page, language)) === true, "Send reads as not ready");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "chatreopen",
+    label: "Chat reopens on the chat last chosen while it is still listed, chooses the only chat when there is one, and never guesses among several",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      const again = async () => {
+        await app.page.reload({ waitUntil: "domcontentloaded" });
+        await app.page.waitForSelector(".sp-content", { timeout: 20000 });
+        await pause(app.page, 900);
+        await openChat(app.page, language);
+      };
+      try {
+        await openChat(app.page, language);
+        const tapped = await tapChat(app.page, "All staff");
+        await pause(app.page, 900);
+        expect("a chat can be chosen", tapped === "tapped" && chatReads(app.stub).slice(-1)[0] === "ch-all", tapped + ", read " + JSON.stringify(chatReads(app.stub)));
+        const before = chatReads(app.stub).length;
+        await again();
+        expect("Chat reopens on the chat last chosen", chatReads(app.stub)[before] === "ch-all", "read " + JSON.stringify(chatReads(app.stub).slice(before)));
+        const drawn = await chatButtons(app.page, ["All staff"]);
+        expect("the chat it reopens on is drawn chosen", drawn.length === 1 && drawn[0].pressed === "true", JSON.stringify(drawn));
+        app.stub.state.chat.channels = app.stub.state.chat.channels.filter(ch => ch.id !== "ch-all");
+        const before2 = chatReads(app.stub).length;
+        await again();
+        const said = await bodyText(app.page);
+        expect("a chat no longer listed is not reopened, and none is guessed among several", chatReads(app.stub).length === before2 && has(said, say("Pick a chat to start.", language)), "read " + JSON.stringify(chatReads(app.stub).slice(before2)) + " " + said.slice(0, 160));
+      } finally { await app.context.close(); }
+      const one = await open({ stubOptions: { chat: { only: "ch-north" } } });
+      try {
+        await openChat(one.page, language);
+        expect("with one chat on the list, Chat opens on it", chatReads(one.stub)[0] === "ch-north", "read " + JSON.stringify(chatReads(one.stub)));
+        const said = await bodyText(one.page);
+        expect("with the only chat open, nothing asks to pick one", !has(said, say("Pick a chat to start.", language)), said.slice(0, 200));
+      } finally { await one.context.close(); }
+    },
+  },
+  {
+    id: "chatsend",
+    label: "Chat: a cleaner picks their site chat and sends, and the message shows once, as theirs, with its time",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openChat(app.page, language);
+        await tapChat(app.page, "North Building");
+        await pause(app.page, 900);
+        const words = "An invented note for the site chat";
+        await type(app.page, CHAT_BOX, "  " + words + "  ");
+        await pause(app.page, 300);
+        await tapSend(app.page, language);
+        await pause(app.page, 1300);
+        const posts = chatSends(app.stub);
+        expect("the send goes to the chat chosen, once, with the words trimmed", posts.length === 1 && posts[0].path === "/api/chat/channels/ch-north/messages" && !!posts[0].body && posts[0].body.text === words, JSON.stringify(posts.map(p => [p.path, p.body])));
+        let drawn = await bubbles(app.page, words);
+        expect("the message shows once", drawn.length === 1, drawn.length + " drawn");
+        const mine = drawn[0];
+        expect("the message shows as the person's own", !!mine && mine.right >= mine.width - 40 && mine.left > 90, JSON.stringify(mine));
+        expect("the message shows with its time", !!mine && /\d{1,2}:\d{2}/.test(mine.under), JSON.stringify(mine));
+        expect("the box is empty once the API took the words", (await boxText(app.page, CHAT_BOX)) === "", JSON.stringify(await boxText(app.page, CHAT_BOX)));
+        await app.page.clock.runFor(12500);
+        await pause(app.page, 900);
+        drawn = await bubbles(app.page, words);
+        expect("after the next read of the chat, the message still shows once", drawn.length === 1, drawn.length + " drawn");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "chatreach",
+    label: "Chat: an admin reaches every group chat, the ninth included, and every private chat, at 375 pixels",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ADMIN_PERSON, chat: { privates: 6 } } });
+      try {
+        await openChat(app.page, language);
+        const list = app.stub.state.chat.channels;
+        const groups = list.filter(ch => ch.type !== "admin_dm");
+        const privates = list.filter(ch => ch.type === "admin_dm");
+        const drawnGroups = await chatButtons(app.page, groups.map(ch => ch.name));
+        const outside = drawnGroups.filter(b => b.left < 0 || b.right > 375);
+        expect("every group chat is drawn inside the screen, the ninth included", groups.length === 9 && drawnGroups.length === 9 && outside.length === 0, drawnGroups.length + " of " + groups.length + " drawn; outside: " + JSON.stringify(outside.map(b => b.name + " " + b.left + " to " + b.right)));
+        const ninth = groups[8];
+        const t9 = await tapChat(app.page, ninth.name);
+        await pause(app.page, 800);
+        expect("the ninth group chat can be tapped and opens", t9 === "tapped" && chatReads(app.stub).slice(-1)[0] === ninth.id, t9 + ", read " + JSON.stringify(chatReads(app.stub).slice(-2)));
+        const said = await bodyText(app.page);
+        expect("the private chats sit under Private chats", has(said, say("Private chats", language)), said.slice(0, 300));
+        expect("Private chats is said in the person's language", language !== "es" || has(said, spanishOf("Private chats", language)), said.slice(0, 300));
+        // Unread first, then the newest last message first, and a chat never
+        // written in after those. Ties keep the order the API sent.
+        const when = (ch) => (ch.lastMessageAt ? Date.parse(ch.lastMessageAt) : 0);
+        const want = privates.slice().sort((a, b) => ((a.unreadCount > 0 ? 0 : 1) - (b.unreadCount > 0 ? 0 : 1)) || (when(b) - when(a))).map(ch => ch.name);
+        const drawnPrivates = (await chatButtons(app.page, privates.map(ch => ch.name))).map(b => b.name);
+        expect("every private chat is drawn by the name the API sent, unread first and then the newest first", JSON.stringify(drawnPrivates) === JSON.stringify(want), JSON.stringify(drawnPrivates) + " wanted " + JSON.stringify(want));
+        const missed = [];
+        for (const ch of privates) {
+          const r = await tapChat(app.page, ch.name);
+          await pause(app.page, 500);
+          if (r !== "tapped" || chatReads(app.stub).slice(-1)[0] !== ch.id) missed.push(ch.name + ": " + r);
+        }
+        expect("every private chat can be reached and opened", missed.length === 0, JSON.stringify(missed));
+        expect("the page never moves sideways", (await sidewaysBy(app.page)) <= 0, "by " + (await sidewaysBy(app.page)));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "chatrefused",
+    label: "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
+    run: async (open, language, expect, extra) => {
+      const app = await open({});
+      try {
+        await openChat(app.page, language);
+        await tapChat(app.page, "North Building");
+        await pause(app.page, 900);
+        const route = "POST /api/chat/channels/ch-north/messages";
+        const unsaid = [];
+        // The API's own sentence, which is English with no code, drawn on a
+        // Spanish screen. One line for the whole run, since a toast's own
+        // timer can clear the next one's before it is read.
+        const leaked = [];
+        const box = () => boxText(app.page, CHAT_BOX);
+        for (const refusal of CHAT_SEND_REFUSALS) {
+          const words = "An invented note turned away with " + refusal.status;
+          app.stub.state.refuse[route] = { status: refusal.status, once: true, body: { error: refusal.error } };
+          await type(app.page, CHAT_BOX, words);
+          await pause(app.page, 300);
+          await tapSend(app.page, language);
+          await pause(app.page, 1000);
+          const told = await bodyText(app.page);
+          const line = chatSendLine(refusal.status);
+          const kept = (await box()) === words;
+          const shown = has(told, say(line, language)) && (await hasButton(app.page, say("Try again", language)));
+          if (language === "es" && !has(told, spanishOf(line, language))) unsaid.push(line);
+          expect("a send turned away with " + refusal.status + " keeps the words in the box", kept, JSON.stringify(await box()));
+          expect("a send turned away with " + refusal.status + " says " + line + " with Try again", shown, told.slice(-240));
+          if (language === "es" && has(told, refusal.error)) leaked.push(refusal.status + " " + refusal.error);
+          expect("a send turned away with " + refusal.status + " draws nothing as sent", (await bubbles(app.page, words)).length === 0, "drawn");
+          if (extra) extra.refusalsShown += kept && shown ? 1 : 0;
+          const reads = chatReads(app.stub).length;
+          await tapWords(app.page, say("Try again", language));
+          await pause(app.page, 1300);
+          expect("Try again after " + refusal.status + " reads the chat before it sends", chatReads(app.stub).length > reads, "no read");
+          expect("Try again after " + refusal.status + " sends it once more, and it shows once", chatSaved(app.stub, "ch-north", words) === 1 && (await bubbles(app.page, words)).length === 1 && (await box()) === "", chatSaved(app.stub, "ch-north", words) + " kept, " + (await bubbles(app.page, words)).length + " drawn, box " + JSON.stringify(await box()));
+        }
+        const offline = "An invented note with no signal";
+        app.stub.state.offline = true;
+        await type(app.page, CHAT_BOX, offline);
+        await pause(app.page, 300);
+        await tapSend(app.page, language);
+        await pause(app.page, 1000);
+        const cut = await bodyText(app.page);
+        expect("a send with no signal keeps the words and says the portal's line for no signal, with Try again", (await box()) === offline && has(cut, say(OFFLINE_LINE, language)) && (await hasButton(app.page, say("Try again", language))), JSON.stringify(await box()) + " " + cut.slice(-200));
+        app.stub.state.offline = false;
+        await tapWords(app.page, say("Try again", language));
+        await pause(app.page, 1300);
+        expect("Try again once the signal is back sends it once", chatSaved(app.stub, "ch-north", offline) === 1 && (await bubbles(app.page, offline)).length === 1 && (await box()) === "", chatSaved(app.stub, "ch-north", offline) + " kept, " + (await bubbles(app.page, offline)).length + " drawn");
+        const timed = "An invented note that timed out once saved";
+        app.stub.state.chat.saveThenDrop = true;
+        await type(app.page, CHAT_BOX, timed);
+        await pause(app.page, 300);
+        await tapSend(app.page, language);
+        await pause(app.page, 1000);
+        const lost = await bodyText(app.page);
+        expect("a send whose answer never came keeps the words and says the line for no signal", (await box()) === timed && has(lost, say(OFFLINE_LINE, language)), JSON.stringify(await box()) + " " + lost.slice(-200));
+        const posts = chatSends(app.stub, timed).length;
+        const readsBefore = chatReads(app.stub).length;
+        await tapWords(app.page, say("Try again", language));
+        await pause(app.page, 1300);
+        expect("Try again after a send that was saved reads the chat first", chatReads(app.stub).length > readsBefore, "no read");
+        expect("Try again after a send that was saved does not send it twice", chatSends(app.stub, timed).length === posts && chatSaved(app.stub, "ch-north", timed) === 1, (chatSends(app.stub, timed).length - posts) + " more sent, " + chatSaved(app.stub, "ch-north", timed) + " kept");
+        expect("the message that was saved shows once and the box empties", (await bubbles(app.page, timed)).length === 1 && (await box()) === "", (await bubbles(app.page, timed)).length + " drawn, box " + JSON.stringify(await box()));
+        expect("each line is said in the person's language", unsaid.length === 0, JSON.stringify(unsaid));
+        expect("a send turned away never shows the API's English sentence on a Spanish screen", leaked.length === 0, JSON.stringify(leaked));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "chatlists",
+    label: "Chat: a list that did not load and a list that loaded empty each say their own line",
+    run: async (open, language, expect) => {
+      const failed = "Your chats did not load. Try again in a minute.";
+      const none = "No chats are set up for you yet. Ask your supervisor.";
+      const app = await open({});
+      try {
+        app.stub.state.refuse["GET /api/chat/channels"] = { status: 500, body: { error: "Server error" } };
+        await openChat(app.page, language);
+        const said = await bodyText(app.page);
+        expect("a list turned away says Your chats did not load, with Try again", has(said, say(failed, language)) && (await hasButton(app.page, say("Try again", language))), said.slice(0, 240));
+        expect("a list turned away never says no chats are set up", !has(said, say(none, language)), said.slice(0, 240));
+        expect("the line for a list that did not load is said in the person's language", language !== "es" || has(said, spanishOf(failed, language)), said.slice(0, 240));
+        delete app.stub.state.refuse["GET /api/chat/channels"];
+        await tapWords(app.page, say("Try again", language));
+        await pause(app.page, 1000);
+        const back = await chatButtons(app.page, ["North Building", "All staff"]);
+        expect("Try again reads the list and draws it", back.length === 2, JSON.stringify(back));
+      } finally { await app.context.close(); }
+      const cut = await open({ stubOptions: { drop: { "GET /api/chat/channels": {} } } });
+      try {
+        await openChat(cut.page, language);
+        const said = await bodyText(cut.page);
+        expect("a list whose connection dropped says Your chats did not load", has(said, say(failed, language)) && !has(said, say(none, language)), said.slice(0, 240));
+      } finally { await cut.context.close(); }
+      const empty = await open({ stubOptions: { chat: { empty: true } } });
+      try {
+        await openChat(empty.page, language);
+        const said = await bodyText(empty.page);
+        expect("a list that loaded empty says No chats are set up for you yet", has(said, say(none, language)) && !has(said, say(failed, language)), said.slice(0, 240));
+        expect("the line for an empty list is said in the person's language", language !== "es" || has(said, spanishOf(none, language)), said.slice(0, 240));
+        await spokenHere(empty, language, expect);
+      } finally { await empty.context.close(); }
+    },
+  },
+  {
+    id: "chatupdate",
+    label: "Chat: an update waiting while a message is on its way does not reload the app until the answer is drawn",
+    run: async (open, language, expect) => {
+      const app = await open({ buildStamp: "a-newer-build" });
+      try {
+        await openChat(app.page, language);
+        await tapChat(app.page, "North Building");
+        await pause(app.page, 900);
+        const words = "An invented note sent while an update waits";
+        await type(app.page, CHAT_BOX, words);
+        await pause(app.page, 300);
+        // The update check runs five seconds after the app starts.
+        await app.page.clock.runFor(6000);
+        await pause(app.page, 900);
+        expect("an update is waiting while the box holds words", await app.page.evaluate(() => !!document.getElementById("ocsa-update-bar")), "no update bar");
+        // The moment the app decides to reload, it writes down the build
+        // it reloads for. Whether the answer is on the screen at that
+        // moment is written down beside it.
+        const marks = [];
+        await app.page.exposeFunction("auditReloadMark", (m) => { marks.push(m); });
+        await app.page.evaluate((want) => {
+          const set = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (k, v) {
+            if (this === window.sessionStorage && k === "ocsa-update-tried") {
+              const drawn = Array.from(document.querySelectorAll(".sp-content div")).some(d => d.children.length === 0 && d.textContent.trim() === want);
+              window.auditReloadMark(drawn ? "after the answer was drawn" : "before the answer was drawn");
+            }
+            return set.apply(this, arguments);
+          };
+        }, words);
+        app.stub.state.chat.holdMs = 1500;
+        await tapSend(app.page, language);
+        for (let i = 0; i < 40 && marks.length === 0; i += 1) await pause(app.page, 150);
+        expect("the app does not reload while the message is on its way", marks[0] !== "before the answer was drawn", JSON.stringify(marks));
+        expect("once the answer is drawn, the update goes ahead", marks[0] === "after the answer was drawn", JSON.stringify(marks));
+        expect("the message was sent once", chatSends(app.stub, words).length === 1 && chatSaved(app.stub, "ch-north", words) === 1, chatSends(app.stub, words).length + " sent");
+        await app.page.waitForSelector(".sp-content", { timeout: 20000 }).catch(() => {});
+        await pause(app.page, 1500);
+        expect("the app comes back after the update", await app.page.evaluate(() => !!document.querySelector(".sp-content") && document.body.innerText.trim().length > 0), "blank");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "chatodd",
+    label: "Chat: a send answered without its message, and message rows missing a field, never blank the app",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { chat: { oddRows: true } } });
+      const alive = () => app.page.evaluate(() => !!document.querySelector(".sp-content") && document.body.innerText.trim().length > 0);
+      try {
+        await openChat(app.page, language);
+        await tapChat(app.page, "North Building");
+        await pause(app.page, 1000);
+        const said = await bodyText(app.page);
+        expect("rows missing a field are drawn with what they have", (await alive()) && has(said, "A note with no name on it.") && has(said, "A note with no time on it.") && has(said, "A note with no id on it."), said.slice(0, 300));
+        expect("a row with no time draws no broken time", !/Invalid Date|NaN/.test(said), said.slice(0, 300));
+        const words = "An invented note answered without its message";
+        app.stub.state.chat.noMessage = true;
+        const reads = chatReads(app.stub).length;
+        await type(app.page, CHAT_BOX, words);
+        await pause(app.page, 300);
+        await tapSend(app.page, language);
+        await pause(app.page, 1500);
+        expect("a send answered without its message leaves the app drawn", await alive(), "the app went blank");
+        expect("a send answered without its message reads the chat again", chatReads(app.stub).length > reads, "no read");
+        expect("the message it sent shows once and the box empties", (await bubbles(app.page, words)).length === 1 && (await boxText(app.page, CHAT_BOX)) === "", (await bubbles(app.page, words)).length + " drawn, box " + JSON.stringify(await boxText(app.page, CHAT_BOX)));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
 ];
 
 async function runJourneys(browser, base, opts) {
@@ -2619,7 +3029,7 @@ async function runJourneys(browser, base, opts) {
   const unique = rows.filter((r) => { const k = r.where + "|" + r.check + "|" + r.detail; if (once.has(k)) return false; once.add(k); return true; });
   rows.length = 0;
   unique.forEach(r => rows.push(r));
-  return { rows: rows, covered: covered, journeys: JOURNEYS.length, refusalsShown: extra.refusalsShown, refusalsTotal: (TIME_OFF_REFUSALS.length + HR_CASE_REFUSALS.length + SHIFT_REFUSALS.length) * LANGUAGES.length, gaps: gaps };
+  return { rows: rows, covered: covered, journeys: JOURNEYS.length, refusalsShown: extra.refusalsShown, refusalsTotal: (TIME_OFF_REFUSALS.length + HR_CASE_REFUSALS.length + SHIFT_REFUSALS.length + CHAT_SEND_REFUSALS.length) * LANGUAGES.length, gaps: gaps };
 }
 
 module.exports = { runJourneys, JOURNEYS };

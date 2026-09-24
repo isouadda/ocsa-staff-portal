@@ -351,12 +351,18 @@ export const WORDS = {
 
   // Chat
   "Admin (Private)": "Administraci\u00f3n (privado)",
+  "No chats are set up for you yet. Ask your supervisor.": "Todav\u00eda no hay chats para usted. Pregunte a su supervisor.",
   "No messages yet.": "Todav\u00eda no hay mensajes.",
   "Only you and management can see these messages": "Solo usted y la administraci\u00f3n ven estos mensajes",
+  "Pick a chat at the top first.": "Primero elija un chat arriba.",
+  "Pick a chat to start.": "Elija un chat para empezar.",
+  "Private chats": "Chats privados",
   "Private conversation with admin.": "Conversaci\u00f3n privada con la administraci\u00f3n.",
   "Private message to admin...": "Mensaje privado a la administraci\u00f3n...",
-  "Select a channel to start chatting.": "Elija un canal para empezar a escribir.",
   "Type a message...": "Escriba un mensaje...",
+  "You cannot send messages in this chat.": "No puede enviar mensajes en este chat.",
+  "Your chats did not load. Try again in a minute.": "Sus chats no cargaron. Intente de nuevo en un minuto.",
+  "Your message was not sent.": "Su mensaje no fue enviado.",
 
   // Help
   "Add a photo": "Agregar una foto",

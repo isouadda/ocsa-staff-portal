@@ -7,7 +7,7 @@ const { openApp, letSheetOffer } = require("./browser");
 const { INSPECT, rowsFrom } = require("./checks");
 const { LEAKABLE, SPANISH, SPANISH_PATTERNS, say } = require("./words");
 const { SCREEN_CASES, SHEET_CASES } = require("./inventory");
-const { timeOffRow, formP, STAFF, servedFor } = require("./stub");
+const { timeOffRow, formP, STAFF, servedFor, PERSON } = require("./stub");
 
 const SIZES = ["standard", "large", "xlarge", "largest"];
 const LANGUAGES = ["en", "es"];
@@ -77,6 +77,34 @@ const PERIOD_LIST = "Tasks, today and the periods";
 const HELP_ARRIVING = "Help, while the answer arrives";
 const HELP_DONE = "Help, the answer done";
 const HELP_DROPPED = "Help, the connection dropped";
+
+// Chat four more times, each name starting with the tab's: a list of nine
+// group chats and twenty private chats with a group chat open; a send that
+// did not go, its words kept and its line under the box with Try again;
+// Send tapped with words and no chat chosen; and a list that did not load.
+const CHAT_EVERY = "Chat, every chat";
+const CHAT_NOT_SENT = "Chat, a message not sent";
+const CHAT_PICK_FIRST = "Chat, pick a chat first";
+const CHAT_NO_LIST = "Chat, the list did not load";
+// A chat on the screen tapped by its name.
+const tapChatNamed = (page, name) => page.evaluate((want) => {
+  const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.replace(/\s+/g, " ").trim().indexOf(want) === 0);
+  if (b) b.click();
+  return !!b;
+}, name);
+// Words in the composer's box, the way a person types them.
+const typeInBox = (page, words) => page.evaluate((v) => {
+  const e = document.querySelector(".sp-content input");
+  if (!e) return false;
+  Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(e, v);
+  e.dispatchEvent(new Event("input", { bubbles: true }));
+  return true;
+}, words);
+const tapSendLabel = (page, language) => page.evaluate((want) => {
+  const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => (x.getAttribute("aria-label") || "").trim() === want);
+  if (b) b.click();
+  return !!b;
+}, say("Send", language));
 
 const TAB_LABEL = {
   clock: "Home", schedule: "Schedule", tasks: "Tasks", chat: "Chat",
@@ -404,6 +432,30 @@ async function runScreens(browser, base, opts) {
         if (held) await west.page.clock.resume().catch(() => {});
       } finally {
         await west.context.close();
+      }
+    }
+
+    // Chat four times, each in a session of its own. The first is an
+    // admin's list, nine group chats and twenty private chats, the private
+    // row scrolling on its own, with a group chat open. The person is the
+    // one every other case signs in as, with an admin's role.
+    for (const variant of [CHAT_EVERY, CHAT_NOT_SENT, CHAT_PICK_FIRST, CHAT_NO_LIST]) {
+      const chat = await openApp(browser, base, {
+        language: language, textSize: size, theme: theme, signedIn: true,
+        stubOptions: Object.assign(stubFor(language, size), variant === CHAT_EVERY ? { person: Object.assign({}, PERSON, { role: "admin" }), chat: { privates: 20 } } : {}),
+      });
+      try {
+        if (variant === CHAT_NO_LIST) chat.stub.state.refuse["GET /api/chat/channels"] = { status: 500, body: { error: "Server error" } };
+        const ok = await openTab(chat.page, "chat", language);
+        if (!ok) rows.push({ where: whereAt(variant), check: "reachable", detail: "the tab could not be opened" });
+        await pause(chat.page, 1200);
+        if (variant === CHAT_EVERY || variant === CHAT_NOT_SENT) { await tapChatNamed(chat.page, "North Building"); await pause(chat.page, 900); }
+        if (variant === CHAT_NOT_SENT || variant === CHAT_PICK_FIRST) await typeInBox(chat.page, "A note for the chat");
+        if (variant === CHAT_NOT_SENT) chat.stub.state.refuse["POST /api/chat/channels/ch-north/messages"] = { status: 500, once: true, body: { error: "Server error" } };
+        if (variant === CHAT_NOT_SENT || variant === CHAT_PICK_FIRST) { await pause(chat.page, 200); await tapSendLabel(chat.page, language); await pause(chat.page, 900); }
+        rows.push(...await inspect(chat.page, null, variant, language, size, chat.stub, theme));
+      } finally {
+        await chat.context.close();
       }
     }
 
