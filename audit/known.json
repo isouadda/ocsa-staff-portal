@@ -323,7 +323,7 @@
       "where": "*",
       "check": "english",
       "what": "is a shift header the API sent in English",
-      "why": "A checklist's shift and block names are typed in English and sent as typed. Step 118 gives an item its own words in the request's language as display, and gives the headers none, so they stay English until the API sends them in Spanish too."
+      "why": "A checklist's shift and block names are typed in English. Step 124 sends them as display.shift and display.block, and each shift of a session as displayLabel, in the request's language once the names' Spanish is loaded. Until then they come back in English, and the screen draws them as sent."
     },
     {
       "where": "*",

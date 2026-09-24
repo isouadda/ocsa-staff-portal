@@ -41,7 +41,7 @@ async function launch() {
 }
 
 // opts: { language, textSize, theme, signedIn, installSheet, stub, locale,
-//         storeLanguage, phone }
+//         storeLanguage, phone, now }
 // phone: "en" or "es", the language the phone itself is set to, which is
 // the case's language unless a case says otherwise. The browser sends it
 // on every request as Accept-Language.
@@ -54,6 +54,8 @@ async function launch() {
 // joined the sweep, or "light". Seeded before the first paint, so the app
 // draws the theme the case asked for from the first frame rather than
 // turning into it.
+// now: another time for the phone's clock, for a case that needs the
+// morning. The case gives the stub the same time, as stubOptions.now.
 async function openApp(browser, base, opts) {
   const o = opts || {};
   const stub = o.stub || createStub(o.stubOptions);
@@ -94,7 +96,7 @@ async function openApp(browser, base, opts) {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ stamp: o.buildStamp || builtStamp() }) });
   });
 
-  await context.clock.install({ time: NOW });
+  await context.clock.install({ time: o.now ? new Date(o.now) : NOW });
   await context.addInitScript(([signedIn, language, textSize, theme, sheet, keys, fresh]) => {
     try {
       const ls = window.localStorage;

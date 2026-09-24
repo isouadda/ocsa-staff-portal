@@ -27,6 +27,7 @@ const SECOND_PERSON = {
 const SITES = [
   { siteId: "site-north", siteName: "North Building" },
   { siteId: "site-south", siteName: "South Building" },
+  { siteId: "site-west", siteName: "West Building" },
 ];
 
 const LEAVE_TYPES = [
@@ -65,8 +66,15 @@ const lookupsIn = (lang) => LOOKUPS.map(c => Object.assign({}, c, { values: c.va
 // building_name and floor_number are matched exactly, the way the API
 // matches them, so an item with no building or no floor drops out when
 // either is sent. Every row carries the four fields of its shift header,
-// null where it has none.
-const TASK_ROW = { building_name: null, floor_number: null, zone: null, task_type: "standard", shift_label: null, block_label: null, anchor_time: null, block_sort_order: null };
+// null where it has none, and the category code the live API sends on
+// every item, which no screen should draw.
+//
+// Step 124 in the API answers each row's period and what the checklist
+// day says about it (see "the checklist day" below). Two fields here are
+// the stub's own and never served: every, how often an item of the day's
+// own work repeats, and shown, false for an item the checklist day does
+// not show today.
+const TASK_ROW = { building_name: null, floor_number: null, zone: null, task_type: "standard", shift_label: null, block_label: null, anchor_time: null, block_sort_order: null, cims_category: "SD", period: "today", every: "daily" };
 const taskRow = (o) => Object.assign({}, TASK_ROW, o);
 const SITE_TASKS = {
   // Some people here are linked to particular items and most are not.
@@ -102,20 +110,55 @@ const SITE_TASKS = {
     taskRow({ id: "s-7", label: "Lock up the restrooms", zone: "Restroom", shift_label: "Evening", block_label: "Last round", anchor_time: "21:30:00", block_sort_order: 5 }),
     taskRow({ id: "s-2", label: "Turn on the hallway lights", zone: "Hallway", shift_label: "Morning", block_label: "Opening walk", anchor_time: "06:30:00", block_sort_order: 1 }),
   ],
+  // A list shaped like the busiest live one, smaller and invented: a day
+  // shift and a night shift that runs past midnight, a block in each with
+  // no time, work that repeats every week, every two weeks, every month,
+  // every quarter and every season, an every other day item done
+  // yesterday, one as needed, one the checklist day does not show, and
+  // two items tied to no shift. Served in no useful order.
+  "site-west": [
+    taskRow({ id: "w-9", label: "Dust the window sills", zone: "Office", shift_label: "Night shift", block_label: "Office sweep", anchor_time: "21:00:00", block_sort_order: 7, period: "week" }),
+    taskRow({ id: "w-24", label: "Sweep the entry mat", zone: "Entrance", shift_label: "Day shift", block_label: "Closing checks", anchor_time: "15:00:00", block_sort_order: 4 }),
+    taskRow({ id: "w-2", label: "Wipe the restroom sinks", zone: "Restroom", shift_label: "Night shift", block_label: "Restroom Round 1", anchor_time: "19:00:00", block_sort_order: 6 }),
+    taskRow({ id: "w-14", label: "Wash the outside windows", zone: "Outside", shift_label: "Night shift", block_label: "Deep clean", block_sort_order: 10, period: "season" }),
+    taskRow({ id: "w-17", label: "Take out the recycling", zone: "Break room" }),
+    taskRow({ id: "w-6", label: "Lock the side doors", zone: "Entrance", shift_label: "Night shift", block_label: "Late round", anchor_time: "01:30:00", block_sort_order: 9 }),
+    taskRow({ id: "w-21", label: "Wipe the reception counter", zone: "Lobby", shift_label: "Day shift", block_label: "Opening checks", anchor_time: "07:30:00", block_sort_order: 1 }),
+    taskRow({ id: "w-12", label: "Clean the light fixtures", zone: "Office", shift_label: "Night shift", block_label: "Office sweep", anchor_time: "21:00:00", block_sort_order: 7, period: "month" }),
+    taskRow({ id: "w-4", label: "Vacuum the office carpet", zone: "Office", shift_label: "Night shift", block_label: "Office sweep", anchor_time: "21:00:00", block_sort_order: 7, every: "every_other_day" }),
+    taskRow({ id: "w-15", label: "Clean up spills", zone: "Lobby", period: "as_needed" }),
+    taskRow({ id: "w-1", label: "Check the restroom supplies", zone: "Restroom", shift_label: "Night shift", block_label: "Restroom Round 1", anchor_time: "19:00:00", block_sort_order: 6 }),
+    taskRow({ id: "w-23", label: "Dust the picture frames", zone: "Lobby", shift_label: "Day shift", block_label: "Floor care", block_sort_order: 3, period: "week" }),
+    taskRow({ id: "w-10", label: "Wash the trash cans", zone: "Break room", shift_label: "Night shift", block_label: "Deep clean", block_sort_order: 10, period: "week" }),
+    taskRow({ id: "w-5", label: "Wipe the elevator buttons", zone: "Elevator", shift_label: "Night shift", block_label: "Common areas", anchor_time: "23:00:00", block_sort_order: 8, every: "per_visit" }),
+    taskRow({ id: "w-30", label: "Clean the break room fridge", zone: "Break room", shift_label: "Night shift", block_label: "Office sweep", anchor_time: "21:00:00", block_sort_order: 7, period: "week", shown: false }),
+    taskRow({ id: "w-20", label: "Open the blinds", zone: "Office", shift_label: "Day shift", block_label: "Opening checks", anchor_time: "07:30:00", block_sort_order: 1 }),
+    taskRow({ id: "w-16", label: "Polish the lobby brass", zone: "Lobby", shift_label: "Night shift", block_label: "Late round", anchor_time: "01:30:00", block_sort_order: 9, every: "every_other_day" }),
+    taskRow({ id: "w-11", label: "Scrub the grout in the restrooms", zone: "Restroom", shift_label: "Night shift", block_label: "Restroom Round 1", anchor_time: "19:00:00", block_sort_order: 6, period: "biweekly" }),
+    taskRow({ id: "w-22", label: "Mop the lobby floor", zone: "Lobby", shift_label: "Day shift", block_label: "Lobby reset", anchor_time: "11:00:00", block_sort_order: 2 }),
+    taskRow({ id: "w-13", label: "Wipe the air vents", zone: "Office", shift_label: "Night shift", block_label: "Deep clean", block_sort_order: 10, period: "quarter" }),
+    taskRow({ id: "w-3", label: "Empty the office bins", zone: "Office", shift_label: "Night shift", block_label: "Office sweep", anchor_time: "21:00:00", block_sort_order: 7 }),
+  ],
 };
-// The order a person reads that list in, written out by hand: each shift,
-// each block under it, and each item under its block.
+// The order a person on the morning shift reads South Building's list in,
+// written out by hand: the shift, each block under it, each item under its
+// block, and the item tied to no shift last.
 const SHIFT_ORDER = [
   "Morning", "Opening walk", "s-1", "s-2", "Restroom round", "s-10",
   "Midday reset", "s-3", "s-4", "Restroom round", "s-11",
-  "Evening", "Closing walk", "s-5", "s-6", "Last round", "s-7", "s-8",
   "s-9",
 ];
 // Where an open shift at each site puts the person.
 const OPEN_SHIFT = {
   "site-north": { siteId: "site-north", siteName: "North Building", buildingName: "Main Hall", floorNumber: "2" },
   "site-south": { siteId: "site-south", siteName: "South Building", buildingName: null, floorNumber: null },
+  "site-west": { siteId: "site-west", siteName: "West Building", buildingName: null, floorNumber: null },
 };
+// The shift an open session carries when a case says nothing. North
+// Building has no shifts. The session at South Building was started on
+// the morning shift. The one at West Building carries none yet, which is
+// what the screen asks about.
+const SESSION_SHIFT = { "site-north": null, "site-south": "Morning", "site-west": null };
 // The person a case signs in as is linked to six items at North
 // Building, one of them with no building or floor. Nobody else is.
 const LINKS = { "u-one": ["task-1", "task-2", "task-3", "task-4", "task-5", "task-8"] };
@@ -132,12 +175,108 @@ const taskWords = (id, lang) => {
   if (!row) return { label: id, description: null, zone: null };
   return DISPLAYED.has(id) ? displayOf(row, lang) : { label: row.label, description: row.description || null, zone: row.zone };
 };
-// Checked off today: one by this person, and two by someone else.
+// The people who check things off besides the one a case signs in as,
+// by the first name the API sends with each check.
+const FIRST_NAMES = { "u-one": "Alex", "u-two": "Sam", "u-three": "Robin" };
+// Checked off. With no time a check was made today, a minute before the
+// stub's clock. The rest are at West Building on the days they name, on
+// the company's clock: Monday September 28, Tuesday September 29,
+// Wednesday September 30, which is yesterday, and September 3.
 const COMPLETIONS = [
   { taskId: "task-1", userId: "u-one" },
   { taskId: "task-2", userId: "u-three" },
   { taskId: "s-5", userId: "u-three" },
+  { taskId: "w-1", userId: "u-one" },
+  { taskId: "w-2", userId: "u-three" },
+  { taskId: "w-12", userId: "u-two" },
+  { taskId: "w-21", userId: "u-two" },
+  { taskId: "w-9", userId: "u-two", at: Date.parse("2026-09-28T23:00:00Z") },
+  { taskId: "w-11", userId: "u-one", at: Date.parse("2026-09-30T00:30:00Z") },
+  { taskId: "w-4", userId: "u-two", at: Date.parse("2026-09-30T00:10:00Z") },
+  { taskId: "w-16", userId: "u-two", at: Date.parse("2026-10-01T02:00:00Z") },
+  { taskId: "w-14", userId: "u-three", at: Date.parse("2026-09-03T23:00:00Z") },
 ];
+// The category code the live API sends on every checklist item, on an
+// assigned task and on an inspection's items. It is a certification
+// category, and no screen should ever draw it.
+const CATEGORY_CODES = ["SD"];
+
+// --- the checklist day ---------------------------------------------------
+//
+// Step 124 in the API: the checklist day starts at 4:00 AM on the
+// company's clock, New York's, so a check made after midnight stays with
+// the night it belongs to. A per visit or daily item shown today is due,
+// and so is an every other day item shown today that nobody checked the
+// checklist day before. Only due items count in the day's numbers. Work
+// that repeats every week, every two weeks, every month, every quarter or
+// every season stays on the list until anyone at the site does it in its
+// period, and as needed work is never counted.
+const ZONE = "America/New_York";
+const DAY_STARTS_HOUR = 4;
+const PERIODS = ["week", "biweekly", "month", "quarter", "season"];
+const zoneFormat = new Intl.DateTimeFormat("en-US", { timeZone: ZONE, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+const zoneParts = (ms) => {
+  const p = {};
+  zoneFormat.formatToParts(new Date(ms)).forEach((x) => { p[x.type] = Number(x.value); });
+  return p;
+};
+// The checklist day an instant falls on, counted in days since 1970.
+const checklistDay = (ms) => { const p = zoneParts(ms - DAY_STARTS_HOUR * 3600 * 1000); return Math.round(Date.UTC(p.year, p.month - 1, p.day) / DAY); };
+// A day's period, as a number that is the same for every day in it.
+// Weeks start on Monday; every two weeks is counted from a Monday; the
+// seasons are the three month ones, winter taking December.
+const periodOf = (period, day) => {
+  const d = new Date(day * DAY), y = d.getUTCFullYear(), m = d.getUTCMonth();
+  if (period === "week") return Math.floor((day + 3) / 7);
+  if (period === "biweekly") return Math.floor((day + 3) / 14);
+  if (period === "month") return y * 12 + m;
+  if (period === "quarter") return y * 4 + Math.floor(m / 3);
+  return (m === 11 ? y + 1 : y) * 4 + (m === 11 || m < 2 ? 0 : m < 5 ? 1 : m < 8 ? 2 : 3);
+};
+// A time of day written HH:MM:SS, as seconds, and back.
+const secondsOf = (hms) => { const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(String(hms || "")); return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3] || 0) : null; };
+const clockOf = (s) => { const x = ((s % 86400) + 86400) % 86400; return [Math.floor(x / 3600), Math.floor((x % 3600) / 60), x % 60].map(n => String(n).padStart(2, "0")).join(":"); };
+
+// A site's shifts, the way every session answer carries them: none at a
+// site with fewer than two, and otherwise one per shift in label order,
+// each with its blocks and the hours they span. A block's time is its
+// earliest item's. The window opens an hour before the first timed block
+// and ends at the last; a shift with no timed block has none. The shift
+// suggested is the one whose window holds the session's start, or opens
+// next after it, and none when no shift has a time.
+function shiftsFor(siteId, startMs) {
+  const rows = SITE_TASKS[siteId] || [];
+  const labels = Array.from(new Set(rows.map(r => r.shift_label).filter(Boolean))).sort();
+  if (labels.length < 2) return [];
+  const list = labels.map((label) => {
+    const blocks = [];
+    rows.filter(r => r.shift_label === label && r.block_label).forEach((r) => {
+      let b = blocks.find(x => x.label === r.block_label && x.order === r.block_sort_order);
+      if (!b) { b = { label: r.block_label, displayLabel: r.block_label, time: null, order: r.block_sort_order }; blocks.push(b); }
+      if (r.anchor_time && (b.time === null || secondsOf(r.anchor_time) < secondsOf(b.time))) b.time = r.anchor_time;
+    });
+    blocks.sort((a, b) => a.order - b.order || (secondsOf(a.time) === null ? 1 : secondsOf(b.time) === null ? -1 : secondsOf(a.time) - secondsOf(b.time)));
+    const timed = blocks.filter(b => b.time !== null);
+    const window = timed.length === 0 ? null : {
+      opensAt: clockOf(secondsOf(timed[0].time) - 3600),
+      startsAt: timed[0].time,
+      endsAt: timed[timed.length - 1].time,
+      crossesMidnight: secondsOf(timed[timed.length - 1].time) < secondsOf(timed[0].time),
+    };
+    return { label: label, displayLabel: label, suggested: false, window: window, blocks: blocks };
+  });
+  const p = zoneParts(startMs);
+  const at = p.hour * 3600 + p.minute * 60 + p.second;
+  const holds = (w) => {
+    const from = secondsOf(w.opensAt), to = secondsOf(w.endsAt);
+    return from <= to ? at >= from && at <= to : at >= from || at <= to;
+  };
+  const withTime = list.filter(s => s.window);
+  const gap = (s) => (secondsOf(s.window.opensAt) - at + 86400) % 86400;
+  const pick = withTime.find(s => holds(s.window)) || withTime.slice().sort((a, b) => gap(a) - gap(b))[0];
+  if (pick) pick.suggested = true;
+  return list;
+}
 
 // One scheduled inspection and the items it asks about. The template's
 // name, each item and each item's zone are English, the way the live API
@@ -145,8 +284,8 @@ const COMPLETIONS = [
 const INSPECTION = {
   id: "in-1", template_name: "Lobby walk", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled",
   items: [
-    { id: "it-1", label: "Glass doors are free of smudges", zone: "Lobby", max_score: 5 },
-    { id: "it-2", label: "Floor mats are straight and dry", zone: "Lobby", max_score: 5 },
+    { id: "it-1", label: "Glass doors are free of smudges", zone: "Lobby", max_score: 5, cims_category: "SD" },
+    { id: "it-2", label: "Floor mats are straight and dry", zone: "Lobby", max_score: 5, cims_category: "SD" },
   ],
 };
 // One on the list that the API no longer has when it is opened.
@@ -281,6 +420,12 @@ function makeState(opts) {
     site: o.site || "site-north",
     links: o.links || LINKS,
     completions: (o.completions || COMPLETIONS).map(c => Object.assign({}, c)),
+    // Step 124: the stub's own clock, which a case can move, the shift the
+    // open session carries, and when that session started. It started
+    // three hours before the clock unless a case says otherwise.
+    now: o.now ? new Date(o.now).getTime() : null,
+    shiftLabel: o.shiftLabel !== undefined ? o.shiftLabel : (SESSION_SHIFT[o.site || "site-north"] || null),
+    sessionStartedAt: o.sessionStartedAt ? new Date(o.sessionStartedAt).getTime() : (o.now ? new Date(o.now).getTime() : NOW.getTime()) - 3 * 60 * 60 * 1000,
     schedule: o.schedule || null,
     timeOffTypesLive: o.timeOffTypesLive !== false,
     myTimeOff: o.myTimeOff || [],
@@ -484,6 +629,23 @@ const { ES } = require("./words");
 const { silently } = require("./stream");
 const tableTwin = (en) => [en, Object.prototype.hasOwnProperty.call(ES, en) ? ES[en] : null];
 
+// Step 124's refusals when a session's shift is changed, and the one an
+// uncheck gets when somebody else made the check. The API writes each one
+// in the request's language, and the stub answers the same way.
+const SERVER_ERROR = "Something went wrong on our end. Try again in a minute.";
+const SHIFT_REFUSALS = [
+  { key: "shiftInvalid", status: 400, en: "Choose one of this site's shifts: {shifts}", es: "Elija uno de los turnos de este sitio: {shifts}" },
+  { key: "notYours", status: 403, en: "You can only change your own shift", es: "Solo puede cambiar su propio turno" },
+  { key: "notFound", status: 404, en: "Session not found", es: "No se encontr\u00f3 el turno" },
+  { key: "ended", status: 409, code: "SESSION_ALREADY_ENDED", en: "This shift has already ended", es: "Este turno ya termin\u00f3" },
+  { key: "serverError", status: 500, en: SERVER_ERROR, es: ES[SERVER_ERROR] },
+];
+const NOT_YOUR_CHECK = { status: 403, code: "NOT_YOUR_CHECK", en: "Only the person who checked this can uncheck it.", es: "Solo la persona que marc\u00f3 esta tarea puede desmarcarla." };
+// One refusal's sentence in a language, with what fills it.
+const refusalIn = (r, lang, vars) => String(lang === "es" ? r.es : r.en).replace(/\{(\w+)\}/g, (whole, k) => (vars && k in vars ? String(vars[k]) : whole));
+// West Building's shifts, as the invalid shift refusal names them.
+const WEST_SHIFT_NAMES = { shifts: "Day shift, Night shift" };
+
 const TWIN_PAIRS = [
   // To-do items, their instructions and their zones.
   ["Wipe the entry doors and handles", "Limpie las puertas de entrada y las manijas"],
@@ -523,6 +685,42 @@ const TWIN_PAIRS = [
   ["Restroom round", "Ronda de los ba\u00f1os"],
   ["Closing walk", "Recorrido de cierre"],
   ["Last round", "\u00daltima ronda"],
+  // West Building's list: its items, their zones, its shifts and blocks.
+  ["Check the restroom supplies", "Revise los insumos de los ba\u00f1os"],
+  ["Wipe the restroom sinks", "Limpie los lavabos de los ba\u00f1os"],
+  ["Scrub the grout in the restrooms", "Talle las juntas de los ba\u00f1os"],
+  ["Empty the office bins", "Vac\u00ede los botes de las oficinas"],
+  ["Vacuum the office carpet", "Aspire la alfombra de las oficinas"],
+  ["Dust the window sills", "Sacuda los alf\u00e9izares de las ventanas"],
+  ["Clean the light fixtures", "Limpie las l\u00e1mparas"],
+  ["Clean the break room fridge", "Limpie el refrigerador de la sala de descanso"],
+  ["Wipe the elevator buttons", "Limpie los botones del elevador"],
+  ["Lock the side doors", "Cierre las puertas laterales"],
+  ["Polish the lobby brass", "Pula el bronce del vest\u00edbulo"],
+  ["Wash the trash cans", "Lave los botes de basura"],
+  ["Wipe the air vents", "Limpie las rejillas de ventilaci\u00f3n"],
+  ["Wash the outside windows", "Lave las ventanas por fuera"],
+  ["Clean up spills", "Limpie los derrames"],
+  ["Take out the recycling", "Saque el reciclaje"],
+  ["Open the blinds", "Abra las persianas"],
+  ["Wipe the reception counter", "Limpie el mostrador de recepci\u00f3n"],
+  ["Mop the lobby floor", "Trapee el piso del vest\u00edbulo"],
+  ["Dust the picture frames", "Sacuda los marcos de los cuadros"],
+  ["Sweep the entry mat", "Barra el tapete de la entrada"],
+  ["Office", "Oficina"],
+  ["Elevator", "Elevador"],
+  ["Outside", "Afuera"],
+  ["Day shift", "Turno de d\u00eda"],
+  ["Night shift", "Turno de noche"],
+  ["Opening checks", "Revisi\u00f3n de apertura"],
+  ["Lobby reset", "Repaso del vest\u00edbulo"],
+  ["Floor care", "Cuidado de pisos"],
+  ["Closing checks", "Revisi\u00f3n de cierre"],
+  ["Restroom Round 1", "Ronda de ba\u00f1os 1"],
+  ["Office sweep", "Barrido de oficinas"],
+  ["Common areas", "\u00c1reas comunes"],
+  ["Late round", "Ronda de la madrugada"],
+  ["Deep clean", "Limpieza a fondo"],
   // Supplies.
   ["Paper towels", "Toallas de papel"],
   ["rolls", "rollos"],
@@ -551,6 +749,10 @@ const TWIN_PAIRS = [
   ["This account is locked. Ask your supervisor to unlock it.", "Esta cuenta est\u00e1 bloqueada. Pida a su supervisor que la desbloquee."],
   ["A shift is already open at another site", "Ya hay un turno abierto en otro sitio"],
   ["Endpoint not found", "No se encontr\u00f3 la ruta"],
+  // What a check an uncheck cannot take back is told, and a message the
+  // uncheck answers with that no screen draws.
+  [NOT_YOUR_CHECK.en, NOT_YOUR_CHECK.es],
+  ["Task uncompleted", "Tarea desmarcada"],
   // The first form, which the catalog serves in either language.
   ["Incident report", "Reporte de incidente"],
   ["When did it happen", "Cu\u00e1ndo pas\u00f3"],
@@ -584,7 +786,9 @@ const TWIN_PAIRS = [
     "You cannot sign this part of the form", "This part is already signed"].map(tableTwin))
   // The second form, already written in both languages above.
   .concat(Object.keys(FORM_P_WORDS.en).map(k => [FORM_P_WORDS.en[k], FORM_P_WORDS.es[k]]))
-  .concat([1, 2, 3, 4, 5].map(n => [ROW_WORD.en + " " + n, ROW_WORD.es + " " + n]));
+  .concat([1, 2, 3, 4, 5].map(n => [ROW_WORD.en + " " + n, ROW_WORD.es + " " + n]))
+  // A shift change turned away, each sentence as the API writes it.
+  .concat(SHIFT_REFUSALS.map(r => [refusalIn(r, "en", WEST_SHIFT_NAMES), refusalIn(r, "es", WEST_SHIFT_NAMES)]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -595,7 +799,7 @@ TWIN_PAIRS.forEach(([en, es]) => {
 });
 
 // What a field carries. A field not named here holds a name.
-const CODE_FIELDS = new Set(["status", "role", "priority", "severity", "origin", "resolution_status", "shift_status"]);
+const CODE_FIELDS = new Set(["status", "role", "priority", "severity", "origin", "resolution_status", "shift_status", "period", "cims_category"]);
 const WORD_FIELDS = {
   error: "refusal", message: "message", reply: "Help reply", citedDocs: "procedure name",
   leaveTypeLabel: "leave type", role_at_site: "site role", shift_name: "shift name",
@@ -606,7 +810,9 @@ const WORD_FIELDS = {
 };
 // The fields whose meaning depends on the route that sent them.
 const ROUTE_WORDS = [
-  [/^GET \/api\/sites\/[^/]+\/tasks$/, { label: "to-do item", shift_label: "shift header", block_label: "shift header" }],
+  [/^GET \/api\/sites\/[^/]+\/tasks$/, { label: "to-do item", shift_label: "shift header", block_label: "shift header", shift: "shift header", block: "shift header" }],
+  // Every session answer names the site's shifts and their blocks.
+  [/^(GET \/api\/clock\/status|POST \/api\/shift-sessions|PATCH \/api\/shift-sessions\/[^/]+\/shift|GET \/api\/shift-sessions\/today|POST \/api\/shift-sessions\/[^/]+\/end)$/, { label: "shift header", displayLabel: "shift header", shiftLabel: "shift header" }],
   [/^GET \/api\/clock\/tasks\/assigned$/, { label: "to-do item" }],
   [/^GET \/api\/lookups$/, { label: "pick list choice", displayLabel: "pick list choice" }],
   [/^GET \/api\/notifications$/, { title: "notice", body: "notice" }],
@@ -785,44 +991,120 @@ function createStub(opts) {
     pickups: [],
   };
 
-  // What Start Shift and the status say about the checklist: how many
-  // items this person is linked to and how many the site has, and what
-  // has been checked off, by this person and by anyone at the site today.
+  // --- the checklist day, as Step 124 answers it
+  //
+  // The stub's clock, which a case can move, and when a check was made. A
+  // check with no time was made a minute before the clock.
+  const clockNow = () => (state.now !== null ? state.now : NOW.getTime());
+  const atOf = (c) => (c.at !== undefined ? c.at : clockNow() - 60 * 1000);
+  const firstNameOf = (userId) => (userId === state.person.id ? state.person.firstName : (FIRST_NAMES[userId] || "Someone"));
+  const latest = (list) => list.slice().sort((a, b) => atOf(b) - atOf(a))[0];
+  // The shift the open session carries, at a site with shifts.
+  const sessionShift = () => (shiftsFor(state.site, state.sessionStartedAt).length > 0 ? state.shiftLabel : null);
+
+  // Every item at a site with what the checklist day says about it: its
+  // period, whether it is shown today and due today, whether anyone did it
+  // in its period, and who checked it today, this person first.
+  const dayRows = (siteId) => {
+    const today = checklistDay(clockNow());
+    return (SITE_TASKS[siteId] || []).map((row) => {
+      const checks = state.completions.filter(c => c.taskId === row.id && checklistDay(atOf(c)) <= today);
+      const on = (day) => checks.filter(c => checklistDay(atOf(c)) === day);
+      const todays = on(today), yesterdays = on(today - 1);
+      const shown = row.shown !== false;
+      const every = row.every || "daily";
+      const due = row.period === "today" && shown && !(every === "every_other_day" && yesterdays.length > 0);
+      let done = null;
+      if (PERIODS.indexOf(row.period) !== -1) done = latest(checks.filter(c => periodOf(row.period, checklistDay(atOf(c))) === periodOf(row.period, today)));
+      else if (row.period === "today" && every === "every_other_day" && yesterdays.length > 0) done = latest(yesterdays);
+      else if (row.period === "as_needed" && todays.length > 0) done = latest(todays);
+      const checked = todays.find(c => c.userId === state.person.id) || latest(todays);
+      return {
+        row: row, period: row.period, shown: shown, due: due,
+        done: done ? { completedAt: iso(atOf(done)), firstName: firstNameOf(done.userId) } : null,
+        checked: checked ? { byCaller: checked.userId === state.person.id, firstName: firstNameOf(checked.userId), completedAt: iso(atOf(checked)) } : null,
+        mine: todays.some(c => c.userId === state.person.id),
+      };
+    });
+  };
+  // The items of a shift and the items tied to no shift, or every item
+  // when there is no shift to go by.
+  const inShift = (shift) => (x) => !shift || !x.row.shift_label || x.row.shift_label === shift;
+  const linkedTo = (userId, siteId) => {
+    const here = new Set((SITE_TASKS[siteId] || []).map(r => r.id));
+    return (state.links[userId] || []).filter(id => here.has(id));
+  };
+
+  // What every session answer says about the checklist: the day's due
+  // items, the ones linked to this person and every one at the site, what
+  // has been checked off among them, by this person and by anyone at the
+  // site, the repeating work by period over the list this person is shown,
+  // whether this person has links here, and who checked what today.
   const progress = () => {
-    const items = SITE_TASKS[state.site] || [];
-    const here = new Set(items.map(r => r.id));
-    const done = state.completions.filter(c => here.has(c.taskId));
-    const once = (ids) => Array.from(new Set(ids));
-    const mine = once(done.filter(c => c.userId === state.person.id).map(c => c.taskId));
+    const shown = dayRows(state.site).filter(x => x.shown).filter(inShift(sessionShift()));
+    const linked = linkedTo(state.person.id, state.site);
+    const theirs = shown.filter(x => linked.indexOf(x.row.id) !== -1);
+    const due = shown.filter(x => x.due);
+    const list = linked.length > 0 ? theirs : shown;
+    const periodic = {};
+    PERIODS.forEach((p) => {
+      const rows = list.filter(x => x.period === p);
+      if (rows.length > 0) periodic[p] = { total: rows.length, done: rows.filter(x => x.done).length };
+    });
+    const ids = (xs) => xs.map(x => x.row.id);
     return {
-      total: (state.links[state.person.id] || []).filter(id => here.has(id)).length,
-      completed: mine.length,
-      siteTotal: items.length,
-      completedTaskIds: mine,
-      siteCompletedTaskIds: once(done.map(c => c.taskId)),
+      total: theirs.filter(x => x.due).length,
+      completed: due.filter(x => x.mine).length,
+      siteTotal: due.length,
+      completedTaskIds: ids(due.filter(x => x.mine)),
+      siteCompletedTaskIds: ids(due.filter(x => x.checked)),
+      periodic: periodic,
+      hasLinkedItems: linked.length > 0,
+      checkedToday: shown.filter(x => x.checked).map(x => Object.assign({ taskId: x.row.id }, x.checked)),
     };
+  };
+
+  // The open session, the way every session answer carries it.
+  const sessionOf = () => {
+    const shifts = shiftsFor(state.site, state.sessionStartedAt);
+    return { id: "sess-1", siteId: state.site, startedAt: iso(state.sessionStartedAt), shiftLabel: shifts.length > 0 ? state.shiftLabel : null, shifts: shifts };
   };
 
   const clockStatus = () => (state.clockedIn ? {
     clockedIn: true,
-    shift: Object.assign({ sessionId: "sess-1", id: "sess-1" }, OPEN_SHIFT[state.site], { clockInTime: iso(NOW.getTime() - 3 * 60 * 60 * 1000) }),
-    session: { id: "sess-1" },
+    shift: Object.assign({ sessionId: "sess-1", id: "sess-1" }, OPEN_SHIFT[state.site], { clockInTime: iso(state.sessionStartedAt) }),
+    session: sessionOf(),
     tasks: progress(),
   } : { clockedIn: false, shift: null, session: null, tasks: null });
 
   // One site's list, asked for the way the request asks, with Step 118's
-  // words on the items that carry them.
+  // words on the items that carry them and Step 124's day on every one.
+  // day=today answers what the checklist day shows and day=all every item;
+  // with neither, a manager with no open session at the site gets every
+  // item and everyone else today's. shift names a shift; without it the
+  // open session's decides.
   const tasks = (siteId, search) => {
     const q = new URLSearchParams(search || "");
     const lang = languageOf(search, state);
-    let rows = SITE_TASKS[siteId] || [];
+    const manager = state.person.role === "admin" || state.person.role === "supervisor";
+    const openHere = state.clockedIn && state.site === siteId;
+    const every = q.get("day") === "all" || (!q.has("day") && manager && !openHere);
+    const shift = q.has("shift") ? q.get("shift") : (openHere ? sessionShift() : null);
+    let rows = dayRows(siteId).filter(x => every || x.shown).filter(inShift(shift));
     if (q.has("user_id")) {
-      const linked = state.links[q.get("user_id")] || [];
-      rows = rows.filter(r => linked.indexOf(r.id) !== -1);
+      const linked = linkedTo(q.get("user_id"), siteId);
+      rows = rows.filter(x => linked.indexOf(x.row.id) !== -1);
     }
-    if (q.has("building_name")) rows = rows.filter(r => r.building_name === q.get("building_name"));
-    if (q.has("floor_number")) rows = rows.filter(r => r.floor_number === q.get("floor_number"));
-    return rows.map(r => (DISPLAYED.has(r.id) ? Object.assign({}, r, { display: displayOf(r, lang) }) : r));
+    if (q.has("building_name")) rows = rows.filter(x => x.row.building_name === q.get("building_name"));
+    if (q.has("floor_number")) rows = rows.filter(x => x.row.floor_number === q.get("floor_number"));
+    return rows.map((x) => {
+      const { every: often, shown, ...row } = x.row;
+      const display = Object.assign(DISPLAYED.has(row.id) ? displayOf(row, lang) : {}, {
+        shift: row.block_label ? row.shift_label : null,
+        block: row.block_label || null,
+      });
+      return Object.assign(row, { period: x.period, dueToday: x.due, doneThisPeriod: x.done, shownToday: x.shown, checkedToday: x.checked, display: display });
+    });
   };
 
   // A route a case has asked to refuse wins over the answer below it.
@@ -893,30 +1175,73 @@ function createStub(opts) {
     // --- the shift
     if (key === "GET /api/clock/status") return json(200, clockStatus());
     if (key === "GET /api/clock/tasks/assigned") return json(200, [
-      { task_id: "at-1", label: "Replace the cracked light cover", description: "Second floor corridor.", site_name: "North Building", building_name: "Main Hall", floor_number: "2", zone: "Corridor", priority: "high", created_by_name: "A supervisor", task_created_at: iso(NOW.getTime() - DAY) },
+      { task_id: "at-1", label: "Replace the cracked light cover", description: "Second floor corridor.", site_name: "North Building", building_name: "Main Hall", floor_number: "2", zone: "Corridor", priority: "high", cims_category: "SD", created_by_name: "A supervisor", task_created_at: iso(NOW.getTime() - DAY) },
     ]);
-    // A check needs no link, only an open session at the item's site. An
-    // uncheck takes back this person's own check and no one else's.
+    // A check needs no link, only an open session at the item's site, and
+    // counts once a checklist day for each person. An uncheck takes back
+    // this person's own check today and no one else's: with none of their
+    // own and somebody else's there, Step 124 turns it away, and with
+    // neither it answers as if it had taken one back.
     if (method === "POST" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(pathname)) {
       const id = pathname.split("/")[4];
-      if (!state.completions.some(c => c.taskId === id && c.userId === state.person.id)) state.completions.push({ taskId: id, userId: state.person.id });
+      const today = checklistDay(clockNow());
+      if (!state.completions.some(c => c.taskId === id && c.userId === state.person.id && checklistDay(atOf(c)) === today)) state.completions.push({ taskId: id, userId: state.person.id, at: clockNow() });
       return json(200, { ok: true });
     }
     if (method === "DELETE" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(pathname)) {
       const id = pathname.split("/")[4];
-      state.completions = state.completions.filter(c => !(c.taskId === id && c.userId === state.person.id));
-      return json(200, { ok: true });
+      const today = checklistDay(clockNow());
+      const todays = state.completions.filter(c => c.taskId === id && checklistDay(atOf(c)) === today);
+      if (todays.length > 0 && !todays.some(c => c.userId === state.person.id)) {
+        return json(NOT_YOUR_CHECK.status, { error: refusalIn(NOT_YOUR_CHECK, languageOf(search, state)), code: NOT_YOUR_CHECK.code });
+      }
+      state.completions = state.completions.filter(c => !(c.taskId === id && c.userId === state.person.id && checklistDay(atOf(c)) === today));
+      return json(200, { message: "Task uncompleted" });
     }
     if (method === "PATCH" && /^\/api\/clock\/tasks\/resolve\//.test(pathname)) return json(200, { ok: true });
     if (key === "GET /api/shift-sessions/sites") return json(200, {
       scheduled: [{ siteId: "site-north", siteName: "North Building", address: "1 Example Way", city: "Philadelphia", buildingName: "Main Hall", floorNumber: "2" }],
-      assigned: [{ siteId: "site-south", siteName: "South Building", address: "2 Example Way", city: "Philadelphia" }],
+      assigned: [{ siteId: "site-south", siteName: "South Building", address: "2 Example Way", city: "Philadelphia" }, { siteId: "site-west", siteName: "West Building", address: "3 Example Way", city: "Philadelphia" }],
       all: SITES,
     });
+    // Start Shift takes the site and, at a site with shifts, the shift. A
+    // session starts on the stub's clock and carries no shift unless one
+    // of the site's was named.
     if (key === "POST /api/shift-sessions") {
       if (body && OPEN_SHIFT[body.siteId]) state.site = body.siteId;
       state.clockedIn = true;
-      return json(200, { message: "Shift started", session: { id: "sess-1" }, tasks: progress() });
+      state.sessionStartedAt = clockNow();
+      const labels = shiftsFor(state.site, state.sessionStartedAt).map(x => x.label);
+      state.shiftLabel = body && labels.indexOf(body.shiftLabel) !== -1 ? body.shiftLabel : null;
+      return json(200, { message: "Shift started", session: sessionOf(), tasks: progress() });
+    }
+    // Step 124: the shift a session carries, changed by its owner while it
+    // is open, to one of the site's shifts or to none. Each refusal is the
+    // API's, in the request's language.
+    const shiftChange = method === "PATCH" ? /^\/api\/shift-sessions\/([^/]+)\/shift$/.exec(pathname) : null;
+    if (shiftChange) {
+      const lang = languageOf(search, state);
+      const refuse = (k, vars) => { const r = SHIFT_REFUSALS.find(x => x.key === k); return json(r.status, Object.assign({ error: refusalIn(r, lang, vars) }, r.code ? { code: r.code } : {})); };
+      if (shiftChange[1] !== "sess-1") return refuse("notFound");
+      if (!state.clockedIn) return refuse("ended");
+      const labels = shiftsFor(state.site, state.sessionStartedAt).map(x => x.label);
+      const wanted = body ? body.shiftLabel : undefined;
+      if (wanted !== null && labels.indexOf(wanted) === -1) return refuse("shiftInvalid", { shifts: labels.join(", ") });
+      state.shiftLabel = wanted;
+      return json(200, { today: ymd(new Date(checklistDay(clockNow()) * DAY + 12 * 60 * 60 * 1000)), session: sessionOf(), tasks: progress() });
+    }
+    if (key === "GET /api/shift-sessions/today") {
+      return json(200, { today: ymd(new Date(checklistDay(clockNow()) * DAY + 12 * 60 * 60 * 1000)), session: state.clockedIn ? sessionOf() : null, tasks: state.clockedIn ? progress() : null });
+    }
+    if (method === "POST" && /^\/api\/shift-sessions\/[^/]+\/end$/.test(pathname)) {
+      if (!state.clockedIn) {
+        const r = SHIFT_REFUSALS.find(x => x.key === "ended");
+        return json(r.status, { error: refusalIn(r, languageOf(search, state)), code: r.code });
+      }
+      const session = Object.assign(sessionOf(), { endedAt: iso(clockNow()) });
+      const counted = progress();
+      state.clockedIn = false;
+      return json(200, { message: "Shift ended", session: session, tasks: counted });
     }
     if (method === "PATCH" && /^\/api\/shift-sessions\//.test(pathname)) { state.clockedIn = false; return json(200, { message: "Shift ended" }); }
     if (key === "GET /api/sites") return json(200, SITES);
@@ -1177,7 +1502,11 @@ function createStub(opts) {
     return Object.assign({}, answer, { body: JSON.stringify(translate(data, method, pathname, search, accept)) });
   }
 
-  return { handle: (method, pathname, search, body, accept, headers) => remember(handle(method, pathname, search, body, headers), method, pathname, search, accept), state: state };
+  // peek reads what the API would answer right now without asking it, so
+  // nothing is recorded: what the status would count, a list as a request
+  // would get it, and the open session. A journey judges a screen by it.
+  const peek = { progress: () => progress(), rows: (siteId, search) => tasks(siteId, search), session: () => sessionOf() };
+  return { handle: (method, pathname, search, body, accept, headers) => remember(handle(method, pathname, search, body, headers), method, pathname, search, accept), state: state, peek: peek };
 }
 
 function draftOf(state) {
@@ -1190,4 +1519,5 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, timeOffRow, ymd, iso, DAY };
+module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, timeOffRow, ymd, iso, DAY,
+  SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor };

@@ -248,7 +248,7 @@ Time off request,Solicitud de tiempo libre,Schedule
 Time off request cancelled.,Solicitud de tiempo libre cancelada.,Schedule
 Time off requested. You get a notice when it is decided.,Tiempo libre solicitado. Recibirá un aviso cuando se decida.,Schedule
 To,Hasta,Schedule
-Today,Hoy,Schedule
+Today,Hoy,"Schedule, Tasks"
 Type,Tipo,Schedule
 Unpaid time off,Tiempo libre sin pago,"Schedule, from the API"
 Week,Semana,Schedule
@@ -259,7 +259,7 @@ You get a notice in the app when your request is decided.,Recibirá un aviso en 
 {h}h {m}m,{h} h {m} min,Schedule
 {n} hour,{n} hora,Schedule
 {n} hours,{n} horas,Schedule
-{start} to {end},{start} a {end},"Schedule, Pickup"
+{start} to {end},{start} a {end},"Schedule, Pickup, Tasks"
 "{start} to {end}, {year}","{start} a {end}, {year}",Schedule
 Pending,Pendiente,"Schedule, Pickup"
 Claimed,Tomado,"Schedule, Pickup"
@@ -284,6 +284,23 @@ Uncheck Task,Desmarcar tarea,Tasks
 Your Assignment,Su asignación,Tasks
 Your tasks did not load.,Sus tareas no cargaron.,Tasks
 General,General,"Tasks, Assigned"
+Which shift are you working?,¿Qué turno está trabajando?,Tasks
+Chosen by the time you started. Change it if it is wrong.,Elegido según la hora en que empezó. Cámbielo si no es correcto.,Tasks
+Use this shift,Usar este turno,Tasks
+Change shift,Cambiar turno,Tasks
+This week,Esta semana,Tasks
+Every two weeks,Cada dos semanas,Tasks
+This month,Este mes,Tasks
+This quarter,Este trimestre,Tasks
+This season,Esta temporada,Tasks
+As needed,Según se necesite,Tasks
+{done} of {total} done,{done} de {total} hechas,Tasks
+Done today by {firstName},Hecho hoy por {firstName},Tasks
+Done yesterday by {firstName},Hecho ayer por {firstName},Tasks
+Done {weekday} by {firstName},Hecho el {weekday} por {firstName},Tasks
+Done {date} by {firstName},Hecho el {date} por {firstName},Tasks
+Checked by {firstName},Marcado por {firstName},Tasks
+Only the person who checked this can uncheck it.,Solo la persona que marcó esta tarea puede desmarcarla.,Tasks
 Admin (Private),Administración (privado),Chat
 No messages yet.,Todavía no hay mensajes.,Chat
 Only you and management can see these messages,Solo usted y la administración ven estos mensajes,Chat

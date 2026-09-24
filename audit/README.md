@@ -109,6 +109,50 @@ seen on another that shares the stub.
 The sweep draws the Tasks tab a second time, from South Building's
 whole list, as `Tasks, the whole site in shifts`.
 
+## The checklist day, shifts and periods
+
+The stub answers Step 124 in the API. Every session answer, the status's
+`session` included, carries `shiftLabel` and `shifts`: none at a site
+with fewer than two shifts, and otherwise one per shift in label order,
+each with its blocks, the hours they span and whether the session's start
+time suggests it. `PATCH /api/shift-sessions/:id/shift` changes the shift
+and answers `{ today, session, tasks }`, and turns a change away with the
+API's own sentence in the request's language. The checklist day starts at
+4:00 AM in New York, and only the items due that day count: `total`,
+`completed`, `siteTotal` and both id lists hold due items only. `periodic`
+counts the repeating work by period over the list the person is shown,
+`hasLinkedItems` says whether they have links at the site, and
+`checkedToday` says who checked what today. Every row of the list carries
+its `period`, `dueToday`, `doneThisPeriod`, `shownToday`, `checkedToday`,
+`display.shift` and `display.block`, and the category code the live API
+sends, which no screen should draw. `day=today` answers what the
+checklist day shows and `day=all` every item. An uncheck of a check that
+somebody else made today is turned away with 403 `NOT_YOUR_CHECK`.
+
+West Building is invented in the shape of the busiest live list: a day
+shift, a night shift that runs past midnight, a block in each with no
+time, work that repeats every week, every two weeks, every month, every
+quarter and every season, some of it done this period by a coworker, an
+every other day item done yesterday, one as needed, one the day does not
+show, and two items tied to no shift. Its session carries no shift until a
+case names one. North Building has no shifts, and the session at South
+Building was started on the morning shift.
+
+The sweep draws the Tasks tab three more times, at West Building, in
+every combination: `Tasks, which shift`, the sheet in a session that
+carries no shift yet; `Tasks, which shift, no signal`, the same sheet
+once Use this shift could not reach OCSA, with its line and Try again;
+and `Tasks, today and the periods`, the night shift's list with a
+coworker's check tapped, its clock held while the checks read the line
+the tap says. Each name starts with the tab's, so what is known about the
+tab is known about them too.
+
+`stub.peek` reads what the API would answer right now without asking it,
+so nothing is recorded: `progress()`, `rows(site, search)` and
+`session()`. A journey judges the screen by it. `openApp(browser, base, {
+now })`, with the same time given to the stub as `stubOptions.now`, moves
+the phone's clock and the stub's, for a case that needs the morning.
+
 ## Help's answer, as it is written
 
 The stub answers both of Help's routes from the same steps. The
