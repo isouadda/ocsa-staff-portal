@@ -153,6 +153,35 @@ so nothing is recorded: `progress()`, `rows(site, search)` and
 now })`, with the same time given to the stub as `stubOptions.now`, moves
 the phone's clock and the stub's, for a case that needs the morning.
 
+## Chat
+
+The stub answers the three chat routes the way Scout 138 read and ran
+them. `GET /api/chat/channels` is an array: the site and general chats
+sorted by name, then the private chats. An admin, `ADMIN_PERSON`, sees
+nine group chats, eight sites and one general, and the private chat of
+every staff member, six by default and up to twenty with
+`stubOptions.chat.privates`, each named for an invented person, with
+`staffUserId`, `lastMessage`, `lastMessageAt` and some unread. An admin
+has no private chat of their own. Everyone else sees their site's chat,
+the general chat and their own private chat, which the API names the
+literal `Admin (Private)` with no `staffUserId`.
+`GET /api/chat/channels/:id/messages` is the newest 50, oldest first.
+`POST` to the same route answers 201 `{ message }`, its text trimmed, and
+keeps it. Every refusal is English with no code: 400 for no text, 404 for
+a chat that does not exist, 403 for one that is not the person's, 500
+when a case asks.
+
+A case can turn any route away through `state.refuse`, drop its
+connection through `state.drop` or `stubOptions.drop`, keyed
+`"METHOD /path"`, answer an empty list (`chat.empty`), hold one chat
+(`chat.only`), serve rows missing a field (`chat.oddRows`), and from the
+case itself hold each send's answer (`state.chat.holdMs`), keep the next
+send and drop its connection before the answer (`state.chat.saveThenDrop`),
+or answer it with no message (`state.chat.noMessage`). An update is held
+waiting by `openApp(browser, base, { buildStamp })`: the version check is
+answered with that stamp, which is not the build's, and the app reloads
+the moment nothing is underway.
+
 ## Help's answer, as it is written
 
 The stub answers both of Help's routes from the same steps. The

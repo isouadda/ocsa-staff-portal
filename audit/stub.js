@@ -445,7 +445,36 @@ function makeState(opts) {
     // Everyone Speak Up can name, and every report filed through it.
     staff: o.staff || STAFF.slice(),
     filed: [],
+    // Routes a case has asked to drop at the network, by "METHOD /path".
+    // once drops only the next one.
+    drop: o.drop || {},
+    // Chat. o.chat, all optional:
+    //   privates   how many staff private chats an admin's list carries,
+    //              six by default and at most twenty
+    //   only       the one chat the list holds
+    //   empty      the list comes back empty
+    //   oddRows    the site chat holds rows missing a field
+    // and, flipped from a case: holdMs holds each send's answer that long;
+    // saveThenDrop keeps the next send and then drops its connection;
+    // noMessage answers the next send 201 with no message in it.
+    chat: chatStateOf(o),
   };
+}
+
+function chatStateOf(o) {
+  const c = o.chat || {};
+  const person = o.person || PERSON;
+  const admin = person.role === "admin" || person.role === "supervisor";
+  const privates = Math.max(0, Math.min(CHAT_STAFF.length, c.privates === undefined ? 6 : c.privates));
+  const ownSite = CHAT_SITES.find(s => s.siteId === (o.site || "site-north")) || CHAT_SITES[0];
+  let channels = admin
+    ? CHAT_SITES.concat([CHAT_GENERAL]).sort((a, b) => a.name.localeCompare(b.name)).concat(CHAT_STAFF.slice(0, privates).map(staffPrivate))
+    : [ownSite, CHAT_GENERAL].sort((a, b) => a.name.localeCompare(b.name)).concat([{ id: "dm-" + person.id, type: "admin_dm", name: OWN_PRIVATE, unreadCount: 1 }]);
+  if (c.only) channels = channels.filter(ch => ch.id === c.only);
+  if (c.empty) channels = [];
+  const messages = {};
+  channels.forEach((ch) => { messages[ch.id] = chatSeed(ch.id, !!c.oddRows); });
+  return { channels: channels.map(ch => Object.assign({ unreadCount: 0 }, ch)), messages: messages, seq: 0, holdMs: 0, saveThenDrop: false, noMessage: false };
 }
 
 
@@ -599,6 +628,81 @@ const STAFF = [
   { id: "s-11", firstName: "Kay", lastName: "Kowalski" },
   { id: "s-12", firstName: "Luis", lastName: "Lozano" },
 ];
+
+// --- Chat, as Scout 138 read and ran it -----------------------------------
+//
+// GET /api/chat/channels answers an array: the site and general chats,
+// sorted by name, then the private chats. An admin sees every site chat,
+// every general chat and every staff member's private chat, each named
+// for that person with staffUserId, lastMessage and lastMessageAt, and has
+// no private chat of their own. Everyone else sees their site's chat, the
+// general chat and their own private chat, which the API names the
+// literal "Admin (Private)" and gives no staffUserId. Messages come back
+// oldest first, the newest 50. A send answers 201 with the message, its
+// text trimmed. Every refusal is English with no code.
+const ADMIN_PERSON = {
+  id: "u-admin", firstName: "Jordan", lastName: "Office", role: "admin",
+  badgeNumber: "4800", phone: "0000000009", email: "office@example.invalid",
+};
+const CHAT_GENERAL = { id: "ch-all", type: "general", name: "All staff", siteName: null, siteId: null };
+const CHAT_SITES = [
+  ["ch-north", "North Building", "site-north"], ["ch-south", "South Building", "site-south"],
+  ["ch-west", "West Building", "site-west"], ["ch-east", "East Annex", "site-east"],
+  ["ch-harbor", "Harbor Point", "site-harbor"], ["ch-lake", "Lakeside Hall", "site-lake"],
+  ["ch-maple", "Maple Court", "site-maple"], ["ch-river", "River Terrace", "site-river"],
+].map(([id, name, siteId]) => ({ id: id, type: "site", name: name, siteName: name, siteId: siteId }));
+// Twenty invented people with a private chat, the first eight of them
+// with long names, the way a real list has a few.
+const CHAT_STAFF = STAFF.map(p => ({ id: p.id, name: p.firstName + " " + p.lastName })).concat([
+  { id: "s-13", name: "Maria Guadalupe Villanueva Echeverria" },
+  { id: "s-14", name: "Nate Nolan" },
+  { id: "s-15", name: "Olga Ortiz" },
+  { id: "s-16", name: "Pat Price" },
+  { id: "s-17", name: "Quinn Quintero Castellanos" },
+  { id: "s-18", name: "Rosa Ramos" },
+  { id: "s-19", name: "Tom Tran" },
+  { id: "s-20", name: "Uma Underwood" },
+]);
+const OWN_PRIVATE = "Admin (Private)";
+// Each staff member's private chat as an admin's list carries it: some
+// with unread messages, most with a last message at some hour before
+// the suite's clock, and every fifth never written in.
+const staffPrivate = (p, i) => ({
+  id: "dm-" + p.id, type: "admin_dm", name: p.name, staffUserId: p.id,
+  lastMessage: i % 5 === 4 ? null : "An invented note " + (i + 1),
+  lastMessageAt: i % 5 === 4 ? null : iso(NOW.getTime() - ((i * 7) % 23 + 1) * 60 * 60 * 1000),
+  unreadCount: i % 4 === 1 ? (i % 3) + 1 : 0,
+});
+// The refusals a send can get, as the API writes them.
+const CHAT_SEND_REFUSALS = [
+  { status: 400, error: "Message text is required" },
+  { status: 403, error: "Access denied to this channel" },
+  { status: 404, error: "Channel not found" },
+  { status: 500, error: "Server error" },
+];
+// A chat's messages as the API keeps them, oldest first. Every text is
+// invented. oddRows adds rows missing a name, a time, or both.
+const chatSeed = (channelId, odd) => {
+  const at = (h) => iso(NOW.getTime() - h * 60 * 60 * 1000);
+  const rows = {
+    "ch-north": [
+      { id: "m-n1", senderId: SECOND_PERSON.id, senderName: SECOND_PERSON.firstName + " " + SECOND_PERSON.lastName, senderRole: "lead", text: "The side door sticks, use the front.", sentAt: at(5), isEdited: false, isPinned: false },
+      { id: "m-n2", senderId: ADMIN_PERSON.id, senderName: ADMIN_PERSON.firstName + " " + ADMIN_PERSON.lastName, senderRole: "admin", text: "Thanks for the heads up.", sentAt: at(4), isEdited: false, isPinned: false },
+    ],
+    "ch-all": [
+      { id: "m-a1", senderId: ADMIN_PERSON.id, senderName: ADMIN_PERSON.firstName + " " + ADMIN_PERSON.lastName, senderRole: "admin", text: "Welcome to the team chat.", sentAt: at(30), isEdited: false, isPinned: true },
+    ],
+    "dm-u-one": [
+      { id: "m-d1", senderId: ADMIN_PERSON.id, senderName: ADMIN_PERSON.firstName + " " + ADMIN_PERSON.lastName, senderRole: "admin", text: "Your badge is ready at the office.", sentAt: at(3), isEdited: false, isPinned: false },
+    ],
+  }[channelId] || [];
+  if (odd && channelId === "ch-north") {
+    rows.push({ id: "m-odd1", senderId: "s-03", text: "A note with no name on it." });
+    rows.push({ id: "m-odd2", senderId: "s-04", senderName: "Dan Delgado", senderRole: "custodian", text: "A note with no time on it." });
+    rows.push({ senderId: "s-05", senderName: "Eve Everett", text: "A note with no id on it.", sentAt: at(2) });
+  }
+  return rows.map(r => Object.assign({}, r));
+};
 
 // --- names, words and codes ---------------------------------------------
 //
@@ -1119,6 +1223,8 @@ function createStub(opts) {
     const key = method + " " + pathname;
     state.calls.push({ method: method, path: pathname, search: search || "", body: body || null, headers: headers || {} });
     if (state.offline) return { abort: true };
+    const dropped = state.drop[key];
+    if (dropped) { if (dropped.once) delete state.drop[key]; return { abort: true }; }
     const refused = refusalFor(key);
     if (refused) return refused;
 
@@ -1272,13 +1378,28 @@ function createStub(opts) {
       return row ? json(200, { request: row }) : json(404, { error: "Request not found" });
     }
 
-    // --- chat
-    if (key === "GET /api/chat/channels") return json(200, [
-      { id: "ch-site", type: "site", name: "North Building", siteName: "North Building" },
-      { id: "ch-dm", type: "admin_dm", name: "Office", unreadCount: 0 },
-    ]);
-    if (method === "GET" && /^\/api\/chat\/channels\/[^/]+\/messages$/.test(pathname)) return json(200, { messages: [] });
-    if (method === "POST" && /^\/api\/chat\/channels\/[^/]+\/messages$/.test(pathname)) return json(200, { message: { id: "msg-1", text: body && body.text, senderName: "Alex Tester", createdAt: iso(NOW.getTime()) } });
+    // --- chat, the three routes as Scout 138 read and ran them
+    if (key === "GET /api/chat/channels") return json(200, state.chat.channels.map(ch => Object.assign({}, ch)));
+    if (/^\/api\/chat\/channels\/[^/]+\/messages$/.test(pathname) && (method === "GET" || method === "POST")) {
+      const id = decodeURIComponent(pathname.split("/")[4]);
+      const mine = state.chat.channels.some(ch => ch.id === id);
+      const anywhere = mine || id === CHAT_GENERAL.id || CHAT_SITES.some(s => s.id === id) || /^dm-/.test(id);
+      if (!anywhere) return json(404, { error: "Channel not found" });
+      if (!mine) return json(403, { error: "Access denied to this channel" });
+      const kept = state.chat.messages[id] || (state.chat.messages[id] = []);
+      if (method === "GET") return json(200, kept.slice(-50).map(m => Object.assign({}, m)));
+      const text = body && typeof body.text === "string" ? body.text.trim() : "";
+      if (!text) return json(400, { error: "Message text is required" });
+      state.chat.seq += 1;
+      const row = { id: "m-sent-" + state.chat.seq, senderId: state.person.id, senderName: state.person.firstName + " " + state.person.lastName, senderRole: state.person.role, text: text, sentAt: iso(clockNow()) };
+      kept.push(Object.assign({ isEdited: false, isPinned: false }, row));
+      const held = state.chat.holdMs > 0 ? { after: new Promise(done => setTimeout(done, state.chat.holdMs)) } : {};
+      // Kept, and then the connection goes before the answer does, the way
+      // a send times out after the API saved it.
+      if (state.chat.saveThenDrop) { state.chat.saveThenDrop = false; return Object.assign({ abort: true }, held); }
+      if (state.chat.noMessage) { state.chat.noMessage = false; return Object.assign(json(201, {}), held); }
+      return Object.assign(json(201, { message: row }), held);
+    }
 
     // --- Help
     //
@@ -1520,4 +1641,5 @@ function draftOf(state) {
 }
 
 module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, timeOffRow, ymd, iso, DAY,
-  SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor };
+  SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
+  ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, OWN_PRIVATE, staffPrivate, chatSeed };
