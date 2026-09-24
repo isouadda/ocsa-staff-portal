@@ -381,87 +381,15 @@
     },
     {
       "where": "Chat: Send with words and no chat chosen says to pick a chat at the top first and sends nothing",
-      "check": "the empty screen says Pick a chat to start.",
-      "what": "",
-      "why": "The line in the middle of an empty Chat reads Select a channel to start chatting. Commit two says Pick a chat to start."
-    },
-    {
-      "where": "Chat: Send with words and no chat chosen says to pick a chat at the top first and sends nothing",
-      "check": "with words and no chat chosen, Send says it is not ready",
-      "what": "Send reads as ready",
-      "why": "Send turns gold once the box has words, whether or not a chat is chosen, and never says it is not ready. Commit two draws it not ready until a chat is chosen."
-    },
-    {
-      "where": "Chat: Send with words and no chat chosen says to pick a chat at the top first and sends nothing",
-      "check": "a tap on Send with no chat chosen says Pick a chat at the top first.",
-      "what": "",
-      "why": "A tap returns before any request and says nothing (handleSend: if (!text.trim() || !activeChannel) return;). Commit two says Pick a chat at the top first. above the box."
-    },
-    {
-      "where": "Chat: Send with words and no chat chosen says to pick a chat at the top first and sends nothing",
       "check": "both lines are said in the person's language",
       "what": "",
       "why": "Neither line exists yet. Commit two draws both, and the words commit gives them their Spanish."
-    },
-    {
-      "where": "Chat reopens on the chat last chosen while it is still listed, chooses the only chat when there is one, and never guesses among several",
-      "check": "Chat reopens on the chat last chosen",
-      "what": "read []",
-      "why": "Nothing chooses a chat on its own and nothing remembers the one chosen, so Chat opens with none. Commit two reopens the chat last chosen on this phone while it is still listed, and chooses the only chat when the list holds one."
-    },
-    {
-      "where": "Chat reopens on the chat last chosen while it is still listed, chooses the only chat when there is one, and never guesses among several",
-      "check": "the chat it reopens on is drawn chosen",
-      "what": "\"pressed\":null",
-      "why": "No chat says whether it is chosen, and none is chosen once the app opens again. Commit two marks the chosen chat with aria-pressed and reopens the last one."
-    },
-    {
-      "where": "Chat reopens on the chat last chosen while it is still listed, chooses the only chat when there is one, and never guesses among several",
-      "check": "a chat no longer listed is not reopened, and none is guessed among several",
-      "what": "read []",
-      "why": "Nothing is reopened or guessed today, which is right, but the empty screen says Select a channel to start chatting. Commit two says Pick a chat to start."
-    },
-    {
-      "where": "Chat reopens on the chat last chosen while it is still listed, chooses the only chat when there is one, and never guesses among several",
-      "check": "with one chat on the list, Chat opens on it",
-      "what": "read []",
-      "why": "Nothing chooses a chat on its own and nothing remembers the one chosen, so Chat opens with none. Commit two reopens the chat last chosen on this phone while it is still listed, and chooses the only chat when the list holds one."
-    },
-    {
-      "where": "Chat: an admin reaches every group chat, the ninth included, and every private chat, at 375 pixels",
-      "check": "every group chat is drawn inside the screen, the ninth included",
-      "what": "outside:",
-      "why": "The group chats sit in one row that neither wraps nor scrolls, so at 375 pixels the eighth and ninth run past the edge of a box that hides them. Commit two wraps them onto as many lines as they need."
-    },
-    {
-      "where": "Chat: an admin reaches every group chat, the ninth included, and every private chat, at 375 pixels",
-      "check": "the ninth group chat can be tapped and opens",
-      "what": "off the screen",
-      "why": "The group chats sit in one row that neither wraps nor scrolls, so at 375 pixels the eighth and ninth run past the edge of a box that hides them. Commit two wraps them onto as many lines as they need."
-    },
-    {
-      "where": "Chat: an admin reaches every group chat, the ninth included, and every private chat, at 375 pixels",
-      "check": "the private chats sit under Private chats",
-      "what": "",
-      "why": "Private chats have no title, and only the first is drawn. Commit two draws every one under Private chats."
     },
     {
       "where": "Chat: an admin reaches every group chat, the ninth included, and every private chat, at 375 pixels",
       "check": "Private chats is said in the person's language",
       "what": "",
       "why": "There is no title yet. Commit two draws Private chats, and the words commit gives it its Spanish."
-    },
-    {
-      "where": "Chat: an admin reaches every group chat, the ninth included, and every private chat, at 375 pixels",
-      "check": "every private chat is drawn by the name the API sent, unread first and then the newest first",
-      "what": "wanted",
-      "why": "Only the first private chat is drawn (channels.find(c => c.type === \"admin_dm\")), labeled Admin (Private) whoever it is with. Commit two draws every one by the name the API sends, the person's own first, then unread, then the newest."
-    },
-    {
-      "where": "Chat: an admin reaches every group chat, the ninth included, and every private chat, at 375 pixels",
-      "check": "every private chat can be reached and opened",
-      "what": "not drawn",
-      "why": "Only the first private chat is drawn (channels.find(c => c.type === \"admin_dm\")), labeled Admin (Private) whoever it is with. Commit two draws every one by the name the API sends, the person's own first, then unread, then the newest."
     },
     {
       "where": "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
@@ -672,6 +600,42 @@
       "check": "the message it sent shows once and the box empties",
       "what": "0 drawn",
       "why": "sendMessage appends data.message whatever it is, and drawing undefined throws, which blanks the whole app. Commit three reads the chat again when a send's answer carries no message."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Pick a chat to start.\"",
+      "why": "A line an empty Chat draws in its middle, new in this build, with no Spanish entry yet. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Pick a chat to start.\"",
+      "why": "A line an empty Chat draws in its middle, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Pick a chat at the top first.\"",
+      "why": "A line Chat draws above the box when Send is tapped with no chat chosen, new in this build, with no Spanish entry yet. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Pick a chat at the top first.\"",
+      "why": "A line Chat draws above the box when Send is tapped with no chat chosen, new in this build. The words commit gives it its Spanish."
+    },
+    {
+      "where": "*",
+      "check": "not translated",
+      "what": "\"Private chats\"",
+      "why": "A line Chat draws over the row of private chats, new in this build, with no Spanish entry yet. The words commit gives it its Spanish."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"Private chats\"",
+      "why": "A line Chat draws over the row of private chats, new in this build. The words commit gives it its Spanish."
     }
   ]
 }

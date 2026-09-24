@@ -1413,6 +1413,17 @@ export default function OCSAStaffPortal() {
   // no fetch.
   useEffect(() => { if (checklistKey && (tasks === null || tasksAsked.current !== checklistKey)) loadTasks(); }, [activeTab, checklistKey]);
   useEffect(() => { if (activeChannel) { loadMessages(activeChannel); setTimeout(() => loadChannels(), 600); } }, [activeChannel]);
+  // Chat opens on a chat: the one last chosen on this phone while it is
+  // still on the list, or the only one when the list holds one. Never a
+  // guess among several. A chat that leaves the list is let go.
+  useEffect(() => {
+    if (!user || !Array.isArray(channels)) return;
+    if (activeChannel && channels.some(ch => ch && ch.id === activeChannel)) return;
+    const next = chatToOpen(channels, readLastChat(user.id));
+    if (next !== activeChannel) setActiveChannel(next);
+  }, [channels, user]);
+  // A chat a person picks is the one Chat opens on next time, on this phone.
+  const chooseChat = (id) => { setActiveChannel(id); if (user) saveLastChat(user.id, id); };
   // An admin can end a session from the dashboard, and a second device
   // can end it too. Re-read clock status when the app comes back into
   // view. One listener, no interval.
@@ -1682,7 +1693,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
-              {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={setActiveChannel} sendMessage={sendMessage} user={user} t={t} token={token} />}
+              {activeTab === "chat" && <ChatView channels={channels} messages={messages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
@@ -3247,14 +3258,68 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   );
 }
 
+// --- Chat -------------------------------------------------------------
+// The chat last chosen on this phone, kept per person the way shortcuts
+// are, so Chat opens on it again. Every read and write in try and catch;
+// a storage that throws means none.
+const CHAT_KEY_PREFIX = "ocsa-staff-chat:";
+const chatKey = (userId) => CHAT_KEY_PREFIX + String(userId || "");
+function readLastChat(userId) {
+  try { const v = window.localStorage.getItem(chatKey(userId)); return v ? String(v) : null; } catch (e) { return null; }
+}
+function saveLastChat(userId, id) {
+  try { if (id) window.localStorage.setItem(chatKey(userId), String(id)); } catch (e) {}
+}
+// The chat Chat opens on: the one last chosen on this phone while it is
+// still on the list, the only one when the list holds exactly one, and
+// otherwise none. It never guesses among several.
+function chatToOpen(list, last) {
+  const all = (Array.isArray(list) ? list : []).filter(ch => ch && ch.id);
+  if (last && all.some(ch => ch.id === last)) return last;
+  return all.length === 1 ? all[0].id : null;
+}
+// A person's own private chat, which the API names the literal
+// "Admin (Private)" and gives no staffUserId. An admin has none; every
+// private chat on an admin's list is a staff member's.
+const isOwnPrivate = (ch) => !!ch && ch.type === "admin_dm" && !ch.staffUserId;
+// The private chats in the order they are drawn: the person's own first,
+// then those with unread messages, then by the newest last message, a
+// chat never written in after those. Ties keep the order the API sent.
+function privateChatsOf(list) {
+  const all = (Array.isArray(list) ? list : []).filter(ch => ch && ch.id && ch.type === "admin_dm");
+  const at = (ch) => { const ms = Date.parse(ch.lastMessageAt); return isNaN(ms) ? 0 : ms; };
+  const others = all.filter(ch => !isOwnPrivate(ch)).map((ch, i) => ({ ch, i }))
+    .sort((a, b) => ((a.ch.unreadCount > 0 ? 0 : 1) - (b.ch.unreadCount > 0 ? 0 : 1)) || (at(b.ch) - at(a.ch)) || (a.i - b.i))
+    .map(x => x.ch);
+  return all.filter(isOwnPrivate).concat(others);
+}
+
 function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMessage, user, t, token }) {
   const [text, setText] = useState(""); const endRef = useRef(null);
+  // A tap on Send with words in the box and no chat chosen.
+  const [pickFirst, setPickFirst] = useState(false);
   useBusy("chat composer", text.trim().length > 0);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length]);
-  const siteChannels = channels.filter(c => c.type === "site" || c.type === "general");
-  const dmChannel = channels.find(c => c.type === "admin_dm");
-  const isDm = activeChannel && dmChannel && activeChannel === dmChannel.id;
-  const handleSend = () => { if (!text.trim() || !activeChannel) return; sendMessage(activeChannel, text.trim()); setText(""); };
+  useEffect(() => { if (activeChannel || !text.trim()) setPickFirst(false); }, [activeChannel, text]);
+  // Group chats wrap onto as many lines as they need, and private chats sit
+  // in a row of their own that scrolls sideways, so every chat on the list
+  // can be reached at any width.
+  const siteChannels = channels.filter(c => c && (c.type === "site" || c.type === "general"));
+  const privates = privateChatsOf(channels);
+  const active = channels.find(c => c && c.id === activeChannel) || null;
+  const isDm = !!active && active.type === "admin_dm";
+  // The words for a chat with admin are the person's own private chat's.
+  // An admin's private chats are with staff, and read as any chat does.
+  const isOwnDm = isDm && isOwnPrivate(active);
+  // Send is ready once the box has words and a chat is chosen. Words with
+  // no chat chosen stay put, and a tap or Enter says to pick one first.
+  const ready = text.trim().length > 0 && !!activeChannel;
+  const handleSend = () => {
+    const v = text.trim();
+    if (!v) return;
+    if (!activeChannel) { setPickFirst(true); return; }
+    sendMessage(activeChannel, v); setText("");
+  };
   return (
     // The same ceiling every other full height screen carries. Chat
     // subtracted 128 where Help and Forms subtracted 136, and had no
@@ -3264,19 +3329,30 @@ function ChatView({ channels, messages, activeChannel, setActiveChannel, sendMes
     // out 10 pixels wider than the screen and scrolled it sideways.
     <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", ...fillsTheWindow(), minHeight: 0, overflow: "hidden" }}>
       <div style={{ padding: "10px 12px 0", borderBottom: "1px solid " + t.borderSolid, paddingBottom: 10 }}>
-        <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 600 : 500, fontFamily: FONT_HEAD }}>{ch.name || ch.siteName}</span></button>))}</div>
-        {dmChannel && (<button onClick={() => setActiveChannel(dmChannel.id)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", minHeight: TAP, padding: "8px 12px", borderRadius: R.md, background: isDm ? t.blueSubtle : t.hover, border: isDm ? "1.5px solid " + t.blueBorder : "1px solid " + t.borderSolid, boxShadow: isDm ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><LockIco c={isDm ? BLUE : t.textMut} /><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: isDm ? 600 : 500, color: isDm ? BLUE : t.textSec, fontFamily: FONT_HEAD }}>{tr("Admin (Private)")}</div><div style={{ fontSize: 9, color: t.textMut }}>{tr("Only you and management can see these messages")}</div></div>{dmChannel.unreadCount > 0 && <div style={{ background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{dmChannel.unreadCount}</div>}</button>)}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={activeChannel === ch.id} style={mkTapFrame({ maxWidth: "100%" })}><span style={{ display: "inline-flex", alignItems: "center", padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 600 : 500, fontFamily: FONT_HEAD, textAlign: "left", overflowWrap: "anywhere" }}>{ch.name || ch.siteName}</span></button>))}</div>
+        {privates.length > 0 && (<div>
+          <div id="ocsa-private-chats" style={{ fontSize: 10, fontWeight: 600, color: t.textMut, textTransform: "uppercase", letterSpacing: "1px", margin: "2px 0 6px", fontFamily: FONT_HEAD }}>{tr("Private chats")}</div>
+          <div role="group" aria-labelledby="ocsa-private-chats" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
+            {privates.map((ch) => {
+              const on = activeChannel === ch.id;
+              const own = isOwnPrivate(ch);
+              const alone = privates.length === 1;
+              return (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={on} style={{ flex: alone ? "1 1 auto" : "0 0 auto", maxWidth: alone ? "none" : "80%", display: "flex", alignItems: "center", gap: 8, minHeight: TAP, padding: "8px 12px", borderRadius: R.md, background: on ? t.blueSubtle : t.hover, border: on ? "1.5px solid " + t.blueBorder : "1px solid " + t.borderSolid, boxShadow: on ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><LockIco c={on ? BLUE : t.textMut} /><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: on ? 600 : 500, color: on ? BLUE : t.textSec, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{own ? tr("Admin (Private)") : ch.name}</div>{own && <div style={{ fontSize: 9, color: t.textMut }}>{tr("Only you and management can see these messages")}</div>}</div>{ch.unreadCount > 0 && <div style={{ background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{ch.unreadCount}</div>}</button>);
+            })}
+          </div>
+        </div>)}
       </div>
-      {isDm && (<div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: t.blueSubtle, borderBottom: "1px solid " + t.blueBorder, fontSize: 10, color: BLUE }}><LockIco /> {tr("Private conversation with admin.")}</div>)}
+      {isOwnDm && (<div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: t.blueSubtle, borderBottom: "1px solid " + t.blueBorder, fontSize: 10, color: BLUE }}><LockIco /> {tr("Private conversation with admin.")}</div>)}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 12px 0" }}>
-        {!activeChannel && <div style={{ textAlign: "center", padding: "40px 20px" }}><ChatIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>{tr("Select a channel to start chatting.")}</div></div>}
+        {!activeChannel && <div style={{ textAlign: "center", padding: "40px 20px" }}><ChatIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>{tr("Pick a chat to start.")}</div></div>}
         {activeChannel && messages.length === 0 && <div style={{ textAlign: "center", padding: "40px 20px", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("No messages yet.")}</div>}
         {messages.map((msg, idx) => { const isMe = msg.senderId === user?.id; const isAdm = msg.senderRole === "admin" || msg.senderRole === "supervisor"; const showName = idx === 0 || messages[idx - 1].senderId !== msg.senderId; return (<div key={msg.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 8, marginBottom: showName ? 12 : 4, alignItems: "flex-end" }}>{!isMe && showName && (<div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdm ? (isDm ? "rgba(36,164,244,0.15)" : t.goldBg) : t.cardAlt, border: "1px solid " + (isAdm ? (isDm ? BLUE : GOLD) : t.borderSolid), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 600, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, flexShrink: 0, fontFamily: FONT_HEAD }}>{msg.senderName?.split(" ").map(n => n[0]).join("")}</div>)}{!isMe && !showName && <div style={{ width: 28, flexShrink: 0 }} />}<div style={{ maxWidth: "75%" }}>{!isMe && showName && <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 3, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, fontFamily: FONT_HEAD }}>{msg.senderName}</div>}<div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: isMe ? (isDm ? BLUE : GOLD) : (isDm && isAdm ? t.blueSubtle : t.card), border: isMe ? "none" : "1px solid " + (isDm && isAdm ? t.blueBorder : t.borderSolid), color: isMe ? (isDm ? "#F8F7F4" : NAVY) : t.text, fontSize: 13, lineHeight: 1.45 }}>{msg.text}</div><div style={{ fontSize: 9, color: t.textMut, marginTop: 2, textAlign: isMe ? "right" : "left", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{formatTime(msg.sentAt)}</div></div></div>); })}
         <div ref={endRef} />
       </div>
+      {pickFirst && !activeChannel && (<div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, margin: "0 12px 8px", padding: "10px 12px", borderRadius: R.md, background: t.goldBg, border: "1px solid " + t.goldBorder }}><AlertIco sz={16} c={t.goldText} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0 }}>{tr("Pick a chat at the top first.")}</div></div>)}
       <div style={{ padding: "10px 12px", borderTop: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), display: "flex", gap: 8, alignItems: "center", background: t.bg }}>
-        <input value={text} onChange={e => setText(e.target.value)} placeholder={isDm ? tr("Private message to admin...") : tr("Type a message...")} style={{ flex: 1, minHeight: TAP, padding: "10px 14px", borderRadius: R.pill, border: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.card, color: t.text, fontSize: 13, outline: "none", fontFamily: FONT_BODY }} onKeyDown={e => e.key === "Enter" && handleSend()} />
-        <button onClick={handleSend} aria-label={tr("Send")} style={mkTapFrame({ flexShrink: 0, cursor: text.trim() ? "pointer" : "default" })}><span style={{ width: 38, height: 38, borderRadius: "50%", background: text.trim() ? (isDm ? BLUE : GOLD) : t.cardAlt, boxShadow: text.trim() && !isDm ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={text.trim() ? (isDm ? "#F8F7F4" : NAVY) : t.textMut} /></span></button>
+        <input value={text} onChange={e => setText(e.target.value)} placeholder={isOwnDm ? tr("Private message to admin...") : tr("Type a message...")} style={{ flex: 1, minWidth: 0, minHeight: TAP, padding: "10px 14px", borderRadius: R.pill, border: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.card, color: t.text, fontSize: 13, outline: "none", fontFamily: FONT_BODY }} onKeyDown={e => e.key === "Enter" && handleSend()} />
+        <button onClick={handleSend} aria-label={tr("Send")} aria-disabled={!ready} style={mkTapFrame({ flexShrink: 0, cursor: ready ? "pointer" : "default" })}><span style={{ width: 38, height: 38, borderRadius: "50%", background: ready ? (isDm ? BLUE : GOLD) : t.cardAlt, boxShadow: ready && !isDm ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={ready ? (isDm ? "#F8F7F4" : NAVY) : t.textMut} /></span></button>
       </div>
     </div>
   );
