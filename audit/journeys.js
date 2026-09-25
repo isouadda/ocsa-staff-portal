@@ -64,6 +64,38 @@ const toastText = (page) => page.evaluate(() => {
   const d = Array.from(document.querySelectorAll("div")).find((x) => { const s = getComputedStyle(x); return s.position === "fixed" && s.top === "80px"; });
   return d ? d.innerText.trim() : "";
 });
+// Every toast from now on, read off the page every 50 milliseconds by the
+// page's own clock: when each one first showed and when it was last seen,
+// its words, and the order they stood in whenever more than one showed. A
+// toast is one box inside the strip at the top of the screen, or the strip
+// itself when it holds a toast of its own and nothing else.
+const watchToasts = (page) => page.evaluate(() => {
+  const w = window.__ocsaToasts = { seen: [], orders: [], most: 0, t0: performance.now() };
+  const find = () => {
+    const strip = Array.from(document.querySelectorAll("div")).find((x) => { const s = getComputedStyle(x); return s.position === "fixed" && s.top === "80px"; });
+    if (!strip) return [];
+    const kids = Array.from(strip.children).filter(k => k.tagName === "DIV");
+    return kids.length ? kids : [strip];
+  };
+  w.timer = setInterval(() => {
+    const now = performance.now() - w.t0;
+    const shown = find();
+    w.most = Math.max(w.most, shown.length);
+    shown.forEach((el) => {
+      let rec = w.seen.find(r => r.el === el);
+      if (!rec) { rec = { el: el, text: el.innerText.replace(/\s+/g, " ").trim(), first: now, last: now }; w.seen.push(rec); }
+      rec.last = now;
+    });
+    if (shown.length > 1) w.orders.push(shown.map(el => w.seen.findIndex(r => r.el === el)));
+  }, 50);
+});
+const toastsSeen = (page) => page.evaluate(() => {
+  const w = window.__ocsaToasts;
+  clearInterval(w.timer);
+  return { seen: w.seen.map(r => ({ text: r.text, first: Math.round(r.first), last: Math.round(r.last) })), orders: w.orders, most: w.most };
+});
+const noToast = (page) => page.waitForFunction(() => !Array.from(document.querySelectorAll("div"))
+  .some((x) => { const s = getComputedStyle(x); return s.position === "fixed" && s.top === "80px"; }), { timeout: 6000 }).catch(() => {});
 
 const sent = (stub, method, pathLike) => stub.state.calls.filter(c => c.method === method && c.path.indexOf(pathLike) === 0);
 // Every box on the page, filled with something the API will take.
@@ -337,12 +369,15 @@ const rowOf = (page, language, name) => page.evaluate(([checked, open, want]) =>
   return { found: false, done: false, disabled: false, text: "" };
 }, [say("Mark {name} not done", language), say("Mark {name} done", language), name]);
 // A row's box, tapped, whatever it offers.
+// A row's box tapped, and no wait after it, for a case that times what
+// follows. tapRow waits for the list to settle.
+const tapRowNow = (page, language, name) => page.evaluate(([checked, open, want]) => {
+  const b = Array.from(document.querySelectorAll(".sp-content button[aria-label]")).find(x => x.getAttribute("aria-label") === checked.replace("{name}", want) || x.getAttribute("aria-label") === open.replace("{name}", want));
+  if (b && !b.disabled) { b.click(); return true; }
+  return false;
+}, [say("Mark {name} not done", language), say("Mark {name} done", language), name]);
 const tapRow = async (page, language, name) => {
-  const hit = await page.evaluate(([checked, open, want]) => {
-    const b = Array.from(document.querySelectorAll(".sp-content button[aria-label]")).find(x => x.getAttribute("aria-label") === checked.replace("{name}", want) || x.getAttribute("aria-label") === open.replace("{name}", want));
-    if (b && !b.disabled) { b.click(); return true; }
-    return false;
-  }, [say("Mark {name} not done", language), say("Mark {name} done", language), name]);
+  const hit = await tapRowNow(page, language, name);
   await pause(page, 900);
   return hit;
 };
@@ -1397,6 +1432,45 @@ const JOURNEYS = [
         await tapRow(app.page, language, name);
         const taken = (await toastText(app.page)) + " " + (await bodyText(app.page));
         expect("an uncheck taken says Task unchecked and clears the box", has(taken, say("Task unchecked", language)) && !(await rowOf(app.page, language, name)).done, taken.slice(0, 200));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "toastturns",
+    label: "Toasts: two inside one second both show, the newer on top, each for its full time, and a fourth waits its turn",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: westAt({ shiftLabel: NIGHT_SHIFT, completions: [{ taskId: "w-1", userId: PERSON.id }] }) });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1400);
+        await noToast(app.page);
+        // A task checked, and 600 milliseconds later this person's own check
+        // taken back: Task completed, then Task unchecked.
+        await watchToasts(app.page);
+        await tapRowNow(app.page, language, itemName("w-6", language));
+        await pause(app.page, 600);
+        await tapRowNow(app.page, language, itemName("w-1", language));
+        await pause(app.page, 5000);
+        const two = await toastsSeen(app.page);
+        const a = two.seen.find(r => r.text === say("Task completed", language));
+        const b = two.seen.find(r => r.text === say("Task unchecked", language));
+        const full = (r) => !!r && r.last - r.first >= 2700 && r.last - r.first <= 3400;
+        const timed = (list) => JSON.stringify(list.map(r => r.text + " from " + r.first + " to " + r.last + " ms"));
+        expect("two toasts inside one second both show", two.seen.length === 2 && !!a && !!b && b.first - a.first < 1000, timed(two.seen));
+        expect("the newer toast shows above the older one", !!a && !!b && two.orders.some(o => o.join() === [two.seen.indexOf(b), two.seen.indexOf(a)].join()), JSON.stringify(two.orders.slice(0, 3)));
+        expect("each of the two shows for its full time", full(a) && full(b), timed(two.seen));
+
+        // Four together: three show, and the fourth waits its turn and then
+        // shows for its own full time.
+        await noToast(app.page);
+        await watchToasts(app.page);
+        for (const id of ["w-2", "w-9", "w-12", "w-14"]) { await tapRowNow(app.page, language, itemName(id, language)); await pause(app.page, 150); }
+        await pause(app.page, 7200);
+        const four = await toastsSeen(app.page);
+        const byFirst = four.seen.slice().sort((x, y) => x.first - y.first);
+        expect("four toasts together show three at most at once", four.seen.length === 4 && four.most <= 3, four.seen.length + " in all, " + four.most + " at once");
+        expect("the fourth waits its turn and shows once the first has gone", byFirst.length === 4 && byFirst[3].first >= byFirst[0].last, timed(byFirst));
+        expect("each of the four shows for its full time", four.seen.length === 4 && four.seen.every(full), timed(byFirst));
       } finally { await app.context.close(); }
     },
   },

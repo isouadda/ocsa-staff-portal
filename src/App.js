@@ -1021,6 +1021,33 @@ function LanguageButton({ t }) {
   );
 }
 
+// The toasts at the top of the screen. Each one shown keeps its full time
+// on a timer of its own, which only ever takes that toast down. Toasts
+// that arrive together all show, the newest on top, three at most, and
+// one more waits its turn: it shows, for its own full time, as soon as
+// one of the three has gone.
+const TOAST_MS = 3000;
+const TOAST_MAX = 3;
+function toastQueue(onChange) {
+  const q = { shown: [], waiting: [], timers: new Map(), seq: 0 };
+  const pump = () => {
+    while (q.shown.length < TOAST_MAX && q.waiting.length > 0) {
+      const one = q.waiting.shift();
+      q.shown = [one].concat(q.shown);
+      q.timers.set(one.id, setTimeout(() => {
+        q.timers.delete(one.id);
+        q.shown = q.shown.filter(x => x.id !== one.id);
+        pump();
+      }, TOAST_MS));
+    }
+    onChange(q.shown);
+  };
+  return {
+    add: (msg, type) => { q.seq += 1; q.waiting.push({ id: q.seq, msg: msg, type: type }); pump(); },
+    clear: () => { q.timers.forEach(tm => clearTimeout(tm)); q.timers.clear(); q.shown = []; q.waiting = []; onChange(q.shown); },
+  };
+}
+
 export default function OCSAStaffPortal() {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
@@ -1113,7 +1140,9 @@ export default function OCSAStaffPortal() {
   const [activeChannel, setActiveChannel] = useState(null);
   const activeChannelRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(now());
-  const [toast, setToast] = useState(null);
+  const [toasts, setToasts] = useState([]);
+  const toastsRef = useRef(null);
+  if (!toastsRef.current) toastsRef.current = toastQueue(setToasts);
   const [loading, setLoading] = useState(false);
   const [lookups, setLookups] = useState([]);
   const queuePrefRef = useRef(null);
@@ -1185,7 +1214,7 @@ export default function OCSAStaffPortal() {
   const zoom = zoomOf(textSize);
 
   useEffect(() => { const i = setInterval(() => setCurrentTime(now()), 1000); return () => clearInterval(i); }, []);
-  const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
+  const showToast = useCallback((msg, type = "success") => { toastsRef.current.add(msg, type); }, []);
   const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); } catch (err) { console.error(err); } }, [token]);
   const loadSessionSites = useCallback(async (tkn) => { try { const data = await api("/api/shift-sessions/sites", { token: tkn || token }); setSessionSites(data); } catch (err) { console.error(err); } }, [token]);
   // One read of clock status for every path that has to redraw from the
@@ -1589,7 +1618,7 @@ export default function OCSAStaffPortal() {
     setChannels(null); setChannelsFailed(false); setMessages([]); setMessagesOf(null); setActiveChannel(null);
     setAgentConversation(null); setFormsDraft(null);
     setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
-    setLookups([]); setLookupsLang(null); setToast(null); setLoading(false);
+    setLookups([]); setLookupsLang(null); toastsRef.current.clear(); setLoading(false);
     setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false);
     setActiveTab("clock");
     unreadWarned.current = false; prefsLive.current = false; chosenOnEntryRef.current = null;
@@ -1793,7 +1822,7 @@ export default function OCSAStaffPortal() {
         />
       )}
 
-      {toast && (<div style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", background: toast.type === "error" ? RED : toast.type === "notice" ? ORANGE : GREEN, color: toast.type === "notice" ? NAVY : "#F8F7F4", padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 1000, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", maxWidth: "90%", textAlign: "center" }}>{toast.msg}</div>)}
+      {toasts.length > 0 && (<div style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", zIndex: 1000, maxWidth: "90%", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>{toasts.map(x => (<div key={x.id} style={{ background: x.type === "error" ? RED : x.type === "notice" ? ORANGE : GREEN, color: x.type === "notice" ? NAVY : "#F8F7F4", padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", textAlign: "center" }}>{x.msg}</div>))}</div>)}
 
       <style>{`
         @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
