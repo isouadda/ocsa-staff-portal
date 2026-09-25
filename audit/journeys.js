@@ -8,7 +8,7 @@ const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
 const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
 const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
-  SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS } = require("./stub");
+  SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -477,8 +477,17 @@ const tapWords = (page, words) => page.evaluate((want) => {
 }, words);
 const hasButton = (page, words) => page.evaluate((want) => Array.from(document.querySelectorAll(".sp-content button")).some(x => x.innerText.replace(/\s+/g, " ").trim() === want && x.offsetParent !== null), words);
 const sidewaysBy = (page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-// The line for each refusal of a send.
+// The line for each refusal of a send that carries no code.
 const chatSendLine = (status) => (status === 403 ? "You cannot send messages in this chat." : "Your message was not sent.");
+// The line under the box that says what happened to a send, as it reads.
+const chatFaultText = (page) => page.evaluate(() => {
+  const a = Array.from(document.querySelectorAll('.sp-content [role="alert"]')).pop();
+  return a ? a.innerText.replace(/\s+/g, " ").trim() : "";
+});
+// Every call Chat made that does not say this language.
+const chatCallsNotIn = (stub, language) => stub.state.calls
+  .filter(c => c.path.indexOf("/api/chat/") === 0 && !new RegExp("[?&]locale=" + language + "(&|$)").test(c.search || ""))
+  .map(c => c.method + " " + c.path + (c.search || ""));
 const OFFLINE_LINE = "Could not reach OCSA. Check your connection and try again.";
 // How many times the API kept a message with exactly this text.
 const chatSaved = (stub, id, text) => (stub.state.chat.messages[id] || []).filter(m => m.text === text).length;
@@ -2860,8 +2869,8 @@ const JOURNEYS = [
   },
   {
     id: "chatrefused",
-    label: "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-    run: async (open, language, expect, extra) => {
+    label: "Chat: a send turned away with no code, or cut off, keeps the words and says the portal's line, and Try again never sends a message twice",
+    run: async (open, language, expect) => {
       const app = await open({});
       try {
         await openChat(app.page, language);
@@ -2869,12 +2878,12 @@ const JOURNEYS = [
         await pause(app.page, 900);
         const route = "POST /api/chat/channels/ch-north/messages";
         const unsaid = [];
-        // The API's own sentence, which is English with no code, drawn on a
-        // Spanish screen. One line for the whole run, since a toast's own
-        // timer can clear the next one's before it is read.
+        // A refusal with no code, the way the API wrote every Chat refusal
+        // before Step 132, gets the portal's own line. The API's sentence,
+        // English, drawn on a Spanish screen, is one line for the whole run.
         const leaked = [];
         const box = () => boxText(app.page, CHAT_BOX);
-        for (const refusal of CHAT_SEND_REFUSALS) {
+        for (const refusal of CHAT_UNCODED_REFUSALS) {
           const words = "An invented note turned away with " + refusal.status;
           app.stub.state.refuse[route] = { status: refusal.status, once: true, body: { error: refusal.error } };
           await type(app.page, CHAT_BOX, words);
@@ -2890,7 +2899,6 @@ const JOURNEYS = [
           expect("a send turned away with " + refusal.status + " says " + line + " with Try again", shown, told.slice(-240));
           if (language === "es" && has(told, refusal.error)) leaked.push(refusal.status + " " + refusal.error);
           expect("a send turned away with " + refusal.status + " draws nothing as sent", (await bubbles(app.page, words)).length === 0, "drawn");
-          if (extra) extra.refusalsShown += kept && shown ? 1 : 0;
           const reads = chatReads(app.stub).length;
           await tapWords(app.page, say("Try again", language));
           await pause(app.page, 1300);
@@ -2927,6 +2935,104 @@ const JOURNEYS = [
         expect("each line is said in the person's language", unsaid.length === 0, JSON.stringify(unsaid));
         expect("a send turned away never shows the API's English sentence on a Spanish screen", leaked.length === 0, JSON.stringify(leaked));
         await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "chatsaid",
+    label: "Chat: a send turned away with one of Chat's codes keeps the words and shows the API's own words under the box, in the person's language, with Try again",
+    run: async (open, language, expect, extra) => {
+      const app = await open({});
+      try {
+        await openChat(app.page, language);
+        await tapChat(app.page, "North Building");
+        await pause(app.page, 900);
+        const route = "POST /api/chat/channels/ch-north/messages";
+        const box = () => boxText(app.page, CHAT_BOX);
+        for (const refusal of CHAT_SEND_REFUSALS) {
+          const words = "An invented note turned away with " + refusal.code;
+          app.stub.state.refuse[route] = { chat: refusal.code, once: true };
+          await type(app.page, CHAT_BOX, words);
+          await pause(app.page, 300);
+          await tapSend(app.page, language);
+          await pause(app.page, 1000);
+          const line = await chatFaultText(app.page);
+          const kept = (await box()) === words;
+          const shown = line === refusal[language] && (await hasButton(app.page, say("Try again", language)));
+          expect("a send turned away with " + refusal.code + " keeps the words in the box", kept, JSON.stringify(await box()));
+          expect("a send turned away with " + refusal.code + " shows the API's own words under the box, with Try again", shown, JSON.stringify(line) + " wanted " + JSON.stringify(refusal[language]));
+          expect("a send turned away with " + refusal.code + " shows no line of the portal's own in their place", !has(line, say(chatSendLine(refusal.status), language)), JSON.stringify(line));
+          expect("a send turned away with " + refusal.code + " draws nothing as sent", (await bubbles(app.page, words)).length === 0, "drawn");
+          if (extra) extra.refusalsShown += kept && shown ? 1 : 0;
+          const reads = chatReads(app.stub).length;
+          await tapWords(app.page, say("Try again", language));
+          await pause(app.page, 1300);
+          expect("Try again after " + refusal.code + " reads the chat before it sends", chatReads(app.stub).length > reads, "no read");
+          expect("Try again after " + refusal.code + " sends it once more, and it shows once", chatSaved(app.stub, "ch-north", words) === 1 && (await bubbles(app.page, words)).length === 1 && (await box()) === "", chatSaved(app.stub, "ch-north", words) + " kept, " + (await bubbles(app.page, words)).length + " drawn, box " + JSON.stringify(await box()));
+        }
+        // Try again's own read turned away with a code says the API's words
+        // too, in place of the line the send was told in.
+        const read = "An invented note whose second read is turned away";
+        app.stub.state.refuse[route] = { status: 500, once: true, body: { error: "Server error" } };
+        await type(app.page, CHAT_BOX, read);
+        await pause(app.page, 300);
+        await tapSend(app.page, language);
+        await pause(app.page, 1000);
+        const first = await chatFaultText(app.page);
+        expect("a send turned away with no code says the portal's own line", first === say("Your message was not sent.", language), JSON.stringify(first));
+        app.stub.state.refuse["GET /api/chat/channels/ch-north/messages"] = { chat: "chat.noAccess", once: true };
+        await tapWords(app.page, say("Try again", language));
+        await pause(app.page, 1300);
+        const denied = CHAT_SEND_REFUSALS.find(r => r.code === "chat.noAccess")[language];
+        const second = await chatFaultText(app.page);
+        expect("Try again whose read is turned away with a code shows the API's own words, keeps the words and sends nothing",
+          second === denied && (await box()) === read && chatSends(app.stub, read).length === 1, JSON.stringify(second) + ", box " + JSON.stringify(await box()) + ", " + chatSends(app.stub, read).length + " sent");
+        const unsaid = chatCallsNotIn(app.stub, language);
+        expect("every call Chat makes says the screen's language", unsaid.length === 0, JSON.stringify(unsaid.slice(0, 3)));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "chatlong",
+    label: "Chat: the box stops at 2,000 characters, and a message that long goes whole",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openChat(app.page, language);
+        await tapChat(app.page, "North Building");
+        await pause(app.page, 900);
+        const box = () => boxText(app.page, CHAT_BOX);
+        // An invented note of 2,160 characters, eight to a word.
+        const long = Array.from({ length: 270 }, (_, i) => "note" + String(i).padStart(3, "0")).join(" ");
+        await type(app.page, CHAT_BOX, long);
+        await pause(app.page, 300);
+        const held = await box();
+        const cap = await app.page.evaluate((sel) => { const e = document.querySelector(sel); return e ? e.maxLength : null; }, CHAT_BOX);
+        expect("the box holds the first 2,000 characters of a longer message", held === long.slice(0, CHAT_TEXT_MAX), (held || "").length + " characters");
+        expect("the box says it stops at 2,000 characters", cap === CHAT_TEXT_MAX, String(cap));
+        await tapSend(app.page, language);
+        await pause(app.page, 1200);
+        const posts = chatSends(app.stub);
+        expect("a message that fills the box goes whole, once, and is kept",
+          posts.length === 1 && !!posts[0].body && posts[0].body.text === held.trim() && chatSaved(app.stub, "ch-north", held.trim()) === 1,
+          posts.length + " sent, " + (posts[0] && posts[0].body ? String(posts[0].body.text).length : 0) + " characters");
+        expect("a message that fills the box is not turned away, and the box empties", (await chatFaultText(app.page)) === "" && (await box()) === "", JSON.stringify(await chatFaultText(app.page)));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "chatownfirst",
+    label: "Chat: the person's own private chat is drawn first under Private chats, wherever the API puts it in the list",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ADMIN_PERSON, chat: { privates: 6, ownPrivate: true } } });
+      try {
+        await openChat(app.page, language);
+        const privates = app.stub.state.chat.channels.filter(ch => ch.type === "admin_dm");
+        expect("the API sends the person's own private chat last", privates.length > 1 && !privates[privates.length - 1].staffUserId, JSON.stringify(privates.map(ch => ch.name)));
+        const drawn = (await chatButtons(app.page, privates.map(ch => chatName(ch, language)))).map(b => b.name);
+        expect("the person's own private chat is drawn first under Private chats, by the portal's words for it",
+          drawn.length === privates.length && drawn[0] === say("Admin (Private)", language), JSON.stringify(drawn));
       } finally { await app.context.close(); }
     },
   },

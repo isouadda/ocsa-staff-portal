@@ -451,6 +451,8 @@ function makeState(opts) {
     // Chat. o.chat, all optional:
     //   privates   how many staff private chats an admin's list carries,
     //              six by default and at most twenty
+    //   ownPrivate an admin's list ends with a private chat of their own,
+    //              the one an admin has when it was made before
     //   only       the one chat the list holds
     //   empty      the list comes back empty
     //   oddRows    the site chat holds rows missing a field
@@ -467,9 +469,10 @@ function chatStateOf(o) {
   const admin = person.role === "admin" || person.role === "supervisor";
   const privates = Math.max(0, Math.min(CHAT_STAFF.length, c.privates === undefined ? 6 : c.privates));
   const ownSite = CHAT_SITES.find(s => s.siteId === (o.site || "site-north")) || CHAT_SITES[0];
+  const own = { id: "dm-" + person.id, type: "admin_dm", name: OWN_PRIVATE, unreadCount: 1 };
   let channels = admin
-    ? CHAT_SITES.concat([CHAT_GENERAL]).sort((a, b) => a.name.localeCompare(b.name)).concat(CHAT_STAFF.slice(0, privates).map(staffPrivate))
-    : [ownSite, CHAT_GENERAL].sort((a, b) => a.name.localeCompare(b.name)).concat([{ id: "dm-" + person.id, type: "admin_dm", name: OWN_PRIVATE, unreadCount: 1 }]);
+    ? CHAT_SITES.concat([CHAT_GENERAL]).sort((a, b) => a.name.localeCompare(b.name)).concat(CHAT_STAFF.slice(0, privates).map(staffPrivate), c.ownPrivate ? [own] : [])
+    : [ownSite, CHAT_GENERAL].sort((a, b) => a.name.localeCompare(b.name)).concat([own]);
   if (c.only) channels = channels.filter(ch => ch.id === c.only);
   if (c.empty) channels = [];
   const messages = {};
@@ -629,17 +632,19 @@ const STAFF = [
   { id: "s-12", firstName: "Luis", lastName: "Lozano" },
 ];
 
-// --- Chat, as Scout 138 read and ran it -----------------------------------
+// --- Chat, as Scout 138 read and ran it, and as Step 132 left it ----------
 //
 // GET /api/chat/channels answers an array: the site and general chats,
 // sorted by name, then the private chats. An admin sees every site chat,
 // every general chat and every staff member's private chat, each named
 // for that person with staffUserId, lastMessage and lastMessageAt, and has
-// no private chat of their own. Everyone else sees their site's chat, the
-// general chat and their own private chat, which the API names the
-// literal "Admin (Private)" and gives no staffUserId. Messages come back
-// oldest first, the newest 50. A send answers 201 with the message, its
-// text trimmed. Every refusal is English with no code.
+// no private chat of their own unless one was made before. Everyone else
+// sees their site's chat, the general chat and their own private chat,
+// which the API names the literal "Admin (Private)" and gives no
+// staffUserId. The caller's own private chat comes last. Messages come
+// back oldest first, the newest 50. A send answers 201 with the message,
+// its text trimmed. Every refusal carries a code beside error, and error
+// is in the request's language, ?locale= first and then the account's.
 const ADMIN_PERSON = {
   id: "u-admin", firstName: "Jordan", lastName: "Office", role: "admin",
   badgeNumber: "4800", phone: "0000000009", email: "office@example.invalid",
@@ -673,8 +678,19 @@ const staffPrivate = (p, i) => ({
   lastMessageAt: i % 5 === 4 ? null : iso(NOW.getTime() - ((i * 7) % 23 + 1) * 60 * 60 * 1000),
   unreadCount: i % 4 === 1 ? (i % 3) + 1 : 0,
 });
-// The refusals a send can get, as the API writes them.
-const CHAT_SEND_REFUSALS = [
+// Chat's refusals as Step 132 writes them, one per code, in each
+// language. A read can get the first two, and a send any of the four.
+const CHAT_TEXT_MAX = 2000;
+const CHAT_REFUSALS = {
+  "chat.notFound": { status: 404, en: "This chat was not found.", es: "No se encontr\u00f3 este chat." },
+  "chat.noAccess": { status: 403, en: "You do not have access to this chat.", es: "No tiene acceso a este chat." },
+  "chat.textRequired": { status: 400, en: "Type a message first.", es: "Escriba un mensaje primero." },
+  "chat.textTooLong": { status: 400, en: "This message is too long. Keep it under 2000 characters.", es: "Este mensaje es demasiado largo. Use menos de 2000 caracteres." },
+};
+const CHAT_SEND_REFUSALS = Object.keys(CHAT_REFUSALS).map(code => Object.assign({ code: code }, CHAT_REFUSALS[code]));
+// The refusals a send got before Step 132, English with no code. An API
+// that answers this way still gets the portal's own line.
+const CHAT_UNCODED_REFUSALS = [
   { status: 400, error: "Message text is required" },
   { status: 403, error: "Access denied to this channel" },
   { status: 404, error: "Channel not found" },
@@ -892,7 +908,9 @@ const TWIN_PAIRS = [
   .concat(Object.keys(FORM_P_WORDS.en).map(k => [FORM_P_WORDS.en[k], FORM_P_WORDS.es[k]]))
   .concat([1, 2, 3, 4, 5].map(n => [ROW_WORD.en + " " + n, ROW_WORD.es + " " + n]))
   // A shift change turned away, each sentence as the API writes it.
-  .concat(SHIFT_REFUSALS.map(r => [refusalIn(r, "en", WEST_SHIFT_NAMES), refusalIn(r, "es", WEST_SHIFT_NAMES)]));
+  .concat(SHIFT_REFUSALS.map(r => [refusalIn(r, "en", WEST_SHIFT_NAMES), refusalIn(r, "es", WEST_SHIFT_NAMES)]))
+  // Chat's refusals as Step 132 writes them, in each language.
+  .concat(CHAT_SEND_REFUSALS.map(r => [r.en, r.es]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -1212,11 +1230,19 @@ function createStub(opts) {
     });
   };
 
-  // A route a case has asked to refuse wins over the answer below it.
-  function refusalFor(key) {
+  // One of Chat's refusals the way Step 132 writes it: its code beside
+  // error, and error in the language the request asks for.
+  const chatRefusal = (code, search) => {
+    const r = CHAT_REFUSALS[code];
+    return json(r.status, { error: r[languageOf(search, state)], code: code });
+  };
+  // A route a case has asked to refuse wins over the answer below it. A
+  // refusal named by one of Chat's codes is written the way the API does.
+  function refusalFor(key, search) {
     const r = state.refuse[key];
     if (!r) return null;
     if (r.once) delete state.refuse[key];
+    if (r.chat) return chatRefusal(r.chat, search);
     return json(r.status || 400, r.body || { error: r.error || "Request failed" });
   }
 
@@ -1226,7 +1252,7 @@ function createStub(opts) {
     if (state.offline) return { abort: true };
     const dropped = state.drop[key];
     if (dropped) { if (dropped.once) delete state.drop[key]; return { abort: true }; }
-    const refused = refusalFor(key);
+    const refused = refusalFor(key, search);
     if (refused) return refused;
 
     // --- signing in and getting in
@@ -1379,18 +1405,20 @@ function createStub(opts) {
       return row ? json(200, { request: row }) : json(404, { error: "Request not found" });
     }
 
-    // --- chat, the three routes as Scout 138 read and ran them
+    // --- chat, the three routes as Scout 138 read and ran them, and the
+    // refusals as Step 132 writes them
     if (key === "GET /api/chat/channels") return json(200, state.chat.channels.map(ch => Object.assign({}, ch)));
     if (/^\/api\/chat\/channels\/[^/]+\/messages$/.test(pathname) && (method === "GET" || method === "POST")) {
       const id = decodeURIComponent(pathname.split("/")[4]);
       const mine = state.chat.channels.some(ch => ch.id === id);
       const anywhere = mine || id === CHAT_GENERAL.id || CHAT_SITES.some(s => s.id === id) || /^dm-/.test(id);
-      if (!anywhere) return json(404, { error: "Channel not found" });
-      if (!mine) return json(403, { error: "Access denied to this channel" });
+      if (!anywhere) return chatRefusal("chat.notFound", search);
+      if (!mine) return chatRefusal("chat.noAccess", search);
       const kept = state.chat.messages[id] || (state.chat.messages[id] = []);
       if (method === "GET") return json(200, kept.slice(-50).map(m => Object.assign({}, m)));
       const text = body && typeof body.text === "string" ? body.text.trim() : "";
-      if (!text) return json(400, { error: "Message text is required" });
+      if (!text) return chatRefusal("chat.textRequired", search);
+      if (text.length > CHAT_TEXT_MAX) return chatRefusal("chat.textTooLong", search);
       state.chat.seq += 1;
       const row = { id: "m-sent-" + state.chat.seq, senderId: state.person.id, senderName: state.person.firstName + " " + state.person.lastName, senderRole: state.person.role, text: text, sentAt: iso(clockNow()) };
       kept.push(Object.assign({ isEdited: false, isPinned: false }, row));
@@ -1643,4 +1671,4 @@ function draftOf(state) {
 
 module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
-  ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, OWN_PRIVATE, staffPrivate, chatSeed };
+  ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed };

@@ -161,24 +161,29 @@ the phone's clock and the stub's, for a case that needs the morning.
 ## Chat
 
 The stub answers the three chat routes the way Scout 138 read and ran
-them. `GET /api/chat/channels` is an array: the site and general chats
-sorted by name, then the private chats. An admin, `ADMIN_PERSON`, sees
-nine group chats, eight sites and one general, and the private chat of
-every staff member, six by default and up to twenty with
-`stubOptions.chat.privates`, each named for an invented person, with
-`staffUserId`, `lastMessage`, `lastMessageAt` and some unread. An admin
-has no private chat of their own. Everyone else sees their site's chat,
-the general chat and their own private chat, which the API names the
-literal `Admin (Private)` with no `staffUserId`.
+them, with the refusals Step 132 gave them. `GET /api/chat/channels` is
+an array: the site and general chats sorted by name, then the private
+chats, the caller's own last. An admin, `ADMIN_PERSON`, sees nine group
+chats, eight sites and one general, and the private chat of every staff
+member, six by default and up to twenty with `stubOptions.chat.privates`,
+each named for an invented person, with `staffUserId`, `lastMessage`,
+`lastMessageAt` and some unread. An admin has no private chat of their
+own unless `stubOptions.chat.ownPrivate` gives them one. Everyone else
+sees their site's chat, the general chat and their own private chat,
+which the API names the literal `Admin (Private)` with no `staffUserId`.
 `GET /api/chat/channels/:id/messages` is the newest 50, oldest first.
 `POST` to the same route answers 201 `{ message }`, its text trimmed, and
-keeps it. Every refusal is English with no code: 400 for no text, 404 for
-a chat that does not exist, 403 for one that is not the person's, 500
-when a case asks.
+keeps it. Every refusal carries a code beside `error`, and `error` is in
+the request's language, `?locale=` first and then the account's:
+`chat.notFound` 404 for a chat that does not exist, `chat.noAccess` 403
+for one that is not the person's, `chat.textRequired` 400 for no text,
+and `chat.textTooLong` 400 for more than 2,000 characters.
 
-A case can turn any route away through `state.refuse`, drop its
-connection through `state.drop` or `stubOptions.drop`, keyed
-`"METHOD /path"`, answer an empty list (`chat.empty`), hold one chat
+A case can turn any route away through `state.refuse`, with a body of its
+own or with `{ chat: code }` for one of Chat's refusals written the way
+the API writes it. It can drop a route's connection through `state.drop`
+or `stubOptions.drop`, keyed `"METHOD /path"`, answer an empty list
+(`chat.empty`), hold one chat
 (`chat.only`), serve rows missing a field (`chat.oddRows`), and from the
 case itself hold each send's answer (`state.chat.holdMs`), keep the next
 send and drop its connection before the answer (`state.chat.saveThenDrop`),
