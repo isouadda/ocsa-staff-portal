@@ -242,6 +242,18 @@ stopped halfway through an answer with a bold phrase and a step drawn;
 `Help, the answer done`; and `Help, the connection dropped`, with the
 conversation refused once so the line and Try again stay on the screen.
 
+## A form's sections
+
+The stub's forms list carries two forms whose questions each name a
+section and whose sections have no title, the way the live API sends
+them today. With `stubOptions.sectionsForm` it carries a third,
+`TEST-FORM-S`, whose sections are keyed `"1"` to `"3"`, the way the API
+keys them, with titles under `sections` as `[{ key, title }]`: the first
+two titled in the language the request asks for, and the third with
+none. The API keeps each form's section titles in its definitions and
+sends none yet, so this is the key the portal reads them under once a
+catalog sends them.
+
 ## Coverage proves itself
 
 `audit/inventory.js` reads the tabs, the sign in screens and the full

@@ -7,7 +7,7 @@ const { openApp, letSheetOffer } = require("./browser");
 const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
 const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
-const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
+const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
@@ -561,6 +561,17 @@ const SOURCE_DOC = "OCSA-FIX-001";
 const sourceLines = (page, based) => page.evaluate((mark) => Array.from(document.querySelectorAll(".sp-content div"))
   .filter(d => d.children.length === 0 && d.textContent.indexOf(mark + " ") === 0)
   .map(d => d.textContent.replace(/\s+/g, " ").trim()), based);
+
+// A form's section headings on the screen, in order, each with where its
+// bottom edge sits, and where the first box that starts with a question's
+// label sits.
+const formHeadings = (page) => page.evaluate(() => Array.from(document.querySelectorAll('.sp-content [role="heading"]'))
+  .map(h => ({ text: h.innerText.replace(/\s+/g, " ").trim(), bottom: Math.round(h.getBoundingClientRect().bottom) })));
+const labelTop = (page, label) => page.evaluate((want) => {
+  const d = Array.from(document.querySelectorAll(".sp-content div")).filter(x => x.getAttribute("role") !== "heading")
+    .find(x => x.innerText && x.innerText.replace(/\s+/g, " ").trim().indexOf(want) === 0);
+  return d ? Math.round(d.getBoundingClientRect().top) : null;
+}, label);
 
 // The points the stub was told to stop an answer at, reached and let go.
 const heldAt = async (app, name) => {
@@ -1671,6 +1682,46 @@ const JOURNEYS = [
         await pause(app.page, 1200);
         const text = await bodyText(app.page);
         expect.notYet("a report submit refused for a missing answer, which needs the form filled in first");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "formsections",
+    label: "Forms: a section's title is drawn above its first question, on its page and in the review, in the person's language, and a section with no title draws none",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { sectionsForm: true } });
+      try {
+        const form = formS(language);
+        const titleOf = (key) => { const s = form.sections.find(x => x.key === key); return s ? s.title : null; };
+        const firstOf = (key) => form.fields.find(f => f.section === key).label;
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        const started = await startForm(app.page, form.title);
+        expect("the form with titled sections opens from its card", started, "no card on the Forms screen carried its title");
+        await pause(app.page, 1200);
+        for (const key of ["1", "2", "3"]) {
+          const heads = await formHeadings(app.page);
+          const below = await labelTop(app.page, firstOf(key));
+          const want = titleOf(key);
+          if (want) {
+            expect("section " + key + "'s title is drawn above its first question, in the person's language",
+              heads.length === 1 && heads[0].text === want && below !== null && heads[0].bottom <= below, JSON.stringify(heads) + " first question at " + below);
+          } else {
+            expect("section " + key + ", which has no title, draws none", heads.length === 0 && below !== null, JSON.stringify(heads));
+          }
+          await answerEveryBox(app.page);
+          await pause(app.page, 400);
+          // Next on the last section opens the review.
+          await clickText(app.page, say("Next", language));
+          await pause(app.page, 1000);
+        }
+        const heads = await formHeadings(app.page);
+        const tops = [];
+        for (const key of ["1", "2"]) tops.push(await labelTop(app.page, firstOf(key)));
+        expect("the review draws each section's title above its first question, and none for the section with no title",
+          heads.map(h => h.text).join("|") === [titleOf("1"), titleOf("2")].join("|") && heads.every((h, i) => tops[i] !== null && h.bottom <= tops[i]),
+          JSON.stringify(heads) + " first questions at " + JSON.stringify(tops));
+        await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
     },
   },

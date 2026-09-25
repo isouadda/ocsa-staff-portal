@@ -442,6 +442,10 @@ function makeState(opts) {
     prefsPatches: [],
     // The second form's answers, and the sign-offs stamped on it.
     answersP: o.answersP ? Object.assign({}, o.answersP) : {},
+    // The form with titled sections, served when a case asks, and its
+    // answers.
+    sectionsForm: !!o.sectionsForm,
+    answersS: {},
     // Everyone Speak Up can name, and every report filed through it.
     staff: o.staff || STAFF.slice(),
     filed: [],
@@ -599,6 +603,59 @@ function draftP(state, lang) {
     answers: Object.assign({}, answers),
     status: "draft", answered: answered, remaining: form.fields.length - answered,
     missing: missingFields.map(m => m.key), missingFields: missingFields,
+  };
+}
+
+// A third form, invented, whose sections carry titles the way a key in
+// the catalog would send them, since the live API keeps them in its
+// definitions and sends none yet. Section keys are the API's own kind,
+// "1" to "3". The first two have a title, in the language the request
+// asks for, and the third has none. Served only to a case that asks for
+// it with stubOptions.sectionsForm, so every other case reads the
+// catalog it always has.
+const FORM_S_CODE = "TEST-FORM-S";
+const FORM_S_WORDS = {
+  en: {
+    title: "Closing check", first: "Before you lock up", second: "The supply room",
+    doors: "Which doors did you lock", lights: "Are the lights off", yes: "Yes", no: "No",
+    low: "What is running low", notes: "Anything else to report",
+  },
+  es: {
+    title: "Revision de cierre", first: "Antes de cerrar", second: "El cuarto de suministros",
+    doors: "Que puertas cerro", lights: "Estan apagadas las luces", yes: "Si", no: "No",
+    low: "Que se esta acabando", notes: "Algo mas que reportar",
+  },
+};
+
+function formS(lang) {
+  const w = FORM_S_WORDS[lang === "es" ? "es" : "en"];
+  const field = (key, type, section, required, options) => ({
+    key: key, label: w[key], type: type, required: required, osha: false, prefilled: false,
+    options: options || [], appliesWhen: null, help: null, section: section,
+  });
+  return {
+    code: FORM_S_CODE,
+    title: w.title,
+    version: 1,
+    sections: [{ key: "1", title: w.first }, { key: "2", title: w.second }],
+    fields: [
+      field("doors", "text", "1", true),
+      field("lights", "select", "1", true, [{ value: "yes", label: w.yes }, { value: "no", label: w.no }]),
+      field("low", "text", "2", false),
+      field("notes", "textarea", "3", false),
+    ],
+  };
+}
+
+function draftS(state, lang) {
+  const form = formS(lang);
+  const answers = state.answersS;
+  const answered = form.fields.filter(f => answers[f.key] !== undefined && answers[f.key] !== null && answers[f.key] !== "").length;
+  return {
+    id: "draft-three", formCode: form.code, formName: form.title,
+    answers: Object.assign({}, answers),
+    status: "draft", answered: answered, remaining: form.fields.length - answered,
+    missing: form.fields.filter(f => f.required && !answers[f.key]).map(f => f.key),
   };
 }
 
@@ -910,7 +967,9 @@ const TWIN_PAIRS = [
   // A shift change turned away, each sentence as the API writes it.
   .concat(SHIFT_REFUSALS.map(r => [refusalIn(r, "en", WEST_SHIFT_NAMES), refusalIn(r, "es", WEST_SHIFT_NAMES)]))
   // Chat's refusals as Step 132 writes them, in each language.
-  .concat(CHAT_SEND_REFUSALS.map(r => [r.en, r.es]));
+  .concat(CHAT_SEND_REFUSALS.map(r => [r.en, r.es]))
+  // The form with titled sections, written in both languages above.
+  .concat(Object.keys(FORM_S_WORDS.en).map(k => [FORM_S_WORDS.en[k], FORM_S_WORDS.es[k]]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -1476,29 +1535,38 @@ function createStub(opts) {
     // draft id, the way the real API reads it.
     const lang = /locale=es/.test(String(search || "")) ? "es" : "en";
     const second = (p) => /TEST-FORM-P/.test(p) || /draft-two/.test(p);
+    const third = (p) => state.sectionsForm && (/TEST-FORM-S/.test(p) || /draft-three/.test(p));
     // The catalog carries each form whole, fields and all, because the
     // form is what says which questions a report has and the screen
     // reads them from here. It served only the code and the title until
     // now, which is why no question has ever drawn in the suite.
     if (pathname === "/api/forms") {
-      return json(200, { forms: [FORM, formP(lang)] });
+      return json(200, { forms: [FORM, formP(lang)].concat(state.sectionsForm ? [formS(lang)] : []) });
     }
     if (method === "GET" && /^\/api\/forms\/drafts\//.test(pathname)) {
+      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: formS(lang) });
       return second(pathname) ? json(200, { draft: draftP(state, lang), form: formP(lang) }) : json(200, { draft: draftOf(state), form: FORM });
     }
     if (method === "POST" && /^\/api\/forms\/[^/]+\/drafts$/.test(pathname)) {
+      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: formS(lang) });
       return second(pathname) ? json(200, { draft: draftP(state, lang), form: formP(lang) }) : json(200, { draft: draftOf(state), form: FORM });
     }
     if (method === "PATCH" && /^\/api\/forms\/drafts\//.test(pathname)) {
-      const bag = second(pathname) ? state.answersP : state.answers;
+      const bag = third(pathname) ? state.answersS : second(pathname) ? state.answersP : state.answers;
       const written = (body && body.answers) || {};
       // A sign-off is never written this way, which is what the API says.
       const signoff = Object.keys(written).find(k => /Sign$/.test(k));
       if (second(pathname) && signoff) return json(400, { error: "A sign-off is made with its own button" });
       Object.keys(written).forEach((k) => { if (written[k] === null) delete bag[k]; else bag[k] = written[k]; });
+      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: formS(lang) });
       return second(pathname) ? json(200, { draft: draftP(state, lang), form: formP(lang) }) : json(200, { draft: draftOf(state), form: FORM });
     }
     if (method === "POST" && /^\/api\/forms\/drafts\/[^/]+\/submit$/.test(pathname)) {
+      if (third(pathname)) {
+        const short = draftS(state, lang).missing;
+        if (short.length > 0) return json(400, { error: "Answer every required question before sending", missing: short });
+        return json(200, { ok: true, reference: "TEST-FORM-S-0001" });
+      }
       if (second(pathname)) {
         const short = formPMissing(state.answersP, lang);
         if (short.length > 0) {
@@ -1525,6 +1593,7 @@ function createStub(opts) {
       return json(200, { response: draftP(state, lang) });
     }
     if (method === "GET" && /^\/api\/forms\/[^/]+$/.test(pathname)) {
+      if (third(pathname)) return json(200, { form: formS(lang) });
       return second(pathname) ? json(200, { form: formP(lang) }) : json(200, { form: FORM });
     }
 
@@ -1669,6 +1738,6 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, timeOffRow, ymd, iso, DAY,
+module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed };

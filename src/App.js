@@ -4741,6 +4741,18 @@ function formSectionsOf(fields) {
   for (const f of fields) { const k = formSectionOf(f); if (out.indexOf(k) === -1) out.push(k); }
   return out;
 }
+// A section's title, when the form carries one: its entry in the form's
+// sections, found by the key its questions carry. A title comes in the
+// language the form was asked for, the way a question's label does, or
+// as en and es, read in the person's language and in English where there
+// is no Spanish. A section with no title has none, and nothing is drawn.
+function formSectionTitle(form, key, language) {
+  const list = form && Array.isArray(form.sections) ? form.sections : [];
+  const s = list.find(x => x && String(x.key) === String(key));
+  if (!s) return "";
+  const pick = (v) => (typeof v === "string" ? v : v && typeof v === "object" ? (v[language] || v.en || "") : "");
+  return String(pick(s.title) || pick({ en: s.en, es: s.es }) || "").trim();
+}
 
 const formOptionLabel = (f, v) => {
   const s = String(v);
@@ -4951,6 +4963,8 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   const here = sections.indexOf(sectionKey) !== -1 ? sectionKey : (sections.length > 0 ? sections[0] : null);
   const at = sections.indexOf(here);
   const pageFields = shown.filter(f => formSectionOf(f) === here);
+  // The section's title, drawn above its first question when it has one.
+  const hereTitle = here === null ? "" : formSectionTitle(form, here, locale);
 
   // What is still unanswered is the server's judgement, never this
   // screen's: it already reads the same rules over the same answers.
@@ -5106,6 +5120,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
 
   const qSt = { marginBottom: 20 };
   const labelSt = { fontSize: 14, fontWeight: 600, color: t.text, lineHeight: 1.45, fontFamily: FONT_HEAD, overflowWrap: "anywhere" };
+  const titleSt = { fontSize: 15, fontWeight: 600, color: t.text, lineHeight: 1.35, fontFamily: FONT_HEAD, overflowWrap: "anywhere" };
   const reqSt = { fontSize: 11, fontWeight: 600, color: t.textMut, marginLeft: 6, whiteSpace: "nowrap" };
   const inputSt = { ...mkInput(t), minHeight: 44, marginTop: 8 };
   const optRow = (picked) => ({
@@ -5294,6 +5309,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
               <div style={{ ...mkLabel(t), marginBottom: 0, flex: "1 1 auto", minWidth: 0 }}>{tr("Section {n}", { n: i + 1 })}</div>
               <button onClick={() => editSection(sk)} style={{ minHeight: 44, padding: "0 16px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Edit")}</button>
             </div>
+            {formSectionTitle(form, sk, locale) && <div role="heading" aria-level={2} style={{ ...titleSt, marginBottom: 10 }}>{formSectionTitle(form, sk, locale)}</div>}
             {shown.filter(f => formSectionOf(f) === sk).map(f => {
               const signoff = formTypeOf(f) === "signoff";
               const read = signoff ? formStampLine(values[f.key]) : formReadAnswer(f, values[f.key]);
@@ -5307,6 +5323,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
           </div>
         ))}
 
+        {!review && hereTitle && <div role="heading" aria-level={2} style={{ ...titleSt, marginBottom: 16 }}>{hereTitle}</div>}
         {!review && pageFields.map(f => (
           <div key={f.key} style={qSt}>
             <div style={labelSt}>{f.label}{f.required && <span style={reqSt}>{tr("Required")}</span>}</div>
