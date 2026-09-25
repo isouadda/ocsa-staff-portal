@@ -1032,6 +1032,7 @@ function createStub(opts) {
   //   pieces   cuts the answer into this many pieces instead
   //   split    the pieces, counted from 1, that arrive in two parts
   //   language "es" writes the answer's Spanish twin, for a reading
+  //   citedDocs the codes the answer cites, in place of its own
   function helpPlay(body) {
     const next = state.help.next || {};
     state.help.next = null;
@@ -1070,7 +1071,7 @@ function createStub(opts) {
     pieces.slice(0, upTo).forEach(piece);
     const done = Object.assign({
       reply: reply, conversationId: state.conversationId,
-      citedDocs: answer.citedDocs || [], degraded: !!answer.degraded, noProcedure: !!answer.noProcedure,
+      citedDocs: next.citedDocs || answer.citedDocs || [], degraded: !!answer.degraded, noProcedure: !!answer.noProcedure,
     }, answer.formResponse ? { formResponse: answer.formResponse } : {});
     if (next.error) steps.push({ event: "error", data: { error: next.error.error, status: next.error.status } });
     else if (next.drop) steps.push({ drop: true });

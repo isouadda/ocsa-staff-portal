@@ -544,6 +544,14 @@ const answerDone = async (page, ms) => {
   }
   return false;
 };
+// The line under each of Help's answers that names its sources, in the
+// order the answers came. Invented codes: a reference entry and an OCSA
+// document, neither of them real.
+const SOURCE_REF = "REF-FIX-FLOORS";
+const SOURCE_DOC = "OCSA-FIX-001";
+const sourceLines = (page, based) => page.evaluate((mark) => Array.from(document.querySelectorAll(".sp-content div"))
+  .filter(d => d.children.length === 0 && d.textContent.indexOf(mark + " ") === 0)
+  .map(d => d.textContent.replace(/\s+/g, " ").trim()), based);
 
 // The points the stub was told to stop an answer at, reached and let go.
 const heldAt = async (app, name) => {
@@ -2249,6 +2257,37 @@ const JOURNEYS = [
         const found = await waitForMessage(app.page, "store room", 4000);
         expect("Try again after a failed read shows the kept answer", !!found && (await messagesHolding(app.page, "Take the pads")) === 2,
           (found ? (await messagesHolding(app.page, "Take the pads")) + " answers hold it: " : "the kept answer never showed: ") + (await bodyText(app.page)).slice(-200));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "helpsources",
+    label: "Help: the line under an answer names a guide or a reference entry in words, each once, and keeps an OCSA document's code",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "agent", language);
+        await pause(app.page, 800);
+        const based = say("Based on", language);
+        const cases = [
+          { what: "the app guide", cited: ["APP-PORTAL"], names: [say("the app guide", language)] },
+          { what: "a reference entry", cited: [SOURCE_REF], names: [say("general cleaning guidance", language)] },
+          { what: "the ADP guide", cited: ["APP-ADP"], names: [say("the ADP guide", language)] },
+          { what: "two guide codes", cited: ["APP-PORTAL", "APP-DASHBOARD"], names: [say("the app guide", language)] },
+          { what: "an OCSA document beside a guide", cited: [SOURCE_DOC, "APP-DASHBOARD"], names: [SOURCE_DOC, say("the app guide", language)] },
+        ];
+        for (const c of cases) {
+          app.stub.state.help.next = { citedDocs: c.cited, pauseMs: 20 };
+          await askHelp(app.page, language, "Where is " + c.what);
+          await answerDone(app.page, 6000);
+          await pause(app.page, 300);
+          const lines = await sourceLines(app.page, based);
+          const last = lines.length ? lines[lines.length - 1] : "";
+          const want = based + " " + c.names.join(", ");
+          expect("an answer citing " + c.what + " reads " + JSON.stringify(want), last === want, JSON.stringify(last));
+          expect("an answer citing " + c.what + " shows no guide or reference code", !/\b(APP|REF)-/.test(last), JSON.stringify(last));
+        }
         await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
     },

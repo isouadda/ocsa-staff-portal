@@ -3553,6 +3553,26 @@ const agentArriving = (text) => String(text == null ? "" : text).replace(/\*\*/g
 // the marks taken out. What a screen reader hears when the answer is done.
 const agentSpoken = (text) => agentReplyParts(text).map(ln => (ln.type === "step" ? ln.number + ". " : "") + ln.parts.map(p => p.text).join("")).join("\n").trim();
 
+// One source under an answer, the way a person knows it. The app guides
+// and the general reference entries are named in words. Every other code
+// shows as it is, an OCSA document's among them, since that is how the
+// handbook and the documents name themselves.
+function agentSourceName(code) {
+  const c = String(code == null ? "" : code).trim();
+  const k = c.toUpperCase();
+  if (k === "APP-PORTAL" || k === "APP-DASHBOARD") return tr("the app guide");
+  if (k === "APP-ADP") return tr("the ADP guide");
+  if (k.indexOf("REF-") === 0) return tr("general cleaning guidance");
+  return c;
+}
+// The sources in the order the API sent them, each name once, so two
+// guide codes on one answer name the app guide once.
+const agentSourcesLine = (codes) => {
+  const out = [];
+  (Array.isArray(codes) ? codes : []).forEach(c => { const w = agentSourceName(c); if (w && out.indexOf(w) === -1) out.push(w); });
+  return out.join(", ");
+};
+
 // One message of a conversation the API keeps, read the same way for
 // resuming a report and for an answer whose connection dropped.
 const agentStored = (m) => ({
@@ -3878,7 +3898,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
             )}
             {isMe ? m.text : (m.arriving || m.dropped) ? agentArriving(m.text) : <AgentReply text={m.text} />}
           </div>}
-          {!isMe && m.citedDocs.length > 0 && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>{tr("Based on")} {m.citedDocs.join(", ")}</div>}
+          {!isMe && agentSourcesLine(m.citedDocs) && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>{tr("Based on")} {agentSourcesLine(m.citedDocs)}</div>}
           {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>{tr("Working from the written procedure only right now.")}</div>}
           {!isMe && m.dropped && <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("The connection dropped. Your answer is saved.")}{m.error ? " " + m.error : ""}</span>{!m.reading && <button onClick={() => readBack(m.id, m.conversationId, m.question)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Try again")}</button>}</div>}
           {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("Not sent.")}{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text, m.photoPaths)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Retry")}</button></div>}

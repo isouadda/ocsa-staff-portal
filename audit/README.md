@@ -216,8 +216,8 @@ destroyed part way, so the app meets the error a phone losing signal
 meets.
 
 A case sets `state.help.next` before it asks, and the next question on
-either route is answered that way: another answer, a `reset` and an
-answer written again, an `error` part way, a JSON refusal before any
+either route is answered that way: another answer, the codes an answer
+cites, a `reset` and an answer written again, an `error` part way, a JSON refusal before any
 stream, a connection dropped after `meta`, a piece that arrives in two
 parts, or holds, named points the answer stops at until the case lets it
 go. Every question is kept in the conversation at once and its answer
