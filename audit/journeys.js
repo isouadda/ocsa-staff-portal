@@ -7,8 +7,8 @@ const { openApp, letSheetOffer } = require("./browser");
 const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
 const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
-const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
-  SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS } = require("./stub");
+const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
+  SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -64,6 +64,38 @@ const toastText = (page) => page.evaluate(() => {
   const d = Array.from(document.querySelectorAll("div")).find((x) => { const s = getComputedStyle(x); return s.position === "fixed" && s.top === "80px"; });
   return d ? d.innerText.trim() : "";
 });
+// Every toast from now on, read off the page every 50 milliseconds by the
+// page's own clock: when each one first showed and when it was last seen,
+// its words, and the order they stood in whenever more than one showed. A
+// toast is one box inside the strip at the top of the screen, or the strip
+// itself when it holds a toast of its own and nothing else.
+const watchToasts = (page) => page.evaluate(() => {
+  const w = window.__ocsaToasts = { seen: [], orders: [], most: 0, t0: performance.now() };
+  const find = () => {
+    const strip = Array.from(document.querySelectorAll("div")).find((x) => { const s = getComputedStyle(x); return s.position === "fixed" && s.top === "80px"; });
+    if (!strip) return [];
+    const kids = Array.from(strip.children).filter(k => k.tagName === "DIV");
+    return kids.length ? kids : [strip];
+  };
+  w.timer = setInterval(() => {
+    const now = performance.now() - w.t0;
+    const shown = find();
+    w.most = Math.max(w.most, shown.length);
+    shown.forEach((el) => {
+      let rec = w.seen.find(r => r.el === el);
+      if (!rec) { rec = { el: el, text: el.innerText.replace(/\s+/g, " ").trim(), first: now, last: now }; w.seen.push(rec); }
+      rec.last = now;
+    });
+    if (shown.length > 1) w.orders.push(shown.map(el => w.seen.findIndex(r => r.el === el)));
+  }, 50);
+});
+const toastsSeen = (page) => page.evaluate(() => {
+  const w = window.__ocsaToasts;
+  clearInterval(w.timer);
+  return { seen: w.seen.map(r => ({ text: r.text, first: Math.round(r.first), last: Math.round(r.last) })), orders: w.orders, most: w.most };
+});
+const noToast = (page) => page.waitForFunction(() => !Array.from(document.querySelectorAll("div"))
+  .some((x) => { const s = getComputedStyle(x); return s.position === "fixed" && s.top === "80px"; }), { timeout: 6000 }).catch(() => {});
 
 const sent = (stub, method, pathLike) => stub.state.calls.filter(c => c.method === method && c.path.indexOf(pathLike) === 0);
 // Every box on the page, filled with something the API will take.
@@ -337,12 +369,15 @@ const rowOf = (page, language, name) => page.evaluate(([checked, open, want]) =>
   return { found: false, done: false, disabled: false, text: "" };
 }, [say("Mark {name} not done", language), say("Mark {name} done", language), name]);
 // A row's box, tapped, whatever it offers.
+// A row's box tapped, and no wait after it, for a case that times what
+// follows. tapRow waits for the list to settle.
+const tapRowNow = (page, language, name) => page.evaluate(([checked, open, want]) => {
+  const b = Array.from(document.querySelectorAll(".sp-content button[aria-label]")).find(x => x.getAttribute("aria-label") === checked.replace("{name}", want) || x.getAttribute("aria-label") === open.replace("{name}", want));
+  if (b && !b.disabled) { b.click(); return true; }
+  return false;
+}, [say("Mark {name} not done", language), say("Mark {name} done", language), name]);
 const tapRow = async (page, language, name) => {
-  const hit = await page.evaluate(([checked, open, want]) => {
-    const b = Array.from(document.querySelectorAll(".sp-content button[aria-label]")).find(x => x.getAttribute("aria-label") === checked.replace("{name}", want) || x.getAttribute("aria-label") === open.replace("{name}", want));
-    if (b && !b.disabled) { b.click(); return true; }
-    return false;
-  }, [say("Mark {name} not done", language), say("Mark {name} done", language), name]);
+  const hit = await tapRowNow(page, language, name);
   await pause(page, 900);
   return hit;
 };
@@ -477,8 +512,17 @@ const tapWords = (page, words) => page.evaluate((want) => {
 }, words);
 const hasButton = (page, words) => page.evaluate((want) => Array.from(document.querySelectorAll(".sp-content button")).some(x => x.innerText.replace(/\s+/g, " ").trim() === want && x.offsetParent !== null), words);
 const sidewaysBy = (page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-// The line for each refusal of a send.
+// The line for each refusal of a send that carries no code.
 const chatSendLine = (status) => (status === 403 ? "You cannot send messages in this chat." : "Your message was not sent.");
+// The line under the box that says what happened to a send, as it reads.
+const chatFaultText = (page) => page.evaluate(() => {
+  const a = Array.from(document.querySelectorAll('.sp-content [role="alert"]')).pop();
+  return a ? a.innerText.replace(/\s+/g, " ").trim() : "";
+});
+// Every call Chat made that does not say this language.
+const chatCallsNotIn = (stub, language) => stub.state.calls
+  .filter(c => c.path.indexOf("/api/chat/") === 0 && !new RegExp("[?&]locale=" + language + "(&|$)").test(c.search || ""))
+  .map(c => c.method + " " + c.path + (c.search || ""));
 const OFFLINE_LINE = "Could not reach OCSA. Check your connection and try again.";
 // How many times the API kept a message with exactly this text.
 const chatSaved = (stub, id, text) => (stub.state.chat.messages[id] || []).filter(m => m.text === text).length;
@@ -544,6 +588,25 @@ const answerDone = async (page, ms) => {
   }
   return false;
 };
+// The line under each of Help's answers that names its sources, in the
+// order the answers came. Invented codes: a reference entry and an OCSA
+// document, neither of them real.
+const SOURCE_REF = "REF-FIX-FLOORS";
+const SOURCE_DOC = "OCSA-FIX-001";
+const sourceLines = (page, based) => page.evaluate((mark) => Array.from(document.querySelectorAll(".sp-content div"))
+  .filter(d => d.children.length === 0 && d.textContent.indexOf(mark + " ") === 0)
+  .map(d => d.textContent.replace(/\s+/g, " ").trim()), based);
+
+// A form's section headings on the screen, in order, each with where its
+// bottom edge sits, and where the first box that starts with a question's
+// label sits.
+const formHeadings = (page) => page.evaluate(() => Array.from(document.querySelectorAll('.sp-content [role="heading"]'))
+  .map(h => ({ text: h.innerText.replace(/\s+/g, " ").trim(), bottom: Math.round(h.getBoundingClientRect().bottom) })));
+const labelTop = (page, label) => page.evaluate((want) => {
+  const d = Array.from(document.querySelectorAll(".sp-content div")).filter(x => x.getAttribute("role") !== "heading")
+    .find(x => x.innerText && x.innerText.replace(/\s+/g, " ").trim().indexOf(want) === 0);
+  return d ? Math.round(d.getBoundingClientRect().top) : null;
+}, label);
 
 // The points the stub was told to stop an answer at, reached and let go.
 const heldAt = async (app, name) => {
@@ -1373,6 +1436,45 @@ const JOURNEYS = [
     },
   },
   {
+    id: "toastturns",
+    label: "Toasts: two inside one second both show, the newer on top, each for its full time, and a fourth waits its turn",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: westAt({ shiftLabel: NIGHT_SHIFT, completions: [{ taskId: "w-1", userId: PERSON.id }] }) });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1400);
+        await noToast(app.page);
+        // A task checked, and 600 milliseconds later this person's own check
+        // taken back: Task completed, then Task unchecked.
+        await watchToasts(app.page);
+        await tapRowNow(app.page, language, itemName("w-6", language));
+        await pause(app.page, 600);
+        await tapRowNow(app.page, language, itemName("w-1", language));
+        await pause(app.page, 5000);
+        const two = await toastsSeen(app.page);
+        const a = two.seen.find(r => r.text === say("Task completed", language));
+        const b = two.seen.find(r => r.text === say("Task unchecked", language));
+        const full = (r) => !!r && r.last - r.first >= 2700 && r.last - r.first <= 3400;
+        const timed = (list) => JSON.stringify(list.map(r => r.text + " from " + r.first + " to " + r.last + " ms"));
+        expect("two toasts inside one second both show", two.seen.length === 2 && !!a && !!b && b.first - a.first < 1000, timed(two.seen));
+        expect("the newer toast shows above the older one", !!a && !!b && two.orders.some(o => o.join() === [two.seen.indexOf(b), two.seen.indexOf(a)].join()), JSON.stringify(two.orders.slice(0, 3)));
+        expect("each of the two shows for its full time", full(a) && full(b), timed(two.seen));
+
+        // Four together: three show, and the fourth waits its turn and then
+        // shows for its own full time.
+        await noToast(app.page);
+        await watchToasts(app.page);
+        for (const id of ["w-2", "w-9", "w-12", "w-14"]) { await tapRowNow(app.page, language, itemName(id, language)); await pause(app.page, 150); }
+        await pause(app.page, 7200);
+        const four = await toastsSeen(app.page);
+        const byFirst = four.seen.slice().sort((x, y) => x.first - y.first);
+        expect("four toasts together show three at most at once", four.seen.length === 4 && four.most <= 3, four.seen.length + " in all, " + four.most + " at once");
+        expect("the fourth waits its turn and shows once the first has gone", byFirst.length === 4 && byFirst[3].first >= byFirst[0].last, timed(byFirst));
+        expect("each of the four shows for its full time", four.seen.length === 4 && four.seen.every(full), timed(byFirst));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
     id: "blocktimes",
     label: "Each block's title shows its time first, and a block with no time shows its title alone",
     run: async (open, language, expect) => {
@@ -1654,6 +1756,46 @@ const JOURNEYS = [
         await pause(app.page, 1200);
         const text = await bodyText(app.page);
         expect.notYet("a report submit refused for a missing answer, which needs the form filled in first");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "formsections",
+    label: "Forms: a section's title is drawn above its first question, on its page and in the review, in the person's language, and a section with no title draws none",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { sectionsForm: true } });
+      try {
+        const form = formS(language);
+        const titleOf = (key) => { const s = form.sections.find(x => x.key === key); return s ? s.title : null; };
+        const firstOf = (key) => form.fields.find(f => f.section === key).label;
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        const started = await startForm(app.page, form.title);
+        expect("the form with titled sections opens from its card", started, "no card on the Forms screen carried its title");
+        await pause(app.page, 1200);
+        for (const key of ["1", "2", "3"]) {
+          const heads = await formHeadings(app.page);
+          const below = await labelTop(app.page, firstOf(key));
+          const want = titleOf(key);
+          if (want) {
+            expect("section " + key + "'s title is drawn above its first question, in the person's language",
+              heads.length === 1 && heads[0].text === want && below !== null && heads[0].bottom <= below, JSON.stringify(heads) + " first question at " + below);
+          } else {
+            expect("section " + key + ", which has no title, draws none", heads.length === 0 && below !== null, JSON.stringify(heads));
+          }
+          await answerEveryBox(app.page);
+          await pause(app.page, 400);
+          // Next on the last section opens the review.
+          await clickText(app.page, say("Next", language));
+          await pause(app.page, 1000);
+        }
+        const heads = await formHeadings(app.page);
+        const tops = [];
+        for (const key of ["1", "2"]) tops.push(await labelTop(app.page, firstOf(key)));
+        expect("the review draws each section's title above its first question, and none for the section with no title",
+          heads.map(h => h.text).join("|") === [titleOf("1"), titleOf("2")].join("|") && heads.every((h, i) => tops[i] !== null && h.bottom <= tops[i]),
+          JSON.stringify(heads) + " first questions at " + JSON.stringify(tops));
+        await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
     },
   },
@@ -2254,6 +2396,37 @@ const JOURNEYS = [
     },
   },
   {
+    id: "helpsources",
+    label: "Help: the line under an answer names a guide or a reference entry in words, each once, and keeps an OCSA document's code",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "agent", language);
+        await pause(app.page, 800);
+        const based = say("Based on", language);
+        const cases = [
+          { what: "the app guide", cited: ["APP-PORTAL"], names: [say("the app guide", language)] },
+          { what: "a reference entry", cited: [SOURCE_REF], names: [say("general cleaning guidance", language)] },
+          { what: "the ADP guide", cited: ["APP-ADP"], names: [say("the ADP guide", language)] },
+          { what: "two guide codes", cited: ["APP-PORTAL", "APP-DASHBOARD"], names: [say("the app guide", language)] },
+          { what: "an OCSA document beside a guide", cited: [SOURCE_DOC, "APP-DASHBOARD"], names: [SOURCE_DOC, say("the app guide", language)] },
+        ];
+        for (const c of cases) {
+          app.stub.state.help.next = { citedDocs: c.cited, pauseMs: 20 };
+          await askHelp(app.page, language, "Where is " + c.what);
+          await answerDone(app.page, 6000);
+          await pause(app.page, 300);
+          const lines = await sourceLines(app.page, based);
+          const last = lines.length ? lines[lines.length - 1] : "";
+          const want = based + " " + c.names.join(", ");
+          expect("an answer citing " + c.what + " reads " + JSON.stringify(want), last === want, JSON.stringify(last));
+          expect("an answer citing " + c.what + " shows no guide or reference code", !/\b(APP|REF)-/.test(last), JSON.stringify(last));
+        }
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
     id: "settingshold",
     label: "Switch language and text size, reload, and prove both held",
     run: async (open, language, expect) => {
@@ -2821,8 +2994,8 @@ const JOURNEYS = [
   },
   {
     id: "chatrefused",
-    label: "Chat: a send turned away or cut off keeps the words and says why, and Try again never sends a message twice",
-    run: async (open, language, expect, extra) => {
+    label: "Chat: a send turned away with no code, or cut off, keeps the words and says the portal's line, and Try again never sends a message twice",
+    run: async (open, language, expect) => {
       const app = await open({});
       try {
         await openChat(app.page, language);
@@ -2830,12 +3003,12 @@ const JOURNEYS = [
         await pause(app.page, 900);
         const route = "POST /api/chat/channels/ch-north/messages";
         const unsaid = [];
-        // The API's own sentence, which is English with no code, drawn on a
-        // Spanish screen. One line for the whole run, since a toast's own
-        // timer can clear the next one's before it is read.
+        // A refusal with no code, the way the API wrote every Chat refusal
+        // before Step 132, gets the portal's own line. The API's sentence,
+        // English, drawn on a Spanish screen, is one line for the whole run.
         const leaked = [];
         const box = () => boxText(app.page, CHAT_BOX);
-        for (const refusal of CHAT_SEND_REFUSALS) {
+        for (const refusal of CHAT_UNCODED_REFUSALS) {
           const words = "An invented note turned away with " + refusal.status;
           app.stub.state.refuse[route] = { status: refusal.status, once: true, body: { error: refusal.error } };
           await type(app.page, CHAT_BOX, words);
@@ -2851,7 +3024,6 @@ const JOURNEYS = [
           expect("a send turned away with " + refusal.status + " says " + line + " with Try again", shown, told.slice(-240));
           if (language === "es" && has(told, refusal.error)) leaked.push(refusal.status + " " + refusal.error);
           expect("a send turned away with " + refusal.status + " draws nothing as sent", (await bubbles(app.page, words)).length === 0, "drawn");
-          if (extra) extra.refusalsShown += kept && shown ? 1 : 0;
           const reads = chatReads(app.stub).length;
           await tapWords(app.page, say("Try again", language));
           await pause(app.page, 1300);
@@ -2888,6 +3060,104 @@ const JOURNEYS = [
         expect("each line is said in the person's language", unsaid.length === 0, JSON.stringify(unsaid));
         expect("a send turned away never shows the API's English sentence on a Spanish screen", leaked.length === 0, JSON.stringify(leaked));
         await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "chatsaid",
+    label: "Chat: a send turned away with one of Chat's codes keeps the words and shows the API's own words under the box, in the person's language, with Try again",
+    run: async (open, language, expect, extra) => {
+      const app = await open({});
+      try {
+        await openChat(app.page, language);
+        await tapChat(app.page, "North Building");
+        await pause(app.page, 900);
+        const route = "POST /api/chat/channels/ch-north/messages";
+        const box = () => boxText(app.page, CHAT_BOX);
+        for (const refusal of CHAT_SEND_REFUSALS) {
+          const words = "An invented note turned away with " + refusal.code;
+          app.stub.state.refuse[route] = { chat: refusal.code, once: true };
+          await type(app.page, CHAT_BOX, words);
+          await pause(app.page, 300);
+          await tapSend(app.page, language);
+          await pause(app.page, 1000);
+          const line = await chatFaultText(app.page);
+          const kept = (await box()) === words;
+          const shown = line === refusal[language] && (await hasButton(app.page, say("Try again", language)));
+          expect("a send turned away with " + refusal.code + " keeps the words in the box", kept, JSON.stringify(await box()));
+          expect("a send turned away with " + refusal.code + " shows the API's own words under the box, with Try again", shown, JSON.stringify(line) + " wanted " + JSON.stringify(refusal[language]));
+          expect("a send turned away with " + refusal.code + " shows no line of the portal's own in their place", !has(line, say(chatSendLine(refusal.status), language)), JSON.stringify(line));
+          expect("a send turned away with " + refusal.code + " draws nothing as sent", (await bubbles(app.page, words)).length === 0, "drawn");
+          if (extra) extra.refusalsShown += kept && shown ? 1 : 0;
+          const reads = chatReads(app.stub).length;
+          await tapWords(app.page, say("Try again", language));
+          await pause(app.page, 1300);
+          expect("Try again after " + refusal.code + " reads the chat before it sends", chatReads(app.stub).length > reads, "no read");
+          expect("Try again after " + refusal.code + " sends it once more, and it shows once", chatSaved(app.stub, "ch-north", words) === 1 && (await bubbles(app.page, words)).length === 1 && (await box()) === "", chatSaved(app.stub, "ch-north", words) + " kept, " + (await bubbles(app.page, words)).length + " drawn, box " + JSON.stringify(await box()));
+        }
+        // Try again's own read turned away with a code says the API's words
+        // too, in place of the line the send was told in.
+        const read = "An invented note whose second read is turned away";
+        app.stub.state.refuse[route] = { status: 500, once: true, body: { error: "Server error" } };
+        await type(app.page, CHAT_BOX, read);
+        await pause(app.page, 300);
+        await tapSend(app.page, language);
+        await pause(app.page, 1000);
+        const first = await chatFaultText(app.page);
+        expect("a send turned away with no code says the portal's own line", first === say("Your message was not sent.", language), JSON.stringify(first));
+        app.stub.state.refuse["GET /api/chat/channels/ch-north/messages"] = { chat: "chat.noAccess", once: true };
+        await tapWords(app.page, say("Try again", language));
+        await pause(app.page, 1300);
+        const denied = CHAT_SEND_REFUSALS.find(r => r.code === "chat.noAccess")[language];
+        const second = await chatFaultText(app.page);
+        expect("Try again whose read is turned away with a code shows the API's own words, keeps the words and sends nothing",
+          second === denied && (await box()) === read && chatSends(app.stub, read).length === 1, JSON.stringify(second) + ", box " + JSON.stringify(await box()) + ", " + chatSends(app.stub, read).length + " sent");
+        const unsaid = chatCallsNotIn(app.stub, language);
+        expect("every call Chat makes says the screen's language", unsaid.length === 0, JSON.stringify(unsaid.slice(0, 3)));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "chatlong",
+    label: "Chat: the box stops at 2,000 characters, and a message that long goes whole",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openChat(app.page, language);
+        await tapChat(app.page, "North Building");
+        await pause(app.page, 900);
+        const box = () => boxText(app.page, CHAT_BOX);
+        // An invented note of 2,160 characters, eight to a word.
+        const long = Array.from({ length: 270 }, (_, i) => "note" + String(i).padStart(3, "0")).join(" ");
+        await type(app.page, CHAT_BOX, long);
+        await pause(app.page, 300);
+        const held = await box();
+        const cap = await app.page.evaluate((sel) => { const e = document.querySelector(sel); return e ? e.maxLength : null; }, CHAT_BOX);
+        expect("the box holds the first 2,000 characters of a longer message", held === long.slice(0, CHAT_TEXT_MAX), (held || "").length + " characters");
+        expect("the box says it stops at 2,000 characters", cap === CHAT_TEXT_MAX, String(cap));
+        await tapSend(app.page, language);
+        await pause(app.page, 1200);
+        const posts = chatSends(app.stub);
+        expect("a message that fills the box goes whole, once, and is kept",
+          posts.length === 1 && !!posts[0].body && posts[0].body.text === held.trim() && chatSaved(app.stub, "ch-north", held.trim()) === 1,
+          posts.length + " sent, " + (posts[0] && posts[0].body ? String(posts[0].body.text).length : 0) + " characters");
+        expect("a message that fills the box is not turned away, and the box empties", (await chatFaultText(app.page)) === "" && (await box()) === "", JSON.stringify(await chatFaultText(app.page)));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "chatownfirst",
+    label: "Chat: the person's own private chat is drawn first under Private chats, wherever the API puts it in the list",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ADMIN_PERSON, chat: { privates: 6, ownPrivate: true } } });
+      try {
+        await openChat(app.page, language);
+        const privates = app.stub.state.chat.channels.filter(ch => ch.type === "admin_dm");
+        expect("the API sends the person's own private chat last", privates.length > 1 && !privates[privates.length - 1].staffUserId, JSON.stringify(privates.map(ch => ch.name)));
+        const drawn = (await chatButtons(app.page, privates.map(ch => chatName(ch, language)))).map(b => b.name);
+        expect("the person's own private chat is drawn first under Private chats, by the portal's words for it",
+          drawn.length === privates.length && drawn[0] === say("Admin (Private)", language), JSON.stringify(drawn));
       } finally { await app.context.close(); }
     },
   },

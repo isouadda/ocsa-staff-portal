@@ -442,6 +442,10 @@ function makeState(opts) {
     prefsPatches: [],
     // The second form's answers, and the sign-offs stamped on it.
     answersP: o.answersP ? Object.assign({}, o.answersP) : {},
+    // The form with titled sections, served when a case asks, and its
+    // answers.
+    sectionsForm: !!o.sectionsForm,
+    answersS: {},
     // Everyone Speak Up can name, and every report filed through it.
     staff: o.staff || STAFF.slice(),
     filed: [],
@@ -451,6 +455,8 @@ function makeState(opts) {
     // Chat. o.chat, all optional:
     //   privates   how many staff private chats an admin's list carries,
     //              six by default and at most twenty
+    //   ownPrivate an admin's list ends with a private chat of their own,
+    //              the one an admin has when it was made before
     //   only       the one chat the list holds
     //   empty      the list comes back empty
     //   oddRows    the site chat holds rows missing a field
@@ -467,9 +473,10 @@ function chatStateOf(o) {
   const admin = person.role === "admin" || person.role === "supervisor";
   const privates = Math.max(0, Math.min(CHAT_STAFF.length, c.privates === undefined ? 6 : c.privates));
   const ownSite = CHAT_SITES.find(s => s.siteId === (o.site || "site-north")) || CHAT_SITES[0];
+  const own = { id: "dm-" + person.id, type: "admin_dm", name: OWN_PRIVATE, unreadCount: 1 };
   let channels = admin
-    ? CHAT_SITES.concat([CHAT_GENERAL]).sort((a, b) => a.name.localeCompare(b.name)).concat(CHAT_STAFF.slice(0, privates).map(staffPrivate))
-    : [ownSite, CHAT_GENERAL].sort((a, b) => a.name.localeCompare(b.name)).concat([{ id: "dm-" + person.id, type: "admin_dm", name: OWN_PRIVATE, unreadCount: 1 }]);
+    ? CHAT_SITES.concat([CHAT_GENERAL]).sort((a, b) => a.name.localeCompare(b.name)).concat(CHAT_STAFF.slice(0, privates).map(staffPrivate), c.ownPrivate ? [own] : [])
+    : [ownSite, CHAT_GENERAL].sort((a, b) => a.name.localeCompare(b.name)).concat([own]);
   if (c.only) channels = channels.filter(ch => ch.id === c.only);
   if (c.empty) channels = [];
   const messages = {};
@@ -599,6 +606,59 @@ function draftP(state, lang) {
   };
 }
 
+// A third form, invented, whose sections carry titles the way a key in
+// the catalog would send them, since the live API keeps them in its
+// definitions and sends none yet. Section keys are the API's own kind,
+// "1" to "3". The first two have a title, in the language the request
+// asks for, and the third has none. Served only to a case that asks for
+// it with stubOptions.sectionsForm, so every other case reads the
+// catalog it always has.
+const FORM_S_CODE = "TEST-FORM-S";
+const FORM_S_WORDS = {
+  en: {
+    title: "Closing check", first: "Before you lock up", second: "The supply room",
+    doors: "Which doors did you lock", lights: "Are the lights off", yes: "Yes", no: "No",
+    low: "What is running low", notes: "Anything else to report",
+  },
+  es: {
+    title: "Revision de cierre", first: "Antes de cerrar", second: "El cuarto de suministros",
+    doors: "Que puertas cerro", lights: "Estan apagadas las luces", yes: "Si", no: "No",
+    low: "Que se esta acabando", notes: "Algo mas que reportar",
+  },
+};
+
+function formS(lang) {
+  const w = FORM_S_WORDS[lang === "es" ? "es" : "en"];
+  const field = (key, type, section, required, options) => ({
+    key: key, label: w[key], type: type, required: required, osha: false, prefilled: false,
+    options: options || [], appliesWhen: null, help: null, section: section,
+  });
+  return {
+    code: FORM_S_CODE,
+    title: w.title,
+    version: 1,
+    sections: [{ key: "1", title: w.first }, { key: "2", title: w.second }],
+    fields: [
+      field("doors", "text", "1", true),
+      field("lights", "select", "1", true, [{ value: "yes", label: w.yes }, { value: "no", label: w.no }]),
+      field("low", "text", "2", false),
+      field("notes", "textarea", "3", false),
+    ],
+  };
+}
+
+function draftS(state, lang) {
+  const form = formS(lang);
+  const answers = state.answersS;
+  const answered = form.fields.filter(f => answers[f.key] !== undefined && answers[f.key] !== null && answers[f.key] !== "").length;
+  return {
+    id: "draft-three", formCode: form.code, formName: form.title,
+    answers: Object.assign({}, answers),
+    status: "draft", answered: answered, remaining: form.fields.length - answered,
+    missing: form.fields.filter(f => f.required && !answers[f.key]).map(f => f.key),
+  };
+}
+
 // Everyone the Speak Up picker can offer, invented, each one a first and
 // a last name, sorted by last name then first name the way the route
 // sorts them. The signed in person is not among them, because the route
@@ -629,17 +689,19 @@ const STAFF = [
   { id: "s-12", firstName: "Luis", lastName: "Lozano" },
 ];
 
-// --- Chat, as Scout 138 read and ran it -----------------------------------
+// --- Chat, as Scout 138 read and ran it, and as Step 132 left it ----------
 //
 // GET /api/chat/channels answers an array: the site and general chats,
 // sorted by name, then the private chats. An admin sees every site chat,
 // every general chat and every staff member's private chat, each named
 // for that person with staffUserId, lastMessage and lastMessageAt, and has
-// no private chat of their own. Everyone else sees their site's chat, the
-// general chat and their own private chat, which the API names the
-// literal "Admin (Private)" and gives no staffUserId. Messages come back
-// oldest first, the newest 50. A send answers 201 with the message, its
-// text trimmed. Every refusal is English with no code.
+// no private chat of their own unless one was made before. Everyone else
+// sees their site's chat, the general chat and their own private chat,
+// which the API names the literal "Admin (Private)" and gives no
+// staffUserId. The caller's own private chat comes last. Messages come
+// back oldest first, the newest 50. A send answers 201 with the message,
+// its text trimmed. Every refusal carries a code beside error, and error
+// is in the request's language, ?locale= first and then the account's.
 const ADMIN_PERSON = {
   id: "u-admin", firstName: "Jordan", lastName: "Office", role: "admin",
   badgeNumber: "4800", phone: "0000000009", email: "office@example.invalid",
@@ -673,8 +735,19 @@ const staffPrivate = (p, i) => ({
   lastMessageAt: i % 5 === 4 ? null : iso(NOW.getTime() - ((i * 7) % 23 + 1) * 60 * 60 * 1000),
   unreadCount: i % 4 === 1 ? (i % 3) + 1 : 0,
 });
-// The refusals a send can get, as the API writes them.
-const CHAT_SEND_REFUSALS = [
+// Chat's refusals as Step 132 writes them, one per code, in each
+// language. A read can get the first two, and a send any of the four.
+const CHAT_TEXT_MAX = 2000;
+const CHAT_REFUSALS = {
+  "chat.notFound": { status: 404, en: "This chat was not found.", es: "No se encontr\u00f3 este chat." },
+  "chat.noAccess": { status: 403, en: "You do not have access to this chat.", es: "No tiene acceso a este chat." },
+  "chat.textRequired": { status: 400, en: "Type a message first.", es: "Escriba un mensaje primero." },
+  "chat.textTooLong": { status: 400, en: "This message is too long. Keep it under 2000 characters.", es: "Este mensaje es demasiado largo. Use menos de 2000 caracteres." },
+};
+const CHAT_SEND_REFUSALS = Object.keys(CHAT_REFUSALS).map(code => Object.assign({ code: code }, CHAT_REFUSALS[code]));
+// The refusals a send got before Step 132, English with no code. An API
+// that answers this way still gets the portal's own line.
+const CHAT_UNCODED_REFUSALS = [
   { status: 400, error: "Message text is required" },
   { status: 403, error: "Access denied to this channel" },
   { status: 404, error: "Channel not found" },
@@ -892,7 +965,11 @@ const TWIN_PAIRS = [
   .concat(Object.keys(FORM_P_WORDS.en).map(k => [FORM_P_WORDS.en[k], FORM_P_WORDS.es[k]]))
   .concat([1, 2, 3, 4, 5].map(n => [ROW_WORD.en + " " + n, ROW_WORD.es + " " + n]))
   // A shift change turned away, each sentence as the API writes it.
-  .concat(SHIFT_REFUSALS.map(r => [refusalIn(r, "en", WEST_SHIFT_NAMES), refusalIn(r, "es", WEST_SHIFT_NAMES)]));
+  .concat(SHIFT_REFUSALS.map(r => [refusalIn(r, "en", WEST_SHIFT_NAMES), refusalIn(r, "es", WEST_SHIFT_NAMES)]))
+  // Chat's refusals as Step 132 writes them, in each language.
+  .concat(CHAT_SEND_REFUSALS.map(r => [r.en, r.es]))
+  // The form with titled sections, written in both languages above.
+  .concat(Object.keys(FORM_S_WORDS.en).map(k => [FORM_S_WORDS.en[k], FORM_S_WORDS.es[k]]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -1032,6 +1109,7 @@ function createStub(opts) {
   //   pieces   cuts the answer into this many pieces instead
   //   split    the pieces, counted from 1, that arrive in two parts
   //   language "es" writes the answer's Spanish twin, for a reading
+  //   citedDocs the codes the answer cites, in place of its own
   function helpPlay(body) {
     const next = state.help.next || {};
     state.help.next = null;
@@ -1070,7 +1148,7 @@ function createStub(opts) {
     pieces.slice(0, upTo).forEach(piece);
     const done = Object.assign({
       reply: reply, conversationId: state.conversationId,
-      citedDocs: answer.citedDocs || [], degraded: !!answer.degraded, noProcedure: !!answer.noProcedure,
+      citedDocs: next.citedDocs || answer.citedDocs || [], degraded: !!answer.degraded, noProcedure: !!answer.noProcedure,
     }, answer.formResponse ? { formResponse: answer.formResponse } : {});
     if (next.error) steps.push({ event: "error", data: { error: next.error.error, status: next.error.status } });
     else if (next.drop) steps.push({ drop: true });
@@ -1211,11 +1289,19 @@ function createStub(opts) {
     });
   };
 
-  // A route a case has asked to refuse wins over the answer below it.
-  function refusalFor(key) {
+  // One of Chat's refusals the way Step 132 writes it: its code beside
+  // error, and error in the language the request asks for.
+  const chatRefusal = (code, search) => {
+    const r = CHAT_REFUSALS[code];
+    return json(r.status, { error: r[languageOf(search, state)], code: code });
+  };
+  // A route a case has asked to refuse wins over the answer below it. A
+  // refusal named by one of Chat's codes is written the way the API does.
+  function refusalFor(key, search) {
     const r = state.refuse[key];
     if (!r) return null;
     if (r.once) delete state.refuse[key];
+    if (r.chat) return chatRefusal(r.chat, search);
     return json(r.status || 400, r.body || { error: r.error || "Request failed" });
   }
 
@@ -1225,7 +1311,7 @@ function createStub(opts) {
     if (state.offline) return { abort: true };
     const dropped = state.drop[key];
     if (dropped) { if (dropped.once) delete state.drop[key]; return { abort: true }; }
-    const refused = refusalFor(key);
+    const refused = refusalFor(key, search);
     if (refused) return refused;
 
     // --- signing in and getting in
@@ -1378,18 +1464,20 @@ function createStub(opts) {
       return row ? json(200, { request: row }) : json(404, { error: "Request not found" });
     }
 
-    // --- chat, the three routes as Scout 138 read and ran them
+    // --- chat, the three routes as Scout 138 read and ran them, and the
+    // refusals as Step 132 writes them
     if (key === "GET /api/chat/channels") return json(200, state.chat.channels.map(ch => Object.assign({}, ch)));
     if (/^\/api\/chat\/channels\/[^/]+\/messages$/.test(pathname) && (method === "GET" || method === "POST")) {
       const id = decodeURIComponent(pathname.split("/")[4]);
       const mine = state.chat.channels.some(ch => ch.id === id);
       const anywhere = mine || id === CHAT_GENERAL.id || CHAT_SITES.some(s => s.id === id) || /^dm-/.test(id);
-      if (!anywhere) return json(404, { error: "Channel not found" });
-      if (!mine) return json(403, { error: "Access denied to this channel" });
+      if (!anywhere) return chatRefusal("chat.notFound", search);
+      if (!mine) return chatRefusal("chat.noAccess", search);
       const kept = state.chat.messages[id] || (state.chat.messages[id] = []);
       if (method === "GET") return json(200, kept.slice(-50).map(m => Object.assign({}, m)));
       const text = body && typeof body.text === "string" ? body.text.trim() : "";
-      if (!text) return json(400, { error: "Message text is required" });
+      if (!text) return chatRefusal("chat.textRequired", search);
+      if (text.length > CHAT_TEXT_MAX) return chatRefusal("chat.textTooLong", search);
       state.chat.seq += 1;
       const row = { id: "m-sent-" + state.chat.seq, senderId: state.person.id, senderName: state.person.firstName + " " + state.person.lastName, senderRole: state.person.role, text: text, sentAt: iso(clockNow()) };
       kept.push(Object.assign({ isEdited: false, isPinned: false }, row));
@@ -1447,29 +1535,38 @@ function createStub(opts) {
     // draft id, the way the real API reads it.
     const lang = /locale=es/.test(String(search || "")) ? "es" : "en";
     const second = (p) => /TEST-FORM-P/.test(p) || /draft-two/.test(p);
+    const third = (p) => state.sectionsForm && (/TEST-FORM-S/.test(p) || /draft-three/.test(p));
     // The catalog carries each form whole, fields and all, because the
     // form is what says which questions a report has and the screen
     // reads them from here. It served only the code and the title until
     // now, which is why no question has ever drawn in the suite.
     if (pathname === "/api/forms") {
-      return json(200, { forms: [FORM, formP(lang)] });
+      return json(200, { forms: [FORM, formP(lang)].concat(state.sectionsForm ? [formS(lang)] : []) });
     }
     if (method === "GET" && /^\/api\/forms\/drafts\//.test(pathname)) {
+      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: formS(lang) });
       return second(pathname) ? json(200, { draft: draftP(state, lang), form: formP(lang) }) : json(200, { draft: draftOf(state), form: FORM });
     }
     if (method === "POST" && /^\/api\/forms\/[^/]+\/drafts$/.test(pathname)) {
+      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: formS(lang) });
       return second(pathname) ? json(200, { draft: draftP(state, lang), form: formP(lang) }) : json(200, { draft: draftOf(state), form: FORM });
     }
     if (method === "PATCH" && /^\/api\/forms\/drafts\//.test(pathname)) {
-      const bag = second(pathname) ? state.answersP : state.answers;
+      const bag = third(pathname) ? state.answersS : second(pathname) ? state.answersP : state.answers;
       const written = (body && body.answers) || {};
       // A sign-off is never written this way, which is what the API says.
       const signoff = Object.keys(written).find(k => /Sign$/.test(k));
       if (second(pathname) && signoff) return json(400, { error: "A sign-off is made with its own button" });
       Object.keys(written).forEach((k) => { if (written[k] === null) delete bag[k]; else bag[k] = written[k]; });
+      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: formS(lang) });
       return second(pathname) ? json(200, { draft: draftP(state, lang), form: formP(lang) }) : json(200, { draft: draftOf(state), form: FORM });
     }
     if (method === "POST" && /^\/api\/forms\/drafts\/[^/]+\/submit$/.test(pathname)) {
+      if (third(pathname)) {
+        const short = draftS(state, lang).missing;
+        if (short.length > 0) return json(400, { error: "Answer every required question before sending", missing: short });
+        return json(200, { ok: true, reference: "TEST-FORM-S-0001" });
+      }
       if (second(pathname)) {
         const short = formPMissing(state.answersP, lang);
         if (short.length > 0) {
@@ -1496,6 +1593,7 @@ function createStub(opts) {
       return json(200, { response: draftP(state, lang) });
     }
     if (method === "GET" && /^\/api\/forms\/[^/]+$/.test(pathname)) {
+      if (third(pathname)) return json(200, { form: formS(lang) });
       return second(pathname) ? json(200, { form: formP(lang) }) : json(200, { form: FORM });
     }
 
@@ -1640,6 +1738,6 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, timeOffRow, ymd, iso, DAY,
+module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
-  ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, OWN_PRIVATE, staffPrivate, chatSeed };
+  ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed };

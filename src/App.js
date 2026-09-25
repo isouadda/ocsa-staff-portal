@@ -1021,6 +1021,33 @@ function LanguageButton({ t }) {
   );
 }
 
+// The toasts at the top of the screen. Each one shown keeps its full time
+// on a timer of its own, which only ever takes that toast down. Toasts
+// that arrive together all show, the newest on top, three at most, and
+// one more waits its turn: it shows, for its own full time, as soon as
+// one of the three has gone.
+const TOAST_MS = 3000;
+const TOAST_MAX = 3;
+function toastQueue(onChange) {
+  const q = { shown: [], waiting: [], timers: new Map(), seq: 0 };
+  const pump = () => {
+    while (q.shown.length < TOAST_MAX && q.waiting.length > 0) {
+      const one = q.waiting.shift();
+      q.shown = [one].concat(q.shown);
+      q.timers.set(one.id, setTimeout(() => {
+        q.timers.delete(one.id);
+        q.shown = q.shown.filter(x => x.id !== one.id);
+        pump();
+      }, TOAST_MS));
+    }
+    onChange(q.shown);
+  };
+  return {
+    add: (msg, type) => { q.seq += 1; q.waiting.push({ id: q.seq, msg: msg, type: type }); pump(); },
+    clear: () => { q.timers.forEach(tm => clearTimeout(tm)); q.timers.clear(); q.shown = []; q.waiting = []; onChange(q.shown); },
+  };
+}
+
 export default function OCSAStaffPortal() {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
@@ -1113,7 +1140,9 @@ export default function OCSAStaffPortal() {
   const [activeChannel, setActiveChannel] = useState(null);
   const activeChannelRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(now());
-  const [toast, setToast] = useState(null);
+  const [toasts, setToasts] = useState([]);
+  const toastsRef = useRef(null);
+  if (!toastsRef.current) toastsRef.current = toastQueue(setToasts);
   const [loading, setLoading] = useState(false);
   const [lookups, setLookups] = useState([]);
   const queuePrefRef = useRef(null);
@@ -1185,7 +1214,7 @@ export default function OCSAStaffPortal() {
   const zoom = zoomOf(textSize);
 
   useEffect(() => { const i = setInterval(() => setCurrentTime(now()), 1000); return () => clearInterval(i); }, []);
-  const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); }, []);
+  const showToast = useCallback((msg, type = "success") => { toastsRef.current.add(msg, type); }, []);
   const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); } catch (err) { console.error(err); } }, [token]);
   const loadSessionSites = useCallback(async (tkn) => { try { const data = await api("/api/shift-sessions/sites", { token: tkn || token }); setSessionSites(data); } catch (err) { console.error(err); } }, [token]);
   // One read of clock status for every path that has to redraw from the
@@ -1410,19 +1439,19 @@ export default function OCSAStaffPortal() {
   // one with nothing in it, and a list already on the screen stays when a
   // later read of it fails. A reply that is not a list counts as a list
   // that did not load.
-  const loadChannels = async () => { try { const data = await api("/api/chat/channels", { token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.channels) ? data.channels : null); if (!list) throw new Error(ERR_GENERIC); setChannels(list.filter(ch => ch && typeof ch === "object" && ch.id)); setChannelsFailed(false); } catch (err) { console.error(err); setChannelsFailed(true); } };
+  const loadChannels = async () => { try { const data = await api(chatPath("/api/chat/channels"), { token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.channels) ? data.channels : null); if (!list) throw new Error(ERR_GENERIC); setChannels(list.filter(ch => ch && typeof ch === "object" && ch.id)); setChannelsFailed(false); } catch (err) { console.error(err); setChannelsFailed(true); } };
   const retryChannels = () => { setChannelsFailed(false); loadChannels(); };
   // One chat's messages, drawn only while that chat is still the one open,
   // so a slow answer for one chat never lands under another. Anything in
   // the list that is not a message is left out; a message missing a field
   // is kept and drawn with what it has. Returns the list for Try again.
-  const readMessages = async (channelId) => { const data = await api("/api/chat/channels/" + channelId + "/messages", { token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.messages) ? data.messages : null); if (!list) throw new Error(ERR_GENERIC); const rows = list.filter(m => m && typeof m === "object"); if (activeChannelRef.current === channelId) { setMessages(rows); setMessagesOf(channelId); } return rows; };
+  const readMessages = async (channelId) => { const data = await api(chatPath("/api/chat/channels/" + channelId + "/messages"), { token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.messages) ? data.messages : null); if (!list) throw new Error(ERR_GENERIC); const rows = list.filter(m => m && typeof m === "object"); if (activeChannelRef.current === channelId) { setMessages(rows); setMessagesOf(channelId); } return rows; };
   const loadMessages = async (channelId) => { try { await readMessages(channelId); } catch (err) { console.error(err); } };
   // A send, as the API answers it. The message in the answer is drawn in
   // its chat, once. An answer with no message reads the chat again. A
   // refusal goes back to the composer, which keeps the words and says what
   // happened, so nothing here speaks for it.
-  const sendMessage = async (channelId, text) => { const data = await api("/api/chat/channels/" + channelId + "/messages", { method: "POST", body: { text }, token }); const msg = data && data.message && typeof data.message === "object" ? data.message : null; if (!msg) { await readMessages(channelId).catch(e => console.error(e)); return; } if (activeChannelRef.current === channelId) setMessages(prev => (msg.id && prev.some(m => m.id === msg.id) ? prev : [...prev, msg])); };
+  const sendMessage = async (channelId, text) => { const data = await api(chatPath("/api/chat/channels/" + channelId + "/messages"), { method: "POST", body: { text }, token }); const msg = data && data.message && typeof data.message === "object" ? data.message : null; if (!msg) { await readMessages(channelId).catch(e => console.error(e)); return; } if (activeChannelRef.current === channelId) setMessages(prev => (msg.id && prev.some(m => m.id === msg.id) ? prev : [...prev, msg])); };
 
   useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "issues") loadIssues(); if (activeTab === "issuetasks") loadAssignedTasks(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId]);
   // The task list is fetched as soon as a session is seen open, whichever
@@ -1589,7 +1618,7 @@ export default function OCSAStaffPortal() {
     setChannels(null); setChannelsFailed(false); setMessages([]); setMessagesOf(null); setActiveChannel(null);
     setAgentConversation(null); setFormsDraft(null);
     setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
-    setLookups([]); setLookupsLang(null); setToast(null); setLoading(false);
+    setLookups([]); setLookupsLang(null); toastsRef.current.clear(); setLoading(false);
     setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false);
     setActiveTab("clock");
     unreadWarned.current = false; prefsLive.current = false; chosenOnEntryRef.current = null;
@@ -1793,7 +1822,7 @@ export default function OCSAStaffPortal() {
         />
       )}
 
-      {toast && (<div style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", background: toast.type === "error" ? RED : toast.type === "notice" ? ORANGE : GREEN, color: toast.type === "notice" ? NAVY : "#F8F7F4", padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 1000, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", maxWidth: "90%", textAlign: "center" }}>{toast.msg}</div>)}
+      {toasts.length > 0 && (<div style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", zIndex: 1000, maxWidth: "90%", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>{toasts.map(x => (<div key={x.id} style={{ background: x.type === "error" ? RED : x.type === "notice" ? ORANGE : GREEN, color: x.type === "notice" ? NAVY : "#F8F7F4", padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", textAlign: "center" }}>{x.msg}</div>))}</div>)}
 
       <style>{`
         @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
@@ -3319,9 +3348,20 @@ function privateChatsOf(list) {
 // A message in a chat's list as the screen reads it: sent by this person,
 // with these words, and not one of the messages the chat already held.
 const isSentAgain = (m, userId, words, known) => !!m && m.senderId === userId && typeof m.text === "string" && m.text.trim() === words && !(m.id && known.has(m.id));
+// Every call Chat makes says the language on the screen, the way the
+// portal's other calls do. Without it the API answers in the account's
+// language, which a preference not yet saved can leave behind.
+const chatPath = (path) => path + "?locale=" + (wordsLanguage() === "es" ? "es" : "en");
+// The most a message holds. The API turns away more than this, so the box
+// stops here and only a screen older than this build ever meets that.
+const CHAT_TEXT_MAX = 2000;
+// A refusal that carries one of Chat's codes is told in the API's own
+// words, which come in the language the call asked for.
+const chatSaidOf = (err) => (err && err.message !== ERR_OFFLINE && typeof err.code === "string" && err.code.indexOf("chat.") === 0 && typeof err.message === "string" && err.message.trim() ? err.message.trim() : null);
 // What happened to a send that did not go, which picks the line it is told
-// in: no signal, a chat this person cannot send in, or anything else.
-const chatFaultOf = (err) => (err && err.message === ERR_OFFLINE ? "offline" : err && err.status === 403 ? "denied" : "other");
+// in: the API's own words, no signal, a chat this person cannot send in,
+// or anything else.
+const chatFaultOf = (err) => (chatSaidOf(err) ? "said" : err && err.message === ERR_OFFLINE ? "offline" : err && err.status === 403 ? "denied" : "other");
 
 function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMessages, activeChannel, setActiveChannel, sendMessage, user, t, token }) {
   const [text, setText] = useState(""); const endRef = useRef(null);
@@ -3371,7 +3411,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
       await sendMessage(chatId, words);
       setText(prev => (prev.trim() === words ? "" : prev));
     } catch (err) {
-      setFault({ chat: chatId, text: words, known: known, kind: chatFaultOf(err) });
+      setFault({ chat: chatId, text: words, known: known, kind: chatFaultOf(err), said: chatSaidOf(err) });
     } finally { setSending(false); }
   };
   // Try again reads the chat first. A message of this person's with these
@@ -3383,7 +3423,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
     if (!f || sending) return;
     setSending(true);
     let rows;
-    try { rows = await readMessages(f.chat); } catch (err) { setFault({ ...f, kind: chatFaultOf(err) }); setSending(false); return; }
+    try { rows = await readMessages(f.chat); } catch (err) { setFault({ ...f, kind: chatFaultOf(err), said: chatSaidOf(err) }); setSending(false); return; }
     if (f.known && rows.some(m => isSentAgain(m, user?.id, f.text, f.known))) { setFault(null); setText(prev => (prev.trim() === f.text ? "" : prev)); setSending(false); return; }
     const words = text.trim();
     if (!words) { setFault(null); setSending(false); return; }
@@ -3454,10 +3494,10 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
       {pickFirst && !activeChannel && (<div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, margin: "0 12px 8px", padding: "10px 12px", borderRadius: R.md, background: t.goldBg, border: "1px solid " + t.goldBorder }}><AlertIco sz={16} c={t.goldText} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0 }}>{tr("Pick a chat at the top first.")}</div></div>)}
       <div style={{ padding: "10px 12px", borderTop: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.bg }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input value={text} onChange={e => setText(e.target.value)} placeholder={isOwnDm ? tr("Private message to admin...") : tr("Type a message...")} style={{ flex: 1, minWidth: 0, minHeight: TAP, padding: "10px 14px", borderRadius: R.pill, border: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.card, color: t.text, fontSize: 13, outline: "none", fontFamily: FONT_BODY }} onKeyDown={e => e.key === "Enter" && handleSend()} />
+          <input value={text} onChange={e => setText(e.target.value.slice(0, CHAT_TEXT_MAX))} maxLength={CHAT_TEXT_MAX} placeholder={isOwnDm ? tr("Private message to admin...") : tr("Type a message...")} style={{ flex: 1, minWidth: 0, minHeight: TAP, padding: "10px 14px", borderRadius: R.pill, border: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.card, color: t.text, fontSize: 13, outline: "none", fontFamily: FONT_BODY }} onKeyDown={e => e.key === "Enter" && handleSend()} />
           <button onClick={handleSend} aria-label={tr("Send")} aria-disabled={!ready} style={mkTapFrame({ flexShrink: 0, cursor: ready ? "pointer" : "default" })}><span style={{ width: 38, height: 38, borderRadius: "50%", background: ready ? (isDm ? BLUE : GOLD) : t.cardAlt, boxShadow: ready && !isDm ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={ready ? (isDm ? "#F8F7F4" : NAVY) : t.textMut} /></span></button>
         </div>
-        {showFault && (<div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 8, padding: "8px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, flex: "1 1 160px", minWidth: 0 }}><AlertIco sz={16} c={RED} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0 }}>{fault.kind === "offline" ? tr(ERR_OFFLINE) : fault.kind === "denied" ? tr("You cannot send messages in this chat.") : tr("Your message was not sent.")}</div></div><button type="button" onClick={retry} disabled={sending} style={{ minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: sending ? "default" : "pointer", opacity: sending ? 0.6 : 1, flexShrink: 0, fontFamily: FONT_HEAD }}>{tr("Try again")}</button></div>)}
+        {showFault && (<div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 8, padding: "8px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, flex: "1 1 160px", minWidth: 0 }}><AlertIco sz={16} c={RED} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0 }}>{fault.kind === "said" ? fault.said : fault.kind === "offline" ? tr(ERR_OFFLINE) : fault.kind === "denied" ? tr("You cannot send messages in this chat.") : tr("Your message was not sent.")}</div></div><button type="button" onClick={retry} disabled={sending} style={{ minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: sending ? "default" : "pointer", opacity: sending ? 0.6 : 1, flexShrink: 0, fontFamily: FONT_HEAD }}>{tr("Try again")}</button></div>)}
       </div>
     </div>
   );
@@ -3552,6 +3592,26 @@ const agentArriving = (text) => String(text == null ? "" : text).replace(/\*\*/g
 // An answer's words the way AgentReply draws them, a line at a time with
 // the marks taken out. What a screen reader hears when the answer is done.
 const agentSpoken = (text) => agentReplyParts(text).map(ln => (ln.type === "step" ? ln.number + ". " : "") + ln.parts.map(p => p.text).join("")).join("\n").trim();
+
+// One source under an answer, the way a person knows it. The app guides
+// and the general reference entries are named in words. Every other code
+// shows as it is, an OCSA document's among them, since that is how the
+// handbook and the documents name themselves.
+function agentSourceName(code) {
+  const c = String(code == null ? "" : code).trim();
+  const k = c.toUpperCase();
+  if (k === "APP-PORTAL" || k === "APP-DASHBOARD") return tr("the app guide");
+  if (k === "APP-ADP") return tr("the ADP guide");
+  if (k.indexOf("REF-") === 0) return tr("general cleaning guidance");
+  return c;
+}
+// The sources in the order the API sent them, each name once, so two
+// guide codes on one answer name the app guide once.
+const agentSourcesLine = (codes) => {
+  const out = [];
+  (Array.isArray(codes) ? codes : []).forEach(c => { const w = agentSourceName(c); if (w && out.indexOf(w) === -1) out.push(w); });
+  return out.join(", ");
+};
 
 // One message of a conversation the API keeps, read the same way for
 // resuming a report and for an answer whose connection dropped.
@@ -3878,7 +3938,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
             )}
             {isMe ? m.text : (m.arriving || m.dropped) ? agentArriving(m.text) : <AgentReply text={m.text} />}
           </div>}
-          {!isMe && m.citedDocs.length > 0 && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>{tr("Based on")} {m.citedDocs.join(", ")}</div>}
+          {!isMe && agentSourcesLine(m.citedDocs) && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>{tr("Based on")} {agentSourcesLine(m.citedDocs)}</div>}
           {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>{tr("Working from the written procedure only right now.")}</div>}
           {!isMe && m.dropped && <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("The connection dropped. Your answer is saved.")}{m.error ? " " + m.error : ""}</span>{!m.reading && <button onClick={() => readBack(m.id, m.conversationId, m.question)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Try again")}</button>}</div>}
           {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("Not sent.")}{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text, m.photoPaths)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Retry")}</button></div>}
@@ -4710,6 +4770,18 @@ function formSectionsOf(fields) {
   for (const f of fields) { const k = formSectionOf(f); if (out.indexOf(k) === -1) out.push(k); }
   return out;
 }
+// A section's title, when the form carries one: its entry in the form's
+// sections, found by the key its questions carry. A title comes in the
+// language the form was asked for, the way a question's label does, or
+// as en and es, read in the person's language and in English where there
+// is no Spanish. A section with no title has none, and nothing is drawn.
+function formSectionTitle(form, key, language) {
+  const list = form && Array.isArray(form.sections) ? form.sections : [];
+  const s = list.find(x => x && String(x.key) === String(key));
+  if (!s) return "";
+  const pick = (v) => (typeof v === "string" ? v : v && typeof v === "object" ? (v[language] || v.en || "") : "");
+  return String(pick(s.title) || pick({ en: s.en, es: s.es }) || "").trim();
+}
 
 const formOptionLabel = (f, v) => {
   const s = String(v);
@@ -4920,6 +4992,8 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   const here = sections.indexOf(sectionKey) !== -1 ? sectionKey : (sections.length > 0 ? sections[0] : null);
   const at = sections.indexOf(here);
   const pageFields = shown.filter(f => formSectionOf(f) === here);
+  // The section's title, drawn above its first question when it has one.
+  const hereTitle = here === null ? "" : formSectionTitle(form, here, locale);
 
   // What is still unanswered is the server's judgement, never this
   // screen's: it already reads the same rules over the same answers.
@@ -5075,6 +5149,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
 
   const qSt = { marginBottom: 20 };
   const labelSt = { fontSize: 14, fontWeight: 600, color: t.text, lineHeight: 1.45, fontFamily: FONT_HEAD, overflowWrap: "anywhere" };
+  const titleSt = { fontSize: 15, fontWeight: 600, color: t.text, lineHeight: 1.35, fontFamily: FONT_HEAD, overflowWrap: "anywhere" };
   const reqSt = { fontSize: 11, fontWeight: 600, color: t.textMut, marginLeft: 6, whiteSpace: "nowrap" };
   const inputSt = { ...mkInput(t), minHeight: 44, marginTop: 8 };
   const optRow = (picked) => ({
@@ -5263,6 +5338,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
               <div style={{ ...mkLabel(t), marginBottom: 0, flex: "1 1 auto", minWidth: 0 }}>{tr("Section {n}", { n: i + 1 })}</div>
               <button onClick={() => editSection(sk)} style={{ minHeight: 44, padding: "0 16px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Edit")}</button>
             </div>
+            {formSectionTitle(form, sk, locale) && <div role="heading" aria-level={2} style={{ ...titleSt, marginBottom: 10 }}>{formSectionTitle(form, sk, locale)}</div>}
             {shown.filter(f => formSectionOf(f) === sk).map(f => {
               const signoff = formTypeOf(f) === "signoff";
               const read = signoff ? formStampLine(values[f.key]) : formReadAnswer(f, values[f.key]);
@@ -5276,6 +5352,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
           </div>
         ))}
 
+        {!review && hereTitle && <div role="heading" aria-level={2} style={{ ...titleSt, marginBottom: 16 }}>{hereTitle}</div>}
         {!review && pageFields.map(f => (
           <div key={f.key} style={qSt}>
             <div style={labelSt}>{f.label}{f.required && <span style={reqSt}>{tr("Required")}</span>}</div>
