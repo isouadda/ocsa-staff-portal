@@ -7,7 +7,7 @@ const { openApp, letSheetOffer } = require("./browser");
 const { INSPECT, rowsFrom } = require("./checks");
 const { LEAKABLE, SPANISH, SPANISH_PATTERNS, say } = require("./words");
 const { SCREEN_CASES, SHEET_CASES } = require("./inventory");
-const { timeOffRow, formP, STAFF, servedFor, PERSON } = require("./stub");
+const { timeOffRow, formP, STAFF, servedFor, PERSON, INSPECTION } = require("./stub");
 
 const SIZES = ["standard", "large", "xlarge", "largest"];
 const LANGUAGES = ["en", "es"];
@@ -77,6 +77,9 @@ const PERIOD_LIST = "Tasks, today and the periods";
 const HELP_ARRIVING = "Help, while the answer arrives";
 const HELP_DONE = "Help, the answer done";
 const HELP_DROPPED = "Help, the connection dropped";
+// Step 145: an inspection open on its cards, the first marked Not due yet
+// and the second Needs a fix.
+const INSPECTION_OPEN = "Inspect, an inspection open";
 
 // Chat four more times, each name starting with the tab's: a list of nine
 // group chats and twenty private chats with a group chat open; a send that
@@ -457,6 +460,27 @@ async function runScreens(browser, base, opts) {
       } finally {
         await chat.context.close();
       }
+    }
+
+    // An inspection open on its cards, in its own session: the first card
+    // marked Not due yet, the second Needs a fix.
+    const insp = await openApp(browser, base, { language: language, textSize: size, theme: theme, signedIn: true, stubOptions: Object.assign(stubFor(language, size), { inspections: [INSPECTION] }) });
+    try {
+      const ok = await openTab(insp.page, "inspect", language);
+      if (!ok) rows.push({ where: whereAt(INSPECTION_OPEN), check: "reachable", detail: "the tab could not be opened" });
+      await pause(insp.page, 900);
+      const opened = await clickText(insp.page, INSPECTION.template_name);
+      if (!opened) rows.push({ where: whereAt(INSPECTION_OPEN), check: "reachable", detail: "the inspection could not be opened" });
+      await pause(insp.page, 600);
+      await insp.page.evaluate(([firstId, secondId, notDue, fix]) => {
+        const on = (id, text) => { const b = Array.from(document.querySelectorAll('[data-inspect-item="' + id + '"] button')).find(x => x.textContent.trim() === text); if (b) b.click(); };
+        on(firstId, notDue);
+        on(secondId, fix);
+      }, [INSPECTION.items[0].id, INSPECTION.items[1].id, say("Not due yet", language), say("Needs a fix", language)]);
+      await pause(insp.page, 400);
+      rows.push(...await inspect(insp.page, null, INSPECTION_OPEN, language, size, insp.stub, theme));
+    } finally {
+      await insp.context.close();
     }
 
     // Help with answers on it, in its own session. A report started first,

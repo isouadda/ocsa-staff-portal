@@ -282,7 +282,7 @@ function shiftsFor(siteId, startMs) {
 // name, each item and each item's zone are English, the way the live API
 // sends them.
 const INSPECTION = {
-  id: "in-1", template_name: "Lobby walk", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled",
+  id: "in-1", template_name: "Lobby walk", site_id: "site-north", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled",
   items: [
     { id: "it-1", label: "Glass doors are free of smudges", zone: "Lobby", max_score: 5, cims_category: "SD" },
     { id: "it-2", label: "Floor mats are straight and dry", zone: "Lobby", max_score: 5, cims_category: "SD" },

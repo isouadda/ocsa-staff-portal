@@ -738,6 +738,9 @@ const SHORTCUTS_EMPTY_SLOT = "Pick something for this spot";
 // The smallest a control may be, either way, at every text size. It is
 // the size Apple asks for and the size someone with poor sight can hit.
 const TAP = 44;
+// Step 145. What a card's note starts with once Not due yet is tapped.
+// English on purpose, so every inspection report reads the same.
+const NOT_DUE = "Not due";
 // A control whose drawing is meant to stay smaller than that. The button
 // becomes a see-through frame of at least 44 by 44 and the look moves to
 // the span inside it, so the tap area grows and the drawing does not.
@@ -5610,6 +5613,12 @@ function InspectView({ token, user, showToast, t }) {
   const [submitting, setSubmitting] = useState(false);
   const [uploaded, setUploaded] = useState({});
   const [uploadingId, setUploadingId] = useState(null);
+  // Step 145. Which cards the inspector marked Needs a fix, which of those
+  // were sent with no note, and what each card scored before Not due yet
+  // set it to its maximum, so a second tap can put it back.
+  const [needsFix, setNeedsFix] = useState({});
+  const [missingNote, setMissingNote] = useState({});
+  const notDueBefore = useRef({});
   const [scheduleModal, setScheduleModal] = useState(false);
   const [templates, setTemplates] = useState([]);
   const [sites, setSites] = useState([]);
@@ -5667,7 +5676,33 @@ function InspectView({ token, user, showToast, t }) {
       setNotes(initNotes);
       setOverallNotes("");
       setUploaded({});
+      setNeedsFix({});
+      setMissingNote({});
+      notDueBefore.current = {};
     } catch (e) { showToast(tr(e.message), "error"); }
+  };
+
+  // Not due yet: one tap scores the card at its maximum and starts its
+  // note with "Not due", written in English so every report reads the
+  // same; a second tap puts both back. The button reads as on from the
+  // card itself, so dragging the slider away turns it off.
+  const notDueOn = (item) => (parseInt(scores[item.id]) || 0) === item.max_score && /^Not due\b/.test(notes[item.id] || "");
+  const toggleNotDue = (item) => {
+    const id = item.id;
+    const note = notes[id] || "";
+    if (notDueOn(item)) {
+      const back = notDueBefore.current[id];
+      setScores(prev => ({ ...prev, [id]: back === undefined ? 0 : back }));
+      setNotes(prev => ({ ...prev, [id]: note.replace(/^Not due\.?\s*/, "") }));
+    } else {
+      notDueBefore.current[id] = parseInt(scores[id]) || 0;
+      setScores(prev => ({ ...prev, [id]: item.max_score }));
+      setNotes(prev => ({ ...prev, [id]: note ? NOT_DUE + ". " + note : NOT_DUE }));
+    }
+  };
+  const toggleNeedsFix = (id) => {
+    setNeedsFix(prev => ({ ...prev, [id]: !prev[id] }));
+    setMissingNote(prev => ({ ...prev, [id]: false }));
   };
 
   const handlePhotoUpload = async (itemId, file) => {
@@ -5682,6 +5717,16 @@ function InspectView({ token, user, showToast, t }) {
 
   const submit = async () => {
     if (!active) return;
+    const unsaid = (active.items || []).filter(item => needsFix[item.id] && !(notes[item.id] || "").trim());
+    if (unsaid.length) {
+      const flags = {};
+      unsaid.forEach(item => { flags[item.id] = true; });
+      setMissingNote(flags);
+      showToast(tr("Say what needs fixing"), "error");
+      const card = document.querySelector('[data-inspect-item="' + unsaid[0].id + '"]');
+      if (card && card.scrollIntoView) card.scrollIntoView({ block: "center" });
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = (active.items || []).map(item => ({
@@ -5715,7 +5760,7 @@ function InspectView({ token, user, showToast, t }) {
     return (
       <div style={{ padding: "14px 16px 100px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-          <button onClick={() => setActive(null)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: t.textSec, fontSize: 20, lineHeight: 1 }}>{"<"}</button>
+          <button onClick={() => setActive(null)} aria-label={tr("Back")} style={mkTapFrame({ color: t.textSec, fontSize: 20, lineHeight: 1 })}>{"<"}</button>
           <div>
             <div style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{active.template_name}</div>
             <div style={{ fontSize: 11, color: t.textSec, fontFamily: FONT_BODY }}>{active.site_name} - {fmtDate(active.scheduled_date)}</div>
@@ -5735,8 +5780,10 @@ function InspectView({ token, user, showToast, t }) {
             const sc = parseInt(scores[item.id]) || 0;
             const iPct = item.max_score > 0 ? Math.round((sc / item.max_score) * 100) : 0;
             const iColor = iPct >= 80 ? GREEN : iPct >= 60 ? ORANGE : RED;
+            const notDue = notDueOn(item);
+            const fix = !!needsFix[item.id];
             return (
-              <div key={item.id} style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "14px 14px 12px" }}>
+              <div key={item.id} data-inspect-item={item.id} style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "14px 14px 12px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: t.text, lineHeight: 1.3, fontFamily: FONT_HEAD }}>{item.label}</div>
@@ -5745,10 +5792,20 @@ function InspectView({ token, user, showToast, t }) {
                   <div style={{ fontSize: 13, fontWeight: 600, color: iColor, minWidth: 36, textAlign: "right", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{sc}<span style={{ fontSize: 10, color: t.textMut, fontWeight: 400 }}>/{item.max_score}</span></div>
                 </div>
                 <div style={{ marginBottom: 8 }}>
-                  <input type="range" min={0} max={item.max_score} value={sc} onChange={e => setScores(prev => ({ ...prev, [item.id]: parseInt(e.target.value) }))} style={{ width: "100%", accentColor: iColor }} />
+                  <input type="range" min={0} max={item.max_score} value={sc} onChange={e => setScores(prev => ({ ...prev, [item.id]: parseInt(e.target.value) }))} style={{ width: "100%", height: TAP, margin: 0, accentColor: iColor }} />
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: t.textMut, marginTop: 2 }}><span>0</span><span>{item.max_score}</span></div>
                 </div>
-                <input value={notes[item.id] || ""} onChange={e => setNotes(prev => ({ ...prev, [item.id]: e.target.value }))} placeholder={tr("Notes for this item (optional)")} style={{ ...inputSt, fontSize: 12, marginBottom: 8 }} />
+                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+                  <button type="button" aria-pressed={notDue} onClick={() => toggleNotDue(item)} style={{ minHeight: TAP, minWidth: TAP, padding: "0 14px", borderRadius: R.md, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD, background: notDue ? t.goldBg : t.card, border: notDue ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text }}>{tr("Not due yet")}</button>
+                  <button type="button" role="switch" aria-checked={fix} onClick={() => toggleNeedsFix(item.id)} style={{ display: "inline-flex", alignItems: "center", gap: 8, minHeight: TAP, minWidth: TAP, padding: "0 6px", background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, textAlign: "left" }}>
+                    <span aria-hidden="true" style={{ width: 34, height: 20, borderRadius: 10, flexShrink: 0, position: "relative", background: fix ? GOLD : t.borderSolid, transition: "background 0.15s" }}>
+                      <span style={{ position: "absolute", top: 2, left: fix ? 16 : 2, width: 16, height: 16, borderRadius: 8, background: fix ? NAVY : t.card, transition: "left 0.15s" }} />
+                    </span>
+                    {tr("Needs a fix")}
+                  </button>
+                </div>
+                <input value={notes[item.id] || ""} onChange={e => { const v = e.target.value; setNotes(prev => ({ ...prev, [item.id]: v })); if (missingNote[item.id] && v.trim()) setMissingNote(prev => ({ ...prev, [item.id]: false })); }} placeholder={fix ? tr("Say what needs fixing") : tr("Notes for this item (optional)")} aria-invalid={!!missingNote[item.id]} style={{ ...inputSt, fontSize: 12, marginBottom: 8, ...(missingNote[item.id] ? { border: "1px solid " + RED } : {}) }} />
+                {missingNote[item.id] && <div style={{ ...mkFieldErr(t), marginTop: -2, marginBottom: 8 }}>{tr("Say what needs fixing")}</div>}
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <label style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", fontSize: 11, color: t.textSec }}>
                     <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files[0] && handlePhotoUpload(item.id, e.target.files[0])} />

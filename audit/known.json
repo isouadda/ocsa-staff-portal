@@ -103,6 +103,27 @@
       "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
     },
     {
+      "where": "Inspect, an inspection open",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#E74C3C on #132240\"",
+      "why": "A card's score numeral, red while the card is under 60 percent, on the dark theme's card. 4.13 to 1 against the 4.5 to 1 small text needs. The scoring view was never swept before Step 145; the color scale is the scoring itself and stays as it is."
+    },
+    {
+      "where": "Inspect, an inspection open",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#E74C3C on #FFFFFF\"",
+      "why": "The same red score numeral on light mode's white card. 3.82 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
+      "where": "Inspect, an inspection open",
+      "theme": "light",
+      "check": "contrast",
+      "what": "\"#2ECC71 on #FFFFFF\"",
+      "why": "A card's score numeral and the running total, green from 80 percent up, on light mode's white card. 2.10 to 1 against the 4.5 to 1 small text needs, and under the 3 to 1 the running total's larger numeral needs."
+    },
+    {
       "where": "More",
       "theme": "dark",
       "check": "contrast",

@@ -2687,6 +2687,75 @@ const JOURNEYS = [
     },
   },
   {
+    id: "inspectionfixes",
+    label: "An inspection scored: Not due yet in one tap, and Needs a fix files the problem report",
+    run: async (open, language, expect) => {
+      const inSpanish = (en) => (language === "es" && TWIN_ES.has(en) ? TWIN_ES.get(en) : en);
+      const first = INSPECTION.items[0], second = INSPECTION.items[1];
+      const card = (id) => '[data-inspect-item="' + id + '"]';
+      // A button on one card, by its words.
+      const tapIn = (page, id, text) => page.evaluate(([sel, t]) => {
+        const b = Array.from(document.querySelectorAll(sel + " button")).find(x => x.textContent.trim() === t && !x.disabled);
+        if (b) b.click();
+        return !!b;
+      }, [card(id), text]);
+      // What one card shows: its score, its note, and whether each of the
+      // two new controls reads as on.
+      const cardState = (page, id) => page.evaluate((sel) => {
+        const c = document.querySelector(sel);
+        if (!c) return null;
+        const range = c.querySelector('input[type="range"]');
+        const note = c.querySelector('input:not([type="range"]):not([type="file"])');
+        const notDue = c.querySelector("button[aria-pressed]");
+        const fix = c.querySelector('button[role="switch"]');
+        return { score: range ? range.value : null, note: note ? note.value : null, notDue: notDue ? notDue.getAttribute("aria-pressed") : null, fix: fix ? fix.getAttribute("aria-checked") : null };
+      }, card(id));
+      const noteIn = (page, id, words) => type(page, card(id) + ' input:not([type="range"]):not([type="file"])', words);
+      const openScoring = async (app) => {
+        await openTab(app.page, "inspect", language);
+        await pause(app.page, 900);
+        await app.page.evaluate((names) => {
+          const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => names.some(n => x.textContent.indexOf(n) !== -1));
+          if (b) b.click();
+        }, [INSPECTION.template_name, inSpanish(INSPECTION.template_name)]);
+        await pause(app.page, 900);
+      };
+      const completes = (stub) => sent(stub, "POST", "/api/inspections/scheduled/" + INSPECTION.id + "/complete");
+      const submit = (page) => clickText(page, say("Submit Inspection", language));
+
+      // 1. Not due yet, on and off. 2. Needs a fix with no note stops the send.
+      const app = await open({ stubOptions: { inspections: [INSPECTION] } });
+      try {
+        await openScoring(app);
+        expect("Not due yet is on the card", await tapIn(app.page, first.id, say("Not due yet", language)), "no such button on the first card");
+        await pause(app.page, 300);
+        let st = await cardState(app.page, first.id);
+        expect("one tap scores the card at its maximum", !!st && String(st.score) === String(first.max_score), JSON.stringify(st));
+        expect("one tap starts the note with Not due", !!st && /^Not due/.test(st.note || ""), JSON.stringify(st));
+        expect("Not due yet reads as on", !!st && st.notDue === "true", JSON.stringify(st));
+        await tapIn(app.page, first.id, say("Not due yet", language));
+        await pause(app.page, 300);
+        st = await cardState(app.page, first.id);
+        expect("a second tap puts the score back", !!st && String(st.score) === "0", JSON.stringify(st));
+        expect("a second tap takes Not due off the note", !!st && st.note === "", JSON.stringify(st));
+        expect("Not due yet reads as off again", !!st && st.notDue === "false", JSON.stringify(st));
+        await spokenHere(app, language, expect);
+
+        expect("Needs a fix is on the card", await tapIn(app.page, first.id, say("Needs a fix", language)), "no such switch on the first card");
+        await pause(app.page, 300);
+        st = await cardState(app.page, first.id);
+        expect("Needs a fix reads as on", !!st && st.fix === "true", JSON.stringify(st));
+        await submit(app.page);
+        await pause(app.page, 900);
+        expect("a fix with no note is not sent", completes(app.stub).length === 0, completes(app.stub).length + " sent to /complete");
+        const told = ((await toastText(app.page)) || "") + " " + (await bodyText(app.page));
+        expect("the screen says what is missing", has(told, say("Say what needs fixing", language)), told.slice(0, 220));
+        await spokenHere(app, language, expect);
+        void second;
+      } finally { await app.context.close(); }
+    },
+  },
+  {
     id: "picklists",
     label: "The four pick lists, drawn from the list the API sends: severities, request types, urgency and the reasons to drop a shift",
     run: async (open, language, expect) => {
