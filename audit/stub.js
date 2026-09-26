@@ -282,7 +282,7 @@ function shiftsFor(siteId, startMs) {
 // name, each item and each item's zone are English, the way the live API
 // sends them.
 const INSPECTION = {
-  id: "in-1", template_name: "Lobby walk", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled",
+  id: "in-1", template_name: "Lobby walk", site_id: "site-north", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled",
   items: [
     { id: "it-1", label: "Glass doors are free of smudges", zone: "Lobby", max_score: 5, cims_category: "SD" },
     { id: "it-2", label: "Floor mats are straight and dry", zone: "Lobby", max_score: 5, cims_category: "SD" },
@@ -437,7 +437,10 @@ function makeState(opts) {
     myTimeOff: o.myTimeOff || [],
     drafts: o.drafts || [],
     notifications: o.notifications || [],
-    inspections: o.inspections || [],
+    // Copied, since /complete marks one completed and the fixture is shared.
+    inspections: (o.inspections || []).map(i => Object.assign({}, i)),
+    // Step 145: every problem filed through POST /api/issues, in order.
+    issues: [],
     conversationId: "cv-one",
     // Help: what the next question is answered with, the points the one
     // being answered can be stopped at, and the conversation as the API
@@ -960,6 +963,7 @@ const TWIN_PAIRS = [
   ["Floor mats are straight and dry", "Los tapetes est\u00e1n derechos y secos"],
   ["Lobby", "Vest\u00edbulo"],
   ["Inspection not found", "No se encontr\u00f3 la inspecci\u00f3n"],
+  ["This inspection was already completed", "Esta inspecci\u00f3n ya fue completada"],
   ["Stairwell walk", "Recorrido de la escalera"],
   ["The badge number does not match this account.", "El n\u00famero de empleado no coincide con esta cuenta."],
   // The one pick list label the portal's own table does not carry yet.
@@ -1662,14 +1666,36 @@ function createStub(opts) {
 
     // --- reporting and supplies
     if (key === "GET /api/issues") return json(200, []);
-    if (key === "POST /api/issues") return json(200, { issue: { id: "iss-1" } });
-    if (method === "POST" && /^\/api\/issues\/[^/]+\/photos$/.test(pathname)) return json(200, { ok: true });
+    if (key === "POST /api/issues") {
+      if (!body || !body.siteId || !body.title) return json(400, { error: "Site and title are required" });
+      const issue = { id: "iss-" + (state.issues.length + 1), photos: [] };
+      state.issues.push(Object.assign(issue, { body: body }));
+      return json(201, { message: "Issue reported", code: "issues.reported", issue: { id: issue.id } });
+    }
+    if (method === "POST" && /^\/api\/issues\/[^/]+\/photos$/.test(pathname)) {
+      const issue = state.issues.find(i => pathname === "/api/issues/" + i.id + "/photos");
+      if (!issue) return json(404, { error: "Issue not found" });
+      if (!body || !body.photoUrl) return json(400, { error: "Photo URL is required" });
+      issue.photos.push(body.photoUrl);
+      return json(201, { photo: { id: "ph-" + issue.photos.length, issue_id: issue.id, photo_url: body.photoUrl } });
+    }
     if (key === "GET /api/supplies") return json(200, [{ id: "sup-1", name: "Paper towels", qr_code: "QR-0001", unit: "rolls", is_low: true }]);
     if (key === "POST /api/supplies/log-usage") return json(200, { message: "Usage logged", log: { id: "log-1", supply_name: "Paper towels", quantity: 1 }, lowStockAlert: false });
     if (key === "POST /api/supplies/requests") return json(200, { ok: true });
 
     // --- inspections
-    if (pathname === "/api/inspections/scheduled" && method === "GET") return json(200, state.inspections.map(i => Object.assign({}, i, { items: undefined, gone: undefined })));
+    if (pathname === "/api/inspections/scheduled" && method === "GET") return json(200, state.inspections.filter(i => i.status !== "completed").map(i => Object.assign({}, i, { items: undefined, gone: undefined })));
+    // Step 145. Completing one the way the API does: scores required, a
+    // second completion turned away, and the row marked completed.
+    const completing = pathname.match(/^\/api\/inspections\/scheduled\/([^/]+)\/complete$/);
+    if (method === "POST" && completing) {
+      if (!body || !Array.isArray(body.scores)) return json(400, { error: "Scores are required" });
+      const one = state.inspections.find(i => i.id === completing[1] && !i.gone);
+      if (!one) return json(404, { error: "Inspection not found" });
+      if (one.status === "completed") return json(400, { error: "This inspection was already completed" });
+      one.status = "completed";
+      return json(200, { success: true, result: { id: "res-" + one.id, scheduled_inspection_id: one.id, total_score: body.scores.reduce((s, x) => s + (parseInt(x.score) || 0), 0) } });
+    }
     if (method === "GET" && /^\/api\/inspections\/scheduled\/[^/]+$/.test(pathname)) {
       const one = state.inspections.find(i => pathname.endsWith("/" + i.id) && !i.gone);
       return one ? json(200, one) : json(404, { error: "Inspection not found" });
