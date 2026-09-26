@@ -5619,12 +5619,16 @@ function InspectView({ token, user, showToast, t }) {
   const [needsFix, setNeedsFix] = useState({});
   const [missingNote, setMissingNote] = useState({});
   const notDueBefore = useRef({});
+  // Once an inspection is sent: its name and one report per card marked
+  // Needs a fix, each filed or not. Try again files one that was not.
+  const [sent, setSent] = useState(null);
+  const [retrying, setRetrying] = useState(null);
   const [scheduleModal, setScheduleModal] = useState(false);
   const [templates, setTemplates] = useState([]);
   const [sites, setSites] = useState([]);
   const [schedForm, setSchedForm] = useState({ template_id: "", site_id: "", scheduled_date: "" });
   const [scheduling, setScheduling] = useState(false);
-  useBusy("inspection in progress", !!active || uploadingId !== null || submitting || scheduling);
+  useBusy("inspection in progress", !!active || !!sent || uploadingId !== null || submitting || scheduling);
 
   const loadList = async () => {
     setLoading(true);
@@ -5715,6 +5719,49 @@ function InspectView({ token, user, showToast, t }) {
     setUploadingId(null);
   };
 
+  // One problem report per card marked Needs a fix, the way Report files
+  // one: the inspection's site, the finding's zone in the title, the note,
+  // the card and the inspection in the description, severity medium, then
+  // the card's photo when one was attached. Title and description stay in
+  // English, the way the card labels are.
+  const reportFor = (item) => ({
+    itemId: item.id, label: item.label,
+    body: {
+      siteId: active.site_id,
+      title: "Inspection finding: " + (item.zone || item.label),
+      description: [(notes[item.id] || "").trim(), item.label, active.template_name + ", " + String(active.scheduled_date || "").slice(0, 10)].join("\n"),
+      zone: item.zone || null,
+      severity: "medium",
+    },
+    photoUrl: uploaded[item.id] || null, issueId: null, error: null,
+  });
+  // Files one report. A report whose problem was filed but whose photo was
+  // not keeps the problem's id, so Try again sends only the photo.
+  const fileReport = async (r) => {
+    const out = { ...r };
+    try {
+      if (!out.issueId) {
+        const d = await api("/api/issues", { method: "POST", body: out.body, token });
+        out.issueId = d && d.issue ? d.issue.id : null;
+      }
+      if (out.photoUrl && out.issueId) {
+        await api("/api/issues/" + out.issueId + "/photos", { method: "POST", body: { photoUrl: out.photoUrl }, token });
+        out.photoUrl = null;
+      }
+      out.error = null;
+    } catch (e) { out.error = e.message || ERR_GENERIC; }
+    return out;
+  };
+  const retryReport = async (itemId) => {
+    if (!sent || retrying) return;
+    const r = sent.reports.find(x => x.itemId === itemId);
+    if (!r) return;
+    setRetrying(itemId);
+    const out = await fileReport(r);
+    setSent(prev => prev ? { ...prev, reports: prev.reports.map(x => x.itemId === itemId ? out : x) } : prev);
+    setRetrying(null);
+  };
+
   const submit = async () => {
     if (!active) return;
     const unsaid = (active.items || []).filter(item => needsFix[item.id] && !(notes[item.id] || "").trim());
@@ -5739,7 +5786,15 @@ function InspectView({ token, user, showToast, t }) {
         method: "POST", token,
         body: { scores: payload, overall_notes: overallNotes || null },
       });
-      showToast(tr("Inspection submitted"));
+      // Only once the inspection is in: the reports, one after another.
+      const reports = (active.items || []).filter(item => needsFix[item.id]).map(reportFor);
+      if (!reports.length) {
+        showToast(tr("Inspection submitted"));
+      } else {
+        const filed = [];
+        for (const r of reports) filed.push(await fileReport(r));
+        setSent({ name: active.template_name, reports: filed });
+      }
       setActive(null);
       loadList();
     } catch (e) { showToast(tr(e.message), "error"); }
@@ -5826,6 +5881,34 @@ function InspectView({ token, user, showToast, t }) {
         <button onClick={submit} disabled={submitting} style={{ width: "100%", padding: "14px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: submitting ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>
           {submitting ? tr("Submitting...") : tr("Submit Inspection")}
         </button>
+      </div>
+    );
+  }
+
+  // SENT VIEW: how many problems were reported for fixing, and any that
+  // were not, each with Try again. The inspection itself is already in and
+  // is never sent again from here.
+  if (sent) {
+    const filed = sent.reports.filter(r => !r.error).length;
+    const failed = sent.reports.filter(r => r.error);
+    return (
+      <div style={{ padding: "14px 16px 100px" }}>
+        <div style={{ padding: "16px", borderRadius: R.lg, background: t.card, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow, marginBottom: 16 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 6 }}>{sent.name}</div>
+          <div role="status" style={{ fontSize: 13, color: t.textSec, lineHeight: 1.45, fontFamily: FONT_BODY }}>{tr(filed === 1 ? "Inspection sent. {n} problem reported for fixing." : "Inspection sent. {n} problems reported for fixing.", { n: filed })}</div>
+        </div>
+        {failed.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+            {failed.map(r => (
+              <div key={r.itemId} style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "14px" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3 }}>{tr("Not reported: {0}", { 0: r.label })}</div>
+                <div style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4 }}>{tr(r.error)}</div>
+                <button type="button" onClick={() => retryReport(r.itemId)} disabled={retrying !== null} style={{ minHeight: TAP, marginTop: 10, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: retrying !== null ? "default" : "pointer", opacity: retrying === r.itemId ? 0.6 : 1, fontFamily: FONT_HEAD }}>{retrying === r.itemId ? tr("Submitting...") : tr("Try again")}</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <button type="button" onClick={() => setSent(null)} style={{ width: "100%", padding: "14px", minHeight: TAP, borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Done")}</button>
       </div>
     );
   }

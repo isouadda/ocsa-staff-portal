@@ -80,6 +80,9 @@ const HELP_DROPPED = "Help, the connection dropped";
 // Step 145: an inspection open on its cards, the first marked Not due yet
 // and the second Needs a fix.
 const INSPECTION_OPEN = "Inspect, an inspection open";
+// The same inspection sent with both cards marked Needs a fix and the first
+// report refused, so the count, Not reported and Try again are all drawn.
+const INSPECTION_SENT = "Inspect, sent";
 
 // Chat four more times, each name starting with the tab's: a list of nine
 // group chats and twenty private chats with a group chat open; a send that
@@ -479,6 +482,23 @@ async function runScreens(browser, base, opts) {
       }, [INSPECTION.items[0].id, INSPECTION.items[1].id, say("Not due yet", language), say("Needs a fix", language)]);
       await pause(insp.page, 400);
       rows.push(...await inspect(insp.page, null, INSPECTION_OPEN, language, size, insp.stub, theme));
+      // Then sent: Not due yet off again, both cards Needs a fix with a
+      // note, the first report refused once.
+      await insp.page.evaluate(([firstId, secondId, notDue, fix]) => {
+        const on = (id, text) => { const b = Array.from(document.querySelectorAll('[data-inspect-item="' + id + '"] button')).find(x => x.textContent.trim() === text); if (b) b.click(); };
+        const say = (id, words) => { const e = document.querySelector('[data-inspect-item="' + id + '"] input:not([type="range"]):not([type="file"])'); if (!e) return; Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(e, words); e.dispatchEvent(new Event("input", { bubbles: true })); };
+        on(firstId, notDue);
+        on(firstId, fix);
+        say(firstId, "Smudges on the left door");
+        say(secondId, "Mat is wet and turned up");
+      }, [INSPECTION.items[0].id, INSPECTION.items[1].id, say("Not due yet", language), say("Needs a fix", language)]);
+      insp.stub.state.refuse["POST /api/issues"] = { status: 500, error: "Something went wrong on our end. Try again in a minute.", once: true };
+      await clickText(insp.page, say("Submit Inspection", language));
+      await pause(insp.page, 1200);
+      const sentLine = say("Inspection sent. {n} problem reported for fixing.", language).split("{")[0].trim();
+      const saidSent = await insp.page.evaluate((line) => document.body.innerText.indexOf(line) !== -1, sentLine);
+      if (!saidSent) rows.push({ where: whereAt(INSPECTION_SENT), check: "reachable", detail: "the sent view never came up" });
+      rows.push(...await inspect(insp.page, null, INSPECTION_SENT, language, size, insp.stub, theme));
     } finally {
       await insp.context.close();
     }

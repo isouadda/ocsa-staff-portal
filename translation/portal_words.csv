@@ -459,12 +459,15 @@ Waiting for manager approval,Esperando la aprobación del gerente,Pickup
 Attach Photo,Adjuntar foto,Inspect
 "General observations, follow-ups needed, etc.","Observaciones generales, seguimientos pendientes, etc.",Inspect
 Inspection scheduled,Inspección programada,Inspect
+Inspection sent. {n} problem reported for fixing.,Inspección enviada. {n} problema reportado para arreglar.,Inspect
+Inspection sent. {n} problems reported for fixing.,Inspección enviada. {n} problemas reportados para arreglar.,Inspect
 Inspection submitted,Inspección enviada,Inspect
 Inspections assigned to you will appear here.,Las inspecciones que le asignen aparecerán aquí.,Inspect
 My Inspections,Mis inspecciones,Inspect
 Needs a fix,Necesita arreglo,Inspect
 No inspections pending,No hay inspecciones pendientes,Inspect
 Not due yet,Todavía no corresponde,Inspect
+Not reported: {0},Sin reportar: {0},Inspect
 Notes for this item (optional),Notas para este punto (opcional),Inspect
 Overall Notes,Notas generales,Inspect
 Photo attached,Foto adjunta,Inspect
