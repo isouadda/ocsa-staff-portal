@@ -47,6 +47,10 @@ the same way.
 Last, it reads every `tr()` call in `src`. **A word the portal writes
 with no Spanish entry fails the run**, one row each, whether or not a case
 happens to draw it. The table prints the count as `words with Spanish`.
+It reads `src` and `translation` for a word the apps retired, too, in
+`RETIRED` in `audit/words.js`: the API and the admin dashboard say
+suministro for a supply, so insumo on any line fails the run, one row
+each.
 
 ## Names, words and codes
 

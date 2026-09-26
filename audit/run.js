@@ -15,7 +15,7 @@ const { runScreens } = require("./screens");
 const { coverage, SCREEN_CASES, SHEET_CASES, FORM_CASES } = require("./inventory");
 const { runJourneys } = require("./journeys");
 const { sort: sortKnown, write: writeKnown } = require("./known");
-const { literalWords, untranslated } = require("./words");
+const { literalWords, untranslated, retiredRows } = require("./words");
 const { localeRows } = require("./stub");
 
 const ROOT = path.join(__dirname, "..");
@@ -139,8 +139,9 @@ function table(counts) {
     const wordRows = missing.map(w => ({ where: "src/" + w.file, check: "no Spanish entry", detail: JSON.stringify(w.key) + " has no Spanish entry (line " + w.line + ")" }));
     // Every request any case made says the screen's language once. The
     // stub turned away each signed-in one that did not, and here each
-    // route that did not is a row of its own.
-    const everything = sweep.rows.concat(walk.rows, wordRows, localeRows());
+    // route that did not is a row of its own. So is every line in src or
+    // translation that writes a word the apps retired.
+    const everything = sweep.rows.concat(walk.rows, wordRows, localeRows(), retiredRows());
     if (process.env.AUDIT_WRITE_KNOWN === "1") {
       const added = writeKnown(sortKnown(everything).fresh);
       process.stdout.write("wrote " + added + " entries into audit/known.json. Write the reason on each one.\n");

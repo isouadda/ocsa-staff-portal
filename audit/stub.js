@@ -880,7 +880,7 @@ const TWIN_PAIRS = [
   ["Closing walk", "Recorrido de cierre"],
   ["Last round", "\u00daltima ronda"],
   // West Building's list: its items, their zones, its shifts and blocks.
-  ["Check the restroom supplies", "Revise los insumos de los ba\u00f1os"],
+  ["Check the restroom supplies", "Revise los suministros de los ba\u00f1os"],
   ["Wipe the restroom sinks", "Limpie los lavabos de los ba\u00f1os"],
   ["Scrub the grout in the restrooms", "Talle las juntas de los ba\u00f1os"],
   ["Empty the office bins", "Vac\u00ede los botes de las oficinas"],
@@ -919,7 +919,7 @@ const TWIN_PAIRS = [
   ["Paper towels", "Toallas de papel"],
   ["rolls", "rollos"],
   // Notices.
-  ["Supply request approved", "Solicitud de insumos aprobada"],
+  ["Supply request approved", "Solicitud de suministros aprobada"],
   ["Two cases of paper towels.", "Dos cajas de toallas de papel."],
   ["Something happened", "Algo pas\u00f3"],
   ["An invented notice.", "Un aviso inventado."],
