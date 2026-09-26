@@ -348,21 +348,23 @@ const PIN_REFUSALS = {
 
 // Every refusal the time off routes can answer with, in the order the
 // Step 79 contract lists them. The suite shows each one word for word.
+// Each carries the API's own key as its code, the way Step 137 answers,
+// and extra is what the API sends beside it.
 const TIME_OFF_REFUSALS = [
-  { status: 400, error: "Choose a type of time off" },
-  { status: 400, error: "Dates must be YYYY-MM-DD" },
-  { status: 400, error: "The last day cannot be before the first day" },
-  { status: 400, error: "A part day needs both a start and an end time, on one day" },
-  { status: 400, error: "Times must be HH:MM, from 00:00 to 23:59" },
-  { status: 400, error: "Hours must be a number from 0 to 999.99" },
-  { status: 400, error: "Time off can start at most 30 days ago" },
-  { status: 400, error: "Time off can start at most one year ahead" },
-  { status: 400, error: "Keep the reason under 1000 characters" },
-  { status: 404, error: "Request not found" },
-  { status: 409, error: "You already have time off requested or approved for those days", requestId: "to-clash" },
-  { status: 409, error: "This request was already approved" },
-  { status: 409, error: "This request was already denied" },
-  { status: 409, error: "This request was already cancelled" },
+  { status: 400, error: "Choose a type of time off", code: "timeOff.typeRequired" },
+  { status: 400, error: "Dates must be YYYY-MM-DD", code: "timeOff.datesFormat" },
+  { status: 400, error: "The last day cannot be before the first day", code: "timeOff.lastBeforeFirst" },
+  { status: 400, error: "A part day needs both a start and an end time, on one day", code: "timeOff.partDay" },
+  { status: 400, error: "Times must be HH:MM, from 00:00 to 23:59", code: "timeOff.timesFormat" },
+  { status: 400, error: "Hours must be a number from 0 to 999.99", code: "timeOff.hoursRange" },
+  { status: 400, error: "Time off can start at most 30 days ago", code: "timeOff.tooFarBack" },
+  { status: 400, error: "Time off can start at most one year ahead", code: "timeOff.tooFarAhead" },
+  { status: 400, error: "Keep the reason to 1000 characters or fewer.", code: "timeOff.reasonTooLong" },
+  { status: 404, error: "Request not found", code: "timeOff.notFound" },
+  { status: 409, error: "You already have time off requested or approved for those days", code: "timeOff.overlap", extra: { requestId: "to-clash" } },
+  { status: 409, error: "This request was already approved", code: "timeOff.alreadyStatus", extra: { status: "approved" } },
+  { status: 409, error: "This request was already denied", code: "timeOff.alreadyStatus", extra: { status: "denied" } },
+  { status: 409, error: "This request was already cancelled", code: "timeOff.alreadyStatus", extra: { status: "cancelled" } },
 ];
 
 const timeOffRow = (o) => Object.assign({
@@ -746,7 +748,7 @@ const CHAT_REFUSALS = {
   "chat.notFound": { status: 404, en: "This chat was not found.", es: "No se encontr\u00f3 este chat." },
   "chat.noAccess": { status: 403, en: "You do not have access to this chat.", es: "No tiene acceso a este chat." },
   "chat.textRequired": { status: 400, en: "Type a message first.", es: "Escriba un mensaje primero." },
-  "chat.textTooLong": { status: 400, en: "This message is too long. Keep it under 2000 characters.", es: "Este mensaje es demasiado largo. Use menos de 2000 caracteres." },
+  "chat.textTooLong": { status: 400, en: "This message is too long. Keep it to 2000 characters or fewer.", es: "Este mensaje es demasiado largo. Use 2000 caracteres o menos." },
 };
 const CHAT_SEND_REFUSALS = Object.keys(CHAT_REFUSALS).map(code => Object.assign({ code: code }, CHAT_REFUSALS[code]));
 // The refusals a send got before Step 132, English with no code. An API

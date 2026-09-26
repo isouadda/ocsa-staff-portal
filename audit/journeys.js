@@ -1671,7 +1671,7 @@ const JOURNEYS = [
           await openTab(app.page, "schedule", language);
           await clickText(app.page, say("Request time off", language));
           await type(app.page, 'div[style*="z-index: 200"] textarea', "kept text");
-          app.stub.state.refuse["POST /api/time-off"] = { status: refusal.status, body: { error: refusal.error, requestId: refusal.requestId } };
+          app.stub.state.refuse["POST /api/time-off"] = { status: refusal.status, body: Object.assign({ error: refusal.error, code: refusal.code }, refusal.extra) };
           await clickText(app.page, say("Send request", language));
           await pause(app.page, 900);
           const shown = await sheetText(app.page);

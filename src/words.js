@@ -706,7 +706,7 @@ export const WORDS = {
   "Enter a real time": "Escriba una hora real",
   "Form not found": "No se encontr\u00f3 el formulario",
   "Hours must be a number from 0 to 999.99": "Las horas deben ser un n\u00famero de 0 a 999.99",
-  "Keep the reason under 1000 characters": "Escriba el motivo con menos de 1000 caracteres",
+  "Keep the reason to 1000 characters or fewer.": "Escriba el motivo en 1000 caracteres o menos.",
   "language must be en or es": "el idioma debe ser en o es",
   "One of the people picked is not on the staff list": "Una de las personas elegidas no est\u00e1 en la lista del personal",
   "Photo upload failed": "No se pudo subir la foto",
