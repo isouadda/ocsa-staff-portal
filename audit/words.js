@@ -91,4 +91,32 @@ function untranslated() {
   });
 }
 
-module.exports = { ES, say, LEAKABLE, SPANISH, SPANISH_PATTERNS, literalWords, untranslated };
+// Words the apps have settled, beside the ones they retired. The API and
+// the admin dashboard say suministro for a supply, so the portal does
+// too, and a retired word never comes back into src or the review sheet
+// in translation. Written plainly, since none of them carries an accent.
+const RETIRED = [
+  { word: "insumo", settled: "suministro" },
+];
+
+// Every line in src or translation that writes a retired word, one row
+// each, whatever its case.
+function retiredRows() {
+  const root = path.join(__dirname, "..");
+  const rows = [];
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).forEach((d) => {
+    const p = path.join(dir, d.name);
+    if (d.isDirectory()) { walk(p); return; }
+    if (!/\.(js|csv|json|md)$/.test(d.name)) return;
+    fs.readFileSync(p, "utf8").split("\n").forEach((line, i) => {
+      RETIRED.forEach((r) => {
+        if (line.toLowerCase().indexOf(r.word) === -1) return;
+        rows.push({ where: path.relative(root, p), check: "a retired word", detail: JSON.stringify(r.word) + " on line " + (i + 1) + ", where the apps say " + r.settled });
+      });
+    });
+  });
+  ["src", "translation"].forEach(d => walk(path.join(root, d)));
+  return rows;
+}
+
+module.exports = { ES, say, LEAKABLE, SPANISH, SPANISH_PATTERNS, literalWords, untranslated, RETIRED, retiredRows };

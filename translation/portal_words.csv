@@ -414,7 +414,7 @@ LOW,POCO,Supplies
 New Gear,Equipo nuevo,Supplies
 One less,Uno menos,Supplies
 One more,Uno más,Supplies
-New Supply,Insumo nuevo,Supplies
+New Supply,Suministro nuevo,Supplies
 Normal,Normal,Supplies
 QR,QR,Supplies
 Refill,Reposición,Supplies
@@ -422,10 +422,10 @@ Request Type,Tipo de solicitud,Supplies
 Select a request type,Elija un tipo de solicitud,Supplies
 Select supply...,Elija un artículo...,Supplies
 Start your shift to log usage. Requests can be submitted anytime.,Comience su turno para registrar el uso. Las solicitudes se pueden enviar en cualquier momento.,Supplies
-Supplies,Insumos,"Supplies, Bar and More"
+Supplies,Suministros,"Supplies, Bar and More"
 Supply Item,Artículo,Supplies
-Supply Tracking,Control de insumos,Supplies
-Supply/Gear Request,Solicitud de insumos o equipo,Supplies
+Supply Tracking,Control de suministros,Supplies
+Supply/Gear Request,Solicitud de suministros o equipo,Supplies
 This Shift's Log,Registro de este turno,Supplies
 Urgency,Urgencia,Supplies
 Urgent,Urgente,Supplies
@@ -631,7 +631,7 @@ Enter a real date,Escriba una fecha real,"API message, shown word for word"
 Enter a real time,Escriba una hora real,"API message, shown word for word"
 Form not found,No se encontró el formulario,"API message, shown word for word"
 Hours must be a number from 0 to 999.99,Las horas deben ser un número de 0 a 999.99,"API message, shown word for word"
-Keep the reason under 1000 characters,Escriba el motivo con menos de 1000 caracteres,"API message, shown word for word"
+Keep the reason to 1000 characters or fewer.,Escriba el motivo en 1000 caracteres o menos.,"API message, shown word for word"
 language must be en or es,el idioma debe ser en o es,"API message, shown word for word"
 One of the people picked is not on the staff list,Una de las personas elegidas no está en la lista del personal,"API message, shown word for word"
 Photo upload failed,No se pudo subir la foto,"API message, shown word for word"
