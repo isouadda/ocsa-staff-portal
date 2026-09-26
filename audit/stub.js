@@ -453,7 +453,7 @@ function makeState(opts) {
     answersP: o.answersP ? Object.assign({}, o.answersP) : {},
     // The form with titled sections, served when a case asks, and its
     // answers.
-    sectionsForm: !!o.sectionsForm,
+    sectionsForm: o.sectionsForm === "one" ? "one" : !!o.sectionsForm,
     answersS: {},
     // Everyone Speak Up can name, and every report filed through it.
     staff: o.staff || STAFF.slice(),
@@ -621,7 +621,9 @@ function draftP(state, lang) {
 // "1" to "3". The first two have a title, in the language the request
 // asks for, and the third has none. Served only to a case that asks for
 // it with stubOptions.sectionsForm, so every other case reads the
-// catalog it always has.
+// catalog it always has. stubOptions.sectionsForm of "one" serves the
+// first section alone, a form of one titled section, which the portal
+// heads with the form's own name and nothing else.
 const FORM_S_CODE = "TEST-FORM-S";
 const FORM_S_WORDS = {
   en: {
@@ -636,7 +638,7 @@ const FORM_S_WORDS = {
   },
 };
 
-function formS(lang) {
+function formS(lang, one) {
   const w = FORM_S_WORDS[lang === "es" ? "es" : "en"];
   const field = (key, type, section, required, options) => ({
     key: key, label: w[key], type: type, required: required, osha: false, prefilled: false,
@@ -646,18 +648,19 @@ function formS(lang) {
     code: FORM_S_CODE,
     title: w.title,
     version: 1,
-    sections: [{ key: "1", title: w.first }, { key: "2", title: w.second }],
+    sections: [{ key: "1", title: w.first }].concat(one ? [] : [{ key: "2", title: w.second }]),
     fields: [
       field("doors", "text", "1", true),
       field("lights", "select", "1", true, [{ value: "yes", label: w.yes }, { value: "no", label: w.no }]),
+    ].concat(one ? [] : [
       field("low", "text", "2", false),
       field("notes", "textarea", "3", false),
-    ],
+    ]),
   };
 }
 
 function draftS(state, lang) {
-  const form = formS(lang);
+  const form = formS(lang, state.sectionsForm === "one");
   const answers = state.answersS;
   const answered = form.fields.filter(f => answers[f.key] !== undefined && answers[f.key] !== null && answers[f.key] !== "").length;
   return {
@@ -1603,19 +1606,20 @@ function createStub(opts) {
     const lang = /locale=es/.test(String(search || "")) ? "es" : "en";
     const second = (p) => /TEST-FORM-P/.test(p) || /draft-two/.test(p);
     const third = (p) => state.sectionsForm && (/TEST-FORM-S/.test(p) || /draft-three/.test(p));
+    const thirdForm = () => formS(lang, state.sectionsForm === "one");
     // The catalog carries each form whole, fields and all, because the
     // form is what says which questions a report has and the screen
     // reads them from here. It served only the code and the title until
     // now, which is why no question has ever drawn in the suite.
     if (pathname === "/api/forms") {
-      return json(200, { forms: [FORM, formP(lang)].concat(state.sectionsForm ? [formS(lang)] : []) });
+      return json(200, { forms: [FORM, formP(lang)].concat(state.sectionsForm ? [thirdForm()] : []) });
     }
     if (method === "GET" && /^\/api\/forms\/drafts\//.test(pathname)) {
-      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: formS(lang) });
+      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: thirdForm() });
       return second(pathname) ? json(200, { draft: draftP(state, lang), form: formP(lang) }) : json(200, { draft: draftOf(state), form: FORM });
     }
     if (method === "POST" && /^\/api\/forms\/[^/]+\/drafts$/.test(pathname)) {
-      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: formS(lang) });
+      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: thirdForm() });
       return second(pathname) ? json(200, { draft: draftP(state, lang), form: formP(lang) }) : json(200, { draft: draftOf(state), form: FORM });
     }
     if (method === "PATCH" && /^\/api\/forms\/drafts\//.test(pathname)) {
@@ -1625,7 +1629,7 @@ function createStub(opts) {
       const signoff = Object.keys(written).find(k => /Sign$/.test(k));
       if (second(pathname) && signoff) return json(400, { error: "A sign-off is made with its own button" });
       Object.keys(written).forEach((k) => { if (written[k] === null) delete bag[k]; else bag[k] = written[k]; });
-      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: formS(lang) });
+      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: thirdForm() });
       return second(pathname) ? json(200, { draft: draftP(state, lang), form: formP(lang) }) : json(200, { draft: draftOf(state), form: FORM });
     }
     if (method === "POST" && /^\/api\/forms\/drafts\/[^/]+\/submit$/.test(pathname)) {
@@ -1660,7 +1664,7 @@ function createStub(opts) {
       return json(200, { response: draftP(state, lang) });
     }
     if (method === "GET" && /^\/api\/forms\/[^/]+$/.test(pathname)) {
-      if (third(pathname)) return json(200, { form: formS(lang) });
+      if (third(pathname)) return json(200, { form: thirdForm() });
       return second(pathname) ? json(200, { form: formP(lang) }) : json(200, { form: FORM });
     }
 

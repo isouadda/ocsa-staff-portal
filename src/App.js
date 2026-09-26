@@ -5007,7 +5007,10 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   const at = sections.indexOf(here);
   const pageFields = shown.filter(f => formSectionOf(f) === here);
   // The section's title, drawn above its first question when it has one.
-  const hereTitle = here === null ? "" : formSectionTitle(form, here, locale);
+  // A form with one section draws none: the form's own name already
+  // heads the screen, and a second heading under it would say nothing.
+  const titled = sections.length > 1;
+  const hereTitle = here === null || !titled ? "" : formSectionTitle(form, here, locale);
 
   // What is still unanswered is the server's judgement, never this
   // screen's: it already reads the same rules over the same answers.
@@ -5352,7 +5355,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
               <div style={{ ...mkLabel(t), marginBottom: 0, flex: "1 1 auto", minWidth: 0 }}>{tr("Section {n}", { n: i + 1 })}</div>
               <button onClick={() => editSection(sk)} style={{ minHeight: 44, padding: "0 16px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Edit")}</button>
             </div>
-            {formSectionTitle(form, sk, locale) && <div role="heading" aria-level={2} style={{ ...titleSt, marginBottom: 10 }}>{formSectionTitle(form, sk, locale)}</div>}
+            {titled && formSectionTitle(form, sk, locale) && <div role="heading" aria-level={2} style={{ ...titleSt, marginBottom: 10 }}>{formSectionTitle(form, sk, locale)}</div>}
             {shown.filter(f => formSectionOf(f) === sk).map(f => {
               const signoff = formTypeOf(f) === "signoff";
               const read = signoff ? formStampLine(values[f.key]) : formReadAnswer(f, values[f.key]);

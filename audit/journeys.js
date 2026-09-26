@@ -1860,6 +1860,29 @@ const JOURNEYS = [
           JSON.stringify(heads) + " first questions at " + JSON.stringify(tops));
         await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
+
+      // The same form with its first section alone: one section, with a
+      // title, which the form's own name already stands for. No heading
+      // on its page, none in the review.
+      const one = await open({ stubOptions: { sectionsForm: "one" } });
+      try {
+        const form = formS(language, true);
+        await openTab(one.page, "forms", language);
+        await pause(one.page, 900);
+        const started = await startForm(one.page, form.title);
+        expect("the form of one section opens from its card", started, "no card on the Forms screen carried its title");
+        await pause(one.page, 1200);
+        const below = await labelTop(one.page, form.fields[0].label);
+        const heads = await formHeadings(one.page);
+        expect("a form of one section draws no heading above its questions", heads.length === 0 && below !== null, JSON.stringify(heads));
+        await answerEveryBox(one.page);
+        await pause(one.page, 400);
+        await clickText(one.page, say("Next", language));
+        await pause(one.page, 1000);
+        const reviewed = await labelTop(one.page, form.fields[0].label);
+        const reviewHeads = await formHeadings(one.page);
+        expect("the review of a form of one section draws no heading", reviewHeads.length === 0 && reviewed !== null, JSON.stringify(reviewHeads));
+      } finally { await one.context.close(); }
     },
   },
   {
