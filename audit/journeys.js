@@ -8,7 +8,8 @@ const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
 const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
 const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
-  SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX } = require("./stub");
+  SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
+  API_REFUSALS } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -663,10 +664,11 @@ const heardOnce = (said, reply) => {
 // What a question was sent with: the route, the query, the body's keys,
 // and the headers the app set itself, leaving out the ones the browser
 // adds on its own. The message route has always been asked with exactly
-// these, so the streaming route is asked the same way.
+// these, so the streaming route is asked the same way. The query is the
+// screen's language, which every call says.
 const OWN_HEADERS = "accept: */* | authorization: Bearer token-one | content-type: application/json";
 const ownHeaders = (h) => Object.keys(h || {}).filter(k => !/^(origin|referer|user-agent|sec-|accept-language$)/i.test(k)).sort().map(k => k + ": " + h[k]).join(" | ");
-const sentAsAlways = (call, keys) => !!call && call.path === "/api/agent/message/stream" && call.search === ""
+const sentAsAlways = (call, keys, language) => !!call && call.path === "/api/agent/message/stream" && call.search === "?locale=" + language
   && Object.keys(call.body || {}).sort().join(",") === keys.slice().sort().join(",") && ownHeaders(call.headers) === OWN_HEADERS;
 const sentWith = (call) => (call ? call.method + " " + call.path + call.search + " " + JSON.stringify(call.body) + " " + ownHeaders(call.headers) : "nothing sent");
 
@@ -882,6 +884,67 @@ const JOURNEYS = [
         await pause(reset.page, 900);
         judge(reset.stub, SEVEN.slice(5, 7));
       } finally { await reset.context.close(); }
+    },
+  },
+  {
+    id: "screenlanguage",
+    label: "Every call asks in the screen's language, so three refusals a cleaner meets read in it on an account set to the other",
+    run: async (open, language, expect, extra) => {
+      const other = language === "es" ? "en" : "es";
+      // Each refusal, the route it turns away, how a person gets there, the
+      // tap that asks, and where the screen says what came back.
+      const CASES = [
+        { key: "timeOff.lastBeforeFirst", method: "POST", path: "/api/time-off", where: "the sheet",
+          reach: async (page) => {
+            await openTab(page, "schedule", language);
+            await clickText(page, say("Request time off", language));
+            await type(page, 'div[style*="z-index: 200"] textarea', "kept text");
+          },
+          tap: (page) => clickText(page, say("Send request", language)),
+          read: (page) => sheetText(page) },
+        { key: "pickups.alreadyClaimed", method: "POST", path: "/api/pickups/pk-1/claim", where: "the toast",
+          reach: async (page) => { await openTab(page, "pickup", language); await pause(page, 900); },
+          tap: (page) => clickText(page, say("Claim This Shift", language)),
+          read: (page) => toastText(page) },
+        { key: "supplies.requestTypeRequired", method: "POST", path: "/api/supplies/requests", where: "the toast",
+          reach: async (page) => {
+            await openTab(page, "supplies", language);
+            await pause(page, 800);
+            await clickText(page, say("+ Request", language));
+            await clickText(page, say("Refill", language));
+          },
+          tap: (page) => clickText(page, say("Submit Request", language)),
+          read: (page) => toastText(page) },
+      ];
+      for (const c of CASES) {
+        const app = await open({});
+        try {
+          // The account says the other language from here on, the way it
+          // does once a person's language is set from the dashboard while
+          // this phone stays signed in. The screen keeps its own.
+          app.stub.state.accountPreferences.language = other;
+          await c.reach(app.page);
+          app.stub.state.refuse[c.method + " " + c.path] = { api: c.key };
+          await c.tap(app.page);
+          await pause(app.page, 300);
+          const asked = lastSent(app.stub, c.method, c.path);
+          const said = asked ? new URLSearchParams(asked.search).getAll("locale") : [];
+          expect(c.key + " is asked for in the screen's language, once", said.length === 1 && said[0] === language,
+            asked ? asked.method + " " + asked.path + asked.search : "never sent");
+          const drawn = await c.read(app.page);
+          const wanted = API_REFUSALS[c.key][language];
+          const ok = has(drawn, wanted);
+          expect(c.key + " is read in the screen's language in " + c.where + ", on an account set to the other", ok,
+            "wanted " + JSON.stringify(wanted) + " in " + JSON.stringify(String(drawn).slice(0, 200)));
+          if (extra) extra.refusalsShown += ok ? 1 : 0;
+          // Every call this phone made says the screen's language once: the
+          // ones that always named it and the ones that now do.
+          const off = app.stub.state.calls.filter((k) => { const l = new URLSearchParams(k.search || "").getAll("locale"); return l.length !== 1 || l[0] !== language; });
+          expect("every call on the way to " + c.key + " says the screen's language, once", off.length === 0,
+            off.slice(0, 3).map(k => k.method + " " + k.path + k.search).join(", "));
+          await spokenHere(app, language, expect);
+        } finally { await app.context.close(); }
+      }
     },
   },
   {
@@ -2172,8 +2235,8 @@ const JOURNEYS = [
         await askHelp(app.page, language, "What do I do about a spill");
         await heldAt(app, "first");
         const asked = lastSent(app.stub, "POST", "/api/agent/message");
-        expect("the question goes to the streaming route with the body, the query and the headers the message route has always had",
-          sentAsAlways(asked, ["text", "app", "locale"]) && asked.body.locale === language && asked.body.app === "portal", sentWith(asked));
+        expect("the question goes to the streaming route with the body and the headers the message route has always had, and the screen's language as its query",
+          sentAsAlways(asked, ["text", "app", "locale"], language) && asked.body.locale === language && asked.body.app === "portal", sentWith(asked));
         const first = await waitForMessage(app.page, "Put a", 3000);
         expect("the first words appear before the answer is done", !!first, "nothing was drawn while the answer was being written");
         expect("a half-written bold never shows its marks", !first || first.text.indexOf("*") === -1, first ? JSON.stringify(first.text) : "nothing drawn");
@@ -3299,7 +3362,7 @@ async function runJourneys(browser, base, opts) {
   const unique = rows.filter((r) => { const k = r.where + "|" + r.check + "|" + r.detail; if (once.has(k)) return false; once.add(k); return true; });
   rows.length = 0;
   unique.forEach(r => rows.push(r));
-  return { rows: rows, covered: covered, journeys: JOURNEYS.length, refusalsShown: extra.refusalsShown, refusalsTotal: (TIME_OFF_REFUSALS.length + HR_CASE_REFUSALS.length + SHIFT_REFUSALS.length + CHAT_SEND_REFUSALS.length) * LANGUAGES.length, gaps: gaps };
+  return { rows: rows, covered: covered, journeys: JOURNEYS.length, refusalsShown: extra.refusalsShown, refusalsTotal: (TIME_OFF_REFUSALS.length + HR_CASE_REFUSALS.length + SHIFT_REFUSALS.length + CHAT_SEND_REFUSALS.length + Object.keys(API_REFUSALS).length) * LANGUAGES.length, gaps: gaps };
 }
 
 module.exports = { runJourneys, JOURNEYS };

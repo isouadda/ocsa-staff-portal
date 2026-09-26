@@ -18,7 +18,18 @@ const ERR_OFFLINE = "Could not reach OCSA. Check your connection and try again."
 // says for it instead, in the person's language, and still carries no
 // status. An answer that cannot be read says the other one.
 async function reach(url, init) {
-  try { return await fetch(url, init); } catch (e) { throw new Error(ERR_OFFLINE); }
+  try { return await fetch(inScreenLanguage(url), init); } catch (e) { throw new Error(ERR_OFFLINE); }
+}
+// Every request asks in the language on the screen. Since Step 137 the API
+// answers a signed-in call in ?locale= first and in the account's language
+// after it, so a call that named none was answered in the account's
+// language whatever the screen showed. It is added here, where every
+// request passes, so no call can forget it. A path that already names a
+// language keeps its own, so the calls that name one today, the seven made
+// before signing in among them, ask exactly as they did.
+function inScreenLanguage(url) {
+  if (/[?&]locale=/.test(url)) return url;
+  return url + (url.indexOf("?") === -1 ? "?" : "&") + "locale=" + (wordsLanguage() === "es" ? "es" : "en");
 }
 async function readJson(res) {
   try { return await res.json(); } catch (e) { const x = new Error(ERR_GENERIC); x.status = res.status; throw x; }

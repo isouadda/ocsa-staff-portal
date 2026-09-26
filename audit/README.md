@@ -96,6 +96,31 @@ stored as the case's, and the browser's own language, which it sends as
 to prove each of the seven calls made before signing in carries
 `?locale=`.
 
+## Every request says the screen's language
+
+Since Step 137 the API answers a signed-in call in `?locale=` first and in
+the account's language after it. Every request the portal makes goes
+through `reach()` in `src/App.js`, which adds the screen's language to any
+path that does not already name one, so a Spanish screen reads every
+answer in Spanish whatever the account says, and the other way round.
+
+The stub holds every request to that. Each one says its language once, as
+`?locale=` with `en` or `es`. A signed-in request that says none, says it
+twice or names another is turned away with a 400, and each route it
+happened on is a row of its own in the table, so a call added later
+without the language fails the run by name. A call made before signing
+in that says none is answered the way it always was, in the phone's
+language, and is a row too.
+
+The `screenlanguage` journey sets the account to the other language while
+the phone stays signed in, the way it is once a person's language is set
+from the dashboard, and turns three routes away with a refusal a cleaner
+meets, written the way Step 137 writes it, under the API's own key: a time
+off date problem, a shift somebody else already took, and a supply
+request the API reads with no type. Each is judged first on the request,
+which says the screen's language once, and then on the screen, which
+reads the refusal in that language.
+
 ## The checklist
 
 The stub answers `GET /api/sites/:id/tasks` the way the API does: called
@@ -180,8 +205,9 @@ for one that is not the person's, `chat.textRequired` 400 for no text,
 and `chat.textTooLong` 400 for more than 2,000 characters.
 
 A case can turn any route away through `state.refuse`, with a body of its
-own or with `{ chat: code }` for one of Chat's refusals written the way
-the API writes it. It can drop a route's connection through `state.drop`
+own, with `{ chat: code }` for one of Chat's refusals written the way the
+API writes it, or with `{ api: key }` for one of the three refusals in
+`API_REFUSALS`, in the request's language the same way. It can drop a route's connection through `state.drop`
 or `stubOptions.drop`, keyed `"METHOD /path"`, answer an empty list
 (`chat.empty`), hold one chat
 (`chat.only`), serve rows missing a field (`chat.oddRows`), and from the

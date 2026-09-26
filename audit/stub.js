@@ -336,8 +336,9 @@ const cutInto = (text, n) => {
 };
 
 // Every refusal Change PIN can answer with, by its code, in English and in
-// Spanish. Since Step 113 the API writes the sentence in the account's
-// language; the code is the same in both.
+// Spanish. Since Step 137 the API writes the sentence in the request's
+// language, ?locale= first and the account's after it; the code is the
+// same in both.
 const PIN_REFUSALS = {
   PIN_INCORRECT: ["Current PIN is incorrect", "El PIN actual no es correcto"],
   PIN_UNCHANGED: ["New PIN must be different from the current PIN", "El PIN nuevo debe ser distinto del actual"],
@@ -396,6 +397,9 @@ function makeState(opts) {
   return {
     // Every request the app made, newest last.
     calls: [],
+    // Every request that did not say its language once, as ?locale= with
+    // en or es, and what was wrong with it. See localeFault below.
+    localeFaults: [],
     // Every name the stub has served. A Spanish screen showing one of
     // these is showing a value, not a word the app forgot to translate.
     served: new Set(),
@@ -408,7 +412,7 @@ function makeState(opts) {
     mustSetPin: !!o.mustSetPin,
     activationBadge: !!o.activationBadge,
     // Flip these from a case to make a route answer differently.
-    refuse: o.refuse || {},          // "POST /api/time-off": { status, body }
+    refuse: o.refuse || {},          // "POST /api/time-off": { status, body }, { chat: code } or { api: key }
     offline: false,                  // every call fails at the network
     person: o.person || PERSON,
     accountPreferences: o.accountPreferences === undefined ? {} : o.accountPreferences,
@@ -753,6 +757,17 @@ const CHAT_UNCODED_REFUSALS = [
   { status: 404, error: "Channel not found" },
   { status: 500, error: "Server error" },
 ];
+// Three refusals a cleaner meets, as Step 137 writes them, under the API's
+// own key, quoted from helpers/words.js in ocsa-api: a time off date
+// problem, a shift somebody else already took, and a supply request the
+// API reads with no type. A case turns a route away with one through
+// state.refuse as { api: key }, and its sentence is written in the
+// request's language, ?locale= first and the account's after it.
+const API_REFUSALS = {
+  "timeOff.lastBeforeFirst": { status: 400, en: "The last day cannot be before the first day", es: "El \u00faltimo d\u00eda no puede ser anterior al primer d\u00eda" },
+  "pickups.alreadyClaimed": { status: 409, en: "Shift was already claimed", es: "Este turno ya fue tomado" },
+  "supplies.requestTypeRequired": { status: 400, en: "Request type is required", es: "Elija el tipo de solicitud" },
+};
 // A chat's messages as the API keeps them, oldest first. Every text is
 // invented. oddRows adds rows missing a name, a time, or both.
 const chatSeed = (channelId, odd) => {
@@ -968,6 +983,8 @@ const TWIN_PAIRS = [
   .concat(SHIFT_REFUSALS.map(r => [refusalIn(r, "en", WEST_SHIFT_NAMES), refusalIn(r, "es", WEST_SHIFT_NAMES)]))
   // Chat's refusals as Step 132 writes them, in each language.
   .concat(CHAT_SEND_REFUSALS.map(r => [r.en, r.es]))
+  // The three refusals a cleaner meets, as Step 137 writes them.
+  .concat(Object.keys(API_REFUSALS).map(k => [API_REFUSALS[k].en, API_REFUSALS[k].es]))
   // The form with titled sections, written in both languages above.
   .concat(Object.keys(FORM_S_WORDS.en).map(k => [FORM_S_WORDS.en[k], FORM_S_WORDS.es[k]]));
 
@@ -1031,6 +1048,31 @@ const languageOf = (search, state) => {
   if (m) return m[1];
   return state.accountPreferences && state.accountPreferences.language === "es" ? "es" : "en";
 };
+
+// Every request says the screen's language once, as ?locale= with en or
+// es. Step 137 answers a signed-in call in ?locale= first and in the
+// account's language after it, so a call that says none is answered in
+// the account's language whatever the screen shows, and one that says it
+// twice reaches the API as a list, which names no language, and is
+// answered the same way. What is wrong with one request, or null.
+const localeFault = (search) => {
+  const said = new URLSearchParams(String(search || "")).getAll("locale");
+  if (said.length === 0) return "says no language";
+  if (said.length > 1) return "says its language " + said.length + " times: " + said.join(", ");
+  if (said[0] !== "en" && said[0] !== "es") return "says a language the API does not know: " + said[0];
+  return null;
+};
+// The first fault on each route, from every stub in the run, so the run
+// fails on each one by name and a call added later without its language
+// fails the suite. See localeRows.
+const LOCALE_FAULTS = new Map();
+function noteLocaleFault(key, search, fault) {
+  if (!LOCALE_FAULTS.has(key)) LOCALE_FAULTS.set(key, { key: key, search: search || "", fault: fault });
+}
+// One row per route, the way the table reads a row.
+function localeRows() {
+  return Array.from(LOCALE_FAULTS.values()).map(f => ({ where: "Every request to OCSA", check: "says the screen's language once", detail: f.key + f.search + " " + f.fault }));
+}
 
 // What the Spanish check reads, from one stub.
 function servedFor(stub) {
@@ -1295,19 +1337,37 @@ function createStub(opts) {
     const r = CHAT_REFUSALS[code];
     return json(r.status, { error: r[languageOf(search, state)], code: code });
   };
+  // One of the three refusals a cleaner meets, the same way: its key as
+  // the code, and error in the language the request asks for.
+  const apiRefusal = (key, search) => {
+    const r = API_REFUSALS[key];
+    return json(r.status, { error: r[languageOf(search, state)], code: key });
+  };
   // A route a case has asked to refuse wins over the answer below it. A
-  // refusal named by one of Chat's codes is written the way the API does.
+  // refusal named by one of Chat's codes, or by the API's own key, is
+  // written the way the API does.
   function refusalFor(key, search) {
     const r = state.refuse[key];
     if (!r) return null;
     if (r.once) delete state.refuse[key];
     if (r.chat) return chatRefusal(r.chat, search);
+    if (r.api) return apiRefusal(r.api, search);
     return json(r.status || 400, r.body || { error: r.error || "Request failed" });
   }
 
   function handle(method, pathname, search, body, headers) {
     const key = method + " " + pathname;
     state.calls.push({ method: method, path: pathname, search: search || "", body: body || null, headers: headers || {} });
+    // A request that does not say its language once is kept, and a
+    // signed-in one is turned away before anything else answers it. The
+    // seven calls made before signing in are answered as before, in the
+    // phone's language, which is what the case for them catches.
+    const fault = localeFault(search);
+    if (fault) {
+      state.localeFaults.push(key + (search || "") + " " + fault);
+      noteLocaleFault(key, search, fault);
+      if (!SIGNED_OUT.some(re => re.test(key))) return json(400, { error: "Request failed", code: "LOCALE_REQUIRED" });
+    }
     if (state.offline) return { abort: true };
     const dropped = state.drop[key];
     if (dropped) { if (dropped.once) delete state.drop[key]; return { abort: true }; }
@@ -1324,11 +1384,12 @@ function createStub(opts) {
     if (key === "POST /api/auth/reset/request") return json(200, { ok: true });
     if (key === "POST /api/auth/change-pin") {
       // A refusal a case asked for: its code, and its sentence in the
-      // account's language, the way Step 113 answers.
+      // request's language, ?locale= first and the account's after it,
+      // the way Step 137 answers.
       if (state.pinRefusal) {
         const code = state.pinRefusal;
         state.pinRefusal = null;
-        return json(400, { error: PIN_REFUSALS[code][state.accountPreferences && state.accountPreferences.language === "es" ? 1 : 0], code: code });
+        return json(400, { error: PIN_REFUSALS[code][languageOf(search, state) === "es" ? 1 : 0], code: code });
       }
       state.mustSetPin = false;
       return json(200, { ok: true });
@@ -1740,4 +1801,5 @@ function draftOf(state) {
 
 module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
-  ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed };
+  ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
+  API_REFUSALS, localeFault, localeRows };
