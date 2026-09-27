@@ -4796,6 +4796,17 @@ function formSectionTitle(form, key, language) {
   const pick = (v) => (typeof v === "string" ? v : v && typeof v === "object" ? (v[language] || v.en || "") : "");
   return String(pick(s.title) || pick({ en: s.en, es: s.es }) || "").trim();
 }
+// A section's help line, the line a paper form prints above a whole
+// block of questions, sent beside the title in the language the form
+// was asked for since the API's Step 153. A section with none has none,
+// and nothing extra is drawn.
+function formSectionHelp(form, key, language) {
+  const list = form && Array.isArray(form.sections) ? form.sections : [];
+  const s = list.find(x => x && String(x.key) === String(key));
+  const v = s ? s.help : null;
+  if (typeof v === "string") return v.trim();
+  return v && typeof v === "object" ? String(v[language] || v.en || "").trim() : "";
+}
 
 const formOptionLabel = (f, v) => {
   const s = String(v);
@@ -5011,6 +5022,9 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   // heads the screen, and a second heading under it would say nothing.
   const titled = sections.length > 1;
   const hereTitle = here === null || !titled ? "" : formSectionTitle(form, here, locale);
+  // Its help line, drawn under the heading on the section's own screen
+  // and nowhere else: the review does not repeat it.
+  const hereHelp = hereTitle ? formSectionHelp(form, here, locale) : "";
 
   // What is still unanswered is the server's judgement, never this
   // screen's: it already reads the same rules over the same answers.
@@ -5378,7 +5392,12 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
           </div>
         ))}
 
-        {!review && hereTitle && <div role="heading" aria-level={2} style={{ ...titleSt, marginBottom: 16 }}>{hereTitle}</div>}
+        {!review && hereTitle && (
+          <div style={{ marginBottom: 16 }}>
+            <div role="heading" aria-level={2} style={titleSt}>{hereTitle}</div>
+            {hereHelp && <div style={mkHelp(t)}>{hereHelp}</div>}
+          </div>
+        )}
         {!review && pageFields.map(f => (
           <div key={f.key} style={qSt}>
             <div style={labelSt}>{f.label}{f.required && <span style={reqSt}>{tr("Required")}</span>}</div>
