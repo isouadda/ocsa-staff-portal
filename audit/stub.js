@@ -339,12 +339,21 @@ const cutInto = (text, n) => {
 // Spanish. Since Step 137 the API writes the sentence in the request's
 // language, ?locale= first and the account's after it; the code is the
 // same in both.
+// Each sentence is quoted from helpers/words.js in ocsa-api, byte for
+// byte: auth.pinIncorrect, auth.pinUnchanged, auth.pinWeak and
+// auth.pinFormat. The API also answers PIN_UNCHANGED with
+// auth.pinSameAsGiven on a first PIN, which the portal never sends.
 const PIN_REFUSALS = {
   PIN_INCORRECT: ["Current PIN is incorrect", "El PIN actual no es correcto"],
-  PIN_UNCHANGED: ["New PIN must be different from the current PIN", "El PIN nuevo debe ser distinto del actual"],
-  PIN_WEAK: ["New PIN is too easy to guess", "El PIN nuevo es muy f\u00e1cil de adivinar"],
-  PIN_FORMAT: ["New PIN must be exactly 4 digits", "El PIN nuevo debe tener exactamente 4 d\u00edgitos"],
+  PIN_UNCHANGED: ["New PIN must be different from your current PIN", "El PIN nuevo debe ser distinto de su PIN actual"],
+  PIN_WEAK: ["Choose a PIN that is not repeated digits, a sequence, or your badge number", "Elija un PIN que no sea un mismo d\u00edgito repetido, una secuencia ni su n\u00famero de empleado"],
+  PIN_FORMAT: ["PIN must be exactly 4 digits", "El PIN debe tener exactamente 4 d\u00edgitos"],
 };
+// A sign-in the API turns away, auth.invalidCredentials in
+// helpers/words.js, and an inspection it no longer has,
+// inspections.notFound, each quoted byte for byte in both languages.
+const LOGIN_REFUSAL = ["Invalid credentials", "Los datos para iniciar sesi\u00f3n no son correctos"];
+const INSPECTION_NOT_FOUND = ["Not found", "No se encontr\u00f3 la inspecci\u00f3n"];
 
 // Every refusal the time off routes can answer with, in the order the
 // Step 79 contract lists them. The suite shows each one word for word.
@@ -824,7 +833,12 @@ const chatSeed = (channelId, odd) => {
 // sent shows the gap, and audit/known.json names it with its reason. The
 // day the API sends a kind in Spanish, it joins LIVE_KINDS, its twins are
 // served, and the known entry stops matching and has to come off.
-const LIVE_KINDS = new Set(["form text"]);
+//
+// Since Step 137 every refusal and every message the API writes on the
+// routes the portal calls comes out of helpers/words.js in the request's
+// language, ?locale= first and the account's after it, so a refusal and
+// a message are live kinds beside a form's text.
+const LIVE_KINDS = new Set(["form text", "refusal", "message"]);
 
 const { ES } = require("./words");
 const { silently } = require("./stream");
@@ -966,7 +980,7 @@ const TWIN_PAIRS = [
   ["Glass doors are free of smudges", "Las puertas de vidrio no tienen manchas"],
   ["Floor mats are straight and dry", "Los tapetes est\u00e1n derechos y secos"],
   ["Lobby", "Vest\u00edbulo"],
-  ["Inspection not found", "No se encontr\u00f3 la inspecci\u00f3n"],
+  INSPECTION_NOT_FOUND,
   ["This inspection was already completed", "Esta inspecci\u00f3n ya fue completada"],
   ["Stairwell walk", "Recorrido de la escalera"],
   ["The badge number does not match this account.", "El n\u00famero de empleado no coincide con esta cuenta."],
@@ -983,7 +997,8 @@ const TWIN_PAIRS = [
   .concat(TIME_OFF_REFUSALS.map(r => tableTwin(r.error)))
   .concat(HR_CASE_REFUSALS.map(tableTwin))
   .concat(Object.keys(PIN_REFUSALS).map(k => PIN_REFUSALS[k]))
-  .concat(["That sign-in did not match. Check your badge, phone or email and your PIN.", "Session expired", "Request failed",
+  .concat([LOGIN_REFUSAL])
+  .concat(["Session expired", "Request failed",
     "Photo upload failed", "A sign-off is made with its own button", "That is not a sign-off on this form",
     "You cannot sign this part of the form", "This part is already signed"].map(tableTwin))
   // The second form, already written in both languages above.
@@ -1386,7 +1401,7 @@ function createStub(opts) {
 
     // --- signing in and getting in
     if (key === "POST /api/auth/login") {
-      if (body && body.pin !== "4907") return json(401, { error: "That sign-in did not match. Check your badge, phone or email and your PIN." });
+      if (body && body.pin !== "4907") return json(401, { error: LOGIN_REFUSAL[0] });
       return json(200, { token: "token-one" });
     }
     if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: SITES, preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
@@ -1696,14 +1711,14 @@ function createStub(opts) {
     if (method === "POST" && completing) {
       if (!body || !Array.isArray(body.scores)) return json(400, { error: "Scores are required" });
       const one = state.inspections.find(i => i.id === completing[1] && !i.gone);
-      if (!one) return json(404, { error: "Inspection not found" });
+      if (!one) return json(404, { error: INSPECTION_NOT_FOUND[0] });
       if (one.status === "completed") return json(400, { error: "This inspection was already completed" });
       one.status = "completed";
       return json(200, { success: true, result: { id: "res-" + one.id, scheduled_inspection_id: one.id, total_score: body.scores.reduce((s, x) => s + (parseInt(x.score) || 0), 0) } });
     }
     if (method === "GET" && /^\/api\/inspections\/scheduled\/[^/]+$/.test(pathname)) {
       const one = state.inspections.find(i => pathname.endsWith("/" + i.id) && !i.gone);
-      return one ? json(200, one) : json(404, { error: "Inspection not found" });
+      return one ? json(200, one) : json(404, { error: INSPECTION_NOT_FOUND[0] });
     }
     if (pathname === "/api/inspections/scheduled") return json(200, []);
     if (key === "GET /api/inspections/templates") return json(200, []);
@@ -1832,7 +1847,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
   API_REFUSALS, localeFault, localeRows };

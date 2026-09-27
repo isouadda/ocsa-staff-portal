@@ -7,7 +7,7 @@ const { openApp, letSheetOffer } = require("./browser");
 const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
 const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
-const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
+const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
   API_REFUSALS } = require("./stub");
 
@@ -686,11 +686,11 @@ const JOURNEYS = [
         await clickText(app.page, say("Sign In", language));
         await pause(app.page, 900);
         expect("a wrong PIN is refused", !!lastSent(app.stub, "POST", "/api/auth/login"), "no login was sent");
-        // Word for word, out of the table: the API's sentence in English,
-        // its Spanish on a Spanish screen.
+        // Word for word: the API's own sentence, in the language the
+        // request asks for, drawn as it came.
         const refusedWith = await bodyText(app.page);
         expect("a wrong PIN says so in the person's language",
-          has(refusedWith, spanishOf("That sign-in did not match. Check your badge, phone or email and your PIN.", language)), refusedWith.slice(0, 220));
+          has(refusedWith, LOGIN_REFUSAL[language === "es" ? 1 : 0]), refusedWith.slice(0, 220));
         await spokenHere(app, language, expect);
 
         // A sign-in that never reaches OCSA at all. The PIN is fine, and
@@ -698,7 +698,7 @@ const JOURNEYS = [
         // refusal, so it must not show here.
         // The toast before this one is still up, and its own timer would
         // take this one down with it, so it is let go first.
-        await app.page.waitForFunction(() => !/did not match|no coinciden/i.test(document.body.innerText), { timeout: 5000 }).catch(() => {});
+        await app.page.waitForFunction((gone) => gone.every(g => document.body.innerText.indexOf(g) === -1), LOGIN_REFUSAL, { timeout: 5000 }).catch(() => {});
         app.stub.state.offline = true;
         await type(app.page, 'input[type="password"]', "4907");
         await clickText(app.page, say("Sign In", language));
@@ -707,7 +707,7 @@ const JOURNEYS = [
         expect("a sign-in that cannot reach OCSA says so",
           nowhere.indexOf(say("Could not reach OCSA. Check your connection and try again.", language)) !== -1, nowhere.slice(0, 260));
         expect("a sign-in that cannot reach OCSA leaves the PIN out of it",
-          !/did not match|no coinciden/i.test(nowhere), nowhere.slice(0, 260));
+          !LOGIN_REFUSAL.some(g => has(nowhere, g)), nowhere.slice(0, 260));
         app.stub.state.offline = false;
 
         // What a locked account is told. The toast before this one is let
@@ -842,7 +842,7 @@ const JOURNEYS = [
         await pause(app.page, 900);
         const told = (await toastText(app.page)) || (await bodyText(app.page));
         expect("a wrong PIN is answered in the screen's language, whatever the phone's",
-          has(told, spanishOf("That sign-in did not match. Check your badge, phone or email and your PIN.", language)), told.slice(0, 200));
+          has(told, LOGIN_REFUSAL[language === "es" ? 1 : 0]), told.slice(0, 200));
         await clickText(app.page, say("New Employee? Register Here", language));
         await pause(app.page, 700);
         const person = ["Riley", "Invented", "0000000009", "nine@example.invalid", "5739", "5739"];
@@ -2406,6 +2406,10 @@ const JOURNEYS = [
     run: async (open, language, expect) => {
       const app = await open({});
       const busy = HELP_REFUSALS.busy, unfinished = HELP_REFUSALS.unfinished;
+      // Each refusal in the language the request asks for, the way the
+      // API writes one: the stub serves the twin before the stream opens,
+      // and the case hands the stream the same words for an error part way.
+      const said = (r) => (language === "es" ? TWIN_ES.get(r.error) : r.error);
       const retryShown = (page) => page.evaluate((label) => Array.from(document.querySelectorAll(".sp-content button")).some(b => b.textContent.trim() === label && !b.disabled), say("Retry", language));
       try {
         await openTab(app.page, "agent", language);
@@ -2420,7 +2424,7 @@ const JOURNEYS = [
         const refused = await bodyText(app.page);
         expect("a question turned away is asked on the streaming route", !!refusedCall && refusedCall.path === "/api/agent/message/stream", sentWith(refusedCall));
         expect("a refusal before the answer starts is shown the way a refusal with its status always is",
-          has(refused, say("Not sent.", language) + " " + busy.error) && (await retryShown(app.page)), refused.slice(-240));
+          has(refused, say("Not sent.", language) + " " + said(busy)) && (await retryShown(app.page)), refused.slice(-240));
         await clickText(app.page, say("Retry", language));
         await answerDone(app.page, 6000);
         const again = await waitForMessage(app.page, "store room", 1000);
@@ -2428,7 +2432,7 @@ const JOURNEYS = [
 
         // An error part way: what was written is taken away, and the
         // question is shown failed with the error's own words.
-        app.stub.state.help.next = { answer: "spill", error: { after: 3, status: unfinished.status, error: unfinished.error }, holds: { partway: 2 } };
+        app.stub.state.help.next = { answer: "spill", error: { after: 3, status: unfinished.status, error: said(unfinished) }, holds: { partway: 2 } };
         await askHelp(app.page, language, "What about a big spill");
         await heldAt(app, "partway");
         const partway = await waitForMessage(app.page, "Put a wet fl", 3000);
@@ -2437,7 +2441,7 @@ const JOURNEYS = [
         await pause(app.page, 1400);
         const failed = await bodyText(app.page);
         expect("an error part way is shown the way a refusal with its status always is",
-          has(failed, say("Not sent.", language) + " " + unfinished.error) && (await retryShown(app.page)), failed.slice(-240));
+          has(failed, say("Not sent.", language) + " " + said(unfinished)) && (await retryShown(app.page)), failed.slice(-240));
         expect("the words written before the error are taken away", !has(failed, "wet fl"), failed.slice(-240));
         await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
@@ -2715,8 +2719,8 @@ const JOURNEYS = [
         await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
 
-      // One on the list that the API no longer has. Its refusal comes from
-      // a route that still answers in English, whatever the request asks.
+      // One on the list that the API no longer has. Its refusal is the
+      // API's own two words, in the language the request asks for.
       const gone = await open({ stubOptions: { inspections: [INSPECTION_GONE] } });
       try {
         await openTab(gone.page, "inspect", language);
@@ -2727,7 +2731,7 @@ const JOURNEYS = [
         }, [INSPECTION_GONE.template_name, inSpanish(INSPECTION_GONE.template_name)]);
         await pause(gone.page, 700);
         const told = (await toastText(gone.page)) || (await bodyText(gone.page));
-        expect("an inspection the API no longer has says so", has(told, "Inspection not found") || has(told, inSpanish("Inspection not found")), told.slice(0, 200));
+        expect("an inspection the API no longer has says so", has(told, INSPECTION_NOT_FOUND[language === "es" ? 1 : 0]), told.slice(0, 200));
         await spokenHere(gone, language, expect);
       } finally { await gone.context.close(); }
     },
