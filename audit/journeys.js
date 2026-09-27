@@ -1935,11 +1935,21 @@ const JOURNEYS = [
         expect("both rows start open, with every cell on screen", cells >= table.columns.length * 2, cells + " boxes on screen");
         expect("a row the floor asks for offers no Remove row", text.indexOf(removeRow) === -1, text.slice(0, 260));
 
+        // The one column with a help line: drawn once for the table, under
+        // that column's label in the first row, in the person's language,
+        // with two rows on screen and still once with three.
+        const helped = table.columns.find(c => c.help);
+        const helpLine = await lineCount(app.page, helped.help);
+        const labelAt = await labelTop(app.page, helped.label);
+        expect("a column's help line is drawn once for the table, under its label in the first row, in the person's language",
+          helpLine.count === 1 && labelAt !== null && helpLine.top > labelAt, JSON.stringify(helpLine) + " label at " + labelAt);
+
         // A third row, then the fourth refused on screen.
         await clickText(app.page, addRow);
         text = await bodyText(app.page);
         const rowWord = rowN(3);
         expect("a third row is there", text.indexOf(rowWord) !== -1, text.slice(0, 260));
+        expect("a column's help line is still drawn once with three rows on screen", (await lineCount(app.page, helped.help)).count === 1, JSON.stringify(await lineCount(app.page, helped.help)));
         expect("a fourth row is refused on the screen itself",
           text.indexOf(say("This table is full.", language)) !== -1 && text.indexOf(addRow) === -1, text.slice(0, 260));
 

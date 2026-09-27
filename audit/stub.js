@@ -519,6 +519,7 @@ const FORM_P_WORDS = {
     check: "Check each area", result: "Result", pass: "Pass", fail: "Fail", note: "Note",
     hallway: "Hallway", restroom: "Restroom", entry: "Entry",
     visits: "Rooms you entered", visitDay: "Date", visitAt: "Time", room: "Room",
+    roomHelp: "The number on the door, or the name the site uses for it.",
     lead: "Crew lead", manager: "Area manager",
   },
   es: {
@@ -531,6 +532,7 @@ const FORM_P_WORDS = {
     check: "Revise cada area", result: "Resultado", pass: "Aprobado", fail: "Falla", note: "Nota",
     hallway: "Pasillo", restroom: "Bano", entry: "Entrada",
     visits: "Cuartos en los que entro", visitDay: "Fecha", visitAt: "Hora", room: "Cuarto",
+    roomHelp: "El numero de la puerta, o el nombre que el sitio le da.",
     lead: "Lider de equipo", manager: "Gerente de area",
   },
 };
@@ -562,12 +564,14 @@ function formP(lang) {
         ],
         rows: FORM_P_ROWS.map(k => ({ key: k, label: w[k] })) },
       // A table a person adds rows to, two to three of them, the floor
-      // the PPE check's wear checks table has.
+      // the PPE check's wear checks table has. One column carries a help
+      // line, the way the API sends one since its Step 153, in the
+      // language the request asks for; the others carry no help key.
       { key: "visits", label: w.visits, type: "grid", section: w.rooms, required: true,
         columns: [
           { key: "day", label: w.visitDay, type: "date", required: true },
           { key: "at", label: w.visitAt, type: "time", required: true },
-          { key: "room", label: w.room, type: "text", required: true },
+          { key: "room", label: w.room, type: "text", required: true, help: w.roomHelp },
         ],
         rows: null, minRows: 2, maxRows: 3 },
       // The one the person filing makes, and one that belongs to the

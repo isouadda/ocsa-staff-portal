@@ -5231,10 +5231,14 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
 
   // Every column of one block. The pick one column is the row of
   // buttons pick one already draws, and its name is left to the block's
-  // own heading above it.
-  const renderCells = (f, row, at, write) => (f.columns || []).map(c => (
+  // own heading above it. A column's help line, which the API sends
+  // beside the label since its Step 153, is drawn once per table rather
+  // than once per row: under the label in the first block drawn open,
+  // which is the one asked for with helped.
+  const renderCells = (f, row, at, write, helped) => (f.columns || []).map(c => (
     <div key={c.key}>
       {c.type !== "select" && <div style={cellLabelSt}>{c.label}{c.required && <span style={reqSt}>{tr("Required")}</span>}</div>}
+      {helped && c.help && <div style={mkHelp(t)}>{c.help}</div>}
       {renderControl(c, (row || {})[c.key], v => write(c.key, v), f.key + ":" + at + ":" + c.key + ":")}
     </div>
   ));
@@ -5249,10 +5253,10 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
       if (Object.keys(row).length === 0) delete next[rowKey]; else next[rowKey] = row;
       setVal(f.key, Object.keys(next).length === 0 ? null : next);
     };
-    return (f.rows || []).map(r => (
+    return (f.rows || []).map((r, i) => (
       <div key={r.key} style={gridCard}>
         <div style={gridName}>{r.label}</div>
-        {renderCells(f, all[r.key], r.key, (colKey, v) => write(r.key, colKey, v))}
+        {renderCells(f, all[r.key], r.key, (colKey, v) => write(r.key, colKey, v), i === 0)}
       </div>
     ));
   };
@@ -5281,10 +5285,14 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     const removable = rows.length > floor;
     const full = Number(f.maxRows) > 0 && rows.length >= Number(f.maxRows);
     const first = (f.columns || [])[0];
+    // Which rows are drawn open, and the first of them, where each
+    // column's help line goes.
+    const opened = rows.map((row, i) => !(i < list.length && formRowDone(f.columns, row) && !openRows[f.key + ":" + i]));
+    const firstOpen = opened.indexOf(true);
     return (
       <>
         {rows.map((row, i) => {
-          if (i < list.length && formRowDone(f.columns, row) && !openRows[f.key + ":" + i]) {
+          if (!opened[i]) {
             return (
               <button key={i} type="button" onClick={() => open(i, true)} style={foldedBtn}>
                 {tr("Row {n}", { n: i + 1 })}: {first ? formCellRead(first, row[first.key]) : ""}
@@ -5294,7 +5302,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
           return (
             <div key={i} style={gridCard}>
               <div style={gridName}>{tr("Row {n}", { n: i + 1 })}</div>
-              {renderCells(f, row, i, (colKey, v) => write(i, colKey, v))}
+              {renderCells(f, row, i, (colKey, v) => write(i, colKey, v), i === firstOpen)}
               {removable && <button type="button" onClick={() => remove(i)} style={gridBtn}>{tr("Remove row")}</button>}
             </div>
           );
