@@ -847,8 +847,14 @@ const chatSeed = (channelId, odd) => {
 // Since Step 137 every refusal and every message the API writes on the
 // routes the portal calls comes out of helpers/words.js in the request's
 // language, ?locale= first and the account's after it, so a refusal and
-// a message are live kinds beside a form's text.
-const LIVE_KINDS = new Set(["form text", "refusal", "message"]);
+// a message are live kinds beside a form's text. Since Step 124 a
+// checklist's shift and block names come the same way, as display.shift
+// and display.block on each item and as displayLabel on each shift and
+// block of a session, so a shift header is a live kind too. The label
+// beside each one, shift_label, block_label, label and shiftLabel, is
+// the key the portal sends back to change a shift, and is served as a
+// code: the screen is meant to draw the display name, never the key.
+const LIVE_KINDS = new Set(["form text", "refusal", "message", "shift header"]);
 
 const { ES } = require("./words");
 const { silently } = require("./stream");
@@ -868,8 +874,11 @@ const SHIFT_REFUSALS = [
 const NOT_YOUR_CHECK = { status: 403, code: "NOT_YOUR_CHECK", en: "Only the person who checked this can uncheck it.", es: "Solo la persona que marc\u00f3 esta tarea puede desmarcarla." };
 // One refusal's sentence in a language, with what fills it.
 const refusalIn = (r, lang, vars) => String(lang === "es" ? r.es : r.en).replace(/\{(\w+)\}/g, (whole, k) => (vars && k in vars ? String(vars[k]) : whole));
-// West Building's shifts, as the invalid shift refusal names them.
-const WEST_SHIFT_NAMES = { shifts: "Day shift, Night shift" };
+// West Building's shifts, each with its Spanish twin, and the way the
+// invalid shift refusal names them: by their display names, in the
+// request's language.
+const WEST_SHIFTS = [["Day shift", "Turno de d\u00eda"], ["Night shift", "Turno de noche"]];
+const westShiftNames = (lang) => ({ shifts: WEST_SHIFTS.map(p => p[lang === "es" ? 1 : 0]).join(", ") });
 
 const TWIN_PAIRS = [
   // To-do items, their instructions and their zones.
@@ -935,8 +944,7 @@ const TWIN_PAIRS = [
   ["Office", "Oficina"],
   ["Elevator", "Elevador"],
   ["Outside", "Afuera"],
-  ["Day shift", "Turno de d\u00eda"],
-  ["Night shift", "Turno de noche"],
+  ...WEST_SHIFTS,
   ["Opening checks", "Revisi\u00f3n de apertura"],
   ["Lobby reset", "Repaso del vest\u00edbulo"],
   ["Floor care", "Cuidado de pisos"],
@@ -1015,7 +1023,7 @@ const TWIN_PAIRS = [
   .concat(Object.keys(FORM_P_WORDS.en).map(k => [FORM_P_WORDS.en[k], FORM_P_WORDS.es[k]]))
   .concat([1, 2, 3, 4, 5].map(n => [ROW_WORD.en + " " + n, ROW_WORD.es + " " + n]))
   // A shift change turned away, each sentence as the API writes it.
-  .concat(SHIFT_REFUSALS.map(r => [refusalIn(r, "en", WEST_SHIFT_NAMES), refusalIn(r, "es", WEST_SHIFT_NAMES)]))
+  .concat(SHIFT_REFUSALS.map(r => [refusalIn(r, "en", westShiftNames("en")), refusalIn(r, "es", westShiftNames("es"))]))
   // Chat's refusals as Step 132 writes them, in each language.
   .concat(CHAT_SEND_REFUSALS.map(r => [r.en, r.es]))
   // The three refusals a cleaner meets, as Step 137 writes them.
@@ -1043,9 +1051,11 @@ const WORD_FIELDS = {
 };
 // The fields whose meaning depends on the route that sent them.
 const ROUTE_WORDS = [
-  [/^GET \/api\/sites\/[^/]+\/tasks$/, { label: "to-do item", shift_label: "shift header", block_label: "shift header", shift: "shift header", block: "shift header" }],
+  // A shift's and a block's keys are codes; their display names are the
+  // words, in the request's language. See LIVE_KINDS.
+  [/^GET \/api\/sites\/[^/]+\/tasks$/, { label: "to-do item", shift_label: "code", block_label: "code", shift: "shift header", block: "shift header" }],
   // Every session answer names the site's shifts and their blocks.
-  [/^(GET \/api\/clock\/status|POST \/api\/shift-sessions|PATCH \/api\/shift-sessions\/[^/]+\/shift|GET \/api\/shift-sessions\/today|POST \/api\/shift-sessions\/[^/]+\/end)$/, { label: "shift header", displayLabel: "shift header", shiftLabel: "shift header" }],
+  [/^(GET \/api\/clock\/status|POST \/api\/shift-sessions|PATCH \/api\/shift-sessions\/[^/]+\/shift|GET \/api\/shift-sessions\/today|POST \/api\/shift-sessions\/[^/]+\/end)$/, { label: "code", displayLabel: "shift header", shiftLabel: "code" }],
   [/^GET \/api\/clock\/tasks\/assigned$/, { label: "to-do item" }],
   [/^GET \/api\/lookups$/, { label: "pick list choice", displayLabel: "pick list choice" }],
   [/^GET \/api\/notifications$/, { title: "notice", body: "notice" }],
@@ -1514,7 +1524,7 @@ function createStub(opts) {
       if (!state.clockedIn) return refuse("ended");
       const labels = shiftsFor(state.site, state.sessionStartedAt).map(x => x.label);
       const wanted = body ? body.shiftLabel : undefined;
-      if (wanted !== null && labels.indexOf(wanted) === -1) return refuse("shiftInvalid", { shifts: labels.join(", ") });
+      if (wanted !== null && labels.indexOf(wanted) === -1) return refuse("shiftInvalid", { shifts: labels.map(l => inLanguage(l, lang)).join(", ") });
       state.shiftLabel = wanted;
       return json(200, { today: ymd(new Date(checklistDay(clockNow()) * DAY + 12 * 60 * 60 * 1000)), session: sessionOf(), tasks: progress() });
     }
@@ -1858,6 +1868,6 @@ function draftOf(state) {
 }
 
 module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
-  SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
+  SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
   API_REFUSALS, localeFault, localeRows };
