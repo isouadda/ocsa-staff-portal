@@ -395,10 +395,13 @@ const LIGHT = {
 // The numeral on a badge: white on light mode's deeper red, and the off
 // white the dark theme draws everywhere else.
 const badgeInk = (th) => (th.badgeBg === LIGHT.badgeBg ? "#FFFFFF" : "#F8F7F4");
-// Words on a wash of their own color. Dark draws them in that color. On
-// light mode's white card none of the wash colors reads at 4.5 to 1, so
-// light mode draws them in its own text color over the same wash.
-const washInk = (th, color) => (th === LIGHT ? th.text : color);
+// Words on a wash of their own color. Dark draws them in that color,
+// except red, which it lifts to a lighter red: red itself reads at 3.83
+// to 1 on its own wash over the dark card, and the lifted red at 4.85.
+// On light mode's white card none of the wash colors reads at 4.5 to 1,
+// so light mode draws them in its own text color over the same wash.
+const RED_ON_WASH = "#F2695E";
+const washInk = (th, color) => (th === LIGHT ? th.text : (color === RED ? RED_ON_WASH : color));
 
 // What every request to OCSA carries, and what every refusal becomes.
 // api() and apiStream() both go through these, so Help's streaming route
@@ -5545,7 +5548,7 @@ function PickupView({ token, user, showToast, t }) {
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                     <span style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{s.site_name}</span>
-                    {s.urgency === "urgent" && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 6px", borderRadius: R.sm, background: RED + "18", color: RED, fontFamily: FONT_HEAD }}>{tr("URGENT")}</span>}
+                    {s.urgency === "urgent" && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 6px", borderRadius: R.sm, background: RED + "18", color: washInk(t, RED), fontFamily: FONT_HEAD }}>{tr("URGENT")}</span>}
                   </div>
                   <div style={{ fontSize: 12, color: t.textSec, fontVariantNumeric: "tabular-nums" }}>{fmtDate(s.scheduled_date)}</div>
                 </div>

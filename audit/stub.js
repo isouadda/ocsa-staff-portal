@@ -1551,8 +1551,15 @@ function createStub(opts) {
 
     // --- the calendar
     if (pathname === "/api/pickups/my-schedule") return json(200, schedule());
+    // One open shift of every origin, the first of them the one a case
+    // claims, and one marked urgent, so the sweep draws every badge the
+    // card can carry and the URGENT chip beside a name.
     if (key === "GET /api/pickups/available") return json(200, [
       { id: "pk-1", scheduled_date: "2026-10-08", start_time: "17:00", end_time: "23:00", site_name: "South Building", origin: "voluntary_drop", service_category: "Day porter" },
+      { id: "pk-2", scheduled_date: "2026-10-09", start_time: "06:00", end_time: "14:00", site_name: "North Building", origin: "callout", urgency: "urgent", service_category: "Day porter" },
+      { id: "pk-3", scheduled_date: "2026-10-10", start_time: "22:00", end_time: "06:00", site_name: "West Building", origin: "no_show", service_category: "Day porter" },
+      { id: "pk-4", scheduled_date: "2026-10-11", start_time: "08:00", end_time: "12:00", site_name: "South Building", origin: "extra_coverage", service_category: "Day porter" },
+      { id: "pk-5", scheduled_date: "2026-10-12", start_time: "14:00", end_time: "18:00", site_name: "North Building", origin: "new_shift", service_category: "Day porter" },
     ]);
     if (key === "GET /api/pickups/my-pickups") return json(200, []);
     if (key === "POST /api/pickups/request-drop") return json(200, { ok: true });
