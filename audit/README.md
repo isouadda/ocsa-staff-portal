@@ -284,6 +284,32 @@ none. The API keeps each form's section titles in its definitions and
 sends none yet, so this is the key the portal reads them under once a
 catalog sends them.
 
+## Photos and a drawn signature on a form
+
+The second form carries a photos question, `pics`, taking three photos
+at most rather than the API's six, so a case reaches the limit on one
+screen. The stub answers the six routes Step 163 gave the API:
+`POST /api/forms/responses/:id/photos/:questionKey` reads the multipart
+body as the bytes the browser sent (`browser.js` hands a multipart body
+over as a buffer), checks every file before it keeps any, refuses a
+HEIC, a file that is not a picture, one over 10 MB or one over the
+limit in the request's language, and answers `{ key, photos }`; `DELETE
+.../photos/:questionKey/:photoId` takes one off; `GET
+.../photos/:photoId/thumb` and `GET .../photos/:photoId` stream the
+bytes back. Each upload's files are put on the call's record as
+`files`, each with its name, its kind read off its bytes and its width
+and height, so a case can read what the phone made of a photo. A
+photos answer written through a save is refused the way the API
+refuses it. The sign-off route requires `signature`, a PNG data URL of
+at most 300 KB, refuses one missing, not a PNG or too large in the
+request's language, stamps `signatureId`, and puts the PNG's size on
+the call's record as `signature`; `GET .../signatures/:key` streams it.
+The photo refusals a cleaner meets and `forms.signatureRequired` are in
+`API_REFUSALS`, so a case asks for them with `{ api: key }`; the ones
+no screen should meet are in `FILE_REFUSALS`. `state.holdMs["METHOD
+/path"]` answers one call that many milliseconds late, so a screen can
+be read while it waits.
+
 ## Coverage proves itself
 
 `audit/inventory.js` reads the tabs, the sign in screens and the full

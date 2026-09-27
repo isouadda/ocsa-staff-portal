@@ -235,6 +235,15 @@ const SHEET_OPENERS = {
     await openForm(page, language);
     await clickText(page, say("Close", language));
   },
+  // The second form's sign-off, on its last page.
+  "FormFiller#2": async (page, language) => {
+    await openTab(page, "forms", language);
+    await pause(page, 700);
+    await startForm(page, formP(language).title);
+    for (let i = 0; i < 3; i += 1) await clickText(page, say("Next", language));
+    await clickText(page, say("Sign", language));
+    await pause(page, 600);
+  },
   "InspectView#0": async (page, language) => {
     await openTab(page, "inspect", language);
     await clickText(page, say("+ Schedule", language));
@@ -605,4 +614,4 @@ async function runScreens(browser, base, opts) {
   return { rows: rows, covered: covered, gaps: gaps, combinations: COMBINATIONS.length };
 }
 
-module.exports = { runScreens, openTab, clickText, startForm, SIZES, LANGUAGES, COMBINATIONS, FORM_P_PAGES, ALLOWED };
+module.exports = { runScreens, openTab, clickText, startForm, inspect, SHEET_OPENERS, SIZES, LANGUAGES, COMBINATIONS, FORM_P_PAGES, ALLOWED };

@@ -509,6 +509,7 @@ Add row,Agregar fila,Forms
 Answered,Respondida,Forms
 Back,Atrás,"Forms, Profile"
 Check this answer,Revise esta respuesta,Forms
+Clear,Borrar,Forms
 Continue,Continuar,Forms
 Done,Listo,"Forms, Shortcuts, Settings"
 Edit,Editar,"Forms, Profile"
@@ -542,6 +543,7 @@ Send it,Enviarlo,Forms
 Send this report? You cannot change it after it is sent.,¿Enviar este reporte? No lo podrá cambiar después de enviarlo.,Forms
 Sending,Enviando,Forms
 Sign,Firmar,Forms
+Sign with your finger,Firme con el dedo,Forms
 Signed by {name} on {date} at {time},Firmado por {name} el {date} a las {time},Forms
 Start report,Comenzar reporte,Forms
 Take photo or choose from gallery,Tomar foto o elegir de la galería,Forms

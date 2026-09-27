@@ -4956,6 +4956,107 @@ const formPhotosLine = (v) => {
 const FORMS_TAKE_PHOTO = "Take photo or choose from gallery";
 const FORMS_PHOTOS_FULL = "This question is full.";
 const FORMS_PHOTOS_DEFAULT_MAX = 6;
+// Signing with a finger. The drawing is kept as strokes in the box's own
+// pixels and painted at the phone's pixel ratio, so a signature is not
+// blurry; on its way to the API it becomes a PNG of at most
+// SIGNATURE_MAX_BYTES, brought down in size until it fits.
+const FORMS_SIGN_HINT = "Sign with your finger";
+const SIGN_BOX_HEIGHT = 160;
+const SIGNATURE_MAX_BYTES = 300 * 1024;
+const SIGNATURE_BASELINE = "#C5C9D3";
+const pixelRatio = () => Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+function drawSignatureStrokes(ctx, strokes) {
+  ctx.strokeStyle = NAVY; ctx.fillStyle = NAVY; ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  strokes.forEach((pts) => {
+    if (!pts || pts.length === 0) return;
+    if (pts.length === 1) { ctx.beginPath(); ctx.arc(pts[0].x, pts[0].y, 1.5, 0, Math.PI * 2); ctx.fill(); return; }
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke();
+  });
+}
+// The drawing as a PNG data URL, white behind it, at the phone's pixel
+// ratio first and smaller until it is under the ceiling. Null when
+// nothing was drawn or nothing could be made.
+function signaturePng(strokes, w, h) {
+  if (!strokes || strokes.length === 0 || !w || !h) return null;
+  let scale = pixelRatio();
+  for (let i = 0; i < 8; i++) {
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(w * scale)); c.height = Math.max(1, Math.round(h * scale));
+    const ctx = c.getContext("2d");
+    if (!ctx) return null;
+    ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    drawSignatureStrokes(ctx, strokes);
+    const url = c.toDataURL("image/png");
+    if (Math.floor((url.length - url.indexOf(",") - 1) * 3 / 4) <= SIGNATURE_MAX_BYTES) return url;
+    scale *= 0.7;
+  }
+  return null;
+}
+
+// The box a person signs in: white, the width it is given and as tall as
+// asked, with a baseline under where a signature goes. Pointer events, so
+// a finger and a mouse both draw. A stroke is painted as it is made and
+// handed up when it ends, with the box's size in its own pixels, which is
+// what the PNG is drawn from.
+function SignatureBox({ strokes, onStroke, height }) {
+  const ref = useRef(null);
+  const live = useRef(null);
+  const size = useRef({ w: 0, h: height });
+  const paint = useCallback(() => {
+    const c = ref.current;
+    if (!c) return;
+    const rect = c.getBoundingClientRect();
+    const w = Math.max(1, Math.round(rect.width)), h = Math.max(1, Math.round(rect.height));
+    const dpr = pixelRatio();
+    const bw = Math.round(w * dpr), bh = Math.round(h * dpr);
+    if (c.width !== bw || c.height !== bh) { c.width = bw; c.height = bh; }
+    size.current = { w: w, h: h };
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, w, h);
+    const base = Math.round(h * 0.74) + 0.5;
+    ctx.strokeStyle = SIGNATURE_BASELINE; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(16, base); ctx.lineTo(w - 16, base); ctx.stroke();
+    drawSignatureStrokes(ctx, strokes);
+  }, [strokes]);
+  useEffect(() => { paint(); }, [paint]);
+  useEffect(() => { window.addEventListener("resize", paint); return () => window.removeEventListener("resize", paint); }, [paint]);
+  const at = (e) => {
+    const r = ref.current.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * (size.current.w / (r.width || 1)), y: (e.clientY - r.top) * (size.current.h / (r.height || 1)) };
+  };
+  const segment = (a, b) => {
+    const ctx = ref.current && ref.current.getContext("2d");
+    if (!ctx) return;
+    ctx.strokeStyle = NAVY; ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  };
+  const down = (e) => {
+    e.preventDefault();
+    try { ref.current.setPointerCapture(e.pointerId); } catch (err) {}
+    const p = at(e);
+    live.current = [p];
+    segment(p, p);
+  };
+  const move = (e) => {
+    if (!live.current) return;
+    e.preventDefault();
+    const p = at(e);
+    segment(live.current[live.current.length - 1], p);
+    live.current.push(p);
+  };
+  const up = () => {
+    if (!live.current) return;
+    const done = live.current;
+    live.current = null;
+    onStroke(done, size.current);
+  };
+  return <canvas ref={ref} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} style={{ display: "block", width: "100%", height: height, touchAction: "none", cursor: "crosshair" }} />;
+}
+
 // One sign-off as a person reads it, in the phone's own time.
 const formStampLine = (v) => (v && typeof v === "object" && v.at
   ? tr("Signed by {name} on {date} at {time}", { name: v.name || "", date: formatDate(v.at), time: formatTime(v.at) })
@@ -5115,6 +5216,13 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   const [photoGoing, setPhotoGoing] = useState({});
   const [photoErr, setPhotoErr] = useState({});
   const [thumbs, setThumbs] = useState({});
+  // The sign-off being signed in the sheet, the strokes drawn so far and
+  // the box's size, and each stamp's drawing as a URL made in memory.
+  const [signFor, setSignFor] = useState(null);
+  const [strokes, setStrokes] = useState([]);
+  const signSize = useRef({ w: 0, h: 0 });
+  const [sigUrls, setSigUrls] = useState({});
+  const sigAsked = useRef(new Set());
   const photoInputs = useRef({});
   const thumbAsked = useRef(new Set());
   const madeUrls = useRef([]);
@@ -5231,13 +5339,15 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
 
   // A sign-off is made with its own request, never written as an answer,
   // and nothing is drawn until the API has answered with the stamp it
-  // made. One press sends one request.
-  const sign = async (f) => {
-    if (signing) return;
+  // made. One press sends one request, with the drawing the person made
+  // as a PNG. Answers whether the stamp was made.
+  const sign = async (f, signature) => {
+    if (signing) return false;
     setSigning(f.key);
     setSignErr(prev => Object.assign({}, prev, { [f.key]: null }));
+    let made = false;
     try {
-      const r = await api("/api/forms/responses/" + encodeURIComponent(current.id) + "/signoff?locale=" + locale, { method: "POST", token, body: { key: f.key } });
+      const r = await api("/api/forms/responses/" + encodeURIComponent(current.id) + "/signoff?locale=" + locale, { method: "POST", token, body: { key: f.key, signature: signature } });
       const d = formDraftOf(r && r.response ? r.response : r);
       setCurrent(d);
       // The answers come back from the server, and anything typed on
@@ -5247,12 +5357,51 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
         Object.keys(dirty).forEach(k => { if (formHasAnswer(prev[k])) next[k] = prev[k]; else delete next[k]; });
         return next;
       });
+      made = true;
     } catch (err) {
       const said = (err.status === undefined || err.status === null) ? tr(FORMS_NOT_SIGNED) : tr(err.message);
       setSignErr(prev => Object.assign({}, prev, { [f.key]: said }));
     }
     setSigning(null);
+    return made;
   };
+  // The sheet: opened by the sign-off's button, closed by a stamp or by a
+  // tap outside it. Sign sends the drawing and nothing until there is one.
+  const openSign = (f) => {
+    setSignErr(prev => Object.assign({}, prev, { [f.key]: null }));
+    setStrokes([]);
+    setSignFor(f.key);
+  };
+  const signNow = async () => {
+    const f = fieldByKey(signFor);
+    if (!f || signing) return;
+    const png = signaturePng(strokes, signSize.current.w, signSize.current.h);
+    if (!png) return;
+    const made = await sign(f, png);
+    if (made && alive.current) { setSignFor(null); setStrokes([]); }
+  };
+  // Each stamp's drawing is fetched once, through the stream route with
+  // the token, and kept as a URL made in memory. A stamp made before
+  // drawings were kept has none and asks for none.
+  useEffect(() => {
+    (form && Array.isArray(form.fields) ? form.fields : []).forEach((f) => {
+      if (formTypeOf(f) !== "signoff") return;
+      const v = values[f.key];
+      if (!v || typeof v !== "object" || !v.signatureId) return;
+      const mark = f.key + ":" + v.signatureId;
+      if (sigAsked.current.has(mark)) return;
+      sigAsked.current.add(mark);
+      (async () => {
+        try {
+          const blob = await apiBlob("/api/forms/responses/" + encodeURIComponent(current.id) + "/signatures/" + encodeURIComponent(f.key) + "?locale=" + locale, { token });
+          if (!alive.current) return;
+          const url = URL.createObjectURL(blob);
+          madeUrls.current.push(url);
+          setSigUrls(prev => Object.assign({}, prev, { [f.key]: url }));
+        } catch (err) {}
+      })();
+    });
+  }, [values, form, current.id, token, locale]);
 
   // A photos question is answered through its own routes, never as a
   // saved answer: a tap uploads the pictures at once, Remove photo takes
@@ -5514,15 +5663,24 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     );
   };
 
-  // One sign-off: the stamp the API made, or the button that asks for it.
+  // A stamp as a person reads it: its drawing, about 48 pixels high, above
+  // the Signed by line, or the line alone when the stamp has no drawing.
+  const renderStamp = (f, v, line, inReview) => (
+    <div style={{ marginTop: inReview ? 4 : 8 }}>
+      {v && v.signatureId && sigUrls[f.key] && <img src={sigUrls[f.key]} alt="" style={{ display: "block", height: 48, maxWidth: "100%", boxSizing: "border-box", objectFit: "contain", objectPosition: "left center", background: "#FFFFFF", borderRadius: R.sm, border: "1px solid " + t.borderSolid, marginBottom: 6 }} />}
+      <div style={{ fontSize: 14, color: t.text, fontWeight: inReview ? 600 : 400, lineHeight: 1.5, overflowWrap: "anywhere" }}>{line}</div>
+    </div>
+  );
+  // One sign-off: the stamp the API made, or the button that opens the
+  // sheet to sign in.
   const renderSignoff = (f) => {
     const line = formStampLine(values[f.key]);
-    if (line) return <div style={{ fontSize: 14, color: t.text, marginTop: 8, lineHeight: 1.5, overflowWrap: "anywhere" }}>{line}</div>;
+    if (line) return renderStamp(f, values[f.key], line, false);
     const busy = signing === f.key;
     return (
       <>
-        <button type="button" onClick={() => sign(f)} disabled={busy} style={{ ...gridBtn, border: "1px solid " + GOLD, background: busy ? "transparent" : t.goldBg, color: t.goldText, opacity: busy ? 0.6 : 1 }}>{busy ? tr("Sending") : tr("Sign")}</button>
-        {signErr[f.key] && <div style={{ ...mkFieldErr(t), marginTop: 8 }}>{signErr[f.key]}</div>}
+        <button type="button" onClick={() => openSign(f)} disabled={busy} style={{ ...gridBtn, border: "1px solid " + GOLD, background: busy ? "transparent" : t.goldBg, color: t.goldText, opacity: busy ? 0.6 : 1 }}>{busy ? tr("Sending") : tr("Sign")}</button>
+        {!signFor && signErr[f.key] && <div style={{ ...mkFieldErr(t), marginTop: 8 }}>{signErr[f.key]}</div>}
       </>
     );
   };
@@ -5646,7 +5804,9 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
               return (
                 <div key={f.key} style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{f.label}</div>
-                  <div style={{ fontSize: 14, color: read ? t.text : t.textMut, fontWeight: read ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{read || tr(signoff ? "Not signed" : "Not answered")}</div>
+                  {signoff && read
+                    ? renderStamp(f, values[f.key], read, true)
+                    : <div style={{ fontSize: 14, color: read ? t.text : t.textMut, fontWeight: read ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{read || tr(signoff ? "Not signed" : "Not answered")}</div>}
                 </div>
               );
             })}
@@ -5695,6 +5855,24 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <button onClick={() => setConfirmLeave(false)} style={{ ...footBtn(false, false), flex: "1 1 120px" }}>{tr("Keep filling")}</button>
               <button onClick={leave} style={{ ...footBtn(true, false), flex: "1 1 120px" }}>{tr("Leave")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {signFor && (
+        <div onClick={() => { if (!signing) setSignFor(null); }} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={(fieldByKey(signFor) || {}).label || tr("Sign")} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "20px 20px 30px", boxShadow: t.popShadow, maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 40px)", overflowY: "auto" }}>
+            <div style={{ width: 40, height: 4, borderRadius: 2, background: t.textMut, margin: "0 auto 16px", opacity: 0.3 }} />
+            <div style={{ fontSize: 15, fontWeight: 600, color: t.text, marginBottom: 12, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{(fieldByKey(signFor) || {}).label}</div>
+            <div style={{ borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+              <SignatureBox strokes={strokes} onStroke={(s, size) => { signSize.current = size; setStrokes(prev => prev.concat([s])); }} height={SIGN_BOX_HEIGHT} />
+            </div>
+            <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+            {signErr[signFor] && <div style={{ ...mkFieldErr(t), marginTop: 8 }}>{signErr[signFor]}</div>}
+            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+              <button type="button" onClick={() => { setStrokes([]); setSignErr(prev => Object.assign({}, prev, { [signFor]: null })); }} disabled={signing === signFor} style={footBtn(false, signing === signFor)}>{tr("Clear")}</button>
+              <button type="button" onClick={signNow} disabled={signing === signFor || strokes.length === 0} style={footBtn(true, signing === signFor || strokes.length === 0)}>{signing === signFor ? tr("Sending") : tr("Sign")}</button>
             </div>
           </div>
         </div>

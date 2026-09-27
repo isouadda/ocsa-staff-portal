@@ -115,6 +115,7 @@ const SHEET_CASES = [
   { id: "NotificationsSheet#0", label: "Notifications" },
   { id: "FormFiller#0", label: "Report, send it" },
   { id: "FormFiller#1", label: "Report, leave it" },
+  { id: "FormFiller#2", label: "Report, sign it" },
   { id: "InspectView#0", label: "Inspect, schedule one" },
   { id: "HomeScreenPrompt#0", label: "Add to home screen" },
 ];

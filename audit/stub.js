@@ -466,6 +466,8 @@ function makeState(opts) {
     answersP: o.answersP ? Object.assign({}, o.answersP) : {},
     photoBytes: {},
     photoSeq: 0,
+    // The drawing behind each sign-off stamped on it, by key.
+    signatureBytes: {},
     // A route a case has asked to answer late, by "METHOD /path", in
     // milliseconds, so a screen can be read while it waits.
     holdMs: o.holdMs || {},
@@ -815,18 +817,25 @@ const API_REFUSALS = {
   "forms.photoTooLarge": { status: 400, en: "This photo is over 10 MB.", es: "Esta foto pesa m\u00e1s de 10 MB." },
   "forms.photoType": { status: 400, en: "Use a JPG, PNG, HEIC or WebP photo.", es: "Use una foto JPG, PNG, HEIC o WebP." },
   "forms.photoLimit": { status: 400, en: "This question takes {max} photos at most.", es: "Esta pregunta acepta como m\u00e1ximo {max} fotos.", vars: { max: FORM_P_MAX_PHOTOS } },
+  // A sign-off with no drawing, as the API's Step 163 writes it.
+  "forms.signatureRequired": { status: 400, en: "Sign with your finger or mouse before pressing Sign.", es: "Firme con el dedo o el mouse antes de presionar Firmar." },
 };
-// The photo refusals the stub answers on its own, which no screen should
-// meet once the phone makes every photo small: a HEIC that reached the
-// API, no file at all, a photo that is not there, and a photos answer
-// written as if it were any other.
-const PHOTO_REFUSALS = {
+// The photo and signature refusals the stub answers on its own, which no
+// screen should meet once the phone makes every photo small and draws
+// every signature: a HEIC that reached the API, no file at all, a photo
+// that is not there, a photos answer written as if it were any other, a
+// drawing that is not a PNG or is too large, and a drawing nobody made.
+const FILE_REFUSALS = {
   "forms.photoHeic": { status: 400, en: "HEIC photos cannot be converted here. Use a JPG or PNG photo.", es: "Las fotos HEIC no se pueden convertir aqu\u00ed. Use una foto JPG o PNG." },
   "forms.photoNoFile": { status: 400, en: "Attach at least one photo.", es: "Adjunte al menos una foto." },
   "forms.photoNotFound": { status: 404, en: "Photo not found", es: "No se encontr\u00f3 la foto" },
   "forms.notAPhotosQuestion": { status: 400, en: "That question does not take photos", es: "Esa pregunta no acepta fotos" },
   "forms.photosByRoute": { status: 400, en: "Photos are added with their own button", es: "Las fotos se agregan con su propio bot\u00f3n" },
+  "forms.signatureInvalid": { status: 400, en: "The signature must be a PNG drawing.", es: "La firma debe ser un dibujo PNG." },
+  "forms.signatureTooLarge": { status: 400, en: "The signature is over 300 KB.", es: "La firma pesa m\u00e1s de 300 KB." },
+  "forms.signatureNotFound": { status: 404, en: "Signature not found", es: "No se encontr\u00f3 la firma" },
 };
+const SIGNATURE_MAX_BYTES = 300 * 1024;
 // A one pixel PNG, the bytes every streamed image falls back to.
 const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
 const image = (contentType, bytes) => ({ status: 200, contentType: contentType, body: bytes });
@@ -1126,7 +1135,7 @@ const TWIN_PAIRS = [
   // The refusals a cleaner meets, as Step 137 writes them, each filled the
   // way the route fills it, and the photo refusals the stub answers on its own.
   .concat(Object.keys(API_REFUSALS).map(k => [refusalIn(API_REFUSALS[k], "en", API_REFUSALS[k].vars), refusalIn(API_REFUSALS[k], "es", API_REFUSALS[k].vars)]))
-  .concat(Object.keys(PHOTO_REFUSALS).map(k => [PHOTO_REFUSALS[k].en, PHOTO_REFUSALS[k].es]))
+  .concat(Object.keys(FILE_REFUSALS).map(k => [FILE_REFUSALS[k].en, FILE_REFUSALS[k].es]))
   // The form with titled sections, written in both languages above.
   .concat(Object.keys(FORM_S_WORDS.en).map(k => [FORM_S_WORDS.en[k], FORM_S_WORDS.es[k]]));
 
@@ -1484,7 +1493,7 @@ function createStub(opts) {
   // One of the three refusals a cleaner meets, the same way: its key as
   // the code, and error in the language the request asks for.
   const apiRefusal = (key, search) => {
-    const r = API_REFUSALS[key] || PHOTO_REFUSALS[key];
+    const r = API_REFUSALS[key] || FILE_REFUSALS[key];
     return json(r.status, { error: refusalIn(r, languageOf(search, state), r.vars), code: key });
   };
   // A route a case has asked to refuse wins over the answer below it. A
@@ -1859,11 +1868,31 @@ function createStub(opts) {
       if (!field) return json(400, { error: "That is not a sign-off on this form" });
       if (field.signer !== "filer") return json(403, { error: "You cannot sign this part of the form" });
       if (state.answersP[wanted]) return json(409, { error: "This part is already signed" });
+      // Since Step 163 the body carries the drawing, a PNG data URL of at
+      // most 300 KB, checked before anything is written, and the stamp
+      // carries its id.
+      const raw = body && body.signature !== undefined && body.signature !== null ? String(body.signature).trim() : "";
+      if (!raw) return apiRefusal("forms.signatureRequired", search);
+      const drawn = /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw);
+      const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
+      if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") return apiRefusal("forms.signatureInvalid", search);
+      if (bytes.length > SIGNATURE_MAX_BYTES) return apiRefusal("forms.signatureTooLarge", search);
+      state.signatureBytes[wanted] = bytes;
+      state.calls[state.calls.length - 1].signature = { bytes: bytes.length, size: imageSize(bytes) };
       state.answersP[wanted] = {
         userId: state.person.id, name: state.person.firstName + " " + state.person.lastName,
-        role: state.person.role, at: iso(NOW.getTime()),
+        role: state.person.role, at: iso(NOW.getTime()), signatureId: "sig-" + wanted,
       };
       return json(200, { response: draftP(state, lang) });
+    }
+    // The drawing behind a sign-off, streamed to anyone who may read the
+    // report. A stamp made before drawings were kept has none.
+    const signatureGet = /^\/api\/forms\/responses\/draft-two\/signatures\/([^/]+)$/.exec(pathname);
+    if (method === "GET" && signatureGet) {
+      const stamp = state.answersP[signatureGet[1]];
+      const kept = state.signatureBytes[signatureGet[1]];
+      if (!stamp || !stamp.signatureId || !kept) return apiRefusal("forms.signatureNotFound", search);
+      return image("image/png", kept);
     }
     if (method === "GET" && /^\/api\/forms\/[^/]+$/.test(pathname)) {
       if (third(pathname)) return json(200, { form: thirdForm() });
@@ -2036,4 +2065,4 @@ function draftOf(state) {
 module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
-  API_REFUSALS, PHOTO_REFUSALS, FORM_P_MAX_PHOTOS, localeFault, localeRows };
+  API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES, localeFault, localeRows };
