@@ -210,6 +210,44 @@ const attachPhotos = (page, selector, names) => page.evaluate(([sel, list]) => n
   });
 }), [selector, names]);
 
+// A picture drawn in the page at a size a case names, as a PNG or a JPEG,
+// see-through in part when asked, so a case can tell what the phone made
+// of it.
+const attachDrawn = (page, selector, name, width, height, clear) => page.evaluate(([sel, n, w, h, see]) => new Promise((done) => {
+  const input = document.querySelector(sel);
+  if (!input) { done(false); return; }
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const ctx = c.getContext("2d");
+  if (!see) { ctx.fillStyle = "#3355aa"; ctx.fillRect(0, 0, w, h); }
+  ctx.fillStyle = see ? "rgba(200, 40, 40, 0.5)" : "#dddddd"; ctx.fillRect(2, 2, Math.max(1, w / 2), Math.max(1, h / 2));
+  const png = /\.png$/i.test(n);
+  c.toBlob((b) => {
+    const dt = new DataTransfer(); dt.items.add(new File([b], n, { type: png ? "image/png" : "image/jpeg" }));
+    input.files = dt.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    done(true);
+  }, png ? "image/png" : "image/jpeg", 0.92);
+}), [selector, name, width, height, !!clear]);
+
+// A file with the bytes a case gives it, named and typed as the case says.
+const attachBytes = (page, selector, base64, name, type) => page.evaluate(([sel, b64, n, t]) => {
+  const input = document.querySelector(sel);
+  if (!input) return false;
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const dt = new DataTransfer(); dt.items.add(new File([bytes], n, { type: t }));
+  input.files = dt.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}, [selector, base64, name, type]);
+
+// A HEIC file, 64 by 40, a checkerboard of two colors, encoded with
+// pillow-heif at quality 60. The one real picture in the suite, since the
+// browser cannot make one, and the phone has to convert it before it
+// sends anything.
+const HEIC_FIXTURE = "AAAAHGZ0eXBoZWljAAAAAG1pZjFoZWljbWlhZgAAAX1tZXRhAAAAAAAAACFoZGxyAAAAAAAAAABwaWN0AAAAAAAAAAAAAAAAAAAAACJpbG9jAAAAAERAAAEAAQAAAAABoQABAAAAAAAAASMAAAAjaWluZgAAAAAAAQAAABVpbmZlAgAAAAABAABodmMxAAAAAA5waXRtAAAAAAABAAAA/WlwcnAAAADdaXBjbwAAAHZodmNDAQNwAAAAAAAAAAAAHvAA/P34+AAADwNgAAEAGEABDAH//wNwAAADAJAAAAMAAAMAHroCQGEAAQAqQgEBA3AAAAMAkAAAAwAAAwAeoCCBBZbq5Ka5uAhoMCAAAAMDIAAAAwAhYgABAAZEAcFzwIkAAAATY29scm5jbHgAAQANAAaAAAAAFGlzcGUAAAAAAAAAQAAAAEAAAAAoY2xhcAAAAEAAAAABAAAAKAAAAAEAAAAAAAAAAv///+gAAAACAAAAEHBpeGkAAAAAAwgICAAAABhpcG1hAAAAAAAAAAEAAQWBAgMFhAAAASttZGF0AAABHygBrwngivoBtpn/kP6+2j/wUd3QwfpyN9KmNZfbvaI92w++krzKNvg2XT9F79RQ+abYq9yeomi1mK3uEWuVegq9VQvp4f3NWEfgtXW/uvUMgdszxpUPmwqsOoLYv3tjNWyUYVbKcIFWz1z1o0dXYUsyco7WGsM6ZZHvlmj9dNQBdXZHjaa0DNKg4VIqtE5wY7/bf9uuBip1lGmQv747PCoS0QPOfmm/wRwmHy/21aHLz036kPSJUEdLKYA1Vpx92vv7DdKP+HmdxwKWYBrTt3MB7wF1LSL3WL7AnzpT70CNVkA4huvD3XgFG/1zckBul60ojD7LDJO6GjxBFc5ZDqANwQGJOTCmCD0aFfHR7NQ+j2FNk8lZxBaf68xhMoXA";
+
 // A file that says it is a photo and is not one, so the phone cannot
 // read it.
 const attachBroken = (page, selector) => page.evaluate((sel) => {
@@ -2175,6 +2213,68 @@ const JOURNEYS = [
         await pause(app.page, 900);
         text = await bodyText(app.page);
         expect("the review counts the photos: several", has(text, fill(say("{n} photos", language), { n: FORM_P_MAX_PHOTOS })), text.slice(0, 600));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "formpsmall",
+    label: "Photos on a form are made small on the phone: a broken file is refused with nothing sent, a HEIC is converted, a wide JPEG comes down to 2,000 pixels, a PNG with transparency stays a PNG, and one without becomes a JPEG",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        const form = formP(language);
+        const q = form.fields.find(f => f.type === "photos");
+        const route = "/api/forms/responses/draft-two/photos/" + q.key;
+        const input = '.sp-content input[type="file"]';
+        const posts = () => app.stub.state.calls.filter(c => c.method === "POST" && c.path === route);
+        // The upload a picture ends in, waited for: a HEIC takes a while.
+        const nextPost = async (from, ms) => {
+          for (let i = 0; i < ms / 200; i += 1) { if (posts().length > from) { await pause(app.page, 600); return posts()[from]; } await pause(app.page, 200); }
+          return null;
+        };
+        const fileOf = (c) => (c && Array.isArray(c.files) && c.files.length === 1 ? c.files[0] : null);
+        const unreadable = spanishOf("This photo could not be read. Try another one.", language);
+
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, form.title);
+
+        // A file that is not a picture: refused on the phone, nothing sent.
+        await attachBroken(app.page, input);
+        await pause(app.page, 1800);
+        let text = await bodyText(app.page);
+        expect("a file the phone cannot read is refused there, in the person's language", has(text, unreadable), text.slice(0, 600));
+        expect("nothing is sent for a file the phone cannot read", posts().length === 0, JSON.stringify(posts().map(c => c.files)));
+
+        // A HEIC, converted on the phone and sent as a JPEG.
+        await attachBytes(app.page, input, HEIC_FIXTURE, "kitchen.heic", "image/heic");
+        const heic = fileOf(await nextPost(0, 30000));
+        expect("a HEIC is converted on the phone and sent as a JPEG named for it",
+          !!heic && heic.kind && heic.kind.ext === "jpg" && heic.name === "kitchen.jpg", JSON.stringify(heic));
+        expect("the converted picture keeps its size", !!heic && heic.size && heic.size.width === 64 && heic.size.height === 40, JSON.stringify(heic && heic.size));
+        text = await bodyText(app.page);
+        expect("the API's HEIC refusal is never met", !has(text, PHOTO_REFUSALS["forms.photoHeic"][language]) && !has(text, unreadable) && has(text, "kitchen.jpg"), text.slice(0, 600));
+
+        // A wide JPEG comes down to the ceiling, still a JPEG.
+        await attachDrawn(app.page, input, "wide.jpg", 4000, 300, false);
+        const wide = fileOf(await nextPost(1, 15000));
+        expect("a 4,000 pixel JPEG comes out at 2,000 on its long side, still a JPEG",
+          !!wide && wide.kind && wide.kind.ext === "jpg" && wide.name === "wide.jpg" && wide.size && wide.size.width === 2000 && wide.size.height === 150, JSON.stringify(wide));
+
+        // A PNG with something see-through stays a PNG.
+        await attachDrawn(app.page, input, "clear.png", 30, 30, true);
+        const clear = fileOf(await nextPost(2, 15000));
+        expect("a PNG with transparency stays a PNG", !!clear && clear.kind && clear.kind.ext === "png" && clear.name === "clear.png" && clear.size && clear.size.width === 30, JSON.stringify(clear));
+
+        // Room for one more, then a PNG with nothing see-through, which is
+        // sent as a JPEG like everything else.
+        await clickText(app.page, say("Remove photo", language));
+        await pause(app.page, 900);
+        await attachDrawn(app.page, input, "solid.png", 30, 30, false);
+        const solid = fileOf(await nextPost(3, 15000));
+        expect("a PNG with nothing see-through is sent as a JPEG", !!solid && solid.kind && solid.kind.ext === "jpg" && solid.name === "solid.jpg", JSON.stringify(solid));
+        expect("every photo sent is inside the ceiling", posts().every(c => (c.files || []).every(f => f.size && Math.max(f.size.width, f.size.height) <= 2000)), JSON.stringify(posts().map(c => c.files)));
         await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
     },

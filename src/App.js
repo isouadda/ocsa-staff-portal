@@ -301,6 +301,74 @@ async function prepareAgentPhoto(file) {
   return blob;
 }
 
+// Photos added to a form are made small on the phone before anything is
+// sent. Most staff carry iPhones, whose camera saves HEIC: the file input
+// never names HEIC, so iOS hands over a JPEG in the common case, and a
+// HEIC that still arrives, from the Files app or another browser, is
+// converted here with heic2any, loaded only when one shows up. Then every
+// picture, whatever it was, is drawn onto a canvas no larger than the
+// API's own ceiling and re-encoded as a JPEG, with the orientation read
+// from the file so a portrait photo stays upright; a PNG with
+// transparency stays a PNG. Re-encoding drops the location and camera
+// data the phone wrote into the file, which is intended. A picture that
+// cannot be read is refused here, and nothing is sent for it.
+const FORM_PHOTO_MAX_SIDE = 2000;
+const FORM_PHOTO_QUALITY = 0.85;
+const FORMS_PHOTO_UNREADABLE = "This photo could not be read. Try another one.";
+const HEIC_BRANDS = ["heic", "heix", "hevc", "hevx", "heim", "heis", "mif1", "msf1"];
+
+// A HEIC or HEIF file, by what the phone says and then by its first bytes,
+// the brand of the container, the way the API reads it.
+async function isHeicFile(file) {
+  if (/^image\/hei[cf]/i.test(file.type || "") || /\.hei[cf]$/i.test(file.name || "")) return true;
+  try {
+    const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+    if (head.length < 12) return false;
+    const ascii = (a, b) => String.fromCharCode.apply(null, Array.from(head.subarray(a, b)));
+    return ascii(4, 8) === "ftyp" && HEIC_BRANDS.indexOf(ascii(8, 12).toLowerCase()) !== -1;
+  } catch (e) { return false; }
+}
+
+async function heicToJpeg(file) {
+  const mod = await import("heic2any");
+  const heic2any = mod.default || mod;
+  const out = await heic2any({ blob: file, toType: "image/jpeg", quality: FORM_PHOTO_QUALITY });
+  return Array.isArray(out) ? out[0] : out;
+}
+
+// Whether any pixel drawn is less than fully opaque.
+function canvasHasAlpha(ctx, w, h) {
+  const data = ctx.getImageData(0, 0, w, h).data;
+  for (let i = 3; i < data.length; i += 4) if (data[i] < 255) return true;
+  return false;
+}
+
+async function prepareFormPhoto(file) {
+  try {
+    let source = file;
+    let png = /^image\/png$/i.test(file.type || "") || /\.png$/i.test(file.name || "");
+    if (await isHeicFile(file)) { source = await heicToJpeg(file); png = false; }
+    const src = await decodeAgentPhoto(source);
+    const w0 = src.width || src.naturalWidth, h0 = src.height || src.naturalHeight;
+    if (!w0 || !h0) throw new Error(FORMS_PHOTO_UNREADABLE);
+    const scale = Math.min(1, FORM_PHOTO_MAX_SIDE / Math.max(w0, h0));
+    const w = Math.max(1, Math.round(w0 * scale)), h = Math.max(1, Math.round(h0 * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error(FORMS_PHOTO_UNREADABLE);
+    ctx.drawImage(src, 0, 0, w, h);
+    if (typeof src.close === "function") { try { src.close(); } catch (e) {} }
+    const keepPng = png && canvasHasAlpha(ctx, w, h);
+    const blob = await new Promise(res => canvas.toBlob(res, keepPng ? "image/png" : "image/jpeg", FORM_PHOTO_QUALITY));
+    if (!blob) throw new Error(FORMS_PHOTO_UNREADABLE);
+    const base = String(file.name || "").replace(/\.[^.]*$/, "") || "photo";
+    return new File([blob], base + (keepPng ? ".png" : ".jpg"), { type: blob.type });
+  } catch (e) {
+    throw new Error(FORMS_PHOTO_UNREADABLE);
+  }
+}
+
 // The response carries a storage path and no URL of any kind. The path is
 // what goes to the message route; the thumbnail is drawn from memory.
 async function uploadAgentPhoto(blob, token) {
@@ -5198,17 +5266,28 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     setValues(prev => { const next = Object.assign({}, prev); if (list.length === 0) delete next[f.key]; else next[f.key] = list; return next; });
     setCurrent(prev => Object.assign({}, prev, { answers: Object.assign({}, prev.answers || {}, { [f.key]: list }) }));
   };
+  // Every picture is made small on the phone first. One that cannot be
+  // read says so under the question and is not sent; the rest go up.
   const addFormPhotos = async (f, fileList) => {
-    const files = Array.from(fileList || []).filter(Boolean);
-    if (files.length === 0) return;
-    const marks = files.map((file, i) => ({ id: f.key + ":" + Date.now() + ":" + i, name: file.name }));
+    const picked = Array.from(fileList || []).filter(Boolean);
+    if (picked.length === 0) return;
+    const marks = picked.map((file, i) => ({ id: f.key + ":" + Date.now() + ":" + i, name: file.name }));
     setPhotoErr(prev => Object.assign({}, prev, { [f.key]: null }));
     setPhotoBusy(prev => Object.assign({}, prev, { [f.key]: (prev[f.key] || []).concat(marks) }));
-    try {
-      const r = await apiUpload(photoRoute(f) + "?locale=" + locale, "photos", files, { token });
-      if (alive.current) takePhotoList(f, r);
-    } catch (err) {
-      if (alive.current) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(err.message) }));
+    const files = [];
+    let unreadable = false;
+    for (let i = 0; i < picked.length; i++) {
+      try { files.push(await prepareFormPhoto(picked[i])); }
+      catch (err) { unreadable = true; }
+    }
+    if (alive.current && unreadable) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(FORMS_PHOTO_UNREADABLE) }));
+    if (files.length > 0) {
+      try {
+        const r = await apiUpload(photoRoute(f) + "?locale=" + locale, "photos", files, { token });
+        if (alive.current) takePhotoList(f, r);
+      } catch (err) {
+        if (alive.current) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(err.message) }));
+      }
     }
     if (alive.current) setPhotoBusy(prev => Object.assign({}, prev, { [f.key]: (prev[f.key] || []).filter(m => marks.indexOf(m) === -1) }));
   };

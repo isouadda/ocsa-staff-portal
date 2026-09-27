@@ -612,6 +612,7 @@ export const WORDS = {
   "Take photo or choose from gallery": "Tomar foto o elegir de la galer\u00eda",
   "These still need an answer": "Estas todav\u00eda necesitan respuesta",
   "This question cannot be answered here yet. Your supervisor will finish it.": "Esta pregunta todav\u00eda no se puede responder aqu\u00ed. Su supervisor la completar\u00e1.",
+  "This photo could not be read. Try another one.": "No se pudo leer esta foto. Intente con otra.",
   "This question is full.": "Esta pregunta est\u00e1 llena.",
   "This report was already sent.": "Este reporte ya se hab\u00eda enviado.",
   "This table is full.": "Esta tabla est\u00e1 llena.",

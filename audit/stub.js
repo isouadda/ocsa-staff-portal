@@ -861,6 +861,26 @@ function multipartParts(body, headers) {
   }
   return parts;
 }
+// A picture's width and height, read off its bytes: a PNG's from its
+// first chunk, a JPEG's from its first frame marker. Null for anything
+// else, so a case can tell what size the phone sent a photo at.
+function imageSize(buf) {
+  const kind = sniffImage(buf);
+  if (!kind || kind.heic) return null;
+  if (kind.ext === "png") return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+  if (kind.ext === "webp") return null;
+  let at = 2;
+  while (at + 9 < buf.length) {
+    if (buf[at] !== 0xff) { at += 1; continue; }
+    const marker = buf[at + 1];
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { at += 2; continue; }
+    const len = buf.readUInt16BE(at + 2);
+    const frame = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+    if (frame) return { height: buf.readUInt16BE(at + 5), width: buf.readUInt16BE(at + 7) };
+    at += 2 + len;
+  }
+  return null;
+}
 // What a file is, from its first bytes, the way the API reads it.
 function sniffImage(buf) {
   if (!Buffer.isBuffer(buf) || buf.length < 12) return null;
@@ -1794,7 +1814,7 @@ function createStub(opts) {
       const parts = multipartParts(body, headers).filter(p => p.name === "photos" && p.filename !== null);
       // What the phone sent, on the record for the case to read.
       const call = state.calls[state.calls.length - 1];
-      call.files = parts.map(p => ({ name: p.filename, type: p.type, bytes: p.bytes.length, kind: sniffImage(p.bytes) }));
+      call.files = parts.map(p => ({ name: p.filename, type: p.type, bytes: p.bytes.length, kind: sniffImage(p.bytes), size: imageSize(p.bytes) }));
       if (parts.length === 0) return apiRefusal("forms.photoNoFile", search);
       const held = photoList(field.key);
       if (held.length + parts.length > field.maxPhotos) return apiRefusal("forms.photoLimit", search);
