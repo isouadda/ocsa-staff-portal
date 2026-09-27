@@ -4796,6 +4796,17 @@ function formSectionTitle(form, key, language) {
   const pick = (v) => (typeof v === "string" ? v : v && typeof v === "object" ? (v[language] || v.en || "") : "");
   return String(pick(s.title) || pick({ en: s.en, es: s.es }) || "").trim();
 }
+// A section's help line, the line a paper form prints above a whole
+// block of questions, sent beside the title in the language the form
+// was asked for since the API's Step 153. A section with none has none,
+// and nothing extra is drawn.
+function formSectionHelp(form, key, language) {
+  const list = form && Array.isArray(form.sections) ? form.sections : [];
+  const s = list.find(x => x && String(x.key) === String(key));
+  const v = s ? s.help : null;
+  if (typeof v === "string") return v.trim();
+  return v && typeof v === "object" ? String(v[language] || v.en || "").trim() : "";
+}
 
 const formOptionLabel = (f, v) => {
   const s = String(v);
@@ -5011,6 +5022,9 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   // heads the screen, and a second heading under it would say nothing.
   const titled = sections.length > 1;
   const hereTitle = here === null || !titled ? "" : formSectionTitle(form, here, locale);
+  // Its help line, drawn under the heading on the section's own screen
+  // and nowhere else: the review does not repeat it.
+  const hereHelp = hereTitle ? formSectionHelp(form, here, locale) : "";
 
   // What is still unanswered is the server's judgement, never this
   // screen's: it already reads the same rules over the same answers.
@@ -5217,10 +5231,14 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
 
   // Every column of one block. The pick one column is the row of
   // buttons pick one already draws, and its name is left to the block's
-  // own heading above it.
-  const renderCells = (f, row, at, write) => (f.columns || []).map(c => (
+  // own heading above it. A column's help line, which the API sends
+  // beside the label since its Step 153, is drawn once per table rather
+  // than once per row: under the label in the first block drawn open,
+  // which is the one asked for with helped.
+  const renderCells = (f, row, at, write, helped) => (f.columns || []).map(c => (
     <div key={c.key}>
       {c.type !== "select" && <div style={cellLabelSt}>{c.label}{c.required && <span style={reqSt}>{tr("Required")}</span>}</div>}
+      {helped && c.help && <div style={mkHelp(t)}>{c.help}</div>}
       {renderControl(c, (row || {})[c.key], v => write(c.key, v), f.key + ":" + at + ":" + c.key + ":")}
     </div>
   ));
@@ -5235,10 +5253,10 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
       if (Object.keys(row).length === 0) delete next[rowKey]; else next[rowKey] = row;
       setVal(f.key, Object.keys(next).length === 0 ? null : next);
     };
-    return (f.rows || []).map(r => (
+    return (f.rows || []).map((r, i) => (
       <div key={r.key} style={gridCard}>
         <div style={gridName}>{r.label}</div>
-        {renderCells(f, all[r.key], r.key, (colKey, v) => write(r.key, colKey, v))}
+        {renderCells(f, all[r.key], r.key, (colKey, v) => write(r.key, colKey, v), i === 0)}
       </div>
     ));
   };
@@ -5267,10 +5285,14 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     const removable = rows.length > floor;
     const full = Number(f.maxRows) > 0 && rows.length >= Number(f.maxRows);
     const first = (f.columns || [])[0];
+    // Which rows are drawn open, and the first of them, where each
+    // column's help line goes.
+    const opened = rows.map((row, i) => !(i < list.length && formRowDone(f.columns, row) && !openRows[f.key + ":" + i]));
+    const firstOpen = opened.indexOf(true);
     return (
       <>
         {rows.map((row, i) => {
-          if (i < list.length && formRowDone(f.columns, row) && !openRows[f.key + ":" + i]) {
+          if (!opened[i]) {
             return (
               <button key={i} type="button" onClick={() => open(i, true)} style={foldedBtn}>
                 {tr("Row {n}", { n: i + 1 })}: {first ? formCellRead(first, row[first.key]) : ""}
@@ -5280,7 +5302,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
           return (
             <div key={i} style={gridCard}>
               <div style={gridName}>{tr("Row {n}", { n: i + 1 })}</div>
-              {renderCells(f, row, i, (colKey, v) => write(i, colKey, v))}
+              {renderCells(f, row, i, (colKey, v) => write(i, colKey, v), i === firstOpen)}
               {removable && <button type="button" onClick={() => remove(i)} style={gridBtn}>{tr("Remove row")}</button>}
             </div>
           );
@@ -5378,7 +5400,12 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
           </div>
         ))}
 
-        {!review && hereTitle && <div role="heading" aria-level={2} style={{ ...titleSt, marginBottom: 16 }}>{hereTitle}</div>}
+        {!review && hereTitle && (
+          <div style={{ marginBottom: 16 }}>
+            <div role="heading" aria-level={2} style={titleSt}>{hereTitle}</div>
+            {hereHelp && <div style={mkHelp(t)}>{hereHelp}</div>}
+          </div>
+        )}
         {!review && pageFields.map(f => (
           <div key={f.key} style={qSt}>
             <div style={labelSt}>{f.label}{f.required && <span style={reqSt}>{tr("Required")}</span>}</div>

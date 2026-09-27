@@ -519,6 +519,7 @@ const FORM_P_WORDS = {
     check: "Check each area", result: "Result", pass: "Pass", fail: "Fail", note: "Note",
     hallway: "Hallway", restroom: "Restroom", entry: "Entry",
     visits: "Rooms you entered", visitDay: "Date", visitAt: "Time", room: "Room",
+    roomHelp: "The number on the door, or the name the site uses for it.",
     lead: "Crew lead", manager: "Area manager",
   },
   es: {
@@ -531,6 +532,7 @@ const FORM_P_WORDS = {
     check: "Revise cada area", result: "Resultado", pass: "Aprobado", fail: "Falla", note: "Nota",
     hallway: "Pasillo", restroom: "Bano", entry: "Entrada",
     visits: "Cuartos en los que entro", visitDay: "Fecha", visitAt: "Hora", room: "Cuarto",
+    roomHelp: "El numero de la puerta, o el nombre que el sitio le da.",
     lead: "Lider de equipo", manager: "Gerente de area",
   },
 };
@@ -562,12 +564,14 @@ function formP(lang) {
         ],
         rows: FORM_P_ROWS.map(k => ({ key: k, label: w[k] })) },
       // A table a person adds rows to, two to three of them, the floor
-      // the PPE check's wear checks table has.
+      // the PPE check's wear checks table has. One column carries a help
+      // line, the way the API sends one since its Step 153, in the
+      // language the request asks for; the others carry no help key.
       { key: "visits", label: w.visits, type: "grid", section: w.rooms, required: true,
         columns: [
           { key: "day", label: w.visitDay, type: "date", required: true },
           { key: "at", label: w.visitAt, type: "time", required: true },
-          { key: "room", label: w.room, type: "text", required: true },
+          { key: "room", label: w.room, type: "text", required: true, help: w.roomHelp },
         ],
         rows: null, minRows: 2, maxRows: 3 },
       // The one the person filing makes, and one that belongs to the
@@ -629,7 +633,9 @@ function draftP(state, lang) {
 // the catalog would send them, since the live API keeps them in its
 // definitions and sends none yet. Section keys are the API's own kind,
 // "1" to "3". The first two have a title, in the language the request
-// asks for, and the third has none. Served only to a case that asks for
+// asks for, and the third has none. The second carries a help line
+// beside its title, the way the API sends one since its Step 153, and
+// the first carries no help key. Served only to a case that asks for
 // it with stubOptions.sectionsForm, so every other case reads the
 // catalog it always has. stubOptions.sectionsForm of "one" serves the
 // first section alone, a form of one titled section, which the portal
@@ -638,11 +644,13 @@ const FORM_S_CODE = "TEST-FORM-S";
 const FORM_S_WORDS = {
   en: {
     title: "Closing check", first: "Before you lock up", second: "The supply room",
+    secondHelp: "Count only what is on the shelf tonight.",
     doors: "Which doors did you lock", lights: "Are the lights off", yes: "Yes", no: "No",
     low: "What is running low", notes: "Anything else to report",
   },
   es: {
     title: "Revision de cierre", first: "Antes de cerrar", second: "El cuarto de suministros",
+    secondHelp: "Cuente solo lo que hay en el estante esta noche.",
     doors: "Que puertas cerro", lights: "Estan apagadas las luces", yes: "Si", no: "No",
     low: "Que se esta acabando", notes: "Algo mas que reportar",
   },
@@ -658,7 +666,7 @@ function formS(lang, one) {
     code: FORM_S_CODE,
     title: w.title,
     version: 1,
-    sections: [{ key: "1", title: w.first }].concat(one ? [] : [{ key: "2", title: w.second }]),
+    sections: [{ key: "1", title: w.first }].concat(one ? [] : [{ key: "2", title: w.second, help: w.secondHelp }]),
     fields: [
       field("doors", "text", "1", true),
       field("lights", "select", "1", true, [{ value: "yes", label: w.yes }, { value: "no", label: w.no }]),

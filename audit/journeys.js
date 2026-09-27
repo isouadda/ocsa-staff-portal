@@ -603,6 +603,12 @@ const sourceLines = (page, based) => page.evaluate((mark) => Array.from(document
 // label sits.
 const formHeadings = (page) => page.evaluate(() => Array.from(document.querySelectorAll('.sp-content [role="heading"]'))
   .map(h => ({ text: h.innerText.replace(/\s+/g, " ").trim(), bottom: Math.round(h.getBoundingClientRect().bottom) })));
+// How many times a line is drawn on the screen, and where the first
+// starts, for a help line that has to appear once and under a heading.
+const lineCount = (page, line) => page.evaluate((want) => {
+  const hits = Array.from(document.querySelectorAll(".sp-content div")).filter(d => d.children.length === 0 && d.innerText.replace(/\s+/g, " ").trim() === want);
+  return { count: hits.length, top: hits.length ? Math.round(hits[0].getBoundingClientRect().top) : null };
+}, line);
 const labelTop = (page, label) => page.evaluate((want) => {
   const d = Array.from(document.querySelectorAll(".sp-content div")).filter(x => x.getAttribute("role") !== "heading")
     .find(x => x.innerText && x.innerText.replace(/\s+/g, " ").trim().indexOf(want) === 0);
@@ -1824,12 +1830,15 @@ const JOURNEYS = [
   },
   {
     id: "formsections",
-    label: "Forms: a section's title is drawn above its first question, on its page and in the review, in the person's language, and a section with no title draws none",
+    label: "Forms: a section's title is drawn above its first question, on its page and in the review, in the person's language, a section with no title draws none, and a section's help line is drawn once under its heading and not in the review",
     run: async (open, language, expect) => {
       const app = await open({ stubOptions: { sectionsForm: true } });
       try {
         const form = formS(language);
         const titleOf = (key) => { const s = form.sections.find(x => x.key === key); return s ? s.title : null; };
+        const helpOf = (key) => { const s = form.sections.find(x => x.key === key); return s && s.help ? s.help : null; };
+        // The one help line the form carries, on section 2.
+        const helpLine = helpOf("2");
         const firstOf = (key) => form.fields.find(f => f.section === key).label;
         await openTab(app.page, "forms", language);
         await pause(app.page, 900);
@@ -1846,6 +1855,13 @@ const JOURNEYS = [
           } else {
             expect("section " + key + ", which has no title, draws none", heads.length === 0 && below !== null, JSON.stringify(heads));
           }
+          const line = await lineCount(app.page, helpLine);
+          if (helpOf(key)) {
+            expect("section " + key + "'s help line is drawn once, under its heading and above its first question, in the person's language",
+              line.count === 1 && heads.length === 1 && line.top >= heads[0].bottom && below !== null && line.top < below, JSON.stringify(line) + " heading to " + (heads[0] && heads[0].bottom) + ", first question at " + below);
+          } else {
+            expect("section " + key + ", which has no help line, draws none", line.count === 0, JSON.stringify(line));
+          }
           await answerEveryBox(app.page);
           await pause(app.page, 400);
           // Next on the last section opens the review.
@@ -1858,6 +1874,7 @@ const JOURNEYS = [
         expect("the review draws each section's title above its first question, and none for the section with no title",
           heads.map(h => h.text).join("|") === [titleOf("1"), titleOf("2")].join("|") && heads.every((h, i) => tops[i] !== null && h.bottom <= tops[i]),
           JSON.stringify(heads) + " first questions at " + JSON.stringify(tops));
+        expect("the review does not repeat a section's help line", (await lineCount(app.page, helpLine)).count === 0, helpLine);
         await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
 
@@ -1918,11 +1935,21 @@ const JOURNEYS = [
         expect("both rows start open, with every cell on screen", cells >= table.columns.length * 2, cells + " boxes on screen");
         expect("a row the floor asks for offers no Remove row", text.indexOf(removeRow) === -1, text.slice(0, 260));
 
+        // The one column with a help line: drawn once for the table, under
+        // that column's label in the first row, in the person's language,
+        // with two rows on screen and still once with three.
+        const helped = table.columns.find(c => c.help);
+        const helpLine = await lineCount(app.page, helped.help);
+        const labelAt = await labelTop(app.page, helped.label);
+        expect("a column's help line is drawn once for the table, under its label in the first row, in the person's language",
+          helpLine.count === 1 && labelAt !== null && helpLine.top > labelAt, JSON.stringify(helpLine) + " label at " + labelAt);
+
         // A third row, then the fourth refused on screen.
         await clickText(app.page, addRow);
         text = await bodyText(app.page);
         const rowWord = rowN(3);
         expect("a third row is there", text.indexOf(rowWord) !== -1, text.slice(0, 260));
+        expect("a column's help line is still drawn once with three rows on screen", (await lineCount(app.page, helped.help)).count === 1, JSON.stringify(await lineCount(app.page, helped.help)));
         expect("a fourth row is refused on the screen itself",
           text.indexOf(say("This table is full.", language)) !== -1 && text.indexOf(addRow) === -1, text.slice(0, 260));
 
