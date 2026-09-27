@@ -395,10 +395,13 @@ const LIGHT = {
 // The numeral on a badge: white on light mode's deeper red, and the off
 // white the dark theme draws everywhere else.
 const badgeInk = (th) => (th.badgeBg === LIGHT.badgeBg ? "#FFFFFF" : "#F8F7F4");
-// Words on a wash of their own color. Dark draws them in that color. On
-// light mode's white card none of the wash colors reads at 4.5 to 1, so
-// light mode draws them in its own text color over the same wash.
-const washInk = (th, color) => (th === LIGHT ? th.text : color);
+// Words on a wash of their own color. Dark draws them in that color,
+// except red, which it lifts to a lighter red: red itself reads at 3.83
+// to 1 on its own wash over the dark card, and the lifted red at 4.85.
+// On light mode's white card none of the wash colors reads at 4.5 to 1,
+// so light mode draws them in its own text color over the same wash.
+const RED_ON_WASH = "#F2695E";
+const washInk = (th, color) => (th === LIGHT ? th.text : (color === RED ? RED_ON_WASH : color));
 
 // What every request to OCSA carries, and what every refusal becomes.
 // api() and apiStream() both go through these, so Help's streaming route
@@ -778,15 +781,11 @@ function weakPinReason(pin, badgeNumber) {
   return null;
 }
 
-// What Change PIN says when the API turns a change away, by the refusal's
-// code, and which box it goes under. The code decides both. The API's own
-// sentence is in the account's language since Step 113, and is never read.
-const PIN_REFUSALS = {
-  PIN_INCORRECT: { box: "current", say: () => tr("That is not your current PIN.") },
-  PIN_UNCHANGED: { box: "next", say: () => tr("Your new PIN must be different from your current PIN.") },
-  PIN_WEAK: { box: "next", say: () => tr("That PIN is too easy to guess. Choose a different one.") },
-  PIN_FORMAT: { box: "next", say: () => tr("PIN must be exactly 4 digits.") },
-};
+// Which box a Change PIN refusal goes under, by the refusal's code. The
+// code decides the box; the sentence under it is the API's own, which
+// comes in the request's language since Step 137, the way every other
+// refusal a cleaner meets is shown.
+const PIN_REFUSALS = { PIN_INCORRECT: "current", PIN_UNCHANGED: "next", PIN_WEAK: "next", PIN_FORMAT: "next" };
 
 // Entry from an emailed link. Read once at module scope, before the
 // first render, so it stays out of the render path.
@@ -2022,7 +2021,9 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
       if (err.code === "TOKEN_INVALID") { setPhase("invalid"); return; }
       if (err.code === "BADGE_MISMATCH") {
         const n = mismatches + 1; setMismatches(n);
-        setErrs({ badge: tr("That badge number does not match our records. Check the number in your email.") + (n >= 3 ? " " + tr("Ask your supervisor to confirm your badge number.") : "") });
+        // The API's own sentence, in the request's language, with a word
+        // more from the third try on.
+        setErrs({ badge: tr(err.message) + (n >= 3 ? " " + tr("Ask your supervisor to confirm your badge number.") : "") });
         setPhase("form"); return;
       }
       if (err.status === 400) { setErrs({ pin: tr(err.message) }); setPhase("form"); return; }
@@ -4644,11 +4645,11 @@ function ChangePinCard({ token, user, showToast, t, cardSt }) {
       showToast(tr("PIN updated"));
       setPinForm({ current: "", next: "", confirm: "" });
     } catch (err) {
-      // A refusal with a code the screen knows goes under its own box in
-      // the screen's own words. Anything else is drawn as sent, under the
+      // A refusal with a code the screen knows goes under its own box, in
+      // the API's own words. Anything else is drawn as sent, under the
       // current PIN, the way it always was.
-      const known = err.code ? PIN_REFUSALS[err.code] : null;
-      setPinErrs(known ? { [known.box]: known.say() } : { current: tr(err.message || "Could not update your PIN.") });
+      const box = (err.code && PIN_REFUSALS[err.code]) || "current";
+      setPinErrs({ [box]: tr(err.message || "Could not update your PIN.") });
     }
     setPinSaving(false);
   };
@@ -5547,7 +5548,7 @@ function PickupView({ token, user, showToast, t }) {
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                     <span style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{s.site_name}</span>
-                    {s.urgency === "urgent" && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 6px", borderRadius: R.sm, background: RED + "18", color: RED, fontFamily: FONT_HEAD }}>{tr("URGENT")}</span>}
+                    {s.urgency === "urgent" && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 6px", borderRadius: R.sm, background: RED + "18", color: washInk(t, RED), fontFamily: FONT_HEAD }}>{tr("URGENT")}</span>}
                   </div>
                   <div style={{ fontSize: 12, color: t.textSec, fontVariantNumeric: "tabular-nums" }}>{fmtDate(s.scheduled_date)}</div>
                 </div>

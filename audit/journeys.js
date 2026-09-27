@@ -7,8 +7,8 @@ const { openApp, letSheetOffer } = require("./browser");
 const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
 const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
-const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
-  SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
+const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
+  SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
   API_REFUSALS } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
@@ -202,6 +202,9 @@ const attachBroken = (page, selector) => page.evaluate((sel) => {
 // back to English exactly the way the app does, so a case written with
 // say() passes on a screen that was never translated. This does not: a
 // line with no Spanish entry reads as a line nothing can draw.
+// A word the stub serves in the request's language, the way the screen
+// in that language should draw it: its Spanish twin on a Spanish screen.
+const servedIn = (english, language) => (language === "es" && TWIN_ES.has(english) ? TWIN_ES.get(english) : english);
 const spanishOf = (english, language) => {
   if (language !== "es") return english;
   return Object.prototype.hasOwnProperty.call(ES, english) ? ES[english] : "(no Spanish entry for: " + english + ")";
@@ -864,8 +867,9 @@ const JOURNEYS = [
       } finally { await app.context.close(); }
 
       // An activation link on the same phone, with a badge number that
-      // does not match. The answer's code says so; its sentence, in either
-      // language, is never read.
+      // does not match. The answer's code says which box, and its
+      // sentence, the API's own in the request's language, is what the
+      // box says.
       const link = await open({ signedIn: false, phone: other, path: "/activate?token=fixture", stubOptions: { activationBadge: true } });
       try {
         await pause(link.page, 1200);
@@ -875,8 +879,8 @@ const JOURNEYS = [
         await clickText(link.page, say("Activate Account", language));
         await pause(link.page, 900);
         const said = await bodyText(link.page);
-        expect("a badge number that does not match is read off the answer's code and said in the screen's language",
-          has(said, spanishOf("That badge number does not match our records. Check the number in your email.", language)), said.slice(0, 220));
+        expect("a badge number that does not match is said in the API's own words, in the screen's language",
+          has(said, BADGE_MISMATCH[language === "es" ? 1 : 0]), said.slice(0, 220));
         judge(link.stub, SEVEN.slice(3, 5));
       } finally { await link.context.close(); }
 
@@ -1089,7 +1093,7 @@ const JOURNEYS = [
         // The headers and the items, read down the screen. Each has to
         // come after the one before it.
         const text = (await bodyText(app.page)).toLowerCase();
-        const order = SHIFT_ORDER.map(x => (/^s-\d+$/.test(x) ? itemName(x, language) : x));
+        const order = SHIFT_ORDER.map(x => (/^s-\d+$/.test(x) ? itemName(x, language) : servedIn(x, language)));
         const astray = [];
         let at = 0;
         order.forEach((w) => { const i = text.indexOf(w.toLowerCase(), at); if (i === -1) astray.push(w); else at = i + w.length; });
@@ -1158,19 +1162,19 @@ const JOURNEYS = [
           expect("Start Shift at a site with shifts asks which shift" + at, sheet.up, "no sheet: " + (await bodyText(app.page)).slice(0, 160));
           if (!sheet.up) continue;
           const shifts = app.stub.peek.session().shifts;
-          const named = shifts.every(s => sheet.choices.some(c => c.text.indexOf(s.displayLabel) === 0));
+          const named = shifts.every(s => sheet.choices.some(c => c.text.indexOf(servedIn(s.displayLabel, language)) === 0));
           expect("the sheet offers every shift by its name" + at, named && sheet.choices.length === shifts.length, JSON.stringify(sheet.choices));
           const hours = [];
           for (const s of shifts) hours.push(s.window ? await hoursOf(app.page, language, s.window.startsAt, s.window.endsAt) : "");
-          const underEach = shifts.every((s, i) => { const c = sheet.choices.find(x => x.text.indexOf(s.displayLabel) === 0); return !!c && c.text.indexOf(hours[i]) !== -1; });
+          const underEach = shifts.every((s, i) => { const c = sheet.choices.find(x => x.text.indexOf(servedIn(s.displayLabel, language)) === 0); return !!c && c.text.indexOf(hours[i]) !== -1; });
           expect("each shift shows its hours under its name" + at, underEach, JSON.stringify(sheet.choices) + " wanted " + JSON.stringify(hours));
           const picked = sheet.choices.filter(c => c.picked).map(c => c.text);
           const suggested = shifts.find(s => s.suggested);
-          expect("the shift the time suggests is the one chosen" + at, picked.length === 1 && !!suggested && picked[0].indexOf(suggested.displayLabel) === 0 && suggested.label === (run.keep ? run.want : run.other), JSON.stringify(picked));
+          expect("the shift the time suggests is the one chosen" + at, picked.length === 1 && !!suggested && picked[0].indexOf(servedIn(suggested.displayLabel, language)) === 0 && suggested.label === (run.keep ? run.want : run.other), JSON.stringify(picked));
           expect("the sheet says the time chose it" + at, has(sheet.text, say("Chosen by the time you started. Change it if it is wrong.", language)), sheet.text.slice(0, 200));
           expect("the sheet's words are in the person's language" + at, language !== "es" || ["Which shift are you working?", "Chosen by the time you started. Change it if it is wrong.", "Use this shift"].every(w => has(sheet.text, spanishOf(w, language))), sheet.text.slice(0, 200));
           await spokenHere(app, language, expect);
-          if (!run.keep) await pickShift(app.page, run.want);
+          if (!run.keep) await pickShift(app.page, servedIn(run.want, language));
           await pause(app.page, 300);
           await clickText(app.page, say("Use this shift", language));
           await pause(app.page, 1600);
@@ -1250,13 +1254,13 @@ const JOURNEYS = [
         await pause(app.page, 1200);
         expect("a session with its shift chosen asks nothing", !(await shiftSheet(app.page, language)).up, "the sheet asked");
         const line = await shiftLine(app.page, language);
-        expect("the checklist names the shift in use, with Change shift", line !== null && has(line, NIGHT_SHIFT), String(line));
+        expect("the checklist names the shift in use, with Change shift", line !== null && has(line, servedIn(NIGHT_SHIFT, language)), String(line));
         await clickText(app.page, say("Change shift", language));
         await pause(app.page, 800);
         const sheet = await shiftSheet(app.page, language);
         const picked = sheet.choices.filter(c => c.picked).map(c => c.text);
-        expect("Change shift opens the sheet with the shift in use chosen", sheet.up && picked.length === 1 && picked[0].indexOf(NIGHT_SHIFT) === 0, JSON.stringify(sheet.choices));
-        await pickShift(app.page, DAY_SHIFT);
+        expect("Change shift opens the sheet with the shift in use chosen", sheet.up && picked.length === 1 && picked[0].indexOf(servedIn(NIGHT_SHIFT, language)) === 0, JSON.stringify(sheet.choices));
+        await pickShift(app.page, servedIn(DAY_SHIFT, language));
         await pause(app.page, 300);
         await clickText(app.page, say("Use this shift", language));
         await pause(app.page, 1800);
@@ -1268,7 +1272,7 @@ const JOURNEYS = [
         const night = SITE_TASKS[WEST].filter(r => r.shift_label === NIGHT_SHIFT).map(r => itemName(r.id, language));
         expect("the list is drawn again for the new shift", want.every(n => rows.some(r => r.name === n)) && !rows.some(r => night.indexOf(r.name) !== -1), "drawn: " + JSON.stringify(rows.map(r => r.name)).slice(0, 200));
         const after = await shiftLine(app.page, language);
-        expect("the checklist names the new shift", after !== null && has(after, DAY_SHIFT), String(after));
+        expect("the checklist names the new shift", after !== null && has(after, servedIn(DAY_SHIFT, language)), String(after));
         expect("Change shift is in the person's language", language !== "es" || (after !== null && has(after, spanishOf("Change shift", language))), String(after));
         await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
@@ -1283,7 +1287,7 @@ const JOURNEYS = [
         try {
           await openTab(app.page, "tasks", language);
           await pause(app.page, 1200);
-          const said = refusalIn(refusal, language, WEST_SHIFT_NAMES);
+          const said = refusalIn(refusal, language, westShiftNames(language));
           app.stub.state.refuse["PATCH /api/shift-sessions/sess-1/shift"] = { status: refusal.status, once: true, body: Object.assign({ error: said }, refusal.code ? { code: refusal.code } : {}) };
           if (refusal.code === "SESSION_ALREADY_ENDED") app.stub.state.clockedIn = false;
           const before = app.stub.state.calls.length;
@@ -1553,12 +1557,13 @@ const JOURNEYS = [
         await pause(app.page, 1400);
         const night = app.stub.peek.session().shifts.find(s => s.label === NIGHT_SHIFT);
         for (const block of night.blocks) {
-          const drawn = await titlesOf(app.page, block.displayLabel);
+          const title = servedIn(block.displayLabel, language);
+          const drawn = await titlesOf(app.page, title);
           if (block.time) {
             const time = await timeOf(app.page, language, block.time);
-            expect("a block's title shows its time first: " + block.label, drawn.length > 0 && drawn.every(x => x === time + " " + block.displayLabel), JSON.stringify(drawn) + " wanted " + JSON.stringify(time + " " + block.displayLabel));
+            expect("a block's title shows its time first: " + block.label, drawn.length > 0 && drawn.every(x => x === time + " " + title), JSON.stringify(drawn) + " wanted " + JSON.stringify(time + " " + title));
           } else {
-            expect("a block with no time shows its title alone: " + block.label, drawn.length > 0 && drawn.every(x => x === block.displayLabel), JSON.stringify(drawn));
+            expect("a block with no time shows its title alone: " + block.label, drawn.length > 0 && drawn.every(x => x === title), JSON.stringify(drawn));
           }
         }
       } finally { await app.context.close(); }
@@ -3033,22 +3038,23 @@ const JOURNEYS = [
   },
   {
     id: "changepincodes",
-    label: "Change PIN turned away by the API: each refusal under its own box, read off its code, in the person's language",
+    label: "Change PIN turned away by the API: each refusal under the box its code names, in the API's own words, in the person's language",
     run: async (open, language, expect) => {
       // Each code the API sends, the box it belongs under, and what the
-      // screen says there.
+      // screen says there: the API's own sentence, quoted from
+      // helpers/words.js in ocsa-api byte for byte, in each language.
       const CASES = [
-        ["PIN_INCORRECT", 0, "That is not your current PIN."],
-        ["PIN_UNCHANGED", 1, "Your new PIN must be different from your current PIN."],
-        ["PIN_WEAK", 1, "That PIN is too easy to guess. Choose a different one."],
-        ["PIN_FORMAT", 1, "PIN must be exactly 4 digits."],
+        ["PIN_INCORRECT", 0, "Current PIN is incorrect", "El PIN actual no es correcto"],
+        ["PIN_UNCHANGED", 1, "New PIN must be different from your current PIN", "El PIN nuevo debe ser distinto de su PIN actual"],
+        ["PIN_WEAK", 1, "Choose a PIN that is not repeated digits, a sequence, or your badge number", "Elija un PIN que no sea un mismo d\u00edgito repetido, una secuencia ni su n\u00famero de empleado"],
+        ["PIN_FORMAT", 1, "PIN must be exactly 4 digits", "El PIN debe tener exactamente 4 d\u00edgitos"],
       ];
       const BOX = ["the current PIN", "the new PIN", "the repeated PIN"];
       const app = await open({});
       try {
         await openTab(app.page, "settings", language);
         await pause(app.page, 800);
-        for (const [code, box, line] of CASES) {
+        for (const [code, box, en, es] of CASES) {
           // A change the screen's own checks let through, so the API is
           // what turns it away, with a sentence in the account's language.
           app.stub.state.pinRefusal = code;
@@ -3064,7 +3070,7 @@ const JOURNEYS = [
           }));
           const said = under.filter(x => x.length > 0);
           expect(code + " is said under " + BOX[box], said.length === 1 && under[box].length > 0, JSON.stringify(under));
-          expect(code + " is said in the person's language", has(under[box], spanishOf(line, language)), JSON.stringify(under));
+          expect(code + " is said in the API's own words, in the person's language", has(under[box], language === "es" ? es : en), JSON.stringify(under));
           await spokenHere(app, language, expect);
         }
       } finally { await app.context.close(); }

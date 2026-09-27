@@ -103,7 +103,6 @@ export const WORDS = {
   "Signing in...": "Iniciando sesi\u00f3n...",
   "Something went wrong on our end. Try again in a minute.": "Hubo un problema de nuestro lado. Intente de nuevo en un minuto.",
   "Staff Operations Portal": "Portal del Personal",
-  "That badge number does not match our records. Check the number in your email.": "Ese n\u00famero de empleado no coincide con nuestros registros. Revise el n\u00famero en su correo.",
   "The number on the email we sent you.": "El n\u00famero que aparece en el correo que le enviamos.",
   "The two PINs do not match. Type the same 4 digits in both fields.": "Los dos PIN no coinciden. Escriba los mismos 4 d\u00edgitos en las dos casillas.",
   "This activation link is incomplete. Open the link from your email again.": "Este enlace de activaci\u00f3n est\u00e1 incompleto. Abra el enlace de su correo otra vez.",
@@ -669,8 +668,6 @@ export const WORDS = {
   "Your PIN is 4 digits. Choose one that only you know.": "Su PIN es de 4 d\u00edgitos. Elija uno que solo usted sepa.",
   "Enter your current 4-digit PIN.": "Escriba su PIN actual de 4 d\u00edgitos.",
   "Your new PIN must be different from your current PIN.": "Su PIN nuevo debe ser distinto de su PIN actual.",
-  "That is not your current PIN.": "Ese no es su PIN actual.",
-  "That PIN is too easy to guess. Choose a different one.": "Ese PIN es muy f\u00e1cil de adivinar. Elija uno distinto.",
 
   // Profile
   "Address": "Direcci\u00f3n",
