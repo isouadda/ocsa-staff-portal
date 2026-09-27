@@ -9,7 +9,7 @@ const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
 const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
-  API_REFUSALS } = require("./stub");
+  API_REFUSALS, PHOTO_REFUSALS, FORM_P_MAX_PHOTOS } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -185,6 +185,30 @@ const attachPhoto = (page, selector) => page.evaluate((sel) => new Promise((done
     done(true);
   }, "image/jpeg");
 }), selector);
+
+// Several photos at once, each made in the page the same way and named
+// as a case wants. A name of a kind draws a picture of that kind: .png a
+// PNG, anything else a JPEG.
+const attachPhotos = (page, selector, names) => page.evaluate(([sel, list]) => new Promise((done) => {
+  const input = document.querySelector(sel);
+  if (!input) { done(false); return; }
+  const dt = new DataTransfer();
+  let left = list.length;
+  list.forEach((name, i) => {
+    const c = document.createElement("canvas"); c.width = 12 + i; c.height = 12;
+    const ctx = c.getContext("2d"); ctx.fillStyle = "#3355aa"; ctx.fillRect(0, 0, c.width, c.height);
+    const png = /\.png$/i.test(name);
+    c.toBlob((b) => {
+      dt.items.add(new File([b], name, { type: png ? "image/png" : "image/jpeg" }));
+      left -= 1;
+      if (left === 0) {
+        input.files = dt.files;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        done(true);
+      }
+    }, png ? "image/png" : "image/jpeg");
+  });
+}), [selector, names]);
 
 // A file that says it is a photo and is not one, so the phone cannot
 // read it.
@@ -2049,6 +2073,109 @@ const JOURNEYS = [
         text = await bodyText(app.page);
         expect("the stamp shows the person and the time the API answered with",
           text.indexOf(stampStarts) !== -1 && (await signButtons()) === 0, text.slice(0, 300));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "formpphotos",
+    label: "Photos on a form: each refusal in the API's words, two photos added at once, one taken off, the count on the review, and the limit",
+    run: async (open, language, expect, extra) => {
+      const app = await open({});
+      try {
+        const form = formP(language);
+        const q = form.fields.find(f => f.type === "photos");
+        const route = "/api/forms/responses/draft-two/photos/" + q.key;
+        const input = '.sp-content input[type="file"]';
+        const takeLine = say("Take photo or choose from gallery", language);
+        const removeWord = say("Remove photo", language);
+        const removeButtons = () => app.page.evaluate((want) => Array.from(document.querySelectorAll(".sp-content button")).filter(b => b.textContent.trim() === want).length, removeWord);
+        const posts = () => app.stub.state.calls.filter(c => c.method === "POST" && c.path === route);
+        const thumbsDrawn = () => app.page.evaluate(() => Array.from(document.querySelectorAll(".sp-content img")).filter(i => /^blob:/.test(i.src)).map(i => { const r = i.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height), i.naturalWidth > 0]; }));
+
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, form.title);
+        let text = await bodyText(app.page);
+        expect("the photos question draws its label and its help line, in the person's language", has(text, q.label) && has(text, q.help), text.slice(0, 400));
+        expect("the question offers the camera and the gallery, with the sizes it takes", has(text, takeLine) && has(text, say("JPG, PNG up to 10MB", language)), text.slice(0, 400));
+        const inputs = await app.page.evaluate((sel) => Array.from(document.querySelectorAll(sel)).map(i => [i.getAttribute("accept"), i.getAttribute("capture"), i.multiple]), input);
+        expect("the input is the problem report's, taking several", inputs.length === 1 && inputs[0][0] === "image/*" && inputs[0][1] === "environment" && inputs[0][2] === true, JSON.stringify(inputs));
+
+        // Each refusal first, in the API's own words, with nothing kept.
+        for (const key of ["forms.photoTooLarge", "forms.photoType", "forms.photoLimit"]) {
+          const r = API_REFUSALS[key];
+          app.stub.state.refuse["POST " + route] = { api: key, once: true };
+          await attachPhotos(app.page, input, ["spill.jpg"]);
+          await pause(app.page, 1400);
+          text = await bodyText(app.page);
+          const said = refusalIn(r, language, r.vars);
+          const shown = has(text, said);
+          expect("refusal shown: " + r.en, shown, "wanted " + JSON.stringify(said) + " in " + JSON.stringify(text.slice(0, 400)));
+          if (extra) extra.refusalsShown += shown ? 1 : 0;
+          expect("a refused photo draws no thumbnail: " + key, (await removeButtons()) === 0 && (await thumbsDrawn()).length === 0, "Remove photo buttons: " + (await removeButtons()));
+        }
+        await spokenHere(app, language, expect);
+
+        // Two at once, uploaded on the tap as multipart photos.
+        const before = posts().length;
+        app.stub.state.holdMs["POST " + route] = 1500;
+        await attachPhotos(app.page, input, ["one.jpg", "two.jpg"]);
+        await pause(app.page, 500);
+        text = await bodyText(app.page);
+        expect("each photo on its way says so", (text.match(new RegExp(say("Uploading...", language).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length === 2, text.slice(0, 500));
+        await pause(app.page, 2500);
+        const sentUp = posts().slice(before);
+        expect("a tap uploads at once, one request with both files under photos",
+          sentUp.length === 1 && /^multipart\/form-data/.test(sentUp[0].headers["content-type"] || "") && Array.isArray(sentUp[0].files) && sentUp[0].files.length === 2 && sentUp[0].files.every(f => f.kind && f.kind.ext === "jpg"),
+          JSON.stringify(sentUp.map(c => ({ ct: (c.headers["content-type"] || "").slice(0, 30), files: c.files }))));
+        text = await bodyText(app.page);
+        expect("both photos draw with their names under them", has(text, "one.jpg") && has(text, "two.jpg") && !has(text, say("Uploading...", language)), text.slice(0, 500));
+        const thumbAsks = app.stub.state.calls.filter(c => c.method === "GET" && /^\/api\/forms\/responses\/draft-two\/photos\/[^/]+\/thumb$/.test(c.path));
+        expect("each thumbnail is fetched through the stream route with the token", thumbAsks.length === 2 && thumbAsks.every(c => /^Bearer /.test(c.headers.authorization || "")), JSON.stringify(thumbAsks.map(c => c.path)));
+        const drawn = await thumbsDrawn();
+        expect("each thumbnail is drawn from memory, 72 pixels square", drawn.length === 2 && drawn.every(d => d[0] === 72 && d[1] === 72 && d[2]), JSON.stringify(drawn));
+        expect("each photo offers Remove photo while the report is a draft", (await removeButtons()) === 2, "Remove photo buttons: " + (await removeButtons()));
+        expect("the answer the API returned is the question's value", JSON.stringify(app.stub.state.answersP[q.key].map(p => p.name)) === JSON.stringify(["one.jpg", "two.jpg"]), JSON.stringify(app.stub.state.answersP[q.key]));
+        await spokenHere(app, language, expect);
+
+        // One taken off.
+        await clickText(app.page, removeWord);
+        await pause(app.page, 900);
+        const gone = lastSent(app.stub, "DELETE", route + "/");
+        expect("Remove photo asks the API to take that one off", !!gone && gone.path === route + "/ph-1", JSON.stringify(gone && gone.path));
+        text = await bodyText(app.page);
+        expect("the photo taken off is gone and the other stays", !has(text, "one.jpg") && has(text, "two.jpg") && (await removeButtons()) === 1, text.slice(0, 500));
+
+        // A photo is never written as an answer.
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        const saved = app.stub.state.calls.filter(c => c.method === "PATCH" && /^\/api\/forms\/drafts\/draft-two/.test(c.path));
+        expect("a save never writes the photos question", saved.every(c => !c.body || !c.body.answers || !(q.key in c.body.answers)), JSON.stringify(saved.map(c => c.body)));
+
+        // The count on the review, and the missing list, which never
+        // names a photos question.
+        for (let i = 0; i < 3; i += 1) await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        text = await bodyText(app.page);
+        expect("the review counts the photos: one", has(text, say("1 photo", language)) && !has(text, "two.jpg"), text.slice(0, 600));
+        const missingNamed = await app.page.evaluate(() => Array.from(document.querySelectorAll(".sp-content button")).map(b => b.textContent.trim()));
+        expect("the missing list never names the photos question", missingNamed.indexOf(q.label) === -1 && missingNamed.indexOf(q.label + ":") === -1, JSON.stringify(missingNamed));
+        await spokenHere(app, language, expect);
+
+        // Back to the page, then up to the limit, where the button gives
+        // way to the line.
+        await clickText(app.page, say("Edit", language));
+        await pause(app.page, 900);
+        await attachPhotos(app.page, input, ["three.jpg", "four.jpg"]);
+        await pause(app.page, 1800);
+        text = await bodyText(app.page);
+        expect("at the limit the button gives way to the full line", has(text, say("This question is full.", language)) && !has(text, takeLine), text.slice(0, 600));
+        expect("the question holds as many as it takes", (await removeButtons()) === FORM_P_MAX_PHOTOS && app.stub.state.answersP[q.key].length === FORM_P_MAX_PHOTOS, "Remove photo buttons: " + (await removeButtons()));
+        for (let i = 0; i < 4; i += 1) await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        text = await bodyText(app.page);
+        expect("the review counts the photos: several", has(text, fill(say("{n} photos", language), { n: FORM_P_MAX_PHOTOS })), text.slice(0, 600));
+        await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
     },
   },

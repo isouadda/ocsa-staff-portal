@@ -434,6 +434,34 @@ async function api(path, opts = {}) {
   return readJson(res);
 }
 
+// A file or several, sent as multipart form data under one name. The
+// browser writes the boundary, so no Content-Type is set here; everything
+// else is what api() does, the screen's language included.
+async function apiUpload(path, name, files, opts = {}) {
+  const form = new FormData();
+  files.forEach((file) => form.append(name, file, file.name));
+  const headers = {};
+  if (opts.token) headers["Authorization"] = "Bearer " + opts.token;
+  flightUp();
+  let res;
+  try {
+    res = await reach(API + path, { method: "POST", headers: headers, body: form });
+  } finally { flightDown(); }
+  await refuseUnlessOk(res, opts);
+  return readJson(res);
+}
+
+// An image the API streams behind the token, as a blob: the screen makes
+// a URL for it in memory and revokes the URL when it closes, so no photo
+// is ever reached by an address. A refusal throws the way api() throws.
+async function apiBlob(path, opts = {}) {
+  const headers = {};
+  if (opts.token) headers["Authorization"] = "Bearer " + opts.token;
+  const res = await reach(API + path, { headers: headers });
+  await refuseUnlessOk(res, opts);
+  return res.blob();
+}
+
 // One event off a stream, read the way a browser's EventSource reads one:
 // its name, and its data, which is JSON. Data that is not JSON reads as
 // nothing.
@@ -4846,6 +4874,20 @@ const formIsChecklist = (f) => Array.isArray(f.rows);
 // supervisor half, which the portal has never drawn. The report keeps
 // whatever it already carries for one it does not draw.
 const formDrawnOnPortal = (f) => formTypeOf(f) !== "signoff" || String(f.signer || "") === "filer";
+// The photos under a photos question, as the API keeps them: one record
+// per picture, each with an id. Anything else under the key is nothing.
+const formPhotoList = (v) => (Array.isArray(v) ? v.filter(p => p && typeof p === "object" && p.id) : []);
+// How many photos a question holds, the way the review says it.
+const formPhotosLine = (v) => {
+  const n = formPhotoList(v).length;
+  if (n === 0) return null;
+  return n === 1 ? tr("1 photo") : tr("{n} photos", { n: n });
+};
+// The one control a photos question offers, and the line that replaces
+// it once the question holds as many photos as it takes.
+const FORMS_TAKE_PHOTO = "Take photo or choose from gallery";
+const FORMS_PHOTOS_FULL = "This question is full.";
+const FORMS_PHOTOS_DEFAULT_MAX = 6;
 // One sign-off as a person reads it, in the phone's own time.
 const formStampLine = (v) => (v && typeof v === "object" && v.at
   ? tr("Signed by {name} on {date} at {time}", { name: v.name || "", date: formatDate(v.at), time: formatTime(v.at) })
@@ -4862,7 +4904,7 @@ const FORMS_ANSWERED = "Answered";
 // asks for nothing, so a type the forms engine adds later cannot quietly
 // become a text box. A question with no type at all is text, which is
 // what it has always been.
-const FORM_TYPES_DRAWN = ["", "text", "textarea", "select", "multiselect", "date", "time", "grid", "signoff"];
+const FORM_TYPES_DRAWN = ["", "text", "textarea", "select", "multiselect", "date", "time", "grid", "signoff", "photos"];
 const formTypeOf = (f) => (f && f.type ? String(f.type) : "");
 
 const formDraftOf = (r) => (r && r.draft ? r.draft : r);
@@ -4998,6 +5040,23 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   // The sign-off on its way to the API, and what it said if it refused.
   const [signing, setSigning] = useState(null);
   const [signErr, setSignErr] = useState({});
+  // Photos: the ones on their way up under each question, the ones on
+  // their way off, what the API said when it refused one, and each
+  // thumbnail as a URL made in memory from the bytes the API streamed.
+  const [photoBusy, setPhotoBusy] = useState({});
+  const [photoGoing, setPhotoGoing] = useState({});
+  const [photoErr, setPhotoErr] = useState({});
+  const [thumbs, setThumbs] = useState({});
+  const photoInputs = useRef({});
+  const thumbAsked = useRef(new Set());
+  const madeUrls = useRef([]);
+  const alive = useRef(true);
+  // Every URL made here is revoked when the screen closes.
+  useEffect(() => () => {
+    alive.current = false;
+    madeUrls.current.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) {} });
+    madeUrls.current = [];
+  }, []);
   const [review, setReview] = useState(false);
   const [confirmSend, setConfirmSend] = useState(false);
   const [sending, setSending] = useState(false);
@@ -5005,7 +5064,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   const [sent, setSent] = useState(null);
   const bodyRef = useRef(null);
   // An answer typed and not yet saved, or a save or a send on its way.
-  useBusy("report form", Object.keys(dirty).length > 0 || saving || sending);
+  useBusy("report form", Object.keys(dirty).length > 0 || saving || sending || Object.keys(photoBusy).some(k => photoBusy[k].length > 0));
 
   // Every question in play, which is what a save is judged against, and
   // the ones this screen draws, which is what a person walks through.
@@ -5069,8 +5128,10 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
       if (inPlay.indexOf(k) === -1) return;
       out[k] = formHasAnswer(values[k]) ? values[k] : null;
     });
+    // A photos question is answered through its own routes and never
+    // written here, whether it is in play or not.
     (form && Array.isArray(form.fields) ? form.fields : []).forEach(f => {
-      if (f.prefilled || inPlay.indexOf(f.key) !== -1) return;
+      if (f.prefilled || formTypeOf(f) === "photos" || inPlay.indexOf(f.key) !== -1) return;
       if (formHasAnswer(values[f.key]) || formHasAnswer((current.answers || {})[f.key])) out[f.key] = null;
     });
     return out;
@@ -5124,6 +5185,65 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     }
     setSigning(null);
   };
+
+  // A photos question is answered through its own routes, never as a
+  // saved answer: a tap uploads the pictures at once, Remove photo takes
+  // one off, and each time the list the API answers with replaces the
+  // question's value. Nothing here marks the key dirty, so a save never
+  // writes it.
+  const photoRoute = (f) => "/api/forms/responses/" + encodeURIComponent(current.id) + "/photos/" + encodeURIComponent(f.key);
+  const takePhotoList = (f, r) => {
+    const list = r && Array.isArray(r.photos) ? r.photos : (r && Array.isArray(r.value) ? r.value : null);
+    if (!list) return;
+    setValues(prev => { const next = Object.assign({}, prev); if (list.length === 0) delete next[f.key]; else next[f.key] = list; return next; });
+    setCurrent(prev => Object.assign({}, prev, { answers: Object.assign({}, prev.answers || {}, { [f.key]: list }) }));
+  };
+  const addFormPhotos = async (f, fileList) => {
+    const files = Array.from(fileList || []).filter(Boolean);
+    if (files.length === 0) return;
+    const marks = files.map((file, i) => ({ id: f.key + ":" + Date.now() + ":" + i, name: file.name }));
+    setPhotoErr(prev => Object.assign({}, prev, { [f.key]: null }));
+    setPhotoBusy(prev => Object.assign({}, prev, { [f.key]: (prev[f.key] || []).concat(marks) }));
+    try {
+      const r = await apiUpload(photoRoute(f) + "?locale=" + locale, "photos", files, { token });
+      if (alive.current) takePhotoList(f, r);
+    } catch (err) {
+      if (alive.current) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(err.message) }));
+    }
+    if (alive.current) setPhotoBusy(prev => Object.assign({}, prev, { [f.key]: (prev[f.key] || []).filter(m => marks.indexOf(m) === -1) }));
+  };
+  const removeFormPhoto = async (f, photo) => {
+    if (photoGoing[photo.id]) return;
+    setPhotoErr(prev => Object.assign({}, prev, { [f.key]: null }));
+    setPhotoGoing(prev => Object.assign({}, prev, { [photo.id]: true }));
+    try {
+      const r = await api(photoRoute(f) + "/" + encodeURIComponent(photo.id) + "?locale=" + locale, { method: "DELETE", token });
+      if (alive.current) takePhotoList(f, r);
+    } catch (err) {
+      if (alive.current) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(err.message) }));
+    }
+    if (alive.current) setPhotoGoing(prev => { const next = Object.assign({}, prev); delete next[photo.id]; return next; });
+  };
+  // Each thumbnail is fetched once, through the stream route with the
+  // token, and kept as a URL made in memory. One that cannot be fetched
+  // leaves its box blank rather than asking again and again.
+  useEffect(() => {
+    const wanted = [];
+    (form && Array.isArray(form.fields) ? form.fields : []).forEach((f) => {
+      if (formTypeOf(f) !== "photos") return;
+      formPhotoList(values[f.key]).forEach((p) => { if (!thumbAsked.current.has(p.id)) wanted.push(p); });
+    });
+    wanted.forEach(async (p) => {
+      thumbAsked.current.add(p.id);
+      try {
+        const blob = await apiBlob("/api/forms/responses/" + encodeURIComponent(current.id) + "/photos/" + encodeURIComponent(p.id) + "/thumb?locale=" + locale, { token });
+        if (!alive.current) return;
+        const url = URL.createObjectURL(blob);
+        madeUrls.current.push(url);
+        setThumbs(prev => Object.assign({}, prev, { [p.id]: url }));
+      } catch (err) {}
+    });
+  }, [values, form, current.id, token, locale]);
 
   const toTop = () => { if (bodyRef.current) bodyRef.current.scrollTop = 0; };
 
@@ -5328,11 +5448,64 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     );
   };
 
+  // A photos question: the pictures already added, each a 72 pixel square
+  // with its file name under it and Remove photo while the report is a
+  // draft; the ones on their way up, each with its own progress line;
+  // then the one button, which the camera and the gallery both answer,
+  // until the question holds as many photos as it takes.
+  const thumbSt = { width: 72, height: 72, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt };
+  const photoNameSt = { fontSize: 10, color: t.textMut, marginTop: 4, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const photoBtn = { ...gridBtn, marginTop: 6, padding: "8px 6px", fontSize: 11 };
+  const renderPhotos = (f) => {
+    const list = formPhotoList(values[f.key]);
+    const busy = photoBusy[f.key] || [];
+    const max = Number(f.maxPhotos) > 0 ? Number(f.maxPhotos) : FORMS_PHOTOS_DEFAULT_MAX;
+    const full = list.length + busy.length >= max;
+    const draft = !current.status || current.status === "draft";
+    return (
+      <>
+        {(list.length > 0 || busy.length > 0) && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
+            {list.map(p => (
+              <div key={p.id} style={{ width: 104 }}>
+                {thumbs[p.id] ? <img src={thumbs[p.id]} alt="" style={thumbSt} /> : <div style={thumbSt} />}
+                <div style={photoNameSt}>{p.name}</div>
+                {draft && <button type="button" onClick={() => removeFormPhoto(f, p)} disabled={!!photoGoing[p.id]} style={{ ...photoBtn, opacity: photoGoing[p.id] ? 0.6 : 1 }}>{tr("Remove photo")}</button>}
+              </div>
+            ))}
+            {busy.map(m => (
+              <div key={m.id} style={{ width: 104 }}>
+                <div style={thumbSt} />
+                <div style={photoNameSt}>{m.name}</div>
+                <div style={photoNameSt}>{tr("Uploading...")}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {draft && full && <div style={{ ...mkHelp(t), marginTop: 10 }}>{tr(FORMS_PHOTOS_FULL)}</div>}
+        {draft && !full && (
+          <>
+            <input ref={el => { photoInputs.current[f.key] = el; }} type="file" accept="image/*" capture="environment" multiple style={{ display: "none" }} onChange={e => { addFormPhotos(f, e.target.files); e.target.value = ""; }} />
+            <button type="button" onClick={() => photoInputs.current[f.key] && photoInputs.current[f.key].click()} style={{ ...gridBtn, display: "flex", alignItems: "center", gap: 10, textAlign: "left", border: "1px dashed " + GOLD, color: t.goldText }}>
+              <CamIco sz={18} c={t.goldText} />
+              <div style={{ minWidth: 0 }}>
+                <div>{tr(FORMS_TAKE_PHOTO)}</div>
+                <div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("JPG, PNG up to 10MB")}</div>
+              </div>
+            </button>
+          </>
+        )}
+        {photoErr[f.key] && <div style={{ ...mkFieldErr(t), marginTop: 8 }}>{photoErr[f.key]}</div>}
+      </>
+    );
+  };
+
   const renderInput = (f) => {
     const v = values[f.key];
     if (FORM_TYPES_DRAWN.indexOf(formTypeOf(f)) === -1) return <div style={mkHelp(t)}>{tr(FORMS_UNKNOWN_TYPE)}</div>;
     if (formTypeOf(f) === "grid") return formIsChecklist(f) ? renderChecklist(f) : renderRowTable(f);
     if (formTypeOf(f) === "signoff") return renderSignoff(f);
+    if (formTypeOf(f) === "photos") return renderPhotos(f);
     return renderControl(f, v, (next) => setVal(f.key, next), f.key + ":");
   };
 
@@ -5390,7 +5563,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
             {titled && formSectionTitle(form, sk, locale) && <div role="heading" aria-level={2} style={{ ...titleSt, marginBottom: 10 }}>{formSectionTitle(form, sk, locale)}</div>}
             {shown.filter(f => formSectionOf(f) === sk).map(f => {
               const signoff = formTypeOf(f) === "signoff";
-              const read = signoff ? formStampLine(values[f.key]) : formReadAnswer(f, values[f.key]);
+              const read = signoff ? formStampLine(values[f.key]) : (formTypeOf(f) === "photos" ? formPhotosLine(values[f.key]) : formReadAnswer(f, values[f.key]));
               return (
                 <div key={f.key} style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{f.label}</div>

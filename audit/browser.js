@@ -72,9 +72,15 @@ async function openApp(browser, base, opts) {
     const req = route.request();
     const url = new URL(req.url());
     let body = null;
-    const raw = req.postData();
-    if (raw) { try { body = JSON.parse(raw); } catch (e) { body = raw; } }
     const headers = req.headers() || {};
+    // A multipart body reaches the stub as the bytes the browser sent, so
+    // what the phone made of a photo can be read off them. Anything else
+    // is JSON, or the text it was.
+    if (/^multipart\//i.test(headers["content-type"] || "")) body = req.postDataBuffer();
+    else {
+      const raw = req.postData();
+      if (raw) { try { body = JSON.parse(raw); } catch (e) { body = raw; } }
+    }
     const answer = stub.handle(req.method(), url.pathname, url.search, body, headers["accept-language"] || "", headers);
     const { after, stream, ...reply } = answer || {};
     // A page can close while an answer is still being written, and an
