@@ -339,12 +339,21 @@ const cutInto = (text, n) => {
 // Spanish. Since Step 137 the API writes the sentence in the request's
 // language, ?locale= first and the account's after it; the code is the
 // same in both.
+// Each sentence is quoted from helpers/words.js in ocsa-api, byte for
+// byte: auth.pinIncorrect, auth.pinUnchanged, auth.pinWeak and
+// auth.pinFormat. The API also answers PIN_UNCHANGED with
+// auth.pinSameAsGiven on a first PIN, which the portal never sends.
 const PIN_REFUSALS = {
   PIN_INCORRECT: ["Current PIN is incorrect", "El PIN actual no es correcto"],
-  PIN_UNCHANGED: ["New PIN must be different from the current PIN", "El PIN nuevo debe ser distinto del actual"],
-  PIN_WEAK: ["New PIN is too easy to guess", "El PIN nuevo es muy f\u00e1cil de adivinar"],
-  PIN_FORMAT: ["New PIN must be exactly 4 digits", "El PIN nuevo debe tener exactamente 4 d\u00edgitos"],
+  PIN_UNCHANGED: ["New PIN must be different from your current PIN", "El PIN nuevo debe ser distinto de su PIN actual"],
+  PIN_WEAK: ["Choose a PIN that is not repeated digits, a sequence, or your badge number", "Elija un PIN que no sea un mismo d\u00edgito repetido, una secuencia ni su n\u00famero de empleado"],
+  PIN_FORMAT: ["PIN must be exactly 4 digits", "El PIN debe tener exactamente 4 d\u00edgitos"],
 };
+// A sign-in the API turns away, auth.invalidCredentials in
+// helpers/words.js, and an inspection it no longer has,
+// inspections.notFound, each quoted byte for byte in both languages.
+const LOGIN_REFUSAL = ["Invalid credentials", "Los datos para iniciar sesi\u00f3n no son correctos"];
+const INSPECTION_NOT_FOUND = ["Not found", "No se encontr\u00f3 la inspecci\u00f3n"];
 
 // Every refusal the time off routes can answer with, in the order the
 // Step 79 contract lists them. The suite shows each one word for word.
@@ -453,7 +462,7 @@ function makeState(opts) {
     answersP: o.answersP ? Object.assign({}, o.answersP) : {},
     // The form with titled sections, served when a case asks, and its
     // answers.
-    sectionsForm: !!o.sectionsForm,
+    sectionsForm: o.sectionsForm === "one" ? "one" : !!o.sectionsForm,
     answersS: {},
     // Everyone Speak Up can name, and every report filed through it.
     staff: o.staff || STAFF.slice(),
@@ -552,14 +561,15 @@ function formP(lang) {
           { key: "note", label: w.note, type: "text", required: false },
         ],
         rows: FORM_P_ROWS.map(k => ({ key: k, label: w[k] })) },
-      // A table a person adds rows to, one to three of them.
+      // A table a person adds rows to, two to three of them, the floor
+      // the PPE check's wear checks table has.
       { key: "visits", label: w.visits, type: "grid", section: w.rooms, required: true,
         columns: [
           { key: "day", label: w.visitDay, type: "date", required: true },
           { key: "at", label: w.visitAt, type: "time", required: true },
           { key: "room", label: w.room, type: "text", required: true },
         ],
-        rows: null, minRows: 1, maxRows: 3 },
+        rows: null, minRows: 2, maxRows: 3 },
       // The one the person filing makes, and one that belongs to the
       // supervisor half and is never drawn on the portal.
       { key: "leadSign", label: w.lead, type: "signoff", section: w.signIt, signer: "filer", required: true },
@@ -621,7 +631,9 @@ function draftP(state, lang) {
 // "1" to "3". The first two have a title, in the language the request
 // asks for, and the third has none. Served only to a case that asks for
 // it with stubOptions.sectionsForm, so every other case reads the
-// catalog it always has.
+// catalog it always has. stubOptions.sectionsForm of "one" serves the
+// first section alone, a form of one titled section, which the portal
+// heads with the form's own name and nothing else.
 const FORM_S_CODE = "TEST-FORM-S";
 const FORM_S_WORDS = {
   en: {
@@ -636,7 +648,7 @@ const FORM_S_WORDS = {
   },
 };
 
-function formS(lang) {
+function formS(lang, one) {
   const w = FORM_S_WORDS[lang === "es" ? "es" : "en"];
   const field = (key, type, section, required, options) => ({
     key: key, label: w[key], type: type, required: required, osha: false, prefilled: false,
@@ -646,18 +658,19 @@ function formS(lang) {
     code: FORM_S_CODE,
     title: w.title,
     version: 1,
-    sections: [{ key: "1", title: w.first }, { key: "2", title: w.second }],
+    sections: [{ key: "1", title: w.first }].concat(one ? [] : [{ key: "2", title: w.second }]),
     fields: [
       field("doors", "text", "1", true),
       field("lights", "select", "1", true, [{ value: "yes", label: w.yes }, { value: "no", label: w.no }]),
+    ].concat(one ? [] : [
       field("low", "text", "2", false),
       field("notes", "textarea", "3", false),
-    ],
+    ]),
   };
 }
 
 function draftS(state, lang) {
-  const form = formS(lang);
+  const form = formS(lang, state.sectionsForm === "one");
   const answers = state.answersS;
   const answered = form.fields.filter(f => answers[f.key] !== undefined && answers[f.key] !== null && answers[f.key] !== "").length;
   return {
@@ -820,7 +833,12 @@ const chatSeed = (channelId, odd) => {
 // sent shows the gap, and audit/known.json names it with its reason. The
 // day the API sends a kind in Spanish, it joins LIVE_KINDS, its twins are
 // served, and the known entry stops matching and has to come off.
-const LIVE_KINDS = new Set(["form text"]);
+//
+// Since Step 137 every refusal and every message the API writes on the
+// routes the portal calls comes out of helpers/words.js in the request's
+// language, ?locale= first and the account's after it, so a refusal and
+// a message are live kinds beside a form's text.
+const LIVE_KINDS = new Set(["form text", "refusal", "message"]);
 
 const { ES } = require("./words");
 const { silently } = require("./stream");
@@ -962,7 +980,7 @@ const TWIN_PAIRS = [
   ["Glass doors are free of smudges", "Las puertas de vidrio no tienen manchas"],
   ["Floor mats are straight and dry", "Los tapetes est\u00e1n derechos y secos"],
   ["Lobby", "Vest\u00edbulo"],
-  ["Inspection not found", "No se encontr\u00f3 la inspecci\u00f3n"],
+  INSPECTION_NOT_FOUND,
   ["This inspection was already completed", "Esta inspecci\u00f3n ya fue completada"],
   ["Stairwell walk", "Recorrido de la escalera"],
   ["The badge number does not match this account.", "El n\u00famero de empleado no coincide con esta cuenta."],
@@ -979,7 +997,8 @@ const TWIN_PAIRS = [
   .concat(TIME_OFF_REFUSALS.map(r => tableTwin(r.error)))
   .concat(HR_CASE_REFUSALS.map(tableTwin))
   .concat(Object.keys(PIN_REFUSALS).map(k => PIN_REFUSALS[k]))
-  .concat(["That sign-in did not match. Check your badge, phone or email and your PIN.", "Session expired", "Request failed",
+  .concat([LOGIN_REFUSAL])
+  .concat(["Session expired", "Request failed",
     "Photo upload failed", "A sign-off is made with its own button", "That is not a sign-off on this form",
     "You cannot sign this part of the form", "This part is already signed"].map(tableTwin))
   // The second form, already written in both languages above.
@@ -1382,7 +1401,7 @@ function createStub(opts) {
 
     // --- signing in and getting in
     if (key === "POST /api/auth/login") {
-      if (body && body.pin !== "4907") return json(401, { error: "That sign-in did not match. Check your badge, phone or email and your PIN." });
+      if (body && body.pin !== "4907") return json(401, { error: LOGIN_REFUSAL[0] });
       return json(200, { token: "token-one" });
     }
     if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: SITES, preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
@@ -1603,19 +1622,20 @@ function createStub(opts) {
     const lang = /locale=es/.test(String(search || "")) ? "es" : "en";
     const second = (p) => /TEST-FORM-P/.test(p) || /draft-two/.test(p);
     const third = (p) => state.sectionsForm && (/TEST-FORM-S/.test(p) || /draft-three/.test(p));
+    const thirdForm = () => formS(lang, state.sectionsForm === "one");
     // The catalog carries each form whole, fields and all, because the
     // form is what says which questions a report has and the screen
     // reads them from here. It served only the code and the title until
     // now, which is why no question has ever drawn in the suite.
     if (pathname === "/api/forms") {
-      return json(200, { forms: [FORM, formP(lang)].concat(state.sectionsForm ? [formS(lang)] : []) });
+      return json(200, { forms: [FORM, formP(lang)].concat(state.sectionsForm ? [thirdForm()] : []) });
     }
     if (method === "GET" && /^\/api\/forms\/drafts\//.test(pathname)) {
-      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: formS(lang) });
+      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: thirdForm() });
       return second(pathname) ? json(200, { draft: draftP(state, lang), form: formP(lang) }) : json(200, { draft: draftOf(state), form: FORM });
     }
     if (method === "POST" && /^\/api\/forms\/[^/]+\/drafts$/.test(pathname)) {
-      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: formS(lang) });
+      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: thirdForm() });
       return second(pathname) ? json(200, { draft: draftP(state, lang), form: formP(lang) }) : json(200, { draft: draftOf(state), form: FORM });
     }
     if (method === "PATCH" && /^\/api\/forms\/drafts\//.test(pathname)) {
@@ -1625,7 +1645,7 @@ function createStub(opts) {
       const signoff = Object.keys(written).find(k => /Sign$/.test(k));
       if (second(pathname) && signoff) return json(400, { error: "A sign-off is made with its own button" });
       Object.keys(written).forEach((k) => { if (written[k] === null) delete bag[k]; else bag[k] = written[k]; });
-      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: formS(lang) });
+      if (third(pathname)) return json(200, { draft: draftS(state, lang), form: thirdForm() });
       return second(pathname) ? json(200, { draft: draftP(state, lang), form: formP(lang) }) : json(200, { draft: draftOf(state), form: FORM });
     }
     if (method === "POST" && /^\/api\/forms\/drafts\/[^/]+\/submit$/.test(pathname)) {
@@ -1660,7 +1680,7 @@ function createStub(opts) {
       return json(200, { response: draftP(state, lang) });
     }
     if (method === "GET" && /^\/api\/forms\/[^/]+$/.test(pathname)) {
-      if (third(pathname)) return json(200, { form: formS(lang) });
+      if (third(pathname)) return json(200, { form: thirdForm() });
       return second(pathname) ? json(200, { form: formP(lang) }) : json(200, { form: FORM });
     }
 
@@ -1691,14 +1711,14 @@ function createStub(opts) {
     if (method === "POST" && completing) {
       if (!body || !Array.isArray(body.scores)) return json(400, { error: "Scores are required" });
       const one = state.inspections.find(i => i.id === completing[1] && !i.gone);
-      if (!one) return json(404, { error: "Inspection not found" });
+      if (!one) return json(404, { error: INSPECTION_NOT_FOUND[0] });
       if (one.status === "completed") return json(400, { error: "This inspection was already completed" });
       one.status = "completed";
       return json(200, { success: true, result: { id: "res-" + one.id, scheduled_inspection_id: one.id, total_score: body.scores.reduce((s, x) => s + (parseInt(x.score) || 0), 0) } });
     }
     if (method === "GET" && /^\/api\/inspections\/scheduled\/[^/]+$/.test(pathname)) {
       const one = state.inspections.find(i => pathname.endsWith("/" + i.id) && !i.gone);
-      return one ? json(200, one) : json(404, { error: "Inspection not found" });
+      return one ? json(200, one) : json(404, { error: INSPECTION_NOT_FOUND[0] });
     }
     if (pathname === "/api/inspections/scheduled") return json(200, []);
     if (key === "GET /api/inspections/templates") return json(200, []);
@@ -1827,7 +1847,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
   API_REFUSALS, localeFault, localeRows };

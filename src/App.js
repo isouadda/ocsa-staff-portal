@@ -5007,7 +5007,10 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   const at = sections.indexOf(here);
   const pageFields = shown.filter(f => formSectionOf(f) === here);
   // The section's title, drawn above its first question when it has one.
-  const hereTitle = here === null ? "" : formSectionTitle(form, here, locale);
+  // A form with one section draws none: the form's own name already
+  // heads the screen, and a second heading under it would say nothing.
+  const titled = sections.length > 1;
+  const hereTitle = here === null || !titled ? "" : formSectionTitle(form, here, locale);
 
   // What is still unanswered is the server's judgement, never this
   // screen's: it already reads the same rules over the same answers.
@@ -5242,23 +5245,32 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
 
   // A table a person adds rows to: one card per row, folded to a line
   // once every column that asks for an answer has one, and opened again
-  // on a tap.
+  // on a tap. A table with a floor starts with that many rows drawn, so
+  // the first row's fields are on screen before anyone taps Add row. A
+  // row drawn for the floor and not yet written in is not an answer:
+  // nothing is saved for it until a cell is filled, it is always drawn
+  // open, and the missing list names it the way the API always has.
+  // A row the floor asks for cannot be taken out, so none of the rows
+  // offers Remove row until the table holds more than its floor.
   const renderRowTable = (f) => {
     const list = Array.isArray(values[f.key]) ? values[f.key] : [];
+    const floor = Math.max(0, Math.floor(Number(f.minRows)) || 0);
+    const rows = list.length < floor ? list.concat(Array.from({ length: floor - list.length }, () => ({}))) : list;
     const put = (next) => setVal(f.key, next.length === 0 ? null : next);
     const write = (i, colKey, v) => {
-      const next = list.map((row, j) => (j === i ? Object.assign({}, row) : row));
+      const next = rows.map((row, j) => (j === i ? Object.assign({}, row) : row));
       if (!formHasAnswer(v)) delete next[i][colKey]; else next[i][colKey] = v;
       put(next);
     };
     const open = (i, yes) => setOpenRows(prev => Object.assign({}, prev, { [f.key + ":" + i]: yes }));
-    const remove = (i) => { setOpenRows({}); put(list.filter((row, j) => j !== i)); };
-    const full = Number(f.maxRows) > 0 && list.length >= Number(f.maxRows);
+    const remove = (i) => { setOpenRows({}); put(rows.filter((row, j) => j !== i)); };
+    const removable = rows.length > floor;
+    const full = Number(f.maxRows) > 0 && rows.length >= Number(f.maxRows);
     const first = (f.columns || [])[0];
     return (
       <>
-        {list.map((row, i) => {
-          if (formRowDone(f.columns, row) && !openRows[f.key + ":" + i]) {
+        {rows.map((row, i) => {
+          if (i < list.length && formRowDone(f.columns, row) && !openRows[f.key + ":" + i]) {
             return (
               <button key={i} type="button" onClick={() => open(i, true)} style={foldedBtn}>
                 {tr("Row {n}", { n: i + 1 })}: {first ? formCellRead(first, row[first.key]) : ""}
@@ -5269,13 +5281,13 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
             <div key={i} style={gridCard}>
               <div style={gridName}>{tr("Row {n}", { n: i + 1 })}</div>
               {renderCells(f, row, i, (colKey, v) => write(i, colKey, v))}
-              <button type="button" onClick={() => remove(i)} style={gridBtn}>{tr("Remove row")}</button>
+              {removable && <button type="button" onClick={() => remove(i)} style={gridBtn}>{tr("Remove row")}</button>}
             </div>
           );
         })}
         {full
           ? <div style={{ ...mkHelp(t), marginTop: 10 }}>{tr("This table is full.")}</div>
-          : <button type="button" onClick={() => { open(list.length, true); put(list.concat([{}])); }} style={gridBtn}>{tr("Add row")}</button>}
+          : <button type="button" onClick={() => { open(rows.length, true); put(rows.concat([{}])); }} style={gridBtn}>{tr("Add row")}</button>}
       </>
     );
   };
@@ -5352,7 +5364,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
               <div style={{ ...mkLabel(t), marginBottom: 0, flex: "1 1 auto", minWidth: 0 }}>{tr("Section {n}", { n: i + 1 })}</div>
               <button onClick={() => editSection(sk)} style={{ minHeight: 44, padding: "0 16px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Edit")}</button>
             </div>
-            {formSectionTitle(form, sk, locale) && <div role="heading" aria-level={2} style={{ ...titleSt, marginBottom: 10 }}>{formSectionTitle(form, sk, locale)}</div>}
+            {titled && formSectionTitle(form, sk, locale) && <div role="heading" aria-level={2} style={{ ...titleSt, marginBottom: 10 }}>{formSectionTitle(form, sk, locale)}</div>}
             {shown.filter(f => formSectionOf(f) === sk).map(f => {
               const signoff = formTypeOf(f) === "signoff";
               const read = signoff ? formStampLine(values[f.key]) : formReadAnswer(f, values[f.key]);
