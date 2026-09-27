@@ -552,14 +552,15 @@ function formP(lang) {
           { key: "note", label: w.note, type: "text", required: false },
         ],
         rows: FORM_P_ROWS.map(k => ({ key: k, label: w[k] })) },
-      // A table a person adds rows to, one to three of them.
+      // A table a person adds rows to, two to three of them, the floor
+      // the PPE check's wear checks table has.
       { key: "visits", label: w.visits, type: "grid", section: w.rooms, required: true,
         columns: [
           { key: "day", label: w.visitDay, type: "date", required: true },
           { key: "at", label: w.visitAt, type: "time", required: true },
           { key: "room", label: w.room, type: "text", required: true },
         ],
-        rows: null, minRows: 1, maxRows: 3 },
+        rows: null, minRows: 2, maxRows: 3 },
       // The one the person filing makes, and one that belongs to the
       // supervisor half and is never drawn on the portal.
       { key: "leadSign", label: w.lead, type: "signoff", section: w.signIt, signer: "filer", required: true },

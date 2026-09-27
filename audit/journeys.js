@@ -1902,23 +1902,39 @@ const JOURNEYS = [
 
         const addRow = say("Add row", language);
         const removeRow = say("Remove row", language);
+        const rowN = (n) => say("Row {n}", language).replace("{n}", String(n));
+        const rowsDrawn = (t) => (t.match(new RegExp(say("Row {n}", language).replace("{n}", "\\d"), "g")) || []).length;
         let text = await bodyText(app.page);
         expect("the table offers a row to add", text.indexOf(addRow) !== -1, text.slice(0, 200));
 
-        // Three rows, then the fourth refused on screen.
-        for (let i = 0; i < 3; i += 1) { await clickText(app.page, addRow); }
+        // The floor, two rows, is drawn before anyone taps Add row, each
+        // with its cells open, and neither offers Remove row, since the
+        // table cannot do without them. Nothing is saved for a row nobody
+        // has written in.
+        const table = formP(language).fields.find(f => f.key === "visits");
+        const cells = await app.page.evaluate(() => document.querySelectorAll(".sp-content input").length);
+        expect("a table with a floor of two starts with two rows drawn",
+          rowsDrawn(text) === 2 && text.indexOf(rowN(1)) !== -1 && text.indexOf(rowN(2)) !== -1, text.slice(0, 260));
+        expect("both rows start open, with every cell on screen", cells >= table.columns.length * 2, cells + " boxes on screen");
+        expect("a row the floor asks for offers no Remove row", text.indexOf(removeRow) === -1, text.slice(0, 260));
+
+        // A third row, then the fourth refused on screen.
+        await clickText(app.page, addRow);
         text = await bodyText(app.page);
-        const rowWord = say("Row {n}", language).replace("{n}", "3");
+        const rowWord = rowN(3);
         expect("a third row is there", text.indexOf(rowWord) !== -1, text.slice(0, 260));
         expect("a fourth row is refused on the screen itself",
           text.indexOf(say("This table is full.", language)) !== -1 && text.indexOf(addRow) === -1, text.slice(0, 260));
 
-        // One row taken out.
-        const before = (text.match(new RegExp(say("Row {n}", language).replace("{n}", "\\d"), "g")) || []).length;
+        // One row taken out, which brings the table back to its floor,
+        // where Remove row is not offered.
+        const before = rowsDrawn(text);
+        expect("a row above the floor offers Remove row", text.indexOf(removeRow) !== -1, text.slice(0, 260));
         await clickText(app.page, removeRow);
         text = await bodyText(app.page);
-        const after = (text.match(new RegExp(say("Row {n}", language).replace("{n}", "\\d"), "g")) || []).length;
+        const after = rowsDrawn(text);
         expect("a row comes out again", after === before - 1, "rows went from " + before + " to " + after);
+        expect("back at the floor, no row offers Remove row", text.indexOf(removeRow) === -1, text.slice(0, 260));
 
         // A card folds once its required cells are filled, and opens on a tap.
         await answerEveryBox(app.page);
@@ -2021,6 +2037,13 @@ const JOURNEYS = [
         expect("the missing list names the question by its label", text.indexOf(check.label) !== -1, text.slice(0, 320));
         expect("the missing list names the rows still to answer",
           text.indexOf(check.rows[0].label) !== -1 && text.indexOf(check.rows[1].label) !== -1, text.slice(0, 320));
+        // The table's rows were drawn for its floor and never written in,
+        // so nothing was saved for them, and the API names the first row
+        // it is short the way it always has.
+        const visits = formP(language).fields.find(f => f.key === "visits");
+        expect("nothing is saved for a row drawn for the floor that nobody wrote in", app.stub.state.answersP.visits === undefined, JSON.stringify(app.stub.state.answersP.visits));
+        expect("the missing list names the first row a table with a floor is short",
+          text.indexOf(visits.label + ": " + say("Row {n}", language).replace("{n}", "1")) !== -1, text.slice(0, 400));
       } finally { await app.context.close(); }
     },
   },
