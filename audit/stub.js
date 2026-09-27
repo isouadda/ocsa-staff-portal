@@ -350,10 +350,12 @@ const PIN_REFUSALS = {
   PIN_FORMAT: ["PIN must be exactly 4 digits", "El PIN debe tener exactamente 4 d\u00edgitos"],
 };
 // A sign-in the API turns away, auth.invalidCredentials in
-// helpers/words.js, and an inspection it no longer has,
-// inspections.notFound, each quoted byte for byte in both languages.
+// helpers/words.js, an inspection it no longer has,
+// inspections.notFound, and an activation whose badge number does not
+// match, BADGE_MISMATCH, each quoted byte for byte in both languages.
 const LOGIN_REFUSAL = ["Invalid credentials", "Los datos para iniciar sesi\u00f3n no son correctos"];
 const INSPECTION_NOT_FOUND = ["Not found", "No se encontr\u00f3 la inspecci\u00f3n"];
+const BADGE_MISMATCH = ["The badge number does not match this account.", "El n\u00famero de empleado no coincide con esta cuenta."];
 
 // Every refusal the time off routes can answer with, in the order the
 // Step 79 contract lists them. The suite shows each one word for word.
@@ -991,7 +993,7 @@ const TWIN_PAIRS = [
   INSPECTION_NOT_FOUND,
   ["This inspection was already completed", "Esta inspecci\u00f3n ya fue completada"],
   ["Stairwell walk", "Recorrido de la escalera"],
-  ["The badge number does not match this account.", "El n\u00famero de empleado no coincide con esta cuenta."],
+  BADGE_MISMATCH,
   // The one pick list label the portal's own table does not carry yet.
   ["Medium", "Media"],
   // A drop reason an admin added, which only the API can put into Spanish.
@@ -1436,7 +1438,7 @@ function createStub(opts) {
     // not match, with a code the screen reads and a sentence it does not.
     if (key === "POST /api/auth/activate") {
       if (state.activationBadge && body && body.badgeNumber && body.badgeNumber !== state.person.badgeNumber) {
-        return json(400, { error: "The badge number does not match this account.", code: "BADGE_MISMATCH" });
+        return json(400, { error: BADGE_MISMATCH[0], code: "BADGE_MISMATCH" });
       }
       return json(200, { token: "token-one" });
     }
@@ -1855,7 +1857,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
   API_REFUSALS, localeFault, localeRows };

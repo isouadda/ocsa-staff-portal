@@ -7,7 +7,7 @@ const { openApp, letSheetOffer } = require("./browser");
 const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
 const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
-const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
+const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, WEST_SHIFT_NAMES, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
   API_REFUSALS } = require("./stub");
 
@@ -864,8 +864,9 @@ const JOURNEYS = [
       } finally { await app.context.close(); }
 
       // An activation link on the same phone, with a badge number that
-      // does not match. The answer's code says so; its sentence, in either
-      // language, is never read.
+      // does not match. The answer's code says which box, and its
+      // sentence, the API's own in the request's language, is what the
+      // box says.
       const link = await open({ signedIn: false, phone: other, path: "/activate?token=fixture", stubOptions: { activationBadge: true } });
       try {
         await pause(link.page, 1200);
@@ -875,8 +876,8 @@ const JOURNEYS = [
         await clickText(link.page, say("Activate Account", language));
         await pause(link.page, 900);
         const said = await bodyText(link.page);
-        expect("a badge number that does not match is read off the answer's code and said in the screen's language",
-          has(said, spanishOf("That badge number does not match our records. Check the number in your email.", language)), said.slice(0, 220));
+        expect("a badge number that does not match is said in the API's own words, in the screen's language",
+          has(said, BADGE_MISMATCH[language === "es" ? 1 : 0]), said.slice(0, 220));
         judge(link.stub, SEVEN.slice(3, 5));
       } finally { await link.context.close(); }
 
@@ -3033,22 +3034,23 @@ const JOURNEYS = [
   },
   {
     id: "changepincodes",
-    label: "Change PIN turned away by the API: each refusal under its own box, read off its code, in the person's language",
+    label: "Change PIN turned away by the API: each refusal under the box its code names, in the API's own words, in the person's language",
     run: async (open, language, expect) => {
       // Each code the API sends, the box it belongs under, and what the
-      // screen says there.
+      // screen says there: the API's own sentence, quoted from
+      // helpers/words.js in ocsa-api byte for byte, in each language.
       const CASES = [
-        ["PIN_INCORRECT", 0, "That is not your current PIN."],
-        ["PIN_UNCHANGED", 1, "Your new PIN must be different from your current PIN."],
-        ["PIN_WEAK", 1, "That PIN is too easy to guess. Choose a different one."],
-        ["PIN_FORMAT", 1, "PIN must be exactly 4 digits."],
+        ["PIN_INCORRECT", 0, "Current PIN is incorrect", "El PIN actual no es correcto"],
+        ["PIN_UNCHANGED", 1, "New PIN must be different from your current PIN", "El PIN nuevo debe ser distinto de su PIN actual"],
+        ["PIN_WEAK", 1, "Choose a PIN that is not repeated digits, a sequence, or your badge number", "Elija un PIN que no sea un mismo d\u00edgito repetido, una secuencia ni su n\u00famero de empleado"],
+        ["PIN_FORMAT", 1, "PIN must be exactly 4 digits", "El PIN debe tener exactamente 4 d\u00edgitos"],
       ];
       const BOX = ["the current PIN", "the new PIN", "the repeated PIN"];
       const app = await open({});
       try {
         await openTab(app.page, "settings", language);
         await pause(app.page, 800);
-        for (const [code, box, line] of CASES) {
+        for (const [code, box, en, es] of CASES) {
           // A change the screen's own checks let through, so the API is
           // what turns it away, with a sentence in the account's language.
           app.stub.state.pinRefusal = code;
@@ -3064,7 +3066,7 @@ const JOURNEYS = [
           }));
           const said = under.filter(x => x.length > 0);
           expect(code + " is said under " + BOX[box], said.length === 1 && under[box].length > 0, JSON.stringify(under));
-          expect(code + " is said in the person's language", has(under[box], spanishOf(line, language)), JSON.stringify(under));
+          expect(code + " is said in the API's own words, in the person's language", has(under[box], language === "es" ? es : en), JSON.stringify(under));
           await spokenHere(app, language, expect);
         }
       } finally { await app.context.close(); }
