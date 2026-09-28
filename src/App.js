@@ -130,15 +130,14 @@ async function readServerStamp() {
 }
 
 // The tab is remembered first, so it survives even if the rest throws.
+// The service worker stays registered: it has never cached anything, a
+// new copy installs itself on the reload, and unregistering it would
+// throw away the phone's push subscription, turning alerts off on every
+// phone at every deploy. Any cache an older build might have left is
+// still cleared.
 async function clearAndReload(tab, stamp) {
   sessionSet(UPDATE_TAB_KEY, tab || "clock");
   sessionSet(UPDATE_TRIED_KEY, stamp);
-  try {
-    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      for (let i = 0; i < regs.length; i++) { try { await regs[i].unregister(); } catch (e) {} }
-    }
-  } catch (e) {}
   try {
     if (window.caches && window.caches.keys) {
       const names = await window.caches.keys();
