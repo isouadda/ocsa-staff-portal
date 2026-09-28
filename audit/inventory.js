@@ -120,6 +120,7 @@ const SHEET_CASES = [
   { id: "InspectView#0", label: "Inspect, schedule one" },
   { id: "HomeScreenPrompt#0", label: "Add to home screen" },
   { id: "ChatView#0", label: "Chat, tag someone" },
+  { id: "AnnouncementSheet#0", label: "An announcement" },
 ];
 
 // Every form a person can fill in and send. Required fields are the ones

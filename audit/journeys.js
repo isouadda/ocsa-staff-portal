@@ -10,7 +10,7 @@ const { INSPECT, languageRows } = require("./checks");
 const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES,
-  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY } = require("./stub");
+  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -3665,6 +3665,113 @@ const JOURNEYS = [
           expect("a " + subject + " notice opens " + tab, !!on, String(on));
         } finally { await app.context.close(); }
       }
+    },
+  },
+  {
+    id: "notifplace",
+    label: "The bell and the phone open the right place: a chat notice and a tag notice open Chat on their chat, an announcement opens its sheet in the screen's language with who sent it and when, a tapped phone alert lands where the bell would, and ?open= at start opens the sheet once the person is in, and never twice",
+    run: async (open, language, expect) => {
+      const notice = (id, subjectType, subjectId, title) => ({ id: id, subjectType: subjectType, subjectId: subjectId, title: title, body: "An invented notice.", link: null, createdAt: "2026-10-01T18:00:00.000Z", readAt: null, count: 1 });
+      const NOTICES = [
+        notice("n-chat", "chat", "ch-north", "New messages in North Building"),
+        notice("n-tag", "chat_mention", "ch-north", "Sam Second tagged you in North Building"),
+        notice("n-ann", "announcement", ANNOUNCEMENT.id, "An announcement from the office"),
+      ];
+      const openBell = (page) => page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaciones/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); return !!b; });
+      const tapNotice = (page, title) => page.evaluate((want) => {
+        const b = Array.from(document.querySelectorAll('div[style*="z-index: 400"] button')).find(x => x.innerText.indexOf(want) !== -1);
+        if (b) b.click();
+        return !!b;
+      }, title);
+      // Where the portal is: the tab that reads as chosen on the bar, and
+      // the chat that says it is chosen.
+      const where = (page) => page.evaluate(() => {
+        const bar = Array.from(document.querySelectorAll("div")).find((el) => { const s = getComputedStyle(el); return s.position === "fixed" && s.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5; });
+        // The chosen tab's name is drawn at 600, the others at 500.
+        const on = bar && Array.from(bar.querySelectorAll(":scope > button")).find(b => { const sp = b.querySelector("span"); return sp && getComputedStyle(sp).fontWeight === "600"; });
+        const chat = Array.from(document.querySelectorAll('.sp-content button[aria-pressed="true"]')).map(b => b.textContent.replace(/\s+/g, " ").trim())[0] || null;
+        return { tab: on ? on.textContent.trim().replace(/^[\d+]+/, "") : null, chat: chat };
+      });
+      const onNorth = (w) => !!w && w.tab === say("Chat", language) && !!w.chat && w.chat.indexOf("North Building") === 0;
+      const title = ANNOUNCEMENT.title[language], body = ANNOUNCEMENT.body[language];
+      const other = language === "es" ? "en" : "es";
+      const sheetUp = (page) => page.evaluate(() => !!document.getElementById("ocsa-announcement-title"));
+
+      // A chat notice, then a tag notice, each opening Chat on North Building.
+      for (const n of NOTICES.slice(0, 2)) {
+        const app = await open({ stubOptions: { notifications: [n] } });
+        try {
+          await pause(app.page, 900);
+          await openBell(app.page);
+          await pause(app.page, 900);
+          await tapNotice(app.page, servedIn(n.title, "en"));
+          await pause(app.page, 1300);
+          const w = await where(app.page);
+          expect("a " + n.subjectType + " notice opens Chat on the chat it names", onNorth(w), JSON.stringify(w));
+          expect("a " + n.subjectType + " notice reads that chat", chatReads(app.stub).indexOf("ch-north") !== -1, JSON.stringify(chatReads(app.stub)));
+        } finally { await app.context.close(); }
+      }
+
+      // An announcement notice opens its sheet, drawn in the screen's
+      // language, with who sent it and when under the body.
+      const ann = await open({ stubOptions: { notifications: [NOTICES[2]] } });
+      try {
+        await pause(ann.page, 900);
+        await openBell(ann.page);
+        await pause(ann.page, 900);
+        await tapNotice(ann.page, "An announcement from the office");
+        await pause(ann.page, 1200);
+        const text = await sheetText(ann.page);
+        const asked = sent(ann.stub, "GET", "/api/announcements/" + ANNOUNCEMENT.id).length;
+        expect("an announcement notice opens its sheet, read from the announcement route", (await sheetUp(ann.page)) && asked === 1, asked + " reads: " + text.slice(0, 160));
+        expect("the sheet draws the title and the body in the screen's language, with none of the other's", has(text, title) && has(text, body) && !has(text, ANNOUNCEMENT.title[other]), text.slice(0, 300));
+        const from = fill(spanishOf("From {name}", language), { name: "Jordan Office" });
+        const order = await ann.page.evaluate(([b, f]) => {
+          const all = Array.from(document.querySelectorAll('[role="dialog"] div, [role="dialog"] span')).filter(e => e.children.length === 0);
+          const bi = all.findIndex(e => e.textContent.trim() === b), fi = all.findIndex(e => e.textContent.trim() === f);
+          return { body: bi, from: fi, under: bi !== -1 && fi > bi };
+        }, [body, from]);
+        expect("From and the time are under the body", order.under && /\d{1,2}:\d{2}/.test(text.slice(text.indexOf(from))), JSON.stringify(order) + " " + text.slice(0, 300));
+        await spokenHere(ann, language, expect);
+        await tapInSheet(ann.page, say("Close", language));
+        expect("Close takes the sheet away", !(await sheetUp(ann.page)), "still up");
+      } finally { await ann.context.close(); }
+
+      // A tapped phone alert, told to a window already open: the worker's
+      // message lands on the same place the bell would open.
+      const tapped = await open({});
+      try {
+        await pause(tapped.page, 900);
+        await tapped.page.evaluate(() => navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { type: "ocsa-open", subjectType: "chat_mention", subjectId: "ch-north" } })));
+        await pause(tapped.page, 1300);
+        const w = await where(tapped.page);
+        expect("a phone alert's message opens Chat on the chat it names", onNorth(w), JSON.stringify(w));
+        await tapped.page.evaluate((id) => navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { type: "ocsa-open", subjectType: "announcement", subjectId: id } })), ANNOUNCEMENT.id);
+        await pause(tapped.page, 1200);
+        expect("a phone alert's message about an announcement opens its sheet", await sheetUp(tapped.page), (await bodyText(tapped.page)).slice(0, 160));
+      } finally { await tapped.context.close(); }
+
+      // A tapped phone alert that opened a new window: ?open= at start,
+      // held on the sign-in card, opened once the person is in, and never
+      // opened again.
+      const fresh = await open({ signedIn: false, path: "/?open=announcement:" + ANNOUNCEMENT.id });
+      try {
+        await pause(fresh.page, 600);
+        expect("the address is cleared at once", await fresh.page.evaluate(() => window.location.search.indexOf("open=") === -1), await fresh.page.evaluate(() => window.location.href));
+        expect("nothing opens over the sign-in card", !(await sheetUp(fresh.page)), "the sheet is up");
+        await type(fresh.page, 'input[autocomplete="username"]', "4821");
+        await type(fresh.page, 'input[type="password"]', "4907");
+        await clickText(fresh.page, say("Sign In", language));
+        await pause(fresh.page, 1800);
+        expect("once the person is in, the announcement opens", (await sheetUp(fresh.page)) && has(await sheetText(fresh.page), title), (await sheetText(fresh.page)).slice(0, 160));
+        await tapInSheet(fresh.page, say("Close", language));
+        await openTab(fresh.page, "schedule", language);
+        await pause(fresh.page, 900);
+        await openTab(fresh.page, "clock", language);
+        await pause(fresh.page, 900);
+        const reads = sent(fresh.stub, "GET", "/api/announcements/" + ANNOUNCEMENT.id).length;
+        expect("it never opens twice", !(await sheetUp(fresh.page)) && reads === 1, reads + " reads, sheet " + (await sheetUp(fresh.page)));
+      } finally { await fresh.context.close(); }
     },
   },
   {

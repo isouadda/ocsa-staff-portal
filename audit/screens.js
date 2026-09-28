@@ -7,7 +7,7 @@ const { openApp, letSheetOffer } = require("./browser");
 const { INSPECT, rowsFrom } = require("./checks");
 const { LEAKABLE, SPANISH, SPANISH_PATTERNS, say } = require("./words");
 const { SCREEN_CASES, SHEET_CASES } = require("./inventory");
-const { timeOffRow, formP, STAFF, servedFor, PERSON, INSPECTION } = require("./stub");
+const { timeOffRow, formP, STAFF, servedFor, PERSON, INSPECTION, ANNOUNCEMENT } = require("./stub");
 
 const SIZES = ["standard", "large", "xlarge", "largest"];
 const LANGUAGES = ["en", "es"];
@@ -262,6 +262,14 @@ const SHEET_OPENERS = {
     }, say("Tag someone", language));
     await pause(page, 800);
   },
+  // An announcement, opened the way a tapped phone alert opens one: the
+  // address names it, and it opens once the portal is up (see SHEET_PHONES).
+  "AnnouncementSheet#0": async (page) => { await pause(page, 1500); },
+};
+// The phone a sheet needs, where it differs from the one every case opens.
+const SHEET_PHONES = {
+  // The announcement is opened from the address.
+  "AnnouncementSheet#0": { path: "/?open=announcement:" + ANNOUNCEMENT.id },
 };
 
 // The Forms screen lists more than one form now, so a case says which
@@ -583,14 +591,14 @@ async function runScreens(browser, base, opts) {
   for (const language of LANGUAGES) {
     for (const size of ["standard", "largest"]) {
       for (const sh of SHEET_CASES) {
-        const app = await openApp(browser, base, {
+        const app = await openApp(browser, base, Object.assign({
           language: language, textSize: size, signedIn: true,
           installSheet: sh.id === "HomeScreenPrompt#0" ? "fresh" : "dismissed",
           stubOptions: {
             accountPreferences: { language: language, textSize: size },
             myTimeOff: [timeOffRow({ id: "to-one", status: "requested" })],
           },
-        });
+        }, SHEET_PHONES[sh.id] || {}));
         try {
           const opener = SHEET_OPENERS[sh.id];
           if (opener) await opener(app.page, language);

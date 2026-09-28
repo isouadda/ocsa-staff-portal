@@ -460,6 +460,8 @@ function makeState(opts) {
     assignedDue: o.assignedDue || null,
     // The open shifts this person has claimed, none unless a case says.
     myPickups: o.myPickups || [],
+    // The announcements the office has sent.
+    announcements: o.announcements || [ANNOUNCEMENT],
     conversationId: "cv-one",
     // Help: what the next question is answered with, the points the one
     // being answered can be stopped at, and the conversation as the API
@@ -1078,6 +1080,20 @@ function sniffImage(buf) {
   }
   return null;
 }
+// --- announcements, Step 179 in the API ---------------------------------
+//
+// One announcement from the office, the way GET /api/announcements/:id
+// sends it: its title and body in both languages, who sent it and when.
+// An id that names none answers announcements.notFound. Invented.
+const ANNOUNCEMENT = {
+  id: "an-1",
+  title: { en: "The lobby floor is being waxed", es: "Se est\u00e1 encerando el piso del vest\u00edbulo" },
+  body: { en: "Use the side entrance on Friday night. The front doors stay locked until 6 AM.", es: "Use la entrada lateral el viernes en la noche. Las puertas del frente siguen cerradas hasta las 6 AM." },
+  audience: { type: "all" }, sentBy: { id: "u-admin", name: "Jordan Office" }, sentAt: "2026-10-01T20:00:00.000Z",
+  recipients: 12, withPush: true, translated: true,
+};
+const ANNOUNCEMENT_NOT_FOUND = ["Announcement not found", "No se encontr\u00f3 el anuncio"];
+
 // A chat's messages as the API keeps them, oldest first. Every text is
 // invented. oddRows adds rows missing a name, a time, or both.
 // tagged adds two messages to the site chat that tag people, one of them
@@ -1318,6 +1334,12 @@ const TWIN_PAIRS = [
   // way the route fills it, and the photo refusals the stub answers on its own.
   .concat(Object.keys(API_REFUSALS).map(k => [refusalIn(API_REFUSALS[k], "en", API_REFUSALS[k].vars), refusalIn(API_REFUSALS[k], "es", API_REFUSALS[k].vars)]))
   .concat(Object.keys(FILE_REFUSALS).map(k => [FILE_REFUSALS[k].en, FILE_REFUSALS[k].es]))
+  // An announcement the API no longer has, and the notices that name a
+  // chat, a tag and an announcement.
+  .concat([ANNOUNCEMENT_NOT_FOUND,
+    ["New messages in North Building", "Mensajes nuevos en North Building"],
+    ["Sam Second tagged you in North Building", "Sam Second lo etiquet\u00f3 en North Building"],
+    ["An announcement from the office", "Un anuncio de la oficina"]])
   // The form with titled sections, written in both languages above.
   .concat(Object.keys(FORM_S_WORDS.en).map(k => [FORM_S_WORDS.en[k], FORM_S_WORDS.es[k]]))
   // The customer's two forms, written in both languages above.
@@ -2301,6 +2323,14 @@ function createStub(opts) {
       return json(201, { id: "hr-case-one", status: "open", createdAt: iso(NOW), updatedAt: iso(NOW) });
     }
 
+    // --- an announcement, opened from its notice
+    const announcementOne = method === "GET" ? /^\/api\/announcements\/([^/]+)$/.exec(pathname) : null;
+    if (announcementOne) {
+      const found = state.announcements.find(a => a.id === decodeURIComponent(announcementOne[1]));
+      if (!found) return json(404, { error: ANNOUNCEMENT_NOT_FOUND[languageOf(search, state) === "es" ? 1 : 0], code: "announcements.notFound" });
+      return json(200, { announcement: JSON.parse(JSON.stringify(found)) });
+    }
+
     // --- the bell
     if (pathname === "/api/notifications/unread-count") return json(200, { unread: state.notifications.filter(n => !n.readAt).length });
     if (pathname === "/api/notifications") return json(200, { unread: state.notifications.filter(n => !n.readAt).length, notifications: state.notifications });
@@ -2404,4 +2434,5 @@ module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSA
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES, localeFault, localeRows,
-  CUSTOMER_LINKS, FORM_C_CODE, FORM_V_CODE, formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, PUBLIC_MAX_PHOTOS, PUBLIC_FILINGS_MAX, customerSignatureLine };
+  CUSTOMER_LINKS, FORM_C_CODE, FORM_V_CODE, formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, PUBLIC_MAX_PHOTOS, PUBLIC_FILINGS_MAX, customerSignatureLine,
+  ANNOUNCEMENT };
