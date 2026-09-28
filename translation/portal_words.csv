@@ -353,7 +353,7 @@ Uploading...,Subiendo...,"Help, Assigned, Report, Inspect"
 Was this helpful?,¿Le sirvió?,Help
 What was missing?,¿Qué faltó?,Help
 Working from the written procedure only right now.,Por ahora solo se está usando el procedimiento escrito.,Help
-x,x,"Help, Assigned, Report, Inspect"
+x,x,"Help, Assigned, Report, Inspect, Forms"
 You can send up to 3 photos with one message.,Puede enviar hasta 3 fotos en un mensaje.,Help
 {answered} of {total} answered,{answered} de {total} respondidas,Help
 A photo of the completed task is required,Se necesita una foto de la tarea completada,Assigned
@@ -506,15 +506,15 @@ Template *,Plantilla *,Inspect
 Anyone you pick below will not be able to see this report.,Nadie que usted elija abajo podrá ver este reporte.,Speak Up
 Is this about someone in management?,¿Es sobre alguien de la gerencia?,Speak Up
 No,No,"Help, Speak Up"
-No one matches that name.,Nadie tiene ese nombre.,Speak Up
+No one matches that name.,Nadie tiene ese nombre.,"Speak Up, Forms"
 "Nothing you write here is kept. If you leave this screen before you send, it is gone.","Nada de lo que escriba aquí se guarda. Si sale de esta pantalla antes de enviar, se pierde.",Speak Up
 Optional,Opcional,Speak Up
 Please try again.,Intente de nuevo.,Speak Up
 Quote this if you follow up.,Menciónelo si vuelve a preguntar.,Speak Up
 Report a problem with someone,Reportar un problema con alguien,Speak Up
-Search by name,Buscar por nombre,Speak Up
+Search by name,Buscar por nombre,"Speak Up, Forms"
 Someone will be in touch with you within 72 hours.,Alguien se comunicará con usted en un plazo de 72 horas.,Speak Up
-The staff list did not load. Try again in a minute.,La lista del personal no cargó. Intente de nuevo en un minuto.,Speak Up
+The staff list did not load. Try again in a minute.,La lista del personal no cargó. Intente de nuevo en un minuto.,"Speak Up, Forms"
 We got your report.,Recibimos su reporte.,Speak Up
 What happened,Qué pasó,Speak Up
 Who is involved?,¿Quién está involucrado?,Speak Up
@@ -595,7 +595,7 @@ On your bar,En su barra,Shortcuts
 Pick something for this spot,Elija algo para este lugar,Shortcuts
 Put the bar back the way it came?,¿Dejar la barra como estaba al principio?,Shortcuts
 Remove,Quitar,Shortcuts
-Remove {name},Quitar a {name},Speak Up
+Remove {name},Quitar a {name},"Speak Up, Forms"
 Replace which one?,¿Cuál quiere reemplazar?,Shortcuts
 Reset,Restablecer,Shortcuts
 Reset to default,Volver a lo original,Shortcuts

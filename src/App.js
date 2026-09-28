@@ -5751,6 +5751,7 @@ const formOptionLabel = (f, v) => {
 const formPlainValue = (v) => typeof v === "string" || typeof v === "number" || typeof v === "boolean";
 function formReadAnswer(f, v) {
   if (!formHasAnswer(v)) return null;
+  if (formTypeOf(f) === "person") return formPersonName(v) || tr(FORMS_ANSWERED);
   if (Array.isArray(v)) {
     if (!v.every(formPlainValue)) return tr(FORMS_ANSWERED);
     const parts = v.map(x => formOptionLabel(f, x)).filter(x => x !== "");
@@ -5907,11 +5908,57 @@ const FORMS_ANSWERED = "Answered";
 // asks for nothing, so a type the forms engine adds later cannot quietly
 // become a text box. A question with no type at all is text, which is
 // what it has always been.
-const FORM_TYPES_DRAWN = ["", "text", "textarea", "select", "multiselect", "date", "time", "grid", "signoff", "photos", "number", "customer_signature"];
+const FORM_TYPES_DRAWN = ["", "text", "textarea", "select", "multiselect", "date", "time", "grid", "signoff", "photos", "number", "customer_signature", "person"];
 // A customer's signature on a staff form, as the API keeps it once saved.
 const formCustomerStamped = (v) => !!v && typeof v === "object" && typeof v.signatureId === "string" && v.signatureId !== "" && typeof v.name === "string" && v.name.trim() !== "";
 const FORMS_SAVE_SIGNATURE = "Save signature";
 const formTypeOf = (f) => (f && f.type ? String(f.type) : "");
+
+// A person question's answer: the person's id and their name as it read
+// the day they were picked, which is what the answer keeps. The name is
+// what a screen shows; an answer that carries none shows nothing rather
+// than an id. A name typed as plain text, which is what the question
+// held before it became a picker, reads as a name with no id behind it.
+const formPersonOf = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : null);
+const formPersonId = (v) => {
+  const p = formPersonOf(v);
+  const id = p ? (p.id !== undefined && p.id !== null ? p.id : (p.userId !== undefined ? p.userId : null)) : null;
+  return id === null || id === undefined ? null : String(id);
+};
+const formPersonName = (v) => {
+  if (typeof v === "string") return v.trim();
+  const p = formPersonOf(v);
+  if (!p) return "";
+  const n = typeof p.name === "string" ? p.name : [p.firstName, p.lastName].filter(Boolean).join(" ");
+  return String(n || "").trim();
+};
+// The person a report is about: the person question the definition
+// names as aboutPerson, on the form as a key or as an object carrying
+// one, or on the question itself, and otherwise the form's one person
+// question when it has exactly one. Null on a form about nobody.
+function formAboutPersonKey(form) {
+  const fields = form && Array.isArray(form.fields) ? form.fields : [];
+  const named = form ? form.aboutPerson : null;
+  const key = typeof named === "string" ? named : (named && typeof named === "object" ? named.key : null);
+  if (key && fields.some(f => f.key === key && formTypeOf(f) === "person")) return key;
+  const marked = fields.find(f => formTypeOf(f) === "person" && f.aboutPerson);
+  if (marked) return marked.key;
+  const people = fields.filter(f => formTypeOf(f) === "person");
+  return people.length === 1 ? people[0].key : null;
+}
+// The staff a person question offers: everyone active, as the Speak Up
+// route lists them, in last name order. That route leaves the caller
+// out, since nobody reports themselves to HR; a report can be about
+// the one filing it, so the caller is put back in their place.
+const staffNameOf = (p) => String(p && p.firstName ? p.firstName : "") + " " + String(p && p.lastName ? p.lastName : "");
+function staffListWith(list, me) {
+  const out = (Array.isArray(list) ? list : []).filter(p => p && p.id !== undefined && p.id !== null);
+  if (me && me.id !== undefined && me.id !== null && !out.some(p => String(p.id) === String(me.id))) {
+    out.push({ id: me.id, firstName: me.firstName || "", lastName: me.lastName || "" });
+    out.sort((a, b) => String(a.lastName || "").localeCompare(String(b.lastName || "")) || String(a.firstName || "").localeCompare(String(b.firstName || "")) || String(a.id).localeCompare(String(b.id)));
+  }
+  return out;
+}
 
 const formDraftOf = (r) => (r && r.draft ? r.draft : r);
 // The definition a draft is drawn from, when the draft route sends one
@@ -6081,7 +6128,7 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
 
   if (open) {
     const form = open.form || (forms || []).find(f => String(f.code) === String(open.draft.formCode)) || null;
-    return <FormFiller token={token} t={t} locale={locale} form={form} draft={open.draft} onLeave={() => { setOpen(null); load(); }} />;
+    return <FormFiller token={token} t={t} locale={locale} form={form} draft={open.draft} user={user} onLeave={() => { setOpen(null); load(); }} />;
   }
 
   return (
@@ -6125,9 +6172,18 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
 // request to the public route, photos ride in the body as data URLs, a
 // customer signature is drawn in its section, and the API's refusal is
 // drawn under the question it names or at the top.
-function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
+function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) {
   const isCustomer = !!customer;
   const [current, setCurrent] = useState(draft);
+  // A person question: the staff list, read once the form asks for a
+  // person and kept for every person question on it. null is not
+  // loaded yet; a failure says so under the question, with Try again,
+  // which is staffAttempt. What is typed in each question's search box,
+  // by key.
+  const [staff, setStaff] = useState(null);
+  const [staffFailed, setStaffFailed] = useState(false);
+  const [staffAttempt, setStaffAttempt] = useState(0);
+  const [personSearch, setPersonSearch] = useState({});
   // The customer's own name and role, asked on the first section.
   const [customerName, setCustomerName] = useState("");
   const [customerRole, setCustomerRole] = useState("");
@@ -6193,6 +6249,22 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
   // the ones this screen draws, which is what a person walks through.
   const fields = formFieldsInPlay(form, values);
   const shown = fields.filter(formDrawnOnPortal);
+  // The staff list, asked for once the form has a person question in
+  // play and never on the customer's page, which has no token for it.
+  const asksPerson = !isCustomer && shown.some(f => formTypeOf(f) === "person");
+  useEffect(() => {
+    if (!asksPerson) return undefined;
+    let live = true;
+    setStaff(null); setStaffFailed(false);
+    api("/api/hr-cases/people", { token })
+      .then(d => { if (live) setStaff(staffListWith(d && d.people, user)); })
+      .catch(() => { if (live) setStaffFailed(true); });
+    return () => { live = false; };
+  }, [asksPerson, token, user, staffAttempt]);
+  // The person this report is about, by name, as picked so far: what an
+  // employee signature card on the same form starts with.
+  const aboutKey = formAboutPersonKey(form);
+  const aboutName = aboutKey ? formPersonName(values[aboutKey]) : "";
   const sections = formSectionsOf(shown);
   // A section cannot empty from an answer given inside it, because
   // the answer that governs it is somewhere else. If one ever did,
@@ -6355,7 +6427,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
     setCustBusy(f.key);
     setCustErr(prev => Object.assign({}, prev, { [f.key]: null }));
     try {
-      const body = { key: f.key, name: String(card.name || "").trim(), role: String(card.role || "").trim(), signature: card.png || "" };
+      const body = { key: f.key, name: String(card.name === undefined ? aboutName : card.name || "").trim(), role: String(card.role || "").trim(), signature: card.png || "" };
       const r = await api("/api/forms/drafts/" + encodeURIComponent(current.id) + "/customer-signature?locale=" + locale, { method: "POST", token, body: body });
       const d = formDraftOf(r);
       if (!alive.current) return;
@@ -6859,25 +6931,29 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
   // drawing pad and Save signature. Once saved, the drawing and the line
   // the API answered with, and Clear to sign again while the draft is
   // open; the old stays until a new one is saved.
+  // On a form about one person, the employee signature card of an
+  // evaluation or an orientation, the Name box starts with the person
+  // picked, and follows the pick until a name is typed over it.
   const renderStaffCustomerSignature = (f) => {
     const v = values[f.key];
     const card = custSig[f.key] || {};
     const busy = custBusy === f.key;
+    const cardName = card.name === undefined ? aboutName : card.name;
     if (formCustomerStamped(v) && !card.open) {
       return (
         <div style={gridCard}>
           {renderStamp(f, v, formCustomerLine(f, v), false)}
-          <button type="button" onClick={() => setCustSig(prev => Object.assign({}, prev, { [f.key]: { open: true, name: "", role: "", strokes: [], png: null } }))} style={gridBtn}>{tr("Clear")}</button>
+          <button type="button" onClick={() => setCustSig(prev => Object.assign({}, prev, { [f.key]: { open: true, role: "", strokes: [], png: null } }))} style={gridBtn}>{tr("Clear")}</button>
           {custErr[f.key] && <div style={{ ...mkFieldErr(t), marginTop: 8 }}>{custErr[f.key]}</div>}
         </div>
       );
     }
     const strokes = card.strokes || [];
-    const write = (patch) => setCustSig(prev => Object.assign({}, prev, { [f.key]: Object.assign({ open: true, name: "", role: "", strokes: [], png: null }, prev[f.key] || {}, patch) }));
+    const write = (patch) => setCustSig(prev => Object.assign({}, prev, { [f.key]: Object.assign({ open: true, role: "", strokes: [], png: null }, prev[f.key] || {}, patch) }));
     return (
       <div style={gridCard}>
         <div style={cellLabelSt}>{tr("Name")}</div>
-        <input type="text" maxLength={CUSTOMER_NAME_MAX} value={card.name || ""} onChange={e => write({ name: e.target.value })} style={sigBoxSt} />
+        <input type="text" maxLength={CUSTOMER_NAME_MAX} value={cardName || ""} onChange={e => write({ name: e.target.value })} style={sigBoxSt} />
         <div style={cellLabelSt}>{tr("Role")}</div>
         <input type="text" maxLength={CUSTOMER_NAME_MAX} value={card.role || ""} onChange={e => write({ role: e.target.value })} style={sigBoxSt} />
         <div style={{ marginTop: 12, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
@@ -6893,6 +6969,64 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
     );
   };
 
+  // A person question: the picked person as a chip, tapped to pick
+  // again, or Search by name over every active staff member, each a row
+  // of the app's own pick one shape, the way Speak Up offers them. The
+  // answer saved is the person's id and their name as it reads today.
+  // The names scroll in their own box, so a staff list of any length
+  // leaves Next where a thumb can reach it.
+  const chipSt = {
+    display: "inline-flex", alignItems: "center", gap: 8, maxWidth: "100%", minWidth: TAP, minHeight: TAP, marginTop: 8,
+    padding: "8px 12px", borderRadius: R.pill, cursor: "pointer",
+    background: t.goldBg, border: "1px solid " + t.goldBorder, color: t.text,
+    fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, textAlign: "left", lineHeight: 1.35,
+  };
+  const renderPerson = (f) => {
+    if (isCustomer) return <div style={mkHelp(t)}>{tr(FORMS_UNKNOWN_TYPE)}</div>;
+    const v = values[f.key];
+    const pickedName = formPersonName(v);
+    if (formPersonId(v) !== null || pickedName) {
+      return (
+        <div>
+          <button type="button" onClick={() => setVal(f.key, null)} aria-label={tr("Remove {name}", { name: pickedName })} style={chipSt}>
+            <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{pickedName || tr(FORMS_ANSWERED)}</span>
+            <span aria-hidden="true" style={{ flexShrink: 0, fontSize: 14, lineHeight: 1, color: t.textSec }}>{tr("x")}</span>
+          </button>
+        </div>
+      );
+    }
+    if (staffFailed) {
+      return (
+        <>
+          <div style={{ marginTop: 8, padding: "10px 12px", background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, borderRadius: R.sm, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>{tr("The staff list did not load. Try again in a minute.")}</div>
+          <button type="button" onClick={() => setStaffAttempt(n => n + 1)} style={{ ...mkGhostBtn(t), marginTop: 8 }}>{tr("Try again")}</button>
+        </>
+      );
+    }
+    const search = personSearch[f.key] || "";
+    const needle = search.trim().toLowerCase();
+    const offered = (staff || []).filter(p => needle === "" || staffNameOf(p).toLowerCase().indexOf(needle) !== -1);
+    const pick = (p) => {
+      setVal(f.key, { id: p.id, name: staffNameOf(p).trim() });
+      setPersonSearch(prev => { const next = Object.assign({}, prev); delete next[f.key]; return next; });
+    };
+    return (
+      <>
+        <input type="text" value={search} onChange={e => setPersonSearch(prev => Object.assign({}, prev, { [f.key]: e.target.value.slice(0, 80) }))} disabled={staff === null} placeholder={tr("Search by name")} aria-label={tr("Search by name")} style={inputSt} />
+        {offered.length > 0 && (
+          <div style={{ maxHeight: 264, overflowY: "auto", marginTop: 2 }}>
+            {offered.map(p => (
+              <button key={p.id} type="button" onClick={() => pick(p)} style={optRow(false)}>
+                <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{staffNameOf(p).trim()}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {staff !== null && offered.length === 0 && needle !== "" && <div style={{ ...mkHelp(t), marginTop: 10 }}>{tr("No one matches that name.")}</div>}
+      </>
+    );
+  };
+
   const renderInput = (f) => {
     const v = values[f.key];
     if (formTypeOf(f) === "customer_signature") return isCustomer ? renderCustomerSignature(f) : renderStaffCustomerSignature(f);
@@ -6900,6 +7034,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
     if (formTypeOf(f) === "grid") return formIsChecklist(f) ? renderChecklist(f) : renderRowTable(f);
     if (formTypeOf(f) === "signoff") return renderSignoff(f);
     if (formTypeOf(f) === "photos") return renderPhotos(f);
+    if (formTypeOf(f) === "person") return renderPerson(f);
     return renderControl(f, v, (next) => setVal(f.key, next), f.key + ":");
   };
 
