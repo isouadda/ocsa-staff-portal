@@ -475,7 +475,7 @@ function makeState(opts) {
     // Help: what the next question is answered with, the points the one
     // being answered can be stopped at, and the conversation as the API
     // keeps it. See helpPlay below.
-    help: { next: null, holds: {}, asked: 0 },
+    help: { next: null, holds: {}, asked: 0, seq: 0 },
     stored: [],
     uploadsFail: false,
     prefsPatches: [],
@@ -962,6 +962,8 @@ const API_REFUSALS = {
   // A sign-in the API has locked after too many wrong tries, Step 175:
   // 429, with the minutes the lock lasts, fifteen by default.
   "auth.locked": { status: 429, en: "Too many tries. Wait {minutes} minutes, then try again.", es: "Demasiados intentos. Espere {minutes} minutos y vuelva a intentarlo.", vars: { minutes: 15 } },
+  // An answer rated that is not one of the person's own, Step 183.
+  "help.messageNotFound": { status: 404, en: "Answer not found", es: "No se encontr\u00f3 la respuesta" },
   "timeOff.lastBeforeFirst": { status: 400, en: "The last day cannot be before the first day", es: "El \u00faltimo d\u00eda no puede ser anterior al primer d\u00eda" },
   "pickups.alreadyClaimed": { status: 409, en: "Shift was already claimed", es: "Este turno ya fue tomado" },
   "supplies.requestTypeRequired": { status: 400, en: "Request type is required", es: "Elija el tipo de solicitud" },
@@ -1102,6 +1104,12 @@ const ANNOUNCEMENT = {
   recipients: 12, withPush: true, translated: true,
 };
 const ANNOUNCEMENT_NOT_FOUND = ["Announcement not found", "No se encontr\u00f3 el anuncio"];
+
+// A rating the API turns away, Step 183, which the portal never sends: a
+// rating that is not true or false, and a note over 500 characters.
+const RATING_NOTE_MAX = 500;
+const RATING_INVALID = { en: "Say whether the answer was helpful: helpful must be true or false", es: "Indique si la respuesta fue \u00fatil: helpful debe ser true o false" };
+const RATING_NOTE_LONG = { en: "The note can be at most {max} characters", es: "La nota puede tener como m\u00e1ximo {max} caracteres" };
 
 // --- phone alerts, Step 179 in the API ----------------------------------
 //
@@ -1370,6 +1378,8 @@ const TWIN_PAIRS = [
     ["New messages in North Building", "Mensajes nuevos en North Building"],
     ["Sam Second tagged you in North Building", "Sam Second lo etiquet\u00f3 en North Building"],
     ["An announcement from the office", "Un anuncio de la oficina"]])
+  // A rating turned away, which the portal never sends.
+  .concat([[RATING_INVALID.en, RATING_INVALID.es], [refusalIn(RATING_NOTE_LONG, "en", { max: RATING_NOTE_MAX }), refusalIn(RATING_NOTE_LONG, "es", { max: RATING_NOTE_MAX })]])
   // Phone alerts' two refusals, which the portal answers with a line of
   // its own and never draws.
   .concat(Object.keys(PUSH_REFUSALS).map(k => [PUSH_REFUSALS[k].en, PUSH_REFUSALS[k].es]))
@@ -1586,10 +1596,15 @@ function createStub(opts) {
     }
     const upTo = next.error ? next.error.after : next.drop ? next.drop.after : pieces.length;
     pieces.slice(0, upTo).forEach(piece);
+    // Since Step 183 the answer's id is chosen before the answer is kept,
+    // so done carries it and the person can rate the answer by it. The
+    // names of the sources it cites come when a case gives them.
+    state.help.seq += 1;
+    const messageId = "00000000-0000-4000-8000-" + String(state.help.seq).padStart(12, "0");
     const done = Object.assign({
-      reply: reply, conversationId: state.conversationId,
+      messageId: messageId, reply: reply, conversationId: state.conversationId,
       citedDocs: next.citedDocs || answer.citedDocs || [], degraded: !!answer.degraded, noProcedure: !!answer.noProcedure,
-    }, answer.formResponse ? { formResponse: answer.formResponse } : {});
+    }, next.citedNames ? { citedNames: next.citedNames } : {}, answer.formResponse ? { formResponse: answer.formResponse } : {});
     if (next.error) steps.push({ event: "error", data: { error: next.error.error, status: next.error.status } });
     else if (next.drop) steps.push({ drop: true });
     else steps.push({ event: "done", data: done });
@@ -1597,7 +1612,7 @@ function createStub(opts) {
     // dropped connection still finishes the answer and keeps it; an error
     // keeps nothing.
     state.stored.push({ role: "user", text: body && typeof body.text === "string" ? body.text : "", at: 0 });
-    const kept = { role: "assistant", text: reply, citedDocs: done.citedDocs, degraded: done.degraded, noProcedure: done.noProcedure, at: Infinity };
+    const kept = { id: messageId, role: "assistant", text: reply, citedDocs: done.citedDocs, citedNames: next.citedNames || null, degraded: done.degraded, noProcedure: done.noProcedure, feedback: null, at: Infinity };
     if (!next.error) state.stored.push(kept);
     state.help.holds = holds;
     return {
@@ -2021,16 +2036,32 @@ function createStub(opts) {
     if (pathname === "/api/agent/drafts" && method === "GET") return json(200, state.drafts);
     // The conversation as the API keeps it: every question, and every
     // answer once it is written. An answer is a Help reply, and a question
-    // is the person's own words.
+    // is the person's own words. Since Step 183 each answer carries its id
+    // and its rating, null until it is rated.
     if (method === "GET" && /^\/api\/agent\/conversations\//.test(pathname)) {
       const now = Date.now();
       const messages = pathname.split("/").pop() === state.conversationId
         ? state.stored.filter(m => m.at <= now).map(m => (m.role === "assistant"
-          ? { role: m.role, text: m.text, citedDocs: m.citedDocs, degraded: m.degraded, noProcedure: m.noProcedure }
+          ? Object.assign({ id: m.id, role: m.role, text: m.text, citedDocs: m.citedDocs, degraded: m.degraded, noProcedure: m.noProcedure, feedback: m.feedback ? Object.assign({}, m.feedback) : null }, m.citedNames ? { citedNames: m.citedNames } : {})
           : { role: m.role, text: m.text }))
         : [];
       messages.forEach((m) => { if (m.role === "assistant") recordWord(m.text, "Help reply"); });
       return json(200, { messages: messages });
+    }
+    // Rating an answer, Step 183: helpful true or false, and a note of at
+    // most 500 characters. Rating again replaces the rating. An id that is
+    // not one of this person's answers answers help.messageNotFound.
+    const rating = method === "POST" ? /^\/api\/agent\/messages\/([^/]+)\/feedback$/.exec(pathname) : null;
+    if (rating) {
+      const b = body && typeof body === "object" ? body : {};
+      const lang = languageOf(search, state);
+      if (b.note !== undefined && b.note !== null && String(b.note).trim().length > RATING_NOTE_MAX) return json(400, { error: refusalIn(RATING_NOTE_LONG, lang, { max: RATING_NOTE_MAX }), code: "help.noteTooLong" });
+      if (typeof b.helpful !== "boolean") return json(400, { error: refusalIn(RATING_INVALID, lang), code: "help.feedbackInvalid" });
+      const note = b.note === undefined || b.note === null ? null : String(b.note).trim() || null;
+      const row = state.stored.find(m => m.role === "assistant" && m.id === decodeURIComponent(rating[1]));
+      if (!row) return apiRefusal("help.messageNotFound", search);
+      row.feedback = { helpful: b.helpful, note: note, at: iso(clockNow()) };
+      return json(200, { ok: true, feedback: Object.assign({}, row.feedback) });
     }
     if (method === "POST" && /^\/api\/agent\/drafts\/[^/]+\/submit$/.test(pathname)) return json(200, { ok: true });
 

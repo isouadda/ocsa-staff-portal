@@ -3511,6 +3511,90 @@ const JOURNEYS = [
     },
   },
   {
+    id: "helprate",
+    label: "Rating an answer, and names under it: Yes, then No with a note, each told to the API and thanked, the conversation read back with the second rating on it, a refusal in the API's words under the choices, and the sources named by the API's own names",
+    run: async (open, language, expect, extra) => {
+      // The rating row under the last answer: whether each choice reads as
+      // chosen, and the lines under them.
+      const rateRow = (page) => page.evaluate(([yes, no, ask]) => {
+        const label = Array.from(document.querySelectorAll(".sp-content span")).filter(s => s.textContent.trim() === ask).pop();
+        if (!label) return null;
+        const holder = label.parentElement.parentElement;
+        const b = (w) => Array.from(holder.querySelectorAll("button")).find(x => x.textContent.trim() === w);
+        return {
+          yes: b(yes) ? b(yes).getAttribute("aria-pressed") : null,
+          no: b(no) ? b(no).getAttribute("aria-pressed") : null,
+          box: !!holder.querySelector("textarea"),
+          lines: Array.from(holder.children).slice(1).map(x => x.innerText.replace(/\s+/g, " ").trim()).filter(Boolean),
+          alert: (Array.from(holder.querySelectorAll('[role="alert"]')).pop() || { textContent: "" }).textContent.trim(),
+        };
+      }, [spanishOf("Yes", language), spanishOf("No", language), spanishOf("Was this helpful?", language)]);
+      const tapInRow = (page, words) => page.evaluate(([w, ask]) => {
+        const label = Array.from(document.querySelectorAll(".sp-content span")).filter(s => s.textContent.trim() === ask).pop();
+        const b = label && Array.from(label.parentElement.parentElement.querySelectorAll("button")).find(x => x.textContent.trim() === w);
+        if (b) b.click();
+        return !!b;
+      }, [words, spanishOf("Was this helpful?", language)]);
+      const ratings = (stub) => stub.state.calls.filter(c => c.method === "POST" && /^\/api\/agent\/messages\/[^/]+\/feedback$/.test(c.path));
+      const thanks = spanishOf("Thanks. This helps Help get better.", language);
+      // Invented titles for two sources, the first named by the library and
+      // the second left empty, which falls back to the portal's own words.
+      const guide = language === "es" ? "Gu\u00eda del portal del personal" : "Staff portal guide";
+      const app = await open({ stubOptions: { drafts: [{ id: "draft-one", formName: "Incident report", answered: 1, remaining: 4, conversationId: "cv-one" }] } });
+      try {
+        await openTab(app.page, "agent", language);
+        await pause(app.page, 800);
+        app.stub.state.help.next = { citedDocs: ["APP-PORTAL", SOURCE_REF], citedNames: [{ code: "APP-PORTAL", name: guide }, { code: SOURCE_REF, name: "" }], pauseMs: 20 };
+        await askHelp(app.page, language, "Where do the floor pads go");
+        await answerDone(app.page, 6000);
+        await pause(app.page, 500);
+        const lines = await sourceLines(app.page, say("Based on", language));
+        expect("the sources are named by the API's own names, one left empty falling back to the portal's words", lines.pop() === say("Based on", language) + " " + guide + ", " + say("general cleaning guidance", language), JSON.stringify(lines));
+        let row = await rateRow(app.page);
+        expect("an answer the API gave an id asks Was this helpful?, with neither choice made", !!row && row.yes === "false" && row.no === "false", JSON.stringify(row));
+        await spokenHere(app, language, expect);
+
+        await tapInRow(app.page, spanishOf("Yes", language));
+        await pause(app.page, 800);
+        const first = ratings(app.stub).pop();
+        row = await rateRow(app.page);
+        expect("Yes rates at once, and the thanks line shows with Yes drawn as chosen", !!first && first.body.helpful === true && first.body.note === undefined && !!row && row.yes === "true" && row.lines.indexOf(thanks) !== -1, (first ? JSON.stringify(first.body) : "nothing sent") + " " + JSON.stringify(row));
+
+        await tapInRow(app.page, spanishOf("No", language));
+        await pause(app.page, 500);
+        row = await rateRow(app.page);
+        expect("No opens a box for what was missing", !!row && row.box, JSON.stringify(row));
+        await type(app.page, '.sp-content textarea[aria-label="' + spanishOf("What was missing?", language) + '"]', "It did not say which floor");
+        await pause(app.page, 300);
+        await tapInRow(app.page, spanishOf("Send", language));
+        await pause(app.page, 900);
+        const second = ratings(app.stub).pop();
+        row = await rateRow(app.page);
+        expect("Send rates again with the note, and No is drawn as chosen", !!second && second.body.helpful === false && second.body.note === "It did not say which floor" && !!row && row.no === "true" && row.yes === "false" && row.lines.indexOf(thanks) !== -1, (second ? JSON.stringify(second.body) : "nothing sent") + " " + JSON.stringify(row));
+        expect("both ratings name the same answer", ratings(app.stub).length === 2 && ratings(app.stub)[0].path === ratings(app.stub)[1].path, JSON.stringify(ratings(app.stub).map(c => c.path)));
+
+        // The conversation read back: the answer shows the rating it carries.
+        await tapWords(app.page, say("Resume", language));
+        await pause(app.page, 1500);
+        const kept = app.stub.state.stored.filter(m => m.role === "assistant").pop();
+        row = await rateRow(app.page);
+        expect("the conversation read back carries the second rating and its note", !!kept && !!kept.feedback && kept.feedback.helpful === false && kept.feedback.note === "It did not say which floor", JSON.stringify(kept && kept.feedback));
+        expect("and the answer read back is drawn with No chosen and the thanks line", !!row && row.no === "true" && row.lines.indexOf(thanks) !== -1, JSON.stringify(row));
+
+        // A rating the API turns away shows its words under the choices.
+        app.stub.state.refuse[ratings(app.stub)[0].method + " " + ratings(app.stub)[0].path] = { api: "help.messageNotFound", once: true };
+        await tapInRow(app.page, spanishOf("Yes", language));
+        await pause(app.page, 800);
+        row = await rateRow(app.page);
+        const refused = refusalIn(API_REFUSALS["help.messageNotFound"], language);
+        const shown = !!row && row.alert === refused;
+        expect("a rating turned away shows the API's words under the choices", shown, JSON.stringify(row));
+        if (extra) extra.refusalsShown += shown ? 1 : 0;
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
     id: "settingshold",
     label: "Switch language and text size, reload, and prove both held",
     run: async (open, language, expect) => {
