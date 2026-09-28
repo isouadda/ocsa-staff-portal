@@ -4372,6 +4372,25 @@ const JOURNEYS = [
     },
   },
   {
+    id: "formsbyapp",
+    label: "Forms by app, and a draft drawn from its own version: the catalog asked for the portal's forms, and a report opened on the version it was started on, with a newer one in the catalog",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { formVersions: true } });
+      try {
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        const asked = lastSent(app.stub, "GET", "/api/forms");
+        expect("the catalog is asked for the forms offered on the portal", !!asked && asked.path === "/api/forms" && new URLSearchParams(asked.search).get("app") === "portal", asked ? asked.path + asked.search : "never asked");
+        await clickText(app.page, say("Start report", language));
+        await pause(app.page, 1500);
+        const text = await bodyText(app.page);
+        const kept = servedIn("Where did it happen", language), newer = servedIn("Which room was it in", language);
+        expect("the report is drawn from the version sent beside its draft, with none of the catalog's newer questions", has(text, kept) && !has(text, newer), text.slice(0, 300));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
     id: "picklists",
     label: "The four pick lists, drawn from the list the API sends: severities, request types, urgency and the reasons to drop a shift",
     run: async (open, language, expect) => {

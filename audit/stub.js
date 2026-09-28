@@ -428,6 +428,12 @@ const FORM = {
   ],
 };
 
+// The incident report's second version, published after the first, whose
+// second question reads differently. With stubOptions.formVersions the
+// catalog lists this one, the latest, while a draft started on the first
+// is sent beside the first.
+const FORM_V2 = Object.assign({}, FORM, { version: 2, fields: FORM.fields.map(f => (f.key === "where" ? Object.assign({}, f, { label: "Which room was it in" }) : f)) });
+
 function makeState(opts) {
   const o = opts || {};
   return {
@@ -525,6 +531,8 @@ function makeState(opts) {
     // answers.
     sectionsForm: o.sectionsForm === "one" ? "one" : !!o.sectionsForm,
     answersS: {},
+    // The incident report's second version in the catalog.
+    formVersions: !!o.formVersions,
     // Everyone Speak Up can name, and every report filed through it.
     staff: o.staff || STAFF.slice(),
     filed: [],
@@ -1425,7 +1433,9 @@ const TWIN_PAIRS = [
   .concat(Object.keys(FORM_S_WORDS.en).map(k => [FORM_S_WORDS.en[k], FORM_S_WORDS.es[k]]))
   // The customer's two forms, written in both languages above.
   .concat(Object.keys(FORM_C_WORDS.en).map(k => [FORM_C_WORDS.en[k], FORM_C_WORDS.es[k]]))
-  .concat(Object.keys(FORM_V_WORDS.en).map(k => [FORM_V_WORDS.en[k], FORM_V_WORDS.es[k]]));
+  .concat(Object.keys(FORM_V_WORDS.en).map(k => [FORM_V_WORDS.en[k], FORM_V_WORDS.es[k]]))
+  // The incident report's second version.
+  .concat([["Which room was it in", "En qu\u00e9 cuarto fue"]]);
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -2231,9 +2241,13 @@ function createStub(opts) {
     // The catalog carries each form whole, fields and all, because the
     // form is what says which questions a report has and the screen
     // reads them from here. It served only the code and the title until
-    // now, which is why no question has ever drawn in the suite.
+    // now, which is why no question has ever drawn in the suite. Since
+    // Step 186 it is the latest published version of each form, and a
+    // draft keeps the version it was started on, which the draft routes
+    // send beside it; with formVersions the incident report has a second
+    // version out.
     if (pathname === "/api/forms") {
-      return json(200, { forms: [FORM, formP(lang)].concat(state.sectionsForm ? [thirdForm()] : []) });
+      return json(200, { forms: [state.formVersions ? FORM_V2 : FORM, formP(lang)].concat(state.sectionsForm ? [thirdForm()] : []) });
     }
     if (method === "GET" && /^\/api\/forms\/drafts\//.test(pathname)) {
       if (third(pathname)) return json(200, { draft: draftS(state, lang), form: thirdForm() });
