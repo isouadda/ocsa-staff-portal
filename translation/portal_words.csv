@@ -326,10 +326,13 @@ Your message was not sent.,Su mensaje no fue enviado.,Chat
 Add a photo,Agregar una foto,Help
 Based on,Según,Help
 Describe what happened,Describa lo que pasó,Help
+Discard,Descartar,Help
+Discard this report? It will not be sent.,¿Descartar este reporte? No se enviará.,Help
 Fill in form,Llenar formulario,Help
 general cleaning guidance,una guía general de limpieza,Help
 Not sent.,No se envió.,Help
 Remove photo,Quitar foto,Help
+Report discarded.,Reporte descartado.,Help
 Report in progress,Reporte en proceso,Help
 Report submitted.,Reporte enviado.,Help
 Resume,Continuar,Help
@@ -339,12 +342,16 @@ Still needed before you can submit:,Falta esto antes de poder enviar:,Help
 Submit report,Enviar reporte,"Help, Forms"
 Submitting...,Enviando...,"Help, Inspect"
 Tell me what happened and I will tell you what to do.,Cuénteme qué pasó y le digo qué hacer.,Help
+Thanks. This helps Help get better.,Gracias. Esto ayuda a mejorar la Ayuda.,Help
 the ADP guide,la guía de ADP,Help
 the app guide,la guía de la aplicación,Help
 The connection dropped. Your answer is saved.,Se perdió la conexión. La respuesta quedó guardada.,Help
 "This photo could not be read here. Choose a JPEG or PNG, or take a screenshot of it.","Esta foto no se pudo leer aquí. Elija un JPEG o PNG, o tome una captura de pantalla.",Help
 Unfinished reports,Reportes sin terminar,Help
+Unfinished reports did not load.,Los reportes sin terminar no se cargaron.,Help
 Uploading...,Subiendo...,"Help, Assigned, Report, Inspect"
+Was this helpful?,¿Le sirvió?,Help
+What was missing?,¿Qué faltó?,Help
 Working from the written procedure only right now.,Por ahora solo se está usando el procedimiento escrito.,Help
 x,x,"Help, Assigned, Report, Inspect"
 You can send up to 3 photos with one message.,Puede enviar hasta 3 fotos en un mensaje.,Help
@@ -487,7 +494,9 @@ Say what needs fixing,Diga qué hay que arreglar,Inspect
 Schedule Inspection,Programar inspección,Inspect
 Scheduled Date *,Fecha programada *,Inspect
 Scheduling...,Programando...,Inspect
+Scored,Calificados,Inspect
 Select template...,Elija una plantilla...,Inspect
+Show {0} scored items,Mostrar {0} puntos calificados,Inspect
 Site *,Sitio *,Inspect
 Submit Inspection,Enviar inspección,Inspect
 Tap an inspection to begin scoring.,Toque una inspección para empezar a calificar.,Inspect
@@ -496,7 +505,7 @@ Template *,Plantilla *,Inspect
 "Template, site, and date are required","Se necesitan la plantilla, el sitio y la fecha",Inspect
 Anyone you pick below will not be able to see this report.,Nadie que usted elija abajo podrá ver este reporte.,Speak Up
 Is this about someone in management?,¿Es sobre alguien de la gerencia?,Speak Up
-No,No,Speak Up
+No,No,"Help, Speak Up"
 No one matches that name.,Nadie tiene ese nombre.,Speak Up
 "Nothing you write here is kept. If you leave this screen before you send, it is gone.","Nada de lo que escriba aquí se guarda. Si sale de esta pantalla antes de enviar, se pierde.",Speak Up
 Optional,Opcional,Speak Up
@@ -511,7 +520,7 @@ What happened,Qué pasó,Speak Up
 Who is involved?,¿Quién está involucrado?,Speak Up
 Who is it about? Pick at least one person.,¿Sobre quién es? Elija al menos una persona.,Speak Up
 Write what happened in your own words. One sentence is enough.,Escriba lo que pasó con sus propias palabras. Con una frase basta.,Speak Up
-Yes,Sí,Speak Up
+Yes,Sí,"Help, Speak Up"
 You can write up to {max} characters.,Puede escribir hasta {max} caracteres.,Speak Up
 Your reference,Su número de referencia,Speak Up
 Your report was not sent.,Su reporte no se envió.,Speak Up

@@ -1040,6 +1040,21 @@ async function turnOnPhoneAlerts(publicKey, token) {
     return "failed";
   }
 }
+// After every sign-in, and on boot with a stored session, a subscription
+// this phone already holds is posted again under the person now signed
+// in, so a shared phone's alerts move to them. The API keeps one row per
+// endpoint and moves it to the caller. Nothing is asked of the browser,
+// and a failure is silent: the next sign-in posts it again.
+async function repostPhoneAlerts(token) {
+  try {
+    if (!pushSupported() || pushPermission() !== "granted") return;
+    const sub = await pushSubscription();
+    if (!sub) return;
+    const j = sub.toJSON ? sub.toJSON() : { endpoint: sub.endpoint, keys: {} };
+    if (!j || !j.endpoint) return;
+    await api("/api/push/subscriptions", { method: "POST", body: { endpoint: j.endpoint, keys: j.keys || {}, userAgent: window.navigator.userAgent }, token, noAuthEvent: true });
+  } catch (e) {}
+}
 // Turns alerts off for this phone: unsubscribes here, deletes there.
 // Answers whether the API took the delete.
 async function turnOffPhoneAlerts(token) {
@@ -1541,6 +1556,9 @@ export default function OCSAStaffPortal() {
   const hydrateSession = useCallback(async (tok) => {
     const me = await api("/api/auth/me", { token: tok });
     setUser(me.user); setSites(me.sites);
+    // The phone follows whoever signed in. Not awaited: sign-in never
+    // waits on the push service.
+    repostPhoneAlerts(tok);
     if (me.preferences && applyPrefsRef.current) applyPrefsRef.current(me.preferences, tok, me.user);
     api("/api/users/profile/me", { token: tok }).then(p => { if (p?.user?.profilePhotoUrl) setUser(prev => ({ ...prev, profilePhotoUrl: p.user.profilePhotoUrl })); }).catch(() => {});
     try { const seq = nextStatusSeq(); const cs = await api(statusPath(), { token: tok }); if (takeStatus(cs, seq) && cs.clockedIn && cs.shift) setSelectedSite(cs.shift.siteId); } catch (e) { console.warn("Clock status:", e.message); }
@@ -2319,6 +2337,11 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
     const required = [["firstName", "First Name", fn], ["phone", "Phone Number", ph], ["email", "Email Address", em], ["pin", "PIN", pin], ["pin2", "Confirm PIN", pin2]];
     const empty = required.find(f => !String(f[2]).trim());
     if (empty) { setErrs({ [empty[0]]: tr("Fill in {field}.", { field: tr(empty[1]) }) }); return; }
+    // The same weak PIN rules the activation and reset screens apply,
+    // so a PIN the API would refuse is named here before it is sent.
+    // Nobody registering has a badge number yet.
+    const weak = weakPinReason(pin, null);
+    if (weak) { setErrs({ pin: weak }); return; }
     if (pin !== pin2) { setErrs({ pin2: tr(ERR_PIN_MISMATCH) }); return; }
     setErrs({});
     onRegister(fn, ln, ph, em, pin);
@@ -2336,8 +2359,8 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Last Name")}</label><input value={ln} onChange={e => setLn(e.target.value)} placeholder={tr("Last name")} style={inputSt} /></div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Phone Number *")}</label><input value={ph} onChange={e => setPh(e.target.value)} placeholder={tr("2155550000 (no dashes needed)")} style={inputSt} />{errs.phone && <div style={errSt}>{errs.phone}</div>}</div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Email Address *")}</label><input value={em} onChange={e => setEm(e.target.value)} placeholder={tr("name@email.com")} type="email" style={inputSt} />{errs.email && <div style={errSt}>{errs.email}</div>}</div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("PIN (4 digits) *")}</label><input value={pin} onChange={e => setPin(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
-        <div style={{ marginBottom: 24 }}><label style={labelSt}>{tr("Confirm PIN *")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("PIN (4 digits) *")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={mkPinInput(t)} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
+        <div style={{ marginBottom: 24 }}><label style={labelSt}>{tr("Confirm PIN *")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={mkPinInput(t)} onKeyDown={e => e.key === "Enter" && !loading && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
         <button onClick={submit} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Registering...") : tr("Register")}</button>
         <button onClick={onBack} style={mkGhostBtn(t)}>{tr("Back to Login")}</button>
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><TextSizeButton t={t} /><LanguageButton t={t} /></div>
@@ -4175,22 +4198,49 @@ function agentSourceName(code) {
   return c;
 }
 // The sources in the order the API sent them, each name once, so two
-// guide codes on one answer name the app guide once.
-const agentSourcesLine = (codes) => {
+// guide codes on one answer name the app guide once. An answer that
+// carries citedNames (Step 183) names each source by the document's own
+// title, in the screen's language where the library has one; a name the
+// API left empty falls back to the code's words above. An answer without
+// them reads as it did.
+const agentSourcesLine = (codes, names) => {
   const out = [];
-  (Array.isArray(codes) ? codes : []).forEach(c => { const w = agentSourceName(c); if (w && out.indexOf(w) === -1) out.push(w); });
+  const add = (w) => { if (w && out.indexOf(w) === -1) out.push(w); };
+  const named = Array.isArray(names) ? names : [];
+  if (named.length > 0) named.forEach(n => { const name = n && typeof n.name === "string" ? n.name.trim() : ""; add(name || agentSourceName(n && n.code)); });
+  else (Array.isArray(codes) ? codes : []).forEach(c => add(agentSourceName(c)));
   return out.join(", ");
 };
 
+// A rating the API kept on an answer: helpful or not, with the note. Any
+// other shape reads as no rating.
+const agentFeedback = (f) => (f && typeof f === "object" && typeof f.helpful === "boolean") ? { helpful: f.helpful, note: typeof f.note === "string" ? f.note : "" } : null;
+// The id an answer can be rated by, from the message route's reply or
+// the stream's done event, as a string. Nothing until the API sends one.
+const agentMessageId = (d) => { const v = agentField(d, ["messageId", "message_id"], null); return v === null || v === "" ? null : String(v); };
+// How long a note under a rating can be, the API's own limit.
+const RATE_NOTE_MAX = 500;
+
 // One message of a conversation the API keeps, read the same way for
 // resuming a report and for an answer whose connection dropped.
-const agentStored = (m) => ({
-  role: String(agentField(m, ["role", "sender"], "assistant")).toLowerCase() === "user" ? "user" : "assistant",
-  text: String(agentField(m, ["text", "content", "reply"], "")),
-  citedDocs: agentList(agentField(m, ["citedDocs", "cited_doc_codes", "citedDocCodes"], []), []),
-  degraded: agentField(m, ["degraded"], false) === true,
-  noProcedure: agentField(m, ["noProcedure", "no_procedure"], false) === true,
-});
+// A row that carries feedback (null, or the rating) is one the API
+// keeps ratings for, and its id is the one to rate by. A row from
+// before Step 183 carries no feedback key, so it shows no rating and
+// nothing new until the API answers.
+const agentStored = (m) => {
+  const role = String(agentField(m, ["role", "sender"], "assistant")).toLowerCase() === "user" ? "user" : "assistant";
+  const rated = role === "assistant" && !!m && typeof m === "object" && Object.prototype.hasOwnProperty.call(m, "feedback");
+  return {
+    role,
+    text: String(agentField(m, ["text", "content", "reply"], "")),
+    citedDocs: agentList(agentField(m, ["citedDocs", "cited_doc_codes", "citedDocCodes"], []), []),
+    citedNames: agentList(agentField(m, ["citedNames", "cited_names"], []), []),
+    degraded: agentField(m, ["degraded"], false) === true,
+    noProcedure: agentField(m, ["noProcedure", "no_procedure"], false) === true,
+    messageId: rated ? agentMessageId({ messageId: agentField(m, ["id", "messageId", "message_id"], null) }) : null,
+    feedback: rated ? agentFeedback(m.feedback) : null,
+  };
+};
 // The answer the API kept for one question: the message right after the
 // last question that reads the same, when it is the assistant's. Nothing
 // while the API has not kept it yet.
@@ -4207,6 +4257,57 @@ const agentKeptAnswer = (list, question) => {
 // Words for a screen reader alone: a box one pixel square with everything
 // clipped away, so nothing is drawn and a screen reader still reads it.
 const HEARD_ONLY = { position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0 0 0 0)", clipPath: "inset(50%)", whiteSpace: "nowrap", border: 0 };
+
+// Was this helpful?, under an answer the API gave an id. Yes sends the
+// rating at once. No opens a box for what was missing and Send sends the
+// rating with the note, or without one when the box is left empty. After
+// either the thanks line shows and the choice stays drawn; tapping the
+// other choice rates again, which replaces the rating. An answer read
+// back from a stored conversation arrives with its stored rating. A
+// refusal shows under the choices in the API's words. A 404 that is not
+// the API's own refusal means the route is not there yet, and every
+// rating row goes.
+function RateAnswer({ messageId, feedback, onRated, onUnavailable, token, t }) {
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const picked = feedback ? feedback.helpful : null;
+  const rate = async (helpful, text) => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      const body = { helpful: helpful };
+      const said = String(text == null ? "" : text).trim();
+      if (!helpful && said) body.note = said.slice(0, RATE_NOTE_MAX);
+      const r = await api("/api/agent/messages/" + encodeURIComponent(messageId) + "/feedback", { method: "POST", body: body, token });
+      onRated(agentFeedback(r && r.feedback) || { helpful: helpful, note: body.note || "" });
+      setNoteOpen(false); setNote("");
+    } catch (err) {
+      if (err && err.status === 404 && err.code !== "help.messageNotFound") onUnavailable();
+      else setError(tr(err.message));
+    }
+    setBusy(false);
+  };
+  const choice = (on) => ({ minHeight: TAP, minWidth: TAP, padding: "0 14px", borderRadius: R.sm, cursor: busy ? "default" : "pointer", fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD, background: on ? t.goldBg : "transparent", border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: on ? t.goldText : t.textSec, opacity: busy ? 0.6 : 1 });
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <span style={{ fontSize: 11, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("Was this helpful?")}</span>
+        <button type="button" aria-pressed={picked === true} onClick={() => rate(true)} disabled={busy} style={choice(picked === true)}>{tr("Yes")}</button>
+        <button type="button" aria-pressed={picked === false} onClick={() => { setError(null); setNoteOpen(true); }} disabled={busy} style={choice(picked === false)}>{tr("No")}</button>
+      </div>
+      {noteOpen && (
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 8, marginTop: 8 }}>
+          <textarea value={note} onChange={e => setNote(e.target.value)} maxLength={RATE_NOTE_MAX} rows={2} disabled={busy} placeholder={tr("What was missing?")} aria-label={tr("What was missing?")} style={{ ...mkInput(t), flex: 1, width: "auto", minWidth: 0, fontSize: 12, resize: "none", lineHeight: 1.45 }} />
+          <button type="button" onClick={() => rate(false, note)} disabled={busy} style={{ padding: "8px 14px", minHeight: TAP, borderRadius: R.sm, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 12, fontWeight: 600, cursor: busy ? "default" : "pointer", fontFamily: FONT_HEAD, flexShrink: 0, opacity: busy ? 0.6 : 1 }}>{tr("Send")}</button>
+        </div>
+      )}
+      {feedback && !noteOpen && <div style={{ fontSize: 11, color: t.textMut, marginTop: 6, lineHeight: 1.4 }}>{tr("Thanks. This helps Help get better.")}</div>}
+      {error && <div role="alert" style={{ fontSize: 11, color: RED, marginTop: 6, lineHeight: 1.4 }}>{error}</div>}
+    </div>
+  );
+}
 
 function AgentView({ token, showToast, t, language, onFillForm, conversationId, onConversation }) {
   // The same shape the Forms screen uses, so a Spanish screen never
@@ -4231,6 +4332,9 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
   // said twice.
   const [heard, setHeard] = useState({ n: 0, text: "" });
   const hear = (text) => setHeard(prev => ({ n: prev.n + 1, text: agentSpoken(text) }));
+  // Every rating row goes when the feedback route answers that it is not
+  // there, so nobody is offered a choice the API cannot take.
+  const [rateOff, setRateOff] = useState(false);
 
   // Photos waiting to go with the next message. Each one holds the object
   // URL its thumbnail is drawn from, the prepared bytes, and the storage
@@ -4319,8 +4423,33 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
     }
   };
 
-  const loadDrafts = useCallback(async () => { try { const d = await api("/api/agent/drafts?locale=" + locale, { token }); setDrafts(agentList(d, ["drafts", "items", "rows"])); } catch (err) { console.warn("Drafts:", err.message); } }, [token, locale]);
+  // A read that fails says so where the list would be, with Try again.
+  const [draftsFailed, setDraftsFailed] = useState(false);
+  const loadDrafts = useCallback(async () => { try { const d = await api("/api/agent/drafts?locale=" + locale, { token }); setDrafts(agentList(d, ["drafts", "items", "rows"])); setDraftsFailed(false); } catch (err) { console.warn("Drafts:", err.message); setDraftsFailed(true); } }, [token, locale]);
   useEffect(() => { loadDrafts(); }, [loadDrafts]);
+
+  // Discard, on the report in progress and on each unfinished report: a
+  // confirm, then the discard route, and the row leaves the list. The
+  // buttons go together when the route answers that it is not there yet;
+  // a 404 with the API's own code is a draft that is already gone, said
+  // in the API's words, and the list is read again either way.
+  const [discardOff, setDiscardOff] = useState(false);
+  const [discarding, setDiscarding] = useState(null);
+  const discard = async (id) => {
+    if (!id || discarding) return;
+    if (!window.confirm(tr("Discard this report? It will not be sent."))) return;
+    setDiscarding(id);
+    try {
+      await api("/api/forms/drafts/" + encodeURIComponent(id) + "/discard?locale=" + locale, { method: "POST", token });
+      showToast(tr("Report discarded."));
+      setDrafts(prev => prev.filter(d => String(agentDraftId(d)) !== String(id)));
+      if (formResponse && String(formResponse.id) === String(id)) { setFormResponse(null); setMissing([]); }
+    } catch (err) {
+      if (err && err.status === 404 && err.code !== "forms.reportNotFound") setDiscardOff(true);
+      else { showToast(tr(err.message), "error"); if (err && (err.status === 404 || err.status === 409)) loadDrafts(); }
+    }
+    setDiscarding(null);
+  };
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [thread.length, formResponse]);
   // While an answer arrives the thread follows it, so its newest words are
   // in view the way a finished answer's last words are, unless the person
@@ -4383,7 +4512,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
       // The composer clears only now, and only if it still holds what was sent.
       setText(prev => prev.trim() === msgText ? "" : prev);
       setPhotos(prev => (prev.length > 0 && paths && paths.length > 0) ? [] : prev);
-      const answer = { id: answerId, role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], degraded: data.degraded === true, noProcedure: data.noProcedure === true };
+      const answer = { id: answerId, role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], citedNames: Array.isArray(data.citedNames) ? data.citedNames : [], degraded: data.degraded === true, noProcedure: data.noProcedure === true, messageId: agentMessageId(data), feedback: null };
       place(answer);
       if (data.formResponse) { setFormResponse(data.formResponse); setMissing([]); setSubmitted(false); }
       hear(answer.text);
@@ -4488,9 +4617,13 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
   // thread scrolls inside it and the form card and composer stay in view.
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", ...fillsTheWindow(), minHeight: 0, overflow: "hidden" }}>
+      {draftsFailed && drafts.length === 0 && (<div style={{ padding: "10px 12px", borderBottom: "1px solid " + t.borderSolid, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, flexShrink: 0 }}>
+        <span style={{ flex: "1 1 160px", fontSize: 12, color: t.textSec, lineHeight: 1.4 }}>{tr("Unfinished reports did not load.")}</span>
+        <button onClick={loadDrafts} style={smallBtn}>{tr("Try again")}</button>
+      </div>)}
       {openDrafts.length > 0 && (<div style={{ padding: "10px 12px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 1, minHeight: 0, maxHeight: 180, overflowY: "auto" }}>
         <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Unfinished reports")}</div>
-        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: "1 1 140px", minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d) || tr(FORMS_UNTITLED)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div><button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Fill in form")}</button><button onClick={() => resume(d)} style={smallBtn}>{tr("Resume")}</button></div>))}
+        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: "1 1 140px", minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d) || tr(FORMS_UNTITLED)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div>{!discardOff && agentDraftId(d) && <button onClick={() => discard(agentDraftId(d))} disabled={discarding !== null} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, opacity: discarding !== null ? 0.6 : 1 }}>{tr("Discard")}</button>}<button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Fill in form")}</button><button onClick={() => resume(d)} style={smallBtn}>{tr("Resume")}</button></div>))}
       </div>)}
       {/* The thread keeps room for three lines of an answer at every size.
           On a screen too short for that and everything around it, the
@@ -4507,8 +4640,9 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
             )}
             {isMe ? m.text : (m.arriving || m.dropped) ? agentArriving(m.text) : <AgentReply text={m.text} />}
           </div>}
-          {!isMe && agentSourcesLine(m.citedDocs) && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>{tr("Based on")} {agentSourcesLine(m.citedDocs)}</div>}
+          {!isMe && agentSourcesLine(m.citedDocs, m.citedNames) && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>{tr("Based on")} {agentSourcesLine(m.citedDocs, m.citedNames)}</div>}
           {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>{tr("Working from the written procedure only right now.")}</div>}
+          {!isMe && m.messageId && !m.arriving && !m.dropped && !rateOff && <RateAnswer messageId={m.messageId} feedback={m.feedback || null} onRated={(f) => setThread(prev => prev.map(x => x.id === m.id ? { ...x, feedback: f } : x))} onUnavailable={() => setRateOff(true)} token={token} t={t} />}
           {!isMe && m.dropped && <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("The connection dropped. Your answer is saved.")}{m.error ? " " + m.error : ""}</span>{!m.reading && <button onClick={() => readBack(m.id, m.conversationId, m.question)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Try again")}</button>}</div>}
           {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("Not sent.")}{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text, m.photoPaths)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Retry")}</button></div>}
         </div></div>); })}
@@ -4517,6 +4651,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
       {submitted && <div style={{ padding: "8px 12px", fontSize: 12, color: GREEN, fontWeight: 600, textAlign: "center", fontFamily: FONT_HEAD }}>{tr("Report submitted.")}</div>}
       {formResponse && (<div style={{ margin: "0 12px 8px", padding: "10px 12px", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.md, boxShadow: t.shadow, flexShrink: 1, minHeight: 0, overflowY: "auto" }}>
         <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}><div style={{ flex: 1 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Report in progress")}</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2 }}>{agentName(formResponse) || tr(FORMS_UNTITLED)}</div>{agentCount(formResponse) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(formResponse)}</div>}</div>
+        {!discardOff && formResponse.id && <button onClick={() => discard(formResponse.id)} disabled={discarding !== null || submitBusy} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, opacity: discarding !== null || submitBusy ? 0.6 : 1 }}>{tr("Discard")}</button>}
         <button onClick={submit} disabled={!canSubmit} style={{ padding: "10px 14px", minHeight: TAP, flexShrink: 0, borderRadius: R.sm, border: "none", background: canSubmit ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : t.cardAlt, color: canSubmit ? NAVY : t.textSec, fontSize: 12, fontWeight: 600, cursor: canSubmit ? "pointer" : "default", fontFamily: FONT_HEAD, boxShadow: canSubmit ? "0 6px 18px rgba(231,176,23,0.30)" : "none" }}>{submitBusy ? tr("Submitting...") : tr("Submit report")}</button></div>
         {missing.length > 0 && <div style={{ marginTop: 8, fontSize: 11, color: t.textSec, lineHeight: 1.5 }}><div style={{ fontWeight: 600 }}>{tr("Still needed before you can submit:")}</div>{missing.map((k, i) => <div key={i}>{k}</div>)}</div>}
       </div>)}
@@ -4679,7 +4814,7 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
       {reqFormUI}
       {failed && supplies.length === 0 && <ListFault icon={BoxIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} />}
       {loaded && !failed && supplies.length === 0 && <EmptyState icon={BoxIco} text={tr("No supplies are set up for this site.")} t={t} />}
-      {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 600, color: t.textMut, fontFamily: "monospace" }}>{tr("QR")}</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div><div style={{ display: "flex", gap: 6, marginTop: 2, fontSize: 9 }}><span style={{ color: t.textMut }}>{sup.qr_code}</span>{isLow && <span style={{ color: ORANGE, fontWeight: 600 }}>{tr("LOW")}</span>}</div></div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} aria-label={tr("One less")} style={mkTapFrame()}><span style={qtyBtn}><MinusIco sz={14} /></span></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} aria-label={tr("One more")} style={mkTapFrame()}><span style={qtyBtn}><PlusIco sz={14} /></span></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Log Usage")}</button></div>)}</div>); })}
+      {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 600, color: t.textMut, fontFamily: "monospace" }}>{tr("QR")}</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div>{isLow && <div style={{ marginTop: 2, fontSize: 10, color: ORANGE, fontWeight: 600 }}>{tr("LOW")}</div>}</div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} aria-label={tr("One less")} style={mkTapFrame()}><span style={qtyBtn}><MinusIco sz={14} /></span></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} aria-label={tr("One more")} style={mkTapFrame()}><span style={qtyBtn}><PlusIco sz={14} /></span></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Log Usage")}</button></div>)}</div>); })}
       {supplyLogs.length > 0 && (<div style={{ marginTop: 18 }}><label style={{ ...labelSt, display: "block", marginBottom: 8 }}>{tr("This Shift's Log")}</label>{supplyLogs.map((log, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", marginBottom: 3, background: t.hover, borderRadius: R.sm, fontSize: 11 }}><span style={{ fontWeight: 600, color: t.text }}>{log.supply_name || tr("Item")} <span style={{ color: t.textMut, fontWeight: 400 }}>{log.quantity} {log.unit}</span></span><span style={{ color: t.textMut, fontSize: 9 }}>{formatTime(log.loggedAt || log.scanned_at)}</span></div>))}</div>)}
     </div>
   );
@@ -5810,8 +5945,10 @@ function CustomerFormScreen({ token, t, themeMode }) {
   const company = (got.data && got.data.company) || {};
   const site = (got.data && got.data.site) || {};
   const logo = company.logoUrl || LOGO_SM;
-  // The logo, the company and the site, with the language choice beside
-  // them everywhere but on the thank-you, which has nothing left to tap.
+  // The logo, the company and the site, with the language choice and the
+  // text size beside them everywhere but on the thank-you, which has
+  // nothing left to tap. The text size is the same pill the sign-in
+  // screen offers, kept on this phone.
   const headOf = (withPicker) => (
     <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 160px", minWidth: 0 }}>
@@ -5823,7 +5960,7 @@ function CustomerFormScreen({ token, t, themeMode }) {
           {site.name && <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.4, overflowWrap: "anywhere" }}>{site.name}</div>}
         </div>
       </div>
-      {withPicker && <div style={{ flex: "1 1 180px", maxWidth: 260 }}><LangPicker value={locale} onChange={setLanguage} t={t} /></div>}
+      {withPicker && <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 220px", maxWidth: 360 }}><div style={{ flex: 1, minWidth: 140 }}><LangPicker value={locale} onChange={setLanguage} t={t} /></div><TextSizeButton t={t} /></div>}
     </div>
   );
   const head = headOf(true);
@@ -7162,6 +7299,33 @@ function InspectView({ token, user, showToast, t }) {
   const [schedForm, setSchedForm] = useState({ template_id: "", site_id: "", scheduled_date: "" });
   const [scheduling, setScheduling] = useState(false);
   useBusy("inspection in progress", !!active || !!sent || uploadingId !== null || submitting || scheduling);
+  // Which cards have been scored (the slider moved, or Not due yet
+  // tapped), the card touched last, and whether the scored group is
+  // open. Scored cards fold into one group under the rest, so a long
+  // inspection stays a short page; the card touched last stays out of
+  // the fold, so it never leaves from under a finger.
+  const [scoredIds, setScoredIds] = useState({});
+  const [lastTouched, setLastTouched] = useState(null);
+  const [showScored, setShowScored] = useState(false);
+  const touch = (id) => { setScoredIds(prev => prev[id] ? prev : { ...prev, [id]: true }); setLastTouched(id); };
+
+  // + Schedule follows the capability the API enforces on the schedule
+  // route, read once when the tab opens, so nobody is shown a button the
+  // API refuses. While the permissions route answers 404 the role
+  // decides, the way it did before Step 179. Until either answers the
+  // button waits.
+  const isManager = user?.role === "admin" || user?.role === "supervisor" || user?.role === "custodial_lead";
+  const [canSchedule, setCanSchedule] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const p = await api("/api/users/me/permissions", { token });
+        if (alive) setCanSchedule(!!(p && p.capabilities && p.capabilities.manage_inspections === true));
+      } catch (e) { if (alive && e && e.status === 404) setCanSchedule(isManager); }
+    })();
+    return () => { alive = false; };
+  }, [token]);
 
   const loadList = async () => {
     setLoading(true);
@@ -7216,6 +7380,7 @@ function InspectView({ token, user, showToast, t }) {
       setNeedsFix({});
       setMissingNote({});
       notDueBefore.current = {};
+      setScoredIds({}); setLastTouched(null); setShowScored(false);
     } catch (e) { showToast(tr(e.message), "error"); }
   };
 
@@ -7227,6 +7392,7 @@ function InspectView({ token, user, showToast, t }) {
   const toggleNotDue = (item) => {
     const id = item.id;
     const note = notes[id] || "";
+    touch(id);
     if (notDueOn(item)) {
       const back = notDueBefore.current[id];
       setScores(prev => ({ ...prev, [id]: back === undefined ? 0 : back }));
@@ -7303,8 +7469,13 @@ function InspectView({ token, user, showToast, t }) {
       unsaid.forEach(item => { flags[item.id] = true; });
       setMissingNote(flags);
       showToast(tr("Say what needs fixing"), "error");
-      const card = document.querySelector('[data-inspect-item="' + unsaid[0].id + '"]');
-      if (card && card.scrollIntoView) card.scrollIntoView({ block: "center" });
+      // The card may sit in the fold, so the fold opens first and the
+      // scroll waits for it to be drawn.
+      setShowScored(true);
+      setTimeout(() => {
+        const card = document.querySelector('[data-inspect-item="' + unsaid[0].id + '"]');
+        if (card && card.scrollIntoView) card.scrollIntoView({ block: "center" });
+      }, 0);
       return;
     }
     setSubmitting(true);
@@ -7336,7 +7507,6 @@ function InspectView({ token, user, showToast, t }) {
 
   const labelSt = mkLabel(t);
   const inputSt = mkInput(t);
-  const isManager = user?.role === "admin" || user?.role === "supervisor" || user?.role === "custodial_lead";
 
   // SCORING VIEW
   if (active) {
@@ -7344,6 +7514,53 @@ function InspectView({ token, user, showToast, t }) {
     const totalScored = (active.items || []).reduce((sum, i) => sum + (parseInt(scores[i.id]) || 0), 0);
     const pct = totalMax > 0 ? Math.round((totalScored / totalMax) * 100) : 0;
     const scoreColor = pct >= 80 ? GREEN : pct >= 60 ? ORANGE : RED;
+    // The cards still to score, in the template's order, with the card
+    // touched last among them; every other scored card sits in the fold.
+    const items = active.items || [];
+    const inFold = (item) => !!scoredIds[item.id] && item.id !== lastTouched;
+    const openItems = items.filter(item => !inFold(item));
+    const foldedItems = items.filter(inFold);
+    // One card, drawn the same way in the open list and in the fold.
+    const itemCard = (item) => {
+      const sc = parseInt(scores[item.id]) || 0;
+      const iPct = item.max_score > 0 ? Math.round((sc / item.max_score) * 100) : 0;
+      const iColor = iPct >= 80 ? GREEN : iPct >= 60 ? ORANGE : RED;
+      const notDue = notDueOn(item);
+      const fix = !!needsFix[item.id];
+      return (
+        <div key={item.id} data-inspect-item={item.id} style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "14px 14px 12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: t.text, lineHeight: 1.3, fontFamily: FONT_HEAD }}>{item.label}</div>
+              <div style={{ fontSize: 10, color: t.textMut }}>{item.zone}</div>
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: iColor, minWidth: 36, textAlign: "right", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{sc}<span style={{ fontSize: 10, color: t.textMut, fontWeight: 400 }}>/{item.max_score}</span></div>
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <input type="range" min={0} max={item.max_score} value={sc} onChange={e => { const v = parseInt(e.target.value); setScores(prev => ({ ...prev, [item.id]: v })); touch(item.id); }} style={{ width: "100%", height: TAP, margin: 0, accentColor: iColor }} />
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: t.textMut, marginTop: 2 }}><span>0</span><span>{item.max_score}</span></div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+            <button type="button" aria-pressed={notDue} onClick={() => toggleNotDue(item)} style={{ minHeight: TAP, minWidth: TAP, padding: "0 14px", borderRadius: R.md, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD, background: notDue ? t.goldBg : t.card, border: notDue ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text }}>{tr("Not due yet")}</button>
+            <button type="button" role="switch" aria-checked={fix} onClick={() => toggleNeedsFix(item.id)} style={{ display: "inline-flex", alignItems: "center", gap: 8, minHeight: TAP, minWidth: TAP, padding: "0 6px", background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, textAlign: "left" }}>
+              <span aria-hidden="true" style={{ width: 34, height: 20, borderRadius: 10, flexShrink: 0, position: "relative", background: fix ? GOLD : t.borderSolid, transition: "background 0.15s" }}>
+                <span style={{ position: "absolute", top: 2, left: fix ? 16 : 2, width: 16, height: 16, borderRadius: 8, background: fix ? NAVY : t.card, transition: "left 0.15s" }} />
+              </span>
+              {tr("Needs a fix")}
+            </button>
+          </div>
+          <input value={notes[item.id] || ""} onChange={e => { const v = e.target.value; setNotes(prev => ({ ...prev, [item.id]: v })); if (missingNote[item.id] && v.trim()) setMissingNote(prev => ({ ...prev, [item.id]: false })); }} placeholder={fix ? tr("Say what needs fixing") : tr("Notes for this item (optional)")} aria-invalid={!!missingNote[item.id]} style={{ ...inputSt, fontSize: 12, marginBottom: 8, ...(missingNote[item.id] ? { border: "1px solid " + RED } : {}) }} />
+          {missingNote[item.id] && <div style={{ ...mkFieldErr(t), marginTop: -2, marginBottom: 8 }}>{tr("Say what needs fixing")}</div>}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, minHeight: TAP, padding: "5px 10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", fontSize: 11, color: t.textSec }}>
+              <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files[0] && handlePhotoUpload(item.id, e.target.files[0])} />
+              {uploadingId === item.id ? tr("Uploading...") : tr("Attach Photo")}
+            </label>
+            {uploaded[item.id] && <span style={{ fontSize: 10, color: GREEN, fontWeight: 600 }}>{tr("Photo attached")}</span>}
+          </div>
+        </div>
+      );
+    };
 
     return (
       <div style={{ padding: "14px 16px 100px" }}>
@@ -7364,46 +7581,14 @@ function InspectView({ token, user, showToast, t }) {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
-          {(active.items || []).map(item => {
-            const sc = parseInt(scores[item.id]) || 0;
-            const iPct = item.max_score > 0 ? Math.round((sc / item.max_score) * 100) : 0;
-            const iColor = iPct >= 80 ? GREEN : iPct >= 60 ? ORANGE : RED;
-            const notDue = notDueOn(item);
-            const fix = !!needsFix[item.id];
-            return (
-              <div key={item.id} data-inspect-item={item.id} style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "14px 14px 12px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: t.text, lineHeight: 1.3, fontFamily: FONT_HEAD }}>{item.label}</div>
-                    <div style={{ fontSize: 10, color: t.textMut }}>{item.zone}</div>
-                  </div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: iColor, minWidth: 36, textAlign: "right", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{sc}<span style={{ fontSize: 10, color: t.textMut, fontWeight: 400 }}>/{item.max_score}</span></div>
-                </div>
-                <div style={{ marginBottom: 8 }}>
-                  <input type="range" min={0} max={item.max_score} value={sc} onChange={e => setScores(prev => ({ ...prev, [item.id]: parseInt(e.target.value) }))} style={{ width: "100%", height: TAP, margin: 0, accentColor: iColor }} />
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: t.textMut, marginTop: 2 }}><span>0</span><span>{item.max_score}</span></div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
-                  <button type="button" aria-pressed={notDue} onClick={() => toggleNotDue(item)} style={{ minHeight: TAP, minWidth: TAP, padding: "0 14px", borderRadius: R.md, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD, background: notDue ? t.goldBg : t.card, border: notDue ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text }}>{tr("Not due yet")}</button>
-                  <button type="button" role="switch" aria-checked={fix} onClick={() => toggleNeedsFix(item.id)} style={{ display: "inline-flex", alignItems: "center", gap: 8, minHeight: TAP, minWidth: TAP, padding: "0 6px", background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, textAlign: "left" }}>
-                    <span aria-hidden="true" style={{ width: 34, height: 20, borderRadius: 10, flexShrink: 0, position: "relative", background: fix ? GOLD : t.borderSolid, transition: "background 0.15s" }}>
-                      <span style={{ position: "absolute", top: 2, left: fix ? 16 : 2, width: 16, height: 16, borderRadius: 8, background: fix ? NAVY : t.card, transition: "left 0.15s" }} />
-                    </span>
-                    {tr("Needs a fix")}
-                  </button>
-                </div>
-                <input value={notes[item.id] || ""} onChange={e => { const v = e.target.value; setNotes(prev => ({ ...prev, [item.id]: v })); if (missingNote[item.id] && v.trim()) setMissingNote(prev => ({ ...prev, [item.id]: false })); }} placeholder={fix ? tr("Say what needs fixing") : tr("Notes for this item (optional)")} aria-invalid={!!missingNote[item.id]} style={{ ...inputSt, fontSize: 12, marginBottom: 8, ...(missingNote[item.id] ? { border: "1px solid " + RED } : {}) }} />
-                {missingNote[item.id] && <div style={{ ...mkFieldErr(t), marginTop: -2, marginBottom: 8 }}>{tr("Say what needs fixing")}</div>}
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, minHeight: TAP, padding: "5px 10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", fontSize: 11, color: t.textSec }}>
-                    <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files[0] && handlePhotoUpload(item.id, e.target.files[0])} />
-                    {uploadingId === item.id ? tr("Uploading...") : tr("Attach Photo")}
-                  </label>
-                  {uploaded[item.id] && <span style={{ fontSize: 10, color: GREEN, fontWeight: 600 }}>{tr("Photo attached")}</span>}
-                </div>
-              </div>
-            );
-          })}
+          {openItems.map(itemCard)}
+          {foldedItems.length > 0 && (
+            <div style={{ background: t.cardAlt, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "12px 14px" }}>
+              <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: showScored ? 10 : 8 }}>{tr("Scored")}</div>
+              {!showScored && <button type="button" onClick={() => setShowScored(true)} style={{ minHeight: TAP, padding: "0 14px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.card, color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Show {0} scored items", { 0: foldedItems.length })}</button>}
+              {showScored && <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{foldedItems.map(itemCard)}</div>}
+            </div>
+          )}
         </div>
 
         <div style={{ marginBottom: 16 }}>
@@ -7454,7 +7639,7 @@ function InspectView({ token, user, showToast, t }) {
           <div style={{ fontSize: 15, fontWeight: 600, color: t.text, marginBottom: 2, fontFamily: FONT_HEAD }}>{tr("My Inspections")}</div>
           <div style={{ fontSize: 11, color: t.textSec }}>{tr("Tap an inspection to begin scoring.")}</div>
         </div>
-        {isManager && (
+        {canSchedule === true && (
           <button onClick={openScheduleModal} style={{ minHeight: TAP, padding: "8px 14px", borderRadius: R.sm, border: "none", background: GOLD, color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0, fontFamily: FONT_HEAD }}>
             {tr("+ Schedule")}
           </button>
