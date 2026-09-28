@@ -2,6 +2,7 @@ import { Component, useState, useEffect, useCallback, useRef, createContext, use
 import clientConfig from './clientConfig';
 import { tr, dateLocale, setWordsLanguage, wordsLanguage } from "./words";
 import { BUILD_STAMP } from "./buildStamp";
+import { detectInstallMode } from "./homeScreenPromptRules";
 
 const API = process.env.REACT_APP_API_URL || "https://ocsa-api-production.up.railway.app";
 
@@ -129,15 +130,14 @@ async function readServerStamp() {
 }
 
 // The tab is remembered first, so it survives even if the rest throws.
+// The service worker stays registered: it has never cached anything, a
+// new copy installs itself on the reload, and unregistering it would
+// throw away the phone's push subscription, turning alerts off on every
+// phone at every deploy. Any cache an older build might have left is
+// still cleared.
 async function clearAndReload(tab, stamp) {
   sessionSet(UPDATE_TAB_KEY, tab || "clock");
   sessionSet(UPDATE_TRIED_KEY, stamp);
-  try {
-    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      for (let i = 0; i < regs.length; i++) { try { await regs[i].unregister(); } catch (e) {} }
-    }
-  } catch (e) {}
   try {
     if (window.caches && window.caches.keys) {
       const names = await window.caches.keys();
@@ -771,7 +771,7 @@ const DESTINATIONS = [
   { id: "clock", label: () => "Home", icon: HomeIco, home: true },
   { id: "schedule", label: () => "Schedule", icon: CalIco },
   { id: "tasks", label: () => "Tasks", icon: CheckIco },
-  { id: "chat", label: () => "Chat", icon: ChatIco },
+  { id: "chat", label: () => "Chat", icon: ChatIco, badge: "chat" },
   { id: "agent", label: () => "Help", icon: HelpIco },
   { id: "issuetasks", label: () => "Assigned", icon: WrkIco, badge: "assigned" },
   { id: "issues", label: (ctx) => ctx.isAdmin ? "Issues" : "Report", icon: AlertIco },
@@ -851,6 +851,10 @@ const NOT_DUE = "Not due";
 // becomes a see-through frame of at least 44 by 44 and the look moves to
 // the span inside it, so the tap area grows and the drawing does not.
 const mkTapFrame = (extra) => ({ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: TAP, minHeight: TAP, padding: 0, background: "none", border: "none", cursor: "pointer", ...(extra || {}) });
+// A count on a tab's icon, on the bar and under More, drawn the way the
+// bell draws its count: the same red, the same numeral, 9+ past nine.
+const mkCountBadge = (t) => ({ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", fontFamily: FONT_HEAD });
+const badgeText = (n) => (n > 9 ? "9+" : n);
 
 const mkLabel = (t) => ({ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: 6, display: "block", fontFamily: FONT_HEAD });
 const mkInput = (t) => ({ width: "100%", minHeight: TAP, padding: "11px 14px", borderRadius: R.md, border: "1px solid " + t.inputBorder, background: t.inputBg, color: t.text, fontSize: 14, outline: "none", fontFamily: FONT_BODY });
@@ -905,6 +909,20 @@ function readEntryFromUrl() {
     return null;
   } catch (e) { return null; }
 }
+// Where a tap on a phone alert asked the app to open, when the worker had
+// to open a new window for it: ?open=<subjectType>:<subjectId>. Read once
+// at start and taken off the address, before an emailed link's own read
+// below drops the query.
+function readOpenFromUrl() {
+  try {
+    var v = new URLSearchParams(window.location.search || "").get("open");
+    if (!v) return null;
+    try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
+    var at = v.indexOf(":");
+    return { subjectType: at === -1 ? v : v.slice(0, at), subjectId: at === -1 ? null : v.slice(at + 1) };
+  } catch (e) { return null; }
+}
+const OPEN_AT_START = readOpenFromUrl();
 const ENTRY = readEntryFromUrl();
 if (ENTRY && ENTRY.token) {
   try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
@@ -938,6 +956,116 @@ function readAuth() {
 function clearAuth() {
   try { window.localStorage.removeItem(AUTH_KEY); } catch (e) {}
 }
+
+// ------------------------------------------------------------
+// Phone alerts (Web Push)
+//
+// The service worker in public/sw.js shows what the API pushes. These
+// answer whether this phone can take alerts, what it has decided, and
+// turn them on and off: the browser's permission is asked from the
+// person's own tap, the subscription is made with the API's public key
+// and posted to it, and turning off unsubscribes here and deletes it
+// there. Nothing here ever throws to a screen; each call answers a word.
+// ------------------------------------------------------------
+const pushSupported = () => { try { return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window; } catch (e) { return false; } };
+const pushPermission = () => { try { return window.Notification && window.Notification.permission ? window.Notification.permission : "denied"; } catch (e) { return "denied"; } };
+const isStandaloneApp = () => { try { return window.navigator.standalone === true || !!(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches); } catch (e) { return false; } };
+// An iPhone or iPad in a browser tab, where alerts need the app on the
+// Home Screen first. The same rules the install sheet reads.
+const iosInBrowserTab = () => {
+  try {
+    const ua = window.navigator.userAgent;
+    const m = detectInstallMode({ ua: ua, maxTouchPoints: window.navigator.maxTouchPoints, standalone: isStandaloneApp(), installPromptFired: false });
+    return m === "ios_safari" || m === "ios_other_browser" || (m === "in_app_browser" && /iPhone|iPad|iPod/.test(String(ua)));
+  } catch (e) { return false; }
+};
+// The worker's registration: the one already there, or, on a first load
+// while it is still registering, the one ready within a few seconds.
+async function pushRegistration() {
+  try {
+    let reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) reg = await Promise.race([navigator.serviceWorker.ready, new Promise(resolve => setTimeout(() => resolve(null), 3000))]);
+    return reg && reg.pushManager ? reg : null;
+  } catch (e) { return null; }
+}
+async function pushSubscription() {
+  if (!pushSupported()) return null;
+  const reg = await pushRegistration();
+  if (!reg) return null;
+  try { return await reg.pushManager.getSubscription(); } catch (e) { return null; }
+}
+// The API's public key, as the browser wants it.
+function vapidKeyBytes(key) {
+  const s = String(key).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = window.atob(s + "=".repeat((4 - s.length % 4) % 4));
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+// What this phone says about alerts right now: ios (a browser tab on an
+// iPhone), unsupported, denied, on, or off.
+async function phoneAlertsState() {
+  if (iosInBrowserTab()) return "ios";
+  if (!pushSupported()) return "unsupported";
+  if (pushPermission() === "denied") return "denied";
+  const reg = await pushRegistration();
+  if (!reg) return "unsupported";
+  const sub = pushPermission() === "granted" ? await pushSubscription() : null;
+  return sub ? "on" : "off";
+}
+// Turns alerts on for this phone. Called from a tap, so the browser's
+// permission can be asked. Answers on, denied, failed or unsupported.
+async function turnOnPhoneAlerts(publicKey, token) {
+  if (!pushSupported()) return "unsupported";
+  let perm = pushPermission();
+  if (perm === "default") {
+    try { const r = window.Notification.requestPermission(); perm = r && typeof r.then === "function" ? await r : pushPermission(); } catch (e) { perm = pushPermission(); }
+  }
+  if (perm !== "granted") return "denied";
+  const reg = await pushRegistration();
+  if (!reg) return "unsupported";
+  let sub = null;
+  try {
+    sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidKeyBytes(publicKey) });
+  } catch (e) { return "failed"; }
+  try {
+    const j = sub.toJSON ? sub.toJSON() : { endpoint: sub.endpoint, keys: {} };
+    await api("/api/push/subscriptions", { method: "POST", body: { endpoint: j.endpoint, keys: j.keys || {}, userAgent: window.navigator.userAgent }, token });
+    return "on";
+  } catch (e) {
+    // A subscription the API never took is dropped, so the phone holds
+    // nothing the API does not know about.
+    try { await sub.unsubscribe(); } catch (x) {}
+    return "failed";
+  }
+}
+// Turns alerts off for this phone: unsubscribes here, deletes there.
+// Answers whether the API took the delete.
+async function turnOffPhoneAlerts(token) {
+  const sub = await pushSubscription();
+  if (!sub) return true;
+  const endpoint = sub.endpoint;
+  try { await sub.unsubscribe(); } catch (e) {}
+  try { await api("/api/push/subscriptions", { method: "DELETE", body: { endpoint: endpoint }, token }); return true; } catch (e) { return false; }
+}
+// The API's public key: a string, null when the server has none or does
+// not answer the route yet, so the phone part is hidden either way.
+async function readPushKey(token) {
+  try { const d = await api("/api/push/key", { token }); return d && typeof d.publicKey === "string" && d.publicKey.trim() ? d.publicKey.trim() : null; } catch (e) { return null; }
+}
+// The card after the first sign-in, remembered per person on the phone
+// once either of its buttons is tapped.
+const ALERTS_ASKED_PREFIX = "ocsa-staff-alerts-asked:";
+const alertsAsked = (userId) => { try { return window.localStorage.getItem(ALERTS_ASKED_PREFIX + String(userId || "")) === "1"; } catch (e) { return true; } };
+const saveAlertsAsked = (userId) => { try { window.localStorage.setItem(ALERTS_ASKED_PREFIX + String(userId || ""), "1"); } catch (e) {} };
+// How long signing out waits for this phone's subscription to be deleted
+// on the API before the token is forgotten anyway.
+const SIGN_OUT_PUSH_MS = 4000;
+// The settings that decide what pings a phone: the chat choice and the
+// five switches, in the order the screen draws them.
+const ALERT_CHAT_CHOICES = [["all", "Every message"], ["mentions", "Only when I'm tagged"], ["off", "Off"]];
+const ALERT_SWITCHES = [["schedule", "Schedule and time off"], ["pickups", "Shift pickups and drops"], ["supplies", "Supply requests"], ["issues", "Problems reported"], ["forms", "Forms filed"]];
 
 // Text size. One setting scales the whole page, so a person who cannot
 // read 10 pixel type can read every screen without the thousands of
@@ -1490,7 +1618,15 @@ export default function OCSAStaffPortal() {
     setLoading(false);
   };
 
-  const handleLogout = () => forgetPerson();
+  // Signing out deletes this phone's subscription on the API before the
+  // token is forgotten, so the next person on a shared phone never gets
+  // the last person's alerts. A delete that fails or takes too long never
+  // holds signing out.
+  const handleLogout = async () => {
+    const tok = token;
+    if (tok) { try { await Promise.race([turnOffPhoneAlerts(tok), new Promise(resolve => setTimeout(resolve, SIGN_OUT_PUSH_MS))]); } catch (e) {} }
+    forgetPerson();
+  };
 
   // Tapping a site chooses it. No request, no tab change, no toast.
   const handleSelectSite = (siteId) => { if (clockStatus?.clockedIn) return; setPendingSite(siteId); setStartBlock(null); };
@@ -1614,8 +1750,16 @@ export default function OCSAStaffPortal() {
   // one with nothing in it, and a list already on the screen stays when a
   // later read of it fails. A reply that is not a list counts as a list
   // that did not load.
-  const loadChannels = async () => { try { const data = await api(chatPath("/api/chat/channels"), { token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.channels) ? data.channels : null); if (!list) throw new Error(ERR_GENERIC); setChannels(list.filter(ch => ch && typeof ch === "object" && ch.id)); setChannelsFailed(false); } catch (err) { console.error(err); setChannelsFailed(true); } };
+  const loadChannels = async (tkn) => { try { const data = await api(chatPath("/api/chat/channels"), { token: tkn || token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.channels) ? data.channels : null); if (!list) throw new Error(ERR_GENERIC); setChannels(list.filter(ch => ch && typeof ch === "object" && ch.id)); setChannelsFailed(false); } catch (err) { console.error(err); setChannelsFailed(true); } };
   const retryChannels = () => { setChannelsFailed(false); loadChannels(); };
+  // Opening a chat marks it read: its count on the list goes to zero here
+  // at once, and the API is told once. An API that does not answer this
+  // route yet, or a read that does not go, is left alone; the list read
+  // after it says what the API holds.
+  const markChatRead = async (channelId) => {
+    setChannels(prev => (Array.isArray(prev) ? prev.map(ch => (ch.id === channelId && ch.unreadCount > 0 ? { ...ch, unreadCount: 0 } : ch)) : prev));
+    try { await api(chatPath("/api/chat/channels/" + channelId + "/read"), { method: "POST", token }); } catch (e) {}
+  };
   // One chat's messages, drawn only while that chat is still the one open,
   // so a slow answer for one chat never lands under another. Anything in
   // the list that is not a message is left out; a message missing a field
@@ -1626,7 +1770,10 @@ export default function OCSAStaffPortal() {
   // its chat, once. An answer with no message reads the chat again. A
   // refusal goes back to the composer, which keeps the words and says what
   // happened, so nothing here speaks for it.
-  const sendMessage = async (channelId, text) => { const data = await api(chatPath("/api/chat/channels/" + channelId + "/messages"), { method: "POST", body: { text }, token }); const msg = data && data.message && typeof data.message === "object" ? data.message : null; if (!msg) { await readMessages(channelId).catch(e => console.error(e)); return; } if (activeChannelRef.current === channelId) setMessages(prev => (msg.id && prev.some(m => m.id === msg.id) ? prev : [...prev, msg])); };
+  // The ids of the people tagged ride along as mentions, and only when
+  // there are any, so an API from before tagging reads the same body it
+  // always did. The list of chats is read again after each send.
+  const sendMessage = async (channelId, text, mentions) => { const body = { text }; if (Array.isArray(mentions) && mentions.length > 0) body.mentions = mentions; const data = await api(chatPath("/api/chat/channels/" + channelId + "/messages"), { method: "POST", body: body, token }); const msg = data && data.message && typeof data.message === "object" ? data.message : null; if (!msg) { await readMessages(channelId).catch(e => console.error(e)); } else if (activeChannelRef.current === channelId) setMessages(prev => (msg.id && prev.some(m => m.id === msg.id) ? prev : [...prev, msg])); loadChannels(); };
 
   useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "issues") loadIssues(); if (activeTab === "issuetasks") loadAssignedTasks(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId]);
   // The task list is fetched as soon as a session is seen open, whichever
@@ -1638,7 +1785,7 @@ export default function OCSAStaffPortal() {
   // no list has come back asks again, the way it always has. No session,
   // no fetch.
   useEffect(() => { if (checklistKey && (tasks === null || tasksAsked.current !== checklistKey)) loadTasks(); }, [activeTab, checklistKey]);
-  useEffect(() => { activeChannelRef.current = activeChannel; setMessages([]); setMessagesOf(null); if (activeChannel) { loadMessages(activeChannel); setTimeout(() => loadChannels(), 600); } }, [activeChannel]);
+  useEffect(() => { activeChannelRef.current = activeChannel; setMessages([]); setMessagesOf(null); if (activeChannel) { loadMessages(activeChannel); markChatRead(activeChannel).then(() => setTimeout(() => loadChannels(), 600)); } }, [activeChannel]);
   // Chat opens on a chat: the one last chosen on this phone while it is
   // still on the list, or the only one when the list holds one. Never a
   // guess among several. A chat that leaves the list is let go.
@@ -1650,12 +1797,39 @@ export default function OCSAStaffPortal() {
   }, [channels, user]);
   // A chat a person picks is the one Chat opens on next time, on this phone.
   const chooseChat = (id) => { setActiveChannel(id); if (user) saveLastChat(user.id, id); };
+  // Opens the place a notice names: a tab, Chat on one chat, or the
+  // announcement sheet. A chat already open is read again.
+  const openPlace = (place) => {
+    if (!place) return;
+    if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
+    setActiveTab(place.tab); setShowMore(false);
+    if (place.tab === "chat" && place.chat) { if (activeChannelRef.current === place.chat) loadMessages(place.chat); else chooseChat(place.chat); }
+  };
+  // The worker tells an open window where a tapped alert points.
+  useEffect(() => {
+    const sw = navigator.serviceWorker;
+    if (!sw || !sw.addEventListener) return undefined;
+    const onMsg = (e) => { const d = e && e.data; if (d && d.type === "ocsa-open" && d.subjectType) setOpenAsk({ subjectType: String(d.subjectType), subjectId: d.subjectId == null ? null : String(d.subjectId) }); };
+    sw.addEventListener("message", onMsg);
+    return () => sw.removeEventListener("message", onMsg);
+  }, []);
+  // The place waits for the portal itself: a person still signing in
+  // lands there once they are in.
+  useEffect(() => {
+    if (!openAsk || booting || screen !== "main" || !token) return;
+    setOpenAsk(null);
+    openPlace(notifPlace(openAsk.subjectType, openAsk.subjectId));
+  }, [openAsk, booting, screen, token]);
+  // The list of chats is read once the portal is up, so the Chat tab's
+  // count is on the bar before Chat is ever opened, and again each time
+  // the app comes back to the front, with the clock status below.
+  useEffect(() => { if (token && screen === "main") loadChannels(); }, [token, screen]);
   // An admin can end a session from the dashboard, and a second device
   // can end it too. Re-read clock status when the app comes back into
   // view. One listener, no interval.
   useEffect(() => {
     if (!token || screen !== "main") return;
-    const h = () => { if (document.visibilityState === "visible") refreshClockStatus().catch(e => console.warn("Clock status:", e.message)); };
+    const h = () => { if (document.visibilityState !== "visible") return; refreshClockStatus().catch(e => console.warn("Clock status:", e.message)); loadChannels(); };
     document.addEventListener("visibilitychange", h);
     return () => document.removeEventListener("visibilitychange", h);
   }, [token, screen, refreshClockStatus]);
@@ -1777,6 +1951,18 @@ export default function OCSAStaffPortal() {
   const [unread, setUnread] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const unreadWarned = useRef(false);
+  // The announcement open over the portal, by id, from its notice.
+  const [announcementOpen, setAnnouncementOpen] = useState(null);
+  // Where a tap on a phone alert asked the app to open: the address it
+  // was opened with, or a message from the worker to a window already
+  // open. Held until the portal itself is up, then opened once, the same
+  // place the bell would open.
+  const [openAsk, setOpenAsk] = useState(OPEN_AT_START);
+  // The card after the first sign-in: null while it is being decided,
+  // the API's public key while it is up, and "done" once it is settled
+  // either way. The install sheet waits for done.
+  const [alertsCard, setAlertsCard] = useState(null);
+  const [alertsCardBusy, setAlertsCardBusy] = useState(false);
 
   // Everything the person who was signed in leaves behind, dropped in
   // one place. Signing out and a session that runs out take this same
@@ -1795,7 +1981,7 @@ export default function OCSAStaffPortal() {
     setAgentConversation(null); setFormsDraft(null);
     setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
     setLookups([]); setLookupsLang(null); toastsRef.current.clear(); setLoading(false);
-    setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false);
+    setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false); setAnnouncementOpen(null); setOpenAsk(null); setAlertsCard(null); setAlertsCardBusy(false);
     setActiveTab("clock");
     unreadWarned.current = false; prefsLive.current = false; chosenOnEntryRef.current = null;
     tasksAsked.current = null; tasksReqAsked.current = null; inFlightTaskIds.current = new Set();
@@ -1808,12 +1994,46 @@ export default function OCSAStaffPortal() {
   // offers itself only to a signed-in person past Set your PIN. The app
   // writes which screen is up on the document and says so each time it
   // changes; the sheet reads that and never opens over the sign-in card.
+  // The card that asks about alerts comes first, so the portal says
+  // "main" only once that card is settled.
+  const alertsSettled = alertsCard === "done";
   useEffect(() => {
     try {
-      document.documentElement.setAttribute("data-ocsa-screen", booting ? "boot" : screen);
+      document.documentElement.setAttribute("data-ocsa-screen", booting ? "boot" : (screen === "main" && !alertsSettled ? "main-alerts" : screen));
       window.dispatchEvent(new Event("ocsa-screen"));
     } catch (e) {}
-  }, [booting, screen]);
+  }, [booting, screen, alertsSettled]);
+  // Once, after the first sign-in: on a phone where push is possible and
+  // not yet decided, and never on an iPhone browser tab, the API's key
+  // is read and the card goes up. Anything else settles it at once, and
+  // so does a key that does not come within a few seconds.
+  useEffect(() => {
+    if (booting || screen !== "main" || !token || !uid || alertsCard !== null) return undefined;
+    let alive = true;
+    const settle = () => { if (alive) setAlertsCard("done"); };
+    if (alertsAsked(uid) || iosInBrowserTab() || !pushSupported() || pushPermission() !== "default") { settle(); return undefined; }
+    const timer = setTimeout(settle, 6000);
+    (async () => {
+      const key = await readPushKey(token);
+      const state = key ? await phoneAlertsState() : null;
+      if (!alive) return;
+      clearTimeout(timer);
+      if (key && state === "off") setAlertsCard(key); else settle();
+    })();
+    return () => { alive = false; clearTimeout(timer); };
+  }, [booting, screen, token, uid, alertsCard]);
+  const answerAlertsCard = async (turnOn) => {
+    const key = alertsCard;
+    if (!key || key === "done" || alertsCardBusy) return;
+    if (uid) saveAlertsAsked(uid);
+    if (!turnOn) { setAlertsCard("done"); return; }
+    setAlertsCardBusy(true);
+    const r = await turnOnPhoneAlerts(key, token);
+    setAlertsCardBusy(false);
+    setAlertsCard("done");
+    if (r === "on") showToast(tr("Alerts are on for this phone."));
+    else if (r === "failed") showToast(tr("Your settings did not save."), "error");
+  };
   const refreshUnread = useCallback(async (tkn) => {
     const tk = tkn || token;
     if (!tk) return;
@@ -1848,7 +2068,10 @@ export default function OCSAStaffPortal() {
     if (want === "profile" || DESTINATIONS.some(d => d.id === want)) setActiveTab(want);
   }, []);
 
-  const badgeCounts = { assigned: assignedCount };
+  // The Chat tab carries the sum of the unread counts across the person's
+  // chats, wherever the tab sits.
+  const chatUnread = Array.isArray(channels) ? channels.reduce((n, ch) => n + (Number(ch.unreadCount) > 0 ? Number(ch.unreadCount) : 0), 0) : 0;
+  const badgeCounts = { assigned: assignedCount, chat: chatUnread };
   const tabOf = (d) => ({ id: d.id, label: tr(d.label(destCtx)), icon: d.icon, badge: d.badge ? (badgeCounts[d.badge] || 0) : 0 });
   // Home first, then the four, then More. Whatever is not on the bar is
   // under More, so nothing can be hidden from a person entirely.
@@ -1939,7 +2162,8 @@ export default function OCSAStaffPortal() {
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
-              {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} />}
+              {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
+              {activeTab === "phonealerts" && <PhoneAlertsView token={token} t={t} onBack={() => setActiveTab("settings")} />}
               {activeTab === "profile" && <MyProfileView token={token} user={user} showToast={showToast} t={t} setUser={setUser} setActiveTab={setActiveTab} />}
             </div>
           </div>
@@ -1952,7 +2176,7 @@ export default function OCSAStaffPortal() {
                   <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMore(false); }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 8px", background: active ? t.goldBg : "transparent", border: active ? "1px solid " + t.goldBorder : "1px solid transparent", borderRadius: 12, cursor: "pointer" }}>
                     <div style={{ position: "relative" }}>
                       <TabIco sz={22} c={active ? t.goldText : t.textSec} />
-                      {tab.badge > 0 && <div style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{tab.badge}</div>}
+                      {tab.badge > 0 && <div style={mkCountBadge(t)}>{badgeText(tab.badge)}</div>}
                     </div>
                     <span style={{ fontSize: 10, fontWeight: active ? 600 : 500, color: active ? t.goldText : t.textSec }}>{tab.label}</span>
                   </button>
@@ -1969,7 +2193,10 @@ export default function OCSAStaffPortal() {
               const TabIco = tab.icon;
               return (
                 <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMore(false); }} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
-                  <TabIco sz={22} c={active ? t.goldText : t.textMut} />
+                  <div style={{ position: "relative" }}>
+                    <TabIco sz={22} c={active ? t.goldText : t.textMut} />
+                    {tab.badge > 0 && <div style={mkCountBadge(t)}>{badgeText(tab.badge)}</div>}
+                  </div>
                   <span style={{ fontSize: barFontSize(9, zoom), fontWeight: active ? 600 : 500, color: active ? t.goldText : t.textMut, letterSpacing: "0.3px" }}>{tab.label}</span>
                   {active && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: SWEEP_BAR, borderRadius: 2 }} />}
                 </button>
@@ -1978,7 +2205,7 @@ export default function OCSAStaffPortal() {
             <button onClick={() => setShowMore(!showMore)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
               <div style={{ position: "relative" }}>
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={isMoreActive || showMore ? t.goldText : t.textMut} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
-                {totalBadge > 0 && !isMoreActive && <div style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{totalBadge}</div>}
+                {totalBadge > 0 && !isMoreActive && <div style={mkCountBadge(t)}>{badgeText(totalBadge)}</div>}
               </div>
               <span style={{ fontSize: barFontSize(9, zoom), fontWeight: isMoreActive || showMore ? 600 : 500, color: isMoreActive || showMore ? t.goldText : t.textMut, letterSpacing: "0.3px" }}>{tr("More")}</span>
               {isMoreActive && <div style={{ position: "absolute", top: -1, width: 24, height: 2.5, background: SWEEP_BAR, borderRadius: 2 }} />}
@@ -1993,9 +2220,28 @@ export default function OCSAStaffPortal() {
           t={t}
           unread={unread}
           onUnreadChanged={setUnread}
-          onOpenTab={(id) => { setActiveTab(id); setShowMore(false); }}
+          onOpen={openPlace}
           onClose={() => { setNotifOpen(false); refreshUnread(); }}
         />
+      )}
+
+      {announcementOpen && (
+        <AnnouncementSheet token={token} id={announcementOpen} t={t} onClose={() => setAnnouncementOpen(null)} />
+      )}
+
+      {!booting && screen === "main" && alertsCard && alertsCard !== "done" && (
+        <div onClick={() => answerAlertsCard(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 420, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="ocsa-alerts-card-title" onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, borderRadius: R.lg + "px " + R.lg + "px 0 0", border: "1px solid " + t.borderSolid, borderBottom: "none", padding: "18px 16px calc(16px + env(safe-area-inset-bottom, 0px))" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <div style={{ width: 44, height: 44, borderRadius: "50%", background: t.goldBg, border: "1px solid " + t.goldBorder, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><BellIco sz={20} c={t.goldText} /></div>
+              <div id="ocsa-alerts-card-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3 }}>{tr("Get an alert when someone messages you?")}</div>
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button type="button" onClick={() => answerAlertsCard(false)} disabled={alertsCardBusy} style={{ flex: 1, minHeight: TAP, padding: "0 12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Not now")}</button>
+              <button type="button" onClick={() => answerAlertsCard(true)} disabled={alertsCardBusy} style={{ flex: 1, minHeight: TAP, padding: "0 12px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: alertsCardBusy ? 0.6 : 1, fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Turn on")}</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {shortcutsOpen && (
@@ -3577,6 +3823,25 @@ const chatSaidOf = (err) => (err && err.message !== ERR_OFFLINE && typeof err.co
 // or anything else.
 const chatFaultOf = (err) => (chatSaidOf(err) ? "said" : err && err.message === ERR_OFFLINE ? "offline" : err && err.status === 403 ? "denied" : "other");
 
+// The most people one message may tag. The API turns away more, in its own
+// words, so the picker only stops offering once this many are in the text.
+const CHAT_MENTIONS_MAX = 10;
+// A message's words cut at every tag it carries: the parts at odd places
+// are the tags, drawn as highlighted names. A name is matched as the API
+// wrote it, longest first, so one that starts another is never cut short.
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function mentionParts(words, mentions) {
+  const names = (Array.isArray(mentions) ? mentions : []).filter(m => m && typeof m.name === "string" && m.name.trim()).map(m => "@" + m.name.trim());
+  if (names.length === 0 || !words) return [words];
+  names.sort((a, b) => b.length - a.length);
+  return words.split(new RegExp("(" + names.map(escapeRe).join("|") + ")"));
+}
+// Whether a message tags this person.
+const tagsPerson = (msg, userId) => !!userId && Array.isArray(msg && msg.mentions) && msg.mentions.some(m => m && m.id === userId);
+// The ids to send: the people picked whose @Name is still in the words,
+// each once.
+const mentionIdsIn = (words, picked) => { const ids = []; picked.forEach(m => { if (words.indexOf("@" + m.name) !== -1 && ids.indexOf(m.id) === -1) ids.push(m.id); }); return ids; };
+
 function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMessages, activeChannel, setActiveChannel, sendMessage, user, t, token }) {
   const [text, setText] = useState(""); const endRef = useRef(null);
   // A tap on Send with words in the box and no chat chosen.
@@ -3586,6 +3851,16 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
   // can tell a send the API kept before its answer was lost.
   const [sending, setSending] = useState(false);
   const [fault, setFault] = useState(null);
+  // Tagging. The people picked for the message in the box, each with the
+  // name the picker put in the text; one whose @Name leaves the text is
+  // forgotten. The picker is open from a typed @ or from the tag button,
+  // which decides what the pick does to the words. The chat's people come
+  // from the API when a site chat or the general chat opens: an API that
+  // does not answer that route yet hides the whole feature.
+  const [picked, setPicked] = useState([]);
+  const [tagOpen, setTagOpen] = useState(null);
+  const [tagQuery, setTagQuery] = useState("");
+  const [members, setMembers] = useState(null);
   // Words in the box, or a send on its way, hold off an update. The box
   // empties only once the API has taken the words and the answer is drawn,
   // so the key goes only once the message is on the screen.
@@ -3622,8 +3897,9 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
   const send = async (chatId, words, known) => {
     setSending(true); setFault(null);
     try {
-      await sendMessage(chatId, words);
+      await sendMessage(chatId, words, mentionIdsIn(words, picked));
       setText(prev => (prev.trim() === words ? "" : prev));
+      setPicked([]);
     } catch (err) {
       setFault({ chat: chatId, text: words, known: known, kind: chatFaultOf(err), said: chatSaidOf(err) });
     } finally { setSending(false); }
@@ -3654,6 +3930,51 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
     if (showFault) { retry(); return; }
     send(activeChannel, words, knownIds());
   };
+  // A site chat and the general chat can tag; a private chat cannot.
+  const canTag = !!active && !isDm;
+  const loadMembers = async (id) => {
+    setMembers({ of: id, state: "loading", list: [] });
+    try {
+      const d = await api(chatPath("/api/chat/channels/" + id + "/members"), { token });
+      const list = d && Array.isArray(d.members) ? d.members.filter(m => m && m.id).map(m => ({ id: m.id, name: typeof m.name === "string" ? m.name.trim() : "", role: m.role })).filter(m => m.name) : [];
+      setMembers({ of: id, state: "ok", list: list });
+    } catch (err) {
+      setMembers({ of: id, state: err && err.status === 404 ? "off" : "failed", list: [] });
+    }
+  };
+  // Another chat forgets the picks and closes the picker, and asks for its
+  // own people when it can tag.
+  useEffect(() => {
+    setPicked([]); setTagOpen(null); setTagQuery("");
+    if (activeChannel && canTag) loadMembers(activeChannel); else setMembers(null);
+  }, [activeChannel, canTag]);
+  const membersHere = members && members.of === activeChannel ? members : null;
+  const tagOn = canTag && !!membersHere && membersHere.state !== "off";
+  // Typing @ at the start of a word opens the picker. Deleting a picked
+  // @Name forgets that person.
+  const onType = (next) => {
+    const v = next.slice(0, CHAT_TEXT_MAX);
+    const was = text;
+    setText(v);
+    setPicked(prev => (prev.length === 0 ? prev : prev.filter(m => v.indexOf("@" + m.name) !== -1)));
+    if (tagOn && !tagOpen && v.length === was.length + 1 && v.slice(0, -1) === was && v.slice(-1) === "@" && (was === "" || /\s$/.test(was))) { setTagQuery(""); setTagOpen("typed"); }
+  };
+  // A pick puts @Name and a space in the words, in place of the typed @ or
+  // after what is there, and remembers the person.
+  const pickTag = (m) => {
+    const how = tagOpen;
+    setPicked(prev => (prev.some(x => x.id === m.id) ? prev : prev.concat([{ id: m.id, name: m.name }])));
+    setText(prev => {
+      let base = how === "typed" && prev.slice(-1) === "@" ? prev.slice(0, -1) : prev;
+      if (base && !/\s$/.test(base)) base += " ";
+      return (base + "@" + m.name + " ").slice(0, CHAT_TEXT_MAX);
+    });
+    setTagOpen(null); setTagQuery("");
+  };
+  const closeTag = () => { setTagOpen(null); setTagQuery(""); };
+  const tagFull = mentionIdsIn(text, picked).length >= CHAT_MENTIONS_MAX;
+  const q = tagQuery.trim().toLowerCase();
+  const tagRows = membersHere && membersHere.state === "ok" ? membersHere.list.filter(m => !q || m.name.toLowerCase().indexOf(q) !== -1) : [];
   // No list yet, a list that did not load, and a list with nothing in it.
   const listLine = (icon, line, retryIt) => (
     <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", ...fillsTheWindow(), minHeight: 0, overflowY: "auto" }}>
@@ -3677,7 +3998,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
     // out 10 pixels wider than the screen and scrolled it sideways.
     <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", ...fillsTheWindow(), minHeight: 0, overflow: "hidden" }}>
       <div style={{ flex: "0 1 auto", maxHeight: "45%", overflowY: "auto", padding: "10px 12px 0", borderBottom: "1px solid " + t.borderSolid, paddingBottom: 10 }}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={activeChannel === ch.id} style={mkTapFrame({ maxWidth: "100%" })}><span style={{ display: "inline-flex", alignItems: "center", padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 600 : 500, fontFamily: FONT_HEAD, textAlign: "left", overflowWrap: "anywhere" }}>{ch.name || ch.siteName}</span></button>))}</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={activeChannel === ch.id} style={mkTapFrame({ maxWidth: "100%" })}><span style={{ display: "inline-flex", alignItems: "center", padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 600 : 500, fontFamily: FONT_HEAD, textAlign: "left", overflowWrap: "anywhere" }}>{ch.name || ch.siteName}{ch.unreadCount > 0 && <span style={{ marginLeft: 6, background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{badgeText(ch.unreadCount)}</span>}</span></button>))}</div>
         {privates.length > 0 && (<div>
           <div id="ocsa-private-chats" style={{ fontSize: 10, fontWeight: 600, color: t.textMut, textTransform: "uppercase", letterSpacing: "1px", margin: "2px 0 6px", fontFamily: FONT_HEAD }}>{tr("Private chats")}</div>
           <div role="group" aria-labelledby="ocsa-private-chats" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
@@ -3701,18 +4022,52 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
           const name = typeof msg.senderName === "string" ? msg.senderName : ""; const initials = name.split(" ").filter(Boolean).map(n => n[0]).join("");
           const at = msg.sentAt ? new Date(msg.sentAt) : null; const when = at && !isNaN(at.getTime()) ? formatTime(at) : null;
           const words = typeof msg.text === "string" ? msg.text : "";
-          return (<div key={msg.id || "row-" + idx} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 8, marginBottom: showName ? 12 : 4, alignItems: "flex-end" }}>{!isMe && showName && (<div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdm ? (isDm ? "rgba(36,164,244,0.15)" : t.goldBg) : t.cardAlt, border: "1px solid " + (isAdm ? (isDm ? BLUE : GOLD) : t.borderSolid), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 600, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, flexShrink: 0, fontFamily: FONT_HEAD }}>{initials}</div>)}{!isMe && !showName && <div style={{ width: 28, flexShrink: 0 }} />}<div style={{ maxWidth: "75%", minWidth: 0 }}>{!isMe && showName && name && <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 3, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, fontFamily: FONT_HEAD }}>{name}</div>}{words && <div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: isMe ? (isDm ? BLUE : GOLD) : (isDm && isAdm ? t.blueSubtle : t.card), border: isMe ? "none" : "1px solid " + (isDm && isAdm ? t.blueBorder : t.borderSolid), color: isMe ? (isDm ? "#F8F7F4" : NAVY) : t.text, fontSize: 13, lineHeight: 1.45, overflowWrap: "anywhere" }}>{words}</div>}{when && <div style={{ fontSize: 9, color: t.textMut, marginTop: 2, textAlign: isMe ? "right" : "left", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{when}</div>}</div></div>);
+          // A tag draws as a highlighted name, and a message that tags the
+          // person reading it carries a light accent on its bubble.
+          const forMe = !isMe && tagsPerson(msg, user && user.id);
+          const parts = mentionParts(words, msg.mentions);
+          const bubbleBg = isMe ? (isDm ? BLUE : GOLD) : forMe ? t.goldBg : (isDm && isAdm ? t.blueSubtle : t.card);
+          const bubbleBorder = isMe ? "none" : "1px solid " + (forMe ? t.goldBorder : (isDm && isAdm ? t.blueBorder : t.borderSolid));
+          const drawn = parts.map((p, i) => (i % 2 === 1 ? <span key={i} style={{ fontWeight: 600, color: isMe ? "inherit" : t.goldText }}>{p}</span> : p));
+          return (<div key={msg.id || "row-" + idx} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 8, marginBottom: showName ? 12 : 4, alignItems: "flex-end" }}>{!isMe && showName && (<div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdm ? (isDm ? "rgba(36,164,244,0.15)" : t.goldBg) : t.cardAlt, border: "1px solid " + (isAdm ? (isDm ? BLUE : GOLD) : t.borderSolid), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 600, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, flexShrink: 0, fontFamily: FONT_HEAD }}>{initials}</div>)}{!isMe && !showName && <div style={{ width: 28, flexShrink: 0 }} />}<div style={{ maxWidth: "75%", minWidth: 0 }}>{!isMe && showName && name && <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 3, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, fontFamily: FONT_HEAD }}>{name}</div>}{words && <div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: bubbleBg, border: bubbleBorder, color: isMe ? (isDm ? "#F8F7F4" : NAVY) : t.text, fontSize: 13, lineHeight: 1.45, overflowWrap: "anywhere" }}>{drawn}</div>}{when && <div style={{ fontSize: 9, color: t.textMut, marginTop: 2, textAlign: isMe ? "right" : "left", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{when}</div>}</div></div>);
         })}
         <div ref={endRef} />
       </div>
       {pickFirst && !activeChannel && (<div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, margin: "0 12px 8px", padding: "10px 12px", borderRadius: R.md, background: t.goldBg, border: "1px solid " + t.goldBorder }}><AlertIco sz={16} c={t.goldText} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0 }}>{tr("Pick a chat at the top first.")}</div></div>)}
       <div style={{ padding: "10px 12px", borderTop: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.bg }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input value={text} onChange={e => setText(e.target.value.slice(0, CHAT_TEXT_MAX))} maxLength={CHAT_TEXT_MAX} placeholder={isOwnDm ? tr("Private message to admin...") : tr("Type a message...")} style={{ flex: 1, minWidth: 0, minHeight: TAP, padding: "10px 14px", borderRadius: R.pill, border: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.card, color: t.text, fontSize: 13, outline: "none", fontFamily: FONT_BODY }} onKeyDown={e => e.key === "Enter" && handleSend()} />
+          <input value={text} onChange={e => onType(e.target.value)} maxLength={CHAT_TEXT_MAX} placeholder={isOwnDm ? tr("Private message to admin...") : tr("Type a message...")} style={{ flex: 1, minWidth: 0, minHeight: TAP, padding: "10px 14px", borderRadius: R.pill, border: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.card, color: t.text, fontSize: 13, outline: "none", fontFamily: FONT_BODY }} onKeyDown={e => e.key === "Enter" && handleSend()} />
+          {tagOn && <button type="button" onClick={() => { setTagQuery(""); setTagOpen("button"); }} aria-label={tr("Tag someone")} aria-expanded={!!tagOpen} style={mkTapFrame({ flexShrink: 0 })}><span style={{ width: 38, height: 38, borderRadius: "50%", border: "1px solid " + t.borderSolid, background: t.card, color: t.goldText, fontSize: 18, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_HEAD }}>@</span></button>}
           <button onClick={handleSend} aria-label={tr("Send")} aria-disabled={!ready} style={mkTapFrame({ flexShrink: 0, cursor: ready ? "pointer" : "default" })}><span style={{ width: 38, height: 38, borderRadius: "50%", background: ready ? (isDm ? BLUE : GOLD) : t.cardAlt, boxShadow: ready && !isDm ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={ready ? (isDm ? "#F8F7F4" : NAVY) : t.textMut} /></span></button>
         </div>
         {showFault && (<div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 8, padding: "8px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, flex: "1 1 160px", minWidth: 0 }}><AlertIco sz={16} c={RED} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0 }}>{fault.kind === "said" ? fault.said : fault.kind === "offline" ? tr(ERR_OFFLINE) : fault.kind === "denied" ? tr("You cannot send messages in this chat.") : tr("Your message was not sent.")}</div></div><button type="button" onClick={retry} disabled={sending} style={{ minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: sending ? "default" : "pointer", opacity: sending ? 0.6 : 1, flexShrink: 0, fontFamily: FONT_HEAD }}>{tr("Try again")}</button></div>)}
       </div>
+      {tagOpen && tagOn && (
+        <div onClick={closeTag} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="ocsa-tag-title" onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, maxHeight: "calc(var(--ocsa-dvh, 100dvh) * 0.7)", display: "flex", flexDirection: "column", borderRadius: R.lg + "px " + R.lg + "px 0 0", border: "1px solid " + t.borderSolid, borderBottom: "none" }}>
+            <div style={{ padding: "14px 16px 10px", flexShrink: 0 }}>
+              <div id="ocsa-tag-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>{tr("Tag someone")}</div>
+              {membersHere && membersHere.state === "ok" && membersHere.list.length > 0 && <input value={tagQuery} onChange={e => setTagQuery(e.target.value)} placeholder={tr("Search by name")} aria-label={tr("Search by name")} autoFocus style={mkInput(t)} />}
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 8px" }}>
+              {membersHere && membersHere.state === "loading" && <div style={{ padding: "20px 4px", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
+              {membersHere && membersHere.state === "failed" && <ListFault icon={PersonIco} text={tr("This list did not load.")} onRetry={() => loadMembers(activeChannel)} t={t} />}
+              {membersHere && membersHere.state === "ok" && membersHere.list.length === 0 && <div style={{ padding: "20px 4px", textAlign: "center", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("No one else can read this chat.")}</div>}
+              {tagRows.map(m => {
+                const already = picked.some(x => x.id === m.id) && text.indexOf("@" + m.name) !== -1;
+                const off = tagFull && !already;
+                return (<button key={m.id} type="button" onClick={() => { if (!off) pickTag(m); }} aria-disabled={off} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", marginBottom: 4, borderRadius: R.md, border: "1px solid " + (already ? t.goldBorder : t.borderSolid), background: already ? t.goldBg : t.card, color: t.text, cursor: off ? "default" : "pointer", opacity: off ? 0.5 : 1, textAlign: "left" }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: already ? 600 : 500, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{m.name}</span>
+                  {m.role && <span style={{ fontSize: 11, color: t.textMut, flexShrink: 0 }}>{roleWord(m.role)}</span>}
+                </button>);
+              })}
+            </div>
+            <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
+              <button type="button" onClick={closeTag} style={{ width: "100%", minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Close")}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -4682,7 +5037,22 @@ const NOTIF_TAB = {
   shift_claim: "pickup",
   issue: "issues",
   issue_escalated: "issues",
+  chat: "chat",
+  chat_mention: "chat",
+  announcement: "announcement",
 };
+// Where a notice opens, from its subject: a tab; Chat on the chat the
+// notice names; or the announcement sheet. The bell and a tap on a phone
+// alert both go through this, so they open the same place. null for a
+// subject the portal has no place for.
+function notifPlace(subjectType, subjectId) {
+  const tab = NOTIF_TAB[subjectType];
+  if (!tab) return null;
+  const id = subjectId === null || subjectId === undefined ? null : String(subjectId);
+  if (tab === "chat") return { tab: "chat", chat: id };
+  if (tab === "announcement") return id ? { announcement: id } : null;
+  return { tab: tab };
+}
 const NOTIF_PAGE = 30;
 
 // "5m", "3h", "2d", and a date once it is older than seven days.
@@ -4709,7 +5079,7 @@ function notifOffOrigin(link) {
   } catch (e) { return false; }
 }
 
-function NotificationsSheet({ token, t, unread, onClose, onOpenTab, onUnreadChanged }) {
+function NotificationsSheet({ token, t, unread, onClose, onOpen, onUnreadChanged }) {
   const [rows, setRows] = useState(null);
   const [failed, setFailed] = useState(false);
   const [more, setMore] = useState(false);
@@ -4756,8 +5126,8 @@ function NotificationsSheet({ token, t, unread, onClose, onOpenTab, onUnreadChan
 
   const openRow = async (row) => {
     await markRead(row);
-    const tab = NOTIF_TAB[row.subjectType];
-    if (tab) { onClose(); onOpenTab(tab); }
+    const place = notifPlace(row.subjectType, row.subjectId);
+    if (place) { onClose(); onOpen(place); }
   };
 
   const wideBtn = { minHeight: 44, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD };
@@ -4783,7 +5153,7 @@ function NotificationsSheet({ token, t, unread, onClose, onOpenTab, onUnreadChan
 
           {(rows || []).map(row => {
             const isUnread = !row.readAt;
-            const hasTab = !!NOTIF_TAB[row.subjectType];
+            const hasTab = !!notifPlace(row.subjectType, row.subjectId);
             const showDashboard = !hasTab && notifOffOrigin(row.link);
             return (
               <div key={row.id} style={{ marginBottom: 6, background: t.card, border: "1px solid " + (isUnread ? t.goldBorder : t.borderSolid), borderRadius: R.md }}>
@@ -4817,6 +5187,67 @@ function NotificationsSheet({ token, t, unread, onClose, onOpenTab, onUnreadChan
 
         <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
           <button onClick={onClose} style={{ ...wideBtn, width: "100%" }}>{tr("Close")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// One announcement from the office, opened from its notice: the title, the
+// body, who sent it and when, in the language on the screen. The API
+// carries both languages; the screen's is drawn, the other when that one
+// is missing.
+const inLanguage = (v) => {
+  if (typeof v === "string") return v;
+  if (!v || typeof v !== "object") return "";
+  const mine = v[wordsLanguage()];
+  if (typeof mine === "string" && mine.trim()) return mine;
+  return typeof v.en === "string" ? v.en : (typeof v.es === "string" ? v.es : "");
+};
+function AnnouncementSheet({ token, id, t, onClose }) {
+  const [row, setRow] = useState(null);
+  const [fault, setFault] = useState(null);
+  const load = useCallback(async () => {
+    setFault(null);
+    try {
+      const d = await api("/api/announcements/" + encodeURIComponent(id), { token });
+      const a = d && d.announcement && typeof d.announcement === "object" ? d.announcement : null;
+      if (!a) throw new Error(ERR_GENERIC);
+      setRow(a);
+    } catch (err) { setFault(tr(err && err.message ? err.message : ERR_GENERIC)); }
+  }, [id, token]);
+  useEffect(() => { load(); }, [load]);
+  const at = row && row.sentAt ? new Date(row.sentAt) : null;
+  const when = at && !isNaN(at.getTime()) ? formatDayShort(at) + ", " + formatTime(at) : null;
+  const from = row && row.sentBy && typeof row.sentBy.name === "string" ? row.sentBy.name.trim() : "";
+  const wideBtn = { minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD };
+  return (
+    <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 410, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div role="dialog" aria-modal="true" aria-labelledby="ocsa-announcement-title" onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, maxHeight: "var(--ocsa-dvh, 100dvh)", display: "flex", flexDirection: "column", borderRadius: R.lg + "px " + R.lg + "px 0 0", border: "1px solid " + t.borderSolid, borderBottom: "none" }}>
+        <div style={{ padding: "14px 16px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0 }}>
+          <div id="ocsa-announcement-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Announcement")}</div>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px" }}>
+          {!row && !fault && <div style={{ padding: "20px 4px", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
+          {!row && fault && (
+            <div style={{ padding: "20px 4px", textAlign: "center" }}>
+              <div role="alert" style={{ fontSize: 14, color: t.textMut, fontFamily: FONT_HEAD, lineHeight: 1.45 }}>{fault}</div>
+              <button type="button" onClick={load} style={{ ...wideBtn, marginTop: 14, borderColor: t.goldBorder, background: t.goldBg, color: t.goldText }}>{tr("Try again")}</button>
+            </div>
+          )}
+          {row && (
+            <div style={{ background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.md, padding: 16 }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{inLanguage(row.title)}</div>
+              <div style={{ fontSize: 14, color: t.text, lineHeight: 1.55, marginTop: 10, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{inLanguage(row.body)}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", marginTop: 14, fontSize: 12, color: t.textMut, fontFamily: FONT_HEAD }}>
+                {from && <span>{tr("From {name}", { name: from })}</span>}
+                {when && <span style={{ fontVariantNumeric: "tabular-nums" }}>{when}</span>}
+              </div>
+            </div>
+          )}
+        </div>
+        <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
+          <button type="button" onClick={onClose} style={{ ...wideBtn, width: "100%" }}>{tr("Close")}</button>
         </div>
       </div>
     </div>
@@ -4874,8 +5305,16 @@ function ChangePinCard({ token, user, showToast, t, cardSt }) {
 // Settings, separate from Profile. Profile is who a person is; this is how
 // the app behaves for them. Every card here follows the account once the
 // API carries preferences.
-function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize, setTextSize, language, setLanguage, onEditShortcuts }) {
+function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize, setTextSize, language, setLanguage, onEditShortcuts, onPhoneAlerts }) {
   const cardSt = { background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 16, marginBottom: 12 };
+  // The Phone alerts row shows once the API has answered its settings
+  // route with anything but 404, which hides it until the API has it.
+  const [alertsRow, setAlertsRow] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    api("/api/notifications/settings", { token }).then(() => { if (alive) setAlertsRow(true); }).catch(err => { if (alive && !(err && err.status === 404)) setAlertsRow(true); });
+    return () => { alive = false; };
+  }, [token]);
   const labelSt = mkLabel(t);
   const lineSt = { fontSize: 11, color: t.textMut, marginBottom: 12, lineHeight: 1.4 };
   const pickBtn = (picked) => ({
@@ -4923,7 +5362,155 @@ function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize
         </div>
       </div>
 
+      {alertsRow && (
+        <button type="button" onClick={onPhoneAlerts} style={{ ...cardSt, width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, cursor: "pointer", color: t.text, textAlign: "left" }}>
+          <BellIco sz={18} c={t.goldText} />
+          <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Phone alerts")}</span>
+          <ChevIco sz={18} c={t.textMut} />
+        </button>
+      )}
+
       <ChangePinCard token={token} user={user} showToast={showToast} t={t} cardSt={cardSt} />
+    </div>
+  );
+}
+
+// Phone alerts, its own screen under Settings. The phone part says what
+// this phone has decided and offers the one action open to it; the rest
+// is the person's settings for what pings a phone, saved at once. The
+// phone part is hidden while the API has no public key, and the settings
+// part while the API does not answer its route.
+function PhoneAlertsView({ token, t, onBack }) {
+  const [settings, setSettings] = useState(null);
+  const [settingsState, setSettingsState] = useState("loading");
+  const [settingsFault, setSettingsFault] = useState(null);
+  const [saveFault, setSaveFault] = useState({});
+  const [pushKey, setPushKey] = useState(undefined);
+  const [phone, setPhone] = useState("checking");
+  const [phoneBusy, setPhoneBusy] = useState(false);
+  const [phoneFault, setPhoneFault] = useState(false);
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+  const loadSettings = useCallback(async () => {
+    setSettingsState("loading"); setSettingsFault(null);
+    try {
+      const d = await api("/api/notifications/settings", { token });
+      if (!alive.current) return;
+      if (!d || typeof d !== "object") throw new Error(ERR_GENERIC);
+      setSettings(d); setSettingsState("ok");
+    } catch (err) {
+      if (!alive.current) return;
+      if (err && err.status === 404) { setSettingsState("off"); return; }
+      setSettingsState("failed"); setSettingsFault(tr(err && err.message ? err.message : ERR_GENERIC));
+    }
+  }, [token]);
+  const readPhone = useCallback(async () => {
+    const s = await phoneAlertsState();
+    if (alive.current) setPhone(s);
+  }, []);
+  useEffect(() => {
+    loadSettings();
+    readPushKey(token).then(k => { if (alive.current) setPushKey(k); });
+    readPhone();
+  }, [token, loadSettings, readPhone]);
+  // A change saves at once. A save that fails puts the choice back and
+  // says so under the control.
+  const save = async (key, value) => {
+    const before = settings;
+    setSettings(prev => ({ ...prev, [key]: value }));
+    setSaveFault(prev => (prev[key] ? { ...prev, [key]: false } : prev));
+    try {
+      const d = await api("/api/notifications/settings", { method: "PATCH", body: { [key]: value }, token });
+      if (alive.current && d && typeof d === "object" && d[key] !== undefined) setSettings(prev => ({ ...prev, ...d }));
+    } catch (err) {
+      if (!alive.current) return;
+      setSettings(before);
+      setSaveFault(prev => ({ ...prev, [key]: true }));
+    }
+  };
+  const turnOn = async () => {
+    if (phoneBusy || !pushKey) return;
+    setPhoneBusy(true); setPhoneFault(false);
+    const r = await turnOnPhoneAlerts(pushKey, token);
+    if (!alive.current) return;
+    setPhoneBusy(false);
+    if (r === "failed") setPhoneFault(true);
+    readPhone();
+  };
+  const turnOff = async () => {
+    if (phoneBusy) return;
+    setPhoneBusy(true); setPhoneFault(false);
+    const ok = await turnOffPhoneAlerts(token);
+    if (!alive.current) return;
+    setPhoneBusy(false);
+    if (!ok) setPhoneFault(true);
+    readPhone();
+  };
+  const cardSt = { background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 16, marginBottom: 12 };
+  const labelSt = mkLabel(t);
+  const lineSt = { fontSize: 13, color: t.text, lineHeight: 1.5 };
+  const faultSt = { ...mkFieldErr(t), marginTop: 8 };
+  const actionBtn = (primary) => ({ width: "100%", minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: primary ? "none" : "1px solid " + t.borderSolid, background: primary ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : "transparent", color: primary ? NAVY : t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: phoneBusy ? 0.6 : 1, boxShadow: primary ? "0 6px 18px rgba(231,176,23,0.30)" : "none" });
+  const choiceBtn = (picked) => ({ width: "100%", minHeight: TAP, borderRadius: R.md, cursor: "pointer", fontSize: 14, fontWeight: picked ? 600 : 500, fontFamily: FONT_HEAD, background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text, display: "flex", alignItems: "center", gap: 10, padding: "0 14px", textAlign: "left", marginBottom: 8 });
+  const dot = (picked) => ({ width: 14, height: 14, flexShrink: 0, borderRadius: "50%", background: picked ? GOLD : "transparent", border: picked ? "none" : "2px solid " + t.borderSolid });
+  const phoneLine = phone === "ios" ? tr("On an iPhone, add the app to your Home Screen first, then open it from there to turn on alerts.")
+    : phone === "unsupported" ? tr("This phone cannot receive alerts.")
+    : phone === "denied" ? tr("This phone blocked alerts for this app. Turn them on in the phone's settings.")
+    : phone === "on" ? tr("Alerts are on for this phone.") : null;
+  return (
+    <div style={{ padding: "16px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+        <button type="button" onClick={onBack} aria-label={tr("Back")} style={mkTapFrame({ marginLeft: -10 })}><ChevIco sz={20} c={t.textSec} style={{ transform: "rotate(180deg)" }} /></button>
+        <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Phone alerts")}</div>
+      </div>
+
+      {pushKey && phone !== "checking" && (
+        <div style={cardSt}>
+          {phoneLine && <div style={lineSt} role={phone === "denied" ? "alert" : undefined}>{phoneLine}</div>}
+          {phone === "off" && <button type="button" onClick={turnOn} disabled={phoneBusy} style={actionBtn(true)}>{tr("Turn on alerts on this phone")}</button>}
+          {phone === "on" && <button type="button" onClick={turnOff} disabled={phoneBusy} style={{ ...actionBtn(false), marginTop: 12 }}>{tr("Turn off on this phone")}</button>}
+          {phoneFault && <div role="alert" style={faultSt}>{tr("Your settings did not save.")}</div>}
+        </div>
+      )}
+
+      {settingsState === "loading" && <div style={{ padding: "20px 4px", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
+      {settingsState === "failed" && (
+        <div style={{ ...cardSt, textAlign: "center" }}>
+          <div role="alert" style={{ fontSize: 14, color: t.textMut, fontFamily: FONT_HEAD, lineHeight: 1.45 }}>{settingsFault}</div>
+          <button type="button" onClick={loadSettings} style={{ minHeight: TAP, marginTop: 14, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button>
+        </div>
+      )}
+      {settingsState === "ok" && settings && (
+        <>
+          <div style={cardSt}>
+            <div style={{ ...labelSt, marginBottom: 10 }}>{tr("Chat messages")}</div>
+            <div role="radiogroup" aria-label={tr("Chat messages")}>
+              {ALERT_CHAT_CHOICES.map(([id, label]) => {
+                const picked = settings.chat === id;
+                return <button key={id} type="button" role="radio" aria-checked={picked} onClick={() => { if (!picked) save("chat", id); }} style={choiceBtn(picked)}><span style={dot(picked)} />{tr(label)}</button>;
+              })}
+            </div>
+            {saveFault.chat && <div role="alert" style={faultSt}>{tr("Your settings did not save.")}</div>}
+          </div>
+          <div style={cardSt}>
+            {ALERT_SWITCHES.map(([id, label]) => {
+              const on = settings[id] === true;
+              return (
+                <div key={id} style={{ borderBottom: "1px solid " + t.border, paddingBottom: 4, marginBottom: 4 }}>
+                  <button type="button" role="switch" aria-checked={on} onClick={() => save(id, !on)} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 12, padding: "4px 0", background: "none", border: "none", cursor: "pointer", color: t.text, textAlign: "left" }}>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontFamily: FONT_HEAD }}>{tr(label)}</span>
+                    <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: 13, flexShrink: 0, background: on ? GOLD : t.btnGhost, border: "1px solid " + (on ? GOLD : t.borderSolid), position: "relative", transition: "background 0.15s" }}>
+                      <span style={{ position: "absolute", top: 2, left: on ? 20 : 2, width: 20, height: 20, borderRadius: "50%", background: on ? NAVY : t.card, boxShadow: "0 1px 3px rgba(0,0,0,0.3)", transition: "left 0.15s" }} />
+                    </span>
+                  </button>
+                  {saveFault[id] && <div role="alert" style={{ ...faultSt, marginTop: 0, marginBottom: 8 }}>{tr("Your settings did not save.")}</div>}
+                </div>
+              );
+            })}
+            <div style={{ fontSize: 12, color: t.textMut, lineHeight: 1.45, marginTop: 10 }}>{tr("Announcements from the office always come through.")}</div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
