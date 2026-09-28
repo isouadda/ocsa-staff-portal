@@ -694,6 +694,28 @@ export const WORDS = {
   "Enter your current 4-digit PIN.": "Escriba su PIN actual de 4 d\u00edgitos.",
   "Your new PIN must be different from your current PIN.": "Su PIN nuevo debe ser distinto de su PIN actual.",
 
+  // Phone alerts
+  "Phone alerts": "Alertas en el tel\u00e9fono",
+  "Turn on alerts on this phone": "Activar alertas en este tel\u00e9fono",
+  "Alerts are on for this phone.": "Las alertas est\u00e1n activadas en este tel\u00e9fono.",
+  "Turn off on this phone": "Desactivar en este tel\u00e9fono",
+  "This phone blocked alerts for this app. Turn them on in the phone's settings.": "Este tel\u00e9fono bloque\u00f3 las alertas de esta aplicaci\u00f3n. Act\u00edvelas en la configuraci\u00f3n del tel\u00e9fono.",
+  "On an iPhone, add the app to your Home Screen first, then open it from there to turn on alerts.": "En un iPhone, primero agregue la aplicaci\u00f3n a su pantalla de inicio y \u00e1brala desde ah\u00ed para activar las alertas.",
+  "This phone cannot receive alerts.": "Este tel\u00e9fono no puede recibir alertas.",
+  "Chat messages": "Mensajes del chat",
+  "Every message": "Cada mensaje",
+  "Only when I'm tagged": "Solo cuando me etiquetan",
+  "Off": "Apagado",
+  "Schedule and time off": "Horario y tiempo libre",
+  "Shift pickups and drops": "Turnos libres y turnos soltados",
+  "Supply requests": "Pedidos de suministros",
+  "Problems reported": "Problemas reportados",
+  "Forms filed": "Formularios presentados",
+  "Announcements from the office always come through.": "Los anuncios de la oficina siempre llegan.",
+  "Get an alert when someone messages you?": "\u00bfQuiere recibir una alerta cuando alguien le escriba?",
+  "Turn on": "Activar",
+  "Your settings did not save.": "Sus ajustes no se guardaron.",
+
   // Profile
   "Address": "Direcci\u00f3n",
   "Address Line 1": "Direcci\u00f3n l\u00ednea 1",

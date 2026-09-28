@@ -620,6 +620,26 @@ Text size,Tamaño del texto,Settings
 "The app, Help and report forms use this language.","La aplicación, Ayuda y los formularios usan este idioma.",Settings
 Update PIN,Actualizar PIN,Settings
 Your PIN is 4 digits. Choose one that only you know.,Su PIN es de 4 dígitos. Elija uno que solo usted sepa.,Settings
+Phone alerts,Alertas en el teléfono,"Settings, the heading and the row that opens it"
+Turn on alerts on this phone,Activar alertas en este teléfono,"Phone alerts, and the card after sign-in"
+Alerts are on for this phone.,Las alertas están activadas en este teléfono.,Phone alerts
+Turn off on this phone,Desactivar en este teléfono,Phone alerts
+This phone blocked alerts for this app. Turn them on in the phone's settings.,Este teléfono bloqueó las alertas de esta aplicación. Actívelas en la configuración del teléfono.,Phone alerts
+"On an iPhone, add the app to your Home Screen first, then open it from there to turn on alerts.","En un iPhone, primero agregue la aplicación a su pantalla de inicio y ábrala desde ahí para activar las alertas.","Phone alerts, an iPhone not on the Home Screen"
+This phone cannot receive alerts.,Este teléfono no puede recibir alertas.,"Phone alerts, a browser with no push"
+Chat messages,Mensajes del chat,Phone alerts
+Every message,Cada mensaje,"Phone alerts, chat choice"
+Only when I'm tagged,Solo cuando me etiquetan,"Phone alerts, chat choice"
+Off,Apagado,"Phone alerts, chat choice"
+Schedule and time off,Horario y tiempo libre,"Phone alerts, a switch"
+Shift pickups and drops,Turnos libres y turnos soltados,"Phone alerts, a switch"
+Supply requests,Pedidos de suministros,"Phone alerts, a switch"
+Problems reported,Problemas reportados,"Phone alerts, a switch"
+Forms filed,Formularios presentados,"Phone alerts, a switch"
+Announcements from the office always come through.,Los anuncios de la oficina siempre llegan.,"Phone alerts, under the switches"
+Get an alert when someone messages you?,¿Quiere recibir una alerta cuando alguien le escriba?,The card after sign-in
+Turn on,Activar,The card after sign-in
+Your settings did not save.,Sus ajustes no se guardaron.,"Phone alerts, a save that failed"
 Enter your current 4-digit PIN.,Escriba su PIN actual de 4 dígitos.,Settings
 Your new PIN must be different from your current PIN.,Su PIN nuevo debe ser distinto de su PIN actual.,Settings
 Address,Dirección,Profile

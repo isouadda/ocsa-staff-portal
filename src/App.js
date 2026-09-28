@@ -2,6 +2,7 @@ import { Component, useState, useEffect, useCallback, useRef, createContext, use
 import clientConfig from './clientConfig';
 import { tr, dateLocale, setWordsLanguage, wordsLanguage } from "./words";
 import { BUILD_STAMP } from "./buildStamp";
+import { detectInstallMode } from "./homeScreenPromptRules";
 
 const API = process.env.REACT_APP_API_URL || "https://ocsa-api-production.up.railway.app";
 
@@ -957,6 +958,116 @@ function clearAuth() {
   try { window.localStorage.removeItem(AUTH_KEY); } catch (e) {}
 }
 
+// ------------------------------------------------------------
+// Phone alerts (Web Push)
+//
+// The service worker in public/sw.js shows what the API pushes. These
+// answer whether this phone can take alerts, what it has decided, and
+// turn them on and off: the browser's permission is asked from the
+// person's own tap, the subscription is made with the API's public key
+// and posted to it, and turning off unsubscribes here and deletes it
+// there. Nothing here ever throws to a screen; each call answers a word.
+// ------------------------------------------------------------
+const pushSupported = () => { try { return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window; } catch (e) { return false; } };
+const pushPermission = () => { try { return window.Notification && window.Notification.permission ? window.Notification.permission : "denied"; } catch (e) { return "denied"; } };
+const isStandaloneApp = () => { try { return window.navigator.standalone === true || !!(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches); } catch (e) { return false; } };
+// An iPhone or iPad in a browser tab, where alerts need the app on the
+// Home Screen first. The same rules the install sheet reads.
+const iosInBrowserTab = () => {
+  try {
+    const ua = window.navigator.userAgent;
+    const m = detectInstallMode({ ua: ua, maxTouchPoints: window.navigator.maxTouchPoints, standalone: isStandaloneApp(), installPromptFired: false });
+    return m === "ios_safari" || m === "ios_other_browser" || (m === "in_app_browser" && /iPhone|iPad|iPod/.test(String(ua)));
+  } catch (e) { return false; }
+};
+// The worker's registration: the one already there, or, on a first load
+// while it is still registering, the one ready within a few seconds.
+async function pushRegistration() {
+  try {
+    let reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) reg = await Promise.race([navigator.serviceWorker.ready, new Promise(resolve => setTimeout(() => resolve(null), 3000))]);
+    return reg && reg.pushManager ? reg : null;
+  } catch (e) { return null; }
+}
+async function pushSubscription() {
+  if (!pushSupported()) return null;
+  const reg = await pushRegistration();
+  if (!reg) return null;
+  try { return await reg.pushManager.getSubscription(); } catch (e) { return null; }
+}
+// The API's public key, as the browser wants it.
+function vapidKeyBytes(key) {
+  const s = String(key).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = window.atob(s + "=".repeat((4 - s.length % 4) % 4));
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+// What this phone says about alerts right now: ios (a browser tab on an
+// iPhone), unsupported, denied, on, or off.
+async function phoneAlertsState() {
+  if (iosInBrowserTab()) return "ios";
+  if (!pushSupported()) return "unsupported";
+  if (pushPermission() === "denied") return "denied";
+  const reg = await pushRegistration();
+  if (!reg) return "unsupported";
+  const sub = pushPermission() === "granted" ? await pushSubscription() : null;
+  return sub ? "on" : "off";
+}
+// Turns alerts on for this phone. Called from a tap, so the browser's
+// permission can be asked. Answers on, denied, failed or unsupported.
+async function turnOnPhoneAlerts(publicKey, token) {
+  if (!pushSupported()) return "unsupported";
+  let perm = pushPermission();
+  if (perm === "default") {
+    try { const r = window.Notification.requestPermission(); perm = r && typeof r.then === "function" ? await r : pushPermission(); } catch (e) { perm = pushPermission(); }
+  }
+  if (perm !== "granted") return "denied";
+  const reg = await pushRegistration();
+  if (!reg) return "unsupported";
+  let sub = null;
+  try {
+    sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidKeyBytes(publicKey) });
+  } catch (e) { return "failed"; }
+  try {
+    const j = sub.toJSON ? sub.toJSON() : { endpoint: sub.endpoint, keys: {} };
+    await api("/api/push/subscriptions", { method: "POST", body: { endpoint: j.endpoint, keys: j.keys || {}, userAgent: window.navigator.userAgent }, token });
+    return "on";
+  } catch (e) {
+    // A subscription the API never took is dropped, so the phone holds
+    // nothing the API does not know about.
+    try { await sub.unsubscribe(); } catch (x) {}
+    return "failed";
+  }
+}
+// Turns alerts off for this phone: unsubscribes here, deletes there.
+// Answers whether the API took the delete.
+async function turnOffPhoneAlerts(token) {
+  const sub = await pushSubscription();
+  if (!sub) return true;
+  const endpoint = sub.endpoint;
+  try { await sub.unsubscribe(); } catch (e) {}
+  try { await api("/api/push/subscriptions", { method: "DELETE", body: { endpoint: endpoint }, token }); return true; } catch (e) { return false; }
+}
+// The API's public key: a string, null when the server has none or does
+// not answer the route yet, so the phone part is hidden either way.
+async function readPushKey(token) {
+  try { const d = await api("/api/push/key", { token }); return d && typeof d.publicKey === "string" && d.publicKey.trim() ? d.publicKey.trim() : null; } catch (e) { return null; }
+}
+// The card after the first sign-in, remembered per person on the phone
+// once either of its buttons is tapped.
+const ALERTS_ASKED_PREFIX = "ocsa-staff-alerts-asked:";
+const alertsAsked = (userId) => { try { return window.localStorage.getItem(ALERTS_ASKED_PREFIX + String(userId || "")) === "1"; } catch (e) { return true; } };
+const saveAlertsAsked = (userId) => { try { window.localStorage.setItem(ALERTS_ASKED_PREFIX + String(userId || ""), "1"); } catch (e) {} };
+// How long signing out waits for this phone's subscription to be deleted
+// on the API before the token is forgotten anyway.
+const SIGN_OUT_PUSH_MS = 4000;
+// The settings that decide what pings a phone: the chat choice and the
+// five switches, in the order the screen draws them.
+const ALERT_CHAT_CHOICES = [["all", "Every message"], ["mentions", "Only when I'm tagged"], ["off", "Off"]];
+const ALERT_SWITCHES = [["schedule", "Schedule and time off"], ["pickups", "Shift pickups and drops"], ["supplies", "Supply requests"], ["issues", "Problems reported"], ["forms", "Forms filed"]];
+
 // Text size. One setting scales the whole page, so a person who cannot
 // read 10 pixel type can read every screen without the thousands of
 // inline sizes being rewritten. Kept on the device, never sent anywhere.
@@ -1508,7 +1619,15 @@ export default function OCSAStaffPortal() {
     setLoading(false);
   };
 
-  const handleLogout = () => forgetPerson();
+  // Signing out deletes this phone's subscription on the API before the
+  // token is forgotten, so the next person on a shared phone never gets
+  // the last person's alerts. A delete that fails or takes too long never
+  // holds signing out.
+  const handleLogout = async () => {
+    const tok = token;
+    if (tok) { try { await Promise.race([turnOffPhoneAlerts(tok), new Promise(resolve => setTimeout(resolve, SIGN_OUT_PUSH_MS))]); } catch (e) {} }
+    forgetPerson();
+  };
 
   // Tapping a site chooses it. No request, no tab change, no toast.
   const handleSelectSite = (siteId) => { if (clockStatus?.clockedIn) return; setPendingSite(siteId); setStartBlock(null); };
@@ -1840,6 +1959,11 @@ export default function OCSAStaffPortal() {
   // open. Held until the portal itself is up, then opened once, the same
   // place the bell would open.
   const [openAsk, setOpenAsk] = useState(OPEN_AT_START);
+  // The card after the first sign-in: null while it is being decided,
+  // the API's public key while it is up, and "done" once it is settled
+  // either way. The install sheet waits for done.
+  const [alertsCard, setAlertsCard] = useState(null);
+  const [alertsCardBusy, setAlertsCardBusy] = useState(false);
 
   // Everything the person who was signed in leaves behind, dropped in
   // one place. Signing out and a session that runs out take this same
@@ -1858,7 +1982,7 @@ export default function OCSAStaffPortal() {
     setAgentConversation(null); setFormsDraft(null);
     setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
     setLookups([]); setLookupsLang(null); toastsRef.current.clear(); setLoading(false);
-    setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false); setAnnouncementOpen(null); setOpenAsk(null);
+    setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false); setAnnouncementOpen(null); setOpenAsk(null); setAlertsCard(null); setAlertsCardBusy(false);
     setActiveTab("clock");
     unreadWarned.current = false; prefsLive.current = false; chosenOnEntryRef.current = null;
     tasksAsked.current = null; tasksReqAsked.current = null; inFlightTaskIds.current = new Set();
@@ -1871,12 +1995,46 @@ export default function OCSAStaffPortal() {
   // offers itself only to a signed-in person past Set your PIN. The app
   // writes which screen is up on the document and says so each time it
   // changes; the sheet reads that and never opens over the sign-in card.
+  // The card that asks about alerts comes first, so the portal says
+  // "main" only once that card is settled.
+  const alertsSettled = alertsCard === "done";
   useEffect(() => {
     try {
-      document.documentElement.setAttribute("data-ocsa-screen", booting ? "boot" : screen);
+      document.documentElement.setAttribute("data-ocsa-screen", booting ? "boot" : (screen === "main" && !alertsSettled ? "main-alerts" : screen));
       window.dispatchEvent(new Event("ocsa-screen"));
     } catch (e) {}
-  }, [booting, screen]);
+  }, [booting, screen, alertsSettled]);
+  // Once, after the first sign-in: on a phone where push is possible and
+  // not yet decided, and never on an iPhone browser tab, the API's key
+  // is read and the card goes up. Anything else settles it at once, and
+  // so does a key that does not come within a few seconds.
+  useEffect(() => {
+    if (booting || screen !== "main" || !token || !uid || alertsCard !== null) return undefined;
+    let alive = true;
+    const settle = () => { if (alive) setAlertsCard("done"); };
+    if (alertsAsked(uid) || iosInBrowserTab() || !pushSupported() || pushPermission() !== "default") { settle(); return undefined; }
+    const timer = setTimeout(settle, 6000);
+    (async () => {
+      const key = await readPushKey(token);
+      const state = key ? await phoneAlertsState() : null;
+      if (!alive) return;
+      clearTimeout(timer);
+      if (key && state === "off") setAlertsCard(key); else settle();
+    })();
+    return () => { alive = false; clearTimeout(timer); };
+  }, [booting, screen, token, uid, alertsCard]);
+  const answerAlertsCard = async (turnOn) => {
+    const key = alertsCard;
+    if (!key || key === "done" || alertsCardBusy) return;
+    if (uid) saveAlertsAsked(uid);
+    if (!turnOn) { setAlertsCard("done"); return; }
+    setAlertsCardBusy(true);
+    const r = await turnOnPhoneAlerts(key, token);
+    setAlertsCardBusy(false);
+    setAlertsCard("done");
+    if (r === "on") showToast(tr("Alerts are on for this phone."));
+    else if (r === "failed") showToast(tr("Your settings did not save."), "error");
+  };
   const refreshUnread = useCallback(async (tkn) => {
     const tk = tkn || token;
     if (!tk) return;
@@ -2005,7 +2163,8 @@ export default function OCSAStaffPortal() {
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
-              {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} />}
+              {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
+              {activeTab === "phonealerts" && <PhoneAlertsView token={token} t={t} onBack={() => setActiveTab("settings")} />}
               {activeTab === "profile" && <MyProfileView token={token} user={user} showToast={showToast} t={t} setUser={setUser} setActiveTab={setActiveTab} />}
             </div>
           </div>
@@ -2069,6 +2228,21 @@ export default function OCSAStaffPortal() {
 
       {announcementOpen && (
         <AnnouncementSheet token={token} id={announcementOpen} t={t} onClose={() => setAnnouncementOpen(null)} />
+      )}
+
+      {!booting && screen === "main" && alertsCard && alertsCard !== "done" && (
+        <div onClick={() => answerAlertsCard(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 420, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="ocsa-alerts-card-title" onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, borderRadius: R.lg + "px " + R.lg + "px 0 0", border: "1px solid " + t.borderSolid, borderBottom: "none", padding: "18px 16px calc(16px + env(safe-area-inset-bottom, 0px))" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <div style={{ width: 44, height: 44, borderRadius: "50%", background: t.goldBg, border: "1px solid " + t.goldBorder, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><BellIco sz={20} c={t.goldText} /></div>
+              <div id="ocsa-alerts-card-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3 }}>{tr("Get an alert when someone messages you?")}</div>
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button type="button" onClick={() => answerAlertsCard(false)} disabled={alertsCardBusy} style={{ flex: 1, minHeight: TAP, padding: "0 12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Not now")}</button>
+              <button type="button" onClick={() => answerAlertsCard(true)} disabled={alertsCardBusy} style={{ flex: 1, minHeight: TAP, padding: "0 12px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: alertsCardBusy ? 0.6 : 1, fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Turn on")}</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {shortcutsOpen && (
@@ -5132,8 +5306,16 @@ function ChangePinCard({ token, user, showToast, t, cardSt }) {
 // Settings, separate from Profile. Profile is who a person is; this is how
 // the app behaves for them. Every card here follows the account once the
 // API carries preferences.
-function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize, setTextSize, language, setLanguage, onEditShortcuts }) {
+function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize, setTextSize, language, setLanguage, onEditShortcuts, onPhoneAlerts }) {
   const cardSt = { background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 16, marginBottom: 12 };
+  // The Phone alerts row shows once the API has answered its settings
+  // route with anything but 404, which hides it until the API has it.
+  const [alertsRow, setAlertsRow] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    api("/api/notifications/settings", { token }).then(() => { if (alive) setAlertsRow(true); }).catch(err => { if (alive && !(err && err.status === 404)) setAlertsRow(true); });
+    return () => { alive = false; };
+  }, [token]);
   const labelSt = mkLabel(t);
   const lineSt = { fontSize: 11, color: t.textMut, marginBottom: 12, lineHeight: 1.4 };
   const pickBtn = (picked) => ({
@@ -5181,7 +5363,155 @@ function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize
         </div>
       </div>
 
+      {alertsRow && (
+        <button type="button" onClick={onPhoneAlerts} style={{ ...cardSt, width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, cursor: "pointer", color: t.text, textAlign: "left" }}>
+          <BellIco sz={18} c={t.goldText} />
+          <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Phone alerts")}</span>
+          <ChevIco sz={18} c={t.textMut} />
+        </button>
+      )}
+
       <ChangePinCard token={token} user={user} showToast={showToast} t={t} cardSt={cardSt} />
+    </div>
+  );
+}
+
+// Phone alerts, its own screen under Settings. The phone part says what
+// this phone has decided and offers the one action open to it; the rest
+// is the person's settings for what pings a phone, saved at once. The
+// phone part is hidden while the API has no public key, and the settings
+// part while the API does not answer its route.
+function PhoneAlertsView({ token, t, onBack }) {
+  const [settings, setSettings] = useState(null);
+  const [settingsState, setSettingsState] = useState("loading");
+  const [settingsFault, setSettingsFault] = useState(null);
+  const [saveFault, setSaveFault] = useState({});
+  const [pushKey, setPushKey] = useState(undefined);
+  const [phone, setPhone] = useState("checking");
+  const [phoneBusy, setPhoneBusy] = useState(false);
+  const [phoneFault, setPhoneFault] = useState(false);
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+  const loadSettings = useCallback(async () => {
+    setSettingsState("loading"); setSettingsFault(null);
+    try {
+      const d = await api("/api/notifications/settings", { token });
+      if (!alive.current) return;
+      if (!d || typeof d !== "object") throw new Error(ERR_GENERIC);
+      setSettings(d); setSettingsState("ok");
+    } catch (err) {
+      if (!alive.current) return;
+      if (err && err.status === 404) { setSettingsState("off"); return; }
+      setSettingsState("failed"); setSettingsFault(tr(err && err.message ? err.message : ERR_GENERIC));
+    }
+  }, [token]);
+  const readPhone = useCallback(async () => {
+    const s = await phoneAlertsState();
+    if (alive.current) setPhone(s);
+  }, []);
+  useEffect(() => {
+    loadSettings();
+    readPushKey(token).then(k => { if (alive.current) setPushKey(k); });
+    readPhone();
+  }, [token, loadSettings, readPhone]);
+  // A change saves at once. A save that fails puts the choice back and
+  // says so under the control.
+  const save = async (key, value) => {
+    const before = settings;
+    setSettings(prev => ({ ...prev, [key]: value }));
+    setSaveFault(prev => (prev[key] ? { ...prev, [key]: false } : prev));
+    try {
+      const d = await api("/api/notifications/settings", { method: "PATCH", body: { [key]: value }, token });
+      if (alive.current && d && typeof d === "object" && d[key] !== undefined) setSettings(prev => ({ ...prev, ...d }));
+    } catch (err) {
+      if (!alive.current) return;
+      setSettings(before);
+      setSaveFault(prev => ({ ...prev, [key]: true }));
+    }
+  };
+  const turnOn = async () => {
+    if (phoneBusy || !pushKey) return;
+    setPhoneBusy(true); setPhoneFault(false);
+    const r = await turnOnPhoneAlerts(pushKey, token);
+    if (!alive.current) return;
+    setPhoneBusy(false);
+    if (r === "failed") setPhoneFault(true);
+    readPhone();
+  };
+  const turnOff = async () => {
+    if (phoneBusy) return;
+    setPhoneBusy(true); setPhoneFault(false);
+    const ok = await turnOffPhoneAlerts(token);
+    if (!alive.current) return;
+    setPhoneBusy(false);
+    if (!ok) setPhoneFault(true);
+    readPhone();
+  };
+  const cardSt = { background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 16, marginBottom: 12 };
+  const labelSt = mkLabel(t);
+  const lineSt = { fontSize: 13, color: t.text, lineHeight: 1.5 };
+  const faultSt = { ...mkFieldErr(t), marginTop: 8 };
+  const actionBtn = (primary) => ({ width: "100%", minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: primary ? "none" : "1px solid " + t.borderSolid, background: primary ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : "transparent", color: primary ? NAVY : t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: phoneBusy ? 0.6 : 1, boxShadow: primary ? "0 6px 18px rgba(231,176,23,0.30)" : "none" });
+  const choiceBtn = (picked) => ({ width: "100%", minHeight: TAP, borderRadius: R.md, cursor: "pointer", fontSize: 14, fontWeight: picked ? 600 : 500, fontFamily: FONT_HEAD, background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text, display: "flex", alignItems: "center", gap: 10, padding: "0 14px", textAlign: "left", marginBottom: 8 });
+  const dot = (picked) => ({ width: 14, height: 14, flexShrink: 0, borderRadius: "50%", background: picked ? GOLD : "transparent", border: picked ? "none" : "2px solid " + t.borderSolid });
+  const phoneLine = phone === "ios" ? tr("On an iPhone, add the app to your Home Screen first, then open it from there to turn on alerts.")
+    : phone === "unsupported" ? tr("This phone cannot receive alerts.")
+    : phone === "denied" ? tr("This phone blocked alerts for this app. Turn them on in the phone's settings.")
+    : phone === "on" ? tr("Alerts are on for this phone.") : null;
+  return (
+    <div style={{ padding: "16px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+        <button type="button" onClick={onBack} aria-label={tr("Back")} style={mkTapFrame({ marginLeft: -10 })}><ChevIco sz={20} c={t.textSec} style={{ transform: "rotate(180deg)" }} /></button>
+        <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Phone alerts")}</div>
+      </div>
+
+      {pushKey && phone !== "checking" && (
+        <div style={cardSt}>
+          {phoneLine && <div style={lineSt} role={phone === "denied" ? "alert" : undefined}>{phoneLine}</div>}
+          {phone === "off" && <button type="button" onClick={turnOn} disabled={phoneBusy} style={actionBtn(true)}>{tr("Turn on alerts on this phone")}</button>}
+          {phone === "on" && <button type="button" onClick={turnOff} disabled={phoneBusy} style={{ ...actionBtn(false), marginTop: 12 }}>{tr("Turn off on this phone")}</button>}
+          {phoneFault && <div role="alert" style={faultSt}>{tr("Your settings did not save.")}</div>}
+        </div>
+      )}
+
+      {settingsState === "loading" && <div style={{ padding: "20px 4px", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
+      {settingsState === "failed" && (
+        <div style={{ ...cardSt, textAlign: "center" }}>
+          <div role="alert" style={{ fontSize: 14, color: t.textMut, fontFamily: FONT_HEAD, lineHeight: 1.45 }}>{settingsFault}</div>
+          <button type="button" onClick={loadSettings} style={{ minHeight: TAP, marginTop: 14, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button>
+        </div>
+      )}
+      {settingsState === "ok" && settings && (
+        <>
+          <div style={cardSt}>
+            <div style={{ ...labelSt, marginBottom: 10 }}>{tr("Chat messages")}</div>
+            <div role="radiogroup" aria-label={tr("Chat messages")}>
+              {ALERT_CHAT_CHOICES.map(([id, label]) => {
+                const picked = settings.chat === id;
+                return <button key={id} type="button" role="radio" aria-checked={picked} onClick={() => { if (!picked) save("chat", id); }} style={choiceBtn(picked)}><span style={dot(picked)} />{tr(label)}</button>;
+              })}
+            </div>
+            {saveFault.chat && <div role="alert" style={faultSt}>{tr("Your settings did not save.")}</div>}
+          </div>
+          <div style={cardSt}>
+            {ALERT_SWITCHES.map(([id, label]) => {
+              const on = settings[id] === true;
+              return (
+                <div key={id} style={{ borderBottom: "1px solid " + t.border, paddingBottom: 4, marginBottom: 4 }}>
+                  <button type="button" role="switch" aria-checked={on} onClick={() => save(id, !on)} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 12, padding: "4px 0", background: "none", border: "none", cursor: "pointer", color: t.text, textAlign: "left" }}>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontFamily: FONT_HEAD }}>{tr(label)}</span>
+                    <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: 13, flexShrink: 0, background: on ? GOLD : t.btnGhost, border: "1px solid " + (on ? GOLD : t.borderSolid), position: "relative", transition: "background 0.15s" }}>
+                      <span style={{ position: "absolute", top: 2, left: on ? 20 : 2, width: 20, height: 20, borderRadius: "50%", background: on ? NAVY : t.card, boxShadow: "0 1px 3px rgba(0,0,0,0.3)", transition: "left 0.15s" }} />
+                    </span>
+                  </button>
+                  {saveFault[id] && <div role="alert" style={{ ...faultSt, marginTop: 0, marginBottom: 8 }}>{tr("Your settings did not save.")}</div>}
+                </div>
+              );
+            })}
+            <div style={{ fontSize: 12, color: t.textMut, lineHeight: 1.45, marginTop: 10 }}>{tr("Announcements from the office always come through.")}</div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
