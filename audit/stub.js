@@ -520,8 +520,16 @@ function chatStateOf(o) {
   if (c.only) channels = channels.filter(ch => ch.id === c.only);
   if (c.empty) channels = [];
   const messages = {};
-  channels.forEach((ch) => { messages[ch.id] = chatSeed(ch.id, !!c.oddRows); });
-  return { channels: channels.map(ch => Object.assign({ unreadCount: 0 }, ch)), messages: messages, seq: 0, holdMs: 0, saveThenDrop: false, noMessage: false };
+  channels.forEach((ch) => { messages[ch.id] = chatSeed(ch.id, !!c.oddRows, !!c.tagged); });
+  // unread sets a chat's count on the list by its id.
+  const unread = c.unread || {};
+  return {
+    channels: channels.map(ch => Object.assign({ unreadCount: 0 }, ch, unread[ch.id] !== undefined ? { unreadCount: unread[ch.id] } : {})),
+    messages: messages, seq: 0, holdMs: 0, saveThenDrop: false, noMessage: false,
+    // membersRoute false is an API from before Step 179, which answers the
+    // members route 404; alone is a chat nobody else can read.
+    membersRoute: c.membersRoute !== false, alone: !!c.alone,
+  };
 }
 
 
@@ -891,13 +899,38 @@ const staffPrivate = (p, i) => ({
   unreadCount: i % 4 === 1 ? (i % 3) + 1 : 0,
 });
 // Chat's refusals as Step 132 writes them, one per code, in each
-// language. A read can get the first two, and a send any of the four.
+// language, and the two Step 179 added for a message that tags people.
+// A read can get the first two, and a send any of the six.
 const CHAT_TEXT_MAX = 2000;
+const CHAT_MENTIONS_MAX = 10;
 const CHAT_REFUSALS = {
   "chat.notFound": { status: 404, en: "This chat was not found.", es: "No se encontr\u00f3 este chat." },
   "chat.noAccess": { status: 403, en: "You do not have access to this chat.", es: "No tiene acceso a este chat." },
   "chat.textRequired": { status: 400, en: "Type a message first.", es: "Escriba un mensaje primero." },
   "chat.textTooLong": { status: 400, en: "This message is too long. Keep it to 2000 characters or fewer.", es: "Este mensaje es demasiado largo. Use 2000 caracteres o menos." },
+  "chat.mentionNotMember": { status: 400, en: "One of the people tagged is not in this chat.", es: "Una de las personas etiquetadas no est\u00e1 en este chat." },
+  "chat.tooManyMentions": { status: 400, en: "Tag at most 10 people in one message.", es: "Etiquete como m\u00e1ximo 10 personas en un mensaje." },
+};
+// The people who can read each chat, Step 179 in the API, whom a message
+// there may tag: a site chat's are the people at the site and the office,
+// the general chat's are everyone, and a private chat's are its staff
+// member and the office. The members route answers them without the
+// caller, by name.
+const CHAT_PEOPLE = [PERSON, SECOND_PERSON, ADMIN_PERSON].map(p => ({ id: p.id, name: p.firstName + " " + p.lastName, role: p.role }))
+  .concat(STAFF.slice(0, 3).map(p => ({ id: p.id, name: p.firstName + " " + p.lastName, role: "custodian" })));
+const chatPeopleOf = (id) => {
+  const byName = (list) => list.slice().sort((a, b) => a.name.localeCompare(b.name));
+  if (id === CHAT_GENERAL.id) return byName(CHAT_PEOPLE);
+  if (id === "ch-north") return byName(CHAT_PEOPLE.slice(0, 4));
+  if (/^dm-/.test(id)) return byName(CHAT_PEOPLE.filter(p => p.role === "admin" || "dm-" + p.id === id));
+  return byName(CHAT_PEOPLE.filter(p => p.role === "admin").concat([CHAT_PEOPLE[4]]));
+};
+// A message's words cut at every tag it carries, the way the screen draws
+// them: the tags, and the words between, each a piece of its own.
+const mentionPieces = (text, mentions) => {
+  const names = (mentions || []).filter(m => m && m.name).map(m => "@" + m.name).sort((a, b) => b.length - a.length);
+  if (!names.length) return [text];
+  return String(text).split(new RegExp("(" + names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")")).map(p => p.trim()).filter(Boolean);
 };
 const CHAT_SEND_REFUSALS = Object.keys(CHAT_REFUSALS).map(code => Object.assign({ code: code }, CHAT_REFUSALS[code]));
 // The refusals a send got before Step 132, English with no code. An API
@@ -1047,7 +1080,9 @@ function sniffImage(buf) {
 }
 // A chat's messages as the API keeps them, oldest first. Every text is
 // invented. oddRows adds rows missing a name, a time, or both.
-const chatSeed = (channelId, odd) => {
+// tagged adds two messages to the site chat that tag people, one of them
+// the person a case signs in as.
+const chatSeed = (channelId, odd, tagged) => {
   const at = (h) => iso(NOW.getTime() - h * 60 * 60 * 1000);
   const rows = {
     "ch-north": [
@@ -1061,6 +1096,10 @@ const chatSeed = (channelId, odd) => {
       { id: "m-d1", senderId: ADMIN_PERSON.id, senderName: ADMIN_PERSON.firstName + " " + ADMIN_PERSON.lastName, senderRole: "admin", text: "Your badge is ready at the office.", sentAt: at(3), isEdited: false, isPinned: false },
     ],
   }[channelId] || [];
+  if (tagged && channelId === "ch-north") {
+    rows.push({ id: "m-t1", senderId: SECOND_PERSON.id, senderName: SECOND_PERSON.firstName + " " + SECOND_PERSON.lastName, senderRole: "lead", text: "@Alex Tester can you check the side door", sentAt: at(2), isEdited: false, isPinned: false, mentions: [{ id: PERSON.id, name: "Alex Tester" }] });
+    rows.push({ id: "m-t2", senderId: ADMIN_PERSON.id, senderName: ADMIN_PERSON.firstName + " " + ADMIN_PERSON.lastName, senderRole: "admin", text: "@Sam Second the spare key is at the desk", sentAt: at(1), isEdited: false, isPinned: false, mentions: [{ id: SECOND_PERSON.id, name: "Sam Second" }] });
+  }
   if (odd && channelId === "ch-north") {
     rows.push({ id: "m-odd1", senderId: "s-03", text: "A note with no name on it." });
     rows.push({ id: "m-odd2", senderId: "s-04", senderName: "Dan Delgado", senderRole: "custodian", text: "A note with no time on it." });
@@ -1850,21 +1889,49 @@ function createStub(opts) {
     }
 
     // --- chat, the three routes as Scout 138 read and ran them, and the
-    // refusals as Step 132 writes them
+    // refusals as Step 132 writes them; and Step 179's read receipt, the
+    // people a message may tag, and the tags on a message
     if (key === "GET /api/chat/channels") return json(200, state.chat.channels.map(ch => Object.assign({}, ch)));
-    if (/^\/api\/chat\/channels\/[^/]+\/messages$/.test(pathname) && (method === "GET" || method === "POST")) {
-      const id = decodeURIComponent(pathname.split("/")[4]);
+    const chatRoute = /^\/api\/chat\/channels\/([^/]+)\/(messages|read|members)$/.exec(pathname);
+    if (chatRoute && (chatRoute[2] === "messages" ? (method === "GET" || method === "POST") : chatRoute[2] === "read" ? method === "POST" : method === "GET")) {
+      const id = decodeURIComponent(chatRoute[1]);
+      // An API from before Step 179 has no members route.
+      if (chatRoute[2] === "members" && !state.chat.membersRoute) return json(404, { error: "Endpoint not found" });
       const mine = state.chat.channels.some(ch => ch.id === id);
       const anywhere = mine || id === CHAT_GENERAL.id || CHAT_SITES.some(s => s.id === id) || /^dm-/.test(id);
       if (!anywhere) return chatRefusal("chat.notFound", search);
       if (!mine) return chatRefusal("chat.noAccess", search);
+      // Reading a chat, by its messages or by the read route, moves the
+      // caller's receipt to now, so its count on the list is zero.
+      const seen = () => state.chat.channels.forEach((ch) => { if (ch.id === id) ch.unreadCount = 0; });
+      if (chatRoute[2] === "read") { seen(); return json(200, { ok: true }); }
+      if (chatRoute[2] === "members") {
+        const people = state.chat.alone ? [] : chatPeopleOf(id).filter(p => p.id !== state.person.id);
+        return json(200, { members: people.map(p => ({ id: p.id, name: p.name, role: p.role })) });
+      }
       const kept = state.chat.messages[id] || (state.chat.messages[id] = []);
-      if (method === "GET") return json(200, kept.slice(-50).map(m => Object.assign({}, m)));
+      if (method === "GET") {
+        seen();
+        // A message that tags someone is drawn cut at each tag, and each
+        // piece is still the sender's own words.
+        kept.forEach((m) => { if (Array.isArray(m.mentions) && m.mentions.length) mentionPieces(m.text, m.mentions).forEach(p => recordWord(p, "name")); });
+        return json(200, kept.slice(-50).map(m => Object.assign({ mentions: [] }, m)));
+      }
       const text = body && typeof body.text === "string" ? body.text.trim() : "";
       if (!text) return chatRefusal("chat.textRequired", search);
       if (text.length > CHAT_TEXT_MAX) return chatRefusal("chat.textTooLong", search);
+      // The people it tags: at most ten, each someone else who can read
+      // the chat, a repeated id counted once, the way the API reads them.
+      const asked = body && body.mentions !== undefined && body.mentions !== null ? body.mentions : [];
+      if (!Array.isArray(asked)) return chatRefusal("chat.mentionNotMember", search);
+      const ids = Array.from(new Set(asked.map(v => String(v))));
+      if (ids.length > CHAT_MENTIONS_MAX) return chatRefusal("chat.tooManyMentions", search);
+      const people = chatPeopleOf(id);
+      if (ids.some(x => x === state.person.id || !people.some(p => p.id === x))) return chatRefusal("chat.mentionNotMember", search);
+      const tagged = ids.map(x => people.find(p => p.id === x)).sort((a, b) => a.name.localeCompare(b.name)).map(p => ({ id: p.id, name: p.name }));
       state.chat.seq += 1;
-      const row = { id: "m-sent-" + state.chat.seq, senderId: state.person.id, senderName: state.person.firstName + " " + state.person.lastName, senderRole: state.person.role, text: text, sentAt: iso(clockNow()) };
+      const row = { id: "m-sent-" + state.chat.seq, senderId: state.person.id, senderName: state.person.firstName + " " + state.person.lastName, senderRole: state.person.role, text: text, sentAt: iso(clockNow()), mentions: tagged };
+      if (tagged.length) mentionPieces(text, tagged).forEach(p => recordWord(p, "name"));
       kept.push(Object.assign({ isEdited: false, isPinned: false }, row));
       const held = state.chat.holdMs > 0 ? { after: new Promise(done => setTimeout(done, state.chat.holdMs)) } : {};
       // Kept, and then the connection goes before the answer does, the way

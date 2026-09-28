@@ -250,6 +250,18 @@ const SHEET_OPENERS = {
     await clickText(page, say("+ Schedule", language));
   },
   "HomeScreenPrompt#0": async (page) => { await letSheetOffer(page); },
+  // Tag someone, from its button in a site chat.
+  "ChatView#0": async (page, language) => {
+    await openTab(page, "chat", language);
+    await pause(page, 1200);
+    await tapChatNamed(page, "North Building");
+    await pause(page, 1000);
+    await page.evaluate((label) => {
+      const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => (x.getAttribute("aria-label") || "") === label);
+      if (b) b.click();
+    }, say("Tag someone", language));
+    await pause(page, 800);
+  },
 };
 
 // The Forms screen lists more than one form now, so a case says which

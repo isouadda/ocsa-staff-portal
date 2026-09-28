@@ -4734,6 +4734,111 @@ const JOURNEYS = [
     },
   },
   {
+    id: "chatbadge",
+    label: "Chat says what arrived and who it is for: the bar's Chat count sums the chats' counts and goes as each is opened, a read told once per opening, Tag someone from a typed @ and from its button and never in a private chat, a deleted @Name dropped from the send, and a tag drawn highlighted with the bubble marked only for the person tagged",
+    run: async (open, language, expect) => {
+      // The count on the bar's Chat tab, as drawn: its numeral, or "" for
+      // none at all.
+      const chatCount = (page) => page.evaluate((want) => {
+        const bar = Array.from(document.querySelectorAll("div")).find((el) => { const s = getComputedStyle(el); return s.position === "fixed" && s.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5; });
+        const b = bar && Array.from(bar.querySelectorAll(":scope > button")).find(x => x.textContent.trim().replace(/^[\d+]+/, "") === want);
+        if (!b) return null;
+        const n = Array.from(b.querySelectorAll("div")).find(d => d.children.length === 0 && /^\d+\+?$/.test(d.textContent.trim()));
+        return n ? n.textContent.trim() : "";
+      }, say("Chat", language));
+      const readsOf = (stub, id) => stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/chat/channels/" + id + "/read").length;
+      const tagUp = (page) => page.evaluate(() => !!document.getElementById("ocsa-tag-title"));
+      const tagButton = (page) => page.evaluate((label) => Array.from(document.querySelectorAll(".sp-content button")).some(b => (b.getAttribute("aria-label") || "") === label), say("Tag someone", language));
+      const pickInSheet = (page, name) => page.evaluate((want) => {
+        const d = document.getElementById("ocsa-tag-title");
+        const sheet = d && d.closest('[role="dialog"]');
+        const b = sheet && Array.from(sheet.querySelectorAll("button")).find(x => x.innerText.replace(/\s+/g, " ").trim().indexOf(want) === 0);
+        if (b) b.click();
+        return !!b;
+      }, name);
+      const app = await open({ stubOptions: { chat: { unread: { "ch-north": 2, "ch-all": 3, "dm-u-one": 0 }, tagged: true } } });
+      try {
+        await pause(app.page, 600);
+        expect("before Chat is opened, the bar's Chat count is the two chats' counts summed", (await chatCount(app.page)) === "5", JSON.stringify(await chatCount(app.page)));
+        await openChat(app.page, language);
+        await tapChat(app.page, "North Building");
+        await pause(app.page, 1300);
+        expect("opening one chat takes its count off at once", (await chatCount(app.page)) === "3", JSON.stringify(await chatCount(app.page)));
+        expect("opening it tells the API once", readsOf(app.stub, "ch-north") === 1, readsOf(app.stub, "ch-north") + " reads");
+        await tapChat(app.page, chatName({ id: "ch-all", type: "general", name: "All staff" }, language));
+        await pause(app.page, 1300);
+        expect("opening the other takes the count off the bar", (await chatCount(app.page)) === "", JSON.stringify(await chatCount(app.page)));
+        expect("the other is told once too, and the first no more", readsOf(app.stub, "ch-all") === 1 && readsOf(app.stub, "ch-north") === 1, readsOf(app.stub, "ch-all") + " and " + readsOf(app.stub, "ch-north") + " reads");
+
+        // In the site chat: a message that tags the reader is marked, one
+        // that tags someone else is not, and both draw the tag highlighted.
+        await tapChat(app.page, "North Building");
+        await pause(app.page, 1200);
+        const marks = await app.page.evaluate((texts) => texts.map((want) => {
+          const d = Array.from(document.querySelectorAll(".sp-content div")).find(x => x.innerText.replace(/\s+/g, " ").trim() === want && x.querySelector("span"));
+          if (!d) return null;
+          const tag = Array.from(d.querySelectorAll("span")).map(s => ({ text: s.textContent.trim(), weight: Number(getComputedStyle(s).fontWeight) }));
+          return { tag: tag, background: getComputedStyle(d).backgroundColor };
+        }), ["@Alex Tester can you check the side door", "@Sam Second the spare key is at the desk"]);
+        const [mine, theirs] = marks;
+        expect("a tag is drawn highlighted", !!mine && !!theirs && mine.tag.some(s => s.text === "@Alex Tester" && s.weight >= 600) && theirs.tag.some(s => s.text === "@Sam Second" && s.weight >= 600), JSON.stringify(marks));
+        expect("the bubble is marked only where the reader is tagged", !!mine && !!theirs && /231, 176, 23/.test(mine.background) && !/231, 176, 23/.test(theirs.background), JSON.stringify(marks));
+
+        // Tag someone, from a typed @ and from its button.
+        expect("a site chat offers Tag someone", await tagButton(app.page), "no button");
+        await type(app.page, CHAT_BOX, "@");
+        await pause(app.page, 500);
+        expect("an @ typed at the start of a word opens Tag someone", await tagUp(app.page), "the sheet did not open");
+        await spokenHere(app, language, expect);
+        await pickInSheet(app.page, "Sam Second");
+        await pause(app.page, 400);
+        expect("a pick puts @Name and a space in the words", (await boxText(app.page, CHAT_BOX)) === "@Sam Second ", JSON.stringify(await boxText(app.page, CHAT_BOX)));
+        await tapLabel(app.page, say("Tag someone", language));
+        await pause(app.page, 500);
+        expect("the button opens Tag someone too", await tagUp(app.page), "the sheet did not open");
+        await pickInSheet(app.page, "Jordan Office");
+        await pause(app.page, 400);
+        // One of the two tags is deleted from the words before the send.
+        const words = "@Sam Second please check the side door";
+        await type(app.page, CHAT_BOX, words);
+        await pause(app.page, 300);
+        await tapSend(app.page, language);
+        await pause(app.page, 1200);
+        const last = chatSends(app.stub, words).pop();
+        expect("a deleted @Name drops its id from the send, and the one left is sent", !!last && JSON.stringify(last.body.mentions) === JSON.stringify([SECOND_PERSON.id]), last ? JSON.stringify(last.body) : "nothing sent");
+
+        // A private chat has no Tag someone, and an @ opens nothing.
+        await tapChat(app.page, say("Admin (Private)", language));
+        await pause(app.page, 1200);
+        expect("a private chat has no Tag someone", !(await tagButton(app.page)), "the button is there");
+        await type(app.page, CHAT_BOX, "@");
+        await pause(app.page, 500);
+        expect("an @ in a private chat opens nothing", !(await tagUp(app.page)), "the sheet opened");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+
+      // A chat nobody else can read says so, and an API with no members
+      // route hides Tag someone altogether.
+      const alone = await open({ stubOptions: { chat: { alone: true } } });
+      try {
+        await openChat(alone.page, language);
+        await tapChat(alone.page, "North Building");
+        await pause(alone.page, 1000);
+        await tapLabel(alone.page, say("Tag someone", language));
+        await pause(alone.page, 600);
+        expect("a chat with nobody else says so", has(await sheetText(alone.page), spanishOf("No one else can read this chat.", language)), (await sheetText(alone.page)).slice(0, 160));
+        await spokenHere(alone, language, expect);
+      } finally { await alone.context.close(); }
+      const noRoute = await open({ stubOptions: { chat: { membersRoute: false } } });
+      try {
+        await openChat(noRoute.page, language);
+        await tapChat(noRoute.page, "North Building");
+        await pause(noRoute.page, 1000);
+        expect("an API that answers 404 on the members route shows no Tag someone", !(await tagButton(noRoute.page)), "the button is there");
+      } finally { await noRoute.context.close(); }
+    },
+  },
+  {
     id: "chatodd",
     label: "Chat: a send answered without its message, and message rows missing a field, never blank the app",
     run: async (open, language, expect) => {

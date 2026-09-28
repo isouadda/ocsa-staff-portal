@@ -163,8 +163,17 @@ const INSPECT = function (args) {
     const ownClip = (s.overflowX === "hidden" || s.overflowX === "clip") && el.scrollWidth > el.clientWidth + 1;
     let byAncestor = null;
     let r = el.getBoundingClientRect();
+    // A fixed box, a sheet, is drawn against the window, so no box it sits
+    // in hides what sticks out of it, up to one that carries a transform,
+    // a filter or a perspective, which it is drawn against instead.
+    let loose = s.position === "fixed";
     for (let a = el.parentElement; a && !byAncestor; a = a.parentElement) {
       const as = window.getComputedStyle(a);
+      if (loose) {
+        if (as.transform === "none" && as.filter === "none" && as.perspective === "none") continue;
+        loose = false;
+      }
+      if (as.position === "fixed") loose = true;
       // A box that scrolls holds what sticks out of it: a person scrolls
       // to it, the way Chat's row of private chats scrolls sideways. From
       // there up, the box stands in for the text, and it is the box that
