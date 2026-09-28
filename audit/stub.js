@@ -278,6 +278,17 @@ function shiftsFor(siteId, startMs) {
   return list;
 }
 
+// Each capability and the tiers that hold it by default, as the API's
+// middleware/capabilities.js lists them. Nobody here holds an override.
+const CAPABILITIES = {
+  manage_permissions: ["admin"], manage_settings: ["admin"], manage_lookups: ["admin"], manage_staff: ["admin"],
+  manage_sites: ["admin"], manage_integrations: ["admin"], manage_tasks: ["admin", "supervisor"],
+  manage_inspections: ["admin", "supervisor"], manage_time: ["admin"], manage_schedule: ["admin", "supervisor"],
+  approve_time_off: [], manage_supplies: ["admin"], manage_vendors: ["admin"], view_reports: ["admin", "supervisor"],
+  read_incident_reports: ["admin"], export_payroll: ["admin"], manage_admins: [], send_announcements: ["admin"],
+  view_help_insights: ["admin"],
+};
+
 // One scheduled inspection and the items it asks about. The template's
 // name, each item and each item's zone are English, the way the live API
 // sends them.
@@ -286,6 +297,18 @@ const INSPECTION = {
   items: [
     { id: "it-1", label: "Glass doors are free of smudges", zone: "Lobby", max_score: 5, cims_category: "SD" },
     { id: "it-2", label: "Floor mats are straight and dry", zone: "Lobby", max_score: 5, cims_category: "SD" },
+  ],
+};
+// A long one, five items, for a case that scores several and watches the
+// scored ones fold away.
+const INSPECTION_LONG = {
+  id: "in-long", template_name: "Restroom walk", site_id: "site-north", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled",
+  items: [
+    { id: "il-1", label: "Mirrors are free of streaks", zone: "Restroom", max_score: 5, cims_category: "SD" },
+    { id: "il-2", label: "Sinks are clean and dry", zone: "Restroom", max_score: 5, cims_category: "SD" },
+    { id: "il-3", label: "Soap dispensers are full", zone: "Restroom", max_score: 5, cims_category: "SD" },
+    { id: "il-4", label: "Floors are mopped", zone: "Restroom", max_score: 5, cims_category: "SD" },
+    { id: "il-5", label: "Trash is emptied", zone: "Restroom", max_score: 5, cims_category: "SD" },
   ],
 };
 // One on the list that the API no longer has when it is opened.
@@ -464,6 +487,9 @@ function makeState(opts) {
     myPickups: o.myPickups || [],
     // The announcements the office has sent.
     announcements: o.announcements || [ANNOUNCEMENT],
+    // permissionsRoute false is an API from before Step 179, which answers
+    // GET /api/users/me/permissions 404.
+    permissionsRoute: o.permissionsRoute !== false,
     // Phone alerts. key is the server's public key, null when it has none,
     // and "missing" for an API with no key route yet. settings is null for
     // an API whose settings route is not there yet, which answers 404.
@@ -1345,6 +1371,13 @@ const TWIN_PAIRS = [
   ["Glass doors are free of smudges", "Las puertas de vidrio no tienen manchas"],
   ["Floor mats are straight and dry", "Los tapetes est\u00e1n derechos y secos"],
   ["Lobby", "Vest\u00edbulo"],
+  // The long inspection and its items.
+  ["Restroom walk", "Recorrido de los ba\u00f1os"],
+  ["Mirrors are free of streaks", "Los espejos no tienen rayas"],
+  ["Sinks are clean and dry", "Los lavabos est\u00e1n limpios y secos"],
+  ["Soap dispensers are full", "Los dispensadores de jab\u00f3n est\u00e1n llenos"],
+  ["Floors are mopped", "Los pisos est\u00e1n trapeados"],
+  ["Trash is emptied", "La basura est\u00e1 vac\u00eda"],
   INSPECTION_NOT_FOUND,
   ["This inspection was already completed", "Esta inspecci\u00f3n ya fue completada"],
   ["Stairwell walk", "Recorrido de la escalera"],
@@ -1847,6 +1880,17 @@ function createStub(opts) {
       // back the choice rather than the value it held before.
       Object.assign(state.accountPreferences, body || {});
       return json(200, { ok: true });
+    }
+    // The caller's own capabilities, Step 179 in the API, read off the role
+    // the way middleware/capabilities.js reads them: an admin and a
+    // supervisor hold the ones their tier holds, and everyone else, a lead
+    // or a custodial lead among them, holds a staff member's.
+    if (key === "GET /api/users/me/permissions") {
+      if (!state.permissionsRoute) return json(404, { error: "Endpoint not found" });
+      const tier = state.person.role === "admin" || state.person.role === "supervisor" ? state.person.role : "staff";
+      const capabilities = {};
+      Object.keys(CAPABILITIES).forEach((k) => { capabilities[k] = CAPABILITIES[k].indexOf(tier) !== -1; });
+      return json(200, { role: state.person.role, capabilities: capabilities });
     }
     if (key === "GET /api/users/profile/me") return json(200, {
       user: Object.assign({}, state.person, { employeeId: "OCSA-0001", preferredLanguage: "English", addressLine1: "", city: "", state: "", zipCode: "", emergencyContactName: "", emergencyContactPhone: "", birthday: "1990-08-14" }),
@@ -2548,7 +2592,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES, localeFault, localeRows,

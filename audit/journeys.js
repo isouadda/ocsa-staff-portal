@@ -7,7 +7,7 @@ const { openApp, letSheetOffer, ANDROID, PUSH_KEYS, PUSH_ENDPOINT } = require(".
 const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
 const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
-const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
+const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES,
   formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT } = require("./stub");
@@ -4314,6 +4314,61 @@ const JOURNEYS = [
         expect("nothing is left as not reported", !has(shown, say("Not reported: {0}", language).split("{")[0].trim()), shown.slice(0, 220));
         await spokenHere(again, language, expect);
       } finally { await again.context.close(); }
+    },
+  },
+  {
+    id: "leftovers",
+    label: "Scout 142's leftovers: + Schedule only for someone who may schedule, every scored card folding away except the last one touched, and Register naming a weak PIN before anything is sent",
+    run: async (open, language, expect) => {
+      // + Schedule follows the capability the schedule route enforces.
+      for (const [role, may] of [["custodial_lead", false], ["supervisor", true]]) {
+        const app = await open({ stubOptions: { person: Object.assign({}, PERSON, { role: role }) } });
+        try {
+          await openTab(app.page, "inspect", language);
+          await pause(app.page, 1100);
+          const shown = await hasButton(app.page, say("+ Schedule", language));
+          expect((may ? "a supervisor, who may schedule an inspection, sees + Schedule" : "a custodial lead, who may not schedule one, sees no + Schedule"), shown === may, "+ Schedule " + (shown ? "shown" : "not shown"));
+          expect("the capability is read from the permissions route", sent(app.stub, "GET", "/api/users/me/permissions").length > 0, "never asked");
+        } finally { await app.context.close(); }
+      }
+
+      // A long inspection: three cards scored, the first two fold away and
+      // the one touched last stays, then the fold opens.
+      const long = await open({ stubOptions: { inspections: [INSPECTION_LONG] } });
+      try {
+        await openTab(long.page, "inspect", language);
+        await pause(long.page, 900);
+        // The API sends an inspection's name as written, in English.
+        await clickText(long.page, INSPECTION_LONG.template_name);
+        await pause(long.page, 900);
+        const drawn = () => long.page.evaluate(() => Array.from(document.querySelectorAll("[data-inspect-item]")).map(c => c.getAttribute("data-inspect-item")));
+        for (const it of INSPECTION_LONG.items.slice(0, 3)) {
+          await type(long.page, '[data-inspect-item="' + it.id + '"] input[type="range"]', "5");
+          await pause(long.page, 300);
+        }
+        const open3 = await drawn();
+        const show = fill(spanishOf("Show {0} scored items", language), { 0: 2 });
+        expect("two scored cards fold away, and the one touched last stays", JSON.stringify(open3) === JSON.stringify(["il-3", "il-4", "il-5"]) && (await hasButton(long.page, show)) && has(await bodyText(long.page), spanishOf("Scored", language)), JSON.stringify(open3));
+        await spokenHere(long, language, expect);
+        await tapWords(long.page, show);
+        await pause(long.page, 500);
+        const all = await drawn();
+        expect("the fold opens on the two scored cards", ["il-1", "il-2", "il-3", "il-4", "il-5"].every(id => all.indexOf(id) !== -1), JSON.stringify(all));
+      } finally { await long.context.close(); }
+
+      // Register with 1234: the weak PIN is named before anything is sent.
+      const reg = await open({ signedIn: false });
+      try {
+        await clickText(reg.page, say("New Employee? Register Here", language));
+        await pause(reg.page, 700);
+        const person = ["Riley", "Invented", "0000000009", "nine@example.invalid", "1234", "1234"];
+        for (let i = 0; i < person.length; i += 1) await typeNth(reg.page, "input", i, person[i]);
+        await clickText(reg.page, say("Register", language));
+        await pause(reg.page, 900);
+        const text = await bodyText(reg.page);
+        expect("Register names a PIN in a row before anything is sent", has(text, spanishOf("Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.", language)) && sent(reg.stub, "POST", "/api/auth/register").length === 0, text.slice(0, 260));
+        await spokenHere(reg, language, expect);
+      } finally { await reg.context.close(); }
     },
   },
   {
