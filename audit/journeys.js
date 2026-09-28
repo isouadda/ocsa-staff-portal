@@ -1820,7 +1820,7 @@ const JOURNEYS = [
         for (let i = 0; i < 6 && !opened; i += 1) {
           await app.page.evaluate((n) => {
             const grid = Array.from(document.querySelectorAll(".sp-content div")).find(d => getComputedStyle(d).display === "grid" && d.children.length === 7);
-            const cards = grid ? Array.from(grid.querySelectorAll("div")).filter(d => d.onclick) : [];
+            const cards = grid ? Array.from(grid.querySelectorAll("button")) : [];
             if (cards[n]) cards[n].click();
           }, i);
           await pause(app.page, 700);
@@ -2676,7 +2676,9 @@ const JOURNEYS = [
           expect("refusal shown: " + said.en, shown, "wanted " + JSON.stringify(said[language]) + " in " + JSON.stringify(text.slice(0, 300)));
           if (extra) extra.refusalsShown += shown ? 1 : 0;
           const left = await app.page.evaluate(() => Array.from(document.querySelectorAll("button, a[href], input, select, textarea")).filter(e => e.offsetParent !== null && getComputedStyle(e).opacity !== "0").map(e => e.textContent.trim()));
-          expect("nothing else is on the page but the language choice: " + c.key, left.length === 2 && left.indexOf(nameOf(language)) !== -1 && left.indexOf(nameOf(other)) !== -1 && has(text, PUBLIC_COMPANY) === false, JSON.stringify(left));
+          // The text size pill sits beside the language choice from Step 184 on.
+          const pill = "A" + say("Text size", language);
+          expect("nothing else is on the page but the language choice and the text size pill: " + c.key, left.length === 3 && left.indexOf(nameOf(language)) !== -1 && left.indexOf(nameOf(other)) !== -1 && left.indexOf(pill) !== -1 && has(text, PUBLIC_COMPANY) === false, JSON.stringify(left));
           await spokenHere(app, language, expect);
           await clickText(app.page, nameOf(other));
           await pause(app.page, 1200);
@@ -3512,7 +3514,7 @@ const JOURNEYS = [
             const bar = Array.from(document.querySelectorAll("div")).find((el) => { const s = getComputedStyle(el); return s.position === "fixed" && s.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5; });
             if (!bar) return null;
             const active = Array.from(bar.querySelectorAll(":scope > button")).find(b => { const sp = b.querySelector("span"); return sp && getComputedStyle(sp).fontWeight === "700"; });
-            return active ? active.textContent.trim().replace(/^\d+/, "") : "under More";
+            return active ? active.textContent.trim().replace(/^(9\+|\d+)/, "") : "under More";
           });
           expect("a " + subject + " notice opens " + tab, !!on, String(on));
         } finally { await app.context.close(); }
@@ -3734,7 +3736,7 @@ const JOURNEYS = [
         for (let i = 0; i < 6 && !opened; i += 1) {
           await app.page.evaluate((n) => {
             const grid = Array.from(document.querySelectorAll(".sp-content div")).find(d => getComputedStyle(d).display === "grid" && d.children.length === 7);
-            const cards = grid ? Array.from(grid.querySelectorAll("div")).filter(d => d.onclick) : [];
+            const cards = grid ? Array.from(grid.querySelectorAll("button")) : [];
             if (cards[n]) cards[n].click();
           }, i);
           await pause(app.page, 700);
@@ -4244,9 +4246,11 @@ const JOURNEYS = [
     run: async (open, language, expect) => {
       const failed = "Your chats did not load. Try again in a minute.";
       const none = "No chats are set up for you yet. Ask your supervisor.";
-      const app = await open({});
+      // Refused from the start: the portal reads the list at sign in for
+      // the bar's badge, and a list already drawn stays drawn when a later
+      // read is turned away.
+      const app = await open({ stubOptions: { refuse: { "GET /api/chat/channels": { status: 500, body: { error: "Server error" } } } } });
       try {
-        app.stub.state.refuse["GET /api/chat/channels"] = { status: 500, body: { error: "Server error" } };
         await openChat(app.page, language);
         const said = await bodyText(app.page);
         expect("a list turned away says Your chats did not load, with Try again", has(said, say(failed, language)) && (await hasButton(app.page, say("Try again", language))), said.slice(0, 240));

@@ -140,7 +140,8 @@ async function openTab(page, tabId, language) {
       return s.position === "fixed" && s.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5;
     });
     if (!bar) return "no bar";
-    const clean = (b) => b.textContent.trim().replace(/^\d+/, "");
+    // A badge sits before the name: a count, or 9+ from ten on.
+    const clean = (b) => b.textContent.trim().replace(/^(9\+|\d+)/, "");
     const onBar = Array.from(bar.querySelectorAll(":scope > button")).find(b => clean(b) === name);
     if (onBar) { onBar.click(); return "bar"; }
     const moreBtn = Array.from(bar.querySelectorAll(":scope > button")).find(b => clean(b) === moreName) || Array.from(bar.querySelectorAll(":scope > button")).pop();
@@ -151,7 +152,7 @@ async function openTab(page, tabId, language) {
   if (where === "more") {
     await page.evaluate((name) => {
       const grid = Array.from(document.querySelectorAll("div")).find(d => getComputedStyle(d).display === "grid" && d.querySelectorAll(":scope > button").length >= 5);
-      const b = grid && Array.from(grid.querySelectorAll(":scope > button")).find(x => x.textContent.trim().replace(/^\d+/, "") === name);
+      const b = grid && Array.from(grid.querySelectorAll(":scope > button")).find(x => x.textContent.trim().replace(/^(9\+|\d+)/, "") === name);
       if (b) b.click();
     }, wanted);
     await pause(page, 800);
