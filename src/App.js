@@ -5920,7 +5920,9 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
   // with its file name under it and Remove photo while the report is a
   // draft; the ones on their way up, each with its own progress line;
   // then the one button, which the camera and the gallery both answer,
-  // until the question holds as many photos as it takes.
+  // until the question holds as many photos as it takes. The input names
+  // no capture, the way Help's does, so a phone offers the camera and the
+  // gallery both; the problem report's input still opens the camera.
   const thumbSt = { width: 72, height: 72, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt };
   const photoNameSt = { fontSize: 10, color: t.textMut, marginTop: 4, lineHeight: 1.35, overflowWrap: "anywhere" };
   const photoBtn = { ...gridBtn, marginTop: 6, padding: "8px 6px", fontSize: 11 };
@@ -5953,7 +5955,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
         {draft && full && <div style={{ ...mkHelp(t), marginTop: 10 }}>{tr(FORMS_PHOTOS_FULL)}</div>}
         {draft && !full && (
           <>
-            <input ref={el => { photoInputs.current[f.key] = el; }} type="file" accept="image/*" capture="environment" multiple style={{ display: "none" }} onChange={e => { addFormPhotos(f, e.target.files); e.target.value = ""; }} />
+            <input ref={el => { photoInputs.current[f.key] = el; }} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { addFormPhotos(f, e.target.files); e.target.value = ""; }} />
             <button type="button" onClick={() => photoInputs.current[f.key] && photoInputs.current[f.key].click()} style={{ ...gridBtn, display: "flex", alignItems: "center", gap: 10, textAlign: "left", border: "1px dashed " + GOLD, color: t.goldText }}>
               <CamIco sz={18} c={t.goldText} />
               <div style={{ minWidth: 0 }}>

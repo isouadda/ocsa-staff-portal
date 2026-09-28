@@ -1849,6 +1849,8 @@ const JOURNEYS = [
       try {
         await openTab(app.page, "issues", language);
         await clickText(app.page, say("Report an Issue", language));
+        const capture = await app.page.evaluate(() => Array.from(document.querySelectorAll('.sp-content input[type="file"]')).map(i => i.getAttribute("capture")));
+        expect("the problem report's photo input still opens the camera", capture.length === 1 && capture[0] === "environment", JSON.stringify(capture));
         await typeNth(app.page, ".sp-content input", 0, "A cracked tile by the door");
         await clickText(app.page, say("Submit Issue", language));
         await pause(app.page, 1200);
@@ -2195,7 +2197,7 @@ const JOURNEYS = [
         expect("the photos question draws its label and its help line, in the person's language", has(text, q.label) && has(text, q.help), text.slice(0, 400));
         expect("the question offers the camera and the gallery, with the sizes it takes", has(text, takeLine) && has(text, say("JPG, PNG up to 10MB", language)), text.slice(0, 400));
         const inputs = await app.page.evaluate((sel) => Array.from(document.querySelectorAll(sel)).map(i => [i.getAttribute("accept"), i.getAttribute("capture"), i.multiple]), input);
-        expect("the input is the problem report's, taking several", inputs.length === 1 && inputs[0][0] === "image/*" && inputs[0][1] === "environment" && inputs[0][2] === true, JSON.stringify(inputs));
+        expect("the input takes any picture, several at once, and names no capture, so the gallery is offered", inputs.length === 1 && inputs[0][0] === "image/*" && inputs[0][1] === null && inputs[0][2] === true, JSON.stringify(inputs));
 
         // Each refusal first, in the API's own words, with nothing kept.
         for (const key of ["forms.photoTooLarge", "forms.photoType", "forms.photoLimit"]) {
