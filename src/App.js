@@ -4400,8 +4400,33 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
     }
   };
 
-  const loadDrafts = useCallback(async () => { try { const d = await api("/api/agent/drafts?locale=" + locale, { token }); setDrafts(agentList(d, ["drafts", "items", "rows"])); } catch (err) { console.warn("Drafts:", err.message); } }, [token, locale]);
+  // A read that fails says so where the list would be, with Try again.
+  const [draftsFailed, setDraftsFailed] = useState(false);
+  const loadDrafts = useCallback(async () => { try { const d = await api("/api/agent/drafts?locale=" + locale, { token }); setDrafts(agentList(d, ["drafts", "items", "rows"])); setDraftsFailed(false); } catch (err) { console.warn("Drafts:", err.message); setDraftsFailed(true); } }, [token, locale]);
   useEffect(() => { loadDrafts(); }, [loadDrafts]);
+
+  // Discard, on the report in progress and on each unfinished report: a
+  // confirm, then the discard route, and the row leaves the list. The
+  // buttons go together when the route answers that it is not there yet;
+  // a 404 with the API's own code is a draft that is already gone, said
+  // in the API's words, and the list is read again either way.
+  const [discardOff, setDiscardOff] = useState(false);
+  const [discarding, setDiscarding] = useState(null);
+  const discard = async (id) => {
+    if (!id || discarding) return;
+    if (!window.confirm(tr("Discard this report? It will not be sent."))) return;
+    setDiscarding(id);
+    try {
+      await api("/api/forms/drafts/" + encodeURIComponent(id) + "/discard?locale=" + locale, { method: "POST", token });
+      showToast(tr("Report discarded."));
+      setDrafts(prev => prev.filter(d => String(agentDraftId(d)) !== String(id)));
+      if (formResponse && String(formResponse.id) === String(id)) { setFormResponse(null); setMissing([]); }
+    } catch (err) {
+      if (err && err.status === 404 && err.code !== "forms.reportNotFound") setDiscardOff(true);
+      else { showToast(tr(err.message), "error"); if (err && (err.status === 404 || err.status === 409)) loadDrafts(); }
+    }
+    setDiscarding(null);
+  };
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [thread.length, formResponse]);
   // While an answer arrives the thread follows it, so its newest words are
   // in view the way a finished answer's last words are, unless the person
@@ -4569,9 +4594,13 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
   // thread scrolls inside it and the form card and composer stay in view.
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", ...fillsTheWindow(), minHeight: 0, overflow: "hidden" }}>
+      {draftsFailed && drafts.length === 0 && (<div style={{ padding: "10px 12px", borderBottom: "1px solid " + t.borderSolid, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, flexShrink: 0 }}>
+        <span style={{ flex: "1 1 160px", fontSize: 12, color: t.textSec, lineHeight: 1.4 }}>{tr("Unfinished reports did not load.")}</span>
+        <button onClick={loadDrafts} style={smallBtn}>{tr("Try again")}</button>
+      </div>)}
       {openDrafts.length > 0 && (<div style={{ padding: "10px 12px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 1, minHeight: 0, maxHeight: 180, overflowY: "auto" }}>
         <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Unfinished reports")}</div>
-        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: "1 1 140px", minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d) || tr(FORMS_UNTITLED)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div><button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Fill in form")}</button><button onClick={() => resume(d)} style={smallBtn}>{tr("Resume")}</button></div>))}
+        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: "1 1 140px", minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d) || tr(FORMS_UNTITLED)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div>{!discardOff && agentDraftId(d) && <button onClick={() => discard(agentDraftId(d))} disabled={discarding !== null} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, opacity: discarding !== null ? 0.6 : 1 }}>{tr("Discard")}</button>}<button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Fill in form")}</button><button onClick={() => resume(d)} style={smallBtn}>{tr("Resume")}</button></div>))}
       </div>)}
       {/* The thread keeps room for three lines of an answer at every size.
           On a screen too short for that and everything around it, the
@@ -4599,6 +4628,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
       {submitted && <div style={{ padding: "8px 12px", fontSize: 12, color: GREEN, fontWeight: 600, textAlign: "center", fontFamily: FONT_HEAD }}>{tr("Report submitted.")}</div>}
       {formResponse && (<div style={{ margin: "0 12px 8px", padding: "10px 12px", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.md, boxShadow: t.shadow, flexShrink: 1, minHeight: 0, overflowY: "auto" }}>
         <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}><div style={{ flex: 1 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Report in progress")}</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2 }}>{agentName(formResponse) || tr(FORMS_UNTITLED)}</div>{agentCount(formResponse) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(formResponse)}</div>}</div>
+        {!discardOff && formResponse.id && <button onClick={() => discard(formResponse.id)} disabled={discarding !== null || submitBusy} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, opacity: discarding !== null || submitBusy ? 0.6 : 1 }}>{tr("Discard")}</button>}
         <button onClick={submit} disabled={!canSubmit} style={{ padding: "10px 14px", minHeight: TAP, flexShrink: 0, borderRadius: R.sm, border: "none", background: canSubmit ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : t.cardAlt, color: canSubmit ? NAVY : t.textSec, fontSize: 12, fontWeight: 600, cursor: canSubmit ? "pointer" : "default", fontFamily: FONT_HEAD, boxShadow: canSubmit ? "0 6px 18px rgba(231,176,23,0.30)" : "none" }}>{submitBusy ? tr("Submitting...") : tr("Submit report")}</button></div>
         {missing.length > 0 && <div style={{ marginTop: 8, fontSize: 11, color: t.textSec, lineHeight: 1.5 }}><div style={{ fontWeight: 600 }}>{tr("Still needed before you can submit:")}</div>{missing.map((k, i) => <div key={i}>{k}</div>)}</div>}
       </div>)}
