@@ -664,6 +664,8 @@ export const WORDS = {
   "Remove {name} from the bar": "Quitar {name} de la barra",
 
   // Notifications
+  "Announcement": "Anuncio",
+  "From {name}": "De {name}",
   "Load more": "Cargar m\u00e1s",
   "Mark all read": "Marcar todas como le\u00eddas",
   "Marking...": "Marcando...",

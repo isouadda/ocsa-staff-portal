@@ -909,6 +909,20 @@ function readEntryFromUrl() {
     return null;
   } catch (e) { return null; }
 }
+// Where a tap on a phone alert asked the app to open, when the worker had
+// to open a new window for it: ?open=<subjectType>:<subjectId>. Read once
+// at start and taken off the address, before an emailed link's own read
+// below drops the query.
+function readOpenFromUrl() {
+  try {
+    var v = new URLSearchParams(window.location.search || "").get("open");
+    if (!v) return null;
+    try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
+    var at = v.indexOf(":");
+    return { subjectType: at === -1 ? v : v.slice(0, at), subjectId: at === -1 ? null : v.slice(at + 1) };
+  } catch (e) { return null; }
+}
+const OPEN_AT_START = readOpenFromUrl();
 const ENTRY = readEntryFromUrl();
 if (ENTRY && ENTRY.token) {
   try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
@@ -1665,6 +1679,29 @@ export default function OCSAStaffPortal() {
   }, [channels, user]);
   // A chat a person picks is the one Chat opens on next time, on this phone.
   const chooseChat = (id) => { setActiveChannel(id); if (user) saveLastChat(user.id, id); };
+  // Opens the place a notice names: a tab, Chat on one chat, or the
+  // announcement sheet. A chat already open is read again.
+  const openPlace = (place) => {
+    if (!place) return;
+    if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
+    setActiveTab(place.tab); setShowMore(false);
+    if (place.tab === "chat" && place.chat) { if (activeChannelRef.current === place.chat) loadMessages(place.chat); else chooseChat(place.chat); }
+  };
+  // The worker tells an open window where a tapped alert points.
+  useEffect(() => {
+    const sw = navigator.serviceWorker;
+    if (!sw || !sw.addEventListener) return undefined;
+    const onMsg = (e) => { const d = e && e.data; if (d && d.type === "ocsa-open" && d.subjectType) setOpenAsk({ subjectType: String(d.subjectType), subjectId: d.subjectId == null ? null : String(d.subjectId) }); };
+    sw.addEventListener("message", onMsg);
+    return () => sw.removeEventListener("message", onMsg);
+  }, []);
+  // The place waits for the portal itself: a person still signing in
+  // lands there once they are in.
+  useEffect(() => {
+    if (!openAsk || booting || screen !== "main" || !token) return;
+    setOpenAsk(null);
+    openPlace(notifPlace(openAsk.subjectType, openAsk.subjectId));
+  }, [openAsk, booting, screen, token]);
   // The list of chats is read once the portal is up, so the Chat tab's
   // count is on the bar before Chat is ever opened, and again each time
   // the app comes back to the front, with the clock status below.
@@ -1796,6 +1833,13 @@ export default function OCSAStaffPortal() {
   const [unread, setUnread] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const unreadWarned = useRef(false);
+  // The announcement open over the portal, by id, from its notice.
+  const [announcementOpen, setAnnouncementOpen] = useState(null);
+  // Where a tap on a phone alert asked the app to open: the address it
+  // was opened with, or a message from the worker to a window already
+  // open. Held until the portal itself is up, then opened once, the same
+  // place the bell would open.
+  const [openAsk, setOpenAsk] = useState(OPEN_AT_START);
 
   // Everything the person who was signed in leaves behind, dropped in
   // one place. Signing out and a session that runs out take this same
@@ -1814,7 +1858,7 @@ export default function OCSAStaffPortal() {
     setAgentConversation(null); setFormsDraft(null);
     setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
     setLookups([]); setLookupsLang(null); toastsRef.current.clear(); setLoading(false);
-    setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false);
+    setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false); setAnnouncementOpen(null); setOpenAsk(null);
     setActiveTab("clock");
     unreadWarned.current = false; prefsLive.current = false; chosenOnEntryRef.current = null;
     tasksAsked.current = null; tasksReqAsked.current = null; inFlightTaskIds.current = new Set();
@@ -2018,9 +2062,13 @@ export default function OCSAStaffPortal() {
           t={t}
           unread={unread}
           onUnreadChanged={setUnread}
-          onOpenTab={(id) => { setActiveTab(id); setShowMore(false); }}
+          onOpen={openPlace}
           onClose={() => { setNotifOpen(false); refreshUnread(); }}
         />
+      )}
+
+      {announcementOpen && (
+        <AnnouncementSheet token={token} id={announcementOpen} t={t} onClose={() => setAnnouncementOpen(null)} />
       )}
 
       {shortcutsOpen && (
@@ -4816,7 +4864,22 @@ const NOTIF_TAB = {
   shift_claim: "pickup",
   issue: "issues",
   issue_escalated: "issues",
+  chat: "chat",
+  chat_mention: "chat",
+  announcement: "announcement",
 };
+// Where a notice opens, from its subject: a tab; Chat on the chat the
+// notice names; or the announcement sheet. The bell and a tap on a phone
+// alert both go through this, so they open the same place. null for a
+// subject the portal has no place for.
+function notifPlace(subjectType, subjectId) {
+  const tab = NOTIF_TAB[subjectType];
+  if (!tab) return null;
+  const id = subjectId === null || subjectId === undefined ? null : String(subjectId);
+  if (tab === "chat") return { tab: "chat", chat: id };
+  if (tab === "announcement") return id ? { announcement: id } : null;
+  return { tab: tab };
+}
 const NOTIF_PAGE = 30;
 
 // "5m", "3h", "2d", and a date once it is older than seven days.
@@ -4843,7 +4906,7 @@ function notifOffOrigin(link) {
   } catch (e) { return false; }
 }
 
-function NotificationsSheet({ token, t, unread, onClose, onOpenTab, onUnreadChanged }) {
+function NotificationsSheet({ token, t, unread, onClose, onOpen, onUnreadChanged }) {
   const [rows, setRows] = useState(null);
   const [failed, setFailed] = useState(false);
   const [more, setMore] = useState(false);
@@ -4890,8 +4953,8 @@ function NotificationsSheet({ token, t, unread, onClose, onOpenTab, onUnreadChan
 
   const openRow = async (row) => {
     await markRead(row);
-    const tab = NOTIF_TAB[row.subjectType];
-    if (tab) { onClose(); onOpenTab(tab); }
+    const place = notifPlace(row.subjectType, row.subjectId);
+    if (place) { onClose(); onOpen(place); }
   };
 
   const wideBtn = { minHeight: 44, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD };
@@ -4917,7 +4980,7 @@ function NotificationsSheet({ token, t, unread, onClose, onOpenTab, onUnreadChan
 
           {(rows || []).map(row => {
             const isUnread = !row.readAt;
-            const hasTab = !!NOTIF_TAB[row.subjectType];
+            const hasTab = !!notifPlace(row.subjectType, row.subjectId);
             const showDashboard = !hasTab && notifOffOrigin(row.link);
             return (
               <div key={row.id} style={{ marginBottom: 6, background: t.card, border: "1px solid " + (isUnread ? t.goldBorder : t.borderSolid), borderRadius: R.md }}>
@@ -4951,6 +5014,67 @@ function NotificationsSheet({ token, t, unread, onClose, onOpenTab, onUnreadChan
 
         <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
           <button onClick={onClose} style={{ ...wideBtn, width: "100%" }}>{tr("Close")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// One announcement from the office, opened from its notice: the title, the
+// body, who sent it and when, in the language on the screen. The API
+// carries both languages; the screen's is drawn, the other when that one
+// is missing.
+const inLanguage = (v) => {
+  if (typeof v === "string") return v;
+  if (!v || typeof v !== "object") return "";
+  const mine = v[wordsLanguage()];
+  if (typeof mine === "string" && mine.trim()) return mine;
+  return typeof v.en === "string" ? v.en : (typeof v.es === "string" ? v.es : "");
+};
+function AnnouncementSheet({ token, id, t, onClose }) {
+  const [row, setRow] = useState(null);
+  const [fault, setFault] = useState(null);
+  const load = useCallback(async () => {
+    setFault(null);
+    try {
+      const d = await api("/api/announcements/" + encodeURIComponent(id), { token });
+      const a = d && d.announcement && typeof d.announcement === "object" ? d.announcement : null;
+      if (!a) throw new Error(ERR_GENERIC);
+      setRow(a);
+    } catch (err) { setFault(tr(err && err.message ? err.message : ERR_GENERIC)); }
+  }, [id, token]);
+  useEffect(() => { load(); }, [load]);
+  const at = row && row.sentAt ? new Date(row.sentAt) : null;
+  const when = at && !isNaN(at.getTime()) ? formatDayShort(at) + ", " + formatTime(at) : null;
+  const from = row && row.sentBy && typeof row.sentBy.name === "string" ? row.sentBy.name.trim() : "";
+  const wideBtn = { minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD };
+  return (
+    <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 410, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div role="dialog" aria-modal="true" aria-labelledby="ocsa-announcement-title" onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, maxHeight: "var(--ocsa-dvh, 100dvh)", display: "flex", flexDirection: "column", borderRadius: R.lg + "px " + R.lg + "px 0 0", border: "1px solid " + t.borderSolid, borderBottom: "none" }}>
+        <div style={{ padding: "14px 16px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0 }}>
+          <div id="ocsa-announcement-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Announcement")}</div>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px" }}>
+          {!row && !fault && <div style={{ padding: "20px 4px", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
+          {!row && fault && (
+            <div style={{ padding: "20px 4px", textAlign: "center" }}>
+              <div role="alert" style={{ fontSize: 14, color: t.textMut, fontFamily: FONT_HEAD, lineHeight: 1.45 }}>{fault}</div>
+              <button type="button" onClick={load} style={{ ...wideBtn, marginTop: 14, borderColor: t.goldBorder, background: t.goldBg, color: t.goldText }}>{tr("Try again")}</button>
+            </div>
+          )}
+          {row && (
+            <div style={{ background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.md, padding: 16 }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{inLanguage(row.title)}</div>
+              <div style={{ fontSize: 14, color: t.text, lineHeight: 1.55, marginTop: 10, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{inLanguage(row.body)}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", marginTop: 14, fontSize: 12, color: t.textMut, fontFamily: FONT_HEAD }}>
+                {from && <span>{tr("From {name}", { name: from })}</span>}
+                {when && <span style={{ fontVariantNumeric: "tabular-nums" }}>{when}</span>}
+              </div>
+            </div>
+          )}
+        </div>
+        <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
+          <button type="button" onClick={onClose} style={{ ...wideBtn, width: "100%" }}>{tr("Close")}</button>
         </div>
       </div>
     </div>

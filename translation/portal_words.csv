@@ -596,6 +596,8 @@ will take the place of the one you pick.,tomará el lugar del que elija.,Shortcu
 Your bar is full.,Su barra está llena.,Shortcuts
 Remove {name} from the bar,Quitar {name} de la barra,Shortcuts
 Load more,Cargar más,Notifications
+Announcement,Anuncio,The announcement sheet opened from a notice
+From {name},De {name},The announcement sheet
 Mark all read,Marcar todas como leídas,Notifications
 Marking...,Marcando...,Notifications
 Nothing yet.,Todavía no hay nada.,Notifications
