@@ -1823,6 +1823,14 @@ export default function OCSAStaffPortal() {
     setActiveTab(place.tab); setShowMore(false);
     if (place.tab === "chat" && place.chat) { if (activeChannelRef.current === place.chat) loadMessages(place.chat); else chooseChat(place.chat); }
   };
+  // Where a tap on a phone alert asked the app to open: the address it
+  // was opened with, or a message from the worker to a window already
+  // open. Held until the portal itself is up, then opened once, the same
+  // place the bell would open. Declared before the two effects below,
+  // since the second reads it on every render: read any later, it threw
+  // before the first screen was drawn and the portal showed only the
+  // last resort.
+  const [openAsk, setOpenAsk] = useState(OPEN_AT_START);
   // The worker tells an open window where a tapped alert points.
   useEffect(() => {
     const sw = navigator.serviceWorker;
@@ -1971,11 +1979,6 @@ export default function OCSAStaffPortal() {
   const unreadWarned = useRef(false);
   // The announcement open over the portal, by id, from its notice.
   const [announcementOpen, setAnnouncementOpen] = useState(null);
-  // Where a tap on a phone alert asked the app to open: the address it
-  // was opened with, or a message from the worker to a window already
-  // open. Held until the portal itself is up, then opened once, the same
-  // place the bell would open.
-  const [openAsk, setOpenAsk] = useState(OPEN_AT_START);
   // The card after the first sign-in: null while it is being decided,
   // the API's public key while it is up, and "done" once it is settled
   // either way. The install sheet waits for done.
