@@ -3,7 +3,7 @@
 // A journey is judged first on what the app sent, which does not move
 // when a word changes, and then on what the screen said.
 
-const { openApp, letSheetOffer, ANDROID, PUSH_ENDPOINT } = require("./browser");
+const { openApp, letSheetOffer, ANDROID, PUSH_KEYS, PUSH_ENDPOINT } = require("./browser");
 const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
 const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
@@ -3913,6 +3913,39 @@ const JOURNEYS = [
         expect("signing out sends the DELETE with this phone's endpoint, under the person's token", !!del && del.body && del.body.endpoint === PUSH_ENDPOINT && del.headers.authorization === "Bearer token-one", del ? JSON.stringify(del.body) + " " + del.headers.authorization : "nothing sent");
         expect("the API no longer holds the endpoint, and the person is signed out", !out.stub.state.push.rows[PUSH_ENDPOINT] && (await out.page.evaluate(() => !document.querySelector(".sp-content"))), JSON.stringify(out.stub.state.push.rows));
       } finally { await out.context.close(); }
+    },
+  },
+  {
+    id: "updatekeepsworker",
+    label: "An update's reload keeps the service worker, and the phone's alerts with it",
+    run: async (open, language, expect) => {
+      const app = await open({ userAgent: ANDROID, push: { permission: "granted", subscribed: true }, buildStamp: "a-newer-build" });
+      try {
+        await app.page.waitForFunction(() => !!(navigator.serviceWorker && navigator.serviceWorker.controller), null, { timeout: 10000 }).catch(() => {});
+        await app.page.evaluate(() => { window.auditBeforeUpdate = true; });
+        // The check runs five seconds after the portal starts; with nothing
+        // underway, the update reloads the portal at once.
+        await Promise.all([
+          app.page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {}),
+          app.page.clock.runFor(5600),
+        ]);
+        await app.page.waitForSelector(".sp-content", { timeout: 20000 }).catch(() => {});
+        await pause(app.page, 1500);
+        const after = await app.page.evaluate(async (keys) => ({
+          reloaded: !window.auditBeforeUpdate,
+          unregistered: Number(window.localStorage.getItem(keys.unregistered) || 0),
+          registered: navigator.serviceWorker ? (await navigator.serviceWorker.getRegistrations()).length : 0,
+          subscription: !!window.localStorage.getItem(keys.sub),
+        }), PUSH_KEYS);
+        expect("the update reloads the portal", after.reloaded, JSON.stringify(after));
+        expect("the update's reload never unregisters the service worker, and it is still there", after.unregistered === 0 && after.registered >= 1, JSON.stringify(after));
+        expect("the phone's subscription is still in place after the reload", after.subscription, JSON.stringify(after));
+        await openTab(app.page, "settings", language);
+        await pause(app.page, 900);
+        await tapWords(app.page, say("Phone alerts", language));
+        await pause(app.page, 1500);
+        expect("Phone alerts still says alerts are on for this phone", has(await bodyText(app.page), spanishOf("Alerts are on for this phone.", language)), (await bodyText(app.page)).slice(0, 200));
+      } finally { await app.context.close(); }
     },
   },
   {
