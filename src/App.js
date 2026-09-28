@@ -5914,6 +5914,15 @@ const FORMS_SAVE_SIGNATURE = "Save signature";
 const formTypeOf = (f) => (f && f.type ? String(f.type) : "");
 
 const formDraftOf = (r) => (r && r.draft ? r.draft : r);
+// The definition a draft is drawn from, when the draft route sends one
+// beside the draft: the version the report was started on, which the
+// catalog's latest published version need not be any more. Read off the
+// reply, then off the draft itself, and null when neither carries
+// fields, which is what every reply before the API's Step 186 does.
+const formOfDraftReply = (r) => {
+  const d = formDraftOf(r);
+  return [r && r.form, d && d.form, d && d.definition].find(x => x && typeof x === "object" && Array.isArray(x.fields)) || null;
+};
 
 // A customer's form, opened from a QR code posted in the building, at
 // /c/<token>, with no sign-in and nothing of the app around it: the
@@ -5999,10 +6008,14 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
   // here is the whole screen's failure; the draft list only
   // decides a label, so a failure there leaves the cards saying
   // Start report and the API resumes the open draft anyway.
+  // The catalog is asked for the forms offered on the portal, so a
+  // form offered only on the dashboard never shows on a phone. An
+  // API that does not read app yet answers with every form, as it
+  // always has.
   const load = useCallback(async () => {
     setLoading(true); setFailed(false);
     try {
-      const c = await api("/api/forms?locale=" + locale, { token });
+      const c = await api("/api/forms?app=portal&locale=" + locale, { token });
       setForms(agentList(c, ["forms"]));
     } catch (err) { setFailed(true); setLoading(false); return; }
     try {
@@ -6020,9 +6033,15 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
 
-  const openOn = useCallback((draft) => {
+  // What is open: the draft, and the definition the draft route sent
+  // beside it, when it sent one. A report is drawn from the version it
+  // was started on, and that version arrives with the draft; the
+  // catalog, which lists the latest published version of each form,
+  // stands in only when no definition came with the draft.
+  const openOn = useCallback((reply) => {
+    const draft = formDraftOf(reply);
     if (!draft || !draft.id || !alive.current) return;
-    setOpen(draft);
+    setOpen({ draft: draft, form: formOfDraftReply(reply) });
   }, []);
 
   // Help hands over a draft id. The catalog has to be in hand
@@ -6038,7 +6057,7 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
     (async () => {
       try {
         const r = await api("/api/forms/drafts/" + encodeURIComponent(openDraft) + "?locale=" + locale, { token });
-        openOn(formDraftOf(r));
+        openOn(r);
       } catch (err) { if (alive.current) showToast(tr(err.message), "error"); }
       onOpenedDraft();
     })();
@@ -6048,7 +6067,7 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
     setStarting(code);
     try {
       const r = await api("/api/forms/" + encodeURIComponent(code) + "/drafts?locale=" + locale, { method: "POST", token });
-      openOn(formDraftOf(r));
+      openOn(r);
     } catch (err) { showToast(tr(err.message), "error"); }
     setStarting(null);
   };
@@ -6061,8 +6080,8 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
   const draftFor = (code) => rows.find(r => String(agentField(r, ["formCode", "form_code"], "")) === String(code)) || null;
 
   if (open) {
-    const form = (forms || []).find(f => String(f.code) === String(open.formCode)) || null;
-    return <FormFiller token={token} t={t} locale={locale} form={form} draft={open} onLeave={() => { setOpen(null); load(); }} />;
+    const form = open.form || (forms || []).find(f => String(f.code) === String(open.draft.formCode)) || null;
+    return <FormFiller token={token} t={t} locale={locale} form={form} draft={open.draft} onLeave={() => { setOpen(null); load(); }} />;
   }
 
   return (
