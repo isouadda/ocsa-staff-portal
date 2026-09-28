@@ -192,7 +192,7 @@ const SHEET_OPENERS = {
     await openTab(page, "schedule", language);
     await page.evaluate(() => {
       const grid = Array.from(document.querySelectorAll(".sp-content div")).find(d => getComputedStyle(d).display === "grid" && d.children.length === 7);
-      const card = grid && Array.from(grid.querySelectorAll("div")).find(d => d.onclick);
+      const card = grid && grid.querySelector("button");
       if (card) card.click();
     });
     await pause(page, 800);

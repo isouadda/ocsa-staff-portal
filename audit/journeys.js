@@ -3876,7 +3876,7 @@ const JOURNEYS = [
         await openTab(app.page, "issuetasks", language);
         await pause(app.page, 900);
         await app.page.evaluate((t) => {
-          const card = Array.from(document.querySelectorAll('.sp-content div[style*="cursor: pointer"]')).find(d => d.textContent.indexOf(t) !== -1);
+          const card = Array.from(document.querySelectorAll(".sp-content button")).find(d => d.textContent.indexOf(t) !== -1);
           if (card) card.click();
         }, "Replace the cracked light cover");
         await pause(app.page, 700);
