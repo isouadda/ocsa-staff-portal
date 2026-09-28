@@ -2337,6 +2337,11 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
     const required = [["firstName", "First Name", fn], ["phone", "Phone Number", ph], ["email", "Email Address", em], ["pin", "PIN", pin], ["pin2", "Confirm PIN", pin2]];
     const empty = required.find(f => !String(f[2]).trim());
     if (empty) { setErrs({ [empty[0]]: tr("Fill in {field}.", { field: tr(empty[1]) }) }); return; }
+    // The same weak PIN rules the activation and reset screens apply,
+    // so a PIN the API would refuse is named here before it is sent.
+    // Nobody registering has a badge number yet.
+    const weak = weakPinReason(pin, null);
+    if (weak) { setErrs({ pin: weak }); return; }
     if (pin !== pin2) { setErrs({ pin2: tr(ERR_PIN_MISMATCH) }); return; }
     setErrs({});
     onRegister(fn, ln, ph, em, pin);
@@ -2354,8 +2359,8 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Last Name")}</label><input value={ln} onChange={e => setLn(e.target.value)} placeholder={tr("Last name")} style={inputSt} /></div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Phone Number *")}</label><input value={ph} onChange={e => setPh(e.target.value)} placeholder={tr("2155550000 (no dashes needed)")} style={inputSt} />{errs.phone && <div style={errSt}>{errs.phone}</div>}</div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Email Address *")}</label><input value={em} onChange={e => setEm(e.target.value)} placeholder={tr("name@email.com")} type="email" style={inputSt} />{errs.email && <div style={errSt}>{errs.email}</div>}</div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("PIN (4 digits) *")}</label><input value={pin} onChange={e => setPin(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
-        <div style={{ marginBottom: 24 }}><label style={labelSt}>{tr("Confirm PIN *")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} type="password" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("PIN (4 digits) *")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={mkPinInput(t)} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
+        <div style={{ marginBottom: 24 }}><label style={labelSt}>{tr("Confirm PIN *")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={mkPinInput(t)} onKeyDown={e => e.key === "Enter" && !loading && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
         <button onClick={submit} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Registering...") : tr("Register")}</button>
         <button onClick={onBack} style={mkGhostBtn(t)}>{tr("Back to Login")}</button>
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><TextSizeButton t={t} /><LanguageButton t={t} /></div>
@@ -4809,7 +4814,7 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
       {reqFormUI}
       {failed && supplies.length === 0 && <ListFault icon={BoxIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} />}
       {loaded && !failed && supplies.length === 0 && <EmptyState icon={BoxIco} text={tr("No supplies are set up for this site.")} t={t} />}
-      {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 600, color: t.textMut, fontFamily: "monospace" }}>{tr("QR")}</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div><div style={{ display: "flex", gap: 6, marginTop: 2, fontSize: 9 }}><span style={{ color: t.textMut }}>{sup.qr_code}</span>{isLow && <span style={{ color: ORANGE, fontWeight: 600 }}>{tr("LOW")}</span>}</div></div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} aria-label={tr("One less")} style={mkTapFrame()}><span style={qtyBtn}><MinusIco sz={14} /></span></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} aria-label={tr("One more")} style={mkTapFrame()}><span style={qtyBtn}><PlusIco sz={14} /></span></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Log Usage")}</button></div>)}</div>); })}
+      {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 600, color: t.textMut, fontFamily: "monospace" }}>{tr("QR")}</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div>{isLow && <div style={{ marginTop: 2, fontSize: 10, color: ORANGE, fontWeight: 600 }}>{tr("LOW")}</div>}</div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} aria-label={tr("One less")} style={mkTapFrame()}><span style={qtyBtn}><MinusIco sz={14} /></span></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} aria-label={tr("One more")} style={mkTapFrame()}><span style={qtyBtn}><PlusIco sz={14} /></span></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Log Usage")}</button></div>)}</div>); })}
       {supplyLogs.length > 0 && (<div style={{ marginTop: 18 }}><label style={{ ...labelSt, display: "block", marginBottom: 8 }}>{tr("This Shift's Log")}</label>{supplyLogs.map((log, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", marginBottom: 3, background: t.hover, borderRadius: R.sm, fontSize: 11 }}><span style={{ fontWeight: 600, color: t.text }}>{log.supply_name || tr("Item")} <span style={{ color: t.textMut, fontWeight: 400 }}>{log.quantity} {log.unit}</span></span><span style={{ color: t.textMut, fontSize: 9 }}>{formatTime(log.loggedAt || log.scanned_at)}</span></div>))}</div>)}
     </div>
   );
@@ -5940,8 +5945,10 @@ function CustomerFormScreen({ token, t, themeMode }) {
   const company = (got.data && got.data.company) || {};
   const site = (got.data && got.data.site) || {};
   const logo = company.logoUrl || LOGO_SM;
-  // The logo, the company and the site, with the language choice beside
-  // them everywhere but on the thank-you, which has nothing left to tap.
+  // The logo, the company and the site, with the language choice and the
+  // text size beside them everywhere but on the thank-you, which has
+  // nothing left to tap. The text size is the same pill the sign-in
+  // screen offers, kept on this phone.
   const headOf = (withPicker) => (
     <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 160px", minWidth: 0 }}>
@@ -5953,7 +5960,7 @@ function CustomerFormScreen({ token, t, themeMode }) {
           {site.name && <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.4, overflowWrap: "anywhere" }}>{site.name}</div>}
         </div>
       </div>
-      {withPicker && <div style={{ flex: "1 1 180px", maxWidth: 260 }}><LangPicker value={locale} onChange={setLanguage} t={t} /></div>}
+      {withPicker && <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 220px", maxWidth: 360 }}><div style={{ flex: 1, minWidth: 140 }}><LangPicker value={locale} onChange={setLanguage} t={t} /></div><TextSizeButton t={t} /></div>}
     </div>
   );
   const head = headOf(true);
@@ -7292,6 +7299,33 @@ function InspectView({ token, user, showToast, t }) {
   const [schedForm, setSchedForm] = useState({ template_id: "", site_id: "", scheduled_date: "" });
   const [scheduling, setScheduling] = useState(false);
   useBusy("inspection in progress", !!active || !!sent || uploadingId !== null || submitting || scheduling);
+  // Which cards have been scored (the slider moved, or Not due yet
+  // tapped), the card touched last, and whether the scored group is
+  // open. Scored cards fold into one group under the rest, so a long
+  // inspection stays a short page; the card touched last stays out of
+  // the fold, so it never leaves from under a finger.
+  const [scoredIds, setScoredIds] = useState({});
+  const [lastTouched, setLastTouched] = useState(null);
+  const [showScored, setShowScored] = useState(false);
+  const touch = (id) => { setScoredIds(prev => prev[id] ? prev : { ...prev, [id]: true }); setLastTouched(id); };
+
+  // + Schedule follows the capability the API enforces on the schedule
+  // route, read once when the tab opens, so nobody is shown a button the
+  // API refuses. While the permissions route answers 404 the role
+  // decides, the way it did before Step 179. Until either answers the
+  // button waits.
+  const isManager = user?.role === "admin" || user?.role === "supervisor" || user?.role === "custodial_lead";
+  const [canSchedule, setCanSchedule] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const p = await api("/api/users/me/permissions", { token });
+        if (alive) setCanSchedule(!!(p && p.capabilities && p.capabilities.manage_inspections === true));
+      } catch (e) { if (alive && e && e.status === 404) setCanSchedule(isManager); }
+    })();
+    return () => { alive = false; };
+  }, [token]);
 
   const loadList = async () => {
     setLoading(true);
@@ -7346,6 +7380,7 @@ function InspectView({ token, user, showToast, t }) {
       setNeedsFix({});
       setMissingNote({});
       notDueBefore.current = {};
+      setScoredIds({}); setLastTouched(null); setShowScored(false);
     } catch (e) { showToast(tr(e.message), "error"); }
   };
 
@@ -7357,6 +7392,7 @@ function InspectView({ token, user, showToast, t }) {
   const toggleNotDue = (item) => {
     const id = item.id;
     const note = notes[id] || "";
+    touch(id);
     if (notDueOn(item)) {
       const back = notDueBefore.current[id];
       setScores(prev => ({ ...prev, [id]: back === undefined ? 0 : back }));
@@ -7433,8 +7469,13 @@ function InspectView({ token, user, showToast, t }) {
       unsaid.forEach(item => { flags[item.id] = true; });
       setMissingNote(flags);
       showToast(tr("Say what needs fixing"), "error");
-      const card = document.querySelector('[data-inspect-item="' + unsaid[0].id + '"]');
-      if (card && card.scrollIntoView) card.scrollIntoView({ block: "center" });
+      // The card may sit in the fold, so the fold opens first and the
+      // scroll waits for it to be drawn.
+      setShowScored(true);
+      setTimeout(() => {
+        const card = document.querySelector('[data-inspect-item="' + unsaid[0].id + '"]');
+        if (card && card.scrollIntoView) card.scrollIntoView({ block: "center" });
+      }, 0);
       return;
     }
     setSubmitting(true);
@@ -7466,7 +7507,6 @@ function InspectView({ token, user, showToast, t }) {
 
   const labelSt = mkLabel(t);
   const inputSt = mkInput(t);
-  const isManager = user?.role === "admin" || user?.role === "supervisor" || user?.role === "custodial_lead";
 
   // SCORING VIEW
   if (active) {
@@ -7474,6 +7514,53 @@ function InspectView({ token, user, showToast, t }) {
     const totalScored = (active.items || []).reduce((sum, i) => sum + (parseInt(scores[i.id]) || 0), 0);
     const pct = totalMax > 0 ? Math.round((totalScored / totalMax) * 100) : 0;
     const scoreColor = pct >= 80 ? GREEN : pct >= 60 ? ORANGE : RED;
+    // The cards still to score, in the template's order, with the card
+    // touched last among them; every other scored card sits in the fold.
+    const items = active.items || [];
+    const inFold = (item) => !!scoredIds[item.id] && item.id !== lastTouched;
+    const openItems = items.filter(item => !inFold(item));
+    const foldedItems = items.filter(inFold);
+    // One card, drawn the same way in the open list and in the fold.
+    const itemCard = (item) => {
+      const sc = parseInt(scores[item.id]) || 0;
+      const iPct = item.max_score > 0 ? Math.round((sc / item.max_score) * 100) : 0;
+      const iColor = iPct >= 80 ? GREEN : iPct >= 60 ? ORANGE : RED;
+      const notDue = notDueOn(item);
+      const fix = !!needsFix[item.id];
+      return (
+        <div key={item.id} data-inspect-item={item.id} style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "14px 14px 12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: t.text, lineHeight: 1.3, fontFamily: FONT_HEAD }}>{item.label}</div>
+              <div style={{ fontSize: 10, color: t.textMut }}>{item.zone}</div>
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: iColor, minWidth: 36, textAlign: "right", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{sc}<span style={{ fontSize: 10, color: t.textMut, fontWeight: 400 }}>/{item.max_score}</span></div>
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <input type="range" min={0} max={item.max_score} value={sc} onChange={e => { const v = parseInt(e.target.value); setScores(prev => ({ ...prev, [item.id]: v })); touch(item.id); }} style={{ width: "100%", height: TAP, margin: 0, accentColor: iColor }} />
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: t.textMut, marginTop: 2 }}><span>0</span><span>{item.max_score}</span></div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+            <button type="button" aria-pressed={notDue} onClick={() => toggleNotDue(item)} style={{ minHeight: TAP, minWidth: TAP, padding: "0 14px", borderRadius: R.md, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD, background: notDue ? t.goldBg : t.card, border: notDue ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text }}>{tr("Not due yet")}</button>
+            <button type="button" role="switch" aria-checked={fix} onClick={() => toggleNeedsFix(item.id)} style={{ display: "inline-flex", alignItems: "center", gap: 8, minHeight: TAP, minWidth: TAP, padding: "0 6px", background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, textAlign: "left" }}>
+              <span aria-hidden="true" style={{ width: 34, height: 20, borderRadius: 10, flexShrink: 0, position: "relative", background: fix ? GOLD : t.borderSolid, transition: "background 0.15s" }}>
+                <span style={{ position: "absolute", top: 2, left: fix ? 16 : 2, width: 16, height: 16, borderRadius: 8, background: fix ? NAVY : t.card, transition: "left 0.15s" }} />
+              </span>
+              {tr("Needs a fix")}
+            </button>
+          </div>
+          <input value={notes[item.id] || ""} onChange={e => { const v = e.target.value; setNotes(prev => ({ ...prev, [item.id]: v })); if (missingNote[item.id] && v.trim()) setMissingNote(prev => ({ ...prev, [item.id]: false })); }} placeholder={fix ? tr("Say what needs fixing") : tr("Notes for this item (optional)")} aria-invalid={!!missingNote[item.id]} style={{ ...inputSt, fontSize: 12, marginBottom: 8, ...(missingNote[item.id] ? { border: "1px solid " + RED } : {}) }} />
+          {missingNote[item.id] && <div style={{ ...mkFieldErr(t), marginTop: -2, marginBottom: 8 }}>{tr("Say what needs fixing")}</div>}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, minHeight: TAP, padding: "5px 10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", fontSize: 11, color: t.textSec }}>
+              <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files[0] && handlePhotoUpload(item.id, e.target.files[0])} />
+              {uploadingId === item.id ? tr("Uploading...") : tr("Attach Photo")}
+            </label>
+            {uploaded[item.id] && <span style={{ fontSize: 10, color: GREEN, fontWeight: 600 }}>{tr("Photo attached")}</span>}
+          </div>
+        </div>
+      );
+    };
 
     return (
       <div style={{ padding: "14px 16px 100px" }}>
@@ -7494,46 +7581,14 @@ function InspectView({ token, user, showToast, t }) {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
-          {(active.items || []).map(item => {
-            const sc = parseInt(scores[item.id]) || 0;
-            const iPct = item.max_score > 0 ? Math.round((sc / item.max_score) * 100) : 0;
-            const iColor = iPct >= 80 ? GREEN : iPct >= 60 ? ORANGE : RED;
-            const notDue = notDueOn(item);
-            const fix = !!needsFix[item.id];
-            return (
-              <div key={item.id} data-inspect-item={item.id} style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "14px 14px 12px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: t.text, lineHeight: 1.3, fontFamily: FONT_HEAD }}>{item.label}</div>
-                    <div style={{ fontSize: 10, color: t.textMut }}>{item.zone}</div>
-                  </div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: iColor, minWidth: 36, textAlign: "right", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{sc}<span style={{ fontSize: 10, color: t.textMut, fontWeight: 400 }}>/{item.max_score}</span></div>
-                </div>
-                <div style={{ marginBottom: 8 }}>
-                  <input type="range" min={0} max={item.max_score} value={sc} onChange={e => setScores(prev => ({ ...prev, [item.id]: parseInt(e.target.value) }))} style={{ width: "100%", height: TAP, margin: 0, accentColor: iColor }} />
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: t.textMut, marginTop: 2 }}><span>0</span><span>{item.max_score}</span></div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
-                  <button type="button" aria-pressed={notDue} onClick={() => toggleNotDue(item)} style={{ minHeight: TAP, minWidth: TAP, padding: "0 14px", borderRadius: R.md, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD, background: notDue ? t.goldBg : t.card, border: notDue ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text }}>{tr("Not due yet")}</button>
-                  <button type="button" role="switch" aria-checked={fix} onClick={() => toggleNeedsFix(item.id)} style={{ display: "inline-flex", alignItems: "center", gap: 8, minHeight: TAP, minWidth: TAP, padding: "0 6px", background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, textAlign: "left" }}>
-                    <span aria-hidden="true" style={{ width: 34, height: 20, borderRadius: 10, flexShrink: 0, position: "relative", background: fix ? GOLD : t.borderSolid, transition: "background 0.15s" }}>
-                      <span style={{ position: "absolute", top: 2, left: fix ? 16 : 2, width: 16, height: 16, borderRadius: 8, background: fix ? NAVY : t.card, transition: "left 0.15s" }} />
-                    </span>
-                    {tr("Needs a fix")}
-                  </button>
-                </div>
-                <input value={notes[item.id] || ""} onChange={e => { const v = e.target.value; setNotes(prev => ({ ...prev, [item.id]: v })); if (missingNote[item.id] && v.trim()) setMissingNote(prev => ({ ...prev, [item.id]: false })); }} placeholder={fix ? tr("Say what needs fixing") : tr("Notes for this item (optional)")} aria-invalid={!!missingNote[item.id]} style={{ ...inputSt, fontSize: 12, marginBottom: 8, ...(missingNote[item.id] ? { border: "1px solid " + RED } : {}) }} />
-                {missingNote[item.id] && <div style={{ ...mkFieldErr(t), marginTop: -2, marginBottom: 8 }}>{tr("Say what needs fixing")}</div>}
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, minHeight: TAP, padding: "5px 10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", fontSize: 11, color: t.textSec }}>
-                    <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files[0] && handlePhotoUpload(item.id, e.target.files[0])} />
-                    {uploadingId === item.id ? tr("Uploading...") : tr("Attach Photo")}
-                  </label>
-                  {uploaded[item.id] && <span style={{ fontSize: 10, color: GREEN, fontWeight: 600 }}>{tr("Photo attached")}</span>}
-                </div>
-              </div>
-            );
-          })}
+          {openItems.map(itemCard)}
+          {foldedItems.length > 0 && (
+            <div style={{ background: t.cardAlt, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "12px 14px" }}>
+              <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: showScored ? 10 : 8 }}>{tr("Scored")}</div>
+              {!showScored && <button type="button" onClick={() => setShowScored(true)} style={{ minHeight: TAP, padding: "0 14px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.card, color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Show {0} scored items", { 0: foldedItems.length })}</button>}
+              {showScored && <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{foldedItems.map(itemCard)}</div>}
+            </div>
+          )}
         </div>
 
         <div style={{ marginBottom: 16 }}>
@@ -7584,7 +7639,7 @@ function InspectView({ token, user, showToast, t }) {
           <div style={{ fontSize: 15, fontWeight: 600, color: t.text, marginBottom: 2, fontFamily: FONT_HEAD }}>{tr("My Inspections")}</div>
           <div style={{ fontSize: 11, color: t.textSec }}>{tr("Tap an inspection to begin scoring.")}</div>
         </div>
-        {isManager && (
+        {canSchedule === true && (
           <button onClick={openScheduleModal} style={{ minHeight: TAP, padding: "8px 14px", borderRadius: R.sm, border: "none", background: GOLD, color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0, fontFamily: FONT_HEAD }}>
             {tr("+ Schedule")}
           </button>
