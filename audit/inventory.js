@@ -101,6 +101,8 @@ const SCREEN_CASES = [
   { id: "settings", kind: "tab", label: "Settings" },
   { id: "forms", kind: "tab", label: "Forms" },
   { id: "profile", kind: "tab", label: "Profile" },
+  // Reached from its row in Settings.
+  { id: "phonealerts", kind: "tab", label: "Phone alerts" },
 ];
 
 // One case per sheet, keyed by what discoverSheets finds.
@@ -119,6 +121,7 @@ const SHEET_CASES = [
   { id: "FormFiller#2", label: "Report, sign it" },
   { id: "InspectView#0", label: "Inspect, schedule one" },
   { id: "HomeScreenPrompt#0", label: "Add to home screen" },
+  { id: "OCSAStaffPortal#1", label: "Phone alerts, the card after the first sign-in" },
   { id: "ChatView#0", label: "Chat, tag someone" },
   { id: "AnnouncementSheet#0", label: "An announcement" },
 ];

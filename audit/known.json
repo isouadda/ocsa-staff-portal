@@ -138,6 +138,13 @@
       "why": "Red on the dark theme's card, on the control that withdraws or removes. 4.13 to 1 against the 4.5 to 1 this text needs."
     },
     {
+      "where": "Phone alerts",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
+    },
+    {
       "where": "Pickup",
       "theme": "dark",
       "check": "contrast",

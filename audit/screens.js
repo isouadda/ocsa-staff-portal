@@ -3,7 +3,7 @@
 // covered; this says how each one is reached and puts it through the
 // checks.
 
-const { openApp, letSheetOffer } = require("./browser");
+const { openApp, letSheetOffer, ANDROID } = require("./browser");
 const { INSPECT, rowsFrom } = require("./checks");
 const { LEAKABLE, SPANISH, SPANISH_PATTERNS, say } = require("./words");
 const { SCREEN_CASES, SHEET_CASES } = require("./inventory");
@@ -122,7 +122,19 @@ const TAB_LABEL = {
 const pause = (page, ms) => page.waitForTimeout(ms || 500);
 
 // The bar carries Home and four shortcuts; everything else is under More.
+// Phone alerts is its own screen under Settings, reached from its row.
 async function openTab(page, tabId, language) {
+  if (tabId === "phonealerts") {
+    const settings = await openTab(page, "settings", language);
+    await pause(page, 900);
+    const row = await page.evaluate((want) => {
+      const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.replace(/\s+/g, " ").trim() === want);
+      if (b) b.click();
+      return !!b;
+    }, say("Phone alerts", language));
+    await pause(page, 1200);
+    return settings && row;
+  }
   if (tabId === "profile") {
     await page.evaluate(() => {
       const content = document.querySelector(".sp-content");
@@ -250,6 +262,9 @@ const SHEET_OPENERS = {
     await clickText(page, say("+ Schedule", language));
   },
   "HomeScreenPrompt#0": async (page) => { await letSheetOffer(page); },
+  // The card asks by itself, once the portal is up, on a phone that can
+  // take alerts and has decided nothing (see SHEET_PHONES).
+  "OCSAStaffPortal#1": async (page) => { await pause(page, 1500); },
   // Tag someone, from its button in a site chat.
   "ChatView#0": async (page, language) => {
     await openTab(page, "chat", language);
@@ -268,6 +283,9 @@ const SHEET_OPENERS = {
 };
 // The phone a sheet needs, where it differs from the one every case opens.
 const SHEET_PHONES = {
+  // The alerts card asks only on a phone that can take alerts and has
+  // decided nothing.
+  "OCSAStaffPortal#1": { userAgent: ANDROID, push: { permission: "default" } },
   // The announcement is opened from the address.
   "AnnouncementSheet#0": { path: "/?open=announcement:" + ANNOUNCEMENT.id },
 };

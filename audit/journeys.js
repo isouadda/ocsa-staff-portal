@@ -3,7 +3,7 @@
 // A journey is judged first on what the app sent, which does not move
 // when a word changes, and then on what the screen said.
 
-const { openApp, letSheetOffer } = require("./browser");
+const { openApp, letSheetOffer, ANDROID, PUSH_ENDPOINT } = require("./browser");
 const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
 const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
@@ -3772,6 +3772,147 @@ const JOURNEYS = [
         const reads = sent(fresh.stub, "GET", "/api/announcements/" + ANNOUNCEMENT.id).length;
         expect("it never opens twice", !(await sheetUp(fresh.page)) && reads === 1, reads + " reads, sheet " + (await sheetUp(fresh.page)));
       } finally { await fresh.context.close(); }
+    },
+  },
+  {
+    id: "phonealerts",
+    label: "Phone alerts: the Settings row only where the API has the route, the phone part only with a key, each of the five phone lines by permission and phone, a save turned away put back with its line, the card once and never after Not now, and signing out that takes this phone off first",
+    run: async (open, language, expect) => {
+      const row = (page) => hasButton(page, say("Phone alerts", language));
+      const openAlerts = async (page) => {
+        await openTab(page, "settings", language);
+        await pause(page, 900);
+        await tapWords(page, say("Phone alerts", language));
+        await pause(page, 1500);
+      };
+      const cardUp = (page) => page.evaluate(() => !!document.getElementById("ocsa-alerts-card-title"));
+      const LINES = {
+        ios: "On an iPhone, add the app to your Home Screen first, then open it from there to turn on alerts.",
+        unsupported: "This phone cannot receive alerts.",
+        denied: "This phone blocked alerts for this app. Turn them on in the phone's settings.",
+        on: "Alerts are on for this phone.",
+      };
+      const phoneSays = async (page) => {
+        const text = await bodyText(page);
+        return Object.keys(LINES).filter(k => has(text, spanishOf(LINES[k], language)));
+      };
+
+      // The row: hidden while the settings route answers 404, shown once
+      // it answers.
+      const noRoute = await open({ stubOptions: { alertSettings: null } });
+      try {
+        await openTab(noRoute.page, "settings", language);
+        await pause(noRoute.page, 1000);
+        expect("the Phone alerts row is hidden while the settings route answers 404", !(await row(noRoute.page)), "the row is there");
+      } finally { await noRoute.context.close(); }
+
+      // Each of the five phone lines, by the permission and the phone: an
+      // iPhone browser tab, a browser with no Push API, alerts blocked,
+      // alerts on, and nothing decided yet, which offers Turn on.
+      const PHONES = [
+        { what: "an iPhone browser tab", open: { push: { permission: "default" } }, says: ["ios"] },
+        { what: "a browser with no Push API", open: { userAgent: ANDROID, push: { supported: false } }, says: ["unsupported"] },
+        { what: "alerts blocked", open: { userAgent: ANDROID, push: { permission: "denied" } }, says: ["denied"] },
+        { what: "alerts on", open: { userAgent: ANDROID, push: { permission: "granted", subscribed: true } }, says: ["on"], button: "Turn off on this phone" },
+        { what: "nothing decided", open: { userAgent: ANDROID, push: { permission: "default" } }, says: [], button: "Turn on alerts on this phone", card: true },
+      ];
+      for (const p of PHONES) {
+        const app = await open(p.open);
+        try {
+          await pause(app.page, 1500);
+          // Nothing decided on an Android phone is where the card asks.
+          if (p.card) {
+            expect("on a phone that has decided nothing, the card asks after the first sign-in", await cardUp(app.page), "no card");
+            await tapInSheet(app.page, say("Not now", language));
+          }
+          await openTab(app.page, "settings", language);
+          await pause(app.page, 900);
+          expect(p.what + ": the Phone alerts row is there once the settings route answers", await row(app.page), "no row");
+          await openAlerts(app.page);
+          const said = await phoneSays(app.page);
+          expect(p.what + ": the phone part says " + (p.says.length ? JSON.stringify(LINES[p.says[0]]) : "nothing") + " and nothing else", JSON.stringify(said) === JSON.stringify(p.says), JSON.stringify(said));
+          if (p.button) expect(p.what + ": the phone part offers " + p.button, await hasButton(app.page, say(p.button, language)), (await bodyText(app.page)).slice(0, 200));
+          await spokenHere(app, language, expect);
+          if (p.card) {
+            // Turn on asks the browser from the tap, subscribes, and tells
+            // the API; the part then says alerts are on.
+            await tapWords(app.page, say("Turn on alerts on this phone", language));
+            await pause(app.page, 1500);
+            const posted = lastSent(app.stub, "POST", "/api/push/subscriptions");
+            expect("Turn on subscribes and tells the API this phone's endpoint", !!posted && posted.body.endpoint === PUSH_ENDPOINT && !!posted.body.keys && !!posted.body.keys.p256dh, posted ? JSON.stringify(posted.body).slice(0, 160) : "nothing sent");
+            expect("once turned on, the phone part says so", JSON.stringify(await phoneSays(app.page)) === JSON.stringify(["on"]), JSON.stringify(await phoneSays(app.page)));
+          }
+        } finally { await app.context.close(); }
+      }
+
+      // The phone part is hidden while the API has no key; the settings
+      // part is still there.
+      const noKey = await open({ userAgent: ANDROID, push: { permission: "granted", subscribed: true }, stubOptions: { pushKey: null } });
+      try {
+        await pause(noKey.page, 1200);
+        await openAlerts(noKey.page);
+        const text = await bodyText(noKey.page);
+        expect("with no key, the phone part is hidden and the settings are there", (await phoneSays(noKey.page)).length === 0 && !has(text, spanishOf("Turn off on this phone", language)) && has(text, spanishOf("Chat messages", language)), text.slice(0, 220));
+      } finally { await noKey.context.close(); }
+
+      // A save the API turns away puts the choice back and says so under
+      // the control, for the chat choice and for a switch.
+      const saves = await open({});
+      try {
+        await openAlerts(saves.page);
+        const checked = (page) => page.evaluate(() => ({
+          chat: Array.from(document.querySelectorAll('.sp-content [role="radio"]')).filter(b => b.getAttribute("aria-checked") === "true").map(b => b.innerText.trim()),
+          switches: Array.from(document.querySelectorAll('.sp-content [role="switch"]')).map(b => b.getAttribute("aria-checked")),
+        }));
+        const faults = (page) => page.evaluate((line) => Array.from(document.querySelectorAll('.sp-content [role="alert"]')).filter(a => a.textContent.trim() === line).length, spanishOf("Your settings did not save.", language));
+        saves.stub.state.refuse["PATCH /api/notifications/settings"] = { status: 400, once: true, body: { error: "Send chat as all, mentions or off, and schedule, pickups, supplies, issues or forms as true or false", code: "notifications.badSetting", keys: ["chat"] } };
+        await tapWords(saves.page, spanishOf("Only when I'm tagged", language));
+        await pause(saves.page, 900);
+        const afterChat = await checked(saves.page);
+        expect("a chat choice turned away is put back", JSON.stringify(afterChat.chat) === JSON.stringify([spanishOf("Every message", language)]), JSON.stringify(afterChat));
+        expect("the line says it did not save, under the chat choice", (await faults(saves.page)) === 1, (await faults(saves.page)) + " lines");
+        saves.stub.state.refuse["PATCH /api/notifications/settings"] = { status: 400, once: true, body: { error: "Send chat as all, mentions or off, and schedule, pickups, supplies, issues or forms as true or false", code: "notifications.badSetting", keys: ["supplies"] } };
+        await tapWords(saves.page, spanishOf("Supply requests", language));
+        await pause(saves.page, 900);
+        const afterSwitch = await checked(saves.page);
+        expect("a switch turned away is put back on", afterSwitch.switches.every(v => v === "true") && afterSwitch.switches.length === 5, JSON.stringify(afterSwitch));
+        await tapWords(saves.page, spanishOf("Only when I'm tagged", language));
+        await pause(saves.page, 900);
+        expect("a save that goes through is kept, on the screen and on the API", JSON.stringify((await checked(saves.page)).chat) === JSON.stringify([spanishOf("Only when I'm tagged", language)]) && saves.stub.state.push.settings.chat === "mentions", JSON.stringify(await checked(saves.page)) + " " + JSON.stringify(saves.stub.state.push.settings));
+        await spokenHere(saves, language, expect);
+      } finally { await saves.context.close(); }
+
+      // The card after the first sign-in: once, and never again after Not now.
+      const card = await open({ userAgent: ANDROID, push: { permission: "default" } });
+      try {
+        await pause(card.page, 1500);
+        expect("the card asks once the portal is up", await cardUp(card.page), "no card");
+        await spokenHere(card, language, expect);
+        await tapInSheet(card.page, say("Not now", language));
+        expect("Not now takes the card away", !(await cardUp(card.page)), "still up");
+        await card.page.reload({ waitUntil: "domcontentloaded" });
+        await card.page.waitForSelector(".sp-content", { timeout: 20000 }).catch(() => {});
+        await pause(card.page, 2000);
+        expect("after Not now the card never comes back", !(await cardUp(card.page)), "the card is back");
+        expect("Not now asks nothing of the browser and posts nothing", sent(card.stub, "POST", "/api/push/subscriptions").length === 0, sent(card.stub, "POST", "/api/push/subscriptions").length + " posted");
+      } finally { await card.context.close(); }
+
+      // Signing out takes this phone's subscription off the API before the
+      // token is forgotten.
+      const out = await open({ userAgent: ANDROID, push: { permission: "granted", subscribed: true } });
+      try {
+        await pause(out.page, 1500);
+        await out.page.evaluate(() => {
+          const content = document.querySelector(".sp-content");
+          const buttons = Array.from(document.querySelectorAll("button")).filter(x => content && (x.compareDocumentPosition(content) & Node.DOCUMENT_POSITION_FOLLOWING));
+          const last = buttons[buttons.length - 1];
+          if (last) last.click();
+        });
+        await pause(out.page, 1500);
+        const del = lastSent(out.stub, "DELETE", "/api/push/subscriptions");
+        expect("signing out sends the DELETE with this phone's endpoint, under the person's token", !!del && del.body && del.body.endpoint === PUSH_ENDPOINT && del.headers.authorization === "Bearer token-one", del ? JSON.stringify(del.body) + " " + del.headers.authorization : "nothing sent");
+        expect("the API no longer holds the endpoint, and the person is signed out", !out.stub.state.push.rows[PUSH_ENDPOINT] && (await out.page.evaluate(() => !document.querySelector(".sp-content"))), JSON.stringify(out.stub.state.push.rows));
+      } finally { await out.context.close(); }
     },
   },
   {

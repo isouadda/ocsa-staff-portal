@@ -462,6 +462,15 @@ function makeState(opts) {
     myPickups: o.myPickups || [],
     // The announcements the office has sent.
     announcements: o.announcements || [ANNOUNCEMENT],
+    // Phone alerts. key is the server's public key, null when it has none,
+    // and "missing" for an API with no key route yet. settings is null for
+    // an API whose settings route is not there yet, which answers 404.
+    // rows holds each endpoint the API keeps and whose it is.
+    push: {
+      key: o.pushKey === undefined ? PUSH_KEY : o.pushKey,
+      settings: o.alertSettings === null ? null : Object.assign({}, ALERT_DEFAULTS, o.alertSettings || {}),
+      rows: Object.assign({}, o.pushRows || {}),
+    },
     conversationId: "cv-one",
     // Help: what the next question is answered with, the points the one
     // being answered can be stopped at, and the conversation as the API
@@ -1094,6 +1103,27 @@ const ANNOUNCEMENT = {
 };
 const ANNOUNCEMENT_NOT_FOUND = ["Announcement not found", "No se encontr\u00f3 el anuncio"];
 
+// --- phone alerts, Step 179 in the API ----------------------------------
+//
+// GET /api/push/key answers the server's public key, or null when it has
+// none, and the apps then offer nothing. POST /api/push/subscriptions
+// takes an endpoint, which must be https, and its p256dh and auth keys,
+// and files the endpoint under the caller: the same endpoint sent again
+// moves to whoever sends it. DELETE takes the caller's own endpoint off,
+// and answers ok whether or not it was there. The settings are the chat
+// choice and five switches, each read with its default when unset, and a
+// PATCH writes only the keys it carries and refuses the whole body when
+// any key is wrong. The key is invented, 87 characters of base64url the
+// way a real one is, so the browser can read it as 65 bytes.
+const PUSH_KEY = "BInventedPublicKeyForTheAuditOnly000000000000000000000000000000000000000000000000000000";
+const ALERT_DEFAULTS = { chat: "all", schedule: true, pickups: true, supplies: true, issues: true, forms: true };
+const ALERT_SWITCHES = ["schedule", "pickups", "supplies", "issues", "forms"];
+const ALERT_CHAT = ["all", "mentions", "off"];
+const PUSH_REFUSALS = {
+  "notifications.badSetting": { status: 400, en: "Send chat as all, mentions or off, and schedule, pickups, supplies, issues or forms as true or false", es: "Env\u00ede chat como all, mentions u off, y schedule, pickups, supplies, issues o forms como true o false" },
+  "push.badSubscription": { status: 400, en: "Send the subscription's endpoint and its p256dh and auth keys", es: "Env\u00ede el endpoint de la suscripci\u00f3n y sus claves p256dh y auth" },
+};
+
 // A chat's messages as the API keeps them, oldest first. Every text is
 // invented. oddRows adds rows missing a name, a time, or both.
 // tagged adds two messages to the site chat that tag people, one of them
@@ -1340,6 +1370,9 @@ const TWIN_PAIRS = [
     ["New messages in North Building", "Mensajes nuevos en North Building"],
     ["Sam Second tagged you in North Building", "Sam Second lo etiquet\u00f3 en North Building"],
     ["An announcement from the office", "Un anuncio de la oficina"]])
+  // Phone alerts' two refusals, which the portal answers with a line of
+  // its own and never draws.
+  .concat(Object.keys(PUSH_REFUSALS).map(k => [PUSH_REFUSALS[k].en, PUSH_REFUSALS[k].es]))
   // The form with titled sections, written in both languages above.
   .concat(Object.keys(FORM_S_WORDS.en).map(k => [FORM_S_WORDS.en[k], FORM_S_WORDS.es[k]]))
   // The customer's two forms, written in both languages above.
@@ -2329,6 +2362,38 @@ function createStub(opts) {
       const found = state.announcements.find(a => a.id === decodeURIComponent(announcementOne[1]));
       if (!found) return json(404, { error: ANNOUNCEMENT_NOT_FOUND[languageOf(search, state) === "es" ? 1 : 0], code: "announcements.notFound" });
       return json(200, { announcement: JSON.parse(JSON.stringify(found)) });
+    }
+
+    // --- phone alerts, Step 179 in the API
+    if (key === "GET /api/push/key") {
+      if (state.push.key === "missing") return json(404, { error: "Endpoint not found" });
+      return json(200, { publicKey: state.push.key });
+    }
+    if (key === "POST /api/push/subscriptions" || key === "DELETE /api/push/subscriptions") {
+      const b = body && typeof body === "object" ? body : {};
+      const endpoint = typeof b.endpoint === "string" && /^https:\/\//i.test(b.endpoint.trim()) ? b.endpoint.trim() : null;
+      const bad = () => { const r = PUSH_REFUSALS["push.badSubscription"]; return json(r.status, { error: refusalIn(r, languageOf(search, state)), code: "push.badSubscription" }); };
+      if (method === "POST") {
+        const keys = b.keys && typeof b.keys === "object" ? b.keys : {};
+        if (!endpoint || !keys.p256dh || !keys.auth) return bad();
+        state.push.rows[endpoint] = state.person.id;
+        return json(201, { ok: true });
+      }
+      if (!endpoint) return bad();
+      if (state.push.rows[endpoint] === state.person.id) delete state.push.rows[endpoint];
+      return json(200, { ok: true });
+    }
+    if (key === "GET /api/notifications/settings" || key === "PATCH /api/notifications/settings") {
+      if (state.push.settings === null) return json(404, { error: "Endpoint not found" });
+      if (method === "GET") return json(200, Object.assign({}, state.push.settings));
+      const b = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+      const wrong = Object.keys(b).filter(k => !(k === "chat" ? ALERT_CHAT.indexOf(b[k]) !== -1 : ALERT_SWITCHES.indexOf(k) !== -1 && typeof b[k] === "boolean"));
+      if (wrong.length > 0 || Object.keys(b).length === 0) {
+        const r = PUSH_REFUSALS["notifications.badSetting"];
+        return json(r.status, { error: refusalIn(r, languageOf(search, state)), code: "notifications.badSetting", keys: wrong.length ? wrong : ["chat"].concat(ALERT_SWITCHES) });
+      }
+      Object.assign(state.push.settings, b);
+      return json(200, Object.assign({}, state.push.settings));
     }
 
     // --- the bell
