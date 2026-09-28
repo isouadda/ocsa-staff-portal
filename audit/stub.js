@@ -458,6 +458,8 @@ function makeState(opts) {
     // A due date on the assigned task, as the API sends one, when a case
     // gives it: a DATE column reaches JSON as that day at midnight UTC.
     assignedDue: o.assignedDue || null,
+    // The open shifts this person has claimed, none unless a case says.
+    myPickups: o.myPickups || [],
     conversationId: "cv-one",
     // Help: what the next question is answered with, the points the one
     // being answered can be stopped at, and the conversation as the API
@@ -1831,7 +1833,7 @@ function createStub(opts) {
       { id: "pk-4", scheduled_date: "2026-10-11", start_time: "08:00", end_time: "12:00", site_name: "South Building", origin: "extra_coverage", service_category: "Day porter" },
       { id: "pk-5", scheduled_date: "2026-10-12", start_time: "14:00", end_time: "18:00", site_name: "North Building", origin: "new_shift", service_category: "Day porter" },
     ]);
-    if (key === "GET /api/pickups/my-pickups") return json(200, []);
+    if (key === "GET /api/pickups/my-pickups") return json(200, state.myPickups);
     if (key === "POST /api/pickups/request-drop") return json(200, { ok: true });
     if (method === "POST" && /^\/api\/pickups\/[^/]+\/claim$/.test(pathname)) return json(200, { ok: true });
     if (method === "DELETE" && /^\/api\/pickups\//.test(pathname)) return json(200, { ok: true });

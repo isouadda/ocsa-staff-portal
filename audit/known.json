@@ -285,6 +285,12 @@
       "why": "Orange on a tinted row in light mode. 1.87 to 1 against the 4.5 to 1 small text needs."
     },
     {
+      "where": "Tasks",
+      "check": "too small",
+      "what": "a div with a click handler",
+      "why": "A checklist item's name, one or two lines tall, 14 to 28 pixels. A tap on it opens the item's detail, or checks the item off when it has none, which the 44 pixel box beside it also does. Pull request 52 made a div that is the only way to something a button, working from the scout's list, and this one was not on it. The widened check found it; this run changes code only where the first audit found it wrong."
+    },
+    {
       "where": "The portal itself",
       "theme": "dark",
       "check": "contrast",

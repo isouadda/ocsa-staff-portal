@@ -177,11 +177,28 @@ const INSPECT = function (args) {
     if ((ownClip || byAncestor) && !heardOnly(el)) out.clipped.push({ text: text.slice(0, 40), by: byAncestor || "its own box" });
   });
 
-  // 2. Every control reachable, and 3. big enough to hit.
-  const controls = Array.from(scope.querySelectorAll("button, a[href], input, select, textarea")).filter(seen);
+  // 2. Every control reachable, and 3. big enough to hit. A control is
+  // anything a finger can tap: a button, a link, a box, a label that holds
+  // a box, which a tap on it goes through to, and anything else that
+  // answers a tap, by saying it is a button or by carrying a click
+  // handler. React gives every element it hands a click handler an
+  // onclick of its own, which is how a div that is the only way to
+  // something is found. Each of these last three says which it is, so a
+  // row names what kind of thing is under 44.
+  const kindOf = (el) => {
+    if (el.matches("button, a[href], input, select, textarea")) return null;
+    const tag = el.tagName.toLowerCase();
+    if (tag === "label" && el.querySelector("input")) return "a label holding a box";
+    if (el.getAttribute("role") === "button") return (/^[aeiou]/.test(tag) ? "an " : "a ") + tag + " that says it is a button";
+    return (/^[aeiou]/.test(tag) ? "an " : "a ") + tag + " with a click handler";
+  };
+  const controls = Array.from(scope.querySelectorAll("*")).filter(el => el.matches("button, a[href], input, select, textarea")
+    || (el.tagName === "LABEL" && !!el.querySelector("input"))
+    || el.getAttribute("role") === "button"
+    || typeof el.onclick === "function").filter(seen);
   if (whole) controls.forEach((el) => {
     const r = el.getBoundingClientRect();
-    if (r.width < 44 || r.height < 44) out.small.push({ control: label(el), size: [Math.round(r.width), Math.round(r.height)] });
+    if (r.width < 44 || r.height < 44) out.small.push({ control: label(el), size: [Math.round(r.width), Math.round(r.height)], kind: kindOf(el) });
   });
 
   // Reachability last, because it scrolls. A control is brought to the
@@ -199,7 +216,7 @@ const INSPECT = function (args) {
     }
     const hit = document.elementFromPoint(x, y);
     const reached = !!hit && (hit === el || el.contains(hit) || (hit.contains && hit.contains(el)));
-    if (!reached) out.unreachable.push({ control: label(el), at: [x, y], hit: hit ? (hit.tagName.toLowerCase() + " " + label(hit)) : "nothing" });
+    if (!reached) out.unreachable.push({ control: label(el), at: [x, y], hit: hit ? (hit.tagName.toLowerCase() + " " + label(hit)) : "nothing", kind: kindOf(el) });
   });
   window.scrollTo(0, scrolled);
 
@@ -452,8 +469,8 @@ function rowsFrom(found, caseName, language, size, theme) {
   if (found.missing) { rows.push({ where: where, check: "present", detail: "nothing matched " + found.missing }); return rows; }
   if (found.sideways) rows.push({ where: where, check: "sideways", detail: "scrollWidth " + found.sideways.scrollWidth + " against clientWidth " + found.sideways.clientWidth });
   found.clipped.forEach(c => rows.push({ where: where, check: "clipped", detail: JSON.stringify(c.text) + " cut off by " + c.by }));
-  found.unreachable.forEach(u => rows.push({ where: where, check: "covered", detail: JSON.stringify(u.control) + " at " + u.at.join(",") + " hits " + u.hit }));
-  found.small.forEach(s => rows.push({ where: where, check: "too small", detail: JSON.stringify(s.control) + " is " + s.size.join(" by ") }));
+  found.unreachable.forEach(u => rows.push({ where: where, check: "covered", detail: JSON.stringify(u.control) + " at " + u.at.join(",") + " hits " + u.hit + (u.kind ? ", " + u.kind : "") }));
+  found.small.forEach(s => rows.push({ where: where, check: "too small", detail: JSON.stringify(s.control) + " is " + s.size.join(" by ") + (s.kind ? ", " + s.kind : "") }));
   languageRows(found).forEach(r => rows.push(Object.assign({ where: where }, r)));
   if (found.bar && (!found.bar.insideTheScreen || !found.bar.everyButtonInside)) {
     rows.push({ where: where, check: "bottom bar", detail: "left " + found.bar.left + " right " + found.bar.right + " against a 375 screen" });

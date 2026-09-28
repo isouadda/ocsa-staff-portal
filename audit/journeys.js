@@ -4016,6 +4016,185 @@ const JOURNEYS = [
     },
   },
   {
+    id: "fortyfour",
+    label: "Forty-four pixels: every control Step 178 gave the tap height is at least 44 tall at both ends of the text size scale, and the Profile camera 44 by 44, each reached the way a person reaches it",
+    run: async (open, language, expect) => {
+      // The size of the first control on the screen that reads exactly
+      // these words, a button or a label, as it is drawn. The words are
+      // read as written, since several of these buttons draw theirs in
+      // capitals.
+      const sizeOf = (page, words) => page.evaluate((w) => {
+        const el = Array.from(document.querySelectorAll("button, label")).find(x => x.getClientRects().length > 0 && x.textContent.replace(/\s+/g, " ").trim() === w);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return [Math.round(r.width), Math.round(r.height)];
+      }, words);
+      // The shortest of the buttons in a grid of days: the week strip's
+      // chips, or the month's cells.
+      const shortestIn = (page, month) => page.evaluate((m) => {
+        const grid = Array.from(document.querySelectorAll(".sp-content div")).find(d => getComputedStyle(d).display === "grid"
+          && (m ? d.querySelectorAll(":scope > button").length >= 28 : d.children.length === 7));
+        const buttons = grid ? Array.from(grid.querySelectorAll("button")).filter(b => b.getClientRects().length > 0) : [];
+        if (!buttons.length) return null;
+        const sizes = buttons.map((b) => { const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
+        return sizes.sort((a, b) => a[1] - b[1])[0].concat([sizes.length]);
+      }, !!month);
+      const tapWordsAnywhere = (page, words) => page.evaluate((w) => {
+        const b = Array.from(document.querySelectorAll("button")).find(x => x.getClientRects().length > 0 && x.textContent.replace(/\s+/g, " ").trim() === w && !x.disabled);
+        if (b) b.click();
+        return !!b;
+      }, words);
+      const labels = (slug) => (lookupsIn(language).find(c => c.slug === slug) || { values: [] }).values.map(v => v.displayLabel || spanishOf(v.label, language));
+      for (const textSize of ["standard", "largest"]) {
+        const tall = (what, size) => expect(what + " is at least 44 tall at the " + textSize + " text size", !!size && size[1] >= 44, size ? size.slice(0, 2).join(" by ") : "not on the screen");
+        const app = await open({ textSize: textSize, stubOptions: { myPickups: [{ id: "pk-9", site_name: "South Building", scheduled_date: "2026-10-08", start_time: "17:00", end_time: "23:00", status: "claimed" }] } });
+        try {
+          // Home: the week strip's chips, and the month's cells.
+          await openTab(app.page, "clock", language);
+          await pause(app.page, 1000);
+          tall("a chip on Home's week strip", await shortestIn(app.page, false));
+          await tapWordsAnywhere(app.page, say("Month", language));
+          await pause(app.page, 800);
+          tall("a cell of Home's month", await shortestIn(app.page, true));
+          await tapWordsAnywhere(app.page, say("Week", language));
+          await pause(app.page, 500);
+
+          // Schedule: a shift's detail, Request to Drop This Shift, and the
+          // drop form's Cancel and Submit Request.
+          await openTab(app.page, "schedule", language);
+          await pause(app.page, 1000);
+          tall("a chip on Schedule's week strip", await shortestIn(app.page, false));
+          // A scheduled shift's chip reads its start and end; the shift on
+          // site now reads its start alone.
+          await app.page.evaluate(() => {
+            const grid = Array.from(document.querySelectorAll(".sp-content div")).find(d => getComputedStyle(d).display === "grid" && d.children.length === 7);
+            const chip = grid && Array.from(grid.querySelectorAll("button")).find(b => b.textContent.indexOf(" - ") !== -1);
+            if (chip) chip.click();
+          });
+          await pause(app.page, 800);
+          tall("Request to Drop This Shift", await sizeOf(app.page, say("Request to Drop This Shift", language)));
+          await tapWordsAnywhere(app.page, say("Request to Drop This Shift", language));
+          await pause(app.page, 600);
+          tall("the drop form's Cancel", await sizeOf(app.page, say("Cancel", language)));
+          tall("the drop form's Submit Request", await sizeOf(app.page, say("Submit Request", language)));
+          await app.page.mouse.click(8, 8);
+          await pause(app.page, 600);
+
+          // Tasks: an item's detail and Back to checklist.
+          await openTab(app.page, "tasks", language);
+          await pause(app.page, 1000);
+          await app.page.evaluate((name) => {
+            const d = Array.from(document.querySelectorAll(".sp-content div")).find(x => typeof x.onclick === "function" && x.innerText.trim() === name);
+            if (d) d.click();
+          }, itemName("task-1", language));
+          await pause(app.page, 700);
+          tall("Back to checklist", await sizeOf(app.page, say("Back to checklist", language)));
+          await tapWordsAnywhere(app.page, say("Back to checklist", language));
+          await pause(app.page, 500);
+
+          // Assigned: its card, and in the detail Back, In Progress,
+          // Resolved and Cannot Resolve, and each panel's Cancel and Submit.
+          await openTab(app.page, "issuetasks", language);
+          await pause(app.page, 900);
+          const card = await app.page.evaluate((label) => {
+            const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.indexOf(label) !== -1);
+            if (!b) return null;
+            const r = b.getBoundingClientRect();
+            b.click();
+            return [Math.round(r.width), Math.round(r.height)];
+          }, "Replace the cracked light cover");
+          tall("an assigned card", card);
+          await pause(app.page, 700);
+          for (const w of ["Back to assigned tasks", "In Progress", "Resolved", "Cannot Resolve"]) tall("Assigned's " + w, await sizeOf(app.page, say(w, language)));
+          await tapWordsAnywhere(app.page, say("Resolved", language));
+          await pause(app.page, 500);
+          tall("the resolve panel's Cancel", await sizeOf(app.page, say("Cancel", language)));
+          tall("Submit Resolution", await sizeOf(app.page, say("Submit Resolution", language)));
+          await tapWordsAnywhere(app.page, say("Cancel", language));
+          await pause(app.page, 400);
+          await tapWordsAnywhere(app.page, say("Cannot Resolve", language));
+          await pause(app.page, 500);
+          tall("the cannot resolve panel's Cancel", await sizeOf(app.page, say("Cancel", language)));
+          tall("the cannot resolve panel's Submit", await sizeOf(app.page, say("Submit", language)));
+          await tapWordsAnywhere(app.page, say("Cancel", language));
+          await pause(app.page, 400);
+          await tapWordsAnywhere(app.page, say("Back to assigned tasks", language));
+          await pause(app.page, 400);
+
+          // Supplies: the request's type chips, its urgency buttons, its
+          // Cancel and Submit Request, and Log Usage on an open supply.
+          await openTab(app.page, "supplies", language);
+          await pause(app.page, 900);
+          await tapWordsAnywhere(app.page, say("+ Request", language));
+          await pause(app.page, 600);
+          for (const w of labels("request_types")) tall("the request type " + JSON.stringify(w), await sizeOf(app.page, w));
+          for (const w of labels("urgency_levels")) tall("the urgency " + JSON.stringify(w), await sizeOf(app.page, w));
+          tall("the request's Cancel", await sizeOf(app.page, say("Cancel", language)));
+          tall("Submit Request", await sizeOf(app.page, say("Submit Request", language)));
+          await tapWordsAnywhere(app.page, say("Cancel", language));
+          await pause(app.page, 400);
+          await app.page.evaluate(() => {
+            const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.indexOf("Paper towels") !== -1);
+            if (b) b.click();
+          });
+          await pause(app.page, 500);
+          tall("Log Usage", await sizeOf(app.page, say("Log Usage", language)));
+
+          // Pickup: Release Shift on a claimed shift.
+          await openTab(app.page, "pickup", language);
+          await pause(app.page, 900);
+          await app.page.evaluate((w) => {
+            const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.textContent.replace(/\s+/g, " ").trim().indexOf(w) === 0);
+            if (b) b.click();
+          }, say("My Pickups", language));
+          await pause(app.page, 800);
+          tall("Release Shift", await sizeOf(app.page, say("Release Shift", language)));
+
+          // Profile: the camera, 44 by 44 around its gold circle, and
+          // Cancel and Save while the profile is edited.
+          await openTab(app.page, "profile", language);
+          await pause(app.page, 1000);
+          const camera = await app.page.evaluate(() => {
+            const l = Array.from(document.querySelectorAll(".sp-content label")).find(x => x.querySelector('input[type="file"]'));
+            if (!l) return null;
+            const r = l.getBoundingClientRect();
+            return [Math.round(r.width), Math.round(r.height)];
+          });
+          expect("the Profile camera is at least 44 by 44 at the " + textSize + " text size", !!camera && camera[0] >= 44 && camera[1] >= 44, camera ? camera.join(" by ") : "not on the screen");
+          await tapWordsAnywhere(app.page, say("Edit", language));
+          await pause(app.page, 600);
+          tall("the profile's Cancel", await sizeOf(app.page, say("Cancel", language)));
+          tall("the profile's Save", await sizeOf(app.page, say("Save", language)));
+        } finally { await app.context.close(); }
+
+        // Inspect, for someone who may schedule one: + Schedule, and Attach
+        // Photo on an inspection's card.
+        const insp = await open({ textSize: textSize, stubOptions: { person: Object.assign({}, PERSON, { role: "admin" }), inspections: [INSPECTION] } });
+        try {
+          await openTab(insp.page, "inspect", language);
+          await pause(insp.page, 1000);
+          tall("+ Schedule", await sizeOf(insp.page, say("+ Schedule", language)));
+          await clickText(insp.page, INSPECTION.template_name);
+          await pause(insp.page, 800);
+          tall("Attach Photo", await sizeOf(insp.page, say("Attach Photo", language)));
+        } finally { await insp.context.close(); }
+
+        // Update now, on the bar that shows while a newer build waits on a
+        // person who is in the middle of typing.
+        const upd = await open({ textSize: textSize, buildStamp: "a-newer-build" });
+        try {
+          await openTab(upd.page, "agent", language);
+          await pause(upd.page, 800);
+          await upd.page.focus(".sp-content textarea").catch(() => {});
+          await type(upd.page, ".sp-content textarea", "A question still being typed");
+          await upd.page.clock.runFor(5600);
+          await pause(upd.page, 800);
+          tall("Update now", await sizeOf(upd.page, say("Update now", language)));
+        } finally { await upd.context.close(); }
+      }
+    },
+  },
+  {
     id: "assignedstatus",
     label: "An assigned task marked in progress, and the line that says so",
     run: async (open, language, expect) => {
