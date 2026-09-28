@@ -9,7 +9,8 @@ const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
 const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
-  API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES } = require("./stub");
+  API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES,
+  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -248,12 +249,22 @@ const attachBytes = (page, selector, base64, name, type) => page.evaluate(([sel,
 // sends anything.
 const HEIC_FIXTURE = "AAAAHGZ0eXBoZWljAAAAAG1pZjFoZWljbWlhZgAAAX1tZXRhAAAAAAAAACFoZGxyAAAAAAAAAABwaWN0AAAAAAAAAAAAAAAAAAAAACJpbG9jAAAAAERAAAEAAQAAAAABoQABAAAAAAAAASMAAAAjaWluZgAAAAAAAQAAABVpbmZlAgAAAAABAABodmMxAAAAAA5waXRtAAAAAAABAAAA/WlwcnAAAADdaXBjbwAAAHZodmNDAQNwAAAAAAAAAAAAHvAA/P34+AAADwNgAAEAGEABDAH//wNwAAADAJAAAAMAAAMAHroCQGEAAQAqQgEBA3AAAAMAkAAAAwAAAwAeoCCBBZbq5Ka5uAhoMCAAAAMDIAAAAwAhYgABAAZEAcFzwIkAAAATY29scm5jbHgAAQANAAaAAAAAFGlzcGUAAAAAAAAAQAAAAEAAAAAoY2xhcAAAAEAAAAABAAAAKAAAAAEAAAAAAAAAAv///+gAAAACAAAAEHBpeGkAAAAAAwgICAAAABhpcG1hAAAAAAAAAAEAAQWBAgMFhAAAASttZGF0AAABHygBrwngivoBtpn/kP6+2j/wUd3QwfpyN9KmNZfbvaI92w++krzKNvg2XT9F79RQ+abYq9yeomi1mK3uEWuVegq9VQvp4f3NWEfgtXW/uvUMgdszxpUPmwqsOoLYv3tjNWyUYVbKcIFWz1z1o0dXYUsyco7WGsM6ZZHvlmj9dNQBdXZHjaa0DNKg4VIqtE5wY7/bf9uuBip1lGmQv747PCoS0QPOfmm/wRwmHy/21aHLz036kPSJUEdLKYA1Vpx92vv7DdKP+HmdxwKWYBrTt3MB7wF1LSL3WL7AnzpT70CNVkA4huvD3XgFG/1zckBul60ojD7LDJO6GjxBFc5ZDqANwQGJOTCmCD0aFfHR7NQ+j2FNk8lZxBaf68xhMoXA";
 
+// The line a saved customer signature reads as, the way the stub writes
+// it beside the API.
+const customerLine = (stamp, language) => require("./stub").customerSignatureLine(stamp, language);
+
 // The sign sheet: the drawing box on the screen, a stroke drawn across it
 // with the pointer the way a finger or a mouse would, and the buttons in
 // the sheet itself rather than the ones under it.
 const signBox = (page) => page.evaluate(() => {
-  const c = Array.from(document.querySelectorAll("canvas")).find(x => x.offsetParent !== null);
+  const sheet = Array.from(document.querySelectorAll("div")).filter((x) => {
+    const s = getComputedStyle(x);
+    return s.position === "fixed" && s.top === "0px" && s.left === "0px" && s.right === "0px" && s.bottom === "0px";
+  }).pop();
+  const c = (sheet && sheet.querySelector("canvas")) || Array.from(document.querySelectorAll("canvas")).find(x => x.offsetParent !== null);
   if (!c) return null;
+  // Brought onto the screen first, the way a person scrolls to it.
+  try { c.scrollIntoView({ block: "center" }); } catch (e) {}
   const r = c.getBoundingClientRect();
   return { left: r.left, top: r.top, width: Math.round(r.width), height: Math.round(r.height), backing: [c.width, c.height] };
 });
@@ -1838,6 +1849,8 @@ const JOURNEYS = [
       try {
         await openTab(app.page, "issues", language);
         await clickText(app.page, say("Report an Issue", language));
+        const capture = await app.page.evaluate(() => Array.from(document.querySelectorAll('.sp-content input[type="file"]')).map(i => i.getAttribute("capture")));
+        expect("the problem report's photo input still opens the camera", capture.length === 1 && capture[0] === "environment", JSON.stringify(capture));
         await typeNth(app.page, ".sp-content input", 0, "A cracked tile by the door");
         await clickText(app.page, say("Submit Issue", language));
         await pause(app.page, 1200);
@@ -2184,7 +2197,7 @@ const JOURNEYS = [
         expect("the photos question draws its label and its help line, in the person's language", has(text, q.label) && has(text, q.help), text.slice(0, 400));
         expect("the question offers the camera and the gallery, with the sizes it takes", has(text, takeLine) && has(text, say("JPG, PNG up to 10MB", language)), text.slice(0, 400));
         const inputs = await app.page.evaluate((sel) => Array.from(document.querySelectorAll(sel)).map(i => [i.getAttribute("accept"), i.getAttribute("capture"), i.multiple]), input);
-        expect("the input is the problem report's, taking several", inputs.length === 1 && inputs[0][0] === "image/*" && inputs[0][1] === "environment" && inputs[0][2] === true, JSON.stringify(inputs));
+        expect("the input takes any picture, several at once, and names no capture, so the gallery is offered", inputs.length === 1 && inputs[0][0] === "image/*" && inputs[0][1] === null && inputs[0][2] === true, JSON.stringify(inputs));
 
         // Each refusal first, in the API's own words, with nothing kept.
         for (const key of ["forms.photoTooLarge", "forms.photoType", "forms.photoLimit"]) {
@@ -2421,6 +2434,413 @@ const JOURNEYS = [
         expect("a stamp with no drawing reads as it always did", has(text, stampStarts), text.slice(0, 400));
         expect("a stamp with no drawing draws no picture and asks for none", (await drawnStamp(old.page)) === null && signatureReads(old.stub).length === 0, JSON.stringify(signatureReads(old.stub).map(c => c.path)));
       } finally { await old.context.close(); }
+    },
+  },
+  // --- the customer's page, from a QR code ------------------------------
+  //
+  // The page stands outside the app's own content box, so these read the
+  // whole document: every text box but the one nobody sees, every button
+  // that reads a word, and what the phone kept.
+  {
+    id: "customersurvey",
+    label: "A customer's survey from a QR code: opened in the phone's language with nothing of the app around it, the other language chosen and the form read again, three ratings and no name sent in one request, the thank-you with nothing left to tap, nothing kept on the phone, and no call behind the token",
+    run: async (open, language, expect) => {
+      const other = language === "es" ? "en" : "es";
+      const nameOf = (l) => (l === "es" ? "Espa\u00f1ol" : "English");
+      const app = await open({ signedIn: false, storeLanguage: false, path: "/c/link-survey" });
+      try {
+        const form = formV(language);
+        let text = await bodyText(app.page);
+        expect("the page opens in the phone's language with the company, the site and the form's title",
+          has(text, PUBLIC_COMPANY) && has(text, PUBLIC_SITE) && has(text, form.title) && has(text, spanishOf("Your name", language)) && has(text, spanishOf("Your role", language)), text.slice(0, 400));
+        const around = await app.page.evaluate(() => ({
+          bar: Array.from(document.querySelectorAll("div")).some((el) => { const s = getComputedStyle(el); return s.position === "fixed" && s.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5; }),
+          content: !!document.querySelector(".sp-content"),
+          buttons: Array.from(document.querySelectorAll("button")).filter(b => b.offsetParent !== null).map(b => b.textContent.trim()),
+        }));
+        expect("nothing of the app is around it: no bottom bar, no header, only the language choice and the form's own buttons",
+          !around.bar && !around.content && !has(text, spanishOf("Sign In", language)) && around.buttons.indexOf(say("Close", language)) === -1 && around.buttons.indexOf(nameOf(other)) !== -1, JSON.stringify(around));
+        const honey = await app.page.evaluate(() => {
+          const i = document.querySelector('input[name="website"]');
+          if (!i) return null;
+          const s = getComputedStyle(i);
+          return { value: i.value, seen: s.opacity !== "0" && s.display !== "none" && s.visibility !== "hidden" };
+        });
+        expect("the honeypot field is on the page, empty and unseen", !!honey && honey.value === "" && !honey.seen, JSON.stringify(honey));
+        await spokenHere(app, language, expect);
+
+        // The other language: the form is read again in it.
+        await clickText(app.page, nameOf(other));
+        await pause(app.page, 1200);
+        const reads = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/public/forms/link-survey");
+        text = await bodyText(app.page);
+        expect("choosing the other language reads the form again in it", reads.length === 2 && /locale=/.test(reads[1].search) && reads[1].search.indexOf("locale=" + other) !== -1 && has(text, formV(other).title), JSON.stringify(reads.map(c => c.search)) + " " + text.slice(0, 200));
+        await clickText(app.page, nameOf(language));
+        await pause(app.page, 1200);
+
+        // The organization, leaving the name and the role empty.
+        const boxes = 'input[type="text"]:not([name="website"])';
+        await typeNth(app.page, boxes, 2, "An invented organization");
+        await pause(app.page, 300);
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 700);
+        // Three ratings, one in each question.
+        const rated = await app.page.evaluate(() => { const on = Array.from(document.querySelectorAll("button")).filter(b => b.textContent.trim() === "3"); on.forEach(b => b.click()); return on.length; });
+        expect("the three ratings can each be given", rated === 3, "buttons reading 3: " + rated);
+        await pause(app.page, 400);
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        text = await bodyText(app.page);
+        expect("the review shows the name left empty and the ratings given",
+          has(text, spanishOf("Your name", language)) && has(text, say("Not answered", language)) && has(text, form.fields.find(f => f.key === "clean").label), text.slice(0, 600));
+        await spokenHere(app, language, expect);
+
+        await clickText(app.page, say("Send", language));
+        await pause(app.page, 1500);
+        const sentUp = lastSent(app.stub, "POST", "/api/public/forms/link-survey/responses");
+        const b = sentUp && sentUp.body;
+        expect("Send posts everything in one request: the answers, no name, the language and the honeypot empty",
+          !!b && b.answers && b.answers.org === "An invented organization" && b.answers.clean === "3" && b.answers.crew === "3" && b.answers.response === "3"
+            && b.customerName === "" && b.customerRole === "" && b.locale === language && b.website === "" && !("years" in b.answers) && !("pics" in b.answers),
+          JSON.stringify(b));
+        text = await bodyText(app.page);
+        const left = await app.page.evaluate(() => Array.from(document.querySelectorAll("button, a[href], input, select, textarea")).filter(e => e.offsetParent !== null && getComputedStyle(e).opacity !== "0").length);
+        expect("a 200 shows the thank-you with nothing else to tap", has(text, spanishOf("Thank you. OCSA has your form.", language)) && left === 0, text.slice(0, 300) + " controls left: " + left);
+        const kept = await app.page.evaluate(() => ({ local: Object.keys(window.localStorage).filter(k => k !== "ocsa-staff-language" && k !== "ocsa-staff-text-size" && k !== "ocsa-staff-theme" && k !== "ocsa-home-screen-prompt" && k !== "audit-language-fresh"), session: Object.keys(window.sessionStorage).filter(k => k.indexOf("audit-") !== 0) }));
+        expect("nothing is kept on the phone after Send", kept.local.length === 0 && kept.session.length === 0, JSON.stringify(kept));
+        const behind = app.stub.state.calls.filter(c => !/^\/api\/public\//.test(c.path) || c.headers.authorization);
+        expect("the page never calls a route behind the token: 0 authenticated calls", behind.length === 0, JSON.stringify(behind.map(c => c.method + " " + c.path)));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "customerchecklist",
+    label: "A customer's checklist from a QR code: the name required, the missing list, a photo kept on the phone until Send, a signature drawn with the name filled in, each refusal in the API's words where it belongs, and the filing",
+    run: async (open, language, expect, extra) => {
+      const app = await open({ signedIn: false, path: "/c/link-checklist" });
+      try {
+        const form = formC(language);
+        const labelOf = (key) => form.fields.find(f => f.key === key).label;
+        const boxes = 'input[type="text"]:not([name="website"])';
+        const route = "POST /api/public/forms/link-checklist/responses";
+        const posts = () => app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/public/forms/link-checklist/responses");
+        const sendButton = () => app.page.evaluate((want) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.textContent.trim() === want && x.offsetParent !== null); return b ? { disabled: b.disabled } : null; }, say("Send", language));
+        // What the missing list names: its buttons, one per question.
+        const missingNames = () => app.page.evaluate((heading) => {
+          const head = Array.from(document.querySelectorAll("div")).find(d => d.children.length === 0 && d.textContent.trim() === heading);
+          const box = head && head.parentElement;
+          return box ? Array.from(box.querySelectorAll("button")).map(b => b.textContent.trim()) : null;
+        }, say("These still need an answer", language));
+
+        let text = await bodyText(app.page);
+        const nameRow = await app.page.evaluate((want) => { const d = Array.from(document.querySelectorAll("div")).find(x => x.textContent.trim().indexOf(want) === 0 && x.children.length <= 1); return d ? d.textContent.replace(/\s+/g, " ").trim() : null; }, spanishOf("Your name", language));
+        expect("the name is marked required when the form says so", !!nameRow && has(nameRow, say("Required", language)), JSON.stringify(nameRow));
+
+        // Straight to the review: the missing list names every required
+        // question by its label, and Send waits.
+        await clickText(app.page, say("Next", language));
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 800);
+        text = await bodyText(app.page);
+        const named = await missingNames();
+        expect("the missing list names every required question, the signature among them, and nothing that is not required",
+          !!named && JSON.stringify(named) === JSON.stringify(["visited", "lobby", "restroom", "signed"].map(labelOf)), JSON.stringify(named));
+        expect("Send waits while something required is missing", (await sendButton()) && (await sendButton()).disabled, JSON.stringify(await sendButton()));
+
+        // Back to the first section, filled in.
+        await clickText(app.page, say("Edit", language));
+        await pause(app.page, 800);
+        await typeNth(app.page, boxes, 0, "An invented customer");
+        await typeNth(app.page, boxes, 1, "Facilities");
+        await typeNth(app.page, boxes, 2, "The lobby and the second floor");
+        const okWord = form.fields.find(f => f.key === "lobby").options[0].label;
+        const picked = await app.page.evaluate((want) => { const on = Array.from(document.querySelectorAll("button")).filter(b => b.textContent.trim() === want); on.forEach(b => b.click()); return on.length; }, okWord);
+        expect("both areas can be rated", picked === 2, "buttons reading the first choice: " + picked);
+        await pause(app.page, 400);
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 800);
+
+        // A photo, kept on the phone until Send: its own bytes are its
+        // thumbnail, and nothing is posted for it.
+        const before = app.stub.state.calls.length;
+        await attachPhotos(app.page, 'input[type="file"]', ["hall.jpg"]);
+        await pause(app.page, 1500);
+        text = await bodyText(app.page);
+        const thumbs = await app.page.evaluate(() => Array.from(document.querySelectorAll("img")).filter(i => /^data:image\/jpeg/.test(i.src)).map(i => { const r = i.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; }));
+        expect("a photo is kept on the phone and drawn from its own bytes, 72 pixels square, with its name", thumbs.length === 1 && thumbs[0][0] === 72 && thumbs[0][1] === 72 && has(text, "hall.jpg") && app.stub.state.calls.length === before, JSON.stringify(thumbs) + " calls since: " + (app.stub.state.calls.length - before));
+        await clickText(app.page, say("Remove photo", language));
+        await pause(app.page, 500);
+        expect("Remove photo takes it off the page", !has(await bodyText(app.page), "hall.jpg"), (await bodyText(app.page)).slice(0, 300));
+        await attachPhotos(app.page, 'input[type="file"]', ["hall.jpg"]);
+        await pause(app.page, 1500);
+
+        // The signature card: the name and role filled in from the top of
+        // the form, the pad, Clear, and a drawing.
+        const cardBoxes = await app.page.evaluate((sel) => Array.from(document.querySelectorAll(sel)).map(i => i.value), boxes);
+        expect("the signature's name and role are filled in from the ones typed at the top", cardBoxes.length === 2 && cardBoxes[0] === "An invented customer" && cardBoxes[1] === "Facilities", JSON.stringify(cardBoxes));
+        text = await bodyText(app.page);
+        expect("the card draws the pad with its hint and Clear", has(text, spanishOf("Sign with your finger", language)) && has(text, spanishOf("Clear", language)), text.slice(0, 600));
+        await drawSignature(app.page);
+        await clickText(app.page, spanishOf("Clear", language));
+        await pause(app.page, 300);
+        await drawSignature(app.page);
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        text = await bodyText(app.page);
+        const drawn = await app.page.evaluate(() => Array.from(document.querySelectorAll("img")).filter(i => /^data:image\/png/.test(i.src)).length);
+        expect("the review shows the photo count, the drawing and who signed", has(text, say("1 photo", language)) && drawn === 1 && has(text, "An invented customer, Facilities") && !has(text, say("These still need an answer", language)), text.slice(0, 700));
+        await spokenHere(app, language, expect);
+
+        // Each refusal in the API's words, where it belongs: at the top
+        // when it names no question, under the question when it does.
+        for (const key of ["customer.nameRequired", "customer.bodyTooLarge", "customer.tooManyFilings"]) {
+          app.stub.state.refuse[route] = { api: key, once: true };
+          await clickText(app.page, say("Send", language));
+          await pause(app.page, 1200);
+          text = await bodyText(app.page);
+          const said = API_REFUSALS[key][language];
+          const shown = has(text, said);
+          expect("refusal shown: " + API_REFUSALS[key].en, shown, "wanted " + JSON.stringify(said) + " in " + JSON.stringify(text.slice(0, 300)));
+          if (extra) extra.refusalsShown += shown ? 1 : 0;
+          expect("a refusal with no question keeps the review open at the top: " + key, has(text, say("Review", language)) && text.indexOf(said) < text.indexOf(say("Send", language)), text.slice(0, 300));
+        }
+        await spokenHere(app, language, expect);
+        // One that names a question: the words go under it, on its section.
+        const tooBig = FILE_REFUSALS["customer.photoTooLarge"];
+        app.stub.state.refuse[route] = { status: tooBig.status, body: { error: tooBig[language], code: "customer.photoTooLarge", keys: ["pics"] }, once: true };
+        await clickText(app.page, say("Send", language));
+        await pause(app.page, 1200);
+        text = await bodyText(app.page);
+        const under = await app.page.evaluate(([label, said]) => {
+          const all = Array.from(document.querySelectorAll("div")).filter(d => d.children.length === 0);
+          const q = all.find(d => d.textContent.trim().indexOf(label) === 0);
+          const line = all.find(d => d.textContent.trim() === said);
+          return q && line ? { q: Math.round(q.getBoundingClientRect().top), line: Math.round(line.getBoundingClientRect().top) } : null;
+        }, [labelOf("pics"), tooBig[language]]);
+        expect("a refusal naming a question is drawn under that question, on its own section", !!under && under.line > under.q && !has(text, say("Review", language)), JSON.stringify(under) + " " + text.slice(0, 300));
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 800);
+        // The API's own missing list, when it disagrees with the page.
+        const short = FILE_REFUSALS["forms.requiredUnanswered"];
+        app.stub.state.refuse[route] = { status: 400, body: { error: short[language], code: "forms.requiredUnanswered", missing: ["visited"], missingFields: [{ key: "visited", label: labelOf("visited") }] }, once: true };
+        await clickText(app.page, say("Send", language));
+        await pause(app.page, 1200);
+        text = await bodyText(app.page);
+        expect("the API's missing list replaces the page's own, in the API's words", has(text, short[language]) && has(text, say("These still need an answer", language)) && has(text, labelOf("visited")), text.slice(0, 500));
+        await clickText(app.page, say("Edit", language));
+        await pause(app.page, 800);
+        await clickText(app.page, say("Next", language));
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+
+        // The filing.
+        const n = posts().length;
+        await clickText(app.page, say("Send", language));
+        await pause(app.page, 1800);
+        const went = posts()[n];
+        const b = went && went.body;
+        const read = went && went.read;
+        expect("Send posts the name, the role, every answer, the photo as a data URL and the signature as a PNG",
+          !!b && b.customerName === "An invented customer" && b.customerRole === "Facilities" && b.answers.visited === "The lobby and the second floor" && b.answers.lobby === "ok" && b.answers.restroom === "ok"
+            && Array.isArray(b.answers.pics) && b.answers.pics.length === 1 && b.answers.pics[0].name === "hall.jpg" && /^data:image\/jpeg;base64,/.test(b.answers.pics[0].data)
+            && b.answers.signed && b.answers.signed.name === "An invented customer" && b.answers.signed.role === "Facilities" && /^data:image\/png;base64,/.test(b.answers.signed.signature) && b.website === "",
+          JSON.stringify(b && Object.assign({}, b, { answers: Object.assign({}, b.answers, { pics: "...", signed: "..." }) })));
+        expect("what the API read off the body is a small JPEG and a PNG under 300 KB",
+          !!read && read.pics && read.pics[0].kind.ext === "jpg" && Math.max(read.pics[0].size.width, read.pics[0].size.height) <= 2000 && read.signed && read.signed.bytes <= SIGNATURE_MAX_BYTES && read.signed.size && read.signed.size.height === 320,
+          JSON.stringify(read));
+        text = await bodyText(app.page);
+        expect("a 200 shows the thank-you", has(text, spanishOf("Thank you. OCSA has your form.", language)), text.slice(0, 300));
+        const behind = app.stub.state.calls.filter(c => !/^\/api\/public\//.test(c.path) || c.headers.authorization);
+        expect("the page never calls a route behind the token: 0 authenticated calls", behind.length === 0, JSON.stringify(behind.map(c => c.method + " " + c.path)));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "customerclosed",
+    label: "A customer link that is closed, one that names nothing, and one asked too often: the API's one line each, nothing else on the page, and the line read again in the other language",
+    run: async (open, language, expect, extra) => {
+      const other = language === "es" ? "en" : "es";
+      const nameOf = (l) => (l === "es" ? "Espa\u00f1ol" : "English");
+      const cases = [
+        { path: "/c/link-closed", key: "customer.linkClosed", stubOptions: {} },
+        { path: "/c/no-such-link", key: "customer.linkUnknown", stubOptions: {} },
+        { path: "/c/link-survey", key: "customer.tooManyRequests", stubOptions: { refuse: { "GET /api/public/forms/link-survey": { api: "customer.tooManyRequests" } } } },
+      ];
+      for (const c of cases) {
+        const app = await open({ signedIn: false, path: c.path, stubOptions: c.stubOptions });
+        try {
+          const said = API_REFUSALS[c.key];
+          let text = await bodyText(app.page);
+          const shown = has(text, said[language]);
+          expect("refusal shown: " + said.en, shown, "wanted " + JSON.stringify(said[language]) + " in " + JSON.stringify(text.slice(0, 300)));
+          if (extra) extra.refusalsShown += shown ? 1 : 0;
+          const left = await app.page.evaluate(() => Array.from(document.querySelectorAll("button, a[href], input, select, textarea")).filter(e => e.offsetParent !== null && getComputedStyle(e).opacity !== "0").map(e => e.textContent.trim()));
+          expect("nothing else is on the page but the language choice: " + c.key, left.length === 2 && left.indexOf(nameOf(language)) !== -1 && left.indexOf(nameOf(other)) !== -1 && has(text, PUBLIC_COMPANY) === false, JSON.stringify(left));
+          await spokenHere(app, language, expect);
+          await clickText(app.page, nameOf(other));
+          await pause(app.page, 1200);
+          text = await bodyText(app.page);
+          expect("the line is read again in the other language: " + c.key, has(text, said[other]) && !has(text, said[language]), text.slice(0, 300));
+          const behind = app.stub.state.calls.filter(c2 => !/^\/api\/public\//.test(c2.path) || c2.headers.authorization);
+          expect("no call behind the token: " + c.key, behind.length === 0, JSON.stringify(behind.map(c2 => c2.method + " " + c2.path)));
+        } finally { await app.context.close(); }
+      }
+    },
+  },
+  {
+    id: "formpnumber",
+    label: "A number on a staff form: one box that takes a minus sign and a decimal point, saved as a number, shown on the review as typed, an empty box saving nothing, and the API's refusal under the question",
+    run: async (open, language, expect, extra) => {
+      const app = await open({});
+      try {
+        const form = formP(language);
+        const q = form.fields.find(f => f.type === "number");
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, form.title);
+        await clickText(app.page, say("Next", language));
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 700);
+        let text = await bodyText(app.page);
+        expect("the number draws its label and help line, in the person's language", has(text, q.label) && has(text, q.help), text.slice(0, 400));
+        const box = await app.page.evaluate(() => { const i = Array.from(document.querySelectorAll(".sp-content input")).find(x => x.getAttribute("inputmode") === "decimal"); return i ? { type: i.type, mode: i.getAttribute("inputmode") } : null; });
+        expect("the box asks the phone for a number keyboard", !!box && box.mode === "decimal", JSON.stringify(box));
+        const typeNumber = (v) => app.page.evaluate((val) => {
+          const i = Array.from(document.querySelectorAll(".sp-content input")).find(x => x.getAttribute("inputmode") === "decimal");
+          Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(i, val);
+          i.dispatchEvent(new Event("input", { bubbles: true }));
+          return i.value;
+        }, v);
+        const refused = await typeNumber("abc");
+        expect("letters are not taken", refused === "", JSON.stringify(refused));
+        await typeNumber("-2.5");
+        await pause(app.page, 300);
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        const saved = lastSent(app.stub, "PATCH", "/api/forms/drafts/draft-two");
+        expect("a minus and a decimal save as a number", !!saved && saved.body && saved.body.answers && saved.body.answers[q.key] === -2.5 && typeof saved.body.answers[q.key] === "number", JSON.stringify(saved && saved.body));
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        text = await bodyText(app.page);
+        expect("the review shows the number as typed", has(text, q.label + " -2.5"), text.slice(0, 600));
+        // Back, emptied: nothing saved for it.
+        await clickText(app.page, say("Back", language));
+        await pause(app.page, 700);
+        await clickText(app.page, say("Back", language));
+        await pause(app.page, 700);
+        await typeNumber("");
+        await pause(app.page, 300);
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        const emptied = lastSent(app.stub, "PATCH", "/api/forms/drafts/draft-two");
+        expect("an empty box saves nothing", !!emptied && emptied.body && emptied.body.answers && emptied.body.answers[q.key] === null && app.stub.state.answersP[q.key] === undefined, JSON.stringify(emptied && emptied.body));
+        // The API's refusal, under the question.
+        await clickText(app.page, say("Back", language));
+        await pause(app.page, 700);
+        await typeNumber("7");
+        const r = API_REFUSALS["forms.badNumber"];
+        app.stub.state.refuse["PATCH /api/forms/drafts/draft-two"] = { status: r.status, body: { error: r[language], code: "forms.badNumber", keys: [q.key] }, once: true };
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        // The words are drawn at the top as well, as every save refusal
+        // is; the one under the question is the one looked for.
+        const under = await app.page.evaluate(([label, said]) => {
+          const all = Array.from(document.querySelectorAll(".sp-content div")).filter(d => d.children.length === 0);
+          const qd = all.find(d => d.textContent.trim().indexOf(label) === 0);
+          const lines = all.filter(d => d.textContent.trim() === said).map(d => Math.round(d.getBoundingClientRect().top));
+          return qd ? { q: Math.round(qd.getBoundingClientRect().top), lines: lines } : null;
+        }, [q.label, r[language]]);
+        const shown = !!under && under.lines.some(top => top > under.q);
+        expect("refusal shown: " + r.en, shown, JSON.stringify(under) + " " + (await bodyText(app.page)).slice(0, 300));
+        if (extra) extra.refusalsShown += shown ? 1 : 0;
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "formpcustomersig",
+    label: "A customer's signature on a staff form: the card with Name, Role and the pad, each refusal in the API's words under the card, a signature saved, shown with its drawing and the API's line, cleared, and saved again",
+    run: async (open, language, expect, extra) => {
+      const app = await open({});
+      try {
+        const form = formP(language);
+        const q = form.fields.find(f => f.type === "customer_signature");
+        const route = "POST /api/forms/drafts/draft-two/customer-signature";
+        const posts = () => app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/forms/drafts/draft-two/customer-signature");
+        const saveWord = spanishOf("Save signature", language);
+        const cardBoxes = () => app.page.evaluate(() => Array.from(document.querySelectorAll(".sp-content input[type=\"text\"]")).map(i => i.value));
+        const typeCard = (n, v) => typeNth(app.page, ".sp-content input[type=\"text\"]", n, v);
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, form.title);
+        for (let i = 0; i < 3; i += 1) await clickText(app.page, say("Next", language));
+        await pause(app.page, 700);
+        let text = await bodyText(app.page);
+        expect("the card draws Name, Role, the pad, its hint, Clear and Save signature",
+          has(text, q.label) && has(text, spanishOf("Name", language)) && has(text, spanishOf("Role", language)) && has(text, spanishOf("Sign with your finger", language)) && has(text, saveWord) && (await cardBoxes()).length === 2, text.slice(0, 500));
+        const saved = () => app.stub.state.calls.filter(c => c.method === "PATCH" && /^\/api\/forms\/drafts\/draft-two/.test(c.path));
+
+        // Each refusal, in the API's words under the card.
+        const underCard = async (said) => app.page.evaluate(([label, want]) => {
+          const all = Array.from(document.querySelectorAll(".sp-content div")).filter(d => d.children.length === 0);
+          const qd = all.find(d => d.textContent.trim().indexOf(label) === 0);
+          const line = all.find(d => d.textContent.trim() === want);
+          return !!qd && !!line && line.getBoundingClientRect().top > qd.getBoundingClientRect().top;
+        }, [q.label, said]);
+        // The count of refusals shown credits each one once: the name and
+        // the drawing refusals are counted by the customer's page and the
+        // sign sheet, so only the one nobody else meets is counted here.
+        const meet = async (key, extraBody) => {
+          const r = API_REFUSALS[key] || FILE_REFUSALS[key];
+          if (extraBody) app.stub.state.refuse[route] = { status: r.status, body: Object.assign({ error: r[language], code: key }, extraBody), once: true };
+          await clickText(app.page, saveWord);
+          await pause(app.page, 1000);
+          const shown = await underCard(r[language]);
+          expect("refusal shown: " + r.en, shown, JSON.stringify(r[language]) + " in " + (await bodyText(app.page)).slice(0, 400));
+          if (extra && key === "forms.notACustomerSignature") extra.refusalsShown += shown ? 1 : 0;
+        };
+        // No name yet: the API's own refusal, with nothing invented here.
+        await meet("customer.nameRequired");
+        await typeCard(0, "An invented visitor");
+        await typeCard(1, "Office manager");
+        await meet("forms.signatureRequired");
+        await drawSignature(app.page);
+        await meet("forms.notACustomerSignature", {});
+        await meet("forms.signatureInvalid", {});
+        await spokenHere(app, language, expect);
+
+        // Saved: one request with the name, the role and the PNG; the card
+        // shows the drawing and the API's line.
+        const n = posts().length;
+        await clickText(app.page, saveWord);
+        await pause(app.page, 1500);
+        const went = posts()[n];
+        expect("Save signature sends the name, the role and the PNG to the customer signature route",
+          !!went && went.body && went.body.key === q.key && went.body.name === "An invented visitor" && went.body.role === "Office manager" && /^data:image\/png;base64,/.test(String(went.body.signature || "")) && went.signature && went.signature.bytes <= SIGNATURE_MAX_BYTES,
+          JSON.stringify(went && Object.assign({}, went.body, { signature: "..." })));
+        expect("a save of the draft never writes the customer signature", saved().every(c => !c.body || !c.body.answers || !(q.key in c.body.answers)), JSON.stringify(saved().map(c => c.body)));
+        text = await bodyText(app.page);
+        const line = customerLine(app.stub.state.answersP[q.key], language);
+        const img = await app.page.evaluate(() => { const i = Array.from(document.querySelectorAll(".sp-content img")).find(x => /^blob:/.test(x.src)); if (!i) return null; const r = i.getBoundingClientRect(); return { height: Math.round(r.height), loaded: i.naturalWidth > 0 }; });
+        const reads = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/forms/responses/draft-two/signatures/" + q.key);
+        expect("the card shows the drawing, fetched through the stream route, and the API's line", has(text, line) && !!img && img.loaded && img.height === 48 && reads.length === 1, JSON.stringify(img) + " reads " + reads.length + " " + text.slice(0, 400));
+        expect("the card offers Clear to sign again and Save signature no longer", has(text, spanishOf("Clear", language)) && !has(text, saveWord), text.slice(0, 400));
+
+        // Cleared and saved again: a new drawing replaces the old.
+        await clickText(app.page, spanishOf("Clear", language));
+        await pause(app.page, 500);
+        text = await bodyText(app.page);
+        expect("Clear opens the card again, empty", has(text, saveWord) && (await cardBoxes()).every(v => v === "") && !has(text, line), text.slice(0, 400));
+        await typeCard(0, "Another invented visitor");
+        await drawSignature(app.page);
+        await clickText(app.page, saveWord);
+        await pause(app.page, 1500);
+        const again = posts()[n + 1];
+        text = await bodyText(app.page);
+        expect("a new save replaces the old", !!again && again.body.name === "Another invented visitor" && app.stub.state.answersP[q.key].name === "Another invented visitor" && has(text, customerLine(app.stub.state.answersP[q.key], language)), JSON.stringify(again && again.body && again.body.name) + " " + text.slice(0, 400));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
     },
   },
   {

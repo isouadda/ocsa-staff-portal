@@ -468,6 +468,9 @@ function makeState(opts) {
     photoSeq: 0,
     // The drawing behind each sign-off stamped on it, by key.
     signatureBytes: {},
+    // The customer's filings, each as the page sent it, and how many went
+    // from this phone, since the API takes five an hour.
+    customerFiled: [],
     // A route a case has asked to answer late, by "METHOD /path", in
     // milliseconds, so a screen can be read while it waits.
     holdMs: o.holdMs || {},
@@ -532,6 +535,8 @@ const FORM_P_WORDS = {
     visits: "Rooms you entered", visitDay: "Date", visitAt: "Time", room: "Room",
     roomHelp: "The number on the door, or the name the site uses for it.",
     pics: "Photos of the walk", picsHelp: "Add a photo of anything worth a second look.",
+    count: "How many rooms did you enter", countHelp: "A number. Half a room counts as 0.5.",
+    guest: "Customer acknowledgement",
     lead: "Crew lead", manager: "Area manager",
   },
   es: {
@@ -546,6 +551,8 @@ const FORM_P_WORDS = {
     visits: "Cuartos en los que entro", visitDay: "Fecha", visitAt: "Hora", room: "Cuarto",
     roomHelp: "El numero de la puerta, o el nombre que el sitio le da.",
     pics: "Fotos del recorrido", picsHelp: "Agregue una foto de lo que valga la pena revisar.",
+    count: "Cuantos cuartos recorrio", countHelp: "Un numero. Medio cuarto cuenta como 0.5.",
+    guest: "Conformidad del cliente",
     lead: "Lider de equipo", manager: "Gerente de area",
   },
 };
@@ -593,10 +600,15 @@ function formP(lang) {
           { key: "room", label: w.room, type: "text", required: true, help: w.roomHelp },
         ],
         rows: null, minRows: 2, maxRows: 3 },
+      // A number, the type Step 167 gave the API, never required here.
+      { key: "count", label: w.count, type: "number", section: w.rooms, required: false, help: w.countHelp },
       // The one the person filing makes, and one that belongs to the
       // supervisor half and is never drawn on the portal.
       { key: "leadSign", label: w.lead, type: "signoff", section: w.signIt, signer: "filer", required: true },
       { key: "managerSign", label: w.manager, type: "signoff", section: w.signIt, signer: "area_manager" },
+      // A customer's signature taken on the staff member's phone, Step
+      // 167's type, saved through its own route and never required here.
+      { key: "guest", label: w.guest, type: "customer_signature", section: w.signIt, required: false },
     ],
   };
 }
@@ -707,6 +719,92 @@ function draftS(state, lang) {
     missing: form.fields.filter(f => f.required && !answers[f.key]).map(f => f.key),
   };
 }
+
+// A customer's forms, Step 167 in the API, each invented: a cleanliness
+// check whose customer has to give a name and sign, and a survey that asks
+// for neither. Served as the public route sends a form, the catalog view
+// with the agent half only, in the language the request asks for, with a
+// last section that belongs to OCSA and carries no question of the
+// customer's, which the page never draws. Each link's token is invented
+// too, and one link is closed.
+const FORM_C_CODE = "TEST-FORM-C";
+const FORM_V_CODE = "TEST-FORM-V";
+const CUSTOMER_LINKS = {
+  "link-checklist": { form: FORM_C_CODE, closed: false },
+  "link-survey": { form: FORM_V_CODE, closed: false },
+  "link-closed": { form: FORM_V_CODE, closed: true },
+};
+const PUBLIC_MAX_PHOTOS = 3;
+const PUBLIC_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+const PUBLIC_FILINGS_MAX = 5;
+const PUBLIC_SITE = "Harbor Point School";
+const PUBLIC_COMPANY = "Invented Cleaning Co";
+const FORM_C_WORDS = {
+  en: {
+    title: "Building walk with the customer", first: "What you looked at", second: "Anything else", ocsa: "For the OCSA office",
+    visited: "Which areas did you walk", lobby: "The lobby", restroom: "The restrooms",
+    ok: "Acceptable", bad: "Deficient", na: "Not applicable",
+    remarks: "Anything we should know", pics: "Photos of what you saw", picsHelp: "Up to three.", signed: "Your signature",
+  },
+  es: {
+    title: "Recorrido del edificio con el cliente", first: "Lo que reviso", second: "Algo mas", ocsa: "Para la oficina de OCSA",
+    visited: "Que areas recorrio", lobby: "El vestibulo", restroom: "Los banos",
+    ok: "Aceptable", bad: "Deficiente", na: "No aplica",
+    remarks: "Algo que debamos saber", pics: "Fotos de lo que vio", picsHelp: "Hasta tres.", signed: "Su firma",
+  },
+};
+const FORM_V_WORDS = {
+  en: {
+    title: "How are we doing", first: "About you", second: "Your ratings", ocsa: "For the OCSA office",
+    org: "Your organization", years: "How long have we served you", under: "Under a year", over: "A year or more",
+    clean: "How clean is the building", crew: "How is the crew", response: "How fast do we answer",
+    notes: "Anything else", pics: "Photos, if any",
+  },
+  es: {
+    title: "Como lo estamos haciendo", first: "Sobre usted", second: "Sus calificaciones", ocsa: "Para la oficina de OCSA",
+    org: "Su organizacion", years: "Cuanto tiempo llevamos atendiendolo", under: "Menos de un ano", over: "Un ano o mas",
+    clean: "Que tan limpio esta el edificio", crew: "Como es el equipo", response: "Que tan rapido respondemos",
+    notes: "Algo mas", pics: "Fotos, si las hay",
+  },
+};
+const customerField = (key, label, type, section, required, extra) => Object.assign({
+  key: key, label: label, type: type, required: !!required, osha: false, prefilled: false, options: [], appliesWhen: null, help: null, section: section,
+}, extra || {});
+function formC(lang) {
+  const w = FORM_C_WORDS[lang === "es" ? "es" : "en"];
+  const scale = [{ value: "ok", label: w.ok }, { value: "bad", label: w.bad }, { value: "na", label: w.na }];
+  return {
+    code: FORM_C_CODE, title: w.title, version: 1,
+    sections: [{ key: "1", title: w.first }, { key: "2", title: w.second }, { key: "3", title: w.ocsa }],
+    fields: [
+      customerField("visited", w.visited, "text", "1", true),
+      customerField("lobby", w.lobby, "select", "1", true, { options: scale }),
+      customerField("restroom", w.restroom, "select", "1", true, { options: scale }),
+      customerField("remarks", w.remarks, "textarea", "2", false),
+      customerField("pics", w.pics, "photos", "2", false, { help: w.picsHelp, maxPhotos: PUBLIC_MAX_PHOTOS }),
+      customerField("signed", w.signed, "customer_signature", "2", true),
+    ],
+  };
+}
+function formV(lang) {
+  const w = FORM_V_WORDS[lang === "es" ? "es" : "en"];
+  const stars = [1, 2, 3, 4, 5].map(n => ({ value: String(n), label: String(n) }));
+  return {
+    code: FORM_V_CODE, title: w.title, version: 1,
+    sections: [{ key: "1", title: w.first }, { key: "2", title: w.second }, { key: "3", title: w.ocsa }],
+    fields: [
+      customerField("org", w.org, "text", "1", true),
+      customerField("years", w.years, "select", "1", false, { options: [{ value: "under", label: w.under }, { value: "over", label: w.over }] }),
+      customerField("clean", w.clean, "select", "2", false, { options: stars }),
+      customerField("crew", w.crew, "select", "2", false, { options: stars }),
+      customerField("response", w.response, "select", "2", false, { options: stars }),
+      customerField("notes", w.notes, "textarea", "2", false),
+      customerField("pics", w.pics, "photos", "2", false, { maxPhotos: PUBLIC_MAX_PHOTOS }),
+    ],
+  };
+}
+const customerFormOf = (code, lang) => (code === FORM_C_CODE ? formC(lang) : formV(lang));
+const customerNameRequired = (code) => code === FORM_C_CODE;
 
 // Everyone the Speak Up picker can offer, invented, each one a first and
 // a last name, sorted by last name then first name the way the route
@@ -819,6 +917,17 @@ const API_REFUSALS = {
   "forms.photoLimit": { status: 400, en: "This question takes {max} photos at most.", es: "Esta pregunta acepta como m\u00e1ximo {max} fotos.", vars: { max: FORM_P_MAX_PHOTOS } },
   // A sign-off with no drawing, as the API's Step 163 writes it.
   "forms.signatureRequired": { status: 400, en: "Sign with your finger or mouse before pressing Sign.", es: "Firme con el dedo o el mouse antes de presionar Firmar." },
+  // A number that is not one, and a customer signature saved on a staff
+  // form under a key that is not one, as the API's Step 167 writes them.
+  "forms.badNumber": { status: 400, en: "Enter a number", es: "Escriba un n\u00famero" },
+  "forms.notACustomerSignature": { status: 400, en: "That question is not a customer signature", es: "Esa pregunta no es una firma del cliente" },
+  // The customer's page, as the API's Step 167 writes them.
+  "customer.linkUnknown": { status: 404, en: "This link is not valid.", es: "Este enlace no es v\u00e1lido." },
+  "customer.linkClosed": { status: 410, en: "This form is closed. Call the office at 1(877)466-2721.", es: "Este formulario est\u00e1 cerrado. Llame a la oficina al 1(877)466-2721." },
+  "customer.tooManyRequests": { status: 429, en: "Too many requests. Try again in a minute.", es: "Demasiadas solicitudes. Intente de nuevo en un minuto." },
+  "customer.tooManyFilings": { status: 429, en: "This form was sent too many times from this device. Try again later.", es: "Este formulario se envi\u00f3 demasiadas veces desde este dispositivo. Intente m\u00e1s tarde." },
+  "customer.bodyTooLarge": { status: 413, en: "The form is too large to send. Use fewer or smaller photos.", es: "El formulario es demasiado grande para enviarlo. Use menos fotos o fotos m\u00e1s peque\u00f1as." },
+  "customer.nameRequired": { status: 400, en: "Give your name.", es: "Escriba su nombre." },
 };
 // The photo and signature refusals the stub answers on its own, which no
 // screen should meet once the phone makes every photo small and draws
@@ -834,7 +943,30 @@ const FILE_REFUSALS = {
   "forms.signatureInvalid": { status: 400, en: "The signature must be a PNG drawing.", es: "La firma debe ser un dibujo PNG." },
   "forms.signatureTooLarge": { status: 400, en: "The signature is over 300 KB.", es: "La firma pesa m\u00e1s de 300 KB." },
   "forms.signatureNotFound": { status: 404, en: "Signature not found", es: "No se encontr\u00f3 la firma" },
+  // The customer's filing, checked whole by the API. The page judges the
+  // same rules itself before it sends, so a customer meets none of these
+  // unless the API disagrees with the page.
+  "customer.photoTooLarge": { status: 400, en: "This photo is over 5 MB.", es: "Esta foto pesa m\u00e1s de 5 MB." },
+  "forms.requiredUnanswered": { status: 400, en: "Required fields are unanswered", es: "Faltan campos obligatorios por responder" },
+  "forms.unanswerable": { status: 400, en: "These fields cannot be answered here", es: "Estos campos no se pueden responder aqu\u00ed" },
+  "forms.invalidAnswers": { status: 400, en: "Some answers are not valid", es: "Algunas respuestas no son v\u00e1lidas" },
+  "forms.answersShape": { status: 400, en: "Send answers as an object of key and value", es: "Env\u00ede las respuestas como un objeto de clave y valor" },
+  "forms.customerSignatureByRoute": { status: 400, en: "The customer signs with the Customer signature button", es: "El cliente firma con el bot\u00f3n de firma del cliente" },
 };
+// The line the API answers a saved customer signature with, the way
+// helpers/formCatalog.js writes it: who, then the date and the time.
+const SIGNED_TEXT = {
+  en: { by: "Signed by ", on: " on ", at: " at " },
+  es: { by: "Firmado por ", on: " el ", at: " a las " },
+};
+function customerSignatureLine(stamp, lang) {
+  const t = SIGNED_TEXT[lang === "es" ? "es" : "en"];
+  const who = [stamp.name, stamp.role].map(x => String(x || "").trim()).filter(Boolean).join(", ");
+  const d = new Date(stamp.at);
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "numeric", minute: "2-digit", hour12: true }).formatToParts(d);
+  const get = (k) => { const x = parts.find(y => y.type === k); return x ? x.value : ""; };
+  return t.by + who + t.on + get("year") + "-" + get("month") + "-" + get("day") + t.at + get("hour") + ":" + get("minute") + " " + String(get("dayPeriod")).toUpperCase();
+}
 const SIGNATURE_MAX_BYTES = 300 * 1024;
 // A one pixel PNG, the bytes every streamed image falls back to.
 const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
@@ -1137,7 +1269,10 @@ const TWIN_PAIRS = [
   .concat(Object.keys(API_REFUSALS).map(k => [refusalIn(API_REFUSALS[k], "en", API_REFUSALS[k].vars), refusalIn(API_REFUSALS[k], "es", API_REFUSALS[k].vars)]))
   .concat(Object.keys(FILE_REFUSALS).map(k => [FILE_REFUSALS[k].en, FILE_REFUSALS[k].es]))
   // The form with titled sections, written in both languages above.
-  .concat(Object.keys(FORM_S_WORDS.en).map(k => [FORM_S_WORDS.en[k], FORM_S_WORDS.es[k]]));
+  .concat(Object.keys(FORM_S_WORDS.en).map(k => [FORM_S_WORDS.en[k], FORM_S_WORDS.es[k]]))
+  // The customer's two forms, written in both languages above.
+  .concat(Object.keys(FORM_C_WORDS.en).map(k => [FORM_C_WORDS.en[k], FORM_C_WORDS.es[k]]))
+  .concat(Object.keys(FORM_V_WORDS.en).map(k => [FORM_V_WORDS.en[k], FORM_V_WORDS.es[k]]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -1170,6 +1305,9 @@ const ROUTE_WORDS = [
   [/^GET \/api\/supplies$/, { name: "supply" }],
   [/^GET \/api\/time-off\/types$/, { label: "leave type" }],
   [/^[A-Z]+ \/api\/forms/, { title: "form text", label: "form text", rows: "form text" }],
+  // The customer's form, the same view; the site's and the company's names
+  // are names.
+  [/^[A-Z]+ \/api\/public\/forms/, { title: "form text", label: "form text", rows: "form text", name: "name" }],
   [/^GET \/api\/inspections\//, { name: "inspection item", label: "inspection item", zone: "inspection item" }],
   // A piece of Help's answer, as the streaming route sends it.
   [/^POST \/api\/agent\/message\/stream$/, { text: "Help reply" }],
@@ -1188,6 +1326,8 @@ const SIGNED_OUT = [
   /^POST \/api\/auth\/login$/, /^POST \/api\/auth\/register$/,
   /^GET \/api\/auth\/activate\/[^/]+$/, /^POST \/api\/auth\/activate$/,
   /^POST \/api\/auth\/reset\/request$/, /^GET \/api\/auth\/reset\/[^/]+$/, /^POST \/api\/auth\/reset$/,
+  // The customer's page, Step 167: no sign-in, answered the same way.
+  /^GET \/api\/public\/forms\/[^/]+$/, /^POST \/api\/public\/forms\/[^/]+\/responses$/,
 ];
 const signedOutLanguage = (search, accept) => {
   const m = String(search || "").match(/[?&]locale=(en|es)\b/);
@@ -1757,6 +1897,94 @@ function createStub(opts) {
     }
     if (method === "POST" && /^\/api\/agent\/drafts\/[^/]+\/submit$/.test(pathname)) return json(200, { ok: true });
 
+    // --- the customer's page, Step 167 in the API
+    //
+    // No sign-in: answered in the language the request asks for, the
+    // browser's own after it, like every call made before signing in.
+    // The filing is checked whole and answered { ok: true } and nothing
+    // else. Every refusal carries its code, and the ones that name a
+    // question carry keys.
+    const publicLang = signedOutLanguage(search, (headers || {})["accept-language"]);
+    const publicRefusal = (code, extra, vars) => {
+      const r = API_REFUSALS[code] || FILE_REFUSALS[code];
+      return json(r.status, Object.assign({ error: refusalIn(r, publicLang, vars || r.vars), code: code }, extra || {}));
+    };
+    const publicGet = /^\/api\/public\/forms\/([^/]+)$/.exec(pathname);
+    const publicPost = /^\/api\/public\/forms\/([^/]+)\/responses$/.exec(pathname);
+    if ((method === "GET" && publicGet) || (method === "POST" && publicPost)) {
+      const token = (publicGet || publicPost)[1];
+      const link = CUSTOMER_LINKS[token];
+      if (!link) return publicRefusal("customer.linkUnknown");
+      if (link.closed) return publicRefusal("customer.linkClosed");
+      const form = customerFormOf(link.form, publicLang);
+      if (method === "GET") {
+        return json(200, { form: form, site: { name: PUBLIC_SITE }, company: { name: PUBLIC_COMPANY, logoUrl: null }, customerNameRequired: customerNameRequired(link.form) });
+      }
+      const b = body && typeof body === "object" ? body : {};
+      // The honeypot: a filing that fills it is answered as if it went.
+      if (typeof b.website === "string" && b.website.trim() !== "") return json(200, { ok: true });
+      if (state.customerFiled.length >= PUBLIC_FILINGS_MAX) return publicRefusal("customer.tooManyFilings");
+      const answers = b.answers === undefined || b.answers === null ? {} : b.answers;
+      if (!answers || typeof answers !== "object" || Array.isArray(answers)) return publicRefusal("forms.answersShape");
+      const unanswerable = [];
+      const invalid = [];
+      const got = {};
+      for (const k of Object.keys(answers)) {
+        const field = form.fields.find(f => f.key === k);
+        const v = answers[k];
+        if (!field) { unanswerable.push(k); continue; }
+        if (v === null || v === undefined || v === "") continue;
+        if (field.type === "customer_signature") {
+          const o = v && typeof v === "object" ? v : {};
+          if (!String(o.name || "").trim()) return publicRefusal("customer.nameRequired", { keys: [k] });
+          const drawn = /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(String(o.signature || "").trim());
+          if (!String(o.signature || "").trim()) return publicRefusal("forms.signatureRequired", { keys: [k] });
+          const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
+          if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") return publicRefusal("forms.signatureInvalid", { keys: [k] });
+          if (bytes.length > SIGNATURE_MAX_BYTES) return publicRefusal("forms.signatureTooLarge", { keys: [k] });
+          got[k] = { name: String(o.name).trim(), role: String(o.role || "").trim(), bytes: bytes.length, size: imageSize(bytes) };
+          continue;
+        }
+        if (field.type === "photos") {
+          const list = Array.isArray(v) ? v : [v];
+          if (list.length > PUBLIC_MAX_PHOTOS) return publicRefusal("forms.photoLimit", { keys: [k] }, { max: PUBLIC_MAX_PHOTOS });
+          const kept = [];
+          for (const entry of list) {
+            const data = entry && typeof entry === "object" ? entry.data : entry;
+            const m = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+)?;base64,([A-Za-z0-9+/=\s]+)$/i.exec(String(data || "").trim());
+            if (!m) return publicRefusal("forms.photoType", { keys: [k] });
+            const bytes = Buffer.from(m[2].replace(/\s+/g, ""), "base64");
+            if (bytes.length > PUBLIC_PHOTO_MAX_BYTES) return publicRefusal("customer.photoTooLarge", { keys: [k] });
+            const kind = sniffImage(bytes);
+            if (!kind || kind.heic) return publicRefusal("forms.photoType", { keys: [k] });
+            kept.push({ name: entry && typeof entry === "object" ? String(entry.name || "photo") : "photo", bytes: bytes.length, kind: kind, size: imageSize(bytes) });
+          }
+          if (kept.length > 0) got[k] = kept;
+          continue;
+        }
+        if (field.type === "select") {
+          if (!(field.options || []).some(o => o.value === String(v))) { invalid.push(k); continue; }
+          got[k] = String(v);
+          continue;
+        }
+        if (typeof v === "object") { invalid.push(k); continue; }
+        got[k] = String(v);
+      }
+      if (unanswerable.length > 0) return publicRefusal("forms.unanswerable", { keys: unanswerable });
+      if (invalid.length > 0) return publicRefusal("forms.invalidAnswers", { keys: invalid });
+      const customerName = String(b.customerName || "").replace(/\s+/g, " ").trim();
+      if (customerNameRequired(link.form) && !customerName) return publicRefusal("customer.nameRequired");
+      const missing = form.fields.filter(f => f.required && got[f.key] === undefined).map(f => f.key);
+      if (missing.length > 0) {
+        return publicRefusal("forms.requiredUnanswered", { missing: missing, missingFields: missing.map(k => ({ key: k, label: form.fields.find(f => f.key === k).label })) });
+      }
+      // The call's record carries what the API read off the body, so a
+      // case can judge the photos and the drawing by their bytes.
+      state.calls[state.calls.length - 1].read = got;
+      state.customerFiled.push({ token: token, locale: publicLang, customerName: customerName, customerRole: String(b.customerRole || "").trim(), answers: got });
+      return json(200, { ok: true });
+    }
+
     // --- report forms
     //
     // Two forms now: the one built today, and the second one carrying a
@@ -1788,6 +2016,11 @@ function createStub(opts) {
       const signoff = Object.keys(written).find(k => /Sign$/.test(k));
       if (second(pathname) && signoff) return json(400, { error: "A sign-off is made with its own button" });
       if (second(pathname) && Object.keys(written).some(k => formP(lang).fields.some(f => f.key === k && f.type === "photos"))) return apiRefusal("forms.photosByRoute", search);
+      if (second(pathname) && Object.keys(written).some(k => formP(lang).fields.some(f => f.key === k && f.type === "customer_signature"))) return apiRefusal("forms.customerSignatureByRoute", search);
+      if (second(pathname)) {
+        const notNumbers = Object.keys(written).filter(k => written[k] !== null && formP(lang).fields.some(f => f.key === k && f.type === "number") && !(typeof written[k] === "number" && Number.isFinite(written[k])));
+        if (notNumbers.length > 0) { const r = apiRefusal("forms.badNumber", search); return json(r.status, Object.assign(JSON.parse(r.body), { keys: notNumbers })); }
+      }
       Object.keys(written).forEach((k) => { if (written[k] === null) delete bag[k]; else bag[k] = written[k]; });
       if (third(pathname)) return json(200, { draft: draftS(state, lang), form: thirdForm() });
       return second(pathname) ? json(200, { draft: draftP(state, lang), form: formP(lang) }) : json(200, { draft: draftOf(state), form: FORM });
@@ -1808,6 +2041,29 @@ function createStub(opts) {
       const missing = FORM.fields.filter(f => f.required && !state.answers[f.key]).map(f => f.key);
       if (missing.length > 0) return json(400, { error: "Answer every required question before sending", missing: missing });
       return json(200, { ok: true, reference: "OCSA-FIX-101-0001" });
+    }
+    // A customer's signature on the second form, saved on the staff
+    // member's phone through its own route, Step 167 in the API: the
+    // name required, the role optional, the drawing a PNG under 300 KB.
+    // The answer is the draft with the stamp on it, and the field views
+    // with the line the stamp reads as.
+    if (method === "POST" && pathname === "/api/forms/drafts/draft-two/customer-signature") {
+      const wanted = String((body && body.key) || "");
+      const field = formP(lang).fields.find(f => f.key === wanted && f.type === "customer_signature");
+      if (!field) return apiRefusal("forms.notACustomerSignature", search);
+      const name = String((body && body.name) || "").replace(/\s+/g, " ").trim();
+      if (!name) return apiRefusal("customer.nameRequired", search);
+      const raw = body && body.signature !== undefined && body.signature !== null ? String(body.signature).trim() : "";
+      if (!raw) return apiRefusal("forms.signatureRequired", search);
+      const drawn = /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw);
+      const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
+      if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") return apiRefusal("forms.signatureInvalid", search);
+      if (bytes.length > SIGNATURE_MAX_BYTES) return apiRefusal("forms.signatureTooLarge", search);
+      state.signatureBytes[wanted] = bytes;
+      state.calls[state.calls.length - 1].signature = { bytes: bytes.length, size: imageSize(bytes) };
+      const stamp = { name: name, role: String((body && body.role) || "").trim() || null, signatureId: "csig-" + wanted + "-" + (++state.photoSeq), at: iso(NOW.getTime()) };
+      state.answersP[wanted] = stamp;
+      return json(200, { draft: draftP(state, lang), fields: formP(lang).fields.map(f => (f.key === wanted ? { key: f.key, type: f.type, value: stamp, displayValue: customerSignatureLine(stamp, lang), signature: { id: stamp.signatureId } } : { key: f.key, type: f.type })) });
     }
     // Photos on the second form, the four routes Step 163 gave the API.
     // The bytes are read for what they are, every file is checked before
@@ -2065,4 +2321,5 @@ function draftOf(state) {
 module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
-  API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES, localeFault, localeRows };
+  API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES, localeFault, localeRows,
+  CUSTOMER_LINKS, FORM_C_CODE, FORM_V_CODE, formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, PUBLIC_MAX_PHOTOS, PUBLIC_FILINGS_MAX, customerSignatureLine };
