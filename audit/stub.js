@@ -452,6 +452,9 @@ function makeState(opts) {
     inspections: (o.inspections || []).map(i => Object.assign({}, i)),
     // Step 145: every problem filed through POST /api/issues, in order.
     issues: [],
+    // The supplies at the open shift's site, which a case can answer
+    // with none. null answers the one supply every case has always had.
+    supplies: Array.isArray(o.supplies) ? o.supplies : null,
     conversationId: "cv-one",
     // Help: what the next question is answered with, the points the one
     // being answered can be stopped at, and the conversation as the API
@@ -2176,7 +2179,7 @@ function createStub(opts) {
       issue.photos.push(body.photoUrl);
       return json(201, { photo: { id: "ph-" + issue.photos.length, issue_id: issue.id, photo_url: body.photoUrl } });
     }
-    if (key === "GET /api/supplies") return json(200, [{ id: "sup-1", name: "Paper towels", qr_code: "QR-0001", unit: "rolls", is_low: true }]);
+    if (key === "GET /api/supplies") return json(200, state.supplies || [{ id: "sup-1", name: "Paper towels", qr_code: "QR-0001", unit: "rolls", is_low: true }]);
     if (key === "POST /api/supplies/log-usage") return json(200, { message: "Usage logged", log: { id: "log-1", supply_name: "Paper towels", quantity: 1 }, lowStockAlert: false });
     if (key === "POST /api/supplies/requests") return json(200, { ok: true });
 

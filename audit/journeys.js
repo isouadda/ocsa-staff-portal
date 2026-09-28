@@ -4030,6 +4030,93 @@ const JOURNEYS = [
       } finally { await app.context.close(); }
     },
   },
+  {
+    id: "listfaults",
+    label: "A list that did not load says so with Try again and comes back when it is tapped, on all eight lists that can fail; a site with no supplies says so; and a screen that throws draws the last resort, whose Reload brings the portal back",
+    run: async (open, language, expect) => {
+      const REFUSED = { status: 500, error: "Something went wrong on our end. Try again in a minute." };
+      const LINE = "This list did not load.";
+      // The line a list says in its place, and the Try again beside it.
+      const faultOf = (page, line) => page.evaluate(([l, retry]) => {
+        const a = Array.from(document.querySelectorAll('.sp-content [role="alert"]')).find(x => x.textContent.trim() === l && x.offsetParent !== null);
+        const b = a && Array.from(a.parentElement.querySelectorAll("button")).find(x => x.textContent.trim() === retry);
+        return { line: !!a, retry: !!b };
+      }, [line, say("Try again", language)]);
+      const tapRetry = (page, line) => page.evaluate(([l, retry]) => {
+        const a = Array.from(document.querySelectorAll('.sp-content [role="alert"]')).find(x => x.textContent.trim() === l && x.offsetParent !== null);
+        const b = a && Array.from(a.parentElement.querySelectorAll("button")).find(x => x.textContent.trim() === retry);
+        if (b) b.click();
+        return !!b;
+      }, [line, say("Try again", language)]);
+      const weekDrawn = (page) => page.evaluate(() => Array.from(document.querySelectorAll(".sp-content div")).some(d => getComputedStyle(d).display === "grid" && d.children.length === 7));
+      const asked = (stub, route) => stub.state.calls.filter(c => c.method + " " + c.path === route).length;
+      // Each list, the route that fills it, where a person meets it, the
+      // line it says when the route fails, and what is back once it answers.
+      const LISTS = [
+        { what: "Home's sites", route: "GET /api/shift-sessions/sites", tab: "clock", line: "Your sites did not load.", stub: { clockedIn: false }, back: async page => has(await bodyText(page), "South Building") },
+        { what: "Assigned", route: "GET /api/clock/tasks/assigned", tab: "issuetasks", line: LINE, back: async page => has(await bodyText(page), "Replace the cracked light cover") },
+        { what: "Supplies", route: "GET /api/supplies", tab: "supplies", line: LINE, back: async page => has(await bodyText(page), "Paper towels") },
+        { what: "Schedule", route: "GET /api/pickups/my-schedule", tab: "schedule", line: LINE, back: weekDrawn },
+        { what: "Report, for an admin", route: "GET /api/issues", tab: "Issues", line: LINE, stub: { person: Object.assign({}, PERSON, { role: "admin" }) }, back: async page => has(await bodyText(page), spanishOf("No issues reported yet.", language)) },
+        { what: "Pickup", route: "GET /api/pickups/available", tab: "pickup", line: LINE, back: async page => has(await bodyText(page), say("Claim This Shift", language)) },
+        { what: "Inspect", route: "GET /api/inspections/scheduled", tab: "inspect", line: LINE, stub: { inspections: [INSPECTION] }, back: async page => has(await bodyText(page), INSPECTION.template_name) },
+        { what: "Profile", route: "GET /api/users/profile/me", tab: "profile", line: "Your profile did not load.", back: async page => has(await bodyText(page), "OCSA-0001") },
+      ];
+      for (const c of LISTS) {
+        const app = await open({ stubOptions: Object.assign({ refuse: { [c.route]: REFUSED } }, c.stub || {}) });
+        try {
+          await openTab(app.page, c.tab, language);
+          await pause(app.page, 1200);
+          const said = await faultOf(app.page, spanishOf(c.line, language));
+          expect(c.what + ": a list that did not load says so where it would be, with Try again", said.line && said.retry, JSON.stringify(said) + " " + (await bodyText(app.page)).slice(0, 200));
+          await spokenHere(app, language, expect);
+          delete app.stub.state.refuse[c.route];
+          const before = asked(app.stub, c.route);
+          await tapRetry(app.page, spanishOf(c.line, language));
+          await pause(app.page, 1200);
+          const gone = !(await faultOf(app.page, spanishOf(c.line, language))).line;
+          const back = await c.back(app.page);
+          expect(c.what + ": Try again asks again and the list comes back", asked(app.stub, c.route) > before && gone && back,
+            "asked " + (asked(app.stub, c.route) - before) + " more, line gone " + gone + ", back " + back + ": " + (await bodyText(app.page)).slice(0, 200));
+        } finally { await app.context.close(); }
+      }
+
+      // A site with no supplies set up says so, apart from a list that
+      // did not load.
+      const none = await open({ stubOptions: { supplies: [] } });
+      try {
+        await openTab(none.page, "supplies", language);
+        await pause(none.page, 1200);
+        const text = await bodyText(none.page);
+        expect("a site with no supplies says so", has(text, spanishOf("No supplies are set up for this site.", language)) && !has(text, spanishOf(LINE, language)), text.slice(0, 220));
+        await spokenHere(none, language, expect);
+      } finally { await none.context.close(); }
+
+      // A profile answered without its user throws while it is drawn. The
+      // last resort draws one line and Reload, in the phone's language, in
+      // place of a blank page, and Reload brings the portal back.
+      const thrown = await open({});
+      try {
+        thrown.stub.state.refuse["GET /api/users/profile/me"] = { status: 200, body: {}, once: true };
+        await openTab(thrown.page, "profile", language);
+        await pause(thrown.page, 1200);
+        const last = await thrown.page.evaluate(([line, reload]) => ({
+          line: Array.from(document.querySelectorAll('[role="alert"]')).some(a => a.textContent.trim() === line),
+          reload: Array.from(document.querySelectorAll("button")).some(b => b.textContent.trim() === reload),
+          portal: !!document.querySelector(".sp-content"),
+        }), [spanishOf("Something went wrong on this screen.", language), spanishOf("Reload", language)]);
+        expect("a screen that throws draws the last resort's line and Reload, in the phone's language, and nothing of the portal", last.line && last.reload && !last.portal, JSON.stringify(last) + " " + (await bodyText(thrown.page)).slice(0, 160));
+        await spokenHere(thrown, language, expect);
+        await Promise.all([
+          thrown.page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {}),
+          clickText(thrown.page, spanishOf("Reload", language)),
+        ]);
+        await thrown.page.waitForSelector(".sp-content", { timeout: 20000 }).catch(() => {});
+        await pause(thrown.page, 1200);
+        expect("Reload brings the portal back", await thrown.page.evaluate(() => !!document.querySelector(".sp-content")), (await bodyText(thrown.page)).slice(0, 160));
+      } finally { await thrown.context.close(); }
+    },
+  },
   // --- Chat. Step 130: every chat reachable, and every message accounted for.
   {
     id: "chatpickfirst",
