@@ -3595,6 +3595,87 @@ const JOURNEYS = [
     },
   },
   {
+    id: "helpdiscard",
+    label: "Discarding a report Help started: from its card and from a row, each asked first and gone from the list, the list read again with neither on it, and a Discard the API turns away said in its words",
+    run: async (open, language, expect, extra) => {
+      const DRAFTS = [
+        { id: "draft-one", formName: "Incident report", answered: 1, remaining: 4, conversationId: "cv-one" },
+        { id: "draft-two", formName: "Site walk", answered: 2, remaining: 6, conversationId: "cv-one" },
+      ];
+      const asked = [];
+      const discards = (stub) => stub.state.calls.filter(c => c.method === "POST" && /^\/api\/forms\/drafts\/[^/]+\/discard$/.test(c.path)).map(c => c.path.split("/")[4]);
+      const rowNames = (page) => page.evaluate((head) => {
+        const h = Array.from(document.querySelectorAll(".sp-content div")).find(d => d.children.length === 0 && d.textContent.trim() === head);
+        return h ? Array.from(h.parentElement.children).slice(1).map(r => r.innerText.split("\n")[0].trim()) : [];
+      }, spanishOf("Unfinished reports", language));
+      const discardRow = (page, name) => page.evaluate(([want, word]) => {
+        const r = Array.from(document.querySelectorAll(".sp-content div")).find(d => d.children.length > 1 && d.innerText.split("\n")[0].trim() === want && Array.from(d.children).some(c => c.tagName === "BUTTON" && c.textContent.trim() === word));
+        const b = r && Array.from(r.children).find(c => c.tagName === "BUTTON" && c.textContent.trim() === word);
+        if (b) b.click();
+        return !!b;
+      }, [name, spanishOf("Discard", language)]);
+      const app = await open({ stubOptions: { drafts: DRAFTS } });
+      app.page.on("dialog", (d) => asked.push(d.message()));
+      try {
+        await openTab(app.page, "agent", language);
+        await pause(app.page, 900);
+        app.stub.state.help.next = { answer: "report" };
+        await askHelp(app.page, language, "Someone slipped in the hall");
+        await answerDone(app.page, 6000);
+        await pause(app.page, 600);
+        // The card's own Discard, asked first, then the discard route.
+        const onCard = await app.page.evaluate(([card, word]) => {
+          const h = Array.from(document.querySelectorAll(".sp-content div")).find(d => d.children.length === 0 && d.textContent.trim() === card);
+          let box = h;
+          for (let i = 0; i < 4 && box && !Array.from(box.querySelectorAll("button")).some(b => b.textContent.trim() === word); i += 1) box = box.parentElement;
+          const b = box && Array.from(box.querySelectorAll("button")).find(x => x.textContent.trim() === word);
+          if (b) b.click();
+          return !!b;
+        }, [spanishOf("Report in progress", language), spanishOf("Discard", language)]);
+        await pause(app.page, 1000);
+        expect("the report in progress carries Discard", onCard, (await bodyText(app.page)).slice(-240));
+        expect("Discard asks first, in the person's language", asked[0] === spanishOf("Discard this report? It will not be sent.", language), JSON.stringify(asked));
+        expect("Discard on the card discards the card's report and clears the card", JSON.stringify(discards(app.stub)) === JSON.stringify(["draft-one"]) && !has(await bodyText(app.page), spanishOf("Report in progress", language)), JSON.stringify(discards(app.stub)));
+        expect("Report discarded. is said", has((await toastText(app.page)) + " " + (await bodyText(app.page)), spanishOf("Report discarded.", language)), await toastText(app.page));
+        await noToast(app.page);
+        // A row's Discard.
+        await discardRow(app.page, servedIn("Site walk", language));
+        await pause(app.page, 1000);
+        expect("Discard on a row discards that report and the row leaves the list", JSON.stringify(discards(app.stub)) === JSON.stringify(["draft-one", "draft-two"]) && (await rowNames(app.page)).length === 0, JSON.stringify(await rowNames(app.page)));
+        // The list read again, as a new visit to Help reads it.
+        await openTab(app.page, "settings", language);
+        await pause(app.page, 600);
+        const reads = sent(app.stub, "GET", "/api/agent/drafts").length;
+        await openTab(app.page, "agent", language);
+        await pause(app.page, 1200);
+        expect("the list read again holds neither report", sent(app.stub, "GET", "/api/agent/drafts").length > reads && (await rowNames(app.page)).length === 0, JSON.stringify(await rowNames(app.page)));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+
+      // A row this phone still shows, whose report was discarded on another
+      // phone, and one whose report is gone: each Discard is turned away in
+      // the API's words, and the list is read again.
+      for (const [key, behind] of [["forms.notADraft", (st) => { st.discarded.push("draft-two"); st.drafts = st.drafts.filter(d => d.id !== "draft-two"); }], ["forms.reportNotFound", (st) => { st.drafts = st.drafts.filter(d => d.id !== "draft-two"); }]]) {
+        const stale = await open({ stubOptions: { drafts: [DRAFTS[1]] } });
+        try {
+          await openTab(stale.page, "agent", language);
+          await pause(stale.page, 1000);
+          behind(stale.stub.state);
+          const reads = sent(stale.stub, "GET", "/api/agent/drafts").length;
+          await discardRow(stale.page, servedIn("Site walk", language));
+          await pause(stale.page, 1000);
+          const told = await toastText(stale.page);
+          const words = refusalIn(API_REFUSALS[key], language);
+          const shown = has(told, words);
+          expect("a Discard turned away with " + key + " says the API's words", shown, JSON.stringify(told));
+          if (extra) extra.refusalsShown += shown ? 1 : 0;
+          expect("and the list is read again, without the row", sent(stale.stub, "GET", "/api/agent/drafts").length > reads && (await rowNames(stale.page)).length === 0, JSON.stringify(await rowNames(stale.page)));
+          await spokenHere(stale, language, expect);
+        } finally { await stale.context.close(); }
+      }
+    },
+  },
+  {
     id: "settingshold",
     label: "Switch language and text size, reload, and prove both held",
     run: async (open, language, expect) => {

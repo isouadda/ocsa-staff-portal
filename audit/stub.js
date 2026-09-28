@@ -447,6 +447,8 @@ function makeState(opts) {
     timeOffTypesLive: o.timeOffTypesLive !== false,
     myTimeOff: o.myTimeOff || [],
     drafts: o.drafts || [],
+    // Every draft discarded, by id.
+    discarded: [],
     notifications: o.notifications || [],
     // Copied, since /complete marks one completed and the fixture is shared.
     inspections: (o.inspections || []).map(i => Object.assign({}, i)),
@@ -964,6 +966,9 @@ const API_REFUSALS = {
   "auth.locked": { status: 429, en: "Too many tries. Wait {minutes} minutes, then try again.", es: "Demasiados intentos. Espere {minutes} minutos y vuelva a intentarlo.", vars: { minutes: 15 } },
   // An answer rated that is not one of the person's own, Step 183.
   "help.messageNotFound": { status: 404, en: "Answer not found", es: "No se encontr\u00f3 la respuesta" },
+  // A draft discarded that is gone or no longer a draft, Step 183.
+  "forms.reportNotFound": { status: 404, en: "Report not found", es: "No se encontr\u00f3 el reporte" },
+  "forms.notADraft": { status: 409, en: "Only a draft can be discarded.", es: "Solo se puede descartar un borrador." },
   "timeOff.lastBeforeFirst": { status: 400, en: "The last day cannot be before the first day", es: "El \u00faltimo d\u00eda no puede ser anterior al primer d\u00eda" },
   "pickups.alreadyClaimed": { status: 409, en: "Shift was already claimed", es: "Este turno ya fue tomado" },
   "supplies.requestTypeRequired": { status: 400, en: "Request type is required", es: "Elija el tipo de solicitud" },
@@ -2033,7 +2038,8 @@ function createStub(opts) {
       if (play.error) return Object.assign(json(play.error.status, { error: play.error.error }), { after: after });
       return Object.assign(json(200, play.done), { after: after });
     }
-    if (pathname === "/api/agent/drafts" && method === "GET") return json(200, state.drafts);
+    // The unfinished reports, a discarded one no longer among them.
+    if (pathname === "/api/agent/drafts" && method === "GET") return json(200, state.drafts.filter(d => state.discarded.indexOf(String(d.id)) === -1));
     // The conversation as the API keeps it: every question, and every
     // answer once it is written. An answer is a Help reply, and a question
     // is the person's own words. Since Step 183 each answer carries its id
@@ -2150,6 +2156,22 @@ function createStub(opts) {
       // case can judge the photos and the drawing by their bytes.
       state.calls[state.calls.length - 1].read = got;
       state.customerFiled.push({ token: token, locale: publicLang, customerName: customerName, customerRole: String(b.customerRole || "").trim(), answers: got });
+      return json(200, { ok: true });
+    }
+
+    // --- discarding a draft, Step 183: the person who started it, while it
+    // is a draft. A discarded draft leaves the drafts list; one discarded
+    // already answers forms.notADraft, and one that is not there answers
+    // forms.reportNotFound. The report Help starts is draft-one.
+    const discarding = method === "POST" ? /^\/api\/forms\/drafts\/([^/]+)\/discard$/.exec(pathname) : null;
+    if (discarding) {
+      const id = decodeURIComponent(discarding[1]);
+      if (state.discarded.indexOf(id) !== -1) {
+        const r = apiRefusal("forms.notADraft", search);
+        return json(r.status, Object.assign(JSON.parse(r.body), { status: "void" }));
+      }
+      if (id !== "draft-one" && !state.drafts.some(d => String(d.id) === id)) return apiRefusal("forms.reportNotFound", search);
+      state.discarded.push(id);
       return json(200, { ok: true });
     }
 
