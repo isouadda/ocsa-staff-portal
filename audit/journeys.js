@@ -4114,6 +4114,29 @@ const JOURNEYS = [
     },
   },
   {
+    id: "phonefollows",
+    label: "The phone follows whoever signed in: on boot with a stored session, and after another person signs in on the same phone, the endpoint is filed under the person signed in",
+    run: async (open, language, expect) => {
+      const app = await open({ userAgent: ANDROID, push: { permission: "granted", subscribed: true } });
+      try {
+        await pause(app.page, 1800);
+        expect("on boot with a stored session, the phone's endpoint is filed under the person signed in", app.stub.state.push.rows[PUSH_ENDPOINT] === PERSON.id, JSON.stringify(app.stub.state.push.rows));
+        // The session runs out, with no signing out, so the phone keeps its
+        // subscription, and another person signs in on the same phone.
+        await app.page.evaluate(() => window.dispatchEvent(new Event("ocsa-session-expired")));
+        await pause(app.page, 900);
+        app.stub.state.person = SECOND_PERSON;
+        await type(app.page, 'input[autocomplete="username"]', "4822");
+        await type(app.page, 'input[type="password"]', "4907");
+        await clickText(app.page, say("Sign In", language));
+        await pause(app.page, 1800);
+        expect("after another person signs in, the endpoint is filed under them", app.stub.state.push.rows[PUSH_ENDPOINT] === SECOND_PERSON.id, JSON.stringify(app.stub.state.push.rows));
+        const asked = await app.page.evaluate((keys) => window.localStorage.getItem(keys.permission), PUSH_KEYS);
+        expect("nothing is asked of the browser along the way", asked === "granted", String(asked));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
     id: "inspection",
     label: "An inspection on the list, opened on the items it asks about",
     run: async (open, language, expect) => {
