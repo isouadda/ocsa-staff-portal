@@ -9,7 +9,7 @@ const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
 const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
-  API_REFUSALS } = require("./stub");
+  API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -185,6 +185,109 @@ const attachPhoto = (page, selector) => page.evaluate((sel) => new Promise((done
     done(true);
   }, "image/jpeg");
 }), selector);
+
+// Several photos at once, each made in the page the same way and named
+// as a case wants. A name of a kind draws a picture of that kind: .png a
+// PNG, anything else a JPEG.
+const attachPhotos = (page, selector, names) => page.evaluate(([sel, list]) => new Promise((done) => {
+  const input = document.querySelector(sel);
+  if (!input) { done(false); return; }
+  const dt = new DataTransfer();
+  let left = list.length;
+  list.forEach((name, i) => {
+    const c = document.createElement("canvas"); c.width = 12 + i; c.height = 12;
+    const ctx = c.getContext("2d"); ctx.fillStyle = "#3355aa"; ctx.fillRect(0, 0, c.width, c.height);
+    const png = /\.png$/i.test(name);
+    c.toBlob((b) => {
+      dt.items.add(new File([b], name, { type: png ? "image/png" : "image/jpeg" }));
+      left -= 1;
+      if (left === 0) {
+        input.files = dt.files;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        done(true);
+      }
+    }, png ? "image/png" : "image/jpeg");
+  });
+}), [selector, names]);
+
+// A picture drawn in the page at a size a case names, as a PNG or a JPEG,
+// see-through in part when asked, so a case can tell what the phone made
+// of it.
+const attachDrawn = (page, selector, name, width, height, clear) => page.evaluate(([sel, n, w, h, see]) => new Promise((done) => {
+  const input = document.querySelector(sel);
+  if (!input) { done(false); return; }
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const ctx = c.getContext("2d");
+  if (!see) { ctx.fillStyle = "#3355aa"; ctx.fillRect(0, 0, w, h); }
+  ctx.fillStyle = see ? "rgba(200, 40, 40, 0.5)" : "#dddddd"; ctx.fillRect(2, 2, Math.max(1, w / 2), Math.max(1, h / 2));
+  const png = /\.png$/i.test(n);
+  c.toBlob((b) => {
+    const dt = new DataTransfer(); dt.items.add(new File([b], n, { type: png ? "image/png" : "image/jpeg" }));
+    input.files = dt.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    done(true);
+  }, png ? "image/png" : "image/jpeg", 0.92);
+}), [selector, name, width, height, !!clear]);
+
+// A file with the bytes a case gives it, named and typed as the case says.
+const attachBytes = (page, selector, base64, name, type) => page.evaluate(([sel, b64, n, t]) => {
+  const input = document.querySelector(sel);
+  if (!input) return false;
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const dt = new DataTransfer(); dt.items.add(new File([bytes], n, { type: t }));
+  input.files = dt.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}, [selector, base64, name, type]);
+
+// A HEIC file, 64 by 40, a checkerboard of two colors, encoded with
+// pillow-heif at quality 60. The one real picture in the suite, since the
+// browser cannot make one, and the phone has to convert it before it
+// sends anything.
+const HEIC_FIXTURE = "AAAAHGZ0eXBoZWljAAAAAG1pZjFoZWljbWlhZgAAAX1tZXRhAAAAAAAAACFoZGxyAAAAAAAAAABwaWN0AAAAAAAAAAAAAAAAAAAAACJpbG9jAAAAAERAAAEAAQAAAAABoQABAAAAAAAAASMAAAAjaWluZgAAAAAAAQAAABVpbmZlAgAAAAABAABodmMxAAAAAA5waXRtAAAAAAABAAAA/WlwcnAAAADdaXBjbwAAAHZodmNDAQNwAAAAAAAAAAAAHvAA/P34+AAADwNgAAEAGEABDAH//wNwAAADAJAAAAMAAAMAHroCQGEAAQAqQgEBA3AAAAMAkAAAAwAAAwAeoCCBBZbq5Ka5uAhoMCAAAAMDIAAAAwAhYgABAAZEAcFzwIkAAAATY29scm5jbHgAAQANAAaAAAAAFGlzcGUAAAAAAAAAQAAAAEAAAAAoY2xhcAAAAEAAAAABAAAAKAAAAAEAAAAAAAAAAv///+gAAAACAAAAEHBpeGkAAAAAAwgICAAAABhpcG1hAAAAAAAAAAEAAQWBAgMFhAAAASttZGF0AAABHygBrwngivoBtpn/kP6+2j/wUd3QwfpyN9KmNZfbvaI92w++krzKNvg2XT9F79RQ+abYq9yeomi1mK3uEWuVegq9VQvp4f3NWEfgtXW/uvUMgdszxpUPmwqsOoLYv3tjNWyUYVbKcIFWz1z1o0dXYUsyco7WGsM6ZZHvlmj9dNQBdXZHjaa0DNKg4VIqtE5wY7/bf9uuBip1lGmQv747PCoS0QPOfmm/wRwmHy/21aHLz036kPSJUEdLKYA1Vpx92vv7DdKP+HmdxwKWYBrTt3MB7wF1LSL3WL7AnzpT70CNVkA4huvD3XgFG/1zckBul60ojD7LDJO6GjxBFc5ZDqANwQGJOTCmCD0aFfHR7NQ+j2FNk8lZxBaf68xhMoXA";
+
+// The sign sheet: the drawing box on the screen, a stroke drawn across it
+// with the pointer the way a finger or a mouse would, and the buttons in
+// the sheet itself rather than the ones under it.
+const signBox = (page) => page.evaluate(() => {
+  const c = Array.from(document.querySelectorAll("canvas")).find(x => x.offsetParent !== null);
+  if (!c) return null;
+  const r = c.getBoundingClientRect();
+  return { left: r.left, top: r.top, width: Math.round(r.width), height: Math.round(r.height), backing: [c.width, c.height] };
+});
+const drawSignature = async (page) => {
+  const b = await signBox(page);
+  if (!b) return false;
+  const y = b.top + b.height * 0.55;
+  await page.mouse.move(b.left + b.width * 0.15, y);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i += 1) await page.mouse.move(b.left + b.width * (0.15 + 0.08 * i), y + (i % 2 ? -18 : 18), { steps: 3 });
+  await page.mouse.up();
+  await pause(page, 300);
+  return true;
+};
+const sheetButtons = (page) => page.evaluate(() => {
+  const d = Array.from(document.querySelectorAll("div")).filter((x) => {
+    const s = getComputedStyle(x);
+    return s.position === "fixed" && s.top === "0px" && s.left === "0px" && s.right === "0px" && s.bottom === "0px";
+  }).pop();
+  return d ? Array.from(d.querySelectorAll("button")).map(b => ({ text: b.textContent.trim(), disabled: b.disabled })) : [];
+});
+const tapInSheet = async (page, text) => {
+  const hit = await page.evaluate((want) => {
+    const d = Array.from(document.querySelectorAll("div")).filter((x) => {
+      const s = getComputedStyle(x);
+      return s.position === "fixed" && s.top === "0px" && s.left === "0px" && s.right === "0px" && s.bottom === "0px";
+    }).pop();
+    const b = d && Array.from(d.querySelectorAll("button")).find(x => x.textContent.trim() === want && !x.disabled);
+    if (b) { b.click(); return true; }
+    return false;
+  }, text);
+  await pause(page, 800);
+  return hit;
+};
 
 // A file that says it is a photo and is not one, so the phone cannot
 // read it.
@@ -2028,28 +2131,296 @@ const JOURNEYS = [
           text.indexOf(formP(language).fields.find(f => f.key === "managerSign").label) === -1, text.slice(0, 260));
 
         // A refusal first: nothing is stamped on the person's behalf, and
-        // the API's own words reach the screen.
+        // the API's own words reach the screen. The button opens the sheet,
+        // where the person draws before Sign sends anything.
         const refusal = "You cannot sign this part of the form";
         app.stub.state.refuse["POST /api/forms/responses/draft-two/signoff"] = { status: 403, body: { error: refusal }, once: true };
         await clickText(app.page, say("Sign", language));
+        await pause(app.page, 700);
+        expect("Sign opens the sheet to draw in", (await sheetButtons(app.page)).some(b => b.text === spanishOf("Clear", language)), JSON.stringify(await sheetButtons(app.page)));
+        await drawSignature(app.page);
+        await tapInSheet(app.page, say("Sign", language));
         await pause(app.page, 900);
+        let sheet = await sheetText(app.page);
+        expect("a refused sign-off says what the API said, word for word, in the sheet",
+          sheet.indexOf(say(refusal, language)) !== -1, sheet.slice(0, 300));
         text = await bodyText(app.page);
-        expect("a refused sign-off says what the API said, word for word",
-          text.indexOf(say(refusal, language)) !== -1, text.slice(0, 300));
-        expect("a refused sign-off stamps nothing",
-          text.indexOf(stampStarts) === -1 && (await signButtons()) === 1, text.slice(0, 300));
+        expect("a refused sign-off stamps nothing and keeps the sheet open",
+          text.indexOf(stampStarts) === -1 && sheet !== "", text.slice(0, 300));
 
         // Then the real one.
-        await clickText(app.page, say("Sign", language));
-        await pause(app.page, 900);
+        await tapInSheet(app.page, say("Sign", language));
+        await pause(app.page, 1200);
         const signed = lastSent(app.stub, "POST", "/api/forms/responses/");
-        expect("one press sends one sign-off", !!signed && signed.body && signed.body.key === "leadSign", JSON.stringify(signed && signed.body));
+        expect("one press sends one sign-off, with the drawing", !!signed && signed.body && signed.body.key === "leadSign" && /^data:image\/png;base64,/.test(String(signed.body.signature || "")), JSON.stringify(signed && signed.body && signed.body.key));
         const asked = app.stub.state.calls.filter(c => /\/signoff$/.test(c.path)).length;
         expect("one press sends one request, not two", asked === 2, "requests to the sign-off route: " + asked);
         text = await bodyText(app.page);
-        expect("the stamp shows the person and the time the API answered with",
-          text.indexOf(stampStarts) !== -1 && (await signButtons()) === 0, text.slice(0, 300));
+        expect("the stamp shows the person and the time the API answered with, and the sheet is gone",
+          text.indexOf(stampStarts) !== -1 && (await signButtons()) === 0 && (await sheetText(app.page)) === "", text.slice(0, 300));
       } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "formpphotos",
+    label: "Photos on a form: each refusal in the API's words, two photos added at once, one taken off, the count on the review, and the limit",
+    run: async (open, language, expect, extra) => {
+      const app = await open({});
+      try {
+        const form = formP(language);
+        const q = form.fields.find(f => f.type === "photos");
+        const route = "/api/forms/responses/draft-two/photos/" + q.key;
+        const input = '.sp-content input[type="file"]';
+        const takeLine = say("Take photo or choose from gallery", language);
+        const removeWord = say("Remove photo", language);
+        const removeButtons = () => app.page.evaluate((want) => Array.from(document.querySelectorAll(".sp-content button")).filter(b => b.textContent.trim() === want).length, removeWord);
+        const posts = () => app.stub.state.calls.filter(c => c.method === "POST" && c.path === route);
+        const thumbsDrawn = () => app.page.evaluate(() => Array.from(document.querySelectorAll(".sp-content img")).filter(i => /^blob:/.test(i.src)).map(i => { const r = i.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height), i.naturalWidth > 0]; }));
+
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, form.title);
+        let text = await bodyText(app.page);
+        expect("the photos question draws its label and its help line, in the person's language", has(text, q.label) && has(text, q.help), text.slice(0, 400));
+        expect("the question offers the camera and the gallery, with the sizes it takes", has(text, takeLine) && has(text, say("JPG, PNG up to 10MB", language)), text.slice(0, 400));
+        const inputs = await app.page.evaluate((sel) => Array.from(document.querySelectorAll(sel)).map(i => [i.getAttribute("accept"), i.getAttribute("capture"), i.multiple]), input);
+        expect("the input is the problem report's, taking several", inputs.length === 1 && inputs[0][0] === "image/*" && inputs[0][1] === "environment" && inputs[0][2] === true, JSON.stringify(inputs));
+
+        // Each refusal first, in the API's own words, with nothing kept.
+        for (const key of ["forms.photoTooLarge", "forms.photoType", "forms.photoLimit"]) {
+          const r = API_REFUSALS[key];
+          app.stub.state.refuse["POST " + route] = { api: key, once: true };
+          await attachPhotos(app.page, input, ["spill.jpg"]);
+          await pause(app.page, 1400);
+          text = await bodyText(app.page);
+          const said = refusalIn(r, language, r.vars);
+          const shown = has(text, said);
+          expect("refusal shown: " + r.en, shown, "wanted " + JSON.stringify(said) + " in " + JSON.stringify(text.slice(0, 400)));
+          if (extra) extra.refusalsShown += shown ? 1 : 0;
+          expect("a refused photo draws no thumbnail: " + key, (await removeButtons()) === 0 && (await thumbsDrawn()).length === 0, "Remove photo buttons: " + (await removeButtons()));
+        }
+        await spokenHere(app, language, expect);
+
+        // Two at once, uploaded on the tap as multipart photos.
+        const before = posts().length;
+        app.stub.state.holdMs["POST " + route] = 1500;
+        await attachPhotos(app.page, input, ["one.jpg", "two.jpg"]);
+        await pause(app.page, 500);
+        text = await bodyText(app.page);
+        expect("each photo on its way says so", (text.match(new RegExp(say("Uploading...", language).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length === 2, text.slice(0, 500));
+        await pause(app.page, 2500);
+        const sentUp = posts().slice(before);
+        expect("a tap uploads at once, one request with both files under photos",
+          sentUp.length === 1 && /^multipart\/form-data/.test(sentUp[0].headers["content-type"] || "") && Array.isArray(sentUp[0].files) && sentUp[0].files.length === 2 && sentUp[0].files.every(f => f.kind && f.kind.ext === "jpg"),
+          JSON.stringify(sentUp.map(c => ({ ct: (c.headers["content-type"] || "").slice(0, 30), files: c.files }))));
+        text = await bodyText(app.page);
+        expect("both photos draw with their names under them", has(text, "one.jpg") && has(text, "two.jpg") && !has(text, say("Uploading...", language)), text.slice(0, 500));
+        const thumbAsks = app.stub.state.calls.filter(c => c.method === "GET" && /^\/api\/forms\/responses\/draft-two\/photos\/[^/]+\/thumb$/.test(c.path));
+        expect("each thumbnail is fetched through the stream route with the token", thumbAsks.length === 2 && thumbAsks.every(c => /^Bearer /.test(c.headers.authorization || "")), JSON.stringify(thumbAsks.map(c => c.path)));
+        const drawn = await thumbsDrawn();
+        expect("each thumbnail is drawn from memory, 72 pixels square", drawn.length === 2 && drawn.every(d => d[0] === 72 && d[1] === 72 && d[2]), JSON.stringify(drawn));
+        expect("each photo offers Remove photo while the report is a draft", (await removeButtons()) === 2, "Remove photo buttons: " + (await removeButtons()));
+        expect("the answer the API returned is the question's value", JSON.stringify(app.stub.state.answersP[q.key].map(p => p.name)) === JSON.stringify(["one.jpg", "two.jpg"]), JSON.stringify(app.stub.state.answersP[q.key]));
+        await spokenHere(app, language, expect);
+
+        // One taken off.
+        await clickText(app.page, removeWord);
+        await pause(app.page, 900);
+        const gone = lastSent(app.stub, "DELETE", route + "/");
+        expect("Remove photo asks the API to take that one off", !!gone && gone.path === route + "/ph-1", JSON.stringify(gone && gone.path));
+        text = await bodyText(app.page);
+        expect("the photo taken off is gone and the other stays", !has(text, "one.jpg") && has(text, "two.jpg") && (await removeButtons()) === 1, text.slice(0, 500));
+
+        // A photo is never written as an answer.
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        const saved = app.stub.state.calls.filter(c => c.method === "PATCH" && /^\/api\/forms\/drafts\/draft-two/.test(c.path));
+        expect("a save never writes the photos question", saved.every(c => !c.body || !c.body.answers || !(q.key in c.body.answers)), JSON.stringify(saved.map(c => c.body)));
+
+        // The count on the review, and the missing list, which never
+        // names a photos question.
+        for (let i = 0; i < 3; i += 1) await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        text = await bodyText(app.page);
+        expect("the review counts the photos: one", has(text, say("1 photo", language)) && !has(text, "two.jpg"), text.slice(0, 600));
+        const missingNamed = await app.page.evaluate(() => Array.from(document.querySelectorAll(".sp-content button")).map(b => b.textContent.trim()));
+        expect("the missing list never names the photos question", missingNamed.indexOf(q.label) === -1 && missingNamed.indexOf(q.label + ":") === -1, JSON.stringify(missingNamed));
+        await spokenHere(app, language, expect);
+
+        // Back to the page, then up to the limit, where the button gives
+        // way to the line.
+        await clickText(app.page, say("Edit", language));
+        await pause(app.page, 900);
+        await attachPhotos(app.page, input, ["three.jpg", "four.jpg"]);
+        await pause(app.page, 1800);
+        text = await bodyText(app.page);
+        expect("at the limit the button gives way to the full line", has(text, say("This question is full.", language)) && !has(text, takeLine), text.slice(0, 600));
+        expect("the question holds as many as it takes", (await removeButtons()) === FORM_P_MAX_PHOTOS && app.stub.state.answersP[q.key].length === FORM_P_MAX_PHOTOS, "Remove photo buttons: " + (await removeButtons()));
+        for (let i = 0; i < 4; i += 1) await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        text = await bodyText(app.page);
+        expect("the review counts the photos: several", has(text, fill(say("{n} photos", language), { n: FORM_P_MAX_PHOTOS })), text.slice(0, 600));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "formpsmall",
+    label: "Photos on a form are made small on the phone: a broken file is refused with nothing sent, a HEIC is converted, a wide JPEG comes down to 2,000 pixels, a PNG with transparency stays a PNG, and one without becomes a JPEG",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        const form = formP(language);
+        const q = form.fields.find(f => f.type === "photos");
+        const route = "/api/forms/responses/draft-two/photos/" + q.key;
+        const input = '.sp-content input[type="file"]';
+        const posts = () => app.stub.state.calls.filter(c => c.method === "POST" && c.path === route);
+        // The upload a picture ends in, waited for: a HEIC takes a while.
+        const nextPost = async (from, ms) => {
+          for (let i = 0; i < ms / 200; i += 1) { if (posts().length > from) { await pause(app.page, 600); return posts()[from]; } await pause(app.page, 200); }
+          return null;
+        };
+        const fileOf = (c) => (c && Array.isArray(c.files) && c.files.length === 1 ? c.files[0] : null);
+        const unreadable = spanishOf("This photo could not be read. Try another one.", language);
+
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, form.title);
+
+        // A file that is not a picture: refused on the phone, nothing sent.
+        await attachBroken(app.page, input);
+        await pause(app.page, 1800);
+        let text = await bodyText(app.page);
+        expect("a file the phone cannot read is refused there, in the person's language", has(text, unreadable), text.slice(0, 600));
+        expect("nothing is sent for a file the phone cannot read", posts().length === 0, JSON.stringify(posts().map(c => c.files)));
+
+        // A HEIC, converted on the phone and sent as a JPEG.
+        await attachBytes(app.page, input, HEIC_FIXTURE, "kitchen.heic", "image/heic");
+        const heic = fileOf(await nextPost(0, 30000));
+        expect("a HEIC is converted on the phone and sent as a JPEG named for it",
+          !!heic && heic.kind && heic.kind.ext === "jpg" && heic.name === "kitchen.jpg", JSON.stringify(heic));
+        expect("the converted picture keeps its size", !!heic && heic.size && heic.size.width === 64 && heic.size.height === 40, JSON.stringify(heic && heic.size));
+        text = await bodyText(app.page);
+        expect("the API's HEIC refusal is never met", !has(text, FILE_REFUSALS["forms.photoHeic"][language]) && !has(text, unreadable) && has(text, "kitchen.jpg"), text.slice(0, 600));
+
+        // A wide JPEG comes down to the ceiling, still a JPEG.
+        await attachDrawn(app.page, input, "wide.jpg", 4000, 300, false);
+        const wide = fileOf(await nextPost(1, 15000));
+        expect("a 4,000 pixel JPEG comes out at 2,000 on its long side, still a JPEG",
+          !!wide && wide.kind && wide.kind.ext === "jpg" && wide.name === "wide.jpg" && wide.size && wide.size.width === 2000 && wide.size.height === 150, JSON.stringify(wide));
+
+        // A PNG with something see-through stays a PNG.
+        await attachDrawn(app.page, input, "clear.png", 30, 30, true);
+        const clear = fileOf(await nextPost(2, 15000));
+        expect("a PNG with transparency stays a PNG", !!clear && clear.kind && clear.kind.ext === "png" && clear.name === "clear.png" && clear.size && clear.size.width === 30, JSON.stringify(clear));
+
+        // Room for one more, then a PNG with nothing see-through, which is
+        // sent as a JPEG like everything else.
+        await clickText(app.page, say("Remove photo", language));
+        await pause(app.page, 900);
+        await attachDrawn(app.page, input, "solid.png", 30, 30, false);
+        const solid = fileOf(await nextPost(3, 15000));
+        expect("a PNG with nothing see-through is sent as a JPEG", !!solid && solid.kind && solid.kind.ext === "jpg" && solid.name === "solid.jpg", JSON.stringify(solid));
+        expect("every photo sent is inside the ceiling", posts().every(c => (c.files || []).every(f => f.size && Math.max(f.size.width, f.size.height) <= 2000)), JSON.stringify(posts().map(c => c.files)));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "formpsign",
+    label: "Signing with a finger: the sheet, Sign held until something is drawn, Clear, the refusal for no drawing, a PNG at the phone's pixel ratio under 300 KB, the stamp with its drawing, and a stamp made before drawings were kept",
+    run: async (open, language, expect, extra) => {
+      const stampStarts = say("Signed by {name} on {date} at {time}", language).split("{")[0].trim();
+      const drawnStamp = (page) => page.evaluate(() => {
+        const i = Array.from(document.querySelectorAll(".sp-content img")).find(x => /^blob:/.test(x.src));
+        if (!i) return null;
+        const r = i.getBoundingClientRect();
+        return { width: Math.round(r.width), height: Math.round(r.height), bottom: Math.round(r.bottom), loaded: i.naturalWidth > 0 };
+      });
+      const signatureReads = (stub) => stub.state.calls.filter(c => c.method === "GET" && /^\/api\/forms\/responses\/draft-two\/signatures\//.test(c.path));
+      const app = await open({});
+      try {
+        const form = formP(language);
+        const lead = form.fields.find(f => f.key === "leadSign");
+        const signWord = say("Sign", language);
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, form.title);
+        for (let i = 0; i < 3; i += 1) await clickText(app.page, say("Next", language));
+        await pause(app.page, 700);
+        await clickText(app.page, signWord);
+        await pause(app.page, 700);
+
+        let sheet = await sheetText(app.page);
+        let buttons = await sheetButtons(app.page);
+        const signBtn = () => buttons.find(b => b.text === signWord);
+        expect("Sign opens a sheet with the sign-off's label, the hint, Clear and Sign",
+          has(sheet, lead.label) && has(sheet, spanishOf("Sign with your finger", language)) && buttons.some(b => b.text === spanishOf("Clear", language)) && !!signBtn(),
+          sheet.slice(0, 300) + " " + JSON.stringify(buttons));
+        expect("Sign waits until something is drawn", !!signBtn() && signBtn().disabled, JSON.stringify(buttons));
+        const box = await signBox(app.page);
+        expect("the drawing box is the width of the sheet and 160 pixels tall", !!box && box.height === 160 && box.width >= 280 && box.width <= 375, JSON.stringify(box));
+        expect("the drawing is scaled to the phone's pixel ratio", !!box && box.backing[0] === box.width * 2 && box.backing[1] === 320, JSON.stringify(box));
+
+        await drawSignature(app.page);
+        buttons = await sheetButtons(app.page);
+        expect("a drawing turns Sign on", !!signBtn() && !signBtn().disabled, JSON.stringify(buttons));
+        await tapInSheet(app.page, spanishOf("Clear", language));
+        buttons = await sheetButtons(app.page);
+        expect("Clear wipes the drawing and turns Sign off again", !!signBtn() && signBtn().disabled, JSON.stringify(buttons));
+        await drawSignature(app.page);
+
+        // The refusal for a sign-off with no drawing, in the API's words.
+        const r = API_REFUSALS["forms.signatureRequired"];
+        app.stub.state.refuse["POST /api/forms/responses/draft-two/signoff"] = { api: "forms.signatureRequired", once: true };
+        await tapInSheet(app.page, signWord);
+        await pause(app.page, 900);
+        sheet = await sheetText(app.page);
+        buttons = await sheetButtons(app.page);
+        const shown = has(sheet, r[language]);
+        expect("refusal shown: " + r.en, shown, "wanted " + JSON.stringify(r[language]) + " in " + JSON.stringify(sheet.slice(0, 300)));
+        if (extra) extra.refusalsShown += shown ? 1 : 0;
+        expect("a refusal keeps the sheet open with the drawing", sheet !== "" && !!signBtn() && !signBtn().disabled, JSON.stringify(buttons));
+        await spokenHere(app, language, expect);
+
+        // The real one.
+        await tapInSheet(app.page, signWord);
+        await pause(app.page, 1500);
+        const signed = lastSent(app.stub, "POST", "/api/forms/responses/draft-two/signoff");
+        expect("the drawing goes up as a PNG data URL with the sign-off key",
+          !!signed && signed.body && signed.body.key === "leadSign" && /^data:image\/png;base64,/.test(String(signed.body.signature || "")), JSON.stringify(signed && signed.body && Object.keys(signed.body)));
+        const sig = signed && signed.signature;
+        expect("the PNG is under 300 KB and drawn at the phone's pixel ratio",
+          !!sig && sig.bytes <= SIGNATURE_MAX_BYTES && sig.size && sig.size.width === box.width * 2 && sig.size.height === 320, JSON.stringify(sig));
+        expect("the sheet closes on the API's answer", (await sheetText(app.page)) === "", await sheetText(app.page));
+        const text = await bodyText(app.page);
+        expect("the stamp is drawn", has(text, stampStarts), text.slice(0, 400));
+        const img = await drawnStamp(app.page);
+        // The line itself, the leaf that starts with Signed by, rather
+        // than the box that holds the drawing and the line together.
+        const lineTop = await app.page.evaluate((want) => {
+          const d = Array.from(document.querySelectorAll(".sp-content div")).find(x => x.children.length === 0 && x.innerText.replace(/\s+/g, " ").trim().indexOf(want) === 0);
+          return d ? Math.round(d.getBoundingClientRect().top) : null;
+        }, stampStarts);
+        const reads = signatureReads(app.stub);
+        expect("the stamp's drawing is fetched through the stream route with the token, about 48 pixels high, above the Signed by line",
+          !!img && img.loaded && img.height === 48 && lineTop !== null && img.bottom <= lineTop + 1 && reads.length === 1 && /^Bearer /.test(reads[0].headers.authorization || ""),
+          JSON.stringify(img) + " line at " + lineTop + " reads " + reads.length);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+
+      // A stamp made before drawings were kept: the line, and no picture.
+      const old = await open({ stubOptions: { answersP: { leadSign: { userId: PERSON.id, name: PERSON.firstName + " " + PERSON.lastName, role: PERSON.role, at: "2026-10-01T20:00:00Z" } } } });
+      try {
+        await openTab(old.page, "forms", language);
+        await pause(old.page, 900);
+        await startForm(old.page, formP(language).title);
+        for (let i = 0; i < 3; i += 1) await clickText(old.page, say("Next", language));
+        await pause(old.page, 900);
+        const text = await bodyText(old.page);
+        expect("a stamp with no drawing reads as it always did", has(text, stampStarts), text.slice(0, 400));
+        expect("a stamp with no drawing draws no picture and asks for none", (await drawnStamp(old.page)) === null && signatureReads(old.stub).length === 0, JSON.stringify(signatureReads(old.stub).map(c => c.path)));
+      } finally { await old.context.close(); }
     },
   },
   {

@@ -301,6 +301,74 @@ async function prepareAgentPhoto(file) {
   return blob;
 }
 
+// Photos added to a form are made small on the phone before anything is
+// sent. Most staff carry iPhones, whose camera saves HEIC: the file input
+// never names HEIC, so iOS hands over a JPEG in the common case, and a
+// HEIC that still arrives, from the Files app or another browser, is
+// converted here with heic2any, loaded only when one shows up. Then every
+// picture, whatever it was, is drawn onto a canvas no larger than the
+// API's own ceiling and re-encoded as a JPEG, with the orientation read
+// from the file so a portrait photo stays upright; a PNG with
+// transparency stays a PNG. Re-encoding drops the location and camera
+// data the phone wrote into the file, which is intended. A picture that
+// cannot be read is refused here, and nothing is sent for it.
+const FORM_PHOTO_MAX_SIDE = 2000;
+const FORM_PHOTO_QUALITY = 0.85;
+const FORMS_PHOTO_UNREADABLE = "This photo could not be read. Try another one.";
+const HEIC_BRANDS = ["heic", "heix", "hevc", "hevx", "heim", "heis", "mif1", "msf1"];
+
+// A HEIC or HEIF file, by what the phone says and then by its first bytes,
+// the brand of the container, the way the API reads it.
+async function isHeicFile(file) {
+  if (/^image\/hei[cf]/i.test(file.type || "") || /\.hei[cf]$/i.test(file.name || "")) return true;
+  try {
+    const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+    if (head.length < 12) return false;
+    const ascii = (a, b) => String.fromCharCode.apply(null, Array.from(head.subarray(a, b)));
+    return ascii(4, 8) === "ftyp" && HEIC_BRANDS.indexOf(ascii(8, 12).toLowerCase()) !== -1;
+  } catch (e) { return false; }
+}
+
+async function heicToJpeg(file) {
+  const mod = await import("heic2any");
+  const heic2any = mod.default || mod;
+  const out = await heic2any({ blob: file, toType: "image/jpeg", quality: FORM_PHOTO_QUALITY });
+  return Array.isArray(out) ? out[0] : out;
+}
+
+// Whether any pixel drawn is less than fully opaque.
+function canvasHasAlpha(ctx, w, h) {
+  const data = ctx.getImageData(0, 0, w, h).data;
+  for (let i = 3; i < data.length; i += 4) if (data[i] < 255) return true;
+  return false;
+}
+
+async function prepareFormPhoto(file) {
+  try {
+    let source = file;
+    let png = /^image\/png$/i.test(file.type || "") || /\.png$/i.test(file.name || "");
+    if (await isHeicFile(file)) { source = await heicToJpeg(file); png = false; }
+    const src = await decodeAgentPhoto(source);
+    const w0 = src.width || src.naturalWidth, h0 = src.height || src.naturalHeight;
+    if (!w0 || !h0) throw new Error(FORMS_PHOTO_UNREADABLE);
+    const scale = Math.min(1, FORM_PHOTO_MAX_SIDE / Math.max(w0, h0));
+    const w = Math.max(1, Math.round(w0 * scale)), h = Math.max(1, Math.round(h0 * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error(FORMS_PHOTO_UNREADABLE);
+    ctx.drawImage(src, 0, 0, w, h);
+    if (typeof src.close === "function") { try { src.close(); } catch (e) {} }
+    const keepPng = png && canvasHasAlpha(ctx, w, h);
+    const blob = await new Promise(res => canvas.toBlob(res, keepPng ? "image/png" : "image/jpeg", FORM_PHOTO_QUALITY));
+    if (!blob) throw new Error(FORMS_PHOTO_UNREADABLE);
+    const base = String(file.name || "").replace(/\.[^.]*$/, "") || "photo";
+    return new File([blob], base + (keepPng ? ".png" : ".jpg"), { type: blob.type });
+  } catch (e) {
+    throw new Error(FORMS_PHOTO_UNREADABLE);
+  }
+}
+
 // The response carries a storage path and no URL of any kind. The path is
 // what goes to the message route; the thumbnail is drawn from memory.
 async function uploadAgentPhoto(blob, token) {
@@ -432,6 +500,34 @@ async function api(path, opts = {}) {
   } finally { flightDown(); }
   await refuseUnlessOk(res, opts);
   return readJson(res);
+}
+
+// A file or several, sent as multipart form data under one name. The
+// browser writes the boundary, so no Content-Type is set here; everything
+// else is what api() does, the screen's language included.
+async function apiUpload(path, name, files, opts = {}) {
+  const form = new FormData();
+  files.forEach((file) => form.append(name, file, file.name));
+  const headers = {};
+  if (opts.token) headers["Authorization"] = "Bearer " + opts.token;
+  flightUp();
+  let res;
+  try {
+    res = await reach(API + path, { method: "POST", headers: headers, body: form });
+  } finally { flightDown(); }
+  await refuseUnlessOk(res, opts);
+  return readJson(res);
+}
+
+// An image the API streams behind the token, as a blob: the screen makes
+// a URL for it in memory and revokes the URL when it closes, so no photo
+// is ever reached by an address. A refusal throws the way api() throws.
+async function apiBlob(path, opts = {}) {
+  const headers = {};
+  if (opts.token) headers["Authorization"] = "Bearer " + opts.token;
+  const res = await reach(API + path, { headers: headers });
+  await refuseUnlessOk(res, opts);
+  return res.blob();
 }
 
 // One event off a stream, read the way a browser's EventSource reads one:
@@ -4846,6 +4942,121 @@ const formIsChecklist = (f) => Array.isArray(f.rows);
 // supervisor half, which the portal has never drawn. The report keeps
 // whatever it already carries for one it does not draw.
 const formDrawnOnPortal = (f) => formTypeOf(f) !== "signoff" || String(f.signer || "") === "filer";
+// The photos under a photos question, as the API keeps them: one record
+// per picture, each with an id. Anything else under the key is nothing.
+const formPhotoList = (v) => (Array.isArray(v) ? v.filter(p => p && typeof p === "object" && p.id) : []);
+// How many photos a question holds, the way the review says it.
+const formPhotosLine = (v) => {
+  const n = formPhotoList(v).length;
+  if (n === 0) return null;
+  return n === 1 ? tr("1 photo") : tr("{n} photos", { n: n });
+};
+// The one control a photos question offers, and the line that replaces
+// it once the question holds as many photos as it takes.
+const FORMS_TAKE_PHOTO = "Take photo or choose from gallery";
+const FORMS_PHOTOS_FULL = "This question is full.";
+const FORMS_PHOTOS_DEFAULT_MAX = 6;
+// Signing with a finger. The drawing is kept as strokes in the box's own
+// pixels and painted at the phone's pixel ratio, so a signature is not
+// blurry; on its way to the API it becomes a PNG of at most
+// SIGNATURE_MAX_BYTES, brought down in size until it fits.
+const FORMS_SIGN_HINT = "Sign with your finger";
+const SIGN_BOX_HEIGHT = 160;
+const SIGNATURE_MAX_BYTES = 300 * 1024;
+const SIGNATURE_BASELINE = "#C5C9D3";
+const pixelRatio = () => Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+function drawSignatureStrokes(ctx, strokes) {
+  ctx.strokeStyle = NAVY; ctx.fillStyle = NAVY; ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  strokes.forEach((pts) => {
+    if (!pts || pts.length === 0) return;
+    if (pts.length === 1) { ctx.beginPath(); ctx.arc(pts[0].x, pts[0].y, 1.5, 0, Math.PI * 2); ctx.fill(); return; }
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke();
+  });
+}
+// The drawing as a PNG data URL, white behind it, at the phone's pixel
+// ratio first and smaller until it is under the ceiling. Null when
+// nothing was drawn or nothing could be made.
+function signaturePng(strokes, w, h) {
+  if (!strokes || strokes.length === 0 || !w || !h) return null;
+  let scale = pixelRatio();
+  for (let i = 0; i < 8; i++) {
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(w * scale)); c.height = Math.max(1, Math.round(h * scale));
+    const ctx = c.getContext("2d");
+    if (!ctx) return null;
+    ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    drawSignatureStrokes(ctx, strokes);
+    const url = c.toDataURL("image/png");
+    if (Math.floor((url.length - url.indexOf(",") - 1) * 3 / 4) <= SIGNATURE_MAX_BYTES) return url;
+    scale *= 0.7;
+  }
+  return null;
+}
+
+// The box a person signs in: white, the width it is given and as tall as
+// asked, with a baseline under where a signature goes. Pointer events, so
+// a finger and a mouse both draw. A stroke is painted as it is made and
+// handed up when it ends, with the box's size in its own pixels, which is
+// what the PNG is drawn from.
+function SignatureBox({ strokes, onStroke, height }) {
+  const ref = useRef(null);
+  const live = useRef(null);
+  const size = useRef({ w: 0, h: height });
+  const paint = useCallback(() => {
+    const c = ref.current;
+    if (!c) return;
+    const rect = c.getBoundingClientRect();
+    const w = Math.max(1, Math.round(rect.width)), h = Math.max(1, Math.round(rect.height));
+    const dpr = pixelRatio();
+    const bw = Math.round(w * dpr), bh = Math.round(h * dpr);
+    if (c.width !== bw || c.height !== bh) { c.width = bw; c.height = bh; }
+    size.current = { w: w, h: h };
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, w, h);
+    const base = Math.round(h * 0.74) + 0.5;
+    ctx.strokeStyle = SIGNATURE_BASELINE; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(16, base); ctx.lineTo(w - 16, base); ctx.stroke();
+    drawSignatureStrokes(ctx, strokes);
+  }, [strokes]);
+  useEffect(() => { paint(); }, [paint]);
+  useEffect(() => { window.addEventListener("resize", paint); return () => window.removeEventListener("resize", paint); }, [paint]);
+  const at = (e) => {
+    const r = ref.current.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * (size.current.w / (r.width || 1)), y: (e.clientY - r.top) * (size.current.h / (r.height || 1)) };
+  };
+  const segment = (a, b) => {
+    const ctx = ref.current && ref.current.getContext("2d");
+    if (!ctx) return;
+    ctx.strokeStyle = NAVY; ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  };
+  const down = (e) => {
+    e.preventDefault();
+    try { ref.current.setPointerCapture(e.pointerId); } catch (err) {}
+    const p = at(e);
+    live.current = [p];
+    segment(p, p);
+  };
+  const move = (e) => {
+    if (!live.current) return;
+    e.preventDefault();
+    const p = at(e);
+    segment(live.current[live.current.length - 1], p);
+    live.current.push(p);
+  };
+  const up = () => {
+    if (!live.current) return;
+    const done = live.current;
+    live.current = null;
+    onStroke(done, size.current);
+  };
+  return <canvas ref={ref} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} style={{ display: "block", width: "100%", height: height, touchAction: "none", cursor: "crosshair" }} />;
+}
+
 // One sign-off as a person reads it, in the phone's own time.
 const formStampLine = (v) => (v && typeof v === "object" && v.at
   ? tr("Signed by {name} on {date} at {time}", { name: v.name || "", date: formatDate(v.at), time: formatTime(v.at) })
@@ -4862,7 +5073,7 @@ const FORMS_ANSWERED = "Answered";
 // asks for nothing, so a type the forms engine adds later cannot quietly
 // become a text box. A question with no type at all is text, which is
 // what it has always been.
-const FORM_TYPES_DRAWN = ["", "text", "textarea", "select", "multiselect", "date", "time", "grid", "signoff"];
+const FORM_TYPES_DRAWN = ["", "text", "textarea", "select", "multiselect", "date", "time", "grid", "signoff", "photos"];
 const formTypeOf = (f) => (f && f.type ? String(f.type) : "");
 
 const formDraftOf = (r) => (r && r.draft ? r.draft : r);
@@ -4998,6 +5209,30 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   // The sign-off on its way to the API, and what it said if it refused.
   const [signing, setSigning] = useState(null);
   const [signErr, setSignErr] = useState({});
+  // Photos: the ones on their way up under each question, the ones on
+  // their way off, what the API said when it refused one, and each
+  // thumbnail as a URL made in memory from the bytes the API streamed.
+  const [photoBusy, setPhotoBusy] = useState({});
+  const [photoGoing, setPhotoGoing] = useState({});
+  const [photoErr, setPhotoErr] = useState({});
+  const [thumbs, setThumbs] = useState({});
+  // The sign-off being signed in the sheet, the strokes drawn so far and
+  // the box's size, and each stamp's drawing as a URL made in memory.
+  const [signFor, setSignFor] = useState(null);
+  const [strokes, setStrokes] = useState([]);
+  const signSize = useRef({ w: 0, h: 0 });
+  const [sigUrls, setSigUrls] = useState({});
+  const sigAsked = useRef(new Set());
+  const photoInputs = useRef({});
+  const thumbAsked = useRef(new Set());
+  const madeUrls = useRef([]);
+  const alive = useRef(true);
+  // Every URL made here is revoked when the screen closes.
+  useEffect(() => () => {
+    alive.current = false;
+    madeUrls.current.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) {} });
+    madeUrls.current = [];
+  }, []);
   const [review, setReview] = useState(false);
   const [confirmSend, setConfirmSend] = useState(false);
   const [sending, setSending] = useState(false);
@@ -5005,7 +5240,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   const [sent, setSent] = useState(null);
   const bodyRef = useRef(null);
   // An answer typed and not yet saved, or a save or a send on its way.
-  useBusy("report form", Object.keys(dirty).length > 0 || saving || sending);
+  useBusy("report form", Object.keys(dirty).length > 0 || saving || sending || Object.keys(photoBusy).some(k => photoBusy[k].length > 0));
 
   // Every question in play, which is what a save is judged against, and
   // the ones this screen draws, which is what a person walks through.
@@ -5069,8 +5304,10 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
       if (inPlay.indexOf(k) === -1) return;
       out[k] = formHasAnswer(values[k]) ? values[k] : null;
     });
+    // A photos question is answered through its own routes and never
+    // written here, whether it is in play or not.
     (form && Array.isArray(form.fields) ? form.fields : []).forEach(f => {
-      if (f.prefilled || inPlay.indexOf(f.key) !== -1) return;
+      if (f.prefilled || formTypeOf(f) === "photos" || inPlay.indexOf(f.key) !== -1) return;
       if (formHasAnswer(values[f.key]) || formHasAnswer((current.answers || {})[f.key])) out[f.key] = null;
     });
     return out;
@@ -5102,13 +5339,15 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
 
   // A sign-off is made with its own request, never written as an answer,
   // and nothing is drawn until the API has answered with the stamp it
-  // made. One press sends one request.
-  const sign = async (f) => {
-    if (signing) return;
+  // made. One press sends one request, with the drawing the person made
+  // as a PNG. Answers whether the stamp was made.
+  const sign = async (f, signature) => {
+    if (signing) return false;
     setSigning(f.key);
     setSignErr(prev => Object.assign({}, prev, { [f.key]: null }));
+    let made = false;
     try {
-      const r = await api("/api/forms/responses/" + encodeURIComponent(current.id) + "/signoff?locale=" + locale, { method: "POST", token, body: { key: f.key } });
+      const r = await api("/api/forms/responses/" + encodeURIComponent(current.id) + "/signoff?locale=" + locale, { method: "POST", token, body: { key: f.key, signature: signature } });
       const d = formDraftOf(r && r.response ? r.response : r);
       setCurrent(d);
       // The answers come back from the server, and anything typed on
@@ -5118,12 +5357,121 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
         Object.keys(dirty).forEach(k => { if (formHasAnswer(prev[k])) next[k] = prev[k]; else delete next[k]; });
         return next;
       });
+      made = true;
     } catch (err) {
       const said = (err.status === undefined || err.status === null) ? tr(FORMS_NOT_SIGNED) : tr(err.message);
       setSignErr(prev => Object.assign({}, prev, { [f.key]: said }));
     }
     setSigning(null);
+    return made;
   };
+  // The sheet: opened by the sign-off's button, closed by a stamp or by a
+  // tap outside it. Sign sends the drawing and nothing until there is one.
+  const openSign = (f) => {
+    setSignErr(prev => Object.assign({}, prev, { [f.key]: null }));
+    setStrokes([]);
+    setSignFor(f.key);
+  };
+  const signNow = async () => {
+    const f = fieldByKey(signFor);
+    if (!f || signing) return;
+    const png = signaturePng(strokes, signSize.current.w, signSize.current.h);
+    if (!png) return;
+    const made = await sign(f, png);
+    if (made && alive.current) { setSignFor(null); setStrokes([]); }
+  };
+  // Each stamp's drawing is fetched once, through the stream route with
+  // the token, and kept as a URL made in memory. A stamp made before
+  // drawings were kept has none and asks for none.
+  useEffect(() => {
+    (form && Array.isArray(form.fields) ? form.fields : []).forEach((f) => {
+      if (formTypeOf(f) !== "signoff") return;
+      const v = values[f.key];
+      if (!v || typeof v !== "object" || !v.signatureId) return;
+      const mark = f.key + ":" + v.signatureId;
+      if (sigAsked.current.has(mark)) return;
+      sigAsked.current.add(mark);
+      (async () => {
+        try {
+          const blob = await apiBlob("/api/forms/responses/" + encodeURIComponent(current.id) + "/signatures/" + encodeURIComponent(f.key) + "?locale=" + locale, { token });
+          if (!alive.current) return;
+          const url = URL.createObjectURL(blob);
+          madeUrls.current.push(url);
+          setSigUrls(prev => Object.assign({}, prev, { [f.key]: url }));
+        } catch (err) {}
+      })();
+    });
+  }, [values, form, current.id, token, locale]);
+
+  // A photos question is answered through its own routes, never as a
+  // saved answer: a tap uploads the pictures at once, Remove photo takes
+  // one off, and each time the list the API answers with replaces the
+  // question's value. Nothing here marks the key dirty, so a save never
+  // writes it.
+  const photoRoute = (f) => "/api/forms/responses/" + encodeURIComponent(current.id) + "/photos/" + encodeURIComponent(f.key);
+  const takePhotoList = (f, r) => {
+    const list = r && Array.isArray(r.photos) ? r.photos : (r && Array.isArray(r.value) ? r.value : null);
+    if (!list) return;
+    setValues(prev => { const next = Object.assign({}, prev); if (list.length === 0) delete next[f.key]; else next[f.key] = list; return next; });
+    setCurrent(prev => Object.assign({}, prev, { answers: Object.assign({}, prev.answers || {}, { [f.key]: list }) }));
+  };
+  // Every picture is made small on the phone first. One that cannot be
+  // read says so under the question and is not sent; the rest go up.
+  const addFormPhotos = async (f, fileList) => {
+    const picked = Array.from(fileList || []).filter(Boolean);
+    if (picked.length === 0) return;
+    const marks = picked.map((file, i) => ({ id: f.key + ":" + Date.now() + ":" + i, name: file.name }));
+    setPhotoErr(prev => Object.assign({}, prev, { [f.key]: null }));
+    setPhotoBusy(prev => Object.assign({}, prev, { [f.key]: (prev[f.key] || []).concat(marks) }));
+    const files = [];
+    let unreadable = false;
+    for (let i = 0; i < picked.length; i++) {
+      try { files.push(await prepareFormPhoto(picked[i])); }
+      catch (err) { unreadable = true; }
+    }
+    if (alive.current && unreadable) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(FORMS_PHOTO_UNREADABLE) }));
+    if (files.length > 0) {
+      try {
+        const r = await apiUpload(photoRoute(f) + "?locale=" + locale, "photos", files, { token });
+        if (alive.current) takePhotoList(f, r);
+      } catch (err) {
+        if (alive.current) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(err.message) }));
+      }
+    }
+    if (alive.current) setPhotoBusy(prev => Object.assign({}, prev, { [f.key]: (prev[f.key] || []).filter(m => marks.indexOf(m) === -1) }));
+  };
+  const removeFormPhoto = async (f, photo) => {
+    if (photoGoing[photo.id]) return;
+    setPhotoErr(prev => Object.assign({}, prev, { [f.key]: null }));
+    setPhotoGoing(prev => Object.assign({}, prev, { [photo.id]: true }));
+    try {
+      const r = await api(photoRoute(f) + "/" + encodeURIComponent(photo.id) + "?locale=" + locale, { method: "DELETE", token });
+      if (alive.current) takePhotoList(f, r);
+    } catch (err) {
+      if (alive.current) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(err.message) }));
+    }
+    if (alive.current) setPhotoGoing(prev => { const next = Object.assign({}, prev); delete next[photo.id]; return next; });
+  };
+  // Each thumbnail is fetched once, through the stream route with the
+  // token, and kept as a URL made in memory. One that cannot be fetched
+  // leaves its box blank rather than asking again and again.
+  useEffect(() => {
+    const wanted = [];
+    (form && Array.isArray(form.fields) ? form.fields : []).forEach((f) => {
+      if (formTypeOf(f) !== "photos") return;
+      formPhotoList(values[f.key]).forEach((p) => { if (!thumbAsked.current.has(p.id)) wanted.push(p); });
+    });
+    wanted.forEach(async (p) => {
+      thumbAsked.current.add(p.id);
+      try {
+        const blob = await apiBlob("/api/forms/responses/" + encodeURIComponent(current.id) + "/photos/" + encodeURIComponent(p.id) + "/thumb?locale=" + locale, { token });
+        if (!alive.current) return;
+        const url = URL.createObjectURL(blob);
+        madeUrls.current.push(url);
+        setThumbs(prev => Object.assign({}, prev, { [p.id]: url }));
+      } catch (err) {}
+    });
+  }, [values, form, current.id, token, locale]);
 
   const toTop = () => { if (bodyRef.current) bodyRef.current.scrollTop = 0; };
 
@@ -5315,15 +5663,76 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     );
   };
 
-  // One sign-off: the stamp the API made, or the button that asks for it.
+  // A stamp as a person reads it: its drawing, about 48 pixels high, above
+  // the Signed by line, or the line alone when the stamp has no drawing.
+  const renderStamp = (f, v, line, inReview) => (
+    <div style={{ marginTop: inReview ? 4 : 8 }}>
+      {v && v.signatureId && sigUrls[f.key] && <img src={sigUrls[f.key]} alt="" style={{ display: "block", height: 48, maxWidth: "100%", boxSizing: "border-box", objectFit: "contain", objectPosition: "left center", background: "#FFFFFF", borderRadius: R.sm, border: "1px solid " + t.borderSolid, marginBottom: 6 }} />}
+      <div style={{ fontSize: 14, color: t.text, fontWeight: inReview ? 600 : 400, lineHeight: 1.5, overflowWrap: "anywhere" }}>{line}</div>
+    </div>
+  );
+  // One sign-off: the stamp the API made, or the button that opens the
+  // sheet to sign in.
   const renderSignoff = (f) => {
     const line = formStampLine(values[f.key]);
-    if (line) return <div style={{ fontSize: 14, color: t.text, marginTop: 8, lineHeight: 1.5, overflowWrap: "anywhere" }}>{line}</div>;
+    if (line) return renderStamp(f, values[f.key], line, false);
     const busy = signing === f.key;
     return (
       <>
-        <button type="button" onClick={() => sign(f)} disabled={busy} style={{ ...gridBtn, border: "1px solid " + GOLD, background: busy ? "transparent" : t.goldBg, color: t.goldText, opacity: busy ? 0.6 : 1 }}>{busy ? tr("Sending") : tr("Sign")}</button>
-        {signErr[f.key] && <div style={{ ...mkFieldErr(t), marginTop: 8 }}>{signErr[f.key]}</div>}
+        <button type="button" onClick={() => openSign(f)} disabled={busy} style={{ ...gridBtn, border: "1px solid " + GOLD, background: busy ? "transparent" : t.goldBg, color: t.goldText, opacity: busy ? 0.6 : 1 }}>{busy ? tr("Sending") : tr("Sign")}</button>
+        {!signFor && signErr[f.key] && <div style={{ ...mkFieldErr(t), marginTop: 8 }}>{signErr[f.key]}</div>}
+      </>
+    );
+  };
+
+  // A photos question: the pictures already added, each a 72 pixel square
+  // with its file name under it and Remove photo while the report is a
+  // draft; the ones on their way up, each with its own progress line;
+  // then the one button, which the camera and the gallery both answer,
+  // until the question holds as many photos as it takes.
+  const thumbSt = { width: 72, height: 72, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt };
+  const photoNameSt = { fontSize: 10, color: t.textMut, marginTop: 4, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const photoBtn = { ...gridBtn, marginTop: 6, padding: "8px 6px", fontSize: 11 };
+  const renderPhotos = (f) => {
+    const list = formPhotoList(values[f.key]);
+    const busy = photoBusy[f.key] || [];
+    const max = Number(f.maxPhotos) > 0 ? Number(f.maxPhotos) : FORMS_PHOTOS_DEFAULT_MAX;
+    const full = list.length + busy.length >= max;
+    const draft = !current.status || current.status === "draft";
+    return (
+      <>
+        {(list.length > 0 || busy.length > 0) && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
+            {list.map(p => (
+              <div key={p.id} style={{ width: 104 }}>
+                {thumbs[p.id] ? <img src={thumbs[p.id]} alt="" style={thumbSt} /> : <div style={thumbSt} />}
+                <div style={photoNameSt}>{p.name}</div>
+                {draft && <button type="button" onClick={() => removeFormPhoto(f, p)} disabled={!!photoGoing[p.id]} style={{ ...photoBtn, opacity: photoGoing[p.id] ? 0.6 : 1 }}>{tr("Remove photo")}</button>}
+              </div>
+            ))}
+            {busy.map(m => (
+              <div key={m.id} style={{ width: 104 }}>
+                <div style={thumbSt} />
+                <div style={photoNameSt}>{m.name}</div>
+                <div style={photoNameSt}>{tr("Uploading...")}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {draft && full && <div style={{ ...mkHelp(t), marginTop: 10 }}>{tr(FORMS_PHOTOS_FULL)}</div>}
+        {draft && !full && (
+          <>
+            <input ref={el => { photoInputs.current[f.key] = el; }} type="file" accept="image/*" capture="environment" multiple style={{ display: "none" }} onChange={e => { addFormPhotos(f, e.target.files); e.target.value = ""; }} />
+            <button type="button" onClick={() => photoInputs.current[f.key] && photoInputs.current[f.key].click()} style={{ ...gridBtn, display: "flex", alignItems: "center", gap: 10, textAlign: "left", border: "1px dashed " + GOLD, color: t.goldText }}>
+              <CamIco sz={18} c={t.goldText} />
+              <div style={{ minWidth: 0 }}>
+                <div>{tr(FORMS_TAKE_PHOTO)}</div>
+                <div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("JPG, PNG up to 10MB")}</div>
+              </div>
+            </button>
+          </>
+        )}
+        {photoErr[f.key] && <div style={{ ...mkFieldErr(t), marginTop: 8 }}>{photoErr[f.key]}</div>}
       </>
     );
   };
@@ -5333,6 +5742,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     if (FORM_TYPES_DRAWN.indexOf(formTypeOf(f)) === -1) return <div style={mkHelp(t)}>{tr(FORMS_UNKNOWN_TYPE)}</div>;
     if (formTypeOf(f) === "grid") return formIsChecklist(f) ? renderChecklist(f) : renderRowTable(f);
     if (formTypeOf(f) === "signoff") return renderSignoff(f);
+    if (formTypeOf(f) === "photos") return renderPhotos(f);
     return renderControl(f, v, (next) => setVal(f.key, next), f.key + ":");
   };
 
@@ -5390,11 +5800,13 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
             {titled && formSectionTitle(form, sk, locale) && <div role="heading" aria-level={2} style={{ ...titleSt, marginBottom: 10 }}>{formSectionTitle(form, sk, locale)}</div>}
             {shown.filter(f => formSectionOf(f) === sk).map(f => {
               const signoff = formTypeOf(f) === "signoff";
-              const read = signoff ? formStampLine(values[f.key]) : formReadAnswer(f, values[f.key]);
+              const read = signoff ? formStampLine(values[f.key]) : (formTypeOf(f) === "photos" ? formPhotosLine(values[f.key]) : formReadAnswer(f, values[f.key]));
               return (
                 <div key={f.key} style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{f.label}</div>
-                  <div style={{ fontSize: 14, color: read ? t.text : t.textMut, fontWeight: read ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{read || tr(signoff ? "Not signed" : "Not answered")}</div>
+                  {signoff && read
+                    ? renderStamp(f, values[f.key], read, true)
+                    : <div style={{ fontSize: 14, color: read ? t.text : t.textMut, fontWeight: read ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{read || tr(signoff ? "Not signed" : "Not answered")}</div>}
                 </div>
               );
             })}
@@ -5443,6 +5855,24 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <button onClick={() => setConfirmLeave(false)} style={{ ...footBtn(false, false), flex: "1 1 120px" }}>{tr("Keep filling")}</button>
               <button onClick={leave} style={{ ...footBtn(true, false), flex: "1 1 120px" }}>{tr("Leave")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {signFor && (
+        <div onClick={() => { if (!signing) setSignFor(null); }} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={(fieldByKey(signFor) || {}).label || tr("Sign")} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "20px 20px 30px", boxShadow: t.popShadow, maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 40px)", overflowY: "auto" }}>
+            <div style={{ width: 40, height: 4, borderRadius: 2, background: t.textMut, margin: "0 auto 16px", opacity: 0.3 }} />
+            <div style={{ fontSize: 15, fontWeight: 600, color: t.text, marginBottom: 12, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{(fieldByKey(signFor) || {}).label}</div>
+            <div style={{ borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+              <SignatureBox strokes={strokes} onStroke={(s, size) => { signSize.current = size; setStrokes(prev => prev.concat([s])); }} height={SIGN_BOX_HEIGHT} />
+            </div>
+            <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+            {signErr[signFor] && <div style={{ ...mkFieldErr(t), marginTop: 8 }}>{signErr[signFor]}</div>}
+            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+              <button type="button" onClick={() => { setStrokes([]); setSignErr(prev => Object.assign({}, prev, { [signFor]: null })); }} disabled={signing === signFor} style={footBtn(false, signing === signFor)}>{tr("Clear")}</button>
+              <button type="button" onClick={signNow} disabled={signing === signFor || strokes.length === 0} style={footBtn(true, signing === signFor || strokes.length === 0)}>{signing === signFor ? tr("Sending") : tr("Sign")}</button>
             </div>
           </div>
         </div>

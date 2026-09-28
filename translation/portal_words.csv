@@ -509,6 +509,7 @@ Add row,Agregar fila,Forms
 Answered,Respondida,Forms
 Back,Atrás,"Forms, Profile"
 Check this answer,Revise esta respuesta,Forms
+Clear,Borrar,Forms
 Continue,Continuar,Forms
 Done,Listo,"Forms, Shortcuts, Settings"
 Edit,Editar,"Forms, Profile"
@@ -525,6 +526,8 @@ Not saved yet. Check your signal and tap Next again.,Todavía no se guardó. Rev
 Not sent yet. Check your signal and tap Submit report again.,Todavía no se envió. Revise su señal y toque Enviar reporte otra vez.,Forms
 Not signed,Sin firmar,Forms
 Not signed yet. Check your signal and tap Sign again.,Todavía no se firmó. Revise su señal y toque Firmar otra vez.,Forms
+1 photo,1 foto,Forms
+{n} photos,{n} fotos,Forms
 Not yet,Todavía no,Forms
 Opening,Abriendo,Forms
 Report,Reportar,"Forms, Bar and More"
@@ -540,10 +543,14 @@ Send it,Enviarlo,Forms
 Send this report? You cannot change it after it is sent.,¿Enviar este reporte? No lo podrá cambiar después de enviarlo.,Forms
 Sending,Enviando,Forms
 Sign,Firmar,Forms
+Sign with your finger,Firme con el dedo,Forms
 Signed by {name} on {date} at {time},Firmado por {name} el {date} a las {time},Forms
 Start report,Comenzar reporte,Forms
+Take photo or choose from gallery,Tomar foto o elegir de la galería,Forms
 These still need an answer,Estas todavía necesitan respuesta,Forms
 This question cannot be answered here yet. Your supervisor will finish it.,Esta pregunta todavía no se puede responder aquí. Su supervisor la completará.,Forms
+This photo could not be read. Try another one.,No se pudo leer esta foto. Intente con otra.,Forms
+This question is full.,Esta pregunta está llena.,Forms
 This report was already sent.,Este reporte ya se había enviado.,Forms
 This table is full.,Esta tabla está llena.,Forms
 Untitled report,Reporte sin título,Forms
