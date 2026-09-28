@@ -249,11 +249,19 @@ const attachBytes = (page, selector, base64, name, type) => page.evaluate(([sel,
 // sends anything.
 const HEIC_FIXTURE = "AAAAHGZ0eXBoZWljAAAAAG1pZjFoZWljbWlhZgAAAX1tZXRhAAAAAAAAACFoZGxyAAAAAAAAAABwaWN0AAAAAAAAAAAAAAAAAAAAACJpbG9jAAAAAERAAAEAAQAAAAABoQABAAAAAAAAASMAAAAjaWluZgAAAAAAAQAAABVpbmZlAgAAAAABAABodmMxAAAAAA5waXRtAAAAAAABAAAA/WlwcnAAAADdaXBjbwAAAHZodmNDAQNwAAAAAAAAAAAAHvAA/P34+AAADwNgAAEAGEABDAH//wNwAAADAJAAAAMAAAMAHroCQGEAAQAqQgEBA3AAAAMAkAAAAwAAAwAeoCCBBZbq5Ka5uAhoMCAAAAMDIAAAAwAhYgABAAZEAcFzwIkAAAATY29scm5jbHgAAQANAAaAAAAAFGlzcGUAAAAAAAAAQAAAAEAAAAAoY2xhcAAAAEAAAAABAAAAKAAAAAEAAAAAAAAAAv///+gAAAACAAAAEHBpeGkAAAAAAwgICAAAABhpcG1hAAAAAAAAAAEAAQWBAgMFhAAAASttZGF0AAABHygBrwngivoBtpn/kP6+2j/wUd3QwfpyN9KmNZfbvaI92w++krzKNvg2XT9F79RQ+abYq9yeomi1mK3uEWuVegq9VQvp4f3NWEfgtXW/uvUMgdszxpUPmwqsOoLYv3tjNWyUYVbKcIFWz1z1o0dXYUsyco7WGsM6ZZHvlmj9dNQBdXZHjaa0DNKg4VIqtE5wY7/bf9uuBip1lGmQv747PCoS0QPOfmm/wRwmHy/21aHLz036kPSJUEdLKYA1Vpx92vv7DdKP+HmdxwKWYBrTt3MB7wF1LSL3WL7AnzpT70CNVkA4huvD3XgFG/1zckBul60ojD7LDJO6GjxBFc5ZDqANwQGJOTCmCD0aFfHR7NQ+j2FNk8lZxBaf68xhMoXA";
 
+// The line a saved customer signature reads as, the way the stub writes
+// it beside the API.
+const customerLine = (stamp, language) => require("./stub").customerSignatureLine(stamp, language);
+
 // The sign sheet: the drawing box on the screen, a stroke drawn across it
 // with the pointer the way a finger or a mouse would, and the buttons in
 // the sheet itself rather than the ones under it.
 const signBox = (page) => page.evaluate(() => {
-  const c = Array.from(document.querySelectorAll("canvas")).find(x => x.offsetParent !== null);
+  const sheet = Array.from(document.querySelectorAll("div")).filter((x) => {
+    const s = getComputedStyle(x);
+    return s.position === "fixed" && s.top === "0px" && s.left === "0px" && s.right === "0px" && s.bottom === "0px";
+  }).pop();
+  const c = (sheet && sheet.querySelector("canvas")) || Array.from(document.querySelectorAll("canvas")).find(x => x.offsetParent !== null);
   if (!c) return null;
   // Brought onto the screen first, the way a person scrolls to it.
   try { c.scrollIntoView({ block: "center" }); } catch (e) {}
@@ -2676,6 +2684,161 @@ const JOURNEYS = [
           expect("no call behind the token: " + c.key, behind.length === 0, JSON.stringify(behind.map(c2 => c2.method + " " + c2.path)));
         } finally { await app.context.close(); }
       }
+    },
+  },
+  {
+    id: "formpnumber",
+    label: "A number on a staff form: one box that takes a minus sign and a decimal point, saved as a number, shown on the review as typed, an empty box saving nothing, and the API's refusal under the question",
+    run: async (open, language, expect, extra) => {
+      const app = await open({});
+      try {
+        const form = formP(language);
+        const q = form.fields.find(f => f.type === "number");
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, form.title);
+        await clickText(app.page, say("Next", language));
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 700);
+        let text = await bodyText(app.page);
+        expect("the number draws its label and help line, in the person's language", has(text, q.label) && has(text, q.help), text.slice(0, 400));
+        const box = await app.page.evaluate(() => { const i = Array.from(document.querySelectorAll(".sp-content input")).find(x => x.getAttribute("inputmode") === "decimal"); return i ? { type: i.type, mode: i.getAttribute("inputmode") } : null; });
+        expect("the box asks the phone for a number keyboard", !!box && box.mode === "decimal", JSON.stringify(box));
+        const typeNumber = (v) => app.page.evaluate((val) => {
+          const i = Array.from(document.querySelectorAll(".sp-content input")).find(x => x.getAttribute("inputmode") === "decimal");
+          Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(i, val);
+          i.dispatchEvent(new Event("input", { bubbles: true }));
+          return i.value;
+        }, v);
+        const refused = await typeNumber("abc");
+        expect("letters are not taken", refused === "", JSON.stringify(refused));
+        await typeNumber("-2.5");
+        await pause(app.page, 300);
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        const saved = lastSent(app.stub, "PATCH", "/api/forms/drafts/draft-two");
+        expect("a minus and a decimal save as a number", !!saved && saved.body && saved.body.answers && saved.body.answers[q.key] === -2.5 && typeof saved.body.answers[q.key] === "number", JSON.stringify(saved && saved.body));
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        text = await bodyText(app.page);
+        expect("the review shows the number as typed", has(text, q.label + " -2.5"), text.slice(0, 600));
+        // Back, emptied: nothing saved for it.
+        await clickText(app.page, say("Back", language));
+        await pause(app.page, 700);
+        await clickText(app.page, say("Back", language));
+        await pause(app.page, 700);
+        await typeNumber("");
+        await pause(app.page, 300);
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        const emptied = lastSent(app.stub, "PATCH", "/api/forms/drafts/draft-two");
+        expect("an empty box saves nothing", !!emptied && emptied.body && emptied.body.answers && emptied.body.answers[q.key] === null && app.stub.state.answersP[q.key] === undefined, JSON.stringify(emptied && emptied.body));
+        // The API's refusal, under the question.
+        await clickText(app.page, say("Back", language));
+        await pause(app.page, 700);
+        await typeNumber("7");
+        const r = API_REFUSALS["forms.badNumber"];
+        app.stub.state.refuse["PATCH /api/forms/drafts/draft-two"] = { status: r.status, body: { error: r[language], code: "forms.badNumber", keys: [q.key] }, once: true };
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 900);
+        // The words are drawn at the top as well, as every save refusal
+        // is; the one under the question is the one looked for.
+        const under = await app.page.evaluate(([label, said]) => {
+          const all = Array.from(document.querySelectorAll(".sp-content div")).filter(d => d.children.length === 0);
+          const qd = all.find(d => d.textContent.trim().indexOf(label) === 0);
+          const lines = all.filter(d => d.textContent.trim() === said).map(d => Math.round(d.getBoundingClientRect().top));
+          return qd ? { q: Math.round(qd.getBoundingClientRect().top), lines: lines } : null;
+        }, [q.label, r[language]]);
+        const shown = !!under && under.lines.some(top => top > under.q);
+        expect("refusal shown: " + r.en, shown, JSON.stringify(under) + " " + (await bodyText(app.page)).slice(0, 300));
+        if (extra) extra.refusalsShown += shown ? 1 : 0;
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "formpcustomersig",
+    label: "A customer's signature on a staff form: the card with Name, Role and the pad, each refusal in the API's words under the card, a signature saved, shown with its drawing and the API's line, cleared, and saved again",
+    run: async (open, language, expect, extra) => {
+      const app = await open({});
+      try {
+        const form = formP(language);
+        const q = form.fields.find(f => f.type === "customer_signature");
+        const route = "POST /api/forms/drafts/draft-two/customer-signature";
+        const posts = () => app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/forms/drafts/draft-two/customer-signature");
+        const saveWord = spanishOf("Save signature", language);
+        const cardBoxes = () => app.page.evaluate(() => Array.from(document.querySelectorAll(".sp-content input[type=\"text\"]")).map(i => i.value));
+        const typeCard = (n, v) => typeNth(app.page, ".sp-content input[type=\"text\"]", n, v);
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, form.title);
+        for (let i = 0; i < 3; i += 1) await clickText(app.page, say("Next", language));
+        await pause(app.page, 700);
+        let text = await bodyText(app.page);
+        expect("the card draws Name, Role, the pad, its hint, Clear and Save signature",
+          has(text, q.label) && has(text, spanishOf("Name", language)) && has(text, spanishOf("Role", language)) && has(text, spanishOf("Sign with your finger", language)) && has(text, saveWord) && (await cardBoxes()).length === 2, text.slice(0, 500));
+        const saved = () => app.stub.state.calls.filter(c => c.method === "PATCH" && /^\/api\/forms\/drafts\/draft-two/.test(c.path));
+
+        // Each refusal, in the API's words under the card.
+        const underCard = async (said) => app.page.evaluate(([label, want]) => {
+          const all = Array.from(document.querySelectorAll(".sp-content div")).filter(d => d.children.length === 0);
+          const qd = all.find(d => d.textContent.trim().indexOf(label) === 0);
+          const line = all.find(d => d.textContent.trim() === want);
+          return !!qd && !!line && line.getBoundingClientRect().top > qd.getBoundingClientRect().top;
+        }, [q.label, said]);
+        // The count of refusals shown credits each one once: the name and
+        // the drawing refusals are counted by the customer's page and the
+        // sign sheet, so only the one nobody else meets is counted here.
+        const meet = async (key, extraBody) => {
+          const r = API_REFUSALS[key] || FILE_REFUSALS[key];
+          if (extraBody) app.stub.state.refuse[route] = { status: r.status, body: Object.assign({ error: r[language], code: key }, extraBody), once: true };
+          await clickText(app.page, saveWord);
+          await pause(app.page, 1000);
+          const shown = await underCard(r[language]);
+          expect("refusal shown: " + r.en, shown, JSON.stringify(r[language]) + " in " + (await bodyText(app.page)).slice(0, 400));
+          if (extra && key === "forms.notACustomerSignature") extra.refusalsShown += shown ? 1 : 0;
+        };
+        // No name yet: the API's own refusal, with nothing invented here.
+        await meet("customer.nameRequired");
+        await typeCard(0, "An invented visitor");
+        await typeCard(1, "Office manager");
+        await meet("forms.signatureRequired");
+        await drawSignature(app.page);
+        await meet("forms.notACustomerSignature", {});
+        await meet("forms.signatureInvalid", {});
+        await spokenHere(app, language, expect);
+
+        // Saved: one request with the name, the role and the PNG; the card
+        // shows the drawing and the API's line.
+        const n = posts().length;
+        await clickText(app.page, saveWord);
+        await pause(app.page, 1500);
+        const went = posts()[n];
+        expect("Save signature sends the name, the role and the PNG to the customer signature route",
+          !!went && went.body && went.body.key === q.key && went.body.name === "An invented visitor" && went.body.role === "Office manager" && /^data:image\/png;base64,/.test(String(went.body.signature || "")) && went.signature && went.signature.bytes <= SIGNATURE_MAX_BYTES,
+          JSON.stringify(went && Object.assign({}, went.body, { signature: "..." })));
+        expect("a save of the draft never writes the customer signature", saved().every(c => !c.body || !c.body.answers || !(q.key in c.body.answers)), JSON.stringify(saved().map(c => c.body)));
+        text = await bodyText(app.page);
+        const line = customerLine(app.stub.state.answersP[q.key], language);
+        const img = await app.page.evaluate(() => { const i = Array.from(document.querySelectorAll(".sp-content img")).find(x => /^blob:/.test(x.src)); if (!i) return null; const r = i.getBoundingClientRect(); return { height: Math.round(r.height), loaded: i.naturalWidth > 0 }; });
+        const reads = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/forms/responses/draft-two/signatures/" + q.key);
+        expect("the card shows the drawing, fetched through the stream route, and the API's line", has(text, line) && !!img && img.loaded && img.height === 48 && reads.length === 1, JSON.stringify(img) + " reads " + reads.length + " " + text.slice(0, 400));
+        expect("the card offers Clear to sign again and Save signature no longer", has(text, spanishOf("Clear", language)) && !has(text, saveWord), text.slice(0, 400));
+
+        // Cleared and saved again: a new drawing replaces the old.
+        await clickText(app.page, spanishOf("Clear", language));
+        await pause(app.page, 500);
+        text = await bodyText(app.page);
+        expect("Clear opens the card again, empty", has(text, saveWord) && (await cardBoxes()).every(v => v === "") && !has(text, line), text.slice(0, 400));
+        await typeCard(0, "Another invented visitor");
+        await drawSignature(app.page);
+        await clickText(app.page, saveWord);
+        await pause(app.page, 1500);
+        const again = posts()[n + 1];
+        text = await bodyText(app.page);
+        expect("a new save replaces the old", !!again && again.body.name === "Another invented visitor" && app.stub.state.answersP[q.key].name === "Another invented visitor" && has(text, customerLine(app.stub.state.answersP[q.key], language)), JSON.stringify(again && again.body && again.body.name) + " " + text.slice(0, 400));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
     },
   },
   {

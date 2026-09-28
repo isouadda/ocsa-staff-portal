@@ -5083,7 +5083,10 @@ const FORMS_ANSWERED = "Answered";
 // asks for nothing, so a type the forms engine adds later cannot quietly
 // become a text box. A question with no type at all is text, which is
 // what it has always been.
-const FORM_TYPES_DRAWN = ["", "text", "textarea", "select", "multiselect", "date", "time", "grid", "signoff", "photos"];
+const FORM_TYPES_DRAWN = ["", "text", "textarea", "select", "multiselect", "date", "time", "grid", "signoff", "photos", "number", "customer_signature"];
+// A customer's signature on a staff form, as the API keeps it once saved.
+const formCustomerStamped = (v) => !!v && typeof v === "object" && typeof v.signatureId === "string" && v.signatureId !== "" && typeof v.name === "string" && v.name.trim() !== "";
+const FORMS_SAVE_SIGNATURE = "Save signature";
 const formTypeOf = (f) => (f && f.type ? String(f.type) : "");
 
 const formDraftOf = (r) => (r && r.draft ? r.draft : r);
@@ -5287,12 +5290,21 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
   const [keyErr, setKeyErr] = useState({});
   // A customer signature drawn on the page: its strokes by key.
   const [sigStrokes, setSigStrokes] = useState({});
+  // A number as it was typed, by control, so the review shows it that way.
+  const [numText, setNumText] = useState({});
+  // A customer's signature on a staff form: the card's name, role and
+  // drawing before Save signature, whether the card is open again after
+  // Clear, the one on its way to the API, what the API said when it
+  // refused, and the line it answered with.
+  const [custSig, setCustSig] = useState({});
+  const [custBusy, setCustBusy] = useState(null);
+  const [custErr, setCustErr] = useState({});
+  const [sigLines, setSigLines] = useState({});
   const [values, setValues] = useState(() => Object.assign({}, draft.answers || {}));
   const [dirty, setDirty] = useState({});
   const [sectionKey, setSectionKey] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState(null);
-  const [badKeys, setBadKeys] = useState([]);
   const [confirmLeave, setConfirmLeave] = useState(false);
   // Which cards of a table a person has opened again after they folded.
   const [openRows, setOpenRows] = useState({});
@@ -5390,7 +5402,6 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
       return next;
     });
     setDirty(prev => Object.assign({}, prev, { [key]: true }));
-    setBadKeys(prev => prev.filter(k => k !== key));
     setKeyErr(prev => { if (!prev[key]) return prev; const next = Object.assign({}, prev); delete next[key]; return next; });
   };
 
@@ -5406,10 +5417,10 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
       if (inPlay.indexOf(k) === -1) return;
       out[k] = formHasAnswer(values[k]) ? values[k] : null;
     });
-    // A photos question is answered through its own routes and never
-    // written here, whether it is in play or not.
+    // A photos question and a customer's signature are answered through
+    // their own routes and never written here, in play or not.
     (form && Array.isArray(form.fields) ? form.fields : []).forEach(f => {
-      if (f.prefilled || formTypeOf(f) === "photos" || inPlay.indexOf(f.key) !== -1) return;
+      if (f.prefilled || formTypeOf(f) === "photos" || formTypeOf(f) === "customer_signature" || inPlay.indexOf(f.key) !== -1) return;
       if (formHasAnswer(values[f.key]) || formHasAnswer((current.answers || {})[f.key])) out[f.key] = null;
     });
     return out;
@@ -5420,10 +5431,10 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
   // server rather than being guessed at here. Returns the answers
   // afterwards, or null when nothing was written.
   const save = async () => {
-    if (isCustomer) { setDirty({}); setSaveErr(null); setBadKeys([]); return values; }
+    if (isCustomer) { setDirty({}); setSaveErr(null); return values; }
     const body = changedAnswers();
-    if (Object.keys(body).length === 0) { setSaveErr(null); setBadKeys([]); return values; }
-    setSaving(true); setSaveErr(null); setBadKeys([]);
+    if (Object.keys(body).length === 0) { setSaveErr(null); return values; }
+    setSaving(true); setSaveErr(null); setKeyErr({});
     try {
       const r = await api("/api/forms/drafts/" + encodeURIComponent(current.id) + "?locale=" + locale, { method: "PATCH", token, body: { answers: body } });
       const d = formDraftOf(r);
@@ -5434,7 +5445,13 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
     } catch (err) {
       // A request that never reached the server carries no status.
       if (err.status === undefined || err.status === null) setSaveErr(tr(FORMS_NOT_SAVED));
-      else { setSaveErr(tr(err.message)); setBadKeys(Array.isArray(err.body && err.body.keys) ? err.body.keys : []); }
+      else {
+        // The API's words under each question the refusal names, and at
+        // the top when it names none.
+        const keys = Array.isArray(err.body && err.body.keys) ? err.body.keys.map(String).filter(k => fieldByKey(k)) : [];
+        if (keys.length > 0) { const said = {}; keys.forEach((k) => { said[k] = tr(err.message); }); setKeyErr(said); }
+        setSaveErr(tr(err.message));
+      }
       setSaving(false);
       return null;
     }
@@ -5483,12 +5500,42 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
     const made = await sign(f, png);
     if (made && alive.current) { setSignFor(null); setStrokes([]); }
   };
+  // A customer's signature on a staff form: the card's name, role and
+  // drawing go up together to the customer signature route, never as a
+  // saved answer, and the draft comes back with the stamp on it. A new
+  // save replaces the old.
+  const saveCustomerSignature = async (f) => {
+    if (custBusy) return;
+    const card = custSig[f.key] || {};
+    setCustBusy(f.key);
+    setCustErr(prev => Object.assign({}, prev, { [f.key]: null }));
+    try {
+      const body = { key: f.key, name: String(card.name || "").trim(), role: String(card.role || "").trim(), signature: card.png || "" };
+      const r = await api("/api/forms/drafts/" + encodeURIComponent(current.id) + "/customer-signature?locale=" + locale, { method: "POST", token, body: body });
+      const d = formDraftOf(r);
+      if (!alive.current) return;
+      setCurrent(d);
+      setValues(prev => {
+        const next = Object.assign({}, d.answers || {});
+        Object.keys(dirty).forEach(k => { if (formHasAnswer(prev[k])) next[k] = prev[k]; else delete next[k]; });
+        return next;
+      });
+      const view = Array.isArray(r && r.fields) ? r.fields.find(x => x && x.key === f.key) : null;
+      if (view && view.displayValue) setSigLines(prev => Object.assign({}, prev, { [f.key]: String(view.displayValue) }));
+      setCustSig(prev => { const next = Object.assign({}, prev); delete next[f.key]; return next; });
+      sigAsked.current.forEach((mark) => { if (mark.indexOf(f.key + ":") === 0) sigAsked.current.delete(mark); });
+    } catch (err) {
+      if (alive.current) setCustErr(prev => Object.assign({}, prev, { [f.key]: tr(err.message) }));
+    }
+    if (alive.current) setCustBusy(null);
+  };
   // Each stamp's drawing is fetched once, through the stream route with
   // the token, and kept as a URL made in memory. A stamp made before
-  // drawings were kept has none and asks for none.
+  // drawings were kept has none and asks for none. A customer's signature
+  // saved on a staff form is fetched the same way.
   useEffect(() => {
     (form && Array.isArray(form.fields) ? form.fields : []).forEach((f) => {
-      if (formTypeOf(f) !== "signoff") return;
+      if (formTypeOf(f) !== "signoff" && formTypeOf(f) !== "customer_signature") return;
       const v = values[f.key];
       if (!v || typeof v !== "object" || !v.signatureId) return;
       const mark = f.key + ":" + v.signatureId;
@@ -5745,6 +5792,19 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
       });
     }
     if (spec.type === "textarea") return <textarea rows={4} maxLength={FORM_VALUE_MAX} value={v === undefined || v === null ? "" : v} onChange={e => onChange(e.target.value)} style={{ ...inputSt, minHeight: 104, resize: "vertical", lineHeight: 1.5 }} />;
+    // A number: one box that takes digits, a minus sign and a decimal
+    // point, saved as a number once it reads as one and as nothing while
+    // it is empty or only started.
+    if (spec.type === "number") {
+      const shown = numText[at] !== undefined ? numText[at] : (v === undefined || v === null ? "" : String(v));
+      const take = (text) => {
+        if (!/^-?\d*\.?\d*$/.test(text)) return;
+        setNumText(prev => Object.assign({}, prev, { [at]: text }));
+        const n = Number(text);
+        onChange(text !== "" && Number.isFinite(n) ? n : null);
+      };
+      return <input type="text" inputMode="decimal" maxLength={32} value={shown} onChange={e => take(e.target.value)} style={inputSt} />;
+    }
     const kind = spec.type === "date" ? "date" : (spec.type === "time" ? "time" : "text");
     return <input type={kind} maxLength={kind === "text" ? FORM_VALUE_MAX : undefined} value={v === undefined || v === null ? "" : v} onChange={e => onChange(e.target.value)} style={inputSt} />;
   };
@@ -5944,9 +6004,51 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
     );
   };
 
+  // A saved customer signature as a person reads it: the line the API
+  // answered with, or the name and role when the draft was opened fresh
+  // and no line came with it.
+  const formCustomerLine = (f, v) => (formCustomerStamped(v) ? (sigLines[f.key] || [String(v.name || "").trim(), String(v.role || "").trim()].filter(Boolean).join(", ")) : null);
+  // A customer's signature on a staff form: a card with Name and Role, the
+  // drawing pad and Save signature. Once saved, the drawing and the line
+  // the API answered with, and Clear to sign again while the draft is
+  // open; the old stays until a new one is saved.
+  const renderStaffCustomerSignature = (f) => {
+    const v = values[f.key];
+    const card = custSig[f.key] || {};
+    const busy = custBusy === f.key;
+    if (formCustomerStamped(v) && !card.open) {
+      return (
+        <div style={gridCard}>
+          {renderStamp(f, v, formCustomerLine(f, v), false)}
+          <button type="button" onClick={() => setCustSig(prev => Object.assign({}, prev, { [f.key]: { open: true, name: "", role: "", strokes: [], png: null } }))} style={gridBtn}>{tr("Clear")}</button>
+          {custErr[f.key] && <div style={{ ...mkFieldErr(t), marginTop: 8 }}>{custErr[f.key]}</div>}
+        </div>
+      );
+    }
+    const strokes = card.strokes || [];
+    const write = (patch) => setCustSig(prev => Object.assign({}, prev, { [f.key]: Object.assign({ open: true, name: "", role: "", strokes: [], png: null }, prev[f.key] || {}, patch) }));
+    return (
+      <div style={gridCard}>
+        <div style={cellLabelSt}>{tr("Name")}</div>
+        <input type="text" maxLength={CUSTOMER_NAME_MAX} value={card.name || ""} onChange={e => write({ name: e.target.value })} style={sigBoxSt} />
+        <div style={cellLabelSt}>{tr("Role")}</div>
+        <input type="text" maxLength={CUSTOMER_NAME_MAX} value={card.role || ""} onChange={e => write({ role: e.target.value })} style={sigBoxSt} />
+        <div style={{ marginTop: 12, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+          <SignatureBox strokes={strokes} onStroke={(stroke, size) => { const all = strokes.concat([stroke]); write({ strokes: all, png: signaturePng(all, size.w, size.h) }); }} height={SIGN_BOX_HEIGHT} />
+        </div>
+        <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+          <button type="button" onClick={() => write({ strokes: [], png: null })} disabled={busy || strokes.length === 0} style={{ ...gridBtn, marginTop: 0, opacity: busy || strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+          <button type="button" onClick={() => saveCustomerSignature(f)} disabled={busy} style={{ ...gridBtn, marginTop: 0, border: "1px solid " + GOLD, background: busy ? "transparent" : t.goldBg, color: t.goldText, opacity: busy ? 0.6 : 1 }}>{busy ? tr("Sending") : tr(FORMS_SAVE_SIGNATURE)}</button>
+        </div>
+        {custErr[f.key] && <div style={{ ...mkFieldErr(t), marginTop: 8 }}>{custErr[f.key]}</div>}
+      </div>
+    );
+  };
+
   const renderInput = (f) => {
     const v = values[f.key];
-    if (isCustomer && formTypeOf(f) === "customer_signature") return renderCustomerSignature(f);
+    if (formTypeOf(f) === "customer_signature") return isCustomer ? renderCustomerSignature(f) : renderStaffCustomerSignature(f);
     if (FORM_TYPES_DRAWN.indexOf(formTypeOf(f)) === -1) return <div style={mkHelp(t)}>{tr(FORMS_UNKNOWN_TYPE)}</div>;
     if (formTypeOf(f) === "grid") return formIsChecklist(f) ? renderChecklist(f) : renderRowTable(f);
     if (formTypeOf(f) === "signoff") return renderSignoff(f);
@@ -6040,13 +6142,14 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
                   </div>
                 );
               }
-              const read = signoff ? formStampLine(values[f.key]) : (formTypeOf(f) === "photos" ? formPhotosLine(values[f.key]) : formReadAnswer(f, values[f.key]));
+              const typed = formTypeOf(f) === "number" && numText[f.key + ":"] !== undefined && numText[f.key + ":"] !== "" && formHasAnswer(values[f.key]) ? numText[f.key + ":"] : null;
+              const read = signoff ? formStampLine(values[f.key]) : (formTypeOf(f) === "photos" ? formPhotosLine(values[f.key]) : (customerSig ? formCustomerLine(f, values[f.key]) : (typed !== null ? typed : formReadAnswer(f, values[f.key]))));
               return (
                 <div key={f.key} style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{f.label}</div>
-                  {signoff && read
+                  {(signoff || customerSig) && read
                     ? renderStamp(f, values[f.key], read, true)
-                    : <div style={{ fontSize: 14, color: read ? t.text : t.textMut, fontWeight: read ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{read || tr(signoff ? "Not signed" : "Not answered")}</div>}
+                    : <div style={{ fontSize: 14, color: read ? t.text : t.textMut, fontWeight: read ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{read || tr(signoff || customerSig ? "Not signed" : "Not answered")}</div>}
                 </div>
               );
             })}
@@ -6079,9 +6182,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
             <div style={labelSt}>{f.label}{f.required && <span style={reqSt}>{tr("Required")}</span>}</div>
             {f.help && <div style={mkHelp(t)}>{f.help}</div>}
             {renderInput(f)}
-            {keyErr[f.key]
-              ? <div style={mkFieldErr(t)}>{keyErr[f.key]}</div>
-              : badKeys.indexOf(f.key) !== -1 && <div style={mkFieldErr(t)}>{tr("Check this answer")}</div>}
+            {keyErr[f.key] && <div style={mkFieldErr(t)}>{keyErr[f.key]}</div>}
           </div>
         ))}
       </div>
