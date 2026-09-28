@@ -1,10 +1,12 @@
 English,Spanish,Where it appears
 2155550000 (no dashes needed),2155550000 (sin guiones),Sign in
+"4 digits. Not all the same, not in a row like 1234, and not your badge number. The PIN you were given works until you save a new one.","4 dígitos. No todos iguales, no seguidos como 1234 y no su número de empleado. El PIN que le dieron funciona hasta que guarde uno nuevo.","Set your PIN, under New PIN"
 4-digit PIN,PIN de 4 dígitos,Sign in
 "9001, 2155550101 or name@email.com","9001, 2155550101 o nombre@correo.com",Sign in
 Account Activation,Activación de cuenta,Sign in
 Activate Account,Activar cuenta,Sign in
 Activating...,Activando...,Sign in
+"After too many wrong tries, sign-in stops for 15 minutes. Ask your trainer for help.","Después de demasiados intentos equivocados, el inicio de sesión se detiene por 15 minutos. Pídale ayuda a su capacitador.","Sign in, under the PIN box from the third wrong try"
 and can be used once.,y se puede usar una sola vez.,Sign in
 Ask your supervisor to confirm your badge number.,Pida a su supervisor que confirme su número de empleado.,Sign in
 Back to Login,Volver al inicio de sesión,Sign in
@@ -30,6 +32,7 @@ First name,Nombre,Sign in
 First Name *,Nombre *,Sign in
 Forgot your PIN?,¿Olvidó su PIN?,Sign in
 Forgotten your badge number? You can also sign in with your phone number or your email address.,¿Olvidó su número de empleado? También puede entrar con su teléfono o su correo electrónico.,Sign in
+Got a sign-in slip from OCSA? Go back and sign in with it.,¿Le dieron una hoja para iniciar sesión? Regrese e inicie sesión con ella.,"Register, above the form"
 "If that matches an account on file, a reset link is on its way. The link is good for one hour.","Si eso coincide con una cuenta registrada, le enviamos un enlace. El enlace sirve por una hora.",Sign in
 "If you do not have an email address on file, no link can reach you. Contact your supervisor to have your PIN reset directly.","Si no tiene un correo registrado, no hay cómo enviarle el enlace. Hable con su supervisor para que le restablezca el PIN directamente.",Sign in
 Language,Idioma,"Sign in, Settings"
@@ -41,6 +44,7 @@ name@email.com,nombre@correo.com,Sign in
 New Employee? Register Here,¿Empleado nuevo? Regístrese aquí,Sign in
 New PIN (4 digits),PIN nuevo (4 dígitos),Sign in
 New Staff Registration,Registro de personal nuevo,Sign in
+No email on file? A link cannot reach you. Ask your supervisor to reset your PIN.,¿No tiene correo registrado? No le puede llegar un enlace. Pida a su supervisor que restablezca su PIN.,"Forgot your PIN, under the field"
 Not you? Sign out,¿No es usted? Cerrar sesión,Sign in
 Phone Number,Número de teléfono,Sign in
 Phone Number *,Número de teléfono *,Sign in

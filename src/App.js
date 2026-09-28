@@ -1257,6 +1257,14 @@ export default function OCSAStaffPortal() {
   const toastsRef = useRef(null);
   if (!toastsRef.current) toastsRef.current = toastQueue(setToasts);
   const [loading, setLoading] = useState(false);
+  // What the last sign-in was turned away with, drawn under the PIN box
+  // until the person types again: the API's own sentence as it was sent,
+  // or the offline line. wrongTries counts the refusals coded
+  // auth.invalidCredentials in a row on that screen; from the third, the
+  // portal's own lock line joins the API's. A sign-in that gets in, or a
+  // reload, starts the count over. No number is ever shown.
+  const [loginFault, setLoginFault] = useState(null);
+  const wrongTries = useRef(0);
   const [lookups, setLookups] = useState([]);
   const queuePrefRef = useRef(null);
   const queuePref = (changed) => { if (queuePrefRef.current) queuePrefRef.current(changed); };
@@ -1384,24 +1392,32 @@ export default function OCSAStaffPortal() {
     const tok = readAuth();
     if (!tok) return;
     setToken(tok);
+    // A then and a catch rather than finally, which Chrome 60 to 62 lacks:
+    // a phone on one of them with a stored session would otherwise never
+    // get past the splash.
     hydrateSession(tok)
-      .catch(() => { clearAuth(); setToken(null); setUser(null); setScreen("login"); })
-      .finally(() => setBooting(false));
+      .then(() => setBooting(false))
+      .catch(() => { clearAuth(); setToken(null); setUser(null); setScreen("login"); setBooting(false); });
   }, [hydrateSession]);
 
   const handleLogin = async (phone, pin) => {
-    setLoading(true);
+    setLoading(true); setLoginFault(null);
     try {
       // noAuthEvent, so a refused PIN is not read as an expired session.
       // Nothing is signed in yet, so there is no session to end.
       const data = await api(signedOut("/api/auth/login", language), { method: "POST", body: { phone, pin }, noAuthEvent: true });
+      wrongTries.current = 0;
       setToken(data.token); saveAuth(data.token);
       const me = await hydrateSession(data.token);
       showToast(tr("Welcome, {name}", { name: me.firstName }));
     } catch (err) {
+      // The refusal stays under the PIN box, in the API's words as sent,
+      // a locked account's among them, until the person types again.
       const said = err && err.body && err.body.error ? String(err.body.error) : "";
-      if (!said && wentNowhere(err)) showToast(tr(ERR_OFFLINE), "error");
-      else showToast(said ? tr(said) : tr("That sign-in did not match. Check your badge, phone or email and your PIN."), "error");
+      const code = err && err.code ? String(err.code) : "";
+      if (code === "auth.invalidCredentials") wrongTries.current += 1;
+      const text = !said && wentNowhere(err) ? tr(ERR_OFFLINE) : said ? tr(said) : tr("That sign-in did not match. Check your badge, phone or email and your PIN.");
+      setLoginFault({ text: text, lock: code === "auth.invalidCredentials" && wrongTries.current >= 3 });
     }
     setLoading(false);
   };
@@ -1723,7 +1739,7 @@ export default function OCSAStaffPortal() {
   // and the text size, belongs to the phone and stays.
   const forgetPerson = useCallback(() => {
     clearAuth();
-    setToken(null); setUser(null); setSites([]); setScreen("login");
+    setToken(null); setUser(null); setSites([]); setScreen("login"); setLoginFault(null);
     setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null);
     setShiftAsk(null); setShiftBusy(false); setShiftFault(null); setTickOverrides(new Map()); setRowNote(null);
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null);
@@ -1741,6 +1757,16 @@ export default function OCSAStaffPortal() {
     window.addEventListener("ocsa-session-expired", forgetPerson);
     return () => window.removeEventListener("ocsa-session-expired", forgetPerson);
   }, [forgetPerson]);
+  // The install sheet is mounted beside the app, not inside it, and
+  // offers itself only to a signed-in person past Set your PIN. The app
+  // writes which screen is up on the document and says so each time it
+  // changes; the sheet reads that and never opens over the sign-in card.
+  useEffect(() => {
+    try {
+      document.documentElement.setAttribute("data-ocsa-screen", booting ? "boot" : screen);
+      window.dispatchEvent(new Event("ocsa-screen"));
+    } catch (e) {}
+  }, [booting, screen]);
   const refreshUnread = useCallback(async (tkn) => {
     const tk = tkn || token;
     if (!tk) return;
@@ -1820,7 +1846,7 @@ export default function OCSAStaffPortal() {
       )}
 
       {booting && <BootSplash t={t} themeMode={themeMode} />}
-      {!booting && screen === "login" && <LoginScreen onLogin={handleLogin} onGoRegister={() => setScreen("register")} onGoForgot={() => setScreen("forgot")} loading={loading} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
+      {!booting && screen === "login" && <LoginScreen onLogin={handleLogin} onGoRegister={() => setScreen("register")} onGoForgot={() => setScreen("forgot")} loading={loading} fault={loginFault} onTyped={() => { if (loginFault) setLoginFault(null); }} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
       {screen === "register" && <RegisterScreen onRegister={handleRegister} onBack={() => setScreen("login")} loading={loading} t={t} />}
       {screen === "activate" && <ActivateScreen token={ENTRY ? ENTRY.token : null} onActivated={handleAuthSuccess} onGoLogin={goLogin} showToast={showToast} t={t} />}
       {screen === "reset" && <ResetScreen token={ENTRY ? ENTRY.token : null} onReset={handleAuthSuccess} onGoLogin={goLogin} onGoForgot={() => setScreen("forgot")} showToast={showToast} t={t} />}
@@ -1959,11 +1985,12 @@ export default function OCSAStaffPortal() {
   );
 }
 
-function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, showToast, t, toggleTheme, themeMode }) {
+function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onTyped, showToast, t, toggleTheme, themeMode }) {
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
   const labelSt = mkLabel(t);
   const inputSt = mkInput(t);
+  const errSt = mkFieldErr(t);
   return (
     <div style={{ width: "100%", minHeight: "var(--ocsa-vh, 100vh)", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
       <div style={{ width: "100%", maxWidth: 420, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: "28px 24px", boxShadow: t.popShadow }}>
@@ -1972,8 +1999,11 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, showToast, t,
           
           <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 600 }}>{tr("Staff Operations Portal")}</div>
         </div>
-        <div style={{ marginBottom: 16 }}><label style={labelSt}>{tr("Badge Number, Phone or Email")}</label><input value={phone} onChange={e => setPhone(e.target.value)} placeholder={tr("9001, 2155550101 or name@email.com")} autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
-        <div style={{ marginBottom: 8 }}><label style={labelSt}>{tr("PIN")}</label><input value={pin} onChange={e => setPin(e.target.value)} placeholder={tr("4-digit PIN")} type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
+        <div style={{ marginBottom: 16 }}><label style={labelSt}>{tr("Badge Number, Phone or Email")}</label><input value={phone} onChange={e => { setPhone(e.target.value); onTyped(); }} placeholder={tr("9001, 2155550101 or name@email.com")} autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
+        {/* The refusal sits under the PIN box until the person types again:
+            the API's own sentence as it was sent, then from the third wrong
+            PIN in a row the portal's own line about the lock. */}
+        <div style={{ marginBottom: 8 }}><label style={labelSt}>{tr("PIN")}</label><input value={pin} onChange={e => { setPin(e.target.value); onTyped(); }} placeholder={tr("4-digit PIN")} type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} />{fault && <div role="alert" style={errSt}>{fault.text}</div>}{fault && fault.lock && <div style={errSt}>{tr("After too many wrong tries, sign-in stops for 15 minutes. Ask your trainer for help.")}</div>}</div>
         <div style={{ textAlign: "right", marginBottom: 24 }}><button onClick={onGoForgot} style={{ background: "none", border: "none", minHeight: TAP, padding: "4px 0", color: t.textSec, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>{tr("Forgot your PIN?")}</button></div>
         <button onClick={() => onLogin(phone, pin)} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Signing in...") : tr("Sign In")}</button>
         <button onClick={onGoRegister} style={mkGhostBtn(t)}>{tr("New Employee? Register Here")}</button>
@@ -1988,7 +2018,7 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
   const [ph, setPh] = useState(""); const [em, setEm] = useState("");
   const [pin, setPin] = useState(""); const [pin2, setPin2] = useState("");
   const [errs, setErrs] = useState({});
-  const labelSt = mkLabel(t); const inputSt = mkInput(t); const errSt = mkFieldErr(t);
+  const labelSt = mkLabel(t); const inputSt = mkInput(t); const errSt = mkFieldErr(t); const textSt = mkCardText(t);
 
   // The first empty required field is named, and nothing is sent. Last
   // Name carries no asterisk, so it is not required here either.
@@ -2007,6 +2037,8 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
           <div style={{ display: "inline-block", maxWidth: "100%", boxSizing: "border-box", padding: "4px 12px", background: "rgba(255,255,255,0.92)", borderRadius: 6 }}><img src={LOGO_SM} alt={clientConfig.company.shortName} style={{ height: 34, maxWidth: "100%", objectFit: "contain" }} /></div>
           <div style={{ fontSize: 12, color: t.textSec, letterSpacing: "2px", textTransform: "uppercase", marginTop: 8, fontFamily: FONT_HEAD, fontWeight: 600 }}>{tr("New Staff Registration")}</div>
         </div>
+        {/* Most people arrive with a sign-in slip and never need this form. */}
+        <div style={textSt}>{tr("Got a sign-in slip from OCSA? Go back and sign in with it.")}</div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("First Name *")}</label><input value={fn} onChange={e => setFn(e.target.value)} placeholder={tr("First name")} style={inputSt} />{errs.firstName && <div style={errSt}>{errs.firstName}</div>}</div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Last Name")}</label><input value={ln} onChange={e => setLn(e.target.value)} placeholder={tr("Last name")} style={inputSt} /></div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Phone Number *")}</label><input value={ph} onChange={e => setPh(e.target.value)} placeholder={tr("2155550000 (no dashes needed)")} style={inputSt} />{errs.phone && <div style={errSt}>{errs.phone}</div>}</div>
@@ -2207,7 +2239,7 @@ function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
     setPhase("checking");
     api(signedOut("/api/auth/reset/" + encodeURIComponent(token), languageRef.current), { noAuthEvent: true })
       .then(d => { if (!alive) return; setInfo(d); if (d && (d.preferredLanguage === "en" || d.preferredLanguage === "es")) chooseRef.current(d.preferredLanguage); setPhase("form"); })
-      .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(ERR_GENERIC) }); setPhase("error"); } });
+      .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(wentNowhere(e) ? ERR_OFFLINE : ERR_GENERIC) }); setPhase("error"); } });
     return () => { alive = false; };
   }, [token, attempt]);
 
@@ -2281,7 +2313,7 @@ function ForgotScreen({ onGoLogin, showToast, t }) {
   const [ident, setIdent] = useState("");
   const [err, setErr] = useState("");
   const [phase, setPhase] = useState("form");
-  const labelSt = mkLabel(t); const inputSt = mkInput(t); const errSt = mkFieldErr(t); const textSt = mkCardText(t);
+  const labelSt = mkLabel(t); const inputSt = mkInput(t); const errSt = mkFieldErr(t); const helpSt = mkHelp(t); const textSt = mkCardText(t);
 
   const submit = async () => {
     const v = ident.trim();
@@ -2292,7 +2324,8 @@ function ForgotScreen({ onGoLogin, showToast, t }) {
       setPhase("sent");
     } catch (e) {
       setPhase("form");
-      setErr(e.status === 400 ? tr(e.message) : tr(ERR_GENERIC));
+      // A request that never reached OCSA says so, the way Activate does.
+      setErr(e.status === 400 ? tr(e.message) : tr(wentNowhere(e) ? ERR_OFFLINE : ERR_GENERIC));
     }
   };
   const working = phase === "working";
@@ -2314,6 +2347,9 @@ function ForgotScreen({ onGoLogin, showToast, t }) {
         <label style={labelSt}>{tr("Badge Number, Phone or Email")}</label>
         <input value={ident} onChange={e => setIdent(e.target.value)} placeholder={tr("9001, 2155550101 or name@email.com")} autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />
         {err && <div style={errSt}>{err}</div>}
+        {/* Said before Send, since a person with no email on file would
+            otherwise wait for a link that cannot come. */}
+        <div style={helpSt}>{tr("No email on file? A link cannot reach you. Ask your supervisor to reset your PIN.")}</div>
       </div>
       <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? tr("Sending...") : tr("Send Reset Link")}</button>
       <button onClick={onGoLogin} style={mkGhostBtn(t)}>{tr("Back to Sign In")}</button>
@@ -2329,7 +2365,7 @@ function SetPinScreen({ token, user, onDone, onSignOut, showToast, t }) {
   const [pin2, setPin2] = useState("");
   const [errs, setErrs] = useState({});
   const [working, setWorking] = useState(false);
-  const labelSt = mkLabel(t); const pinSt = mkPinInput(t); const errSt = mkFieldErr(t); const textSt = mkCardText(t);
+  const labelSt = mkLabel(t); const pinSt = mkPinInput(t); const errSt = mkFieldErr(t); const helpSt = mkHelp(t); const textSt = mkCardText(t);
 
   const submit = async () => {
     const e = {};
@@ -2349,7 +2385,9 @@ function SetPinScreen({ token, user, onDone, onSignOut, showToast, t }) {
   return (
     <AuthCard t={t} title={tr("Set Your PIN")}>
       <div style={textSt}>{tr("Set your own PIN. The PIN you were given is known to your supervisor. Choose a new one that only you know.")}</div>
-      <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("New PIN (4 digits)")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
+      {/* The rules before anyone breaks one. The refusal, when there is
+          one, sits between the box and the rules. */}
+      <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("New PIN (4 digits)")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}<div style={helpSt}>{tr("4 digits. Not all the same, not in a row like 1234, and not your badge number. The PIN you were given works until you save a new one.")}</div></div>
       <div style={{ marginBottom: 22 }}><label style={labelSt}>{tr("Confirm PIN")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
       <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? tr("Saving...") : tr("Save PIN")}</button>
       <div style={{ textAlign: "center", marginTop: 18 }}><button onClick={onSignOut} style={mkTapFrame({ padding: "0 12px", color: t.textMut, fontSize: 11, textDecoration: "underline" })}>{tr("Not you? Sign out")}</button></div>
