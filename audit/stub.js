@@ -455,6 +455,9 @@ function makeState(opts) {
     // The supplies at the open shift's site, which a case can answer
     // with none. null answers the one supply every case has always had.
     supplies: Array.isArray(o.supplies) ? o.supplies : null,
+    // A due date on the assigned task, as the API sends one, when a case
+    // gives it: a DATE column reaches JSON as that day at midnight UTC.
+    assignedDue: o.assignedDue || null,
     conversationId: "cv-one",
     // Help: what the next question is answered with, the points the one
     // being answered can be stopped at, and the conversation as the API
@@ -1739,7 +1742,8 @@ function createStub(opts) {
     // --- the shift
     if (key === "GET /api/clock/status") return json(200, clockStatus());
     if (key === "GET /api/clock/tasks/assigned") return json(200, [
-      { task_id: "at-1", label: "Replace the cracked light cover", description: "Second floor corridor.", site_name: "North Building", building_name: "Main Hall", floor_number: "2", zone: "Corridor", priority: "high", cims_category: "SD", created_by_name: "A supervisor", task_created_at: iso(NOW.getTime() - DAY) },
+      Object.assign({ task_id: "at-1", label: "Replace the cracked light cover", description: "Second floor corridor.", site_name: "North Building", building_name: "Main Hall", floor_number: "2", zone: "Corridor", priority: "high", cims_category: "SD", created_by_name: "A supervisor", task_created_at: iso(NOW.getTime() - DAY) },
+        state.assignedDue ? { due_date: state.assignedDue } : {}),
     ]);
     // A check needs no link, only an open session at the item's site, and
     // counts once a checklist day for each person. An uncheck takes back

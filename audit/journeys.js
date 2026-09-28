@@ -1844,6 +1844,54 @@ const JOURNEYS = [
     },
   },
   {
+    id: "localday",
+    label: "The phone's own day: at the suite's 9:30 PM, Home and Schedule mark Thursday, October 1 as today and leave October 2 unmarked, and a due date sent as midnight UTC reads its own day on an assigned card and on its detail",
+    run: async (open, language, expect) => {
+      // The dates a week strip marks as today, each read off the day it
+      // draws: the one day with the gold edge.
+      const todayMarked = (page) => page.evaluate(() => {
+        const grid = Array.from(document.querySelectorAll(".sp-content div")).find(d => getComputedStyle(d).display === "grid" && d.children.length === 7);
+        if (!grid) return null;
+        return Array.from(grid.children).filter(c => /231, 176, 23/.test(getComputedStyle(c).borderTopColor)).map((c) => {
+          const n = Array.from(c.querySelectorAll("div")).find(d => /^\d{1,2}$/.test(d.textContent.trim()));
+          return n ? n.textContent.trim() : "?";
+        });
+      });
+      const app = await open({});
+      try {
+        await openTab(app.page, "clock", language);
+        await pause(app.page, 1200);
+        const home = await todayMarked(app.page);
+        expect("Home's week strip marks October 1 as today and leaves October 2 unmarked", JSON.stringify(home) === JSON.stringify(["1"]), JSON.stringify(home));
+        await openTab(app.page, "schedule", language);
+        await pause(app.page, 1200);
+        const week = await todayMarked(app.page);
+        expect("Schedule marks October 1 as today and leaves October 2 unmarked", JSON.stringify(week) === JSON.stringify(["1"]), JSON.stringify(week));
+      } finally { await app.context.close(); }
+
+      // A due date the API sends as a day at midnight UTC, which is still
+      // the evening before in New York at the suite's clock.
+      const due = await open({ stubOptions: { assignedDue: "2026-10-02T00:00:00.000Z" } });
+      try {
+        const dayIn = (opts) => due.page.evaluate(([l, o]) => [new Date(2026, 9, 2).toLocaleDateString(l, o), new Date(2026, 9, 1).toLocaleDateString(l, o)], [language === "es" ? "es-US" : "en-US", opts]);
+        await openTab(due.page, "issuetasks", language);
+        await pause(due.page, 900);
+        const [cardDay, cardEve] = await dayIn({ month: "short", day: "numeric" });
+        const card = await bodyText(due.page);
+        expect("the assigned card reads the due day as October 2", has(card, say("Due:", language) + " " + cardDay) && !has(card, say("Due:", language) + " " + cardEve), card.slice(0, 260));
+        await due.page.evaluate((label) => {
+          const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.textContent.indexOf(label) !== -1);
+          if (b) b.click();
+        }, "Replace the cracked light cover");
+        await pause(due.page, 700);
+        const [detailDay, detailEve] = await dayIn({ month: "short", day: "numeric", year: "numeric" });
+        const detail = await bodyText(due.page);
+        expect("its detail reads October 2 too", has(detail, detailDay) && !has(detail, detailEve), detail.slice(0, 300));
+        await spokenHere(due, language, expect);
+      } finally { await due.context.close(); }
+    },
+  },
+  {
     id: "timeoff",
     label: "Request time off, whole days and part of a day, then cancel it",
     run: async (open, language, expect) => {
