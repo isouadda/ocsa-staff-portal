@@ -1,10 +1,12 @@
 English,Spanish,Where it appears
 2155550000 (no dashes needed),2155550000 (sin guiones),Sign in
+"4 digits. Not all the same, not in a row like 1234, and not your badge number. The PIN you were given works until you save a new one.","4 dígitos. No todos iguales, no seguidos como 1234 y no su número de empleado. El PIN que le dieron funciona hasta que guarde uno nuevo.","Set your PIN, under New PIN"
 4-digit PIN,PIN de 4 dígitos,Sign in
 "9001, 2155550101 or name@email.com","9001, 2155550101 o nombre@correo.com",Sign in
 Account Activation,Activación de cuenta,Sign in
 Activate Account,Activar cuenta,Sign in
 Activating...,Activando...,Sign in
+"After too many wrong tries, sign-in stops for 15 minutes. Ask your trainer for help.","Después de demasiados intentos equivocados, el inicio de sesión se detiene por 15 minutos. Pídale ayuda a su capacitador.","Sign in, under the PIN box from the third wrong try"
 and can be used once.,y se puede usar una sola vez.,Sign in
 Ask your supervisor to confirm your badge number.,Pida a su supervisor que confirme su número de empleado.,Sign in
 Back to Login,Volver al inicio de sesión,Sign in
@@ -30,6 +32,7 @@ First name,Nombre,Sign in
 First Name *,Nombre *,Sign in
 Forgot your PIN?,¿Olvidó su PIN?,Sign in
 Forgotten your badge number? You can also sign in with your phone number or your email address.,¿Olvidó su número de empleado? También puede entrar con su teléfono o su correo electrónico.,Sign in
+Got a sign-in slip from OCSA? Go back and sign in with it.,¿Le dieron una hoja para iniciar sesión? Regrese e inicie sesión con ella.,"Register, above the form"
 "If that matches an account on file, a reset link is on its way. The link is good for one hour.","Si eso coincide con una cuenta registrada, le enviamos un enlace. El enlace sirve por una hora.",Sign in
 "If you do not have an email address on file, no link can reach you. Contact your supervisor to have your PIN reset directly.","Si no tiene un correo registrado, no hay cómo enviarle el enlace. Hable con su supervisor para que le restablezca el PIN directamente.",Sign in
 Language,Idioma,"Sign in, Settings"
@@ -41,6 +44,7 @@ name@email.com,nombre@correo.com,Sign in
 New Employee? Register Here,¿Empleado nuevo? Regístrese aquí,Sign in
 New PIN (4 digits),PIN nuevo (4 dígitos),Sign in
 New Staff Registration,Registro de personal nuevo,Sign in
+No email on file? A link cannot reach you. Ask your supervisor to reset your PIN.,¿No tiene correo registrado? No le puede llegar un enlace. Pida a su supervisor que restablezca su PIN.,"Forgot your PIN, under the field"
 Not you? Sign out,¿No es usted? Cerrar sesión,Sign in
 Phone Number,Número de teléfono,Sign in
 Phone Number *,Número de teléfono *,Sign in
@@ -105,6 +109,7 @@ Open the browser menu. It is usually three dots at the top right.,Abra el menú 
 PIN updated,PIN actualizado,"App wide, Settings"
 Profile,Perfil,"App wide, header"
 Registration submitted. Pending supervisor approval.,Registro enviado. Pendiente de aprobación de su supervisor.,App wide
+Reload,Volver a cargar,The error boundary's button
 Request submitted,Solicitud enviada,App wide
 Scroll down and tap Add to Home Screen.,Baje y toque Agregar a la pantalla de inicio.,"App wide, the install sheet"
 Select a site first,Primero elija un sitio,App wide
@@ -114,6 +119,7 @@ Shift ended at {time},Turno terminado a las {time},App wide
 Shift started,Turno iniciado,App wide
 Shortcuts saved,Accesos directos guardados,App wide
 Sign out,Cerrar sesión,"App wide, header"
+Something went wrong on this screen.,Algo salió mal en esta pantalla.,The error boundary
 Standard,Normal,App wide
 Tap Add or Install.,Toque Agregar o Instalar.,"App wide, the install sheet"
 Tap Add to Home screen or Install app.,Toque Agregar a la pantalla de inicio o Instalar aplicación.,"App wide, the install sheet"
@@ -126,6 +132,7 @@ Task completed,Tarea completada,App wide
 Task unchecked,Tarea desmarcada,App wide
 Task updated to {status},Estado de la tarea: {status},App wide
 "That sign-in did not match. Check your badge, phone or email and your PIN.","Esos datos no coinciden. Revise su número de empleado, teléfono o correo y su PIN.",App wide
+This list did not load.,Esta lista no se cargó.,"Assigned, Supplies, Schedule, Report, Pickup, Inspect, when a list fails"
 "This page is open inside another app. Open it in Safari or Chrome first, then add it to your home screen.",Esta página está abierta dentro de otra aplicación. Ábrala primero en Safari o Chrome y luego agréguela a su pantalla de inicio.,"App wide, the install sheet"
 This shift was already ended,Este turno ya estaba terminado,App wide
 this site,este sitio,App wide
@@ -165,6 +172,7 @@ You asked to drop this shift. Waiting for a decision.,Usted pidió dejar este tu
 Your Assigned Sites,Sus sitios asignados,Home
 A shift is still open at {site}. End it before starting another.,Todavía hay un turno abierto en {site}. Termínelo antes de comenzar otro.,Home
 A shift is still open. End it before starting another.,Todavía hay un turno abierto. Termínelo antes de comenzar otro.,Home
+Your sites did not load.,Sus sitios no se cargaron.,"Home, when the sites request fails"
  (live), (en curso),Schedule
  ({h}h), ({h} h),Schedule
 Any additional details...,Cualquier detalle adicional...,Schedule
@@ -411,6 +419,7 @@ Log Usage,Registrar uso,Supplies
 Log usage or submit a request,Registre el uso o envíe una solicitud,Supplies
 LOW,POCO,Supplies
 New Gear,Equipo nuevo,Supplies
+No supplies are set up for this site.,No hay suministros registrados para este sitio.,"Supplies, a site with none"
 One less,Uno menos,Supplies
 One more,Uno más,Supplies
 New Supply,Suministro nuevo,Supplies
@@ -633,6 +642,7 @@ Site Assignments,Sitios asignados,Profile
 Staff,Personal,Profile
 State,Estado,Profile
 Street address,Calle y número,Profile
+Your profile did not load.,Su perfil no se cargó.,"Profile, when it fails"
 Zip,Código postal,Profile
 "A part day needs both a start and an end time, on one day","Parte de un día necesita hora de inicio y hora de fin, en un solo día","API message, shown word for word"
 A photo could not be read. Upload it again and resend it.,Una foto no se pudo leer. Súbala otra vez y vuelva a enviarla.,"API message, shown word for word"

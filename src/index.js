@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
+import App, { LastResort } from './App';
 import HomeScreenPrompt from './HomeScreenPrompt';
 import { applyCanonicalRedirect } from './canonicalRedirect';
 
@@ -9,9 +9,10 @@ import { applyCanonicalRedirect } from './canonicalRedirect';
 applyCanonicalRedirect();
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
-// The home screen prompt sits beside the app, once, so it can appear on
-// every screen including sign in without touching any screen's code.
-root.render(<React.StrictMode><App /><HomeScreenPrompt /></React.StrictMode>);
+// The home screen prompt sits beside the app, once, and waits for the
+// portal itself before it offers. Both sit inside the last resort, which
+// draws one line and Reload in place of a blank page when a render throws.
+root.render(<React.StrictMode><LastResort><App /><HomeScreenPrompt /></LastResort></React.StrictMode>);
 
 // Production only. The worker caches nothing; see public/sw.js.
 if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) {

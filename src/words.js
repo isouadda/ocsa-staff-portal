@@ -39,11 +39,13 @@ export const WORDS = {
   es: {
   // Sign in
   "2155550000 (no dashes needed)": "2155550000 (sin guiones)",
+  "4 digits. Not all the same, not in a row like 1234, and not your badge number. The PIN you were given works until you save a new one.": "4 d\u00edgitos. No todos iguales, no seguidos como 1234 y no su n\u00famero de empleado. El PIN que le dieron funciona hasta que guarde uno nuevo.",
   "4-digit PIN": "PIN de 4 d\u00edgitos",
   "9001, 2155550101 or name@email.com": "9001, 2155550101 o nombre@correo.com",
   "Account Activation": "Activaci\u00f3n de cuenta",
   "Activate Account": "Activar cuenta",
   "Activating...": "Activando...",
+  "After too many wrong tries, sign-in stops for 15 minutes. Ask your trainer for help.": "Despu\u00e9s de demasiados intentos equivocados, el inicio de sesi\u00f3n se detiene por 15 minutos. P\u00eddale ayuda a su capacitador.",
   "and can be used once.": "y se puede usar una sola vez.",
   "Ask your supervisor to confirm your badge number.": "Pida a su supervisor que confirme su n\u00famero de empleado.",
   "Back to Login": "Volver al inicio de sesi\u00f3n",
@@ -69,6 +71,7 @@ export const WORDS = {
   "First Name *": "Nombre *",
   "Forgot your PIN?": "\u00bfOlvid\u00f3 su PIN?",
   "Forgotten your badge number? You can also sign in with your phone number or your email address.": "\u00bfOlvid\u00f3 su n\u00famero de empleado? Tambi\u00e9n puede entrar con su tel\u00e9fono o su correo electr\u00f3nico.",
+  "Got a sign-in slip from OCSA? Go back and sign in with it.": "\u00bfLe dieron una hoja para iniciar sesi\u00f3n? Regrese e inicie sesi\u00f3n con ella.",
   "If that matches an account on file, a reset link is on its way. The link is good for one hour.": "Si eso coincide con una cuenta registrada, le enviamos un enlace. El enlace sirve por una hora.",
   "If you do not have an email address on file, no link can reach you. Contact your supervisor to have your PIN reset directly.": "Si no tiene un correo registrado, no hay c\u00f3mo enviarle el enlace. Hable con su supervisor para que le restablezca el PIN directamente.",
   "Language": "Idioma",
@@ -80,6 +83,7 @@ export const WORDS = {
   "New Employee? Register Here": "\u00bfEmpleado nuevo? Reg\u00edstrese aqu\u00ed",
   "New PIN (4 digits)": "PIN nuevo (4 d\u00edgitos)",
   "New Staff Registration": "Registro de personal nuevo",
+  "No email on file? A link cannot reach you. Ask your supervisor to reset your PIN.": "\u00bfNo tiene correo registrado? No le puede llegar un enlace. Pida a su supervisor que restablezca su PIN.",
   "Not you? Sign out": "\u00bfNo es usted? Cerrar sesi\u00f3n",
   "Phone Number": "N\u00famero de tel\u00e9fono",
   "Phone Number *": "N\u00famero de tel\u00e9fono *",
@@ -146,6 +150,7 @@ export const WORDS = {
   "PIN updated": "PIN actualizado",
   "Profile": "Perfil",
   "Registration submitted. Pending supervisor approval.": "Registro enviado. Pendiente de aprobaci\u00f3n de su supervisor.",
+  "Reload": "Volver a cargar",
   "Request submitted": "Solicitud enviada",
   "Scroll down and tap Add to Home Screen.": "Baje y toque Agregar a la pantalla de inicio.",
   "Select a site first": "Primero elija un sitio",
@@ -155,6 +160,7 @@ export const WORDS = {
   "Shift started": "Turno iniciado",
   "Shortcuts saved": "Accesos directos guardados",
   "Sign out": "Cerrar sesi\u00f3n",
+  "Something went wrong on this screen.": "Algo sali\u00f3 mal en esta pantalla.",
   "Standard": "Normal",
   "Tap Add or Install.": "Toque Agregar o Instalar.",
   "Tap Add to Home screen or Install app.": "Toque Agregar a la pantalla de inicio o Instalar aplicaci\u00f3n.",
@@ -167,6 +173,7 @@ export const WORDS = {
   "Task unchecked": "Tarea desmarcada",
   "Task updated to {status}": "Estado de la tarea: {status}",
   "That sign-in did not match. Check your badge, phone or email and your PIN.": "Esos datos no coinciden. Revise su n\u00famero de empleado, tel\u00e9fono o correo y su PIN.",
+  "This list did not load.": "Esta lista no se carg\u00f3.",
   "This page is open inside another app. Open it in Safari or Chrome first, then add it to your home screen.": "Esta p\u00e1gina est\u00e1 abierta dentro de otra aplicaci\u00f3n. \u00c1brala primero en Safari o Chrome y luego agr\u00e9guela a su pantalla de inicio.",
   "This shift was already ended": "Este turno ya estaba terminado",
   "this site": "este sitio",
@@ -208,6 +215,7 @@ export const WORDS = {
   "Your Assigned Sites": "Sus sitios asignados",
   "A shift is still open at {site}. End it before starting another.": "Todav\u00eda hay un turno abierto en {site}. Term\u00ednelo antes de comenzar otro.",
   "A shift is still open. End it before starting another.": "Todav\u00eda hay un turno abierto. Term\u00ednelo antes de comenzar otro.",
+  "Your sites did not load.": "Sus sitios no se cargaron.",
 
   // Schedule
   " (live)": " (en curso)",
@@ -468,6 +476,7 @@ export const WORDS = {
   "Log usage or submit a request": "Registre el uso o env\u00ede una solicitud",
   "LOW": "POCO",
   "New Gear": "Equipo nuevo",
+  "No supplies are set up for this site.": "No hay suministros registrados para este sitio.",
   "One less": "Uno menos",
   "One more": "Uno m\u00e1s",
   "New Supply": "Suministro nuevo",
@@ -706,6 +715,7 @@ export const WORDS = {
   "Staff": "Personal",
   "State": "Estado",
   "Street address": "Calle y n\u00famero",
+  "Your profile did not load.": "Su perfil no se carg\u00f3.",
   "Zip": "C\u00f3digo postal",
 
   // API message

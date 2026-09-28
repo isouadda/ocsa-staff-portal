@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
+import { Component, useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
 import clientConfig from './clientConfig';
 import { tr, dateLocale, setWordsLanguage, wordsLanguage } from "./words";
 import { BUILD_STAMP } from "./buildStamp";
@@ -634,6 +634,13 @@ function ymdLocal(d) {
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
 const addDays = (d, n) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() + n); return x; };
+// A due date the API sends as a day, or as that day at midnight UTC, is
+// its first ten characters read as a local day, so it is never drawn a
+// day early in the evening. A value in any other shape is read as before.
+function dueDayText(v, opts) {
+  const day = localDay(String(v).slice(0, 10));
+  return (day || new Date(v)).toLocaleDateString(dateLocale(), opts);
+}
 // Every day from one YYYY-MM-DD to another, inclusive, as strings.
 function daySpan(startYmd, endYmd) {
   const a = localDay(startYmd), b = localDay(endYmd) || localDay(startYmd);
@@ -1161,6 +1168,35 @@ function toastQueue(onChange) {
   };
 }
 
+// ============================================================
+// THE LAST RESORT
+// A throw during render would otherwise leave a blank page, which tells
+// a person nothing. This sits around the whole app in index.js, so it is
+// never inside what threw. The app's own state is gone with the screen,
+// so it reads the phone's language, theme and text size the way the app
+// does before anyone signs in, says one line, and offers Reload.
+// ============================================================
+export class LastResort extends Component {
+  constructor(props) { super(props); this.state = { failed: false }; }
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(error) { try { console.error(error); } catch (e) {} }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    setWordsLanguage(firstLanguage());
+    const t = firstTheme() === "light" ? LIGHT : DARK;
+    const zoom = zoomOf(readTextSize());
+    return (
+      <div style={{ width: "100%", minHeight: "100vh", background: t.bg, color: t.text, fontFamily: FONT_BODY, zoom: zoom, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
+        <div style={{ width: "100%", maxWidth: 420, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: "28px 24px", boxShadow: t.popShadow, textAlign: "center" }}>
+          <AlertIco sz={40} c={t.borderSolid} />
+          <div role="alert" style={{ fontSize: 15, color: t.text, marginTop: 16, lineHeight: 1.5, fontFamily: FONT_HEAD }}>{tr("Something went wrong on this screen.")}</div>
+          <button type="button" onClick={() => { try { window.location.reload(); } catch (e) {} }} style={{ ...mkPrimaryBtn(t, false), marginTop: 20 }}>{tr("Reload")}</button>
+        </div>
+      </div>
+    );
+  }
+}
+
 export default function OCSAStaffPortal() {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
@@ -1171,6 +1207,16 @@ export default function OCSAStaffPortal() {
   const [clockStatus, setClockStatus] = useState(null);
   const [selectedSite, setSelectedSite] = useState(null);
   const [sessionSites, setSessionSites] = useState(null);
+  // Each list that came back empty-handed, apart from a list still on its
+  // way. A list already on the screen stays when a later read fails; a
+  // screen with nothing on it says so and offers Try again.
+  const [sessionSitesFailed, setSessionSitesFailed] = useState(false);
+  const [assignedFailed, setAssignedFailed] = useState(false);
+  const [issuesFailed, setIssuesFailed] = useState(false);
+  const [suppliesFailed, setSuppliesFailed] = useState(false);
+  // True once a supplies list has come back, so a site with none can say
+  // so without the line showing while the list is still on its way.
+  const [suppliesLoaded, setSuppliesLoaded] = useState(false);
   // A site that is chosen and not yet started. selectedSite means the
   // open session's site and is read in several places, so the pending
   // choice gets its own name. Cleared on start, on end, and on sign out.
@@ -1257,6 +1303,14 @@ export default function OCSAStaffPortal() {
   const toastsRef = useRef(null);
   if (!toastsRef.current) toastsRef.current = toastQueue(setToasts);
   const [loading, setLoading] = useState(false);
+  // What the last sign-in was turned away with, drawn under the PIN box
+  // until the person types again: the API's own sentence as it was sent,
+  // or the offline line. wrongTries counts the refusals coded
+  // auth.invalidCredentials in a row on that screen; from the third, the
+  // portal's own lock line joins the API's. A sign-in that gets in, or a
+  // reload, starts the count over. No number is ever shown.
+  const [loginFault, setLoginFault] = useState(null);
+  const wrongTries = useRef(0);
   const [lookups, setLookups] = useState([]);
   const queuePrefRef = useRef(null);
   const queuePref = (changed) => { if (queuePrefRef.current) queuePrefRef.current(changed); };
@@ -1328,8 +1382,8 @@ export default function OCSAStaffPortal() {
 
   useEffect(() => { const i = setInterval(() => setCurrentTime(now()), 1000); return () => clearInterval(i); }, []);
   const showToast = useCallback((msg, type = "success") => { toastsRef.current.add(msg, type); }, []);
-  const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); } catch (err) { console.error(err); } }, [token]);
-  const loadSessionSites = useCallback(async (tkn) => { try { const data = await api("/api/shift-sessions/sites", { token: tkn || token }); setSessionSites(data); } catch (err) { console.error(err); } }, [token]);
+  const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); setAssignedFailed(false); } catch (err) { console.error(err); setAssignedFailed(true); } }, [token]);
+  const loadSessionSites = useCallback(async (tkn) => { try { const data = await api("/api/shift-sessions/sites", { token: tkn || token }); setSessionSites(data); setSessionSitesFailed(false); } catch (err) { console.error(err); setSessionSitesFailed(true); } }, [token]);
   // One read of clock status for every path that has to redraw from the
   // server's view: after a start, a refused start, an end that already
   // happened elsewhere, and the app coming back into view.
@@ -1384,24 +1438,32 @@ export default function OCSAStaffPortal() {
     const tok = readAuth();
     if (!tok) return;
     setToken(tok);
+    // A then and a catch rather than finally, which Chrome 60 to 62 lacks:
+    // a phone on one of them with a stored session would otherwise never
+    // get past the splash.
     hydrateSession(tok)
-      .catch(() => { clearAuth(); setToken(null); setUser(null); setScreen("login"); })
-      .finally(() => setBooting(false));
+      .then(() => setBooting(false))
+      .catch(() => { clearAuth(); setToken(null); setUser(null); setScreen("login"); setBooting(false); });
   }, [hydrateSession]);
 
   const handleLogin = async (phone, pin) => {
-    setLoading(true);
+    setLoading(true); setLoginFault(null);
     try {
       // noAuthEvent, so a refused PIN is not read as an expired session.
       // Nothing is signed in yet, so there is no session to end.
       const data = await api(signedOut("/api/auth/login", language), { method: "POST", body: { phone, pin }, noAuthEvent: true });
+      wrongTries.current = 0;
       setToken(data.token); saveAuth(data.token);
       const me = await hydrateSession(data.token);
       showToast(tr("Welcome, {name}", { name: me.firstName }));
     } catch (err) {
+      // The refusal stays under the PIN box, in the API's words as sent,
+      // a locked account's among them, until the person types again.
       const said = err && err.body && err.body.error ? String(err.body.error) : "";
-      if (!said && wentNowhere(err)) showToast(tr(ERR_OFFLINE), "error");
-      else showToast(said ? tr(said) : tr("That sign-in did not match. Check your badge, phone or email and your PIN."), "error");
+      const code = err && err.code ? String(err.code) : "";
+      if (code === "auth.invalidCredentials") wrongTries.current += 1;
+      const text = !said && wentNowhere(err) ? tr(ERR_OFFLINE) : said ? tr(said) : tr("That sign-in did not match. Check your badge, phone or email and your PIN.");
+      setLoginFault({ text: text, lock: code === "auth.invalidCredentials" && wrongTries.current >= 3 });
     }
     setLoading(false);
   };
@@ -1542,10 +1604,10 @@ export default function OCSAStaffPortal() {
     }
     setShiftBusy(false);
   };
-  const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); } catch (err) { console.error(err); } };
+  const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); setIssuesFailed(false); } catch (err) { console.error(err); setIssuesFailed(true); } };
   const resolveAssignedTask = async (taskId, status, note, photoUrl) => { try { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast(tr("Task updated to {status}", { status: taskStatusWord(status) })); loadAssignedTasks(); } catch (err) { showToast(tr(err.message), "error"); } };
   const submitIssue = async (title, description, zone, severity, photoUrl, siteId) => { const actualSiteId = siteId || clockStatus?.shift?.siteId; if (!actualSiteId) { showToast(tr("Select a site first"), "error"); return; } try { const data = await api("/api/issues", { method: "POST", body: { siteId: actualSiteId, title, description, zone, severity }, token }); if (photoUrl && data.issue) { await api("/api/issues/" + data.issue.id + "/photos", { method: "POST", body: { photoUrl }, token }); } showToast(tr("Issue reported")); loadIssues(); } catch (err) { showToast(tr(err.message), "error"); } };
-  const loadSupplies = async () => { try { const url = clockStatus?.shift?.siteId ? "/api/supplies?site_id=" + clockStatus.shift.siteId : "/api/supplies"; const data = await api(url, { token }); setSupplies(data); } catch (err) { console.error(err); } };
+  const loadSupplies = async () => { try { const url = clockStatus?.shift?.siteId ? "/api/supplies?site_id=" + clockStatus.shift.siteId : "/api/supplies"; const data = await api(url, { token }); setSupplies(data); setSuppliesLoaded(true); setSuppliesFailed(false); } catch (err) { console.error(err); setSuppliesFailed(true); } };
   const logSupplyUsage = async (supplyId, quantity) => { try { const data = await api("/api/supplies/log-usage", { method: "POST", body: { supplyId, quantity, siteId: clockStatus.shift.siteId, scanMethod: "manual" }, token }); showToast(data.message); setSupplyLogs(prev => [{ ...data.log, loggedAt: now().toISOString() }, ...prev]); if (data.lowStockAlert) showToast(tr("Low stock alert!"), "notice"); } catch (err) { showToast(tr(err.message), "error"); } };
   const submitSupplyRequest = async (requestType, itemName, description, urgency, supplyId) => { try { const siteId = clockStatus?.shift?.siteId || null; await api("/api/supplies/requests", { method: "POST", body: { requestType, itemName, description, urgency, supplyId, siteId }, token }); showToast(tr("Request submitted")); } catch (err) { showToast(tr(err.message), "error"); } };
   // The list of chats. One that did not load is said as such, apart from
@@ -1723,8 +1785,9 @@ export default function OCSAStaffPortal() {
   // and the text size, belongs to the phone and stays.
   const forgetPerson = useCallback(() => {
     clearAuth();
-    setToken(null); setUser(null); setSites([]); setScreen("login");
+    setToken(null); setUser(null); setSites([]); setScreen("login"); setLoginFault(null);
     setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null);
+    setSessionSitesFailed(false); setAssignedFailed(false); setIssuesFailed(false); setSuppliesFailed(false); setSuppliesLoaded(false);
     setShiftAsk(null); setShiftBusy(false); setShiftFault(null); setTickOverrides(new Map()); setRowNote(null);
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
@@ -1741,6 +1804,16 @@ export default function OCSAStaffPortal() {
     window.addEventListener("ocsa-session-expired", forgetPerson);
     return () => window.removeEventListener("ocsa-session-expired", forgetPerson);
   }, [forgetPerson]);
+  // The install sheet is mounted beside the app, not inside it, and
+  // offers itself only to a signed-in person past Set your PIN. The app
+  // writes which screen is up on the document and says so each time it
+  // changes; the sheet reads that and never opens over the sign-in card.
+  useEffect(() => {
+    try {
+      document.documentElement.setAttribute("data-ocsa-screen", booting ? "boot" : screen);
+      window.dispatchEvent(new Event("ocsa-screen"));
+    } catch (e) {}
+  }, [booting, screen]);
   const refreshUnread = useCallback(async (tkn) => {
     const tk = tkn || token;
     if (!tk) return;
@@ -1815,12 +1888,12 @@ export default function OCSAStaffPortal() {
       {updateWaiting && (
         <div id={UPDATE_BAR_ID} style={{ position: "sticky", top: 0, zIndex: 3000, background: t.card, borderBottom: "1px solid " + t.goldBorder, boxShadow: t.shadow, display: "flex", alignItems: "center", justifyContent: "center", flexWrap: "wrap", gap: 10, padding: "7px 12px" }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("A new version is ready")}</span>
-          <button onClick={updateNow} style={{ minHeight: 30, padding: "0 12px", borderRadius: R.sm, border: "1px solid " + GOLD, background: t.goldBg, color: t.goldText, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Update now")}</button>
+          <button onClick={updateNow} style={{ minHeight: TAP, padding: "0 12px", borderRadius: R.sm, border: "1px solid " + GOLD, background: t.goldBg, color: t.goldText, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Update now")}</button>
         </div>
       )}
 
       {booting && <BootSplash t={t} themeMode={themeMode} />}
-      {!booting && screen === "login" && <LoginScreen onLogin={handleLogin} onGoRegister={() => setScreen("register")} onGoForgot={() => setScreen("forgot")} loading={loading} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
+      {!booting && screen === "login" && <LoginScreen onLogin={handleLogin} onGoRegister={() => setScreen("register")} onGoForgot={() => setScreen("forgot")} loading={loading} fault={loginFault} onTyped={() => { if (loginFault) setLoginFault(null); }} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
       {screen === "register" && <RegisterScreen onRegister={handleRegister} onBack={() => setScreen("login")} loading={loading} t={t} />}
       {screen === "activate" && <ActivateScreen token={ENTRY ? ENTRY.token : null} onActivated={handleAuthSuccess} onGoLogin={goLogin} showToast={showToast} t={t} />}
       {screen === "reset" && <ResetScreen token={ENTRY ? ENTRY.token : null} onReset={handleAuthSuccess} onGoLogin={goLogin} onGoForgot={() => setScreen("forgot")} showToast={showToast} t={t} />}
@@ -1854,14 +1927,14 @@ export default function OCSAStaffPortal() {
 
           <div style={{ padding: "0 0 var(--ocsa-bar, 76px) 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
-              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
+              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
-              {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
+              {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
-              {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} />}
-              {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
+              {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} />}
+              {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
@@ -1959,11 +2032,12 @@ export default function OCSAStaffPortal() {
   );
 }
 
-function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, showToast, t, toggleTheme, themeMode }) {
+function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onTyped, showToast, t, toggleTheme, themeMode }) {
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
   const labelSt = mkLabel(t);
   const inputSt = mkInput(t);
+  const errSt = mkFieldErr(t);
   return (
     <div style={{ width: "100%", minHeight: "var(--ocsa-vh, 100vh)", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
       <div style={{ width: "100%", maxWidth: 420, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: "28px 24px", boxShadow: t.popShadow }}>
@@ -1972,8 +2046,11 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, showToast, t,
           
           <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 600 }}>{tr("Staff Operations Portal")}</div>
         </div>
-        <div style={{ marginBottom: 16 }}><label style={labelSt}>{tr("Badge Number, Phone or Email")}</label><input value={phone} onChange={e => setPhone(e.target.value)} placeholder={tr("9001, 2155550101 or name@email.com")} autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
-        <div style={{ marginBottom: 8 }}><label style={labelSt}>{tr("PIN")}</label><input value={pin} onChange={e => setPin(e.target.value)} placeholder={tr("4-digit PIN")} type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
+        <div style={{ marginBottom: 16 }}><label style={labelSt}>{tr("Badge Number, Phone or Email")}</label><input value={phone} onChange={e => { setPhone(e.target.value); onTyped(); }} placeholder={tr("9001, 2155550101 or name@email.com")} autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
+        {/* The refusal sits under the PIN box until the person types again:
+            the API's own sentence as it was sent, then from the third wrong
+            PIN in a row the portal's own line about the lock. */}
+        <div style={{ marginBottom: 8 }}><label style={labelSt}>{tr("PIN")}</label><input value={pin} onChange={e => { setPin(e.target.value); onTyped(); }} placeholder={tr("4-digit PIN")} type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} />{fault && <div role="alert" style={errSt}>{fault.text}</div>}{fault && fault.lock && <div style={errSt}>{tr("After too many wrong tries, sign-in stops for 15 minutes. Ask your trainer for help.")}</div>}</div>
         <div style={{ textAlign: "right", marginBottom: 24 }}><button onClick={onGoForgot} style={{ background: "none", border: "none", minHeight: TAP, padding: "4px 0", color: t.textSec, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>{tr("Forgot your PIN?")}</button></div>
         <button onClick={() => onLogin(phone, pin)} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Signing in...") : tr("Sign In")}</button>
         <button onClick={onGoRegister} style={mkGhostBtn(t)}>{tr("New Employee? Register Here")}</button>
@@ -1988,7 +2065,7 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
   const [ph, setPh] = useState(""); const [em, setEm] = useState("");
   const [pin, setPin] = useState(""); const [pin2, setPin2] = useState("");
   const [errs, setErrs] = useState({});
-  const labelSt = mkLabel(t); const inputSt = mkInput(t); const errSt = mkFieldErr(t);
+  const labelSt = mkLabel(t); const inputSt = mkInput(t); const errSt = mkFieldErr(t); const textSt = mkCardText(t);
 
   // The first empty required field is named, and nothing is sent. Last
   // Name carries no asterisk, so it is not required here either.
@@ -2007,6 +2084,8 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
           <div style={{ display: "inline-block", maxWidth: "100%", boxSizing: "border-box", padding: "4px 12px", background: "rgba(255,255,255,0.92)", borderRadius: 6 }}><img src={LOGO_SM} alt={clientConfig.company.shortName} style={{ height: 34, maxWidth: "100%", objectFit: "contain" }} /></div>
           <div style={{ fontSize: 12, color: t.textSec, letterSpacing: "2px", textTransform: "uppercase", marginTop: 8, fontFamily: FONT_HEAD, fontWeight: 600 }}>{tr("New Staff Registration")}</div>
         </div>
+        {/* Most people arrive with a sign-in slip and never need this form. */}
+        <div style={textSt}>{tr("Got a sign-in slip from OCSA? Go back and sign in with it.")}</div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("First Name *")}</label><input value={fn} onChange={e => setFn(e.target.value)} placeholder={tr("First name")} style={inputSt} />{errs.firstName && <div style={errSt}>{errs.firstName}</div>}</div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Last Name")}</label><input value={ln} onChange={e => setLn(e.target.value)} placeholder={tr("Last name")} style={inputSt} /></div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Phone Number *")}</label><input value={ph} onChange={e => setPh(e.target.value)} placeholder={tr("2155550000 (no dashes needed)")} style={inputSt} />{errs.phone && <div style={errSt}>{errs.phone}</div>}</div>
@@ -2207,7 +2286,7 @@ function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
     setPhase("checking");
     api(signedOut("/api/auth/reset/" + encodeURIComponent(token), languageRef.current), { noAuthEvent: true })
       .then(d => { if (!alive) return; setInfo(d); if (d && (d.preferredLanguage === "en" || d.preferredLanguage === "es")) chooseRef.current(d.preferredLanguage); setPhase("form"); })
-      .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(ERR_GENERIC) }); setPhase("error"); } });
+      .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(wentNowhere(e) ? ERR_OFFLINE : ERR_GENERIC) }); setPhase("error"); } });
     return () => { alive = false; };
   }, [token, attempt]);
 
@@ -2281,7 +2360,7 @@ function ForgotScreen({ onGoLogin, showToast, t }) {
   const [ident, setIdent] = useState("");
   const [err, setErr] = useState("");
   const [phase, setPhase] = useState("form");
-  const labelSt = mkLabel(t); const inputSt = mkInput(t); const errSt = mkFieldErr(t); const textSt = mkCardText(t);
+  const labelSt = mkLabel(t); const inputSt = mkInput(t); const errSt = mkFieldErr(t); const helpSt = mkHelp(t); const textSt = mkCardText(t);
 
   const submit = async () => {
     const v = ident.trim();
@@ -2292,7 +2371,8 @@ function ForgotScreen({ onGoLogin, showToast, t }) {
       setPhase("sent");
     } catch (e) {
       setPhase("form");
-      setErr(e.status === 400 ? tr(e.message) : tr(ERR_GENERIC));
+      // A request that never reached OCSA says so, the way Activate does.
+      setErr(e.status === 400 ? tr(e.message) : tr(wentNowhere(e) ? ERR_OFFLINE : ERR_GENERIC));
     }
   };
   const working = phase === "working";
@@ -2314,6 +2394,9 @@ function ForgotScreen({ onGoLogin, showToast, t }) {
         <label style={labelSt}>{tr("Badge Number, Phone or Email")}</label>
         <input value={ident} onChange={e => setIdent(e.target.value)} placeholder={tr("9001, 2155550101 or name@email.com")} autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />
         {err && <div style={errSt}>{err}</div>}
+        {/* Said before Send, since a person with no email on file would
+            otherwise wait for a link that cannot come. */}
+        <div style={helpSt}>{tr("No email on file? A link cannot reach you. Ask your supervisor to reset your PIN.")}</div>
       </div>
       <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? tr("Sending...") : tr("Send Reset Link")}</button>
       <button onClick={onGoLogin} style={mkGhostBtn(t)}>{tr("Back to Sign In")}</button>
@@ -2329,7 +2412,7 @@ function SetPinScreen({ token, user, onDone, onSignOut, showToast, t }) {
   const [pin2, setPin2] = useState("");
   const [errs, setErrs] = useState({});
   const [working, setWorking] = useState(false);
-  const labelSt = mkLabel(t); const pinSt = mkPinInput(t); const errSt = mkFieldErr(t); const textSt = mkCardText(t);
+  const labelSt = mkLabel(t); const pinSt = mkPinInput(t); const errSt = mkFieldErr(t); const helpSt = mkHelp(t); const textSt = mkCardText(t);
 
   const submit = async () => {
     const e = {};
@@ -2349,7 +2432,9 @@ function SetPinScreen({ token, user, onDone, onSignOut, showToast, t }) {
   return (
     <AuthCard t={t} title={tr("Set Your PIN")}>
       <div style={textSt}>{tr("Set your own PIN. The PIN you were given is known to your supervisor. Choose a new one that only you know.")}</div>
-      <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("New PIN (4 digits)")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
+      {/* The rules before anyone breaks one. The refusal, when there is
+          one, sits between the box and the rules. */}
+      <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("New PIN (4 digits)")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}<div style={helpSt}>{tr("4 digits. Not all the same, not in a row like 1234, and not your badge number. The PIN you were given works until you save a new one.")}</div></div>
       <div style={{ marginBottom: 22 }}><label style={labelSt}>{tr("Confirm PIN")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
       <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? tr("Saving...") : tr("Save PIN")}</button>
       <div style={{ textAlign: "center", marginTop: 18 }}><button onClick={onSignOut} style={mkTapFrame({ padding: "0 12px", color: t.textMut, fontSize: 11, textDecoration: "underline" })}>{tr("Not you? Sign out")}</button></div>
@@ -2371,6 +2456,9 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
     return mon;
   });
   const [loading, setLoading] = useState(false);
+  // The schedule came back empty-handed. The calendar gives way to the
+  // line and Try again; a week already drawn stays until one comes back.
+  const [failed, setFailed] = useState(false);
 
   // Time off, on the Schedule tab only. types stays null until the
   // route answers 200, and null keeps every part of this build off
@@ -2397,7 +2485,9 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
     .filter(Boolean);
   const isDropRequested = (id) => dropRequestedIds.indexOf(String(id)) !== -1;
 
-  const toISO = (d) => d.toISOString().split("T")[0];
+  // The local day, never toISOString: after 8 PM in Philadelphia that is
+  // already tomorrow in UTC, and the wrong day was highlighted as today.
+  const toISO = (d) => ymdLocal(d);
   const fmtTm = (v) => { if (!v) return ""; const parts = String(v).split(":"); const h = parseInt(parts[0]); const m = parseInt(parts[1] || "0"); return new Date(2024, 0, 1, h, m).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }); };
   const fmtClockTm = (d) => new Date(d).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit", hour12: true });
 
@@ -2406,7 +2496,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   // The week strip names its days in the reader's language, from the
   // same source as every other date on this screen.
   const dayNames = Array.from({ length: 7 }, (_, i) => new Date(Date.UTC(2024, 0, 1 + i)).toLocaleDateString(dateLocale(), { weekday: "short", timeZone: "UTC" }));
-  const isToday = (ds) => ds === toISO(new Date());
+  const isToday = (ds) => ds === ymdLocal(todayLocal());
 
   const loadSchedule = async () => {
     setLoading(true);
@@ -2420,8 +2510,8 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
         ed = toISO(getWeekEnd());
       }
       const d = await api("/api/pickups/my-schedule?start_date=" + sd + "&end_date=" + ed, { token });
-      setData(d);
-    } catch (err) { console.error("Schedule load error:", err); }
+      setData(d); setFailed(false);
+    } catch (err) { console.error("Schedule load error:", err); setFailed(true); }
     setLoading(false);
   };
 
@@ -2486,6 +2576,10 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   const stepChip = { display: "inline-flex", alignItems: "center", background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.sm, padding: "6px 12px", color: t.textMut, fontSize: 14 };
   const todayChip = { display: "inline-flex", alignItems: "center", fontSize: 9, padding: "3px 9px", borderRadius: R.sm, border: "1px solid " + BLUE, background: "transparent", color: BLUE, fontWeight: 600, fontFamily: FONT_HEAD };
 
+  // A chip on the week strip, which opens the shift, the day worked, the
+  // pickup or the time off it names, and so is a button with the tap
+  // height. It is drawn the size it was; the height is the frame's.
+  const chipSt = { display: "block", width: "100%", minHeight: TAP, padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, textAlign: "left", fontFamily: FONT_HEAD, lineHeight: "normal", cursor: "pointer" };
   const offLabel = { fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3, fontFamily: FONT_HEAD };
   const offValue = { fontSize: 13, color: t.text, fontWeight: 500, overflowWrap: "anywhere" };
   // Both limits are local calendar days, so the pickers agree with
@@ -2585,8 +2679,10 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
         <button onClick={openRequest} style={{ width: "100%", minHeight: 44, marginBottom: 14, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Request time off")}</button>
       )}
 
+      {!loading && failed && <ListFault icon={CalIco} text={tr("This list did not load.")} onRetry={loadSchedule} t={t} />}
+
       {/* WEEK VIEW */}
-      {!loading && view === "week" && (
+      {!loading && !failed && view === "week" && (
         <div style={{ overflowX: "auto", display: "flex", flex: compact ? undefined : 1 }}><div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 4, minWidth: 300, flex: 1 }}>
           {weekDays.map((ds, i) => {
             const sched = getSchedForDay(ds);
@@ -2603,33 +2699,34 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                   <div style={{ fontSize: 14, fontWeight: 600, color: today ? t.goldText : t.text, fontFamily: FONT_HEAD }}>{dt.getDate()}</div>
                 </div>
                 {sched.map(s => (
-                  <div key={s.id} onClick={() => setDetail({ type: "scheduled", ...s })} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: GOLD + "18", color: t.goldText, border: "1px solid " + GOLD + "30", cursor: "pointer" }}>
+                  <button type="button" key={s.id} onClick={() => setDetail({ type: "scheduled", ...s })} style={{ ...chipSt, background: GOLD + "18", color: t.goldText, border: "1px solid " + GOLD + "30" }}>
                     {fmtTm(s.start_time)}{s.end_time ? " - " + fmtTm(s.end_time) : ""}{s.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{s.site_name}</div>}{isDropRequested(s.id) && <div style={{ fontSize: 7, marginTop: 1, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("Drop requested")}</div>}
-                  </div>
+                  </button>
                 ))}
                 {actual.map(a => (
-                  <div key={a.id} onClick={() => setDetail({ type: "actual", ...a })} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: GREEN + "15", color: GREEN, border: "1px solid " + GREEN + "30", cursor: "pointer" }}>
+                  <button type="button" key={a.id} onClick={() => setDetail({ type: "actual", ...a })} style={{ ...chipSt, background: GREEN + "15", color: GREEN, border: "1px solid " + GREEN + "30" }}>
                     {fmtClockTm(a.clock_in_time)}{a.duration_minutes ? tr(" ({h}h)", { h: Math.floor(a.duration_minutes / 60) }) : a.shift_status === "active" ? tr(" (live)") : ""}{a.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{a.site_name}</div>}
-                  </div>
+                  </button>
                 ))}
                 {pickups.map(p => {
                   const pc = p.status === "approved" ? GREEN : BLUE;
                   return (
-                    <div key={p.id} onClick={() => setDetail({ type: "pickup", ...p })} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: pc + "15", color: pc, border: "1px solid " + pc + "30", cursor: "pointer" }}>
+                    <button type="button" key={p.id} onClick={() => setDetail({ type: "pickup", ...p })} style={{ ...chipSt, background: pc + "15", color: pc, border: "1px solid " + pc + "30" }}>
                       {fmtTm(p.start_time)} <span style={{ fontSize: 7, textTransform: "uppercase" }}>{p.status === "approved" ? tr("approved") : tr("claimed")}</span>
                       {p.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{p.site_name}</div>}
-                    </div>
+                    </button>
                   );
                 })}
                 {dayOff.map(r => {
                   const waiting = r.status !== "approved";
-                  return (
-                    <div key={r.id} onClick={compact ? undefined : () => openOffById(r.id)} style={{ padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, background: TIME_OFF_COLOR + (waiting ? "14" : "22"), color: TIME_OFF_COLOR, border: waiting ? "1px dashed " + TIME_OFF_COLOR : "1px solid " + TIME_OFF_COLOR, cursor: compact ? "default" : "pointer" }}>
-                      {tr("Time off")}
-                      {r.partDay && r.startTime && <div style={{ fontSize: 8, opacity: 0.9 }}>{fmtTm(r.startTime)}</div>}
-                      {waiting && <div style={{ fontSize: 7, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("requested")}</div>}
-                    </div>
-                  );
+                  const offSt = { ...chipSt, background: TIME_OFF_COLOR + (waiting ? "14" : "22"), color: TIME_OFF_COLOR, border: waiting ? "1px dashed " + TIME_OFF_COLOR : "1px solid " + TIME_OFF_COLOR, cursor: compact ? "default" : "pointer" };
+                  const inside = (<>
+                    {tr("Time off")}
+                    {r.partDay && r.startTime && <div style={{ fontSize: 8, opacity: 0.9 }}>{fmtTm(r.startTime)}</div>}
+                    {waiting && <div style={{ fontSize: 7, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("requested")}</div>}
+                  </>);
+                  // On Home the chip opens nothing, so it is not a control.
+                  return compact ? <div key={r.id} style={offSt}>{inside}</div> : <button type="button" key={r.id} onClick={() => openOffById(r.id)} style={offSt}>{inside}</button>;
                 })}
                 {!hasAny && <div style={{ fontSize: 10, color: t.textMut, opacity: 0.3, textAlign: "center", marginTop: 8 }}>-</div>}
               </div>
@@ -2639,7 +2736,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
       )}
 
       {/* MONTH VIEW */}
-      {!loading && view === "month" && (() => {
+      {!loading && !failed && view === "month" && (() => {
         const year = weekStart.getFullYear();
         const month = weekStart.getMonth();
         const firstDay = new Date(year, month, 1);
@@ -2666,7 +2763,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                 const actual = getActualForDay(ds);
                 const pickups = getPickupsForDay(ds);
                 return (
-                  <div key={ds} onClick={() => { const day = dt.getDay(); const diff = day === 0 ? 6 : day - 1; const mon = new Date(dt); mon.setDate(dt.getDate() - diff); setWeekStart(mon); setView("week"); }} style={{ padding: 4, minHeight: compact ? 40 : 60, background: today ? t.goldBg : inMonth ? t.card : t.hover, borderRadius: R.sm, border: "1px solid " + (today ? t.goldBorder : t.borderSolid), opacity: inMonth ? 1 : 0.3, cursor: "pointer", textAlign: "center" }}>
+                  <button type="button" key={ds} onClick={() => { const day = dt.getDay(); const diff = day === 0 ? 6 : day - 1; const mon = new Date(dt); mon.setDate(dt.getDate() - diff); setWeekStart(mon); setView("week"); }} style={{ display: "block", width: "100%", padding: 4, minHeight: compact ? TAP : 60, background: today ? t.goldBg : inMonth ? t.card : t.hover, borderRadius: R.sm, border: "1px solid " + (today ? t.goldBorder : t.borderSolid), opacity: inMonth ? 1 : 0.3, cursor: "pointer", textAlign: "center", fontFamily: FONT_HEAD }}>
                     <div style={{ fontSize: 11, fontWeight: today ? 600 : 500, color: today ? t.goldText : t.text, fontFamily: FONT_HEAD }}>{dt.getDate()}</div>
                     <div style={{ display: "flex", justifyContent: "center", gap: 2, marginTop: 2, flexWrap: "wrap" }}>
                       {sched.length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: GOLD }} />}
@@ -2674,7 +2771,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                       {pickups.length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: BLUE }} />}
                       {getTimeOffForDay(ds).length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: TIME_OFF_COLOR }} />}
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -2927,7 +3024,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
               <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.5, marginBottom: 8 }}>{tr("You asked to drop this shift. Waiting for a decision.")}</div>
             )}
             {detail.type === "scheduled" && detail.status !== "cancelled" && !isDropRequested(detail.id) && !detail.dropForm && (
-              <button onClick={() => setDetail({ ...detail, dropForm: { reason: "sick", notes: "" } })} style={{ width: "100%", padding: "11px", borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>{tr("Request to Drop This Shift")}</button>
+              <button onClick={() => setDetail({ ...detail, dropForm: { reason: "sick", notes: "" } })} style={{ width: "100%", minHeight: TAP, padding: "11px", borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>{tr("Request to Drop This Shift")}</button>
             )}
             {detail.dropForm && (
               <div style={{ padding: 12, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, marginBottom: 10 }}>
@@ -2948,7 +3045,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                   <input value={detail.dropForm.notes} onChange={e => setDetail({ ...detail, dropForm: { ...detail.dropForm, notes: e.target.value } })} placeholder={tr("Any additional details...")} style={mkInput(t)} />
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => setDetail({ ...detail, dropForm: null })} style={{ flex: 1, padding: "11px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{tr("Cancel")}</button>
+                  <button onClick={() => setDetail({ ...detail, dropForm: null })} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{tr("Cancel")}</button>
                   <button onClick={async () => {
                     try {
                       // What was typed under Specify Reason is sent, with
@@ -2961,7 +3058,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                       showToast(tr("Drop request sent. Your supervisor will review it."));
                       loadSchedule();
                     } catch (e) { showToast(tr(e.message) || tr("Drop request failed"), "error"); }
-                  }} style={{ flex: 1, padding: "11px", borderRadius: R.md, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD }}>{tr("Submit Request")}</button>
+                  }} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD }}>{tr("Submit Request")}</button>
                 </div>
               </div>
             )}
@@ -2973,7 +3070,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   );
 }
 
-function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, onSelectSite, onStartSession, onEndSession, siteChoices, loading, completedCount, taskCount, taskListLoaded, t }) {
+function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, onSelectSite, onStartSession, onEndSession, siteChoices, siteChoicesFailed, onRetrySites, loading, completedCount, taskCount, taskListLoaded, t }) {
   // The timer below is the one number on any screen wide enough to reach
   // the edge of its card, so this screen has to know the text size.
   const { textSize: clockTextSize } = useContext(TextSizeCtx);
@@ -3046,7 +3143,8 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
       {startBlock && <div style={{ padding: "12px 14px", marginBottom: 16, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>{startBlock}</div>}
       <div style={{ marginBottom: 16 }}>
         <label style={{ ...labelSt, display: "block", marginBottom: 10 }}>{ci && clockStatus.shift ? tr("Shift Open at {site}", { site: clockStatus.shift.siteName }) : tr("Choose a Site to Start")}</label>
-        {!siteChoices && <div style={emptySt}>{tr("Loading sites...")}</div>}
+        {!siteChoices && siteChoicesFailed && <ListFault icon={MapIco} text={tr("Your sites did not load.")} onRetry={onRetrySites} t={t} />}
+        {!siteChoices && !siteChoicesFailed && <div style={emptySt}>{tr("Loading sites...")}</div>}
         {siteChoices && groups.length === 0 && <div style={emptySt}>{tr("No sites available yet.")}</div>}
         {siteChoices && groups.map((g, gi) => (<div key={gi}>{g.label && <div style={groupHeadSt}>{g.label}</div>}{g.items.map(renderSite)}</div>))}
         {siteChoices && groups.length > 0 && !ci && (
@@ -3371,7 +3469,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
     const place = [detail.building_name, detail.floor_number ? tr("Floor {n}", { n: detail.floor_number }) : "", w.zone].filter(Boolean).join(" - ");
     return (
       <div style={{ padding: "16px" }}>
-        <button onClick={() => setDetail(null)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", marginBottom: 14, background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.md, color: t.textSec, fontSize: 12, cursor: "pointer", fontWeight: 600 }}><Ico d="M15 18l-6-6 6-6" sz={14} c={t.textSec} /> {tr("Back to checklist")}</button>
+        <button onClick={() => setDetail(null)} style={{ display: "flex", alignItems: "center", gap: 6, minHeight: TAP, padding: "8px 13px", marginBottom: 14, background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.md, color: t.textSec, fontSize: 12, cursor: "pointer", fontWeight: 600 }}><Ico d="M15 18l-6-6 6-6" sz={14} c={t.textSec} /> {tr("Back to checklist")}</button>
         <div style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, overflow: "hidden", boxShadow: t.popShadow }}>
           <div style={{ padding: "16px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{w.label}</div>{detail.priority === "high" && <div style={{ display: "flex", gap: 4, flexShrink: 0 }}><span style={chipPriority}>{tr("PRIORITY")}</span></div>}</div>
@@ -3380,7 +3478,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
             {w.description && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Instructions")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{w.description}</div></div>)}
             {detail.media_url && detail.media_type === "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Video")}</div><video src={detail.media_url} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} /></div>)}
             {detail.media_url && detail.media_type !== "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Photo")}</div><img src={detail.media_url} alt={tr("Task reference")} style={{ width: "100%", borderRadius: R.md, maxHeight: 240, objectFit: "cover" }} /></div>)}
-            {detail.due_date && (<div style={{ display: "flex", gap: 12, marginBottom: 14 }}><div style={{ fontSize: 11, color: t.textMut }}>{tr("Due Date:")} <span style={{ color: t.text, fontWeight: 500 }}>{new Date(detail.due_date).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}</span></div>{detail.due_time && <div style={{ fontSize: 11, color: t.textMut }}>{tr("Time:")} <span style={{ color: t.text, fontWeight: 500 }}>{clockTime(detail.due_time)}</span></div>}</div>)}
+            {detail.due_date && (<div style={{ display: "flex", gap: 12, marginBottom: 14 }}><div style={{ fontSize: 11, color: t.textMut }}>{tr("Due Date:")} <span style={{ color: t.text, fontWeight: 500 }}>{dueDayText(detail.due_date, { month: "short", day: "numeric", year: "numeric" })}</span></div>{detail.due_time && <div style={{ fontSize: 11, color: t.textMut }}>{tr("Time:")} <span style={{ color: t.text, fontWeight: 500 }}>{clockTime(detail.due_time)}</span></div>}</div>)}
           </div>
           {lock !== "earlier" && <button onClick={() => { tap(current, done, lock); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? tr("Uncheck Task") : tr("Mark Complete")}</button>}
         </div>
@@ -4102,7 +4200,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
   );
 }
 
-function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lkColorMap }) {
+function AssignedTasksView({ assignedTasks, failed, onRetry, resolveTask, showToast, t, token, lkColorMap }) {
   const [detail, setDetail] = useState(null); const [activePanel, setActivePanel] = useState(null);
   const [note, setNote] = useState(""); const [photo, setPhoto] = useState(null); const [photoPreview, setPhotoPreview] = useState(null); const [uploading, setUploading] = useState(false);
   useBusy("assigned task resolution", note.trim().length > 0 || !!photo || uploading);
@@ -4116,6 +4214,7 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lk
   const handleCantResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Please provide a reason"), "error"); return; } await resolveTask(taskId, "unable_to_resolve", note.trim(), null); clearForm(); setDetail(null); };
   const getTaskInfo = (task) => { const isIssueLinked = !!task.source_issue_id; const title = isIssueLinked ? (task.issue_title || task.label) : task.label; const desc = isIssueLinked ? task.issue_description : task.description; const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD); const photoUrl = isIssueLinked ? task.issue_photo_url : (task.media_url || null); const mediaType = isIssueLinked ? "image" : (task.media_type || "image"); const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name; const assignedByLabel = isIssueLinked ? tr("Reported by") : tr("Assigned by"); const locationParts = [task.site_name]; if (task.building_name) locationParts.push(task.building_name); if (task.floor_number) locationParts.push(tr("Floor {n}", { n: task.floor_number })); locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || tr("General")); const locationStr = locationParts.filter(Boolean).join(" > "); return { isIssueLinked, title, desc, borderColor, photoUrl, mediaType, assignedBy, assignedByLabel, locationStr }; };
 
+  if (assignedTasks.length === 0 && failed) return (<div style={{ padding: "16px" }}><ListFault icon={AlertIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} /></div>);
   if (assignedTasks.length === 0) return (<div style={{ padding: "16px" }}><div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><AlertIco sz={40} c={t.borderSolid} /><div style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{tr("No assigned tasks right now.")}</div><div style={{ fontSize: 12, color: t.textMut, marginTop: 4 }}>{tr("When a supervisor assigns a task to you, it will appear here.")}</div></div></div>);
 
   if (detail) {
@@ -4123,27 +4222,27 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lk
     return (
       <div style={{ padding: "16px" }}>
         <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />
-        <button onClick={() => { setDetail(null); clearForm(); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", marginBottom: 14, background: "none", border: "1px solid " + t.borderSolid, borderRadius: R.sm, color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}><Ico d="M15 18l-6-6 6-6" sz={14} c={t.textSec} /> {tr("Back to assigned tasks")}</button>
+        <button onClick={() => { setDetail(null); clearForm(); }} style={{ display: "flex", alignItems: "center", gap: 6, minHeight: TAP, padding: "8px 12px", marginBottom: 14, background: "none", border: "1px solid " + t.borderSolid, borderRadius: R.sm, color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}><Ico d="M15 18l-6-6 6-6" sz={14} c={t.textSec} /> {tr("Back to assigned tasks")}</button>
         <div style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", boxShadow: t.popShadow }}>
           <div style={{ padding: "16px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div><div style={{ display: "flex", gap: 4, flexShrink: 0 }}>{info.isIssueLinked && detail.severity && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (sevC[detail.severity] || ORANGE) + "18", color: sevC[detail.severity] || ORANGE, fontFamily: FONT_HEAD }}>{levelWord(detail.severity)}</span>}{!info.isIssueLinked && detail.priority && detail.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[detail.priority] || GOLD) + "18", color: priC[detail.priority] || t.goldText, fontFamily: FONT_HEAD }}>{levelWord(detail.priority)}</span>}{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>{tr("ISSUE")}</span>}</div></div>
             <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontFamily: FONT_HEAD, fontWeight: 600 }}>{info.locationStr}</div>
             {detail.resolution_status && (<div style={{ marginBottom: 12 }}><span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "3px 8px", borderRadius: R.sm, background: detail.resolution_status === "in_progress" ? ORANGE + "18" : GOLD + "18", color: detail.resolution_status === "in_progress" ? ORANGE : t.goldText, fontFamily: FONT_HEAD }}>{statusWord(detail.resolution_status)}</span></div>)}
             {info.desc && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Description")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{info.desc}</div></div>)}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{info.assignedByLabel}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{info.assignedBy}</div></div><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Site")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{detail.site_name}</div></div>{detail.due_date && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Due Date")}</div><div style={{ fontSize: 13, color: ORANGE, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.due_date).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}{detail.due_time ? " " + tr("at {time}", { time: clockTime(detail.due_time) }) : ""}</div></div>}{detail.task_created_at && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Assigned")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.task_created_at).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })}</div></div>}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{info.assignedByLabel}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{info.assignedBy}</div></div><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Site")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{detail.site_name}</div></div>{detail.due_date && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Due Date")}</div><div style={{ fontSize: 13, color: ORANGE, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{dueDayText(detail.due_date, { month: "short", day: "numeric", year: "numeric" })}{detail.due_time ? " " + tr("at {time}", { time: clockTime(detail.due_time) }) : ""}</div></div>}{detail.task_created_at && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Assigned")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.task_created_at).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })}</div></div>}</div>
             {info.photoUrl && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{info.mediaType === "video" ? tr("Attached Video") : tr("Attached Photo")}</div>{info.mediaType === "video" ? (<video src={info.photoUrl} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} />) : (<img src={info.photoUrl} alt={tr("Task")} style={{ width: "100%", borderRadius: R.md, maxHeight: 200, objectFit: "cover", border: "1px solid " + t.borderSolid }} />)}</div>)}
-            {!isResolving && !isCantResolve && (<div style={{ display: "flex", gap: 6, marginTop: 10 }}>{detail.resolution_status !== "in_progress" && (<button onClick={() => { resolveTask(detail.task_id, "in_progress", null, null); setDetail(null); }} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + ORANGE, background: "transparent", color: ORANGE, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("In Progress")}</button>)}<button onClick={() => { clearForm(); setActivePanel("resolve"); }} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + GREEN, background: "transparent", color: GREEN, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Resolved")}</button><button onClick={() => { clearForm(); setActivePanel("cantresolve"); }} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cannot Resolve")}</button></div>)}
+            {!isResolving && !isCantResolve && (<div style={{ display: "flex", gap: 6, marginTop: 10 }}>{detail.resolution_status !== "in_progress" && (<button onClick={() => { resolveTask(detail.task_id, "in_progress", null, null); setDetail(null); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + ORANGE, background: "transparent", color: ORANGE, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("In Progress")}</button>)}<button onClick={() => { clearForm(); setActivePanel("resolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + GREEN, background: "transparent", color: GREEN, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Resolved")}</button><button onClick={() => { clearForm(); setActivePanel("cantresolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cannot Resolve")}</button></div>)}
           </div>
           {isResolving && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.greenSubtle }}>
             <div style={{ fontSize: 10, color: GREEN, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Mark as Resolved")}</div>
             <div style={{ marginBottom: 8 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("What did you do to complete this? *")}</div><textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the steps you took...")} rows={3} style={{ ...inputSt, resize: "vertical" }} /></div>
             <div style={{ marginBottom: 10 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("Photo of completed task *")}</div>{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GREEN, borderRadius: R.md, cursor: "pointer", color: GREEN, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={GREEN} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo of Completed Task")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("Required to verify completion")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: R.md, border: "1px solid " + t.borderSolid }} /><button onClick={() => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; }} aria-label={tr("Remove photo")} style={mkTapFrame({ position: "absolute", top: -2, right: -2 })}><span style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", color: "#F8F7F4", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</span></button></div>)}</div>
-            <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleResolve(detail.task_id)} disabled={uploading} style={{ flex: 1, padding: "10px", borderRadius: R.md, border: "none", background: GREEN, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Resolution")}</button></div>
+            <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleResolve(detail.task_id)} disabled={uploading} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: GREEN, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Resolution")}</button></div>
           </div>)}
           {isCantResolve && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.redSubtle }}>
             <div style={{ fontSize: 10, color: RED, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Explain why this cannot be completed *")}</div>
             <textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the issue preventing completion...")} rows={3} style={{ ...inputSt, resize: "vertical", marginBottom: 8 }} />
-            <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleCantResolve(detail.task_id)} style={{ flex: 1, padding: "10px", borderRadius: R.md, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Submit")}</button></div>
+            <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleCantResolve(detail.task_id)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Submit")}</button></div>
           </div>)}
         </div>
       </div>
@@ -4154,12 +4253,12 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lk
     <div style={{ padding: "16px" }}>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />
       <div style={{ marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Assigned Tasks")}</div><div style={{ fontSize: 11, color: t.textSec }}>{assignedTasks.length === 1 ? tr("{n} task assigned to you", { n: assignedTasks.length }) : tr("{n} tasks assigned to you", { n: assignedTasks.length })}</div></div>
-      {assignedTasks.map(task => { const info = getTaskInfo(task); return (<div key={task.task_id} onClick={() => setDetail(task)} style={{ marginBottom: 10, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", cursor: "pointer", boxShadow: t.shadow }}><div style={{ padding: "12px 14px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div>{info.desc && <div style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{info.desc}</div>}</div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8, alignItems: "center" }}>{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>{tr("ISSUE")}</span>}{!info.isIssueLinked && task.priority && task.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[task.priority] || GOLD) + "18", color: priC[task.priority] || t.goldText, fontFamily: FONT_HEAD }}>{levelWord(task.priority)}</span>}<Ico d="M9 18l6-6-6-6" sz={14} c={t.textMut} /></div></div><div style={{ display: "flex", gap: 8, marginTop: 8, fontSize: 10, color: t.textMut, flexWrap: "wrap", alignItems: "center" }}><span>{info.locationStr}</span><span>{info.assignedByLabel} {info.assignedBy}</span>{task.resolution_status === "in_progress" && <span style={{ fontSize: 9, fontWeight: 600, color: ORANGE, textTransform: "uppercase" }}>{tr("In Progress")}</span>}</div>{task.due_date && (<div style={{ marginTop: 6, fontSize: 10, color: ORANGE, fontVariantNumeric: "tabular-nums" }}>{tr("Due:")} {new Date(task.due_date).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })}{task.due_time ? " " + tr("at {time}", { time: clockTime(task.due_time) }) : ""}</div>)}</div></div>); })}
+      {assignedTasks.map(task => { const info = getTaskInfo(task); return (<button type="button" key={task.task_id} onClick={() => setDetail(task)} style={{ display: "block", width: "100%", minHeight: TAP, padding: 0, textAlign: "left", color: t.text, fontFamily: FONT_BODY, marginBottom: 10, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", cursor: "pointer", boxShadow: t.shadow }}><div style={{ padding: "12px 14px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div>{info.desc && <div style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{info.desc}</div>}</div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8, alignItems: "center" }}>{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>{tr("ISSUE")}</span>}{!info.isIssueLinked && task.priority && task.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[task.priority] || GOLD) + "18", color: priC[task.priority] || t.goldText, fontFamily: FONT_HEAD }}>{levelWord(task.priority)}</span>}<Ico d="M9 18l6-6-6-6" sz={14} c={t.textMut} /></div></div><div style={{ display: "flex", gap: 8, marginTop: 8, fontSize: 10, color: t.textMut, flexWrap: "wrap", alignItems: "center" }}><span>{info.locationStr}</span><span>{info.assignedByLabel} {info.assignedBy}</span>{task.resolution_status === "in_progress" && <span style={{ fontSize: 9, fontWeight: 600, color: ORANGE, textTransform: "uppercase" }}>{tr("In Progress")}</span>}</div>{task.due_date && (<div style={{ marginTop: 6, fontSize: 10, color: ORANGE, fontVariantNumeric: "tabular-nums" }}>{tr("Due:")} {dueDayText(task.due_date, { month: "short", day: "numeric" })}{task.due_time ? " " + tr("at {time}", { time: clockTime(task.due_time) }) : ""}</div>)}</div></button>); })}
     </div>
   );
 }
 
-function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites, t, token, getOpts, lkColorMap }) {
+function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToast, user, sites, t, token, getOpts, lkColorMap }) {
   const [showForm, setShowForm] = useState(false); const [title, setTitle] = useState(""); const [desc, setDesc] = useState("");
   const [sev, setSev] = useState("medium"); const [zone, setZone] = useState(""); const [selSite, setSelSite] = useState("");
   const [photo, setPhoto] = useState(null); const [photoPreview, setPhotoPreview] = useState(null); const [uploading, setUploading] = useState(false);
@@ -4187,13 +4286,14 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites, 
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Photo")}</label><input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GOLD, borderRadius: R.sm, cursor: "pointer", color: t.goldText, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={t.goldText} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo or Choose from Gallery")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("JPG, PNG up to 10MB")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} /><button onClick={removePhoto} aria-label={tr("Remove photo")} style={mkTapFrame({ position: "absolute", top: -2, right: -2 })}><span style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", color: "#F8F7F4", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</span></button><div style={{ fontSize: 10, color: GREEN, marginTop: 4 }}>{tr("Photo attached:")} {photo?.name}</div></div>)}</div>
         <button onClick={handleSubmit} disabled={uploading} style={{ width: "100%", minHeight: TAP, padding: "13px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Issue")}</button>
       </div>)}
-      {isAdmin && visibleIssues.length === 0 && !showForm && <div style={{ padding: "32px 20px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontSize: 13, color: t.textMut, boxShadow: t.shadow }}>{tr("No issues reported yet.")}</div>}
+      {isAdmin && failed && visibleIssues.length === 0 && !showForm && <ListFault icon={AlertIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} />}
+      {isAdmin && !failed && visibleIssues.length === 0 && !showForm && <div style={{ padding: "32px 20px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontSize: 13, color: t.textMut, boxShadow: t.shadow }}>{tr("No issues reported yet.")}</div>}
       {isAdmin && visibleIssues.map(issue => { const sc = sevC[issue.severity] || ORANGE; return (<div key={issue.id} style={{ padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + sc, boxShadow: t.shadow }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><div style={{ fontSize: 13, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{issue.title}</div><span style={{ fontSize: 9, color: sc, background: sc + "20", padding: "3px 7px", borderRadius: R.sm, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{levelWord(issue.severity)}</span></div><div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 9, color: t.textMut }}><span>{issue.zone}</span><span>{issue.site_name}</span><span style={{ color: issue.status === "open" ? ORANGE : GREEN, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{statusWord(issue.status)}</span></div></div>); })}
     </div>
   );
 }
 
-function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submitRequest, showToast, t, getOpts, lkColorMap }) {
+function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLogs, logSupplyUsage, submitRequest, showToast, t, getOpts, lkColorMap }) {
   const [scanning, setScanning] = useState(null); const [qty, setQty] = useState(1); const [reqForm, setReqForm] = useState(null);
   useBusy("supply request form", !!reqForm || scanning !== null);
   const labelSt = mkLabel(t); const inputSt = mkInput(t); const qtyBtn = mkQtyBtn(t);
@@ -4202,12 +4302,12 @@ function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submi
   const reqFormUI = reqForm && (
     <div style={{ padding: 14, marginBottom: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, boxShadow: t.popShadow }}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supply/Gear Request")}</div>
-      <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Request Type")}</label><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{(getOpts("request_types").length > 0 ? getOpts("request_types") : [{ v: "refill", l: tr("Refill") }, { v: "damage_report", l: tr("Damage Report") }, { v: "new_gear", l: tr("New Gear") }, { v: "new_supply", l: tr("New Supply") }]).map(tp => (<button key={tp.v} onClick={() => setReqForm({ ...reqForm, type: tp.v })} style={{ padding: "7px 11px", borderRadius: R.sm, border: reqForm.type === tp.v ? "2px solid " + GOLD : "1px solid " + t.borderSolid, background: reqForm.type === tp.v ? t.goldBg : "transparent", color: reqForm.type === tp.v ? t.goldText : t.textSec, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tp.l}</button>))}</div></div>
+      <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Request Type")}</label><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{(getOpts("request_types").length > 0 ? getOpts("request_types") : [{ v: "refill", l: tr("Refill") }, { v: "damage_report", l: tr("Damage Report") }, { v: "new_gear", l: tr("New Gear") }, { v: "new_supply", l: tr("New Supply") }]).map(tp => (<button key={tp.v} onClick={() => setReqForm({ ...reqForm, type: tp.v })} style={{ minHeight: TAP, padding: "7px 11px", borderRadius: R.sm, border: reqForm.type === tp.v ? "2px solid " + GOLD : "1px solid " + t.borderSolid, background: reqForm.type === tp.v ? t.goldBg : "transparent", color: reqForm.type === tp.v ? t.goldText : t.textSec, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tp.l}</button>))}</div></div>
       {(reqForm.type === "refill" || reqForm.type === "damage_report") && supplies.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Supply Item")}</label><select value={reqForm.supplyId || ""} onChange={e => setReqForm({ ...reqForm, supplyId: e.target.value || null, itemName: supplies.find(s => s.id === e.target.value)?.name || "" })} style={inputSt}><option value="">{tr("Select supply...")}</option>{supplies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>)}
       {(reqForm.type === "new_gear" || reqForm.type === "new_supply") && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Item Name")}</label><input value={reqForm.itemName} onChange={e => setReqForm({ ...reqForm, itemName: e.target.value })} placeholder={tr("What do you need?")} style={inputSt} /></div>)}
       <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Details")}</label><textarea value={reqForm.description} onChange={e => setReqForm({ ...reqForm, description: e.target.value })} placeholder={tr("Describe the request...")} rows={2} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
-      <div style={{ marginBottom: 12 }}><label style={labelSt}>{tr("Urgency")}</label><div style={{ display: "flex", gap: 6 }}>{(() => { const urgOpts = getOpts("urgency_levels"); const urgColors = lkColorMap("urgency_levels"); const items = urgOpts.length > 0 ? urgOpts.map(o => ({ v: o.v, l: o.l, c: urgColors[o.v] || t.textSec })) : [{ v: "low", l: tr("Low"), c: GREEN }, { v: "normal", l: tr("Normal"), c: t.textSec }, { v: "high", l: tr("High"), c: ORANGE }, { v: "urgent", l: tr("Urgent"), c: RED }]; return items.map(u => (<button key={u.v} onClick={() => setReqForm({ ...reqForm, urgency: u.v })} style={{ flex: 1, padding: "7px", borderRadius: R.sm, border: reqForm.urgency === u.v ? "2px solid " + u.c : "1px solid " + t.borderSolid, background: reqForm.urgency === u.v ? u.c + "1A" : "transparent", color: u.c, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{u.l}</button>)); })()}</div></div>
-      <div style={{ display: "flex", gap: 8 }}><button onClick={() => setReqForm(null)} style={{ flex: 1, padding: "11px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={handleSubmitReq} style={{ flex: 1, padding: "11px", borderRadius: R.sm, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Submit Request")}</button></div>
+      <div style={{ marginBottom: 12 }}><label style={labelSt}>{tr("Urgency")}</label><div style={{ display: "flex", gap: 6 }}>{(() => { const urgOpts = getOpts("urgency_levels"); const urgColors = lkColorMap("urgency_levels"); const items = urgOpts.length > 0 ? urgOpts.map(o => ({ v: o.v, l: o.l, c: urgColors[o.v] || t.textSec })) : [{ v: "low", l: tr("Low"), c: GREEN }, { v: "normal", l: tr("Normal"), c: t.textSec }, { v: "high", l: tr("High"), c: ORANGE }, { v: "urgent", l: tr("Urgent"), c: RED }]; return items.map(u => (<button key={u.v} onClick={() => setReqForm({ ...reqForm, urgency: u.v })} style={{ flex: 1, minHeight: TAP, padding: "7px", borderRadius: R.sm, border: reqForm.urgency === u.v ? "2px solid " + u.c : "1px solid " + t.borderSolid, background: reqForm.urgency === u.v ? u.c + "1A" : "transparent", color: u.c, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{u.l}</button>)); })()}</div></div>
+      <div style={{ display: "flex", gap: 8 }}><button onClick={() => setReqForm(null)} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={handleSubmitReq} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.sm, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Submit Request")}</button></div>
     </div>
   );
 
@@ -4222,7 +4322,9 @@ function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submi
     <div style={{ padding: "16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supply Tracking")}</div><div style={{ fontSize: 11, color: t.textSec }}>{tr("Log usage or submit a request")}</div></div><button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "7px 13px", borderRadius: R.sm, background: GOLD, color: NAVY, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("+ Request")}</span></button></div>
       {reqFormUI}
-      {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 600, color: t.textMut, fontFamily: "monospace" }}>{tr("QR")}</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div><div style={{ display: "flex", gap: 6, marginTop: 2, fontSize: 9 }}><span style={{ color: t.textMut }}>{sup.qr_code}</span>{isLow && <span style={{ color: ORANGE, fontWeight: 600 }}>{tr("LOW")}</span>}</div></div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} aria-label={tr("One less")} style={mkTapFrame()}><span style={qtyBtn}><MinusIco sz={14} /></span></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} aria-label={tr("One more")} style={mkTapFrame()}><span style={qtyBtn}><PlusIco sz={14} /></span></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Log Usage")}</button></div>)}</div>); })}
+      {failed && supplies.length === 0 && <ListFault icon={BoxIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} />}
+      {loaded && !failed && supplies.length === 0 && <EmptyState icon={BoxIco} text={tr("No supplies are set up for this site.")} t={t} />}
+      {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 600, color: t.textMut, fontFamily: "monospace" }}>{tr("QR")}</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div><div style={{ display: "flex", gap: 6, marginTop: 2, fontSize: 9 }}><span style={{ color: t.textMut }}>{sup.qr_code}</span>{isLow && <span style={{ color: ORANGE, fontWeight: 600 }}>{tr("LOW")}</span>}</div></div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} aria-label={tr("One less")} style={mkTapFrame()}><span style={qtyBtn}><MinusIco sz={14} /></span></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} aria-label={tr("One more")} style={mkTapFrame()}><span style={qtyBtn}><PlusIco sz={14} /></span></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Log Usage")}</button></div>)}</div>); })}
       {supplyLogs.length > 0 && (<div style={{ marginTop: 18 }}><label style={{ ...labelSt, display: "block", marginBottom: 8 }}>{tr("This Shift's Log")}</label>{supplyLogs.map((log, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", marginBottom: 3, background: t.hover, borderRadius: R.sm, fontSize: 11 }}><span style={{ fontWeight: 600, color: t.text }}>{log.supply_name || tr("Item")} <span style={{ color: t.textMut, fontWeight: 400 }}>{log.quantity} {log.unit}</span></span><span style={{ color: t.textMut, fontSize: 9 }}>{formatTime(log.loggedAt || log.scanned_at)}</span></div>))}</div>)}
     </div>
   );
@@ -6244,6 +6346,13 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
 function EmptyState({ icon: Icon, text, t }) {
   return (<div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><Icon sz={40} c={t.borderSolid} /><div style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{text}</div></div>);
 }
+// A list whose request failed says so and offers Try again, the way
+// Tasks and Chat do. Apart from a list with nothing in it, which keeps
+// its own line, and from a list already on the screen, which stays when
+// a later read of it fails.
+function ListFault({ icon: Icon, text, onRetry, t }) {
+  return (<div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><Icon sz={40} c={t.borderSolid} /><div role="alert" style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{text}</div><button type="button" onClick={onRetry} style={{ minHeight: TAP, marginTop: 16, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button></div>);
+}
 
 function PickupView({ token, user, showToast, t }) {
   const [tab, setTab] = useState("available");
@@ -6251,6 +6360,9 @@ function PickupView({ token, user, showToast, t }) {
   const [myPickups, setMyPickups] = useState([]);
   const [loading, setLoading] = useState(false);
   const [claiming, setClaiming] = useState(null);
+  // Which of the two lists came back empty-handed, so each says so in
+  // its own place and offers Try again.
+  const [failed, setFailed] = useState({ available: false, mine: false });
 
   const fmtDate = (d) => { const s = String(d).slice(0, 10); return new Date(s + "T00:00:00").toLocaleDateString(dateLocale(), { weekday: "short", month: "short", day: "numeric" }); };
   const fmtTm = (t) => { const [h, m] = String(t).split(":").map(Number); return new Date(2024, 0, 1, h, m || 0).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }); };
@@ -6260,8 +6372,8 @@ function PickupView({ token, user, showToast, t }) {
     setLoading(true);
     try {
       const data = await api("/api/pickups/available", { token });
-      setAvailable(data);
-    } catch (err) { showToast(tr(err.message), "error"); }
+      setAvailable(data); setFailed(f => ({ ...f, available: false }));
+    } catch (err) { setFailed(f => ({ ...f, available: true })); }
     setLoading(false);
   };
 
@@ -6269,8 +6381,8 @@ function PickupView({ token, user, showToast, t }) {
     setLoading(true);
     try {
       const data = await api("/api/pickups/my-pickups", { token });
-      setMyPickups(data);
-    } catch (err) { showToast(tr(err.message), "error"); }
+      setMyPickups(data); setFailed(f => ({ ...f, mine: false }));
+    } catch (err) { setFailed(f => ({ ...f, mine: true })); }
     setLoading(false);
   };
 
@@ -6325,7 +6437,8 @@ function PickupView({ token, user, showToast, t }) {
       {/* AVAILABLE SHIFTS */}
       {!loading && tab === "available" && (
         <div>
-          {available.length === 0 && (
+          {available.length === 0 && failed.available && <ListFault icon={SwapIco} text={tr("This list did not load.")} onRetry={loadAvailable} t={t} />}
+          {available.length === 0 && !failed.available && (
             <div style={{ textAlign: "center", padding: "40px 24px", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}>
               <SwapIco sz={32} c={t.textMut} style={{ opacity: 0.3, marginBottom: 8 }} />
               <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("No open shifts right now")}</div>
@@ -6380,7 +6493,8 @@ function PickupView({ token, user, showToast, t }) {
       {/* MY PICKUPS */}
       {!loading && tab === "mine" && (
         <div>
-          {myPickups.length === 0 && (
+          {myPickups.length === 0 && failed.mine && <ListFault icon={CheckIco} text={tr("This list did not load.")} onRetry={loadMyPickups} t={t} />}
+          {myPickups.length === 0 && !failed.mine && (
             <div style={{ textAlign: "center", padding: "40px 24px", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}>
               <CheckIco sz={32} c={t.textMut} style={{ opacity: 0.3, marginBottom: 8 }} />
               <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("No claimed shifts")}</div>
@@ -6412,7 +6526,7 @@ function PickupView({ token, user, showToast, t }) {
                 {s.status === "claimed" && (
                   <div>
                     <div style={{ padding: "6px 10px", borderRadius: R.sm, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, fontSize: 10, color: ORANGE, marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Waiting for manager approval")}</div>
-                    <button onClick={() => releaseShift(s.id)} style={{ width: "100%", padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Release Shift")}</button>
+                    <button onClick={() => releaseShift(s.id)} style={{ width: "100%", minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Release Shift")}</button>
                   </div>
                 )}
                 {s.status === "approved" && (
@@ -6436,6 +6550,8 @@ function InspectView({ token, user, showToast, t }) {
 
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);
+  // The list came back empty-handed, said in its place with Try again.
+  const [listFailed, setListFailed] = useState(false);
   const [active, setActive] = useState(null);
   const [scores, setScores] = useState({});
   const [notes, setNotes] = useState({});
@@ -6464,8 +6580,8 @@ function InspectView({ token, user, showToast, t }) {
     setLoading(true);
     try {
       const d = await api("/api/inspections/scheduled?status=scheduled", { token });
-      setList(d);
-    } catch (e) { showToast(tr(e.message), "error"); }
+      setList(d); setListFailed(false);
+    } catch (e) { setListFailed(true); }
     setLoading(false);
   };
 
@@ -6692,7 +6808,7 @@ function InspectView({ token, user, showToast, t }) {
                 <input value={notes[item.id] || ""} onChange={e => { const v = e.target.value; setNotes(prev => ({ ...prev, [item.id]: v })); if (missingNote[item.id] && v.trim()) setMissingNote(prev => ({ ...prev, [item.id]: false })); }} placeholder={fix ? tr("Say what needs fixing") : tr("Notes for this item (optional)")} aria-invalid={!!missingNote[item.id]} style={{ ...inputSt, fontSize: 12, marginBottom: 8, ...(missingNote[item.id] ? { border: "1px solid " + RED } : {}) }} />
                 {missingNote[item.id] && <div style={{ ...mkFieldErr(t), marginTop: -2, marginBottom: 8 }}>{tr("Say what needs fixing")}</div>}
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", fontSize: 11, color: t.textSec }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, minHeight: TAP, padding: "5px 10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", fontSize: 11, color: t.textSec }}>
                     <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files[0] && handlePhotoUpload(item.id, e.target.files[0])} />
                     {uploadingId === item.id ? tr("Uploading...") : tr("Attach Photo")}
                   </label>
@@ -6752,7 +6868,7 @@ function InspectView({ token, user, showToast, t }) {
           <div style={{ fontSize: 11, color: t.textSec }}>{tr("Tap an inspection to begin scoring.")}</div>
         </div>
         {isManager && (
-          <button onClick={openScheduleModal} style={{ padding: "8px 14px", borderRadius: R.sm, border: "none", background: GOLD, color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0, fontFamily: FONT_HEAD }}>
+          <button onClick={openScheduleModal} style={{ minHeight: TAP, padding: "8px 14px", borderRadius: R.sm, border: "none", background: GOLD, color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0, fontFamily: FONT_HEAD }}>
             {tr("+ Schedule")}
           </button>
         )}
@@ -6760,7 +6876,9 @@ function InspectView({ token, user, showToast, t }) {
 
       {loading && <div style={{ padding: "30px 0", textAlign: "center", fontSize: 12, color: t.textMut }}>{tr("Loading...")}</div>}
 
-      {!loading && list.length === 0 && (
+      {!loading && listFailed && list.length === 0 && <ListFault icon={ClipIco} text={tr("This list did not load.")} onRetry={loadList} t={t} />}
+
+      {!loading && !listFailed && list.length === 0 && (
         <div style={{ textAlign: "center", padding: "40px 24px", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("No inspections pending")}</div>
           <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{tr("Inspections assigned to you will appear here.")}</div>
@@ -6825,12 +6943,14 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
   const [form, setForm] = useState({});
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // The profile came back empty-handed, said in its place with Try again.
+  const [failed, setFailed] = useState(false);
   useBusy("profile edit", editing || uploading || saving);
   const loadProfile = async () => {
     try {
       const d = await api("/api/users/profile/me", { token });
-      setProfile(d);
-    } catch (e) { showToast(tr(e.message), "error"); }
+      setProfile(d); setFailed(false);
+    } catch (e) { setFailed(true); }
   };
   useEffect(() => { loadProfile(); }, []);
 
@@ -6881,6 +7001,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
     setSaving(false);
   };
 
+  if (!profile && failed) return <div style={{ padding: "16px" }}><ListFault icon={PersonIco} text={tr("Your profile did not load.")} onRetry={loadProfile} t={t} /></div>;
   if (!profile) return <div style={{ padding: 20, textAlign: "center", color: t.textMut }}>{tr("Loading profile...")}</div>;
 
   const u = profile.user;
@@ -6902,8 +7023,10 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
             ? <img src={u.profilePhotoUrl} alt="" style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover", border: "2px solid " + GOLD }} />
             : <div style={{ width: 72, height: 72, borderRadius: "50%", background: t.goldSubtle, border: "2px solid " + GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD }}>{u.firstName?.[0]}{u.lastName?.[0]}</div>
           }
-          <label style={{ position: "absolute", bottom: -2, right: -2, width: 26, height: 26, borderRadius: "50%", background: GOLD, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: "2px solid " + t.card }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={NAVY} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          <label style={{ position: "absolute", bottom: -11, right: -11, width: TAP, height: TAP, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+            <span style={{ width: 26, height: 26, borderRadius: "50%", background: GOLD, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid " + t.card }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={NAVY} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            </span>
             <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoUpload(f); }} />
           </label>
           {uploading && <div style={{ position: "absolute", top: 0, left: 0, width: 72, height: 72, borderRadius: "50%", background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#F8F7F4" }}>...</div>}
@@ -6953,8 +7076,8 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
             <div><label style={labelSt}>{tr("Emergency Phone")}</label><input value={form.emergencyContactPhone || ""} onChange={e => setForm({ ...form, emergencyContactPhone: e.target.value })} style={inputSt} placeholder={tr("Phone number")} /></div>
           </div>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 14 }}>
-            <button onClick={() => setEditing(false)} style={{ padding: "10px 18px", borderRadius: R.sm, border: "none", background: t.btnGhost || t.card, color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button>
-            <button onClick={saveProfile} disabled={saving} style={{ padding: "10px 18px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{saving ? tr("Saving...") : tr("Save")}</button>
+            <button onClick={() => setEditing(false)} style={{ minHeight: TAP, padding: "10px 18px", borderRadius: R.sm, border: "none", background: t.btnGhost || t.card, color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button>
+            <button onClick={saveProfile} disabled={saving} style={{ minHeight: TAP, padding: "10px 18px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{saving ? tr("Saving...") : tr("Save")}</button>
           </div>
         </div>}
       </div>

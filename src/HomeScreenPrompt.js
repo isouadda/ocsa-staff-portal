@@ -4,11 +4,13 @@ import { storedZoom } from "./App";
 import { tr } from "./words";
 
 // A bottom sheet that shows how to save the app to the home screen, with
-// steps for the phone and browser in use. Mounted once, beside the app,
-// so it appears on every screen including sign in. It waits for the page
-// to settle, shows only on a phone or tablet that is not already running
-// from the home screen, and honors "Not now" for seven days and "Don't
-// show again" for good. A tap outside counts as "Not now", so the sheet a
+// steps for the phone and browser in use. Mounted once, beside the app.
+// It offers itself only to a person who is signed in and past Set your
+// PIN, never over the sign-in card: the app writes which screen is up on
+// the document and says so when it changes, and the sheet waits for the
+// portal itself, then for the page to settle. It shows only on a phone
+// or tablet that is not already running from the home screen, and honors
+// "Not now" for seven days and "Don't show again" for good. A tap outside counts as "Not now", so the sheet a
 // person waved away does not come back on the next load. It renders
 // beside the app rather than inside it, so it puts the text size setting
 // on its own root and grows with everything else. At the largest size in
@@ -23,6 +25,13 @@ const ICON = process.env.PUBLIC_URL + "/icons/icon-192.png";
 // The one place this name is written. It rides into the title as a
 // placeholder so the Spanish line carries no client name of its own.
 const APP_NAME = "OCSA Staff";
+
+// Which screen the app has up, as it writes it on the document. Only the
+// portal itself, signed in and past Set your PIN, is one the sheet may
+// open over.
+function portalIsUp() {
+  try { return document.documentElement.getAttribute("data-ocsa-screen") === "main"; } catch (e) { return false; }
+}
 
 function isStandalone() {
   try {
@@ -72,7 +81,7 @@ export default function HomeScreenPrompt() {
     };
     window.addEventListener("beforeinstallprompt", onBefore);
     window.addEventListener("appinstalled", onInstalled);
-    const timer = setTimeout(() => {
+    const offer = () => {
       const m = detectInstallMode({
         ua: window.navigator.userAgent,
         maxTouchPoints: window.navigator.maxTouchPoints,
@@ -84,9 +93,19 @@ export default function HomeScreenPrompt() {
       setMode(m);
       setZoom(storedZoom());
       setOpen(true);
-    }, SETTLE_MS);
+    };
+    // The wait starts when the portal itself comes up and is called off
+    // when it goes, so the sheet never opens over the sign-in card, and
+    // one already open closes when the person signs out.
+    let timer = null;
+    const arm = () => { if (timer === null) timer = setTimeout(() => { timer = null; offer(); }, SETTLE_MS); };
+    const disarm = () => { if (timer !== null) { clearTimeout(timer); timer = null; } };
+    const onScreen = () => { if (portalIsUp()) arm(); else { disarm(); setOpen(false); } };
+    window.addEventListener("ocsa-screen", onScreen);
+    onScreen();
     return () => {
-      clearTimeout(timer);
+      disarm();
+      window.removeEventListener("ocsa-screen", onScreen);
       window.removeEventListener("beforeinstallprompt", onBefore);
       window.removeEventListener("appinstalled", onInstalled);
     };
