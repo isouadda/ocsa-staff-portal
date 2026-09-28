@@ -6007,7 +6007,9 @@ function CustomerFormScreen({ token, t, themeMode }) {
   // The logo, the company and the site, with the language choice and the
   // text size beside them everywhere but on the thank-you, which has
   // nothing left to tap. The text size is the same pill the sign-in
-  // screen offers, kept on this phone.
+  // screen offers, kept on this phone, and its row wraps the way the
+  // sign-in screen's does: at Largest in Spanish the two languages and
+  // the pill were wider than the phone and pushed the page sideways.
   const headOf = (withPicker) => (
     <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 160px", minWidth: 0 }}>
@@ -6019,7 +6021,7 @@ function CustomerFormScreen({ token, t, themeMode }) {
           {site.name && <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.4, overflowWrap: "anywhere" }}>{site.name}</div>}
         </div>
       </div>
-      {withPicker && <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 220px", maxWidth: 360 }}><div style={{ flex: 1, minWidth: 140 }}><LangPicker value={locale} onChange={setLanguage} t={t} /></div><TextSizeButton t={t} /></div>}
+      {withPicker && <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10, flex: "1 1 220px", maxWidth: 360 }}><div style={{ flex: 1, minWidth: 140 }}><LangPicker value={locale} onChange={setLanguage} t={t} /></div><TextSizeButton t={t} /></div>}
     </div>
   );
   const head = headOf(true);
