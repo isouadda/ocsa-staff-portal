@@ -85,6 +85,7 @@ const SCREEN_CASES = [
   { id: "reset", kind: "screen", path: "/reset-pin?token=fixture", signedIn: false, label: "Reset a PIN" },
   { id: "setpin", kind: "screen", path: "/", signedIn: true, mustSetPin: true, label: "Set your PIN" },
   { id: "main", kind: "screen", path: "/", signedIn: true, label: "The portal itself" },
+  { id: "customer", kind: "screen", path: "/c/link-checklist", signedIn: false, label: "Customer form" },
 
   { id: "clock", kind: "tab", label: "Home" },
   { id: "schedule", kind: "tab", label: "Schedule" },
@@ -145,6 +146,7 @@ const FORM_CASES = [
   { id: "helpcomposer", label: "Ask Help", where: "Help", fields: "a question or a photo (one of the two required)" },
   { id: "chatcomposer", label: "Send a chat message", where: "Chat", fields: "a message (required)" },
   { id: "shortcuts", label: "Choose your shortcuts", where: "Shortcuts", fields: "four different tabs (all four required)" },
+  { id: "customerform", label: "A customer's form, from a QR code", where: "Customer form", fields: "your name (required when the form says so); your role; the form's own questions; photos (up to three); a signature drawn with a finger, with a name (required) and a role" },
 ];
 
 // Reconciles what the app has against what the suite drives.
