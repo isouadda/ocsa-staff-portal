@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
+import { Component, useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
 import clientConfig from './clientConfig';
 import { tr, dateLocale, setWordsLanguage, wordsLanguage } from "./words";
 import { BUILD_STAMP } from "./buildStamp";
@@ -1161,6 +1161,35 @@ function toastQueue(onChange) {
   };
 }
 
+// ============================================================
+// THE LAST RESORT
+// A throw during render would otherwise leave a blank page, which tells
+// a person nothing. This sits around the whole app in index.js, so it is
+// never inside what threw. The app's own state is gone with the screen,
+// so it reads the phone's language, theme and text size the way the app
+// does before anyone signs in, says one line, and offers Reload.
+// ============================================================
+export class LastResort extends Component {
+  constructor(props) { super(props); this.state = { failed: false }; }
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(error) { try { console.error(error); } catch (e) {} }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    setWordsLanguage(firstLanguage());
+    const t = firstTheme() === "light" ? LIGHT : DARK;
+    const zoom = zoomOf(readTextSize());
+    return (
+      <div style={{ width: "100%", minHeight: "100vh", background: t.bg, color: t.text, fontFamily: FONT_BODY, zoom: zoom, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
+        <div style={{ width: "100%", maxWidth: 420, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: "28px 24px", boxShadow: t.popShadow, textAlign: "center" }}>
+          <AlertIco sz={40} c={t.borderSolid} />
+          <div role="alert" style={{ fontSize: 15, color: t.text, marginTop: 16, lineHeight: 1.5, fontFamily: FONT_HEAD }}>{tr("Something went wrong on this screen.")}</div>
+          <button type="button" onClick={() => { try { window.location.reload(); } catch (e) {} }} style={{ ...mkPrimaryBtn(t, false), marginTop: 20 }}>{tr("Reload")}</button>
+        </div>
+      </div>
+    );
+  }
+}
+
 export default function OCSAStaffPortal() {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
@@ -1171,6 +1200,16 @@ export default function OCSAStaffPortal() {
   const [clockStatus, setClockStatus] = useState(null);
   const [selectedSite, setSelectedSite] = useState(null);
   const [sessionSites, setSessionSites] = useState(null);
+  // Each list that came back empty-handed, apart from a list still on its
+  // way. A list already on the screen stays when a later read fails; a
+  // screen with nothing on it says so and offers Try again.
+  const [sessionSitesFailed, setSessionSitesFailed] = useState(false);
+  const [assignedFailed, setAssignedFailed] = useState(false);
+  const [issuesFailed, setIssuesFailed] = useState(false);
+  const [suppliesFailed, setSuppliesFailed] = useState(false);
+  // True once a supplies list has come back, so a site with none can say
+  // so without the line showing while the list is still on its way.
+  const [suppliesLoaded, setSuppliesLoaded] = useState(false);
   // A site that is chosen and not yet started. selectedSite means the
   // open session's site and is read in several places, so the pending
   // choice gets its own name. Cleared on start, on end, and on sign out.
@@ -1336,8 +1375,8 @@ export default function OCSAStaffPortal() {
 
   useEffect(() => { const i = setInterval(() => setCurrentTime(now()), 1000); return () => clearInterval(i); }, []);
   const showToast = useCallback((msg, type = "success") => { toastsRef.current.add(msg, type); }, []);
-  const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); } catch (err) { console.error(err); } }, [token]);
-  const loadSessionSites = useCallback(async (tkn) => { try { const data = await api("/api/shift-sessions/sites", { token: tkn || token }); setSessionSites(data); } catch (err) { console.error(err); } }, [token]);
+  const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); setAssignedFailed(false); } catch (err) { console.error(err); setAssignedFailed(true); } }, [token]);
+  const loadSessionSites = useCallback(async (tkn) => { try { const data = await api("/api/shift-sessions/sites", { token: tkn || token }); setSessionSites(data); setSessionSitesFailed(false); } catch (err) { console.error(err); setSessionSitesFailed(true); } }, [token]);
   // One read of clock status for every path that has to redraw from the
   // server's view: after a start, a refused start, an end that already
   // happened elsewhere, and the app coming back into view.
@@ -1558,10 +1597,10 @@ export default function OCSAStaffPortal() {
     }
     setShiftBusy(false);
   };
-  const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); } catch (err) { console.error(err); } };
+  const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); setIssuesFailed(false); } catch (err) { console.error(err); setIssuesFailed(true); } };
   const resolveAssignedTask = async (taskId, status, note, photoUrl) => { try { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast(tr("Task updated to {status}", { status: taskStatusWord(status) })); loadAssignedTasks(); } catch (err) { showToast(tr(err.message), "error"); } };
   const submitIssue = async (title, description, zone, severity, photoUrl, siteId) => { const actualSiteId = siteId || clockStatus?.shift?.siteId; if (!actualSiteId) { showToast(tr("Select a site first"), "error"); return; } try { const data = await api("/api/issues", { method: "POST", body: { siteId: actualSiteId, title, description, zone, severity }, token }); if (photoUrl && data.issue) { await api("/api/issues/" + data.issue.id + "/photos", { method: "POST", body: { photoUrl }, token }); } showToast(tr("Issue reported")); loadIssues(); } catch (err) { showToast(tr(err.message), "error"); } };
-  const loadSupplies = async () => { try { const url = clockStatus?.shift?.siteId ? "/api/supplies?site_id=" + clockStatus.shift.siteId : "/api/supplies"; const data = await api(url, { token }); setSupplies(data); } catch (err) { console.error(err); } };
+  const loadSupplies = async () => { try { const url = clockStatus?.shift?.siteId ? "/api/supplies?site_id=" + clockStatus.shift.siteId : "/api/supplies"; const data = await api(url, { token }); setSupplies(data); setSuppliesLoaded(true); setSuppliesFailed(false); } catch (err) { console.error(err); setSuppliesFailed(true); } };
   const logSupplyUsage = async (supplyId, quantity) => { try { const data = await api("/api/supplies/log-usage", { method: "POST", body: { supplyId, quantity, siteId: clockStatus.shift.siteId, scanMethod: "manual" }, token }); showToast(data.message); setSupplyLogs(prev => [{ ...data.log, loggedAt: now().toISOString() }, ...prev]); if (data.lowStockAlert) showToast(tr("Low stock alert!"), "notice"); } catch (err) { showToast(tr(err.message), "error"); } };
   const submitSupplyRequest = async (requestType, itemName, description, urgency, supplyId) => { try { const siteId = clockStatus?.shift?.siteId || null; await api("/api/supplies/requests", { method: "POST", body: { requestType, itemName, description, urgency, supplyId, siteId }, token }); showToast(tr("Request submitted")); } catch (err) { showToast(tr(err.message), "error"); } };
   // The list of chats. One that did not load is said as such, apart from
@@ -1741,6 +1780,7 @@ export default function OCSAStaffPortal() {
     clearAuth();
     setToken(null); setUser(null); setSites([]); setScreen("login"); setLoginFault(null);
     setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null);
+    setSessionSitesFailed(false); setAssignedFailed(false); setIssuesFailed(false); setSuppliesFailed(false); setSuppliesLoaded(false);
     setShiftAsk(null); setShiftBusy(false); setShiftFault(null); setTickOverrides(new Map()); setRowNote(null);
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
@@ -1880,14 +1920,14 @@ export default function OCSAStaffPortal() {
 
           <div style={{ padding: "0 0 var(--ocsa-bar, 76px) 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
-              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
+              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
-              {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
+              {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
-              {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} />}
-              {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
+              {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} />}
+              {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
@@ -2409,6 +2449,9 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
     return mon;
   });
   const [loading, setLoading] = useState(false);
+  // The schedule came back empty-handed. The calendar gives way to the
+  // line and Try again; a week already drawn stays until one comes back.
+  const [failed, setFailed] = useState(false);
 
   // Time off, on the Schedule tab only. types stays null until the
   // route answers 200, and null keeps every part of this build off
@@ -2458,8 +2501,8 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
         ed = toISO(getWeekEnd());
       }
       const d = await api("/api/pickups/my-schedule?start_date=" + sd + "&end_date=" + ed, { token });
-      setData(d);
-    } catch (err) { console.error("Schedule load error:", err); }
+      setData(d); setFailed(false);
+    } catch (err) { console.error("Schedule load error:", err); setFailed(true); }
     setLoading(false);
   };
 
@@ -2623,8 +2666,10 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
         <button onClick={openRequest} style={{ width: "100%", minHeight: 44, marginBottom: 14, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Request time off")}</button>
       )}
 
+      {!loading && failed && <ListFault icon={CalIco} text={tr("This list did not load.")} onRetry={loadSchedule} t={t} />}
+
       {/* WEEK VIEW */}
-      {!loading && view === "week" && (
+      {!loading && !failed && view === "week" && (
         <div style={{ overflowX: "auto", display: "flex", flex: compact ? undefined : 1 }}><div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 4, minWidth: 300, flex: 1 }}>
           {weekDays.map((ds, i) => {
             const sched = getSchedForDay(ds);
@@ -2677,7 +2722,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
       )}
 
       {/* MONTH VIEW */}
-      {!loading && view === "month" && (() => {
+      {!loading && !failed && view === "month" && (() => {
         const year = weekStart.getFullYear();
         const month = weekStart.getMonth();
         const firstDay = new Date(year, month, 1);
@@ -3011,7 +3056,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   );
 }
 
-function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, onSelectSite, onStartSession, onEndSession, siteChoices, loading, completedCount, taskCount, taskListLoaded, t }) {
+function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, onSelectSite, onStartSession, onEndSession, siteChoices, siteChoicesFailed, onRetrySites, loading, completedCount, taskCount, taskListLoaded, t }) {
   // The timer below is the one number on any screen wide enough to reach
   // the edge of its card, so this screen has to know the text size.
   const { textSize: clockTextSize } = useContext(TextSizeCtx);
@@ -3084,7 +3129,8 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
       {startBlock && <div style={{ padding: "12px 14px", marginBottom: 16, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>{startBlock}</div>}
       <div style={{ marginBottom: 16 }}>
         <label style={{ ...labelSt, display: "block", marginBottom: 10 }}>{ci && clockStatus.shift ? tr("Shift Open at {site}", { site: clockStatus.shift.siteName }) : tr("Choose a Site to Start")}</label>
-        {!siteChoices && <div style={emptySt}>{tr("Loading sites...")}</div>}
+        {!siteChoices && siteChoicesFailed && <ListFault icon={MapIco} text={tr("Your sites did not load.")} onRetry={onRetrySites} t={t} />}
+        {!siteChoices && !siteChoicesFailed && <div style={emptySt}>{tr("Loading sites...")}</div>}
         {siteChoices && groups.length === 0 && <div style={emptySt}>{tr("No sites available yet.")}</div>}
         {siteChoices && groups.map((g, gi) => (<div key={gi}>{g.label && <div style={groupHeadSt}>{g.label}</div>}{g.items.map(renderSite)}</div>))}
         {siteChoices && groups.length > 0 && !ci && (
@@ -4140,7 +4186,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
   );
 }
 
-function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lkColorMap }) {
+function AssignedTasksView({ assignedTasks, failed, onRetry, resolveTask, showToast, t, token, lkColorMap }) {
   const [detail, setDetail] = useState(null); const [activePanel, setActivePanel] = useState(null);
   const [note, setNote] = useState(""); const [photo, setPhoto] = useState(null); const [photoPreview, setPhotoPreview] = useState(null); const [uploading, setUploading] = useState(false);
   useBusy("assigned task resolution", note.trim().length > 0 || !!photo || uploading);
@@ -4154,6 +4200,7 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lk
   const handleCantResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Please provide a reason"), "error"); return; } await resolveTask(taskId, "unable_to_resolve", note.trim(), null); clearForm(); setDetail(null); };
   const getTaskInfo = (task) => { const isIssueLinked = !!task.source_issue_id; const title = isIssueLinked ? (task.issue_title || task.label) : task.label; const desc = isIssueLinked ? task.issue_description : task.description; const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD); const photoUrl = isIssueLinked ? task.issue_photo_url : (task.media_url || null); const mediaType = isIssueLinked ? "image" : (task.media_type || "image"); const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name; const assignedByLabel = isIssueLinked ? tr("Reported by") : tr("Assigned by"); const locationParts = [task.site_name]; if (task.building_name) locationParts.push(task.building_name); if (task.floor_number) locationParts.push(tr("Floor {n}", { n: task.floor_number })); locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || tr("General")); const locationStr = locationParts.filter(Boolean).join(" > "); return { isIssueLinked, title, desc, borderColor, photoUrl, mediaType, assignedBy, assignedByLabel, locationStr }; };
 
+  if (assignedTasks.length === 0 && failed) return (<div style={{ padding: "16px" }}><ListFault icon={AlertIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} /></div>);
   if (assignedTasks.length === 0) return (<div style={{ padding: "16px" }}><div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><AlertIco sz={40} c={t.borderSolid} /><div style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{tr("No assigned tasks right now.")}</div><div style={{ fontSize: 12, color: t.textMut, marginTop: 4 }}>{tr("When a supervisor assigns a task to you, it will appear here.")}</div></div></div>);
 
   if (detail) {
@@ -4197,7 +4244,7 @@ function AssignedTasksView({ assignedTasks, resolveTask, showToast, t, token, lk
   );
 }
 
-function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites, t, token, getOpts, lkColorMap }) {
+function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToast, user, sites, t, token, getOpts, lkColorMap }) {
   const [showForm, setShowForm] = useState(false); const [title, setTitle] = useState(""); const [desc, setDesc] = useState("");
   const [sev, setSev] = useState("medium"); const [zone, setZone] = useState(""); const [selSite, setSelSite] = useState("");
   const [photo, setPhoto] = useState(null); const [photoPreview, setPhotoPreview] = useState(null); const [uploading, setUploading] = useState(false);
@@ -4225,13 +4272,14 @@ function IssuesView({ clockStatus, issues, submitIssue, showToast, user, sites, 
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Photo")}</label><input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GOLD, borderRadius: R.sm, cursor: "pointer", color: t.goldText, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={t.goldText} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo or Choose from Gallery")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("JPG, PNG up to 10MB")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} /><button onClick={removePhoto} aria-label={tr("Remove photo")} style={mkTapFrame({ position: "absolute", top: -2, right: -2 })}><span style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", color: "#F8F7F4", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</span></button><div style={{ fontSize: 10, color: GREEN, marginTop: 4 }}>{tr("Photo attached:")} {photo?.name}</div></div>)}</div>
         <button onClick={handleSubmit} disabled={uploading} style={{ width: "100%", minHeight: TAP, padding: "13px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Issue")}</button>
       </div>)}
-      {isAdmin && visibleIssues.length === 0 && !showForm && <div style={{ padding: "32px 20px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontSize: 13, color: t.textMut, boxShadow: t.shadow }}>{tr("No issues reported yet.")}</div>}
+      {isAdmin && failed && visibleIssues.length === 0 && !showForm && <ListFault icon={AlertIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} />}
+      {isAdmin && !failed && visibleIssues.length === 0 && !showForm && <div style={{ padding: "32px 20px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontSize: 13, color: t.textMut, boxShadow: t.shadow }}>{tr("No issues reported yet.")}</div>}
       {isAdmin && visibleIssues.map(issue => { const sc = sevC[issue.severity] || ORANGE; return (<div key={issue.id} style={{ padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + sc, boxShadow: t.shadow }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><div style={{ fontSize: 13, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{issue.title}</div><span style={{ fontSize: 9, color: sc, background: sc + "20", padding: "3px 7px", borderRadius: R.sm, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{levelWord(issue.severity)}</span></div><div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 9, color: t.textMut }}><span>{issue.zone}</span><span>{issue.site_name}</span><span style={{ color: issue.status === "open" ? ORANGE : GREEN, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{statusWord(issue.status)}</span></div></div>); })}
     </div>
   );
 }
 
-function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submitRequest, showToast, t, getOpts, lkColorMap }) {
+function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLogs, logSupplyUsage, submitRequest, showToast, t, getOpts, lkColorMap }) {
   const [scanning, setScanning] = useState(null); const [qty, setQty] = useState(1); const [reqForm, setReqForm] = useState(null);
   useBusy("supply request form", !!reqForm || scanning !== null);
   const labelSt = mkLabel(t); const inputSt = mkInput(t); const qtyBtn = mkQtyBtn(t);
@@ -4260,6 +4308,8 @@ function SuppliesView({ clockStatus, supplies, supplyLogs, logSupplyUsage, submi
     <div style={{ padding: "16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supply Tracking")}</div><div style={{ fontSize: 11, color: t.textSec }}>{tr("Log usage or submit a request")}</div></div><button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "7px 13px", borderRadius: R.sm, background: GOLD, color: NAVY, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("+ Request")}</span></button></div>
       {reqFormUI}
+      {failed && supplies.length === 0 && <ListFault icon={BoxIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} />}
+      {loaded && !failed && supplies.length === 0 && <EmptyState icon={BoxIco} text={tr("No supplies are set up for this site.")} t={t} />}
       {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 600, color: t.textMut, fontFamily: "monospace" }}>{tr("QR")}</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div><div style={{ display: "flex", gap: 6, marginTop: 2, fontSize: 9 }}><span style={{ color: t.textMut }}>{sup.qr_code}</span>{isLow && <span style={{ color: ORANGE, fontWeight: 600 }}>{tr("LOW")}</span>}</div></div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} aria-label={tr("One less")} style={mkTapFrame()}><span style={qtyBtn}><MinusIco sz={14} /></span></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} aria-label={tr("One more")} style={mkTapFrame()}><span style={qtyBtn}><PlusIco sz={14} /></span></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Log Usage")}</button></div>)}</div>); })}
       {supplyLogs.length > 0 && (<div style={{ marginTop: 18 }}><label style={{ ...labelSt, display: "block", marginBottom: 8 }}>{tr("This Shift's Log")}</label>{supplyLogs.map((log, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", marginBottom: 3, background: t.hover, borderRadius: R.sm, fontSize: 11 }}><span style={{ fontWeight: 600, color: t.text }}>{log.supply_name || tr("Item")} <span style={{ color: t.textMut, fontWeight: 400 }}>{log.quantity} {log.unit}</span></span><span style={{ color: t.textMut, fontSize: 9 }}>{formatTime(log.loggedAt || log.scanned_at)}</span></div>))}</div>)}
     </div>
@@ -6282,6 +6332,13 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
 function EmptyState({ icon: Icon, text, t }) {
   return (<div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><Icon sz={40} c={t.borderSolid} /><div style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{text}</div></div>);
 }
+// A list whose request failed says so and offers Try again, the way
+// Tasks and Chat do. Apart from a list with nothing in it, which keeps
+// its own line, and from a list already on the screen, which stays when
+// a later read of it fails.
+function ListFault({ icon: Icon, text, onRetry, t }) {
+  return (<div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><Icon sz={40} c={t.borderSolid} /><div role="alert" style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{text}</div><button type="button" onClick={onRetry} style={{ minHeight: TAP, marginTop: 16, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button></div>);
+}
 
 function PickupView({ token, user, showToast, t }) {
   const [tab, setTab] = useState("available");
@@ -6289,6 +6346,9 @@ function PickupView({ token, user, showToast, t }) {
   const [myPickups, setMyPickups] = useState([]);
   const [loading, setLoading] = useState(false);
   const [claiming, setClaiming] = useState(null);
+  // Which of the two lists came back empty-handed, so each says so in
+  // its own place and offers Try again.
+  const [failed, setFailed] = useState({ available: false, mine: false });
 
   const fmtDate = (d) => { const s = String(d).slice(0, 10); return new Date(s + "T00:00:00").toLocaleDateString(dateLocale(), { weekday: "short", month: "short", day: "numeric" }); };
   const fmtTm = (t) => { const [h, m] = String(t).split(":").map(Number); return new Date(2024, 0, 1, h, m || 0).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }); };
@@ -6298,8 +6358,8 @@ function PickupView({ token, user, showToast, t }) {
     setLoading(true);
     try {
       const data = await api("/api/pickups/available", { token });
-      setAvailable(data);
-    } catch (err) { showToast(tr(err.message), "error"); }
+      setAvailable(data); setFailed(f => ({ ...f, available: false }));
+    } catch (err) { setFailed(f => ({ ...f, available: true })); }
     setLoading(false);
   };
 
@@ -6307,8 +6367,8 @@ function PickupView({ token, user, showToast, t }) {
     setLoading(true);
     try {
       const data = await api("/api/pickups/my-pickups", { token });
-      setMyPickups(data);
-    } catch (err) { showToast(tr(err.message), "error"); }
+      setMyPickups(data); setFailed(f => ({ ...f, mine: false }));
+    } catch (err) { setFailed(f => ({ ...f, mine: true })); }
     setLoading(false);
   };
 
@@ -6363,7 +6423,8 @@ function PickupView({ token, user, showToast, t }) {
       {/* AVAILABLE SHIFTS */}
       {!loading && tab === "available" && (
         <div>
-          {available.length === 0 && (
+          {available.length === 0 && failed.available && <ListFault icon={SwapIco} text={tr("This list did not load.")} onRetry={loadAvailable} t={t} />}
+          {available.length === 0 && !failed.available && (
             <div style={{ textAlign: "center", padding: "40px 24px", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}>
               <SwapIco sz={32} c={t.textMut} style={{ opacity: 0.3, marginBottom: 8 }} />
               <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("No open shifts right now")}</div>
@@ -6418,7 +6479,8 @@ function PickupView({ token, user, showToast, t }) {
       {/* MY PICKUPS */}
       {!loading && tab === "mine" && (
         <div>
-          {myPickups.length === 0 && (
+          {myPickups.length === 0 && failed.mine && <ListFault icon={CheckIco} text={tr("This list did not load.")} onRetry={loadMyPickups} t={t} />}
+          {myPickups.length === 0 && !failed.mine && (
             <div style={{ textAlign: "center", padding: "40px 24px", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}>
               <CheckIco sz={32} c={t.textMut} style={{ opacity: 0.3, marginBottom: 8 }} />
               <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("No claimed shifts")}</div>
@@ -6474,6 +6536,8 @@ function InspectView({ token, user, showToast, t }) {
 
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);
+  // The list came back empty-handed, said in its place with Try again.
+  const [listFailed, setListFailed] = useState(false);
   const [active, setActive] = useState(null);
   const [scores, setScores] = useState({});
   const [notes, setNotes] = useState({});
@@ -6502,8 +6566,8 @@ function InspectView({ token, user, showToast, t }) {
     setLoading(true);
     try {
       const d = await api("/api/inspections/scheduled?status=scheduled", { token });
-      setList(d);
-    } catch (e) { showToast(tr(e.message), "error"); }
+      setList(d); setListFailed(false);
+    } catch (e) { setListFailed(true); }
     setLoading(false);
   };
 
@@ -6798,7 +6862,9 @@ function InspectView({ token, user, showToast, t }) {
 
       {loading && <div style={{ padding: "30px 0", textAlign: "center", fontSize: 12, color: t.textMut }}>{tr("Loading...")}</div>}
 
-      {!loading && list.length === 0 && (
+      {!loading && listFailed && list.length === 0 && <ListFault icon={ClipIco} text={tr("This list did not load.")} onRetry={loadList} t={t} />}
+
+      {!loading && !listFailed && list.length === 0 && (
         <div style={{ textAlign: "center", padding: "40px 24px", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("No inspections pending")}</div>
           <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{tr("Inspections assigned to you will appear here.")}</div>
@@ -6863,12 +6929,14 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
   const [form, setForm] = useState({});
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // The profile came back empty-handed, said in its place with Try again.
+  const [failed, setFailed] = useState(false);
   useBusy("profile edit", editing || uploading || saving);
   const loadProfile = async () => {
     try {
       const d = await api("/api/users/profile/me", { token });
-      setProfile(d);
-    } catch (e) { showToast(tr(e.message), "error"); }
+      setProfile(d); setFailed(false);
+    } catch (e) { setFailed(true); }
   };
   useEffect(() => { loadProfile(); }, []);
 
@@ -6919,6 +6987,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
     setSaving(false);
   };
 
+  if (!profile && failed) return <div style={{ padding: "16px" }}><ListFault icon={PersonIco} text={tr("Your profile did not load.")} onRetry={loadProfile} t={t} /></div>;
   if (!profile) return <div style={{ padding: 20, textAlign: "center", color: t.textMut }}>{tr("Loading profile...")}</div>;
 
   const u = profile.user;
