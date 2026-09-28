@@ -1040,6 +1040,21 @@ async function turnOnPhoneAlerts(publicKey, token) {
     return "failed";
   }
 }
+// After every sign-in, and on boot with a stored session, a subscription
+// this phone already holds is posted again under the person now signed
+// in, so a shared phone's alerts move to them. The API keeps one row per
+// endpoint and moves it to the caller. Nothing is asked of the browser,
+// and a failure is silent: the next sign-in posts it again.
+async function repostPhoneAlerts(token) {
+  try {
+    if (!pushSupported() || pushPermission() !== "granted") return;
+    const sub = await pushSubscription();
+    if (!sub) return;
+    const j = sub.toJSON ? sub.toJSON() : { endpoint: sub.endpoint, keys: {} };
+    if (!j || !j.endpoint) return;
+    await api("/api/push/subscriptions", { method: "POST", body: { endpoint: j.endpoint, keys: j.keys || {}, userAgent: window.navigator.userAgent }, token, noAuthEvent: true });
+  } catch (e) {}
+}
 // Turns alerts off for this phone: unsubscribes here, deletes there.
 // Answers whether the API took the delete.
 async function turnOffPhoneAlerts(token) {
@@ -1541,6 +1556,9 @@ export default function OCSAStaffPortal() {
   const hydrateSession = useCallback(async (tok) => {
     const me = await api("/api/auth/me", { token: tok });
     setUser(me.user); setSites(me.sites);
+    // The phone follows whoever signed in. Not awaited: sign-in never
+    // waits on the push service.
+    repostPhoneAlerts(tok);
     if (me.preferences && applyPrefsRef.current) applyPrefsRef.current(me.preferences, tok, me.user);
     api("/api/users/profile/me", { token: tok }).then(p => { if (p?.user?.profilePhotoUrl) setUser(prev => ({ ...prev, profilePhotoUrl: p.user.profilePhotoUrl })); }).catch(() => {});
     try { const seq = nextStatusSeq(); const cs = await api(statusPath(), { token: tok }); if (takeStatus(cs, seq) && cs.clockedIn && cs.shift) setSelectedSite(cs.shift.siteId); } catch (e) { console.warn("Clock status:", e.message); }

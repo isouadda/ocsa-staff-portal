@@ -18,8 +18,11 @@ self.addEventListener("fetch", function () {});
 // language: title, body, tag, subjectType, subjectId, locale. The worker
 // shows it as the portal's own notification, one per tag, buzzing again
 // when the same tag arrives, and keeps the subject in the notification's
-// data for the tap. A payload with no title shows nothing.
+// data for the tap. A payload with no title shows nothing. The icon is
+// the app's 192 pixel mark; the badge is a white-on-clear 96 pixel mark,
+// which Android draws in the status bar in place of a blank shape.
 var ICON = "/icons/icon-192.png";
+var BADGE = "/icons/badge-96.png";
 self.addEventListener("push", function (event) {
   var data = null;
   try { data = event.data ? event.data.json() : null; } catch (e) { data = null; }
@@ -28,7 +31,7 @@ self.addEventListener("push", function (event) {
   var options = {
     body: typeof data.body === "string" ? data.body : "",
     icon: ICON,
-    badge: ICON,
+    badge: BADGE,
     lang: data.locale === "es" ? "es" : "en",
     data: { subjectType: data.subjectType || null, subjectId: data.subjectId || null },
   };
