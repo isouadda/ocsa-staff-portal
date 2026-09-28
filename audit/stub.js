@@ -907,6 +907,9 @@ const CHAT_UNCODED_REFUSALS = [
 // state.refuse as { api: key }, and its sentence is written in the
 // request's language, ?locale= first and the account's after it.
 const API_REFUSALS = {
+  // A sign-in the API has locked after too many wrong tries, Step 175:
+  // 429, with the minutes the lock lasts, fifteen by default.
+  "auth.locked": { status: 429, en: "Too many tries. Wait {minutes} minutes, then try again.", es: "Demasiados intentos. Espere {minutes} minutos y vuelva a intentarlo.", vars: { minutes: 15 } },
   "timeOff.lastBeforeFirst": { status: 400, en: "The last day cannot be before the first day", es: "El \u00faltimo d\u00eda no puede ser anterior al primer d\u00eda" },
   "pickups.alreadyClaimed": { status: 409, en: "Shift was already claimed", es: "Este turno ya fue tomado" },
   "supplies.requestTypeRequired": { status: 400, en: "Request type is required", es: "Elija el tipo de solicitud" },
@@ -1678,7 +1681,10 @@ function createStub(opts) {
     const lang = languageOf(search, state);
     // --- signing in and getting in
     if (key === "POST /api/auth/login") {
-      if (body && body.pin !== "4907") return json(401, { error: LOGIN_REFUSAL[0] });
+      // A wrong PIN carries its key as its code, the way the API's
+      // errorBody sends every refusal; the portal counts the ones in a
+      // row by it.
+      if (body && body.pin !== "4907") return json(401, { error: LOGIN_REFUSAL[0], code: "auth.invalidCredentials" });
       return json(200, { token: "token-one" });
     }
     if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: SITES, preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));

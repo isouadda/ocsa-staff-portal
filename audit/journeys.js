@@ -861,6 +861,104 @@ const JOURNEYS = [
     },
   },
   {
+    id: "signinfault",
+    label: "A sign-in turned away stays under the PIN box: three wrong PINs with the lock line from the third, a locked account, the install sheet kept for the portal itself, and the lines said before any mistake",
+    run: async (open, language, expect, extra) => {
+      // What is drawn after a PIN box in its own field, in order: each
+      // line's words, and whether a screen reader is told it at once.
+      const underBox = (page, n) => page.evaluate((i) => {
+        const box = document.querySelectorAll('input[type="password"]')[i];
+        const out = [];
+        for (let e = box ? box.nextElementSibling : null; e; e = e.nextElementSibling) out.push({ text: e.innerText.replace(/\s+/g, " ").trim(), alert: e.getAttribute("role") === "alert" });
+        return out;
+      }, n || 0);
+      const sheetUp = (page) => page.evaluate(() => !!document.getElementById("ocsa-a2hs-title"));
+      const refusal = LOGIN_REFUSAL[language === "es" ? 1 : 0];
+      const lockLine = spanishOf("After too many wrong tries, sign-in stops for 15 minutes. Ask your trainer for help.", language);
+      const locked = refusalIn(API_REFUSALS["auth.locked"], language, API_REFUSALS["auth.locked"].vars);
+
+      // Three wrong PINs in a row, each turned away the way the API turns
+      // one away: its own sentence, with auth.invalidCredentials as its code.
+      const app = await open({ signedIn: false });
+      try {
+        await type(app.page, 'input[autocomplete="username"]', "4821");
+        for (let n = 1; n <= 3; n += 1) {
+          await type(app.page, 'input[type="password"]', "0000");
+          await clickText(app.page, say("Sign In", language));
+          await pause(app.page, 900);
+          const lines = await underBox(app.page);
+          expect("wrong PIN " + n + " is drawn under the PIN box in the API's own words, and said at once",
+            lines.length > 0 && lines[0].alert && lines[0].text === refusal, JSON.stringify(lines));
+          const lock = lines.some(l => l.text === lockLine);
+          expect(n < 3 ? "no lock line before the third wrong PIN in a row, at wrong PIN " + n : "the lock line joins the refusal at the third wrong PIN in a row",
+            n < 3 ? !lock : lock, JSON.stringify(lines));
+        }
+        await spokenHere(app, language, expect);
+        // A toast would be gone by now. The refusal waits for the person.
+        await pause(app.page, 3600);
+        expect("the refusal is still under the box once a toast would have gone", (await underBox(app.page)).some(l => l.text === refusal), JSON.stringify(await underBox(app.page)));
+        await type(app.page, 'input[type="password"]', "4");
+        await pause(app.page, 300);
+        expect("typing again takes the refusal and the lock line away", (await underBox(app.page)).length === 0, JSON.stringify(await underBox(app.page)));
+
+        // A locked account: 429 with auth.locked, drawn the same way, and
+        // no lock line of the portal's own beside it.
+        app.stub.state.refuse["POST /api/auth/login"] = { api: "auth.locked", once: true };
+        await type(app.page, 'input[type="password"]', "4907");
+        await clickText(app.page, say("Sign In", language));
+        await pause(app.page, 900);
+        const lockedLines = await underBox(app.page);
+        const shown = lockedLines.length === 1 && lockedLines[0].alert && lockedLines[0].text === locked;
+        expect("a locked account is drawn under the PIN box in the API's own words", shown, JSON.stringify(lockedLines));
+        if (extra) extra.refusalsShown += shown ? 1 : 0;
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+
+      // The install sheet waits for the portal itself: never over the
+      // sign-in card, never over Set your PIN, and offered once the new
+      // PIN is saved and the portal is up. Set your PIN says its rules
+      // under New PIN before anyone breaks one.
+      const fresh = await open({ signedIn: false, installSheet: "fresh", stubOptions: { mustSetPin: true } });
+      try {
+        await letSheetOffer(fresh.page);
+        expect("the install sheet is not offered over the sign-in card", !(await sheetUp(fresh.page)), (await sheetText(fresh.page)).slice(0, 120));
+        await type(fresh.page, 'input[autocomplete="username"]', "4821");
+        await type(fresh.page, 'input[type="password"]', "4907");
+        await clickText(fresh.page, say("Sign In", language));
+        await pause(fresh.page, 1500);
+        const rules = spanishOf("4 digits. Not all the same, not in a row like 1234, and not your badge number. The PIN you were given works until you save a new one.", language);
+        const under = await underBox(fresh.page, 0);
+        expect("Set your PIN says the rules under New PIN before anything is typed", under.some(l => l.text === rules && !l.alert), JSON.stringify(under));
+        await spokenHere(fresh, language, expect);
+        await letSheetOffer(fresh.page);
+        expect("the install sheet is not offered over Set your PIN", !(await sheetUp(fresh.page)), (await sheetText(fresh.page)).slice(0, 120));
+        await typeNth(fresh.page, 'input[type="password"]', 0, "5739");
+        await typeNth(fresh.page, 'input[type="password"]', 1, "5739");
+        await clickText(fresh.page, say("Save PIN", language));
+        await pause(fresh.page, 1500);
+        expect("the new PIN is saved and the portal is up", await fresh.page.evaluate(() => !!document.querySelector(".sp-content")), (await bodyText(fresh.page)).slice(0, 160));
+        await letSheetOffer(fresh.page);
+        expect("once the portal is up, the install sheet is offered", await sheetUp(fresh.page), (await bodyText(fresh.page)).slice(0, 160));
+      } finally { await fresh.context.close(); }
+
+      // Forgot your PIN says the no-email line before Send, so a person
+      // with no email on file never waits for a link that cannot come.
+      const forgot = await open({ signedIn: false });
+      try {
+        await clickText(forgot.page, say("Forgot your PIN?", language));
+        await pause(forgot.page, 700);
+        const where = await forgot.page.evaluate(([line, send]) => {
+          const d = Array.from(document.querySelectorAll("div")).find(x => x.children.length === 0 && x.textContent.trim() === line && x.offsetParent !== null);
+          const b = Array.from(document.querySelectorAll("button")).find(x => x.textContent.trim() === send);
+          return { line: !!d, send: !!b, above: !!d && !!b && d.getBoundingClientRect().bottom <= b.getBoundingClientRect().top };
+        }, [spanishOf("No email on file? A link cannot reach you. Ask your supervisor to reset your PIN.", language), say("Send Reset Link", language)]);
+        expect("Forgot your PIN says the no-email line above Send, with nothing sent yet",
+          where.line && where.above && sent(forgot.stub, "POST", "/api/auth/reset/request").length === 0, JSON.stringify(where));
+        await spokenHere(forgot, language, expect);
+      } finally { await forgot.context.close(); }
+    },
+  },
+  {
     id: "beforesignin",
     label: "Before signing in: a phone that has never chosen a language, the choice the sign-in screen offers, and links that know the account",
     run: async (open, language, expect) => {
