@@ -552,6 +552,11 @@ This question cannot be answered here yet. Your supervisor will finish it.,Esta 
 This photo could not be read. Try another one.,No se pudo leer esta foto. Intente con otra.,Forms
 This question is full.,Esta pregunta está llena.,Forms
 This report was already sent.,Este reporte ya se había enviado.,Forms
+Name,Nombre,Customer form
+Role,Puesto,Customer form
+Thank you. OCSA has your form.,Gracias. OCSA recibió su formulario.,Customer form
+Your name,Su nombre,Customer form
+Your role,Su puesto,Customer form
 This table is full.,Esta tabla está llena.,Forms
 Untitled report,Reporte sin título,Forms
 {answered} answered,{answered} respondidas,Forms

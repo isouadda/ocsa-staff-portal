@@ -891,6 +891,10 @@ function readEntryFromUrl() {
     var token = new URLSearchParams(window.location.search || "").get("token");
     if (path === "/activate") return { screen: "activate", token: token || null };
     if (path === "/reset-pin") return { screen: "reset", token: token || null };
+    // A customer's form, opened from a QR code: /c/<token>. The token is
+    // read off the path as written, since its case matters.
+    var link = /^\/c\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+    if (link) return { screen: "customer", token: link[1] };
     return null;
   } catch (e) { return null; }
 }
@@ -1821,6 +1825,7 @@ export default function OCSAStaffPortal() {
       {screen === "activate" && <ActivateScreen token={ENTRY ? ENTRY.token : null} onActivated={handleAuthSuccess} onGoLogin={goLogin} showToast={showToast} t={t} />}
       {screen === "reset" && <ResetScreen token={ENTRY ? ENTRY.token : null} onReset={handleAuthSuccess} onGoLogin={goLogin} onGoForgot={() => setScreen("forgot")} showToast={showToast} t={t} />}
       {screen === "forgot" && <ForgotScreen onGoLogin={goLogin} showToast={showToast} t={t} />}
+      {screen === "customer" && <CustomerFormScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
       {screen === "setpin" && <SetPinScreen token={token} user={user} onDone={handlePinSet} onSignOut={handleLogout} showToast={showToast} t={t} />}
       {!booting && screen === "main" && (
         <>
@@ -4845,6 +4850,11 @@ const FORMS_ALREADY_LINE = "This report was already sent.";
 // stopped in the box rather than truncated after it is sent.
 const FORM_VALUE_MAX = 4000;
 const FORMS_LEAVE_LINE = "Leave this report? Your saved answers stay, and you can continue from Forms or Help.";
+// The customer's page, opened from a QR code with no sign-in. The public
+// side takes fewer photos than a staff form does, and smaller ones.
+const CUSTOMER_THANKS = "Thank you. OCSA has your form.";
+const CUSTOMER_MAX_PHOTOS = 3;
+const CUSTOMER_NAME_MAX = 120;
 
 // The data twin of the rule the API evaluates, read exactly the
 // way the API reads it. A shape this cannot recognize counts as
@@ -5078,6 +5088,73 @@ const formTypeOf = (f) => (f && f.type ? String(f.type) : "");
 
 const formDraftOf = (r) => (r && r.draft ? r.draft : r);
 
+// A customer's form, opened from a QR code posted in the building, at
+// /c/<token>, with no sign-in and nothing of the app around it: the
+// company's logo and the site's name, the language choice, and the same
+// form screen a staff member sees. The form is read in the language on
+// the screen and read again when it changes. A link that is closed or
+// names nothing shows the API's one line and nothing else. Nothing here
+// ever calls a route behind the token.
+function CustomerFormScreen({ token, t, themeMode }) {
+  const { language, setLanguage } = useContext(LanguageCtx);
+  const locale = language === "es" ? "es" : "en";
+  const [got, setGot] = useState({ loading: true, data: null, said: null, offline: false });
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let live = true;
+    setGot(prev => Object.assign({}, prev, { loading: true }));
+    (async () => {
+      try {
+        const r = await api("/api/public/forms/" + encodeURIComponent(token || "") + "?locale=" + locale, { noAuthEvent: true });
+        if (live) setGot({ loading: false, data: r && r.form ? r : null, said: r && r.form ? null : tr(FORMS_LOAD_FAILED), offline: false });
+      } catch (err) {
+        const offline = err.status === undefined || err.status === null;
+        if (live) setGot({ loading: false, data: null, said: offline ? tr(FORMS_LOAD_FAILED) : tr(err.message), offline: offline });
+      }
+    })();
+    return () => { live = false; };
+  }, [token, locale, asked]);
+
+  const company = (got.data && got.data.company) || {};
+  const site = (got.data && got.data.site) || {};
+  const logo = company.logoUrl || LOGO_SM;
+  // The logo, the company and the site, with the language choice beside
+  // them everywhere but on the thank-you, which has nothing left to tap.
+  const headOf = (withPicker) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 160px", minWidth: 0 }}>
+        <div style={{ flexShrink: 0, padding: themeMode === "dark" ? "6px 8px" : 0, background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: R.sm }}>
+          <img src={logo} alt="" style={{ display: "block", height: 32, maxWidth: 120, objectFit: "contain" }} />
+        </div>
+        <div style={{ minWidth: 0 }}>
+          {company.name && <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{company.name}</div>}
+          {site.name && <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.4, overflowWrap: "anywhere" }}>{site.name}</div>}
+        </div>
+      </div>
+      {withPicker && <div style={{ flex: "1 1 180px", maxWidth: 260 }}><LangPicker value={locale} onChange={setLanguage} t={t} /></div>}
+    </div>
+  );
+  const head = headOf(true);
+
+  if (got.loading && !got.data) {
+    return <div style={{ padding: 16 }}>{head}<div style={{ fontSize: 13, color: t.textMut, lineHeight: 1.5 }}>{tr("Loading forms")}</div></div>;
+  }
+  if (!got.data) {
+    return (
+      <div style={{ padding: 16 }}>
+        {head}
+        <div style={{ background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 18 }}>
+          <div style={{ fontSize: 14, color: t.text, lineHeight: 1.55 }}>{got.said}</div>
+          {got.offline && <button onClick={() => setAsked(n => n + 1)} style={{ width: "100%", minHeight: 44, marginTop: 14, borderRadius: R.md, border: "1px solid " + GOLD, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button>}
+        </div>
+      </div>
+    );
+  }
+  const form = got.data.form;
+  const draft = { id: null, formCode: form.code, formName: form.title, answers: {}, status: "draft", answered: 0, remaining: 0, missing: [] };
+  return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, head: head, thanksHead: headOf(false) }} />;
+}
+
 // The list of forms, and the one button on each card.
 function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDraft }) {
   const [forms, setForms] = useState(null);
@@ -5195,8 +5272,21 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
 // play is read from the answers on screen rather than the answers
 // on the server, so a question appears or disappears the moment
 // the answer that opens it does.
-function FormFiller({ token, t, locale, form, draft, onLeave }) {
+// With customer set, this is the customer's page: nothing is saved as a
+// draft, every answer stays in memory until Send posts them all in one
+// request to the public route, photos ride in the body as data URLs, a
+// customer signature is drawn in its section, and the API's refusal is
+// drawn under the question it names or at the top.
+function FormFiller({ token, t, locale, form, draft, onLeave, customer }) {
+  const isCustomer = !!customer;
   const [current, setCurrent] = useState(draft);
+  // The customer's own name and role, asked on the first section.
+  const [customerName, setCustomerName] = useState("");
+  const [customerRole, setCustomerRole] = useState("");
+  // The API's words under the question a refusal named, by key.
+  const [keyErr, setKeyErr] = useState({});
+  // A customer signature drawn on the page: its strokes by key.
+  const [sigStrokes, setSigStrokes] = useState({});
   const [values, setValues] = useState(() => Object.assign({}, draft.answers || {}));
   const [dirty, setDirty] = useState({});
   const [sectionKey, setSectionKey] = useState(null);
@@ -5262,9 +5352,20 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   // and nowhere else: the review does not repeat it.
   const hereHelp = hereTitle ? formSectionHelp(form, here, locale) : "";
 
+  // A customer's signature, as this page holds it before it is sent: the
+  // drawing, and the name and role typed in its card when they were, else
+  // the ones typed at the top of the form.
+  const sigNameOf = (v) => (v && typeof v === "object" && v.name !== undefined ? String(v.name) : customerName);
+  const sigRoleOf = (v) => (v && typeof v === "object" && v.role !== undefined ? String(v.role) : customerRole);
+  const customerSigned = (v) => !!v && typeof v === "object" && !!v.signature && sigNameOf(v).trim() !== "";
+  const fieldAnswered = (f) => (formTypeOf(f) === "customer_signature" ? customerSigned(values[f.key]) : formHasAnswer(values[f.key]));
   // What is still unanswered is the server's judgement, never this
-  // screen's: it already reads the same rules over the same answers.
-  const missing = Array.isArray(current.missing) ? current.missing : [];
+  // screen's: it already reads the same rules over the same answers. The
+  // customer's page has no draft to read it from, so it reads the same
+  // rule itself until the API has named what is missing.
+  const apiMissing = Array.isArray(current.missing) ? current.missing : [];
+  const localMissing = isCustomer ? shown.filter(f => f.required && !fieldAnswered(f)).map(f => f.key) : [];
+  const missing = isCustomer && apiMissing.length === 0 ? localMissing : apiMissing;
   const fieldByKey = (k) => (form && Array.isArray(form.fields) ? form.fields : []).find(f => f.key === k) || null;
   // What is still short an answer, in the words the API uses: the
   // question's own label, and for a table or a checklist the rows it is
@@ -5276,8 +5377,8 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     return missing.map(k => { const f = fieldByKey(k); return { key: k, label: f ? f.label : k, rows: [] }; });
   };
 
-  const answered = Number(current.answered || 0);
-  const remaining = Number(current.remaining || 0);
+  const answered = isCustomer ? shown.filter(fieldAnswered).length : Number(current.answered || 0);
+  const remaining = isCustomer ? shown.length - answered : Number(current.remaining || 0);
   const total = answered + remaining;
   const pct = total > 0 ? Math.round((answered / total) * 100) : 0;
 
@@ -5290,6 +5391,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     });
     setDirty(prev => Object.assign({}, prev, { [key]: true }));
     setBadKeys(prev => prev.filter(k => k !== key));
+    setKeyErr(prev => { if (!prev[key]) return prev; const next = Object.assign({}, prev); delete next[key]; return next; });
   };
 
   // What one save sends: every answer on this page that changed,
@@ -5318,6 +5420,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   // server rather than being guessed at here. Returns the answers
   // afterwards, or null when nothing was written.
   const save = async () => {
+    if (isCustomer) { setDirty({}); setSaveErr(null); setBadKeys([]); return values; }
     const body = changedAnswers();
     if (Object.keys(body).length === 0) { setSaveErr(null); setBadKeys([]); return values; }
     setSaving(true); setSaveErr(null); setBadKeys([]);
@@ -5417,6 +5520,18 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   };
   // Every picture is made small on the phone first. One that cannot be
   // read says so under the question and is not sent; the rest go up.
+  // On the customer's page a photo goes nowhere yet: it is made small the
+  // same way, read as a data URL, and kept under the question until Send
+  // puts it in the body. Its own bytes are its thumbnail.
+  const keepPhotos = async (f, files) => {
+    const kept = [];
+    for (let i = 0; i < files.length; i++) {
+      const data = await new Promise((done) => { const r = new FileReader(); r.onload = () => done(String(r.result || "")); r.onerror = () => done(""); r.readAsDataURL(files[i]); });
+      if (data) kept.push({ id: "c-" + f.key + "-" + Date.now() + "-" + i, name: files[i].name, data: data });
+    }
+    if (!alive.current) return;
+    setValues(prev => Object.assign({}, prev, { [f.key]: formPhotoList(prev[f.key]).concat(kept) }));
+  };
   const addFormPhotos = async (f, fileList) => {
     const picked = Array.from(fileList || []).filter(Boolean);
     if (picked.length === 0) return;
@@ -5430,7 +5545,8 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
       catch (err) { unreadable = true; }
     }
     if (alive.current && unreadable) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(FORMS_PHOTO_UNREADABLE) }));
-    if (files.length > 0) {
+    if (files.length > 0 && isCustomer) await keepPhotos(f, files);
+    else if (files.length > 0) {
       try {
         const r = await apiUpload(photoRoute(f) + "?locale=" + locale, "photos", files, { token });
         if (alive.current) takePhotoList(f, r);
@@ -5441,6 +5557,11 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     if (alive.current) setPhotoBusy(prev => Object.assign({}, prev, { [f.key]: (prev[f.key] || []).filter(m => marks.indexOf(m) === -1) }));
   };
   const removeFormPhoto = async (f, photo) => {
+    if (isCustomer) {
+      setPhotoErr(prev => Object.assign({}, prev, { [f.key]: null }));
+      setValues(prev => { const next = Object.assign({}, prev); const rest = formPhotoList(prev[f.key]).filter(p => p.id !== photo.id); if (rest.length === 0) delete next[f.key]; else next[f.key] = rest; return next; });
+      return;
+    }
     if (photoGoing[photo.id]) return;
     setPhotoErr(prev => Object.assign({}, prev, { [f.key]: null }));
     setPhotoGoing(prev => Object.assign({}, prev, { [photo.id]: true }));
@@ -5456,6 +5577,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
   // token, and kept as a URL made in memory. One that cannot be fetched
   // leaves its box blank rather than asking again and again.
   useEffect(() => {
+    if (isCustomer) return;
     const wanted = [];
     (form && Array.isArray(form.fields) ? form.fields : []).forEach((f) => {
       if (formTypeOf(f) !== "photos") return;
@@ -5471,7 +5593,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
         setThumbs(prev => Object.assign({}, prev, { [p.id]: url }));
       } catch (err) {}
     });
-  }, [values, form, current.id, token, locale]);
+  }, [values, form, current.id, token, locale, isCustomer]);
 
   const toTop = () => { if (bodyRef.current) bodyRef.current.scrollTop = 0; };
 
@@ -5496,11 +5618,60 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     setSectionKey(list[i - 1]); toTop();
   };
 
-  const editSection = (sk) => { setReview(false); setSendErr(null); setSectionKey(sk); toTop(); };
+  const editSection = (sk) => {
+    setReview(false); setSendErr(null); setSectionKey(sk); toTop();
+    // What the API named as missing was judged on what was sent; once the
+    // customer goes back to fill it in, this page judges again itself.
+    if (isCustomer) setCurrent(prev => Object.assign({}, prev, { missing: [], missingFields: null }));
+  };
+
+  // Everything the customer answered, in one body: the answers by key,
+  // photos as { name, data }, a signature as { name, role, signature },
+  // the name and role typed at the top, the language, and the field a
+  // person never sees and never fills.
+  const customerBody = () => {
+    const answers = {};
+    shown.forEach((f) => {
+      const v = values[f.key];
+      if (formTypeOf(f) === "photos") { const list = formPhotoList(v); if (list.length > 0) answers[f.key] = list.map(p => ({ name: p.name, data: p.data })); return; }
+      if (formTypeOf(f) === "customer_signature") { if (customerSigned(v)) answers[f.key] = { name: sigNameOf(v).trim(), role: sigRoleOf(v).trim(), signature: v.signature }; return; }
+      if (formHasAnswer(v)) answers[f.key] = v;
+    });
+    return { answers: answers, customerName: customerName.trim(), customerRole: customerRole.trim(), locale: locale, website: "" };
+  };
+  const sendCustomer = async () => {
+    if (sending) return;
+    setSending(true); setSendErr(null); setKeyErr({});
+    try {
+      await api("/api/public/forms/" + encodeURIComponent(customer.token) + "/responses?locale=" + locale, { method: "POST", body: customerBody(), noAuthEvent: true });
+      if (alive.current) { setValues({}); setSent("sent"); }
+    } catch (err) {
+      const keys = Array.isArray(err.body && err.body.keys) ? err.body.keys.map(String) : [];
+      if (err.status === 400 && Array.isArray(err.body && err.body.missing)) {
+        // The API's list of what is missing replaces this page's own.
+        setCurrent(prev => Object.assign({}, prev, {
+          missing: err.body.missing,
+          missingFields: Array.isArray(err.body.missingFields) ? err.body.missingFields : null,
+        }));
+        setSendErr(tr(err.message)); toTop();
+      } else if (keys.length > 0 && keys.some(k => fieldByKey(k))) {
+        // Under the question the refusal names, on its own section.
+        const said = {};
+        keys.forEach((k) => { said[k] = tr(err.message); });
+        setKeyErr(said);
+        const f = fieldByKey(keys.find(k => fieldByKey(k)));
+        setReview(false); setSectionKey(formSectionOf(f)); toTop();
+      } else {
+        setSendErr(tr(err.message)); toTop();
+      }
+    }
+    if (alive.current) setSending(false);
+  };
 
   const submit = async () => {
     setConfirmSend(false);
     if (sending) return;
+    if (isCustomer) { await sendCustomer(); return; }
     setSending(true); setSendErr(null);
     try {
       await api("/api/forms/drafts/" + encodeURIComponent(current.id) + "/submit?locale=" + locale, { method: "POST", token });
@@ -5705,7 +5876,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
             {list.map(p => (
               <div key={p.id} style={{ width: 104 }}>
-                {thumbs[p.id] ? <img src={thumbs[p.id]} alt="" style={thumbSt} /> : <div style={thumbSt} />}
+                {(isCustomer ? p.data : thumbs[p.id]) ? <img src={isCustomer ? p.data : thumbs[p.id]} alt="" style={thumbSt} /> : <div style={thumbSt} />}
                 <div style={photoNameSt}>{p.name}</div>
                 {draft && <button type="button" onClick={() => removeFormPhoto(f, p)} disabled={!!photoGoing[p.id]} style={{ ...photoBtn, opacity: photoGoing[p.id] ? 0.6 : 1 }}>{tr("Remove photo")}</button>}
               </div>
@@ -5737,8 +5908,45 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     );
   };
 
+  // A customer's signature on the customer's own page: a card with a box
+  // for the name and one for the role, filled from the name and role typed
+  // at the top until the customer writes in them, and the drawing pad. The
+  // drawing becomes a PNG each time a stroke ends, so Send has it ready.
+  const sigBoxSt = { ...inputSt, marginTop: 6 };
+  const renderCustomerSignature = (f) => {
+    const v = values[f.key] && typeof values[f.key] === "object" ? values[f.key] : {};
+    const strokes = sigStrokes[f.key] || [];
+    const write = (patch) => setValues(prev => {
+      const next = Object.assign({}, prev);
+      const merged = Object.assign({}, prev[f.key] && typeof prev[f.key] === "object" ? prev[f.key] : {}, patch);
+      Object.keys(merged).forEach((k) => { if (merged[k] === undefined || merged[k] === null) delete merged[k]; });
+      if (Object.keys(merged).length === 0) delete next[f.key]; else next[f.key] = merged;
+      return next;
+    });
+    const clear = () => { setSigStrokes(prev => Object.assign({}, prev, { [f.key]: [] })); write({ signature: null }); };
+    return (
+      <div style={gridCard}>
+        <div style={cellLabelSt}>{tr("Name")}</div>
+        <input type="text" maxLength={CUSTOMER_NAME_MAX} value={sigNameOf(v)} onChange={e => { write({ name: e.target.value }); setKeyErr(prev => { const next = Object.assign({}, prev); delete next[f.key]; return next; }); }} style={sigBoxSt} />
+        <div style={cellLabelSt}>{tr("Role")}</div>
+        <input type="text" maxLength={CUSTOMER_NAME_MAX} value={sigRoleOf(v)} onChange={e => write({ role: e.target.value })} style={sigBoxSt} />
+        <div style={{ marginTop: 12, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+          <SignatureBox strokes={strokes} onStroke={(stroke, size) => {
+            const all = strokes.concat([stroke]);
+            setSigStrokes(prev => Object.assign({}, prev, { [f.key]: all }));
+            write({ signature: signaturePng(all, size.w, size.h) });
+            setKeyErr(prev => { const next = Object.assign({}, prev); delete next[f.key]; return next; });
+          }} height={SIGN_BOX_HEIGHT} />
+        </div>
+        <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+        <button type="button" onClick={clear} disabled={strokes.length === 0} style={{ ...gridBtn, opacity: strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+      </div>
+    );
+  };
+
   const renderInput = (f) => {
     const v = values[f.key];
+    if (isCustomer && formTypeOf(f) === "customer_signature") return renderCustomerSignature(f);
     if (FORM_TYPES_DRAWN.indexOf(formTypeOf(f)) === -1) return <div style={mkHelp(t)}>{tr(FORMS_UNKNOWN_TYPE)}</div>;
     if (formTypeOf(f) === "grid") return formIsChecklist(f) ? renderChecklist(f) : renderRowTable(f);
     if (formTypeOf(f) === "signoff") return renderSignoff(f);
@@ -5748,6 +5956,16 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
 
   // Leaving unmounts this component, which is what clears the draft
   // and every answer from memory.
+  if (sent && isCustomer) {
+    return (
+      <div style={{ padding: 16 }}>
+        {customer.thanksHead}
+        <div style={{ background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 18 }}>
+          <div style={{ fontSize: 15, color: t.text, lineHeight: 1.55, fontFamily: FONT_HEAD, fontWeight: 600 }}>{tr(CUSTOMER_THANKS)}</div>
+        </div>
+      </div>
+    );
+  }
   if (sent) {
     return (
       <div style={{ padding: 16 }}>
@@ -5759,15 +5977,19 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
     );
   }
 
+  // The customer's page has no header and no bar around it, so the form
+  // fills the phone on its own.
+  const frame = isCustomer ? { height: "var(--ocsa-vh, 100vh)", maxHeight: "var(--ocsa-dvh, 100dvh)" } : fillsTheWindow();
   return (
-    <div style={{ display: "flex", flexDirection: "column", ...fillsTheWindow(), minHeight: 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", ...frame, minHeight: 0 }}>
       <div style={{ padding: "12px 16px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0 }}>
+        {isCustomer && customer.head}
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 0", minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{current.formName || (form && form.title) || tr(FORMS_UNTITLED)}</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{(isCustomer ? form && form.title : current.formName || (form && form.title)) || tr(FORMS_UNTITLED)}</div>
             {sections.length > 0 && <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{review ? tr("Review") : tr("Section {n} of {total}", { n: at + 1, total: sections.length })}</div>}
           </div>
-          <button onClick={() => setConfirmLeave(true)} style={{ minHeight: 44, padding: "0 14px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Close")}</button>
+          {!isCustomer && <button onClick={() => setConfirmLeave(true)} style={{ minHeight: 44, padding: "0 14px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Close")}</button>}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 120px", minWidth: 80, height: 6, borderRadius: 3, background: t.borderSolid, overflow: "hidden" }}>
@@ -5798,8 +6020,26 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
               <button onClick={() => editSection(sk)} style={{ minHeight: 44, padding: "0 16px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Edit")}</button>
             </div>
             {titled && formSectionTitle(form, sk, locale) && <div role="heading" aria-level={2} style={{ ...titleSt, marginBottom: 10 }}>{formSectionTitle(form, sk, locale)}</div>}
+            {isCustomer && i === 0 && [[tr("Your name"), customerName.trim()], [tr("Your role"), customerRole.trim()]].map(([label, value]) => (
+              <div key={label} style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{label}</div>
+                <div style={{ fontSize: 14, color: value ? t.text : t.textMut, fontWeight: value ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{value || tr("Not answered")}</div>
+              </div>
+            ))}
             {shown.filter(f => formSectionOf(f) === sk).map(f => {
               const signoff = formTypeOf(f) === "signoff";
+              const customerSig = formTypeOf(f) === "customer_signature";
+              if (isCustomer && customerSig) {
+                const v = values[f.key];
+                const signed = customerSigned(v);
+                return (
+                  <div key={f.key} style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{f.label}</div>
+                    {signed && <img src={v.signature} alt="" style={{ display: "block", height: 48, maxWidth: "100%", boxSizing: "border-box", objectFit: "contain", objectPosition: "left center", background: "#FFFFFF", borderRadius: R.sm, border: "1px solid " + t.borderSolid, marginTop: 6 }} />}
+                    <div style={{ fontSize: 14, color: signed ? t.text : t.textMut, fontWeight: signed ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{signed ? [sigNameOf(v).trim(), sigRoleOf(v).trim()].filter(Boolean).join(", ") : tr("Not signed")}</div>
+                  </div>
+                );
+              }
               const read = signoff ? formStampLine(values[f.key]) : (formTypeOf(f) === "photos" ? formPhotosLine(values[f.key]) : formReadAnswer(f, values[f.key]));
               return (
                 <div key={f.key} style={{ marginBottom: 14 }}>
@@ -5819,12 +6059,29 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
             {hereHelp && <div style={mkHelp(t)}>{hereHelp}</div>}
           </div>
         )}
+        {!review && isCustomer && at === 0 && (
+          <>
+            <div style={qSt}>
+              <div style={labelSt}>{tr("Your name")}{customer.nameRequired && <span style={reqSt}>{tr("Required")}</span>}</div>
+              <input type="text" autoComplete="name" maxLength={CUSTOMER_NAME_MAX} value={customerName} onChange={e => setCustomerName(e.target.value)} style={inputSt} />
+            </div>
+            <div style={qSt}>
+              <div style={labelSt}>{tr("Your role")}</div>
+              <input type="text" autoComplete="organization-title" maxLength={CUSTOMER_NAME_MAX} value={customerRole} onChange={e => setCustomerRole(e.target.value)} style={inputSt} />
+            </div>
+            {/* The field a person never sees and never fills. A filing
+                that fills it is taken by the API and written nowhere. */}
+            <input type="text" name="website" value="" readOnly tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: "absolute", opacity: 0, width: 0, height: 0, border: 0, padding: 0, margin: 0, pointerEvents: "none" }} />
+          </>
+        )}
         {!review && pageFields.map(f => (
           <div key={f.key} style={qSt}>
             <div style={labelSt}>{f.label}{f.required && <span style={reqSt}>{tr("Required")}</span>}</div>
             {f.help && <div style={mkHelp(t)}>{f.help}</div>}
             {renderInput(f)}
-            {badKeys.indexOf(f.key) !== -1 && <div style={mkFieldErr(t)}>{tr("Check this answer")}</div>}
+            {keyErr[f.key]
+              ? <div style={mkFieldErr(t)}>{keyErr[f.key]}</div>
+              : badKeys.indexOf(f.key) !== -1 && <div style={mkFieldErr(t)}>{tr("Check this answer")}</div>}
           </div>
         ))}
       </div>
@@ -5832,7 +6089,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave }) {
       <div style={{ display: "flex", gap: 10, padding: "12px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0 }}>
         {(review || at > 0) && <button onClick={goBack} disabled={saving || sending} style={footBtn(false, saving || sending)}>{saving ? tr("Saving") : tr("Back")}</button>}
         {review
-          ? <button onClick={() => setConfirmSend(true)} disabled={sending || missing.length > 0} style={footBtn(true, sending || missing.length > 0)}>{sending ? tr("Sending") : tr("Submit report")}</button>
+          ? <button onClick={() => (isCustomer ? submit() : setConfirmSend(true))} disabled={sending || missing.length > 0} style={footBtn(true, sending || missing.length > 0)}>{sending ? tr("Sending") : tr(isCustomer ? "Send" : "Submit report")}</button>
           : <button onClick={goNext} disabled={saving} style={footBtn(true, saving)}>{saving ? tr("Saving") : tr("Next")}</button>}
       </div>
 
