@@ -4175,22 +4175,49 @@ function agentSourceName(code) {
   return c;
 }
 // The sources in the order the API sent them, each name once, so two
-// guide codes on one answer name the app guide once.
-const agentSourcesLine = (codes) => {
+// guide codes on one answer name the app guide once. An answer that
+// carries citedNames (Step 183) names each source by the document's own
+// title, in the screen's language where the library has one; a name the
+// API left empty falls back to the code's words above. An answer without
+// them reads as it did.
+const agentSourcesLine = (codes, names) => {
   const out = [];
-  (Array.isArray(codes) ? codes : []).forEach(c => { const w = agentSourceName(c); if (w && out.indexOf(w) === -1) out.push(w); });
+  const add = (w) => { if (w && out.indexOf(w) === -1) out.push(w); };
+  const named = Array.isArray(names) ? names : [];
+  if (named.length > 0) named.forEach(n => { const name = n && typeof n.name === "string" ? n.name.trim() : ""; add(name || agentSourceName(n && n.code)); });
+  else (Array.isArray(codes) ? codes : []).forEach(c => add(agentSourceName(c)));
   return out.join(", ");
 };
 
+// A rating the API kept on an answer: helpful or not, with the note. Any
+// other shape reads as no rating.
+const agentFeedback = (f) => (f && typeof f === "object" && typeof f.helpful === "boolean") ? { helpful: f.helpful, note: typeof f.note === "string" ? f.note : "" } : null;
+// The id an answer can be rated by, from the message route's reply or
+// the stream's done event, as a string. Nothing until the API sends one.
+const agentMessageId = (d) => { const v = agentField(d, ["messageId", "message_id"], null); return v === null || v === "" ? null : String(v); };
+// How long a note under a rating can be, the API's own limit.
+const RATE_NOTE_MAX = 500;
+
 // One message of a conversation the API keeps, read the same way for
 // resuming a report and for an answer whose connection dropped.
-const agentStored = (m) => ({
-  role: String(agentField(m, ["role", "sender"], "assistant")).toLowerCase() === "user" ? "user" : "assistant",
-  text: String(agentField(m, ["text", "content", "reply"], "")),
-  citedDocs: agentList(agentField(m, ["citedDocs", "cited_doc_codes", "citedDocCodes"], []), []),
-  degraded: agentField(m, ["degraded"], false) === true,
-  noProcedure: agentField(m, ["noProcedure", "no_procedure"], false) === true,
-});
+// A row that carries feedback (null, or the rating) is one the API
+// keeps ratings for, and its id is the one to rate by. A row from
+// before Step 183 carries no feedback key, so it shows no rating and
+// nothing new until the API answers.
+const agentStored = (m) => {
+  const role = String(agentField(m, ["role", "sender"], "assistant")).toLowerCase() === "user" ? "user" : "assistant";
+  const rated = role === "assistant" && !!m && typeof m === "object" && Object.prototype.hasOwnProperty.call(m, "feedback");
+  return {
+    role,
+    text: String(agentField(m, ["text", "content", "reply"], "")),
+    citedDocs: agentList(agentField(m, ["citedDocs", "cited_doc_codes", "citedDocCodes"], []), []),
+    citedNames: agentList(agentField(m, ["citedNames", "cited_names"], []), []),
+    degraded: agentField(m, ["degraded"], false) === true,
+    noProcedure: agentField(m, ["noProcedure", "no_procedure"], false) === true,
+    messageId: rated ? agentMessageId({ messageId: agentField(m, ["id", "messageId", "message_id"], null) }) : null,
+    feedback: rated ? agentFeedback(m.feedback) : null,
+  };
+};
 // The answer the API kept for one question: the message right after the
 // last question that reads the same, when it is the assistant's. Nothing
 // while the API has not kept it yet.
@@ -4207,6 +4234,57 @@ const agentKeptAnswer = (list, question) => {
 // Words for a screen reader alone: a box one pixel square with everything
 // clipped away, so nothing is drawn and a screen reader still reads it.
 const HEARD_ONLY = { position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0 0 0 0)", clipPath: "inset(50%)", whiteSpace: "nowrap", border: 0 };
+
+// Was this helpful?, under an answer the API gave an id. Yes sends the
+// rating at once. No opens a box for what was missing and Send sends the
+// rating with the note, or without one when the box is left empty. After
+// either the thanks line shows and the choice stays drawn; tapping the
+// other choice rates again, which replaces the rating. An answer read
+// back from a stored conversation arrives with its stored rating. A
+// refusal shows under the choices in the API's words. A 404 that is not
+// the API's own refusal means the route is not there yet, and every
+// rating row goes.
+function RateAnswer({ messageId, feedback, onRated, onUnavailable, token, t }) {
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const picked = feedback ? feedback.helpful : null;
+  const rate = async (helpful, text) => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      const body = { helpful: helpful };
+      const said = String(text == null ? "" : text).trim();
+      if (!helpful && said) body.note = said.slice(0, RATE_NOTE_MAX);
+      const r = await api("/api/agent/messages/" + encodeURIComponent(messageId) + "/feedback", { method: "POST", body: body, token });
+      onRated(agentFeedback(r && r.feedback) || { helpful: helpful, note: body.note || "" });
+      setNoteOpen(false); setNote("");
+    } catch (err) {
+      if (err && err.status === 404 && err.code !== "help.messageNotFound") onUnavailable();
+      else setError(tr(err.message));
+    }
+    setBusy(false);
+  };
+  const choice = (on) => ({ minHeight: TAP, minWidth: TAP, padding: "0 14px", borderRadius: R.sm, cursor: busy ? "default" : "pointer", fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD, background: on ? t.goldBg : "transparent", border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: on ? t.goldText : t.textSec, opacity: busy ? 0.6 : 1 });
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <span style={{ fontSize: 11, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("Was this helpful?")}</span>
+        <button type="button" aria-pressed={picked === true} onClick={() => rate(true)} disabled={busy} style={choice(picked === true)}>{tr("Yes")}</button>
+        <button type="button" aria-pressed={picked === false} onClick={() => { setError(null); setNoteOpen(true); }} disabled={busy} style={choice(picked === false)}>{tr("No")}</button>
+      </div>
+      {noteOpen && (
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 8, marginTop: 8 }}>
+          <textarea value={note} onChange={e => setNote(e.target.value)} maxLength={RATE_NOTE_MAX} rows={2} disabled={busy} placeholder={tr("What was missing?")} aria-label={tr("What was missing?")} style={{ ...mkInput(t), flex: 1, width: "auto", minWidth: 0, fontSize: 12, resize: "none", lineHeight: 1.45 }} />
+          <button type="button" onClick={() => rate(false, note)} disabled={busy} style={{ padding: "8px 14px", minHeight: TAP, borderRadius: R.sm, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 12, fontWeight: 600, cursor: busy ? "default" : "pointer", fontFamily: FONT_HEAD, flexShrink: 0, opacity: busy ? 0.6 : 1 }}>{tr("Send")}</button>
+        </div>
+      )}
+      {feedback && !noteOpen && <div style={{ fontSize: 11, color: t.textMut, marginTop: 6, lineHeight: 1.4 }}>{tr("Thanks. This helps Help get better.")}</div>}
+      {error && <div role="alert" style={{ fontSize: 11, color: RED, marginTop: 6, lineHeight: 1.4 }}>{error}</div>}
+    </div>
+  );
+}
 
 function AgentView({ token, showToast, t, language, onFillForm, conversationId, onConversation }) {
   // The same shape the Forms screen uses, so a Spanish screen never
@@ -4231,6 +4309,9 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
   // said twice.
   const [heard, setHeard] = useState({ n: 0, text: "" });
   const hear = (text) => setHeard(prev => ({ n: prev.n + 1, text: agentSpoken(text) }));
+  // Every rating row goes when the feedback route answers that it is not
+  // there, so nobody is offered a choice the API cannot take.
+  const [rateOff, setRateOff] = useState(false);
 
   // Photos waiting to go with the next message. Each one holds the object
   // URL its thumbnail is drawn from, the prepared bytes, and the storage
@@ -4383,7 +4464,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
       // The composer clears only now, and only if it still holds what was sent.
       setText(prev => prev.trim() === msgText ? "" : prev);
       setPhotos(prev => (prev.length > 0 && paths && paths.length > 0) ? [] : prev);
-      const answer = { id: answerId, role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], degraded: data.degraded === true, noProcedure: data.noProcedure === true };
+      const answer = { id: answerId, role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], citedNames: Array.isArray(data.citedNames) ? data.citedNames : [], degraded: data.degraded === true, noProcedure: data.noProcedure === true, messageId: agentMessageId(data), feedback: null };
       place(answer);
       if (data.formResponse) { setFormResponse(data.formResponse); setMissing([]); setSubmitted(false); }
       hear(answer.text);
@@ -4507,8 +4588,9 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
             )}
             {isMe ? m.text : (m.arriving || m.dropped) ? agentArriving(m.text) : <AgentReply text={m.text} />}
           </div>}
-          {!isMe && agentSourcesLine(m.citedDocs) && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>{tr("Based on")} {agentSourcesLine(m.citedDocs)}</div>}
+          {!isMe && agentSourcesLine(m.citedDocs, m.citedNames) && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>{tr("Based on")} {agentSourcesLine(m.citedDocs, m.citedNames)}</div>}
           {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>{tr("Working from the written procedure only right now.")}</div>}
+          {!isMe && m.messageId && !m.arriving && !m.dropped && !rateOff && <RateAnswer messageId={m.messageId} feedback={m.feedback || null} onRated={(f) => setThread(prev => prev.map(x => x.id === m.id ? { ...x, feedback: f } : x))} onUnavailable={() => setRateOff(true)} token={token} t={t} />}
           {!isMe && m.dropped && <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("The connection dropped. Your answer is saved.")}{m.error ? " " + m.error : ""}</span>{!m.reading && <button onClick={() => readBack(m.id, m.conversationId, m.question)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Try again")}</button>}</div>}
           {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("Not sent.")}{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text, m.photoPaths)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Retry")}</button></div>}
         </div></div>); })}
