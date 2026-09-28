@@ -10,7 +10,7 @@ const { INSPECT, languageRows } = require("./checks");
 const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES,
-  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT } = require("./stub");
+  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -4387,6 +4387,62 @@ const JOURNEYS = [
         const kept = servedIn("Where did it happen", language), newer = servedIn("Which room was it in", language);
         expect("the report is drawn from the version sent beside its draft, with none of the catalog's newer questions", has(text, kept) && !has(text, newer), text.slice(0, 300));
         await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "personquestion",
+    label: "The person question: a person picked, saved as an id and a name, cleared and picked again, the review naming them, and the employee's signature card opening with their name",
+    run: async (open, language, expect) => {
+      const w = FORM_E_WORDS[language === "es" ? "es" : "en"];
+      const saves = (stub) => stub.state.calls.filter(c => c.method === "PATCH" && c.path === "/api/forms/drafts/draft-four");
+      const pickRow = (page, name) => page.evaluate((want) => {
+        const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.replace(/\s+/g, " ").trim() === want);
+        if (b) b.click();
+        return !!b;
+      }, name);
+      const nameBox = (page) => page.evaluate((label) => {
+        const l = Array.from(document.querySelectorAll(".sp-content div")).find(d => d.children.length === 0 && d.textContent.trim() === label && d.nextElementSibling && d.nextElementSibling.tagName === "INPUT");
+        return l ? l.nextElementSibling.value : null;
+      }, say("Name", language));
+      const app = await open({ stubOptions: { personForm: true } });
+      try {
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, w.title);
+        await pause(app.page, 600);
+        const listed = await app.page.evaluate(() => Array.from(document.querySelectorAll(".sp-content button")).map(b => b.innerText.replace(/\s+/g, " ").trim()));
+        expect("the person question offers the staff by name, the one filing among them", listed.indexOf("Carla Castro") !== -1 && listed.indexOf("Alex Tester") !== -1, JSON.stringify(listed.slice(0, 20)));
+        await pickRow(app.page, "Carla Castro");
+        await pause(app.page, 400);
+        expect("the pick is drawn as a chip", await app.page.evaluate((label) => Array.from(document.querySelectorAll(".sp-content button")).some(b => (b.getAttribute("aria-label") || "") === label), fill(say("Remove {name}", language), { name: "Carla Castro" })), "no chip");
+        expect("the employee's signature card opens with the picked name in its Name box", (await nameBox(app.page)) === "Carla Castro", JSON.stringify(await nameBox(app.page)));
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 1000);
+        let save = saves(app.stub).pop();
+        expect("the pick is saved as the person's id and name", !!save && JSON.stringify(save.body.answers.who) === JSON.stringify({ id: "s-03", name: "Carla Castro" }), save ? JSON.stringify(save.body) : "nothing saved");
+        expect("the review names the person", has(await bodyText(app.page), "Carla Castro"), (await bodyText(app.page)).slice(0, 300));
+        await spokenHere(app, language, expect);
+
+        // Cleared and picked again.
+        await clickText(app.page, say("Back", language));
+        await pause(app.page, 800);
+        await tapLabel(app.page, fill(say("Remove {name}", language), { name: "Carla Castro" }));
+        await pause(app.page, 400);
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 1000);
+        save = saves(app.stub).pop();
+        expect("cleared, the answer is saved as nothing", !!save && save.body.answers.who === null, save ? JSON.stringify(save.body) : "nothing saved");
+        await clickText(app.page, say("Back", language));
+        await pause(app.page, 800);
+        await pickRow(app.page, "Ben Brooks");
+        await pause(app.page, 400);
+        expect("the signature card's Name box follows the new pick", (await nameBox(app.page)) === "Ben Brooks", JSON.stringify(await nameBox(app.page)));
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 1000);
+        save = saves(app.stub).pop();
+        expect("picked again, the new person is saved by id and name", !!save && JSON.stringify(save.body.answers.who) === JSON.stringify({ id: "s-02", name: "Ben Brooks" }) && JSON.stringify(app.stub.state.answersE.who) === JSON.stringify({ userId: "s-02", name: "Ben Brooks" }), save ? JSON.stringify(save.body) : "nothing saved");
+        expect("the review names the new person", has(await bodyText(app.page), "Ben Brooks") && !has(await bodyText(app.page), "Carla Castro"), (await bodyText(app.page)).slice(0, 300));
       } finally { await app.context.close(); }
     },
   },

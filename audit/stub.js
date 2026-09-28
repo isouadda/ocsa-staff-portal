@@ -533,6 +533,9 @@ function makeState(opts) {
     answersS: {},
     // The incident report's second version in the catalog.
     formVersions: !!o.formVersions,
+    // The form about one person, served when a case asks, and its answers.
+    personForm: !!o.personForm,
+    answersE: {},
     // Everyone Speak Up can name, and every report filed through it.
     staff: o.staff || STAFF.slice(),
     filed: [],
@@ -768,6 +771,37 @@ function formS(lang, one) {
       field("low", "text", "2", false),
       field("notes", "textarea", "3", false),
     ]),
+  };
+}
+
+// A fourth form, invented: a check-in about one employee, with a person
+// question, Step 186's type, that says who the form is about, and the
+// employee's signature, drawn on the phone. The form names its person
+// question as aboutPerson. Served only to a case that asks for it with
+// stubOptions.personForm.
+const FORM_E_CODE = "TEST-FORM-E";
+const FORM_E_WORDS = {
+  en: { title: "Employee check-in", first: "Who and how it went", who: "Who is this about", notes: "What went well", sign: "Employee signature" },
+  es: { title: "Revision con el empleado", first: "Quien y como le fue", who: "De quien se trata", notes: "Que salio bien", sign: "Firma del empleado" },
+};
+function formE(lang) {
+  const w = FORM_E_WORDS[lang === "es" ? "es" : "en"];
+  const field = (key, type, required) => ({ key: key, label: w[key], type: type, required: required, osha: false, prefilled: false, options: [], appliesWhen: null, help: null, section: "1" });
+  return {
+    code: FORM_E_CODE, title: w.title, version: 1, aboutPerson: "who",
+    sections: [{ key: "1", title: w.first }],
+    fields: [field("who", "person", true), field("notes", "textarea", false), field("sign", "customer_signature", false)],
+  };
+}
+function draftE(state, lang) {
+  const form = formE(lang);
+  const answers = state.answersE;
+  const answered = form.fields.filter(f => answers[f.key] !== undefined && answers[f.key] !== null && answers[f.key] !== "").length;
+  return {
+    id: "draft-four", formCode: form.code, formName: form.title,
+    answers: JSON.parse(JSON.stringify(answers)),
+    status: "draft", answered: answered, remaining: form.fields.length - answered,
+    missing: form.fields.filter(f => f.required && !answers[f.key]).map(f => f.key),
   };
 }
 
@@ -1435,7 +1469,9 @@ const TWIN_PAIRS = [
   .concat(Object.keys(FORM_C_WORDS.en).map(k => [FORM_C_WORDS.en[k], FORM_C_WORDS.es[k]]))
   .concat(Object.keys(FORM_V_WORDS.en).map(k => [FORM_V_WORDS.en[k], FORM_V_WORDS.es[k]]))
   // The incident report's second version.
-  .concat([["Which room was it in", "En qu\u00e9 cuarto fue"]]);
+  .concat([["Which room was it in", "En qu\u00e9 cuarto fue"]])
+  // The form about one person.
+  .concat(Object.keys(FORM_E_WORDS.en).map(k => [FORM_E_WORDS.en[k], FORM_E_WORDS.es[k]]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -2238,6 +2274,8 @@ function createStub(opts) {
     const second = (p) => /TEST-FORM-P/.test(p) || /draft-two/.test(p);
     const third = (p) => state.sectionsForm && (/TEST-FORM-S/.test(p) || /draft-three/.test(p));
     const thirdForm = () => formS(lang, state.sectionsForm === "one");
+    // The form about one person, served when a case asks for it.
+    const fourth = (p) => state.personForm && (/TEST-FORM-E/.test(p) || /draft-four/.test(p));
     // The catalog carries each form whole, fields and all, because the
     // form is what says which questions a report has and the screen
     // reads them from here. It served only the code and the title until
@@ -2247,7 +2285,41 @@ function createStub(opts) {
     // send beside it; with formVersions the incident report has a second
     // version out.
     if (pathname === "/api/forms") {
-      return json(200, { forms: [state.formVersions ? FORM_V2 : FORM, formP(lang)].concat(state.sectionsForm ? [thirdForm()] : []) });
+      return json(200, { forms: [state.formVersions ? FORM_V2 : FORM, formP(lang)].concat(state.sectionsForm ? [thirdForm()] : []).concat(state.personForm ? [formE(lang)] : []) });
+    }
+    if (fourth(pathname)) {
+      if (method === "GET" && /^\/api\/forms\/drafts\//.test(pathname)) return json(200, { draft: draftE(state, lang), form: formE(lang) });
+      if (method === "POST" && /^\/api\/forms\/[^/]+\/drafts$/.test(pathname)) return json(200, { draft: draftE(state, lang), form: formE(lang) });
+      if (method === "GET" && /^\/api\/forms\/[^/]+$/.test(pathname)) return json(200, { form: formE(lang) });
+      // A person is read off the staff by its id, the way Step
+      // 186 reads one: the id picks the person, and the name kept is the
+      // one the staff list has today. Every key is checked before any is
+      // written.
+      if (method === "PATCH" && /^\/api\/forms\/drafts\//.test(pathname)) {
+        const written = (body && body.answers) || {};
+        const fields = formE(lang).fields;
+        const merge = {};
+        const invalid = [];
+        Object.keys(written).forEach((k) => {
+          const f = fields.find(x => x.key === k);
+          const v = written[k];
+          if (!f) { invalid.push(k); return; }
+          if (v === null || v === "") { merge[k] = null; return; }
+          if (f.type !== "person") { merge[k] = v; return; }
+          const id = v && typeof v === "object" ? String(v.userId || v.id || "") : String(v);
+          const who = state.staff.concat([state.person]).find(p => String(p.id) === id);
+          if (!who) { invalid.push(k); return; }
+          merge[k] = { userId: who.id, name: who.firstName + " " + who.lastName };
+        });
+        if (invalid.length > 0) { const r = apiRefusal("forms.invalidAnswers", search); return json(r.status, Object.assign(JSON.parse(r.body), { keys: invalid })); }
+        Object.keys(merge).forEach((k) => { if (merge[k] === null) delete state.answersE[k]; else state.answersE[k] = merge[k]; });
+        return json(200, { draft: draftE(state, lang), form: formE(lang) });
+      }
+      if (method === "POST" && /^\/api\/forms\/drafts\/[^/]+\/submit$/.test(pathname)) {
+        const short = draftE(state, lang).missing;
+        if (short.length > 0) return json(400, { error: "Answer every required question before sending", missing: short });
+        return json(200, { ok: true, reference: "TEST-FORM-E-0001" });
+      }
     }
     if (method === "GET" && /^\/api\/forms\/drafts\//.test(pathname)) {
       if (third(pathname)) return json(200, { draft: draftS(state, lang), form: thirdForm() });
@@ -2611,4 +2683,4 @@ module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSA
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES, localeFault, localeRows,
   CUSTOMER_LINKS, FORM_C_CODE, FORM_V_CODE, formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, PUBLIC_MAX_PHOTOS, PUBLIC_FILINGS_MAX, customerSignatureLine,
-  ANNOUNCEMENT };
+  ANNOUNCEMENT, FORM_E_WORDS };
