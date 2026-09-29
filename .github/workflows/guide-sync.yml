@@ -1,0 +1,38 @@
+# Loads guide/APP-PORTAL.md into Help on every merge to main that
+# changes it, and by hand from the Actions tab. No secret: the API checks
+# this run's own OIDC token, and only this repository's main branch may
+# write the staff portal's guide. See guide/README.md.
+name: Guide sync
+
+on:
+  push:
+    branches: [main]
+    paths: ["guide/APP-PORTAL.md"]
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: "Dry run: report what would change and write nothing"
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+# Two merges close together sync one after the other, never at once.
+concurrency:
+  group: guide-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Send the guide to Help
+        run: node scripts/guide-sync.js
+        env:
+          GUIDE_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dryRun && 'true' || 'false' }}
