@@ -1,0 +1,28 @@
+# The check on the Help guide, on every pull request: see
+# scripts/guide-check.js and guide/README.md. It fails on a guide that
+# would not load or that names a word the app does not draw, and warns
+# when a pull request changes src/ and not guide/.
+name: Guide check
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The whole history, so the check can see what the pull request
+          # changes against its base branch.
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Check the guide
+        run: npm run guide-check
+        env:
+          GUIDE_BASE: origin/${{ github.base_ref }}

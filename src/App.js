@@ -590,7 +590,7 @@ async function apiStream(path, opts, on) {
         if (ev.name === "meta") meta = ev.data || {};
         else if (ev.name === "delta") { if (ev.data && typeof ev.data.text === "string" && on.delta) on.delta(ev.data.text); }
         else if (ev.name === "reset") { if (on.reset) on.reset(); }
-        else if (ev.name === "error") throw refusalOf((ev.data || {}).status, ev.data || {}, opts);
+        else if (ev.name === "error") { const x = refusalOf((ev.data || {}).status, ev.data || {}, opts); x.meta = meta; throw x; }
         else if (ev.name === "done") {
           if (!ev.data || typeof ev.data !== "object") { const x = new Error(ERR_GENERIC); x.status = res.status; throw x; }
           return ev.data;
@@ -601,6 +601,20 @@ async function apiStream(path, opts, on) {
     if (reader) reader.cancel().catch(() => {});
     flightDown();
   }
+}
+
+// One id for a Help question or a chat message, made when it is first
+// sent and sent unchanged on every retry of it, so the API answers a
+// retry once (Step 198): 8 to 64 characters from letters, digits, _ and -.
+// A phone without randomUUID uses its random bytes, and one without those
+// the clock and Math.random.
+function newSendId() {
+  const c = typeof window !== "undefined" ? window.crypto : null;
+  try { if (c && typeof c.randomUUID === "function") return c.randomUUID().replace(/-/g, ""); } catch (e) {}
+  try { if (c && typeof c.getRandomValues === "function") return Array.from(c.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join(""); } catch (e) {}
+  let id = Date.now().toString(36);
+  while (id.length < 32) id += Math.random().toString(36).slice(2);
+  return id.slice(0, 32);
 }
 
 const formatTime = (d) => new Date(d).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit", hour12: true });
@@ -1393,6 +1407,9 @@ export default function OCSAStaffPortal() {
   // The language the list in tasks came back in, so an item's own words
   // from the API are drawn only on a screen in that language.
   const [tasksLang, setTasksLang] = useState(null);
+  // The checklist day the list in tasks belongs to, YYYY-MM-DD, once the
+  // API sends it (Step 198), and null until then.
+  const [tasksDay, setTasksDay] = useState(null);
   // Every clock status request takes a number and only the newest one may
   // fill the Set. An older response landing late would otherwise clear a
   // box that was ticked after it was requested. A person's own list reads
@@ -1726,7 +1743,7 @@ export default function OCSAStaffPortal() {
   // flight, which a check or an uncheck needs: the list then carries what
   // the API says was done. Only the newest request's answer is taken.
   const tasksSeq = useRef(0);
-  const loadTasks = async (again) => { const path = checklistAsk; const key = checklistKey; const lang = language; if (!path || (again !== true && tasksReqAsked.current === key)) return; const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (mine !== tasksSeq.current) return; setTasks(tt); setTasksLang(lang); tasksAsked.current = key; setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; }); const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); takeStatus(cs, seq); } catch (err) { console.error(err); if (mine === tasksSeq.current) setTasksFailed(true); } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; } };
+  const loadTasks = async (again) => { const path = checklistAsk; const key = checklistKey; const lang = language; if (!path || (again !== true && tasksReqAsked.current === key)) return; const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (mine !== tasksSeq.current) return; const got = checklistAnswer(tt); setTasks(got.rows); setTasksDay(got.day); setTasksLang(lang); tasksAsked.current = key; setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; }); const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); takeStatus(cs, seq); } catch (err) { console.error(err); if (mine === tasksSeq.current) setTasksFailed(true); } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; } };
   // A check or an uncheck, sent the way it always has been, for the row as
   // the screen draws it. A row outside the id lists is drawn from this
   // phone's own tap until the list comes back. Then the list and the
@@ -1798,7 +1815,10 @@ export default function OCSAStaffPortal() {
   // The ids of the people tagged ride along as mentions, and only when
   // there are any, so an API from before tagging reads the same body it
   // always did. The list of chats is read again after each send.
-  const sendMessage = async (channelId, text, mentions) => { const body = { text }; if (Array.isArray(mentions) && mentions.length > 0) body.mentions = mentions; const data = await api(chatPath("/api/chat/channels/" + channelId + "/messages"), { method: "POST", body: body, token }); const msg = data && data.message && typeof data.message === "object" ? data.message : null; if (!msg) { await readMessages(channelId).catch(e => console.error(e)); } else if (activeChannelRef.current === channelId) setMessages(prev => (msg.id && prev.some(m => m.id === msg.id) ? prev : [...prev, msg])); loadChannels(); };
+  // clientId is the message's own id, the same on every Try again of it,
+  // so a message sent again is kept once (Step 198). The message in the
+  // answer is drawn once, matched by its id or by that clientId.
+  const sendMessage = async (channelId, text, mentions, clientId) => { const body = { text }; if (Array.isArray(mentions) && mentions.length > 0) body.mentions = mentions; if (clientId) body.clientId = clientId; const data = await api(chatPath("/api/chat/channels/" + channelId + "/messages"), { method: "POST", body: body, token }); const msg = data && data.message && typeof data.message === "object" ? data.message : null; if (!msg) { await readMessages(channelId).catch(e => console.error(e)); } else if (activeChannelRef.current === channelId) setMessages(prev => (prev.some(m => (msg.id && m.id === msg.id) || isClientSend(m, msg.senderId, msg.clientId)) ? prev : [...prev, msg])); loadChannels(); };
 
   useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "issues") loadIssues(); if (activeTab === "issuetasks") loadAssignedTasks(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId]);
   // The task list is fetched as soon as a session is seen open, whichever
@@ -2181,7 +2201,7 @@ export default function OCSAStaffPortal() {
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
               {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
-              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
+              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
@@ -3536,6 +3556,19 @@ function checklistRequest(cs, userId, lang) {
   if (own && !userId) return null;
   return "/api/sites/" + cs.shift.siteId + "/tasks?" + (own ? "user_id=" + userId + "&" : "") + "day=today&locale=" + (lang === "es" ? "es" : "en");
 }
+// The rows the list answers, and the checklist day it carries (Step 198),
+// YYYY-MM-DD or null. The route answers a bare list today, which has no
+// top level to carry the day, so the day is read from checklistDay beside
+// the rows under tasks, or from the rows where each carries it. Any other
+// answer is kept as it came, the way it always was.
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+function checklistAnswer(tt) {
+  const rows = Array.isArray(tt) ? tt : (tt && Array.isArray(tt.tasks) ? tt.tasks : tt);
+  const top = tt && !Array.isArray(tt) && typeof tt === "object" ? tt.checklistDay : null;
+  const onRow = Array.isArray(rows) ? (rows.find(r => r && YMD_RE.test(String(r.checklistDay || ""))) || {}).checklistDay : null;
+  const day = YMD_RE.test(String(top || "")) ? top : onRow || null;
+  return { rows, day };
+}
 // Where a row belongs on the checklist. The day's own work is counted in
 // its percentage when it is due today. Work that repeats over a week, two
 // weeks, a month, a quarter or a season has a section of its own, in
@@ -3559,15 +3592,24 @@ function companyDay(ms) {
   new Intl.DateTimeFormat("en-US", { timeZone: clientConfig.company.timeZone, year: "numeric", month: "numeric", day: "numeric" }).formatToParts(new Date(ms)).forEach((x) => { p[x.type] = Number(x.value); });
   return Math.round(Date.UTC(p.year, p.month - 1, p.day) / 86400000);
 }
-function doneWhen(done) {
+// A list that carries its checklistDay and a completion that carries its
+// own (Step 198) are counted by those two days instead, so work done at
+// 11 PM still reads Done today at 1 AM on the same night's list, which runs
+// to 4:00 AM. The weekday and the date are then the completion's checklist
+// day, drawn at noon UTC in UTC so no zone moves it.
+const ymdDayNumber = (ymd) => (YMD_RE.test(String(ymd || "")) ? Math.round(Date.UTC(Number(ymd.slice(0, 4)), Number(ymd.slice(5, 7)) - 1, Number(ymd.slice(8, 10))) / 86400000) : null);
+function doneWhen(done, listDay) {
   const at = done && done.completedAt ? new Date(done.completedAt) : null;
   if (!at || isNaN(at.getTime()) || !done.firstName) return null;
-  const zone = clientConfig.company.timeZone;
-  const ago = companyDay(Date.now()) - companyDay(at.getTime());
+  const listN = ymdDayNumber(listDay), doneN = ymdDayNumber(done.checklistDay);
+  const byDay = listN !== null && doneN !== null;
+  const zone = byDay ? "UTC" : clientConfig.company.timeZone;
+  const shown = byDay ? new Date(doneN * 86400000 + 43200000) : at;
+  const ago = byDay ? listN - doneN : companyDay(Date.now()) - companyDay(at.getTime());
   if (ago <= 0) return tr("Done today by {firstName}", { firstName: done.firstName });
   if (ago === 1) return tr("Done yesterday by {firstName}", { firstName: done.firstName });
-  if (ago <= 6) return tr("Done {weekday} by {firstName}", { weekday: at.toLocaleDateString(dateLocale(), { weekday: "long", timeZone: zone }), firstName: done.firstName });
-  return tr("Done {date} by {firstName}", { date: at.toLocaleDateString(dateLocale(), { month: "short", day: "numeric", timeZone: zone }), firstName: done.firstName });
+  if (ago <= 6) return tr("Done {weekday} by {firstName}", { weekday: shown.toLocaleDateString(dateLocale(), { weekday: "long", timeZone: zone }), firstName: done.firstName });
+  return tr("Done {date} by {firstName}", { date: shown.toLocaleDateString(dateLocale(), { month: "short", day: "numeric", timeZone: zone }), firstName: done.firstName });
 }
 // An item's words as the screen draws them. Step 118 in the API sends
 // display: { label, description, zone } in the language asked for, and
@@ -3701,7 +3743,7 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
   );
 }
 
-function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, shiftSheet, onChangeShift, t }) {
+function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, t }) {
   const [detail, setDetail] = useState(null);
   const loaded = Array.isArray(tasks);
   const standardTasks = standardTasksOf(tasks);
@@ -3825,7 +3867,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   // Who did it and when, under a periodic row that is done and under a
   // day's row done on an earlier day, the every other day row checked the
   // day before.
-  const whenOf = (tk) => (tk.doneThisPeriod && (isPeriodic(tk) || (sectionOf(tk) === "today" && !isDueToday(tk))) ? doneWhen(tk.doneThisPeriod) : null);
+  const whenOf = (tk) => (tk.doneThisPeriod && (isPeriodic(tk) || (sectionOf(tk) === "today" && !isDueToday(tk))) ? doneWhen(tk.doneThisPeriod, listDay) : null);
   const rows = standardTasks.map(rowNow);
   // Today's own work first, counted in the percentage when it is due. Then
   // each period with work, titled with its own count, and as needed work
@@ -3932,6 +3974,18 @@ function privateChatsOf(list) {
 // A message in a chat's list as the screen reads it: sent by this person,
 // with these words, and not one of the messages the chat already held.
 const isSentAgain = (m, userId, words, known) => !!m && m.senderId === userId && typeof m.text === "string" && m.text.trim() === words && !(m.id && known.has(m.id));
+// The stored message a send became, told by the clientId the send carried
+// (Step 198). Every message the chat routes answer carries clientId, null
+// on older rows, so a list whose rows carry the key comes from an API that
+// knows it.
+const isClientSend = (m, userId, clientId) => !!m && !!clientId && m.clientId === clientId && m.senderId === userId;
+const chatKnowsClientId = (rows) => rows.some(m => m && Object.prototype.hasOwnProperty.call(m, "clientId"));
+// Whether a send that did not seem to go is in the chat after all: by its
+// clientId where the API sends one, and otherwise the older way, by these
+// words from this person that were not there when the send left.
+const sendLanded = (rows, f, userId) => (f.clientId && chatKnowsClientId(rows)
+  ? rows.some(m => isClientSend(m, userId, f.clientId))
+  : !!f.known && rows.some(m => isSentAgain(m, userId, f.text, f.known)));
 // Every call Chat makes says the language on the screen, the way the
 // portal's other calls do. Without it the API answers in the account's
 // language, which a preference not yet saved can leave behind.
@@ -3996,8 +4050,8 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
   // settles it: the API kept it, so the words leave the box and the line
   // goes.
   useEffect(() => {
-    if (!fault || sending || !fault.known || fault.chat !== activeChannel || !Array.isArray(messages)) return;
-    if (messages.some(m => isSentAgain(m, user?.id, fault.text, fault.known))) { setFault(null); setText(prev => (prev.trim() === fault.text ? "" : prev)); }
+    if (!fault || sending || fault.chat !== activeChannel || !Array.isArray(messages)) return;
+    if (sendLanded(messages, fault, user?.id)) { setFault(null); setText(prev => (prev.trim() === fault.text ? "" : prev)); }
   }, [messages]);
   const list = Array.isArray(channels) ? channels : [];
   // Group chats wrap onto as many lines as they need, and private chats sit
@@ -4018,30 +4072,33 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
   // tap or Enter says to pick one first.
   const ready = text.trim().length > 0 && !!activeChannel && !sending;
   const knownIds = () => (Array.isArray(messages) ? new Set(messages.filter(m => m.id).map(m => m.id)) : null);
-  const send = async (chatId, words, known) => {
+  const send = async (chatId, words, known, clientId) => {
     setSending(true); setFault(null);
     try {
-      await sendMessage(chatId, words, mentionIdsIn(words, picked));
+      await sendMessage(chatId, words, mentionIdsIn(words, picked), clientId);
       setText(prev => (prev.trim() === words ? "" : prev));
       setPicked([]);
     } catch (err) {
-      setFault({ chat: chatId, text: words, known: known, kind: chatFaultOf(err), said: chatSaidOf(err) });
+      setFault({ chat: chatId, text: words, known: known, clientId: clientId, kind: chatFaultOf(err), said: chatSaidOf(err) });
     } finally { setSending(false); }
   };
-  // Try again reads the chat first. A message of this person's with these
-  // words that was not there when the send left is that send, kept by the
-  // API before its answer was lost, so it is drawn and never goes again.
-  // Otherwise the words in the box go now.
+  // Try again reads the chat first. The send found there, by its clientId
+  // or, from an API that sends none, as a message of this person's with
+  // these words that was not there when the send left, was kept by the API
+  // before its answer was lost, so it is drawn and never goes again.
+  // Otherwise the words in the box go now: the same words with the same
+  // clientId, so the API keeps them once, and words changed in the box as
+  // a new message with a new one.
   const retry = async () => {
     const f = fault;
     if (!f || sending) return;
     setSending(true);
     let rows;
     try { rows = await readMessages(f.chat); } catch (err) { setFault({ ...f, kind: chatFaultOf(err), said: chatSaidOf(err) }); setSending(false); return; }
-    if (f.known && rows.some(m => isSentAgain(m, user?.id, f.text, f.known))) { setFault(null); setText(prev => (prev.trim() === f.text ? "" : prev)); setSending(false); return; }
+    if (sendLanded(rows, f, user?.id)) { setFault(null); setText(prev => (prev.trim() === f.text ? "" : prev)); setSending(false); return; }
     const words = text.trim();
     if (!words) { setFault(null); setSending(false); return; }
-    send(f.chat, words, new Set(rows.filter(m => m.id).map(m => m.id)));
+    send(f.chat, words, new Set(rows.filter(m => m.id).map(m => m.id)), words === f.text && f.clientId ? f.clientId : newSendId());
   };
   // A send that did not go keeps its words in the box, and a line under
   // the box says what happened, with Try again beside it, while its chat
@@ -4052,7 +4109,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
     if (!words || sending) return;
     if (!activeChannel) { setPickFirst(true); return; }
     if (showFault) { retry(); return; }
-    send(activeChannel, words, knownIds());
+    send(activeChannel, words, knownIds(), newSendId());
   };
   // A site chat and the general chat can tag; a private chat cannot.
   const canTag = !!active && !isDm;
@@ -4572,7 +4629,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
   // thread from its first word to its last, drawn without its marks until
   // done, when the finished answer takes that place and everything the
   // answer does happens exactly as it always has.
-  const send = async (msgId, msgText, paths) => {
+  const send = async (msgId, msgText, paths, requestId) => {
     if (sending) return;
     setSending(true);
     setThread(prev => prev.map(m => m.id === msgId ? { ...m, pending: true, failed: false, error: null } : m));
@@ -4605,6 +4662,10 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
       if (language === "en" || language === "es") body.locale = language;
       if (paths && paths.length > 0) body.photoPaths = paths;
       if (conversationId) body.conversationId = conversationId;
+      // The question's own id, the same on every Retry of it, so a question
+      // the API already took is answered once. An answer it sends again
+      // carries replayed: true and is drawn like any other.
+      if (requestId) body.requestId = requestId;
       const data = await apiStream("/api/agent/message/stream", { method: "POST", body, token }, {
         delta: (piece) => { drawn += piece; draw(); },
         reset: () => { drawn = ""; draw(); },
@@ -4618,7 +4679,14 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
       if (data.formResponse) { setFormResponse(data.formResponse); setMissing([]); setSubmitted(false); }
       hear(answer.text);
     } catch (err) {
-      const cid = err.dropped && err.meta ? err.meta.conversationId : null;
+      // A Retry of a question the API holds with no answer yet is refused
+      // with 409 agent.requestInProgress, and read back the way a dropped
+      // connection is, from the conversation the refusal names or the one
+      // this question was sent to.
+      const inProgress = err.status === 409 && err.code === "agent.requestInProgress";
+      const cid = err.dropped && err.meta ? err.meta.conversationId
+        : inProgress ? agentField(err.meta, ["conversationId"], null) || agentField(err.body, ["conversationId", "conversation_id"], null) || conversationId || null
+        : null;
       if (cid) {
         // The connection dropped after the API took the question. The API
         // finishes the answer and keeps it, so the question counts as sent,
@@ -4661,8 +4729,9 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
     const paths = ready.map(p => p.path);
     const urls = ready.map(p => p.url);
     const id = "u" + (++seqRef.current);
-    setThread(prev => [...prev, { id, role: "user", text: v, photoPaths: paths, photoUrls: urls, pending: true }]);
-    send(id, v, paths);
+    const requestId = newSendId();
+    setThread(prev => [...prev, { id, role: "user", text: v, photoPaths: paths, photoUrls: urls, pending: true, requestId }]);
+    send(id, v, paths, requestId);
   };
 
   // Resume reads the draft row. With a conversation id on it the thread is
@@ -4745,7 +4814,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
           {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>{tr("Working from the written procedure only right now.")}</div>}
           {!isMe && m.messageId && !m.arriving && !m.dropped && !rateOff && <RateAnswer messageId={m.messageId} feedback={m.feedback || null} onRated={(f) => setThread(prev => prev.map(x => x.id === m.id ? { ...x, feedback: f } : x))} onUnavailable={() => setRateOff(true)} token={token} t={t} />}
           {!isMe && m.dropped && <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("The connection dropped. Your answer is saved.")}{m.error ? " " + m.error : ""}</span>{!m.reading && <button onClick={() => readBack(m.id, m.conversationId, m.question)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Try again")}</button>}</div>}
-          {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("Not sent.")}{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text, m.photoPaths)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Retry")}</button></div>}
+          {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("Not sent.")}{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text, m.photoPaths, m.requestId)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Retry")}</button></div>}
         </div></div>); })}
         <div ref={endRef} />
       </div>

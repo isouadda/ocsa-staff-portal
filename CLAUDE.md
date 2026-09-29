@@ -5,9 +5,10 @@ Build and validate (run before every commit)
 * Install: npm install
 * Build, the real check: npm run build must pass with no errors.
 * Dev server: npm start
+* Guide check: npm run guide-check must pass.
 * Report the build result after any change.
 Architecture
-* Single file: src/App.js, about 8,500 lines.
+* Single file: src/App.js, about 8,600 lines.
 * Design vocabulary matches the admin app: FONT_HEAD and FONT_BODY (both the phone's own system stack), the R radius scale, a full theme token set, gold glow on primary buttons, and the shared mkLabel, mkInput, mkQtyBtn helpers.
 * Auth fetch helper returns parsed JSON and throws on error.
 Conventions (hard rules)
@@ -15,6 +16,12 @@ Conventions (hard rules)
 * Keep parity with the admin design vocabulary. No stray fonts, for example no DM Sans.
 * This app is staff-facing. Keep all copy age-appropriate and professional, and never show the word CIMS.
 * ASCII only. Straight quotes. Hyphens, never dashes. Plain, direct language. No contrastive antithesis phrasing.
+Help guide (standing rule)
+* Every change to a screen updates guide/APP-PORTAL.md in the same pull request.
+* Bold names are read from translation/portal_words.csv and written **English** (**Spanish**), exactly as the CSV pairs them.
+* Last checked: on every entry touched is set to the day of the change.
+* The pull request lists the entries it changed.
+* A new entry goes at the end of the file. The file loads itself into Help on merge to main. See guide/README.md.
 Deploy
 * Push to the connected GitHub repo. Vercel redeploys automatically.
 * Confirm the live portal after deploy.

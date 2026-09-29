@@ -1,0 +1,238 @@
+# Bold pairs in guide/APP-PORTAL.md that the check lets through with no
+# row in translation/portal_words.csv. One pair per line, written the way
+# the guide writes it, under a comment line saying why it is here. A blank
+# line ends what a comment covers. Spanish letters are \u escapes, the way
+# src/words.js writes them, so this file stays ASCII; the check reads either.
+# npm run guide-check says when a pair here is no longer in the guide.
+
+# Composed: the button reads Start Shift at {site}, and the guide names the words before the site.
+**Start Shift at** (**Comenzar turno en**)
+
+# Composed: the line reads Signed by {name} on {date} at {time}, and the guide names its first words.
+**Signed by** (**Firmado por**)
+
+# Composed: a folded card reads Row {n}, and the guide shows the first one.
+**Row 1** (**Fila 1**)
+
+# Composed: Help's source line is Based on, then the source's name (the app
+# guide, the ADP guide, general cleaning guidance), each its own row in the CSV.
+**Based on the app guide** (**Seg\u00fan la gu\u00eda de la aplicaci\u00f3n**)
+**Based on the ADP guide** (**Seg\u00fan la gu\u00eda de ADP**)
+**Based on general cleaning guidance** (**Seg\u00fan una gu\u00eda general de limpieza**)
+
+# Served by the API: its own refusals, drawn in the words the API sends,
+# from ocsa-api translation/api_words.csv.
+**You do not have access to this chat.** (**No tiene acceso a este chat.**)
+**This chat was not found.** (**No se encontr\u00f3 este chat.**)
+**Type a message first.** (**Escriba un mensaje primero.**)
+
+# Served by the API: the words of the forms Daily Service Log and PPE
+# Compliance Log, drawn as the API sends them, from ocsa-api
+# translation/forms_batch1_spanish.csv.
+**Daily Service Log** (**Registro diario de servicio**)
+**What was not done** (**Lo que no se hizo**)
+**Crew lead** (**L\u00edder de equipo**)
+**PPE Compliance Log, monthly check** (**Registro de cumplimiento de EPP, revisi\u00f3n mensual**)
+**Wear checks** (**Revisiones de uso**)
+**Problems this month** (**Problemas de este mes**)
+**Site supervisor** (**Supervisor del sitio**)
+**What time did your crew start?** (**\u00bfA qu\u00e9 hora empez\u00f3 su equipo?**)
+**What time did your crew finish?** (**\u00bfA qu\u00e9 hora termin\u00f3 su equipo?**)
+**How many people were scheduled?** (**\u00bfCu\u00e1ntas personas estaban programadas?**)
+**How many people worked?** (**\u00bfCu\u00e1ntas personas trabajaron?**)
+**Anyone who came late, left early or did not come, and why** (**Qui\u00e9n lleg\u00f3 tarde, se fue temprano o no vino, y por qu\u00e9**)
+**Areas cleaned** (**\u00c1reas atendidas**)
+**Done** (**Hecho**)
+**Partly done** (**Hecho en parte**)
+**Not done** (**No hecho**)
+**Not at this site** (**No hay en este sitio**)
+**Other areas cleaned** (**Otras \u00e1reas limpiadas**)
+**Not needed** (**No aplica**)
+**Special work done this shift, and where** (**Trabajo especial hecho en este turno, y d\u00f3nde**)
+**Any equipment that broke or was taken out of use** (**Alg\u00fan equipo que se descompuso o se sac\u00f3 de uso**)
+**Was the chemical mixing equipment working?** (**\u00bfFuncionaba el equipo para mezclar qu\u00edmicos?**)
+**Not used** (**No se us\u00f3**)
+**Were disinfectants left on for their full contact time?** (**\u00bfSe dejaron los desinfectantes el tiempo completo de contacto?**)
+**Is anything running low?** (**\u00bfSe est\u00e1 acabando algo?**)
+**Why** (**Por qu\u00e9**)
+**When it will be done** (**Cu\u00e1ndo se har\u00e1**)
+**Safety** (**Seguridad**)
+**Was anyone hurt, nearly hurt, or exposed to anything this shift?** (**\u00bfAlguien se lastim\u00f3, casi se lastima o estuvo expuesto a algo en este turno?**)
+**Has it been reported?** (**\u00bfYa se report\u00f3?**)
+**Did you find anything unsafe in the building?** (**\u00bfEncontr\u00f3 algo peligroso en el edificio?**)
+**Did you tell your supervisor?** (**\u00bfLe avis\u00f3 a su supervisor?**)
+**Site notes** (**Notas del sitio**)
+**Which month does this cover?** (**\u00bfQu\u00e9 mes cubre este reporte?**)
+**How many people worked at this site this month?** (**\u00bfCu\u00e1ntas personas trabajaron en este sitio este mes?**)
+**All** (**Todos**)
+**Some** (**Algunos**)
+**None** (**Ninguno**)
+**Did anyone stop work because equipment was missing?** (**\u00bfAlguien dej\u00f3 de trabajar porque faltaba equipo?**)
+**Does anything this month mean the site's hazard assessment should be looked at again?** (**\u00bfAlgo de este mes indica que se debe revisar de nuevo la evaluaci\u00f3n de riesgos del sitio?**)
+**Field Lead, reviewed** (**Encargado de campo, revisado**)
+**Photos** (**Fotos**)
+**Restrooms** (**Ba\u00f1os**)
+
+# Served by the API: the words of the form Customer Complaint Log, drawn as the
+# API sends them, from ocsa-api translation/forms_complaint_log_spanish.csv.
+**Customer Complaint Log** (**Registro de quejas de clientes**)
+**The complaint** (**La queja**)
+**Type and urgency** (**Tipo y urgencia**)
+**What was done** (**Lo que se hizo**)
+**Complaint closed** (**Queja cerrada**)
+
+# Served by the API: the words of the form Safety Inspection Checklist, drawn as the
+# API sends them, from ocsa-api translation/forms_safety_inspection_spanish.csv.
+**Safety Inspection Checklist** (**Lista de inspecci\u00f3n de seguridad**)
+**The inspection** (**La inspecci\u00f3n**)
+**The checklist** (**La lista**)
+**What the crew said** (**Lo que dijo el equipo**)
+**The previous inspection** (**La inspecci\u00f3n anterior**)
+**Inspected by** (**Inspeccionado por**)
+**What kind of inspection is this?** (**\u00bfQu\u00e9 tipo de inspecci\u00f3n es?**)
+
+# Served by the API: the words of the form Environmental Compliance Audit, drawn as the
+# API sends them, from ocsa-api translation/forms_environmental_audit_spanish.csv.
+**Pass** (**Cumple**)
+**Fail** (**No cumple**)
+**Findings** (**Hallazgos**)
+**Result** (**Resultado**)
+**Who owns it** (**Responsable**)
+**Did any finding come back?** (**\u00bfVolvi\u00f3 a aparecer alg\u00fan hallazgo?**)
+**Overall result** (**Resultado general**)
+**Environmental Compliance Audit** (**Auditor\u00eda de cumplimiento ambiental**)
+**The audit** (**La auditor\u00eda**)
+**What was checked** (**Lo que se revis\u00f3**)
+**The previous audit** (**La auditor\u00eda anterior**)
+**Performed by** (**Realizado por**)
+**Was any discharge found or suspected?** (**\u00bfSe encontr\u00f3 o se sospecha alguna descarga?**)
+
+# Served by the API: the words of the form Call Intake and Communication Log, drawn as the
+# API sends them, from ocsa-api translation/forms_call_intake_log_spanish.csv.
+**Not applicable** (**No aplica**)
+**Call Intake and Communication Log** (**Registro de llamadas y comunicaciones**)
+**The contact** (**El contacto**)
+**Kind of contact** (**Tipo de contacto**)
+**What they said, in their own words** (**Lo que dijo, en sus propias palabras**)
+**What happened** (**Lo que se hizo**)
+**Where it went next** (**A d\u00f3nde se envi\u00f3 despu\u00e9s**)
+**Handled here** (**Se atendi\u00f3 aqu\u00ed**)
+
+# Served by the API: the words of the form Corrective Action Report, drawn as the
+# API sends them, from ocsa-api translation/forms_corrective_action_spanish.csv.
+**Corrective Action Report** (**Reporte de acci\u00f3n correctiva**)
+**What triggered this** (**Qu\u00e9 lo origin\u00f3**)
+**The cause** (**La causa**)
+**The action** (**La acci\u00f3n**)
+**Raised by** (**Levantado por**)
+**What triggered this?** (**\u00bfQu\u00e9 lo origin\u00f3?**)
+**Where does the cause sit?** (**\u00bfD\u00f3nde est\u00e1 la causa?**)
+**What will change** (**Qu\u00e9 va a cambiar**)
+
+# Served by the API: the words of the form Change of Service Request, drawn as the
+# API sends them, from ocsa-api translation/forms_change_of_service_request_spanish.csv.
+**Closed** (**Cerrada**)
+**Change of Service Request** (**Solicitud de cambio de servicio**)
+**The request** (**La solicitud**)
+**Where it came from** (**De d\u00f3nde vino**)
+**How it arrived** (**C\u00f3mo lleg\u00f3**)
+**Service line** (**L\u00ednea de servicio**)
+**What is being asked** (**Qu\u00e9 se pide**)
+**Where it goes** (**A d\u00f3nde va**)
+**Route** (**Ruta**)
+**Reason for the route** (**Raz\u00f3n de la ruta**)
+**Kind of change** (**Tipo de cambio**)
+**What it affects** (**Lo que afecta**)
+**Where it went instead, the other record** (**Si fue a otro lado, el otro registro**)
+
+# Served by the API: the words of the form PPE Hazard Assessment Written Verification, drawn as the
+# API sends them, from ocsa-api translation/forms_ppe_hazard_assessment_spanish.csv.
+**PPE Hazard Assessment Written Verification** (**Verificaci\u00f3n escrita de la evaluaci\u00f3n de riesgos para EPP**)
+**The workplace** (**El lugar de trabajo**)
+**How it was assessed** (**C\u00f3mo se evalu\u00f3**)
+**The tasks** (**Las tareas**)
+**Equipment at the site** (**Equipo en el sitio**)
+**Employees covered** (**Empleados cubiertos**)
+**Fit confirmed** (**Ajuste confirmado**)
+**Written verification** (**Verificaci\u00f3n escrita**)
+**Assessed by** (**Evaluado por**)
+**Why is this assessment being done?** (**\u00bfPor qu\u00e9 se hace esta evaluaci\u00f3n?**)
+**Date of the walk** (**Fecha del recorrido**)
+**Building type** (**Tipo de edificio**)
+**Shifts covered** (**Turnos cubiertos**)
+**How did you assess it?** (**\u00bfC\u00f3mo lo evalu\u00f3?**)
+**Tasks assessed** (**Tareas evaluadas**)
+**Hazards** (**Riesgos**)
+**Equipment required** (**Equipo requerido**)
+**Does any task need a respirator?** (**\u00bfAlguna tarea necesita respirador?**)
+**Job title** (**Puesto**)
+**Equipment issued** (**Equipo entregado**)
+**Training date** (**Fecha de capacitaci\u00f3n**)
+
+# Served by the API: the words of the form Safety Committee Minutes and Attendance, drawn as the
+# API sends them, from ocsa-api translation/forms_safety_committee_minutes_spanish.csv.
+**Safety Committee Minutes and Attendance** (**Acta y asistencia del comit\u00e9 de seguridad**)
+**The meeting** (**La reuni\u00f3n**)
+**Attendance** (**Asistencia**)
+**Represents** (**Representa**)
+**The previous meeting** (**La reuni\u00f3n anterior**)
+**Open items** (**Asuntos abiertos**)
+**Status this meeting** (**Estado en esta reuni\u00f3n**)
+**Standing agenda** (**Agenda permanente**)
+**New business and recommendations** (**Asuntos nuevos y recomendaciones**)
+**Recorded by** (**Registrada por**)
+**Members** (**Miembros**)
+**Was there a quorum?** (**\u00bfHubo qu\u00f3rum?**)
+**Were its minutes confirmed as accurate?** (**\u00bfSe confirm\u00f3 que su acta es exacta?**)
+**Recommendations to management** (**Recomendaciones a la direcci\u00f3n**)
+**Next meeting, date and time** (**Pr\u00f3xima reuni\u00f3n, fecha y hora**)
+**Site chosen for the employee representative inspection** (**Sitio elegido para la inspecci\u00f3n con representante de los empleados**)
+
+# Served by the API: the words of the form Pre-Service Site Assessment, drawn as the
+# API sends them, from ocsa-api translation/forms_pre_service_site_assessment_spanish.csv.
+**Present** (**Presente**)
+**Pre-Service Site Assessment** (**Evaluaci\u00f3n del sitio antes del servicio**)
+**Assessment details** (**Datos de la evaluaci\u00f3n**)
+**Site overview** (**Datos generales del sitio**)
+**Area schedule** (**Lista de \u00e1reas**)
+**Restrooms and fixtures** (**Ba\u00f1os y muebles sanitarios**)
+**Item counts** (**Conteo de elementos**)
+**Service window and access** (**Horario de servicio y acceso**)
+**Storage, utilities and waste** (**Almac\u00e9n, servicios y basura**)
+**Hazards and site requirements** (**Riesgos y requisitos del sitio**)
+**Existing condition** (**Condici\u00f3n actual**)
+**Photos and documents** (**Fotos y documentos**)
+**Areas** (**\u00c1reas**)
+**Total cleanable square feet** (**Total de pies cuadrados a limpiar**)
+**Total toilets, urinals and sinks** (**Total de inodoros, mingitorios y lavabos**)
+**Customer acknowledgement** (**Reconocimiento del cliente**)
+
+# Served by the API: the words of the form Employee Performance Evaluation, drawn as the
+# API sends them, from ocsa-api translation/forms_performance_evaluation_spanish.csv.
+**Summary** (**Resumen**)
+**Employee signature** (**Firma del empleado**)
+**Employee Performance Evaluation** (**Evaluaci\u00f3n del desempe\u00f1o del empleado**)
+**The review** (**La evaluaci\u00f3n**)
+**Ratings** (**Calificaciones**)
+**Rating** (**Calificaci\u00f3n**)
+**Meets the standard** (**Cumple el est\u00e1ndar**)
+**Is this person a supervisor?** (**\u00bfEsta persona es supervisor?**)
+**Safety performance of the crew** (**Desempe\u00f1o de seguridad del equipo**)
+**Overall rating** (**Calificaci\u00f3n general**)
+**Outcome of a probationary review** (**Resultado de la evaluaci\u00f3n del per\u00edodo de prueba**)
+**Employee comments** (**Comentarios del empleado**)
+**Reviewed by** (**Evaluado por**)
+
+# Served by the API: the words of the form Site-Specific Orientation Checklist, drawn as the
+# API sends them, from ocsa-api translation/forms_site_orientation_checklist_spanish.csv.
+**Site-Specific Orientation Checklist** (**Lista de orientaci\u00f3n espec\u00edfica del sitio**)
+**Employee and site** (**Empleado y sitio**)
+**Working language** (**Idioma de trabajo**)
+**Access and security covered** (**Acceso y seguridad cubiertos**)
+**The work covered** (**El trabajo cubierto**)
+**Safety covered** (**Seguridad cubierta**)
+**People and reporting** (**Personas y reportes**)
+**Is this a school site?** (**\u00bfEs un sitio escolar?**)
+**School site lines** (**L\u00edneas para sitios escolares**)
+**The employee confirms** (**El empleado confirma**)
+**Orientation delivered** (**Orientaci\u00f3n impartida**)
