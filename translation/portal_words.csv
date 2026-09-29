@@ -221,6 +221,7 @@ Note,Nota,Schedule
 Note: {note},Nota: {note},Schedule
 Notes,Notas,Schedule
 Notes (optional),Notas (opcional),Schedule
+Nothing scheduled this day.,No hay nada programado este día.,"Home, Schedule, the day sheet of a day with nothing"
 On Site,En sitio,Schedule
 Only you and the person who approves time off can read this.,Solo usted y la persona que aprueba el tiempo libre pueden leer esto.,Schedule
 Other,Otro,Schedule

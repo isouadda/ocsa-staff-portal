@@ -2718,6 +2718,9 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   const [view, setView] = useState("week");
   const [data, setData] = useState({ scheduled: [], actual: [], pickups: [] });
   const [detail, setDetail] = useState(null);
+  // The day tapped on the week strip, as YYYY-MM-DD, whose sheet lists
+  // everything on it. null while no day is open.
+  const [dayOpen, setDayOpen] = useState(null);
   const [weekStart, setWeekStart] = useState(() => {
     const now = new Date();
     const day = now.getDay();
@@ -2848,10 +2851,16 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   const stepChip = { display: "inline-flex", alignItems: "center", background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.sm, padding: "6px 12px", color: t.textMut, fontSize: 14 };
   const todayChip = { display: "inline-flex", alignItems: "center", fontSize: 9, padding: "3px 9px", borderRadius: R.sm, border: "1px solid " + BLUE, background: "transparent", color: BLUE, fontWeight: 600, fontFamily: FONT_HEAD };
 
-  // A chip on the week strip, which opens the shift, the day worked, the
-  // pickup or the time off it names, and so is a button with the tap
-  // height. It is drawn the size it was; the height is the frame's.
-  const chipSt = { display: "block", width: "100%", minHeight: TAP, padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, textAlign: "left", fontFamily: FONT_HEAD, lineHeight: "normal", cursor: "pointer" };
+  // A chip on the week strip names a shift, a day worked, a pickup or
+  // time off. The day around it is the control, so the chip is drawn
+  // the way it was as a button of its own, its words centered in the
+  // tap height, and opens nothing itself.
+  const chipSt = { display: "flex", flexDirection: "column", justifyContent: "center", width: "100%", minHeight: TAP, padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, textAlign: "left", fontFamily: FONT_HEAD, lineHeight: "normal" };
+  // Each kind's colors, shared by its chip and its row on the day's sheet.
+  const schedLook = { background: GOLD + "18", color: t.goldText, border: "1px solid " + GOLD + "30" };
+  const workedLook = { background: GREEN + "15", color: GREEN, border: "1px solid " + GREEN + "30" };
+  const pickupLook = (p) => { const pc = p.status === "approved" ? GREEN : BLUE; return { background: pc + "15", color: pc, border: "1px solid " + pc + "30" }; };
+  const offLook = (r) => { const waiting = r.status !== "approved"; return { background: TIME_OFF_COLOR + (waiting ? "14" : "22"), color: TIME_OFF_COLOR, border: waiting ? "1px dashed " + TIME_OFF_COLOR : "1px solid " + TIME_OFF_COLOR }; };
   const offLabel = { fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3, fontFamily: FONT_HEAD };
   const offValue = { fontSize: 13, color: t.text, fontWeight: 500, overflowWrap: "anywhere" };
   // Both limits are local calendar days, so the pickers agree with
@@ -2895,8 +2904,8 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
     setReqBusy(false);
   };
 
-  // A row already carries the whole request; a calendar chip carries
-  // only an id, so that one is read back first.
+  // A row of My time off already carries the whole request; a row on a
+  // day's sheet carries only an id, so that one is read back first.
   const openOffById = async (id) => {
     if (!id) return;
     setOffErr(null); setConfirmCancel(false);
@@ -2953,9 +2962,15 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
 
       {!loading && failed && <ListFault icon={CalIco} text={tr("This list did not load.")} onRetry={loadSchedule} t={t} />}
 
-      {/* WEEK VIEW */}
+      {/* WEEK VIEW. Each day is the control: a see-through frame at
+          least 44 wide around the day drawn as it was, which opens the
+          day's sheet. The frames touch, each holding half of the old
+          4 pixel gap on either side of its day, and the row reaches 2
+          pixels past the edges, so every day sits where it did and a
+          phone 360 wide gives each frame 44. Narrower, the week
+          scrolls sideways in its own box, as it did under 300. */}
       {!loading && !failed && view === "week" && (
-        <div style={{ overflowX: "auto", display: "flex", flex: compact ? undefined : 1 }}><div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 4, minWidth: 300, flex: 1 }}>
+        <div style={{ overflowX: "auto", display: "flex", flex: compact ? undefined : 1, margin: "0 -2px" }}><div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(" + TAP + "px, 1fr))", flex: 1 }}>
           {weekDays.map((ds, i) => {
             const sched = getSchedForDay(ds);
             const actual = getActualForDay(ds);
@@ -2965,43 +2980,38 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
             const dayOff = getTimeOffForDay(ds);
             const hasAny = sched.length > 0 || actual.length > 0 || pickups.length > 0 || dayOff.length > 0;
             return (
-              <div key={ds} style={{ background: today ? t.goldBg : t.card, border: "1px solid " + (today ? t.goldBorder : t.borderSolid), borderRadius: R.md, padding: 6, minHeight: compact ? 80 : 120, flex: compact ? undefined : 1, boxShadow: t.shadow }}>
-                <div style={{ textAlign: "center", marginBottom: 4 }}>
-                  <div style={{ fontSize: 9, fontWeight: 600, color: today ? t.goldText : t.textMut, textTransform: "uppercase" }}>{dayNames[i]}</div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: today ? t.goldText : t.text, fontFamily: FONT_HEAD }}>{dt.getDate()}</div>
-                </div>
-                {sched.map(s => (
-                  <button type="button" key={s.id} onClick={() => setDetail({ type: "scheduled", ...s })} style={{ ...chipSt, background: GOLD + "18", color: t.goldText, border: "1px solid " + GOLD + "30" }}>
-                    {fmtTm(s.start_time)}{s.end_time ? " - " + fmtTm(s.end_time) : ""}{s.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{s.site_name}</div>}{isDropRequested(s.id) && <div style={{ fontSize: 7, marginTop: 1, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("Drop requested")}</div>}
-                  </button>
-                ))}
-                {actual.map(a => (
-                  <button type="button" key={a.id} onClick={() => setDetail({ type: "actual", ...a })} style={{ ...chipSt, background: GREEN + "15", color: GREEN, border: "1px solid " + GREEN + "30" }}>
-                    {fmtClockTm(a.clock_in_time)}{a.duration_minutes ? tr(" ({h}h)", { h: Math.floor(a.duration_minutes / 60) }) : a.shift_status === "active" ? tr(" (live)") : ""}{a.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{a.site_name}</div>}
-                  </button>
-                ))}
-                {pickups.map(p => {
-                  const pc = p.status === "approved" ? GREEN : BLUE;
-                  return (
-                    <button type="button" key={p.id} onClick={() => setDetail({ type: "pickup", ...p })} style={{ ...chipSt, background: pc + "15", color: pc, border: "1px solid " + pc + "30" }}>
-                      {fmtTm(p.start_time)} <span style={{ fontSize: 7, textTransform: "uppercase" }}>{p.status === "approved" ? tr("approved") : tr("claimed")}</span>
+              <button type="button" key={ds} onClick={() => setDayOpen(ds)} style={mkTapFrame({ display: "flex", alignItems: "stretch", width: "100%", padding: "0 2px", textAlign: "left", fontFamily: FONT_BODY })}>
+                <div style={{ flex: 1, minWidth: 0, background: today ? t.goldBg : t.card, border: "1px solid " + (today ? t.goldBorder : t.borderSolid), borderRadius: R.md, padding: 6, minHeight: compact ? 80 : 120, boxShadow: t.shadow }}>
+                  <div style={{ textAlign: "center", marginBottom: 4 }}>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: today ? t.goldText : t.textMut, textTransform: "uppercase" }}>{dayNames[i]}</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: today ? t.goldText : t.text, fontFamily: FONT_HEAD }}>{dt.getDate()}</div>
+                  </div>
+                  {sched.map(s => (
+                    <div key={s.id} style={{ ...chipSt, ...schedLook }}>
+                      <div>{fmtTm(s.start_time)}{s.end_time ? " - " + fmtTm(s.end_time) : ""}</div>{s.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{s.site_name}</div>}{isDropRequested(s.id) && <div style={{ fontSize: 7, marginTop: 1, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("Drop requested")}</div>}
+                    </div>
+                  ))}
+                  {actual.map(a => (
+                    <div key={a.id} style={{ ...chipSt, ...workedLook }}>
+                      <div>{fmtClockTm(a.clock_in_time)}{a.duration_minutes ? tr(" ({h}h)", { h: Math.floor(a.duration_minutes / 60) }) : a.shift_status === "active" ? tr(" (live)") : ""}</div>{a.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{a.site_name}</div>}
+                    </div>
+                  ))}
+                  {pickups.map(p => (
+                    <div key={p.id} style={{ ...chipSt, ...pickupLook(p) }}>
+                      <div>{fmtTm(p.start_time)} <span style={{ fontSize: 7, textTransform: "uppercase" }}>{p.status === "approved" ? tr("approved") : tr("claimed")}</span></div>
                       {p.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{p.site_name}</div>}
-                    </button>
-                  );
-                })}
-                {dayOff.map(r => {
-                  const waiting = r.status !== "approved";
-                  const offSt = { ...chipSt, background: TIME_OFF_COLOR + (waiting ? "14" : "22"), color: TIME_OFF_COLOR, border: waiting ? "1px dashed " + TIME_OFF_COLOR : "1px solid " + TIME_OFF_COLOR, cursor: compact ? "default" : "pointer" };
-                  const inside = (<>
-                    {tr("Time off")}
-                    {r.partDay && r.startTime && <div style={{ fontSize: 8, opacity: 0.9 }}>{fmtTm(r.startTime)}</div>}
-                    {waiting && <div style={{ fontSize: 7, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("requested")}</div>}
-                  </>);
-                  // On Home the chip opens nothing, so it is not a control.
-                  return compact ? <div key={r.id} style={offSt}>{inside}</div> : <button type="button" key={r.id} onClick={() => openOffById(r.id)} style={offSt}>{inside}</button>;
-                })}
-                {!hasAny && <div style={{ fontSize: 10, color: t.textMut, opacity: 0.3, textAlign: "center", marginTop: 8 }}>-</div>}
-              </div>
+                    </div>
+                  ))}
+                  {dayOff.map(r => (
+                    <div key={r.id} style={{ ...chipSt, ...offLook(r) }}>
+                      <div>{tr("Time off")}</div>
+                      {r.partDay && r.startTime && <div style={{ fontSize: 8, opacity: 0.9 }}>{fmtTm(r.startTime)}</div>}
+                      {r.status !== "approved" && <div style={{ fontSize: 7, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("requested")}</div>}
+                    </div>
+                  ))}
+                  {!hasAny && <div style={{ fontSize: 10, color: t.textMut, opacity: 0.3, textAlign: "center", marginTop: 8 }}>-</div>}
+                </div>
+              </button>
             );
           })}
         </div></div>
@@ -3086,6 +3096,59 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
           {myOff.length >= TIME_OFF_PAGE && <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{tr("Showing your latest 50 requests.")}</div>}
         </div>
       )}
+
+      {/* ONE DAY, from the week strip. A row for each chip the day draws,
+          in the same order and colors, each opening what the chip did:
+          a shift, a day worked or a pickup opens its detail, and time
+          off opens its request, which on Home opens nothing, as there.
+          The sheet closes before the next one opens. */}
+      {dayOpen && (() => {
+        const sched = getSchedForDay(dayOpen);
+        const actual = getActualForDay(dayOpen);
+        const pickups = getPickupsForDay(dayOpen);
+        const dayOff = getTimeOffForDay(dayOpen);
+        const none = sched.length === 0 && actual.length === 0 && pickups.length === 0 && dayOff.length === 0;
+        const rowSt = (look) => ({ display: "block", width: "100%", minHeight: TAP, marginBottom: 8, padding: "10px 12px", borderRadius: R.md, background: look.background, border: look.border, textAlign: "left", cursor: "pointer", fontFamily: FONT_BODY });
+        const rowBody = (look, kind, time, site) => (<>
+          <span style={{ display: "block", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", color: look.color, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{kind}</span>
+          <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: t.text, marginTop: 3, fontFamily: FONT_HEAD }}>{time}</span>
+          {site && <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{site}</span>}
+        </>);
+        const kindWith = (kind, tag) => (tag ? kind + " - " + tag : kind);
+        const then = (open) => () => { setDayOpen(null); open(); };
+        return (
+          <div onClick={() => setDayOpen(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+            <div role="dialog" aria-modal="true" aria-labelledby="ocsa-day-sheet-title" onClick={e => e.stopPropagation()} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "20px 20px 30px", boxShadow: t.popShadow, maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 40px)", overflowY: "auto" }}>
+              <div style={{ width: 40, height: 4, borderRadius: 2, background: t.textMut, margin: "0 auto 16px", opacity: 0.3 }} />
+              <div id="ocsa-day-sheet-title" style={{ fontSize: 15, fontWeight: 600, color: t.text, marginBottom: 14, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{formatDate(dayOpen + "T00:00:00")}</div>
+              {none && <div style={{ fontSize: 12, color: t.textMut, padding: "10px 0", marginBottom: 8 }}>{tr("Nothing scheduled this day.")}</div>}
+              {sched.map(s => (
+                <button type="button" key={"s-" + s.id} onClick={then(() => setDetail({ type: "scheduled", ...s }))} style={rowSt(schedLook)}>
+                  {rowBody(schedLook, kindWith(tr("Scheduled Shift"), isDropRequested(s.id) ? tr("Drop requested") : ""), fmtTm(s.start_time) + (s.end_time ? " - " + fmtTm(s.end_time) : ""), s.site_name)}
+                </button>
+              ))}
+              {actual.map(a => (
+                <button type="button" key={"a-" + a.id} onClick={then(() => setDetail({ type: "actual", ...a }))} style={rowSt(workedLook)}>
+                  {rowBody(workedLook, kindWith(tr("Worked Shift"), a.shift_status === "active" ? tr("On Site") : ""), fmtClockTm(a.clock_in_time) + (a.clock_out_time ? " - " + fmtClockTm(a.clock_out_time) : ""), a.site_name)}
+                </button>
+              ))}
+              {pickups.map(p => (
+                <button type="button" key={"p-" + p.id} onClick={then(() => setDetail({ type: "pickup", ...p }))} style={rowSt(pickupLook(p))}>
+                  {rowBody(pickupLook(p), kindWith(tr("Pickup Shift"), p.status === "approved" ? tr("approved") : tr("claimed")), fmtTm(p.start_time) + (p.end_time ? " - " + fmtTm(p.end_time) : ""), p.site_name)}
+                </button>
+              ))}
+              {dayOff.map(r => {
+                const look = offLook(r);
+                const inside = rowBody(look, kindWith(tr("Time off"), r.status !== "approved" ? tr("requested") : ""), r.partDay && r.startTime ? fmtTm(r.startTime) + (r.endTime ? " - " + fmtTm(r.endTime) : "") : timeOffDates(r.startsOn, r.endsOn), null);
+                return compact
+                  ? <div key={"o-" + r.id} style={{ ...rowSt(look), cursor: "default" }}>{inside}</div>
+                  : <button type="button" key={"o-" + r.id} onClick={then(() => openOffById(r.id))} style={rowSt(look)}>{inside}</button>;
+              })}
+              <button type="button" onClick={() => setDayOpen(null)} style={{ width: "100%", minHeight: TAP, padding: "12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 4, fontFamily: FONT_HEAD }}>{tr("Close")}</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* REQUEST TIME OFF SHEET */}
       {reqOpen && reqForm && (
@@ -3781,8 +3844,14 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
               <div key={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: inset }}>
                 <button onClick={() => tap(task, done, lock)} disabled={lock === "earlier"} aria-label={tr(done ? "Mark {name} not done" : "Mark {name} done", { name: w.label })} style={mkTapFrame({ flexShrink: 0, marginTop: 1, cursor: lock === "earlier" ? "default" : "pointer" })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></button>
                 <div style={{ flex: "1 1 120px", minWidth: 0 }}>
-                  <div onClick={() => hasInfo ? setDetail(task) : tap(task, done, lock)} style={{ cursor: "pointer" }}><div style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{w.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div>
-                  {when && <div style={rowLineSt}>{when}</div>}
+                  {/* The name and the line under it are one button the tap
+                      height, which opens the item's detail, or on a row
+                      with none does what it always did. The note stays
+                      outside it, so it is still read out when it comes. */}
+                  <button type="button" onClick={() => hasInfo ? setDetail(task) : tap(task, done, lock)} style={mkTapFrame({ display: "flex", flexDirection: "column", alignItems: "stretch", width: "100%", textAlign: "left", fontFamily: FONT_BODY })}>
+                    <span style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{w.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</span>
+                    {when && <span style={{ ...rowLineSt, display: "block" }}>{when}</span>}
+                  </button>
                   {note && <div role="alert" style={{ ...rowLineSt, color: t.text, fontWeight: 600 }}>{note}</div>}
                 </div>
                 {task.priority === "high" && <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}><span style={chipPriority}>{tr("PRIORITY")}</span></div>}
@@ -5706,9 +5775,11 @@ const formHasAnswer = (v) => {
 };
 
 // Every question this person is asked for the answers so far. A
-// prefilled question is already on the draft and is never shown.
+// prefilled question is already on the draft and is never shown. A
+// person question is the one kind that is: its prefill is the filer
+// picked to start with, drawn as the chip and changed like any pick.
 const formFieldsInPlay = (form, answers) =>
-  (form && Array.isArray(form.fields) ? form.fields : []).filter(f => !f.prefilled && formRuleHolds(f.appliesWhen, answers));
+  (form && Array.isArray(form.fields) ? form.fields : []).filter(f => (!f.prefilled || formTypeOf(f) === "person") && formRuleHolds(f.appliesWhen, answers));
 
 const formSectionOf = (f) => (f.section === null || f.section === undefined ? "" : String(f.section));
 // The sections in play, in the order they first appear. A section
@@ -5949,11 +6020,23 @@ function formAboutPersonKey(form) {
   const people = fields.filter(f => formTypeOf(f) === "person");
   return people.length === 1 ? people[0].key : null;
 }
-// The staff a person question offers: everyone active, as the Speak Up
-// route lists them, in last name order. That route leaves the caller
-// out, since nobody reports themselves to HR; a report can be about
-// the one filing it, so the caller is put back in their place.
-const staffNameOf = (p) => String(p && p.firstName ? p.firstName : "") + " " + String(p && p.lastName ? p.lastName : "");
+// The staff a person question offers, from GET /api/forms/people, the
+// API's Step 186: active staff, never a client contact, the filer among
+// them, each { id, name, role }, in last name order and at most
+// FORM_PEOPLE_MAX of them. A list that long may be cut short, so a
+// search on it asks the route for the words typed, once they have sat
+// for STAFF_SEARCH_WAIT_MS.
+const FORM_PEOPLE_MAX = 50;
+const STAFF_SEARCH_WAIT_MS = 300;
+const formPeopleOf = (d) => (d && Array.isArray(d.people) ? d.people : []).filter(p => p && p.id !== undefined && p.id !== null);
+// A person's name as either list sends it: whole from the forms route,
+// as a first and a last name from Speak Up's.
+const staffNameOf = (p) => (p && typeof p.name === "string" ? p.name : String(p && p.firstName ? p.firstName : "") + " " + String(p && p.lastName ? p.lastName : ""));
+// An API older than the forms route answers it 404, and the list is the
+// Speak Up route's: everyone active, in last name order. That route
+// leaves the caller out, since nobody reports themselves to HR; a
+// report can be about the one filing it, so the caller is put back in
+// their place.
 function staffListWith(list, me) {
   const out = (Array.isArray(list) ? list : []).filter(p => p && p.id !== undefined && p.id !== null);
   if (me && me.id !== undefined && me.id !== null && !out.some(p => String(p.id) === String(me.id))) {
@@ -6189,6 +6272,12 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
   const [staffFailed, setStaffFailed] = useState(false);
   const [staffAttempt, setStaffAttempt] = useState(0);
   const [personSearch, setPersonSearch] = useState({});
+  // The forms route answered as many people as it gives, so the list may
+  // be cut short and a search asks the route itself. What it answered
+  // for each search, by the words searched, and false for one that
+  // failed.
+  const [staffCut, setStaffCut] = useState(false);
+  const [staffFound, setStaffFound] = useState({});
   // The customer's own name and role, asked on the first section.
   const [customerName, setCustomerName] = useState("");
   const [customerRole, setCustomerRole] = useState("");
@@ -6257,15 +6346,37 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
   // The staff list, asked for once the form has a person question in
   // play and never on the customer's page, which has no token for it.
   const asksPerson = !isCustomer && shown.some(f => formTypeOf(f) === "person");
+  // The forms route first, and the Speak Up route only when an API older
+  // than it answers 404. Any other failure says so under the question.
   useEffect(() => {
     if (!asksPerson) return undefined;
     let live = true;
-    setStaff(null); setStaffFailed(false);
-    api("/api/hr-cases/people", { token })
-      .then(d => { if (live) setStaff(staffListWith(d && d.people, user)); })
-      .catch(() => { if (live) setStaffFailed(true); });
+    setStaff(null); setStaffFailed(false); setStaffCut(false); setStaffFound({});
+    api("/api/forms/people", { token })
+      .then(d => { if (!live) return; const list = formPeopleOf(d); setStaff(list); setStaffCut(list.length >= FORM_PEOPLE_MAX); })
+      .catch(err => {
+        if (!live) return;
+        if (!(err && err.status === 404)) { setStaffFailed(true); return; }
+        api("/api/hr-cases/people", { token })
+          .then(d => { if (live) setStaff(staffListWith(d && d.people, user)); })
+          .catch(() => { if (live) setStaffFailed(true); });
+      });
     return () => { live = false; };
   }, [asksPerson, token, user, staffAttempt]);
+  // Every search not yet asked of a list cut short, each asked once.
+  const staffAsks = staffCut ? Array.from(new Set(Object.keys(personSearch).map(k => personSearch[k].trim().toLowerCase()).filter(n => n !== "" && staffFound[n] === undefined))).join("\n") : "";
+  useEffect(() => {
+    if (!staffAsks) return undefined;
+    let live = true;
+    const wait = setTimeout(() => {
+      staffAsks.split("\n").forEach(n => {
+        api("/api/forms/people?q=" + encodeURIComponent(n), { token })
+          .then(d => { if (live) setStaffFound(prev => Object.assign({}, prev, { [n]: formPeopleOf(d) })); })
+          .catch(() => { if (live) setStaffFound(prev => Object.assign({}, prev, { [n]: false })); });
+      });
+    }, STAFF_SEARCH_WAIT_MS);
+    return () => { live = false; clearTimeout(wait); };
+  }, [staffAsks, token]);
   // The person this report is about, by name, as picked so far: what an
   // employee signature card on the same form starts with.
   const aboutKey = formAboutPersonKey(form);
@@ -6976,10 +7087,12 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
 
   // A person question: the picked person as a chip, tapped to pick
   // again, or Search by name over every active staff member, each a row
-  // of the app's own pick one shape, the way Speak Up offers them. The
-  // answer saved is the person's id and their name as it reads today.
-  // The names scroll in their own box, so a staff list of any length
-  // leaves Next where a thumb can reach it.
+  // of the app's own pick one shape, the way Speak Up offers them. A
+  // draft that starts with someone picked, the filer where the form
+  // prefills one, shows them as the chip the same way. The answer saved
+  // is the person's id and their name as it reads today. The names
+  // scroll in their own box, so a staff list of any length leaves Next
+  // where a thumb can reach it.
   const chipSt = {
     display: "inline-flex", alignItems: "center", gap: 8, maxWidth: "100%", minWidth: TAP, minHeight: TAP, marginTop: 8,
     padding: "8px 12px", borderRadius: R.pill, cursor: "pointer",
@@ -7000,17 +7113,20 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
         </div>
       );
     }
-    if (staffFailed) {
-      return (
-        <>
-          <div style={{ marginTop: 8, padding: "10px 12px", background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, borderRadius: R.sm, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>{tr("The staff list did not load. Try again in a minute.")}</div>
-          <button type="button" onClick={() => setStaffAttempt(n => n + 1)} style={{ ...mkGhostBtn(t), marginTop: 8 }}>{tr("Try again")}</button>
-        </>
-      );
-    }
+    const fault = (retry) => (
+      <>
+        <div style={{ marginTop: 8, padding: "10px 12px", background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, borderRadius: R.sm, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>{tr("The staff list did not load. Try again in a minute.")}</div>
+        <button type="button" onClick={retry} style={{ ...mkGhostBtn(t), marginTop: 8 }}>{tr("Try again")}</button>
+      </>
+    );
+    if (staffFailed) return fault(() => setStaffAttempt(n => n + 1));
     const search = personSearch[f.key] || "";
     const needle = search.trim().toLowerCase();
-    const offered = (staff || []).filter(p => needle === "" || staffNameOf(p).toLowerCase().indexOf(needle) !== -1);
+    // On a list cut short, a search offers what the route answered for
+    // it, and what the list already holds until then.
+    const found = staffCut && needle !== "" ? staffFound[needle] : undefined;
+    const asking = staffCut && needle !== "" && found === undefined;
+    const offered = Array.isArray(found) ? found : (staff || []).filter(p => needle === "" || staffNameOf(p).toLowerCase().indexOf(needle) !== -1);
     const pick = (p) => {
       setVal(f.key, { id: p.id, name: staffNameOf(p).trim() });
       setPersonSearch(prev => { const next = Object.assign({}, prev); delete next[f.key]; return next; });
@@ -7018,7 +7134,8 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
     return (
       <>
         <input type="text" value={search} onChange={e => setPersonSearch(prev => Object.assign({}, prev, { [f.key]: e.target.value.slice(0, 80) }))} disabled={staff === null} placeholder={tr("Search by name")} aria-label={tr("Search by name")} style={inputSt} />
-        {offered.length > 0 && (
+        {found === false && fault(() => setStaffFound(prev => { const next = Object.assign({}, prev); delete next[needle]; return next; }))}
+        {found !== false && offered.length > 0 && (
           <div style={{ maxHeight: 264, overflowY: "auto", marginTop: 2 }}>
             {offered.map(p => (
               <button key={p.id} type="button" onClick={() => pick(p)} style={optRow(false)}>
@@ -7027,7 +7144,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
             ))}
           </div>
         )}
-        {staff !== null && offered.length === 0 && needle !== "" && <div style={{ ...mkHelp(t), marginTop: 10 }}>{tr("No one matches that name.")}</div>}
+        {staff !== null && found !== false && !asking && offered.length === 0 && needle !== "" && <div style={{ ...mkHelp(t), marginTop: 10 }}>{tr("No one matches that name.")}</div>}
       </>
     );
   };
