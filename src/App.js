@@ -5821,6 +5821,13 @@ function formSectionHelp(form, key, language) {
 // and es: read in the person's language, and in English where there is
 // no Spanish. Anything else is no words at all.
 const formInLanguage = (v, language) => String(typeof v === "string" ? v : v && typeof v === "object" ? (v[language] || v.en || "") : "").trim();
+// A pick one question that rates on a scale, since the API's Step 195:
+// the words for its low end and its high end, in the person's language.
+// null for any other question, which draws the way it always has.
+function formScaleOf(f, language) {
+  if (!f || f.type !== "select" || !f.scaleLabels || typeof f.scaleLabels !== "object") return null;
+  return { low: formInLanguage(f.scaleLabels.low, language), high: formInLanguage(f.scaleLabels.high, language) };
+}
 
 const formOptionLabel = (f, v) => {
   const s = String(v);
@@ -7059,6 +7066,36 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
   // gets the same input its type gets as a question, the date and the
   // time pickers included.
   const renderControl = (spec, v, onChange, at) => {
+    // A rating: its options as buttons in rows of five, ten making two
+    // rows, with the low end's words under the first and the high end's
+    // under the last. A tap picks the value the list would have picked,
+    // and a second tap takes it back, the way the list does. The rows
+    // share the width, so a button is never narrower than 44 on the
+    // screen at any text size: at Largest on a 320 pixel phone each is
+    // about 31 of the page's pixels, drawn at one and a half times.
+    const scale = formScaleOf(spec, locale);
+    if (scale) {
+      const opts = spec.options || [];
+      const rows = [];
+      for (let i = 0; i < opts.length; i += 5) rows.push(opts.slice(i, i + 5));
+      const endSt = { fontSize: 12, color: t.textSec, lineHeight: 1.4, marginTop: 6, overflowWrap: "anywhere" };
+      return (
+        <div role="group" aria-label={spec.label || undefined} style={{ marginTop: 8 }}>
+          {rows.map((row, ri) => (
+            <div key={at + "row" + ri} style={{ marginTop: ri > 0 ? 8 : 0 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 6 }}>
+                {row.map(o => {
+                  const picked = v === o.value;
+                  return <button key={at + o.value} type="button" onClick={() => onChange(picked ? null : o.value)} aria-pressed={picked} style={{ minWidth: 0, minHeight: TAP, padding: 0, borderRadius: R.md, cursor: "pointer", fontSize: 15, fontWeight: 600, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums", background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text }}>{o.label}</button>;
+                })}
+              </div>
+              {ri === 0 && scale.low && <div style={endSt}>{scale.low}</div>}
+              {ri === rows.length - 1 && scale.high && <div style={{ ...endSt, textAlign: "right" }}>{scale.high}</div>}
+            </div>
+          ))}
+        </div>
+      );
+    }
     if (spec.type === "select" || spec.type === "multiselect") {
       const many = spec.type === "multiselect";
       const chosen = many ? (Array.isArray(v) ? v : []) : v;
