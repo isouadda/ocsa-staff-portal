@@ -847,6 +847,9 @@ const TAP = 44;
 // Step 145. What a card's note starts with once Not due yet is tapped.
 // English on purpose, so every inspection report reads the same.
 const NOT_DUE = "Not due";
+// An inspection with more cards than this offers Sections, an index of
+// its cards by the zone each names. One has 118.
+const INSPECT_INDEX_OVER = 20;
 // A control whose drawing is meant to stay smaller than that. The button
 // becomes a see-through frame of at least 44 by 44 and the look moves to
 // the span inside it, so the tap area grows and the drawing does not.
@@ -906,6 +909,10 @@ function readEntryFromUrl() {
     // read off the path as written, since its case matters.
     var link = /^\/c\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
     if (link) return { screen: "customer", token: link[1] };
+    // A client's acknowledgement of a monthly report, opened from the
+    // mail that carries it: /a/<token>, read the same way.
+    var ack = /^\/a\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+    if (ack) return { screen: "acknowledge", token: ack[1] };
     return null;
   } catch (e) { return null; }
 }
@@ -2143,6 +2150,7 @@ export default function OCSAStaffPortal() {
       {screen === "reset" && <ResetScreen token={ENTRY ? ENTRY.token : null} onReset={handleAuthSuccess} onGoLogin={goLogin} onGoForgot={() => setScreen("forgot")} showToast={showToast} t={t} />}
       {screen === "forgot" && <ForgotScreen onGoLogin={goLogin} showToast={showToast} t={t} />}
       {screen === "customer" && <CustomerFormScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
+      {screen === "acknowledge" && <AcknowledgeScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
       {screen === "setpin" && <SetPinScreen token={token} user={user} onDone={handlePinSet} onSignOut={handleLogout} showToast={showToast} t={t} />}
       {!booting && screen === "main" && (
         <>
@@ -3727,11 +3735,50 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
     </div>
   ) : null;
 
+  // One item's detail: its name, where it is, who checked it and when
+  // once someone has, its instructions, picture or video and due date, and
+  // the action under the card when there is one. Before a shift starts it
+  // is drawn with nothing to check, so a row tapped there opens it rather
+  // than opening it later, once the shift has started.
+  const drawDetail = (item, byWho, action) => {
+    const w = itemWords(item, apiWords);
+    const place = [item.building_name, item.floor_number ? tr("Floor {n}", { n: item.floor_number }) : "", w.zone].filter(Boolean).join(" - ");
+    return (
+      <div style={{ padding: "16px" }}>
+        <button onClick={() => setDetail(null)} style={{ display: "flex", alignItems: "center", gap: 6, minHeight: TAP, padding: "8px 13px", marginBottom: 14, background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.md, color: t.textSec, fontSize: 12, cursor: "pointer", fontWeight: 600 }}><Ico d="M15 18l-6-6 6-6" sz={14} c={t.textSec} /> {tr("Back to checklist")}</button>
+        <div style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, overflow: "hidden", boxShadow: t.popShadow }}>
+          <div style={{ padding: "16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{w.label}</div>{item.priority === "high" && <div style={{ display: "flex", gap: 4, flexShrink: 0 }}><span style={chipPriority}>{tr("PRIORITY")}</span></div>}</div>
+            <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{place}</div>
+            {byWho && <div style={{ ...rowLineSt, fontSize: 12, marginTop: 0, marginBottom: 12 }}>{byWho}</div>}
+            {w.description && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Instructions")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{w.description}</div></div>)}
+            {item.media_url && item.media_type === "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Video")}</div><video src={item.media_url} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} /></div>)}
+            {item.media_url && item.media_type !== "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Photo")}</div><img src={item.media_url} alt={tr("Task reference")} style={{ width: "100%", borderRadius: R.md, maxHeight: 240, objectFit: "cover" }} /></div>)}
+            {item.due_date && (<div style={{ display: "flex", gap: 12, marginBottom: 14 }}><div style={{ fontSize: 11, color: t.textMut }}>{tr("Due Date:")} <span style={{ color: t.text, fontWeight: 500 }}>{dueDayText(item.due_date, { month: "short", day: "numeric", year: "numeric" })}</span></div>{item.due_time && <div style={{ fontSize: 11, color: t.textMut }}>{tr("Time:")} <span style={{ color: t.text, fontWeight: 500 }}>{clockTime(item.due_time)}</span></div>}</div>)}
+          </div>
+          {action}
+        </div>
+      </div>
+    );
+  };
+
+  if (!clockStatus?.clockedIn && detail) return drawDetail(detail, null, null);
   if (!clockStatus?.clockedIn) return (
     <div style={{ padding: "16px" }}>
       <div style={{ padding: "12px 14px", marginBottom: 14, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow }}><div style={{ fontSize: 12, color: ORANGE }}>{tr("Start your shift to see and check off your tasks.")}</div></div>
       {standardTasks.length === 0 ? <EmptyState icon={CheckIco} text={tr("No tasks loaded. Start your shift at a site to see your checklist.")} t={t} /> : (() => {
-        return drawSections(checklistSections(standardTasks, clockStatus && clockStatus.shift, apiWords), (task, inset) => { const w = itemWords(task, apiWords); const hasInfo = task.has_details || w.description || task.media_url; return (<div key={task.id} onClick={() => hasInfo ? setDetail(task) : null} style={{ ...rowBase, background: t.card, border: "1px solid " + t.borderSolid, cursor: hasInfo ? "pointer" : "default", opacity: 0.6, marginLeft: inset }}><div style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + t.textMut, background: "transparent", flexShrink: 0, marginTop: 1 }} /><div style={{ flex: 1, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{w.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div>); });
+        // A row with a detail is one button, the whole row, which opens
+        // it, so a keyboard reaches it the way a finger does. A row with
+        // none never did anything on a tap and stays a plain row. Both
+        // look as they always have.
+        return drawSections(checklistSections(standardTasks, clockStatus && clockStatus.shift, apiWords), (task, inset) => {
+          const w = itemWords(task, apiWords);
+          const hasInfo = task.has_details || w.description || task.media_url;
+          const rowSt = { ...rowBase, minHeight: TAP, boxSizing: "border-box", background: t.card, border: "1px solid " + t.borderSolid, opacity: 0.6, marginLeft: inset };
+          const inside = (<><span aria-hidden="true" style={{ display: "block", width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + t.textMut, background: "transparent", flexShrink: 0, marginTop: 1 }} /><span style={{ flex: 1, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{w.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</span></>);
+          if (!hasInfo) return <div key={task.id} style={rowSt}>{inside}</div>;
+          return <button key={task.id} type="button" onClick={() => setDetail(task)} style={{ ...rowSt, width: inset ? "calc(100% - " + inset + "px)" : "100%", textAlign: "left", fontFamily: FONT_BODY, cursor: "pointer" }}>{inside}</button>;
+        });
       })()}
     </div>
   );
@@ -3800,25 +3847,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
     const done = isDone(current);
     const lock = lockOf(current, done);
     const byWho = done ? whenOf(current) || (lock === "other" ? tr("Checked by {firstName}", { firstName: checkedOf(current).firstName }) : null) : null;
-    const w = itemWords(detail, apiWords);
-    const place = [detail.building_name, detail.floor_number ? tr("Floor {n}", { n: detail.floor_number }) : "", w.zone].filter(Boolean).join(" - ");
-    return (
-      <div style={{ padding: "16px" }}>
-        <button onClick={() => setDetail(null)} style={{ display: "flex", alignItems: "center", gap: 6, minHeight: TAP, padding: "8px 13px", marginBottom: 14, background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.md, color: t.textSec, fontSize: 12, cursor: "pointer", fontWeight: 600 }}><Ico d="M15 18l-6-6 6-6" sz={14} c={t.textSec} /> {tr("Back to checklist")}</button>
-        <div style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, overflow: "hidden", boxShadow: t.popShadow }}>
-          <div style={{ padding: "16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{w.label}</div>{detail.priority === "high" && <div style={{ display: "flex", gap: 4, flexShrink: 0 }}><span style={chipPriority}>{tr("PRIORITY")}</span></div>}</div>
-            <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{place}</div>
-            {byWho && <div style={{ ...rowLineSt, fontSize: 12, marginTop: 0, marginBottom: 12 }}>{byWho}</div>}
-            {w.description && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Instructions")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{w.description}</div></div>)}
-            {detail.media_url && detail.media_type === "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Video")}</div><video src={detail.media_url} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} /></div>)}
-            {detail.media_url && detail.media_type !== "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Photo")}</div><img src={detail.media_url} alt={tr("Task reference")} style={{ width: "100%", borderRadius: R.md, maxHeight: 240, objectFit: "cover" }} /></div>)}
-            {detail.due_date && (<div style={{ display: "flex", gap: 12, marginBottom: 14 }}><div style={{ fontSize: 11, color: t.textMut }}>{tr("Due Date:")} <span style={{ color: t.text, fontWeight: 500 }}>{dueDayText(detail.due_date, { month: "short", day: "numeric", year: "numeric" })}</span></div>{detail.due_time && <div style={{ fontSize: 11, color: t.textMut }}>{tr("Time:")} <span style={{ color: t.text, fontWeight: 500 }}>{clockTime(detail.due_time)}</span></div>}</div>)}
-          </div>
-          {lock !== "earlier" && <button onClick={() => { tap(current, done, lock); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? tr("Uncheck Task") : tr("Mark Complete")}</button>}
-        </div>
-      </div>
-    );
+    return drawDetail(detail, byWho, lock !== "earlier" && <button onClick={() => { tap(current, done, lock); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? tr("Uncheck Task") : tr("Mark Complete")}</button>);
   }
 
   return (
@@ -5812,6 +5841,17 @@ function formSectionHelp(form, key, language) {
   if (typeof v === "string") return v.trim();
   return v && typeof v === "object" ? String(v[language] || v.en || "").trim() : "";
 }
+// Words the API sends either already in the language asked for or as en
+// and es: read in the person's language, and in English where there is
+// no Spanish. Anything else is no words at all.
+const formInLanguage = (v, language) => String(typeof v === "string" ? v : v && typeof v === "object" ? (v[language] || v.en || "") : "").trim();
+// A pick one question that rates on a scale, since the API's Step 195:
+// the words for its low end and its high end, in the person's language.
+// null for any other question, which draws the way it always has.
+function formScaleOf(f, language) {
+  if (!f || f.type !== "select" || !f.scaleLabels || typeof f.scaleLabels !== "object") return null;
+  return { low: formInLanguage(f.scaleLabels.low, language), high: formInLanguage(f.scaleLabels.high, language) };
+}
 
 const formOptionLabel = (f, v) => {
   const s = String(v);
@@ -6057,6 +6097,31 @@ const formOfDraftReply = (r) => {
   return [r && r.form, d && d.form, d && d.definition].find(x => x && typeof x === "object" && Array.isArray(x.fields)) || null;
 };
 
+// The top of a page opened from a link with no sign-in: the company's
+// logo, its name and the site's, and the language choice and the text
+// size when the page still has something to tap. The logo is the
+// company's when the API sends one and the portal's own when it does
+// not. The text size is the same pill the sign-in screen offers, kept on
+// this phone, and its row wraps the way the sign-in screen's does: at
+// Largest in Spanish the two languages and the pill were wider than the
+// phone and pushed the page sideways.
+function PublicHead({ logo, companyName, siteName, withPicker, locale, setLanguage, t, themeMode }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 160px", minWidth: 0 }}>
+        <div style={{ flexShrink: 0, padding: themeMode === "dark" ? "6px 8px" : 0, background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: R.sm }}>
+          <img src={logo || LOGO_SM} alt="" style={{ display: "block", height: 32, maxWidth: 120, objectFit: "contain" }} />
+        </div>
+        <div style={{ minWidth: 0 }}>
+          {companyName && <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{companyName}</div>}
+          {siteName && <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.4, overflowWrap: "anywhere" }}>{siteName}</div>}
+        </div>
+      </div>
+      {withPicker && <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10, flex: "1 1 220px", maxWidth: 360 }}><div style={{ flex: 1, minWidth: 140 }}><LangPicker value={locale} onChange={setLanguage} t={t} /></div><TextSizeButton t={t} /></div>}
+    </div>
+  );
+}
+
 // A customer's form, opened from a QR code posted in the building, at
 // /c/<token>, with no sign-in and nothing of the app around it: the
 // company's logo and the site's name, the language choice, and the same
@@ -6086,27 +6151,10 @@ function CustomerFormScreen({ token, t, themeMode }) {
 
   const company = (got.data && got.data.company) || {};
   const site = (got.data && got.data.site) || {};
-  const logo = company.logoUrl || LOGO_SM;
-  // The logo, the company and the site, with the language choice and the
-  // text size beside them everywhere but on the thank-you, which has
-  // nothing left to tap. The text size is the same pill the sign-in
-  // screen offers, kept on this phone, and its row wraps the way the
-  // sign-in screen's does: at Largest in Spanish the two languages and
-  // the pill were wider than the phone and pushed the page sideways.
-  const headOf = (withPicker) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 160px", minWidth: 0 }}>
-        <div style={{ flexShrink: 0, padding: themeMode === "dark" ? "6px 8px" : 0, background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: R.sm }}>
-          <img src={logo} alt="" style={{ display: "block", height: 32, maxWidth: 120, objectFit: "contain" }} />
-        </div>
-        <div style={{ minWidth: 0 }}>
-          {company.name && <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{company.name}</div>}
-          {site.name && <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.4, overflowWrap: "anywhere" }}>{site.name}</div>}
-        </div>
-      </div>
-      {withPicker && <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10, flex: "1 1 220px", maxWidth: 360 }}><div style={{ flex: 1, minWidth: 140 }}><LangPicker value={locale} onChange={setLanguage} t={t} /></div><TextSizeButton t={t} /></div>}
-    </div>
-  );
+  // The head every page opened from a link draws, with the language
+  // choice and the text size everywhere but on the thank-you, which has
+  // nothing left to tap.
+  const headOf = (withPicker) => <PublicHead logo={company.logoUrl} companyName={company.name} siteName={site.name} withPicker={withPicker} locale={locale} setLanguage={setLanguage} t={t} themeMode={themeMode} />;
   const head = headOf(true);
 
   if (got.loading && !got.data) {
@@ -6126,6 +6174,236 @@ function CustomerFormScreen({ token, t, themeMode }) {
   const form = got.data.form;
   const draft = { id: null, formCode: form.code, formName: form.title, answers: {}, status: "draft", answered: 0, remaining: 0, missing: [] };
   return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, head: head, thanksHead: headOf(false) }} />;
+}
+
+// The client's acknowledgement of a monthly report, the page the mail
+// that carries the report links to.
+const ACK_LOAD_FAILED = "This report could not load. Check your signal and try again.";
+const ACK_NOT_SENT = "Not sent yet. Check your signal and tap Acknowledge this report again.";
+const ACK_THANKS = "Thank you. Your acknowledgement is recorded.";
+// The boxes a refusal can be drawn under, by the name the API gives each.
+const ACK_BOXES = ["name", "role", "comments", "signature"];
+// Which box a refusal goes under: the one its keys name, else the one its
+// code is about, else none, and a refusal with none is drawn above the
+// button.
+function ackBoxOf(err) {
+  const keys = Array.isArray(err && err.body && err.body.keys) ? err.body.keys.map(String) : [];
+  const named = keys.find(k => ACK_BOXES.indexOf(k) !== -1);
+  if (named) return named;
+  const code = String((err && err.code) || "");
+  if (/nameRequired$/.test(code)) return "name";
+  if (/signature/i.test(code)) return "signature";
+  return null;
+}
+// A day the API sends as YYYY-MM-DD, read as that day on the phone's own
+// calendar rather than as midnight in UTC, which is the day before here.
+const ackDay = (d) => {
+  const s = String(d || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + "T00:00:00").toLocaleDateString(dateLocale(), { month: "long", day: "numeric", year: "numeric" }) : "";
+};
+// The report as a review draws it: each section's fields in the order
+// they come, under the section's title, then any field that sits in no
+// section on the list. A section that carries its own fields draws those.
+function ackGroups(data, language) {
+  const fields = Array.isArray(data.fields) ? data.fields.filter(f => f && typeof f === "object") : [];
+  const list = Array.isArray(data.sections) ? data.sections.filter(s => s && typeof s === "object") : [];
+  const keys = list.map(s => String(s.key));
+  const groups = list.map(s => ({
+    key: String(s.key),
+    title: formInLanguage(s.title !== undefined ? s.title : { en: s.en, es: s.es }, language),
+    fields: Array.isArray(s.fields) ? s.fields.filter(f => f && typeof f === "object") : fields.filter(f => formSectionOf(f) === String(s.key)),
+  }));
+  const rest = fields.filter(f => keys.indexOf(formSectionOf(f)) === -1);
+  if (rest.length > 0) groups.push({ key: "", title: "", fields: rest });
+  return groups.filter(g => g.fields.length > 0);
+}
+// One answer as the review reads it: the words the API wrote for it, a
+// plain answer as it is, and nothing for anything else.
+const ackRead = (f) => {
+  if (typeof f.displayValue === "string" && f.displayValue.trim() !== "") return f.displayValue;
+  return formPlainValue(f.value) && String(f.value).trim() !== "" ? String(f.value) : null;
+};
+
+// At /a/<token>, with no sign-in and nothing of the app around it: the
+// head the customer's form draws, the report's title and period, and the
+// report read only, section by section, the way a report's review draws
+// it. Under it the client's comments, name and role, a signature drawn
+// with a finger, and one button. The report is read in the language on
+// the screen and read again when it changes, and what the client typed
+// stays through it. A link that was used or names nothing shows the API's
+// one line and nothing else. Nothing typed, drawn or read here is kept on
+// the phone, and the token is never stored.
+function AcknowledgeScreen({ token, t, themeMode }) {
+  const { language, setLanguage } = useContext(LanguageCtx);
+  const locale = language === "es" ? "es" : "en";
+  const [got, setGot] = useState({ loading: true, data: null, said: null, offline: false });
+  const [asked, setAsked] = useState(0);
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("");
+  const [comments, setComments] = useState("");
+  const [strokes, setStrokes] = useState([]);
+  const [signature, setSignature] = useState(null);
+  const [sending, setSending] = useState(false);
+  // The API's words when it refused: under the box they name, or above
+  // the button when they name none.
+  const [boxErr, setBoxErr] = useState({});
+  const [sendErr, setSendErr] = useState(null);
+  // The acknowledgement is in; or the API's one line for a link that was
+  // used or names nothing, which takes the page's place.
+  const [done, setDone] = useState(false);
+  const [closed, setClosed] = useState(null);
+  const boxRefs = useRef({});
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+  // Something typed or drawn and not sent yet, or a send on its way.
+  useBusy("acknowledgement", sending || (!done && !closed && (name.trim() !== "" || role.trim() !== "" || comments.trim() !== "" || strokes.length > 0)));
+
+  useEffect(() => {
+    let live = true;
+    setGot(prev => Object.assign({}, prev, { loading: true }));
+    (async () => {
+      try {
+        const r = await api("/api/public/acknowledge/" + encodeURIComponent(token || "") + "?locale=" + locale, { noAuthEvent: true });
+        const readable = !!r && typeof r === "object" && (Array.isArray(r.sections) || Array.isArray(r.fields));
+        if (live) setGot({ loading: false, data: readable ? r : null, said: readable ? null : tr(ACK_LOAD_FAILED), offline: false });
+      } catch (err) {
+        const offline = err.status === undefined || err.status === null;
+        if (live) setGot({ loading: false, data: null, said: offline ? tr(ACK_LOAD_FAILED) : tr(err.message), offline: offline });
+      }
+    })();
+    return () => { live = false; };
+  }, [token, locale, asked]);
+
+  const data = got.data;
+  const company = (data && data.company && typeof data.company === "object") ? data.company : {};
+  const headOf = (withPicker) => <PublicHead logo={company.logoUrl} companyName={company.name} siteName={data ? String(data.siteName || "").trim() : ""} withPicker={withPicker} locale={locale} setLanguage={setLanguage} t={t} themeMode={themeMode} />;
+  const cardSt = { background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 18 };
+
+  if (closed || (!data && !got.loading)) {
+    return (
+      <div style={{ padding: 16 }}>
+        {headOf(true)}
+        <div style={cardSt}>
+          <div role="alert" style={{ fontSize: 14, color: t.text, lineHeight: 1.55 }}>{closed || got.said}</div>
+          {!closed && got.offline && <button type="button" onClick={() => setAsked(n => n + 1)} style={{ width: "100%", minHeight: TAP, marginTop: 14, borderRadius: R.md, border: "1px solid " + GOLD, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button>}
+        </div>
+      </div>
+    );
+  }
+  if (!data) {
+    return <div style={{ padding: 16 }}>{headOf(true)}<div style={{ fontSize: 13, color: t.textMut, lineHeight: 1.5 }}>{tr("Loading...")}</div></div>;
+  }
+
+  // The survey the mail links to beside the report, opened from the
+  // thank-you. Only a web address is ever opened.
+  const surveyUrl = typeof data.surveyUrl === "string" && /^https?:\/\//i.test(data.surveyUrl.trim()) ? data.surveyUrl.trim() : null;
+  const linkBtn = { ...mkPrimaryBtn(t, false), display: "block", boxSizing: "border-box", minHeight: TAP, marginTop: 16, textAlign: "center", textDecoration: "none" };
+  if (done) {
+    return (
+      <div style={{ padding: 16 }}>
+        {headOf(false)}
+        <div style={cardSt}>
+          <div role="status" style={{ fontSize: 15, color: t.text, lineHeight: 1.55, fontFamily: FONT_HEAD, fontWeight: 600 }}>{tr(ACK_THANKS)}</div>
+          {surveyUrl && <a href={surveyUrl} target="_blank" rel="noopener noreferrer" style={linkBtn}>{tr("Rate this month")}</a>}
+        </div>
+      </div>
+    );
+  }
+
+  const title = formInLanguage(data.title, locale) || tr(FORMS_UNTITLED);
+  const from = ackDay(data.periodStart), to = ackDay(data.periodEnd);
+  const period = from && to ? tr("{start} to {end}", { start: from, end: to }) : (from || to);
+  const groups = ackGroups(data, locale);
+  const titled = groups.length > 1;
+
+  const clearBox = (k) => setBoxErr(prev => { if (!prev[k]) return prev; const next = Object.assign({}, prev); delete next[k]; return next; });
+  const send = async () => {
+    if (sending) return;
+    setSending(true); setSendErr(null); setBoxErr({});
+    try {
+      await api("/api/public/acknowledge/" + encodeURIComponent(token || "") + "?locale=" + locale, { method: "POST", body: { name: name.trim(), role: role.trim(), comments: comments.trim(), signature: signature }, noAuthEvent: true });
+      if (!alive.current) return;
+      // What was typed and drawn leaves memory once it is in.
+      setName(""); setRole(""); setComments(""); setStrokes([]); setSignature(null);
+      setDone(true);
+    } catch (err) {
+      if (!alive.current) return;
+      const box = ackBoxOf(err);
+      if (err.status === undefined || err.status === null) setSendErr(tr(ACK_NOT_SENT));
+      else if (err.status === 404 || err.status === 409) setClosed(tr(err.message));
+      else if (box) {
+        setBoxErr({ [box]: tr(err.message) });
+        setTimeout(() => { const el = boxRefs.current[box]; if (el && el.scrollIntoView) el.scrollIntoView({ block: "center" }); }, 0);
+      } else setSendErr(tr(err.message));
+    }
+    if (alive.current) setSending(false);
+  };
+
+  const qSt = { marginBottom: 20 };
+  const labelSt = { display: "block", fontSize: 14, fontWeight: 600, color: t.text, lineHeight: 1.45, fontFamily: FONT_HEAD, overflowWrap: "anywhere" };
+  const reqSt = { fontSize: 11, fontWeight: 600, color: t.textMut, marginLeft: 6, whiteSpace: "nowrap" };
+  const inputSt = { ...mkInput(t), minHeight: TAP, marginTop: 8 };
+  const errOf = (k) => boxErr[k] ? <div role="alert" style={mkFieldErr(t)}>{boxErr[k]}</div> : null;
+
+  return (
+    <div style={{ padding: 16 }}>
+      {headOf(true)}
+      <div role="heading" aria-level={1} style={{ fontSize: 17, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{title}</div>
+      {period && <div style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4 }}>{period}</div>}
+
+      <div style={{ marginTop: 18 }}>
+        {groups.map((g, i) => (
+          <div key={g.key + ":" + i} style={{ marginBottom: 22 }}>
+            {titled && <div style={{ ...mkLabel(t), marginBottom: 10 }}>{tr("Section {n}", { n: i + 1 })}</div>}
+            {g.title && <div role="heading" aria-level={2} style={{ fontSize: 15, fontWeight: 600, color: t.text, lineHeight: 1.35, fontFamily: FONT_HEAD, overflowWrap: "anywhere", marginBottom: 10 }}>{g.title}</div>}
+            {g.fields.map((f, j) => {
+              const read = ackRead(f);
+              return (
+                <div key={String(f.key || j)} style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{formInLanguage(f.label, locale)}</div>
+                  <div style={{ fontSize: 14, color: read ? t.text : t.textMut, fontWeight: read ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere", whiteSpace: "pre-line" }}>{read || tr("Not answered")}</div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ borderTop: "1px solid " + t.borderSolid, paddingTop: 18 }}>
+        <div style={qSt} ref={el => { boxRefs.current.comments = el; }}>
+          <label htmlFor="ack-comments" style={labelSt}>{tr("Comments")}</label>
+          <textarea id="ack-comments" rows={4} maxLength={FORM_VALUE_MAX} value={comments} onChange={e => { setComments(e.target.value); clearBox("comments"); }} style={{ ...inputSt, minHeight: 104, resize: "vertical", lineHeight: 1.5 }} />
+          {errOf("comments")}
+        </div>
+        <div style={qSt} ref={el => { boxRefs.current.name = el; }}>
+          <label htmlFor="ack-name" style={labelSt}>{tr("Your name")}<span style={reqSt}>{tr("Required")}</span></label>
+          <input id="ack-name" type="text" autoComplete="name" maxLength={CUSTOMER_NAME_MAX} value={name} onChange={e => { setName(e.target.value); clearBox("name"); }} aria-invalid={!!boxErr.name} style={inputSt} />
+          {errOf("name")}
+        </div>
+        <div style={qSt} ref={el => { boxRefs.current.role = el; }}>
+          <label htmlFor="ack-role" style={labelSt}>{tr("Your role")}</label>
+          <input id="ack-role" type="text" autoComplete="organization-title" maxLength={CUSTOMER_NAME_MAX} value={role} onChange={e => { setRole(e.target.value); clearBox("role"); }} style={inputSt} />
+          {errOf("role")}
+        </div>
+        <div style={qSt} ref={el => { boxRefs.current.signature = el; }}>
+          <div style={labelSt}>{tr("Signature")}<span style={reqSt}>{tr("Required")}</span></div>
+          <div style={{ marginTop: 8, borderRadius: R.md, border: "1px solid " + (boxErr.signature ? RED : t.borderSolid), background: "#FFFFFF", overflow: "hidden" }}>
+            <SignatureBox strokes={strokes} onStroke={(stroke, size) => {
+              const all = strokes.concat([stroke]);
+              setStrokes(all);
+              setSignature(signaturePng(all, size.w, size.h));
+              clearBox("signature");
+            }} height={SIGN_BOX_HEIGHT} />
+          </div>
+          <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+          <button type="button" onClick={() => { setStrokes([]); setSignature(null); }} disabled={strokes.length === 0} style={{ width: "100%", minHeight: TAP, marginTop: 10, padding: "10px 12px", borderRadius: R.md, cursor: strokes.length === 0 ? "default" : "pointer", border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, opacity: strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+          {errOf("signature")}
+        </div>
+        {sendErr && <div role="alert" style={{ padding: "10px 12px", marginBottom: 14, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text, fontSize: 13, lineHeight: 1.5 }}>{sendErr}</div>}
+        <button type="button" onClick={send} disabled={sending} style={{ ...mkPrimaryBtn(t, sending), minHeight: TAP, cursor: sending ? "default" : "pointer" }}>{sending ? tr("Sending") : tr("Acknowledge this report")}</button>
+      </div>
+    </div>
+  );
 }
 
 // The list of forms, and the one button on each card.
@@ -6812,6 +7090,36 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
   // gets the same input its type gets as a question, the date and the
   // time pickers included.
   const renderControl = (spec, v, onChange, at) => {
+    // A rating: its options as buttons in rows of five, ten making two
+    // rows, with the low end's words under the first and the high end's
+    // under the last. A tap picks the value the list would have picked,
+    // and a second tap takes it back, the way the list does. The rows
+    // share the width, so a button is never narrower than 44 on the
+    // screen at any text size: at Largest on a 320 pixel phone each is
+    // about 31 of the page's pixels, drawn at one and a half times.
+    const scale = formScaleOf(spec, locale);
+    if (scale) {
+      const opts = spec.options || [];
+      const rows = [];
+      for (let i = 0; i < opts.length; i += 5) rows.push(opts.slice(i, i + 5));
+      const endSt = { fontSize: 12, color: t.textSec, lineHeight: 1.4, marginTop: 6, overflowWrap: "anywhere" };
+      return (
+        <div role="group" aria-label={spec.label || undefined} style={{ marginTop: 8 }}>
+          {rows.map((row, ri) => (
+            <div key={at + "row" + ri} style={{ marginTop: ri > 0 ? 8 : 0 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 6 }}>
+                {row.map(o => {
+                  const picked = v === o.value;
+                  return <button key={at + o.value} type="button" onClick={() => onChange(picked ? null : o.value)} aria-pressed={picked} style={{ minWidth: 0, minHeight: TAP, padding: 0, borderRadius: R.md, cursor: "pointer", fontSize: 15, fontWeight: 600, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums", background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text }}>{o.label}</button>;
+                })}
+              </div>
+              {ri === 0 && scale.low && <div style={endSt}>{scale.low}</div>}
+              {ri === rows.length - 1 && scale.high && <div style={{ ...endSt, textAlign: "right" }}>{scale.high}</div>}
+            </div>
+          ))}
+        </div>
+      );
+    }
     if (spec.type === "select" || spec.type === "multiselect") {
       const many = spec.type === "multiselect";
       const chosen = many ? (Array.isArray(v) ? v : []) : v;
@@ -7584,6 +7892,8 @@ function InspectView({ token, user, showToast, t }) {
   const [lastTouched, setLastTouched] = useState(null);
   const [showScored, setShowScored] = useState(false);
   const touch = (id) => { setScoredIds(prev => prev[id] ? prev : { ...prev, [id]: true }); setLastTouched(id); };
+  // The index a long inspection offers, open or not.
+  const [sectionsOpen, setSectionsOpen] = useState(false);
 
   // + Schedule follows the capability the API enforces on the schedule
   // route, read once when the tab opens, so nobody is shown a button the
@@ -7656,7 +7966,7 @@ function InspectView({ token, user, showToast, t }) {
       setNeedsFix({});
       setMissingNote({});
       notDueBefore.current = {};
-      setScoredIds({}); setLastTouched(null); setShowScored(false);
+      setScoredIds({}); setLastTouched(null); setShowScored(false); setSectionsOpen(false);
     } catch (e) { showToast(tr(e.message), "error"); }
   };
 
@@ -7796,6 +8106,33 @@ function InspectView({ token, user, showToast, t }) {
     const inFold = (item) => !!scoredIds[item.id] && item.id !== lastTouched;
     const openItems = items.filter(item => !inFold(item));
     const foldedItems = items.filter(inFold);
+    // A long inspection's sections: its cards by the zone each names, in
+    // the order the zones first come. A card is in no other section, so
+    // the zone printed under its name is what the index goes by.
+    const indexed = items.length > INSPECT_INDEX_OVER;
+    const sections = [];
+    if (indexed) items.forEach(item => {
+      const zone = String(item.zone || "").trim();
+      let s = sections.find(x => x.zone === zone);
+      if (!s) { s = { zone: zone, items: [] }; sections.push(s); }
+      s.items.push(item);
+    });
+    // Goes to a section's first card as the page draws it: the first still
+    // to score, else the first in the fold, which opens first. The card's
+    // first control takes the focus, so a keyboard carries on from there.
+    const goToSection = (s) => {
+      setSectionsOpen(false);
+      const target = s.items.find(item => !inFold(item)) || s.items[0];
+      if (!target) return;
+      if (inFold(target)) setShowScored(true);
+      setTimeout(() => {
+        const card = document.querySelector('[data-inspect-item="' + target.id + '"]');
+        if (!card) return;
+        if (card.scrollIntoView) card.scrollIntoView({ block: "start" });
+        const first = card.querySelector("input, button");
+        if (first && first.focus) first.focus({ preventScroll: true });
+      }, 0);
+    };
     // One card, drawn the same way in the open list and in the fold.
     const itemCard = (item) => {
       const sc = parseInt(scores[item.id]) || 0;
@@ -7840,12 +8177,16 @@ function InspectView({ token, user, showToast, t }) {
 
     return (
       <div style={{ padding: "14px 16px 100px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+        {/* Sections sits at the end of the top row, and goes under the
+            name, at its right, when the row has no room for it. A
+            shorter inspection's row is drawn as it always was. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, ...(indexed ? { flexWrap: "wrap" } : {}) }}>
           <button onClick={() => setActive(null)} aria-label={tr("Back")} style={mkTapFrame({ color: t.textSec, fontSize: 20, lineHeight: 1 })}>{"<"}</button>
-          <div>
+          <div style={indexed ? { flex: "1 1 140px", minWidth: 0 } : undefined}>
             <div style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{active.template_name}</div>
             <div style={{ fontSize: 11, color: t.textSec, fontFamily: FONT_BODY }}>{active.site_name} - {fmtDate(active.scheduled_date)}</div>
           </div>
+          {indexed && <button type="button" onClick={() => setSectionsOpen(true)} aria-haspopup="dialog" style={{ minHeight: TAP, padding: "0 14px", marginLeft: "auto", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Sections")}</button>}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderRadius: R.lg, background: t.card, marginBottom: 16, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
@@ -7875,6 +8216,8 @@ function InspectView({ token, user, showToast, t }) {
         <button onClick={submit} disabled={submitting} style={{ width: "100%", padding: "14px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: submitting ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>
           {submitting ? tr("Submitting...") : tr("Submit Inspection")}
         </button>
+
+        {indexed && sectionsOpen && <InspectSectionsSheet sections={sections} scoredIds={scoredIds} onPick={goToSection} onClose={() => setSectionsOpen(false)} t={t} />}
       </div>
     );
   }
@@ -7981,6 +8324,32 @@ function InspectView({ token, user, showToast, t }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// A long inspection's index, the sheet Sections opens: each section by
+// the zone its cards name, General for cards that name none, with how
+// many of its cards are scored of how many it holds. A tap on one closes
+// the sheet and goes to it.
+function InspectSectionsSheet({ sections, scoredIds, onPick, onClose, t }) {
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 500, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={tr("Sections")} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "20px 20px 30px", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 40px)", overflowY: "auto", boxShadow: t.popShadow }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Sections")}</div>
+          <button type="button" onClick={onClose} aria-label={tr("Close")} style={mkTapFrame({ fontSize: 20, color: t.textMut, lineHeight: 1 })}>{tr("x")}</button>
+        </div>
+        {sections.map((s, i) => {
+          const scored = s.items.filter(item => !!scoredIds[item.id]).length;
+          return (
+            <button key={s.zone + ":" + i} type="button" onClick={() => onPick(s)} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "4px 12px", padding: "10px 12px", marginTop: i > 0 ? 8 : 0, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.card, cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere", minWidth: 0 }}>{s.zone || tr("General")}</span>
+              <span style={{ fontSize: 12, color: t.textSec, fontVariantNumeric: "tabular-nums" }}>{tr("{scored} of {total} scored", { scored: scored, total: s.items.length })}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -559,6 +559,8 @@ export const WORDS = {
   "Scored": "Calificados",
   "Select template...": "Elija una plantilla...",
   "Show {0} scored items": "Mostrar {0} puntos calificados",
+  "Sections": "Secciones",
+  "{scored} of {total} scored": "{scored} de {total} calificados",
   "Site *": "Sitio *",
   "Submit Inspection": "Enviar inspecci\u00f3n",
   "Tap an inspection to begin scoring.": "Toque una inspecci\u00f3n para empezar a calificar.",
@@ -647,6 +649,15 @@ export const WORDS = {
   "Untitled report": "Reporte sin t\u00edtulo",
   "{answered} answered": "{answered} respondidas",
   "{answered} answered, {remaining} to go": "{answered} respondidas, faltan {remaining}",
+
+  // Acknowledgement page
+  "Acknowledge this report": "Confirmar recibo de este reporte",
+  "Comments": "Comentarios",
+  "Not sent yet. Check your signal and tap Acknowledge this report again.": "Todav\u00eda no se envi\u00f3. Revise su se\u00f1al y toque Confirmar recibo de este reporte otra vez.",
+  "Rate this month": "Calificar este mes",
+  "Signature": "Firma",
+  "Thank you. Your acknowledgement is recorded.": "Gracias. Su confirmaci\u00f3n qued\u00f3 registrada.",
+  "This report could not load. Check your signal and try again.": "Este reporte no carg\u00f3. Revise su se\u00f1al e intente de nuevo.",
 
   // Shortcuts
   "Add to bar": "Agregar a la barra",
