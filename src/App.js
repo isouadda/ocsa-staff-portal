@@ -5775,9 +5775,11 @@ const formHasAnswer = (v) => {
 };
 
 // Every question this person is asked for the answers so far. A
-// prefilled question is already on the draft and is never shown.
+// prefilled question is already on the draft and is never shown. A
+// person question is the one kind that is: its prefill is the filer
+// picked to start with, drawn as the chip and changed like any pick.
 const formFieldsInPlay = (form, answers) =>
-  (form && Array.isArray(form.fields) ? form.fields : []).filter(f => !f.prefilled && formRuleHolds(f.appliesWhen, answers));
+  (form && Array.isArray(form.fields) ? form.fields : []).filter(f => (!f.prefilled || formTypeOf(f) === "person") && formRuleHolds(f.appliesWhen, answers));
 
 const formSectionOf = (f) => (f.section === null || f.section === undefined ? "" : String(f.section));
 // The sections in play, in the order they first appear. A section
@@ -6018,11 +6020,23 @@ function formAboutPersonKey(form) {
   const people = fields.filter(f => formTypeOf(f) === "person");
   return people.length === 1 ? people[0].key : null;
 }
-// The staff a person question offers: everyone active, as the Speak Up
-// route lists them, in last name order. That route leaves the caller
-// out, since nobody reports themselves to HR; a report can be about
-// the one filing it, so the caller is put back in their place.
-const staffNameOf = (p) => String(p && p.firstName ? p.firstName : "") + " " + String(p && p.lastName ? p.lastName : "");
+// The staff a person question offers, from GET /api/forms/people, the
+// API's Step 186: active staff, never a client contact, the filer among
+// them, each { id, name, role }, in last name order and at most
+// FORM_PEOPLE_MAX of them. A list that long may be cut short, so a
+// search on it asks the route for the words typed, once they have sat
+// for STAFF_SEARCH_WAIT_MS.
+const FORM_PEOPLE_MAX = 50;
+const STAFF_SEARCH_WAIT_MS = 300;
+const formPeopleOf = (d) => (d && Array.isArray(d.people) ? d.people : []).filter(p => p && p.id !== undefined && p.id !== null);
+// A person's name as either list sends it: whole from the forms route,
+// as a first and a last name from Speak Up's.
+const staffNameOf = (p) => (p && typeof p.name === "string" ? p.name : String(p && p.firstName ? p.firstName : "") + " " + String(p && p.lastName ? p.lastName : ""));
+// An API older than the forms route answers it 404, and the list is the
+// Speak Up route's: everyone active, in last name order. That route
+// leaves the caller out, since nobody reports themselves to HR; a
+// report can be about the one filing it, so the caller is put back in
+// their place.
 function staffListWith(list, me) {
   const out = (Array.isArray(list) ? list : []).filter(p => p && p.id !== undefined && p.id !== null);
   if (me && me.id !== undefined && me.id !== null && !out.some(p => String(p.id) === String(me.id))) {
@@ -6258,6 +6272,12 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
   const [staffFailed, setStaffFailed] = useState(false);
   const [staffAttempt, setStaffAttempt] = useState(0);
   const [personSearch, setPersonSearch] = useState({});
+  // The forms route answered as many people as it gives, so the list may
+  // be cut short and a search asks the route itself. What it answered
+  // for each search, by the words searched, and false for one that
+  // failed.
+  const [staffCut, setStaffCut] = useState(false);
+  const [staffFound, setStaffFound] = useState({});
   // The customer's own name and role, asked on the first section.
   const [customerName, setCustomerName] = useState("");
   const [customerRole, setCustomerRole] = useState("");
@@ -6326,15 +6346,37 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
   // The staff list, asked for once the form has a person question in
   // play and never on the customer's page, which has no token for it.
   const asksPerson = !isCustomer && shown.some(f => formTypeOf(f) === "person");
+  // The forms route first, and the Speak Up route only when an API older
+  // than it answers 404. Any other failure says so under the question.
   useEffect(() => {
     if (!asksPerson) return undefined;
     let live = true;
-    setStaff(null); setStaffFailed(false);
-    api("/api/hr-cases/people", { token })
-      .then(d => { if (live) setStaff(staffListWith(d && d.people, user)); })
-      .catch(() => { if (live) setStaffFailed(true); });
+    setStaff(null); setStaffFailed(false); setStaffCut(false); setStaffFound({});
+    api("/api/forms/people", { token })
+      .then(d => { if (!live) return; const list = formPeopleOf(d); setStaff(list); setStaffCut(list.length >= FORM_PEOPLE_MAX); })
+      .catch(err => {
+        if (!live) return;
+        if (!(err && err.status === 404)) { setStaffFailed(true); return; }
+        api("/api/hr-cases/people", { token })
+          .then(d => { if (live) setStaff(staffListWith(d && d.people, user)); })
+          .catch(() => { if (live) setStaffFailed(true); });
+      });
     return () => { live = false; };
   }, [asksPerson, token, user, staffAttempt]);
+  // Every search not yet asked of a list cut short, each asked once.
+  const staffAsks = staffCut ? Array.from(new Set(Object.keys(personSearch).map(k => personSearch[k].trim().toLowerCase()).filter(n => n !== "" && staffFound[n] === undefined))).join("\n") : "";
+  useEffect(() => {
+    if (!staffAsks) return undefined;
+    let live = true;
+    const wait = setTimeout(() => {
+      staffAsks.split("\n").forEach(n => {
+        api("/api/forms/people?q=" + encodeURIComponent(n), { token })
+          .then(d => { if (live) setStaffFound(prev => Object.assign({}, prev, { [n]: formPeopleOf(d) })); })
+          .catch(() => { if (live) setStaffFound(prev => Object.assign({}, prev, { [n]: false })); });
+      });
+    }, STAFF_SEARCH_WAIT_MS);
+    return () => { live = false; clearTimeout(wait); };
+  }, [staffAsks, token]);
   // The person this report is about, by name, as picked so far: what an
   // employee signature card on the same form starts with.
   const aboutKey = formAboutPersonKey(form);
@@ -7045,10 +7087,12 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
 
   // A person question: the picked person as a chip, tapped to pick
   // again, or Search by name over every active staff member, each a row
-  // of the app's own pick one shape, the way Speak Up offers them. The
-  // answer saved is the person's id and their name as it reads today.
-  // The names scroll in their own box, so a staff list of any length
-  // leaves Next where a thumb can reach it.
+  // of the app's own pick one shape, the way Speak Up offers them. A
+  // draft that starts with someone picked, the filer where the form
+  // prefills one, shows them as the chip the same way. The answer saved
+  // is the person's id and their name as it reads today. The names
+  // scroll in their own box, so a staff list of any length leaves Next
+  // where a thumb can reach it.
   const chipSt = {
     display: "inline-flex", alignItems: "center", gap: 8, maxWidth: "100%", minWidth: TAP, minHeight: TAP, marginTop: 8,
     padding: "8px 12px", borderRadius: R.pill, cursor: "pointer",
@@ -7069,17 +7113,20 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
         </div>
       );
     }
-    if (staffFailed) {
-      return (
-        <>
-          <div style={{ marginTop: 8, padding: "10px 12px", background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, borderRadius: R.sm, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>{tr("The staff list did not load. Try again in a minute.")}</div>
-          <button type="button" onClick={() => setStaffAttempt(n => n + 1)} style={{ ...mkGhostBtn(t), marginTop: 8 }}>{tr("Try again")}</button>
-        </>
-      );
-    }
+    const fault = (retry) => (
+      <>
+        <div style={{ marginTop: 8, padding: "10px 12px", background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, borderRadius: R.sm, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>{tr("The staff list did not load. Try again in a minute.")}</div>
+        <button type="button" onClick={retry} style={{ ...mkGhostBtn(t), marginTop: 8 }}>{tr("Try again")}</button>
+      </>
+    );
+    if (staffFailed) return fault(() => setStaffAttempt(n => n + 1));
     const search = personSearch[f.key] || "";
     const needle = search.trim().toLowerCase();
-    const offered = (staff || []).filter(p => needle === "" || staffNameOf(p).toLowerCase().indexOf(needle) !== -1);
+    // On a list cut short, a search offers what the route answered for
+    // it, and what the list already holds until then.
+    const found = staffCut && needle !== "" ? staffFound[needle] : undefined;
+    const asking = staffCut && needle !== "" && found === undefined;
+    const offered = Array.isArray(found) ? found : (staff || []).filter(p => needle === "" || staffNameOf(p).toLowerCase().indexOf(needle) !== -1);
     const pick = (p) => {
       setVal(f.key, { id: p.id, name: staffNameOf(p).trim() });
       setPersonSearch(prev => { const next = Object.assign({}, prev); delete next[f.key]; return next; });
@@ -7087,7 +7134,8 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
     return (
       <>
         <input type="text" value={search} onChange={e => setPersonSearch(prev => Object.assign({}, prev, { [f.key]: e.target.value.slice(0, 80) }))} disabled={staff === null} placeholder={tr("Search by name")} aria-label={tr("Search by name")} style={inputSt} />
-        {offered.length > 0 && (
+        {found === false && fault(() => setStaffFound(prev => { const next = Object.assign({}, prev); delete next[needle]; return next; }))}
+        {found !== false && offered.length > 0 && (
           <div style={{ maxHeight: 264, overflowY: "auto", marginTop: 2 }}>
             {offered.map(p => (
               <button key={p.id} type="button" onClick={() => pick(p)} style={optRow(false)}>
@@ -7096,7 +7144,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
             ))}
           </div>
         )}
-        {staff !== null && offered.length === 0 && needle !== "" && <div style={{ ...mkHelp(t), marginTop: 10 }}>{tr("No one matches that name.")}</div>}
+        {staff !== null && found !== false && !asking && offered.length === 0 && needle !== "" && <div style={{ ...mkHelp(t), marginTop: 10 }}>{tr("No one matches that name.")}</div>}
       </>
     );
   };
