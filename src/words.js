@@ -559,6 +559,8 @@ export const WORDS = {
   "Scored": "Calificados",
   "Select template...": "Elija una plantilla...",
   "Show {0} scored items": "Mostrar {0} puntos calificados",
+  "Sections": "Secciones",
+  "{scored} of {total} scored": "{scored} de {total} calificados",
   "Site *": "Sitio *",
   "Submit Inspection": "Enviar inspecci\u00f3n",
   "Tap an inspection to begin scoring.": "Toque una inspecci\u00f3n para empezar a calificar.",

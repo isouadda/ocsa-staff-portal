@@ -847,6 +847,9 @@ const TAP = 44;
 // Step 145. What a card's note starts with once Not due yet is tapped.
 // English on purpose, so every inspection report reads the same.
 const NOT_DUE = "Not due";
+// An inspection with more cards than this offers Sections, an index of
+// its cards by the zone each names. One has 118.
+const INSPECT_INDEX_OVER = 20;
 // A control whose drawing is meant to stay smaller than that. The button
 // becomes a see-through frame of at least 44 by 44 and the look moves to
 // the span inside it, so the tap area grows and the drawing does not.
@@ -7889,6 +7892,8 @@ function InspectView({ token, user, showToast, t }) {
   const [lastTouched, setLastTouched] = useState(null);
   const [showScored, setShowScored] = useState(false);
   const touch = (id) => { setScoredIds(prev => prev[id] ? prev : { ...prev, [id]: true }); setLastTouched(id); };
+  // The index a long inspection offers, open or not.
+  const [sectionsOpen, setSectionsOpen] = useState(false);
 
   // + Schedule follows the capability the API enforces on the schedule
   // route, read once when the tab opens, so nobody is shown a button the
@@ -7961,7 +7966,7 @@ function InspectView({ token, user, showToast, t }) {
       setNeedsFix({});
       setMissingNote({});
       notDueBefore.current = {};
-      setScoredIds({}); setLastTouched(null); setShowScored(false);
+      setScoredIds({}); setLastTouched(null); setShowScored(false); setSectionsOpen(false);
     } catch (e) { showToast(tr(e.message), "error"); }
   };
 
@@ -8101,6 +8106,33 @@ function InspectView({ token, user, showToast, t }) {
     const inFold = (item) => !!scoredIds[item.id] && item.id !== lastTouched;
     const openItems = items.filter(item => !inFold(item));
     const foldedItems = items.filter(inFold);
+    // A long inspection's sections: its cards by the zone each names, in
+    // the order the zones first come. A card is in no other section, so
+    // the zone printed under its name is what the index goes by.
+    const indexed = items.length > INSPECT_INDEX_OVER;
+    const sections = [];
+    if (indexed) items.forEach(item => {
+      const zone = String(item.zone || "").trim();
+      let s = sections.find(x => x.zone === zone);
+      if (!s) { s = { zone: zone, items: [] }; sections.push(s); }
+      s.items.push(item);
+    });
+    // Goes to a section's first card as the page draws it: the first still
+    // to score, else the first in the fold, which opens first. The card's
+    // first control takes the focus, so a keyboard carries on from there.
+    const goToSection = (s) => {
+      setSectionsOpen(false);
+      const target = s.items.find(item => !inFold(item)) || s.items[0];
+      if (!target) return;
+      if (inFold(target)) setShowScored(true);
+      setTimeout(() => {
+        const card = document.querySelector('[data-inspect-item="' + target.id + '"]');
+        if (!card) return;
+        if (card.scrollIntoView) card.scrollIntoView({ block: "start" });
+        const first = card.querySelector("input, button");
+        if (first && first.focus) first.focus({ preventScroll: true });
+      }, 0);
+    };
     // One card, drawn the same way in the open list and in the fold.
     const itemCard = (item) => {
       const sc = parseInt(scores[item.id]) || 0;
@@ -8145,12 +8177,16 @@ function InspectView({ token, user, showToast, t }) {
 
     return (
       <div style={{ padding: "14px 16px 100px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+        {/* Sections sits at the end of the top row, and goes under the
+            name, at its right, when the row has no room for it. A
+            shorter inspection's row is drawn as it always was. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, ...(indexed ? { flexWrap: "wrap" } : {}) }}>
           <button onClick={() => setActive(null)} aria-label={tr("Back")} style={mkTapFrame({ color: t.textSec, fontSize: 20, lineHeight: 1 })}>{"<"}</button>
-          <div>
+          <div style={indexed ? { flex: "1 1 140px", minWidth: 0 } : undefined}>
             <div style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{active.template_name}</div>
             <div style={{ fontSize: 11, color: t.textSec, fontFamily: FONT_BODY }}>{active.site_name} - {fmtDate(active.scheduled_date)}</div>
           </div>
+          {indexed && <button type="button" onClick={() => setSectionsOpen(true)} aria-haspopup="dialog" style={{ minHeight: TAP, padding: "0 14px", marginLeft: "auto", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Sections")}</button>}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderRadius: R.lg, background: t.card, marginBottom: 16, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
@@ -8180,6 +8216,8 @@ function InspectView({ token, user, showToast, t }) {
         <button onClick={submit} disabled={submitting} style={{ width: "100%", padding: "14px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: submitting ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>
           {submitting ? tr("Submitting...") : tr("Submit Inspection")}
         </button>
+
+        {indexed && sectionsOpen && <InspectSectionsSheet sections={sections} scoredIds={scoredIds} onPick={goToSection} onClose={() => setSectionsOpen(false)} t={t} />}
       </div>
     );
   }
@@ -8286,6 +8324,32 @@ function InspectView({ token, user, showToast, t }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// A long inspection's index, the sheet Sections opens: each section by
+// the zone its cards name, General for cards that name none, with how
+// many of its cards are scored of how many it holds. A tap on one closes
+// the sheet and goes to it.
+function InspectSectionsSheet({ sections, scoredIds, onPick, onClose, t }) {
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 500, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={tr("Sections")} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "20px 20px 30px", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 40px)", overflowY: "auto", boxShadow: t.popShadow }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Sections")}</div>
+          <button type="button" onClick={onClose} aria-label={tr("Close")} style={mkTapFrame({ fontSize: 20, color: t.textMut, lineHeight: 1 })}>{tr("x")}</button>
+        </div>
+        {sections.map((s, i) => {
+          const scored = s.items.filter(item => !!scoredIds[item.id]).length;
+          return (
+            <button key={s.zone + ":" + i} type="button" onClick={() => onPick(s)} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "4px 12px", padding: "10px 12px", marginTop: i > 0 ? 8 : 0, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.card, cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere", minWidth: 0 }}>{s.zone || tr("General")}</span>
+              <span style={{ fontSize: 12, color: t.textSec, fontVariantNumeric: "tabular-nums" }}>{tr("{scored} of {total} scored", { scored: scored, total: s.items.length })}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
