@@ -7,7 +7,7 @@ Build and validate (run before every commit)
 * Dev server: npm start
 * Report the build result after any change.
 Architecture
-* Single file: src/App.js, about 1,500 lines.
+* Single file: src/App.js, about 8,500 lines.
 * Design vocabulary matches the admin app: FONT_HEAD and FONT_BODY (both the phone's own system stack), the R radius scale, a full theme token set, gold glow on primary buttons, and the shared mkLabel, mkInput, mkQtyBtn helpers.
 * Auth fetch helper returns parsed JSON and throws on error.
 Conventions (hard rules)
