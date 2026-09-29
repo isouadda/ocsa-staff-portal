@@ -255,9 +255,9 @@ Who can do this: anyone signed in
 5. Under the answer, a line says what it is based on: **Based on the app guide** (**Según la guía de la aplicación**) for steps in the staff portal or the admin dashboard, **Based on the ADP guide** (**Según la guía de ADP**) for the ADP time clock, **Based on general cleaning guidance** (**Según una guía general de limpieza**) for general cleaning answers, and an OCSA document by its name.
 6. Under each answer, **Was this helpful?** (**¿Le sirvió?**) with **Yes** (**Sí**) and **No** (**No**). Tap Yes if it helped. Tap No, write **What was missing?** (**¿Qué faltó?**) if you like, and tap **Send** (**Enviar**). **Thanks. This helps Help get better.** (**Gracias. Esto ayuda a mejorar la Ayuda.**) Tap the other choice to change your answer.
 Help also knows your own schedule: ask "when do I work next?" or "did my time off go through?" and it answers from your shifts and requests.
-If it does not work: if the signal drops while an answer is arriving, what came through stays with **The connection dropped. Your answer is saved.** (**Se perdió la conexión. La respuesta quedó guardada.**) under it, and Help fetches the saved answer by itself. If it cannot yet, tap **Try again** (**Intentar de nuevo**). If the question shows **Not sent.** (**No se envió.**), tap **Retry** (**Reintentar**) to ask it again.
-Words people use for this: ask a question, help me, chat with the assistant, ayuda, the answer stopped, lost signal, what is the answer based on, where does this come from, rate an answer, when do i work, my schedule, did my time off go through.
-Last checked: 2026-09-28
+If it does not work: if the signal drops while an answer is arriving, what came through stays with **The connection dropped. Your answer is saved.** (**Se perdió la conexión. La respuesta quedó guardada.**) under it, and Help fetches the saved answer by itself. If it cannot yet, tap **Try again** (**Intentar de nuevo**). If the question shows **Not sent.** (**No se envió.**), tap **Retry** (**Reintentar**) to ask it again. Retry sends the same question, so a question OCSA already has is answered only once.
+Words people use for this: ask a question, help me, chat with the assistant, ayuda, the answer stopped, lost signal, answered twice, what is the answer based on, where does this come from, rate an answer, when do i work, my schedule, did my time off go through.
+Last checked: 2026-09-29
 
 ## Send Help a photo (staff portal)
 Who can do this: anyone signed in
