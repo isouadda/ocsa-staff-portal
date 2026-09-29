@@ -1,5 +1,5 @@
 {
-  "notes": "What the app gets wrong today. Each entry prints as KNOWN on every run and does not fail it. An entry that stops matching fails the run until it is taken off the list, so a fix is always noticed. The contrast entries are one per screen, theme and color pair, each with the ratio the app draws. The language entries are one per kind of word the API cannot send in Spanish yet, which stay until it does, and one per place the portal itself still draws English, which the build that fixes it takes off.",
+  "notes": "What the app gets wrong today. Each entry prints as KNOWN on every run and does not fail it. An entry that stops matching fails the run until it is taken off the list, so a fix is always noticed. The contrast entries are one per screen, theme and color pair, each with the ratio the app draws. The language entries are one per kind of word the API cannot send in Spanish yet, which stay until it does, and one per place the portal itself still draws English, which the build that fixes it takes off. A too small entry names the control and why it is under 44 today.",
   "accepted": [
     {
       "where": "*",
@@ -92,8 +92,8 @@
       "where": "Home",
       "theme": "light",
       "check": "contrast",
-      "what": "\"#2ECC71 on #EEFBF3\"",
-      "why": "Green on light mode's green wash. 1.97 to 1 against the 4.5 to 1 small text needs."
+      "what": "\"#2ECC71 on #E3EEDF\"",
+      "why": "Green on light mode's green wash, on today's gold column in the week strip, which reads the day on the phone's own clock since pull request 52. 1.76 to 1 against the 4.5 to 1 small text needs."
     },
     {
       "where": "Inspect",
@@ -136,6 +136,13 @@
       "check": "contrast",
       "what": "\"#E74C3C on #132240\"",
       "why": "Red on the dark theme's card, on the control that withdraws or removes. 4.13 to 1 against the 4.5 to 1 this text needs."
+    },
+    {
+      "where": "Phone alerts",
+      "theme": "dark",
+      "check": "contrast",
+      "what": "\"#F8F7F4 on #E74C3C\"",
+      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
     },
     {
       "where": "Pickup",
@@ -204,8 +211,8 @@
       "where": "Schedule",
       "theme": "light",
       "check": "contrast",
-      "what": "\"#2ECC71 on #EEFBF3\"",
-      "why": "Green on light mode's green wash. 1.97 to 1 against the 4.5 to 1 small text needs."
+      "what": "\"#2ECC71 on #E3EEDF\"",
+      "why": "Green on light mode's green wash, on today's gold column in the week strip, which reads the day on the phone's own clock since pull request 52. 1.76 to 1 against the 4.5 to 1 small text needs."
     },
     {
       "where": "Schedule",
@@ -285,6 +292,12 @@
       "why": "Orange on a tinted row in light mode. 1.87 to 1 against the 4.5 to 1 small text needs."
     },
     {
+      "where": "Tasks",
+      "check": "too small",
+      "what": "a div with a click handler",
+      "why": "A checklist item's name, one or two lines tall, 14 to 28 pixels. A tap on it opens the item's detail, or checks the item off when it has none, which the 44 pixel box beside it also does. Pull request 52 made a div that is the only way to something a button, working from the scout's list, and this one was not on it. The widened check found it; this run changes code only where the first audit found it wrong."
+    },
+    {
       "where": "The portal itself",
       "theme": "dark",
       "check": "contrast",
@@ -302,8 +315,8 @@
       "where": "The portal itself",
       "theme": "light",
       "check": "contrast",
-      "what": "\"#2ECC71 on #EEFBF3\"",
-      "why": "Green on light mode's green wash. 1.97 to 1 against the 4.5 to 1 small text needs."
+      "what": "\"#2ECC71 on #E3EEDF\"",
+      "why": "Green on light mode's green wash, on today's gold column in the week strip, which reads the day on the phone's own clock since pull request 52. 1.76 to 1 against the 4.5 to 1 small text needs."
     },
     {
       "where": "Site walk, the walk",
@@ -339,6 +352,30 @@
       "check": "contrast",
       "what": "\"#F8F7F4 on #E74C3C\"",
       "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"5:00 PM - 11:00 PM ",
+      "why": "A shift in the week strip on Home and Schedule. Seven days share the phone's width, so the chip is 28 pixels wide at Standard and 39 at Largest, under the 44 a tap needs, though 44 or more tall. A wider chip needs the strip to scroll on its own at every size, or another layout."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"6:30 PM (live) ",
+      "why": "A shift in the week strip on Home and Schedule. Seven days share the phone's width, so the chip is 28 pixels wide at Standard and 39 at Largest, under the 44 a tap needs, though 44 or more tall. A wider chip needs the strip to scroll on its own at every size, or another layout."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"5:00 p.m. - 11:00 p.m. ",
+      "why": "A shift in the week strip on Home and Schedule. Seven days share the phone's width, so the chip is 28 pixels wide at Standard and 39 at Largest, under the 44 a tap needs, though 44 or more tall. A wider chip needs the strip to scroll on its own at every size, or another layout."
+    },
+    {
+      "where": "*",
+      "check": "too small",
+      "what": "\"6:30 p.m. (en curso) ",
+      "why": "A shift in the week strip on Home and Schedule. Seven days share the phone's width, so the chip is 28 pixels wide at Standard and 39 at Largest, under the 44 a tap needs, though 44 or more tall. A wider chip needs the strip to scroll on its own at every size, or another layout."
     },
     {
       "where": "*",

@@ -27,6 +27,19 @@ const PHONE = {
   userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
 };
 
+// An Android phone, for a case that needs what an iPhone browser tab never
+// offers, such as phone alerts.
+const ANDROID = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36";
+
+// A phone's push service, played in the page for a case that asks for
+// one, since a browser under test has none to subscribe to. It keeps the
+// permission a person gave, what they answer when the browser asks, and
+// the subscription this phone holds, kept across a reload the way a phone
+// keeps it. Every unregister of the service worker is counted, and throws
+// the subscription away, the way a phone does. The endpoint is invented.
+const PUSH_KEYS = { permission: "audit-push-permission", sub: "audit-push-subscription", unregistered: "audit-push-unregistered" };
+const PUSH_ENDPOINT = "https://push.example.invalid/phone-one";
+
 const AUTH_KEY = "ocsa_auth";
 const LANGUAGE_KEY = "ocsa-staff-language";
 const TEXT_SIZE_KEY = "ocsa-staff-text-size";
@@ -56,6 +69,12 @@ async function launch() {
 // turning into it.
 // now: another time for the phone's clock, for a case that needs the
 // morning. The case gives the stub the same time, as stubOptions.now.
+// userAgent: another phone's, ANDROID for one.
+// push: { permission, answer, subscribed, supported }, the phone's push
+// service as a case wants it: the permission given so far ("default",
+// "granted" or "denied"), what the person answers when the browser asks
+// ("granted" unless a case says), whether this phone already holds a
+// subscription, and supported false for a browser with no Push API.
 async function openApp(browser, base, opts) {
   const o = opts || {};
   const stub = o.stub || createStub(o.stubOptions);
@@ -66,7 +85,7 @@ async function openApp(browser, base, opts) {
   const context = await browser.newContext(Object.assign({}, PHONE, {
     locale: (o.phone || o.language) === "es" ? "es-US" : "en-US",
     colorScheme: "dark",
-  }));
+  }, o.userAgent ? { userAgent: o.userAgent } : {}));
 
   await context.route("**/api/**", async (route) => {
     const req = route.request();
@@ -127,6 +146,47 @@ async function openApp(browser, base, opts) {
   }, [o.signedIn !== false, o.language || "en", o.textSize || "standard", theme, o.installSheet || "dismissed",
       { auth: AUTH_KEY, language: LANGUAGE_KEY, textSize: TEXT_SIZE_KEY, theme: THEME_KEY, prompt: PROMPT_KEY }, o.storeLanguage === false]);
 
+  // The push service, seeded on the first load of the case so a reload
+  // keeps what the case has done since.
+  if (o.push) await context.addInitScript(([cfg, keys, endpoint]) => {
+    try {
+      const ls = window.localStorage;
+      if (!window.sessionStorage.getItem("audit-push-seeded")) {
+        window.sessionStorage.setItem("audit-push-seeded", "1");
+        ls.setItem(keys.permission, cfg.permission || "default");
+        if (cfg.subscribed) ls.setItem(keys.sub, JSON.stringify({ endpoint: endpoint, keys: { p256dh: "invented-p256dh-key", auth: "invented-auth-key" } }));
+        else ls.removeItem(keys.sub);
+        ls.setItem(keys.unregistered, "0");
+      }
+      if (cfg.supported === false) { delete window.PushManager; return; }
+      const permission = () => ls.getItem(keys.permission) || "default";
+      Object.defineProperty(window.Notification, "permission", { get: permission, configurable: true });
+      window.Notification.requestPermission = function () {
+        if (permission() === "default") ls.setItem(keys.permission, cfg.answer || "granted");
+        return Promise.resolve(permission());
+      };
+      const held = () => { const raw = ls.getItem(keys.sub); return raw ? JSON.parse(raw) : null; };
+      const subscription = (s) => ({
+        endpoint: s.endpoint,
+        toJSON: () => ({ endpoint: s.endpoint, expirationTime: null, keys: s.keys }),
+        unsubscribe: () => { ls.removeItem(keys.sub); return Promise.resolve(true); },
+      });
+      window.PushManager.prototype.getSubscription = function () { const s = held(); return Promise.resolve(s ? subscription(s) : null); };
+      window.PushManager.prototype.subscribe = function () {
+        if (permission() !== "granted") return Promise.reject(new DOMException("Registration failed - permission denied", "NotAllowedError"));
+        const s = held() || { endpoint: endpoint, keys: { p256dh: "invented-p256dh-key", auth: "invented-auth-key" } };
+        ls.setItem(keys.sub, JSON.stringify(s));
+        return Promise.resolve(subscription(s));
+      };
+      const unregister = window.ServiceWorkerRegistration.prototype.unregister;
+      window.ServiceWorkerRegistration.prototype.unregister = function () {
+        ls.setItem(keys.unregistered, String(Number(ls.getItem(keys.unregistered) || 0) + 1));
+        ls.removeItem(keys.sub);
+        return unregister.apply(this, arguments);
+      };
+    } catch (e) {}
+  }, [o.push, PUSH_KEYS, PUSH_ENDPOINT]);
+
   const page = await context.newPage();
   // One screen still asks through the browser's own confirm box. Left
   // unanswered it blocks the journey, so the suite says yes the way a
@@ -149,4 +209,4 @@ async function letSheetOffer(page) {
   await page.waitForTimeout(400);
 }
 
-module.exports = { launch, openApp, letSheetOffer, PHONE, SHEET_SETTLE_MS, AUTH_KEY, LANGUAGE_KEY, TEXT_SIZE_KEY, THEME_KEY, PROMPT_KEY };
+module.exports = { launch, openApp, letSheetOffer, PHONE, ANDROID, PUSH_KEYS, PUSH_ENDPOINT, SHEET_SETTLE_MS, AUTH_KEY, LANGUAGE_KEY, TEXT_SIZE_KEY, THEME_KEY, PROMPT_KEY };

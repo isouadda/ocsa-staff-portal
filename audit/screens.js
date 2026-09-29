@@ -3,11 +3,11 @@
 // covered; this says how each one is reached and puts it through the
 // checks.
 
-const { openApp, letSheetOffer } = require("./browser");
+const { openApp, letSheetOffer, ANDROID } = require("./browser");
 const { INSPECT, rowsFrom } = require("./checks");
 const { LEAKABLE, SPANISH, SPANISH_PATTERNS, say } = require("./words");
 const { SCREEN_CASES, SHEET_CASES } = require("./inventory");
-const { timeOffRow, formP, STAFF, servedFor, PERSON, INSPECTION } = require("./stub");
+const { timeOffRow, formP, STAFF, servedFor, PERSON, INSPECTION, ANNOUNCEMENT } = require("./stub");
 
 const SIZES = ["standard", "large", "xlarge", "largest"];
 const LANGUAGES = ["en", "es"];
@@ -122,7 +122,19 @@ const TAB_LABEL = {
 const pause = (page, ms) => page.waitForTimeout(ms || 500);
 
 // The bar carries Home and four shortcuts; everything else is under More.
+// Phone alerts is its own screen under Settings, reached from its row.
 async function openTab(page, tabId, language) {
+  if (tabId === "phonealerts") {
+    const settings = await openTab(page, "settings", language);
+    await pause(page, 900);
+    const row = await page.evaluate((want) => {
+      const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.replace(/\s+/g, " ").trim() === want);
+      if (b) b.click();
+      return !!b;
+    }, say("Phone alerts", language));
+    await pause(page, 1200);
+    return settings && row;
+  }
   if (tabId === "profile") {
     await page.evaluate(() => {
       const content = document.querySelector(".sp-content");
@@ -140,7 +152,8 @@ async function openTab(page, tabId, language) {
       return s.position === "fixed" && s.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5;
     });
     if (!bar) return "no bar";
-    const clean = (b) => b.textContent.trim().replace(/^\d+/, "");
+    // A badge sits before the name: a count, or 9+ from ten on.
+    const clean = (b) => b.textContent.trim().replace(/^(9\+|\d+)/, "");
     const onBar = Array.from(bar.querySelectorAll(":scope > button")).find(b => clean(b) === name);
     if (onBar) { onBar.click(); return "bar"; }
     const moreBtn = Array.from(bar.querySelectorAll(":scope > button")).find(b => clean(b) === moreName) || Array.from(bar.querySelectorAll(":scope > button")).pop();
@@ -151,7 +164,7 @@ async function openTab(page, tabId, language) {
   if (where === "more") {
     await page.evaluate((name) => {
       const grid = Array.from(document.querySelectorAll("div")).find(d => getComputedStyle(d).display === "grid" && d.querySelectorAll(":scope > button").length >= 5);
-      const b = grid && Array.from(grid.querySelectorAll(":scope > button")).find(x => x.textContent.trim().replace(/^\d+/, "") === name);
+      const b = grid && Array.from(grid.querySelectorAll(":scope > button")).find(x => x.textContent.trim().replace(/^(9\+|\d+)/, "") === name);
       if (b) b.click();
     }, wanted);
     await pause(page, 800);
@@ -249,6 +262,32 @@ const SHEET_OPENERS = {
     await clickText(page, say("+ Schedule", language));
   },
   "HomeScreenPrompt#0": async (page) => { await letSheetOffer(page); },
+  // The card asks by itself, once the portal is up, on a phone that can
+  // take alerts and has decided nothing (see SHEET_PHONES).
+  "OCSAStaffPortal#1": async (page) => { await pause(page, 1500); },
+  // Tag someone, from its button in a site chat.
+  "ChatView#0": async (page, language) => {
+    await openTab(page, "chat", language);
+    await pause(page, 1200);
+    await tapChatNamed(page, "North Building");
+    await pause(page, 1000);
+    await page.evaluate((label) => {
+      const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => (x.getAttribute("aria-label") || "") === label);
+      if (b) b.click();
+    }, say("Tag someone", language));
+    await pause(page, 800);
+  },
+  // An announcement, opened the way a tapped phone alert opens one: the
+  // address names it, and it opens once the portal is up (see SHEET_PHONES).
+  "AnnouncementSheet#0": async (page) => { await pause(page, 1500); },
+};
+// The phone a sheet needs, where it differs from the one every case opens.
+const SHEET_PHONES = {
+  // The alerts card asks only on a phone that can take alerts and has
+  // decided nothing.
+  "OCSAStaffPortal#1": { userAgent: ANDROID, push: { permission: "default" } },
+  // The announcement is opened from the address.
+  "AnnouncementSheet#0": { path: "/?open=announcement:" + ANNOUNCEMENT.id },
 };
 
 // The Forms screen lists more than one form now, so a case says which
@@ -570,14 +609,14 @@ async function runScreens(browser, base, opts) {
   for (const language of LANGUAGES) {
     for (const size of ["standard", "largest"]) {
       for (const sh of SHEET_CASES) {
-        const app = await openApp(browser, base, {
+        const app = await openApp(browser, base, Object.assign({
           language: language, textSize: size, signedIn: true,
           installSheet: sh.id === "HomeScreenPrompt#0" ? "fresh" : "dismissed",
           stubOptions: {
             accountPreferences: { language: language, textSize: size },
             myTimeOff: [timeOffRow({ id: "to-one", status: "requested" })],
           },
-        });
+        }, SHEET_PHONES[sh.id] || {}));
         try {
           const opener = SHEET_OPENERS[sh.id];
           if (opener) await opener(app.page, language);

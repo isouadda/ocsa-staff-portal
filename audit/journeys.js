@@ -3,14 +3,14 @@
 // A journey is judged first on what the app sent, which does not move
 // when a word changes, and then on what the screen said.
 
-const { openApp, letSheetOffer } = require("./browser");
+const { openApp, letSheetOffer, ANDROID, PUSH_KEYS, PUSH_ENDPOINT } = require("./browser");
 const { say, ES, LEAKABLE, SPANISH, SPANISH_PATTERNS } = require("./words");
 const { openTab, clickText, startForm, ALLOWED } = require("./screens");
 const { INSPECT, languageRows } = require("./checks");
-const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
+const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES,
-  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY } = require("./stub");
+  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -858,6 +858,104 @@ const JOURNEYS = [
         const back = await app.page.evaluate(() => !document.querySelector(".sp-content"));
         expect.notYet("a session that runs out mid screen, which needs a call the open tab actually makes");
       } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "signinfault",
+    label: "A sign-in turned away stays under the PIN box: three wrong PINs with the lock line from the third, a locked account, the install sheet kept for the portal itself, and the lines said before any mistake",
+    run: async (open, language, expect, extra) => {
+      // What is drawn after a PIN box in its own field, in order: each
+      // line's words, and whether a screen reader is told it at once.
+      const underBox = (page, n) => page.evaluate((i) => {
+        const box = document.querySelectorAll('input[type="password"]')[i];
+        const out = [];
+        for (let e = box ? box.nextElementSibling : null; e; e = e.nextElementSibling) out.push({ text: e.innerText.replace(/\s+/g, " ").trim(), alert: e.getAttribute("role") === "alert" });
+        return out;
+      }, n || 0);
+      const sheetUp = (page) => page.evaluate(() => !!document.getElementById("ocsa-a2hs-title"));
+      const refusal = LOGIN_REFUSAL[language === "es" ? 1 : 0];
+      const lockLine = spanishOf("After too many wrong tries, sign-in stops for 15 minutes. Ask your trainer for help.", language);
+      const locked = refusalIn(API_REFUSALS["auth.locked"], language, API_REFUSALS["auth.locked"].vars);
+
+      // Three wrong PINs in a row, each turned away the way the API turns
+      // one away: its own sentence, with auth.invalidCredentials as its code.
+      const app = await open({ signedIn: false });
+      try {
+        await type(app.page, 'input[autocomplete="username"]', "4821");
+        for (let n = 1; n <= 3; n += 1) {
+          await type(app.page, 'input[type="password"]', "0000");
+          await clickText(app.page, say("Sign In", language));
+          await pause(app.page, 900);
+          const lines = await underBox(app.page);
+          expect("wrong PIN " + n + " is drawn under the PIN box in the API's own words, and said at once",
+            lines.length > 0 && lines[0].alert && lines[0].text === refusal, JSON.stringify(lines));
+          const lock = lines.some(l => l.text === lockLine);
+          expect(n < 3 ? "no lock line before the third wrong PIN in a row, at wrong PIN " + n : "the lock line joins the refusal at the third wrong PIN in a row",
+            n < 3 ? !lock : lock, JSON.stringify(lines));
+        }
+        await spokenHere(app, language, expect);
+        // A toast would be gone by now. The refusal waits for the person.
+        await pause(app.page, 3600);
+        expect("the refusal is still under the box once a toast would have gone", (await underBox(app.page)).some(l => l.text === refusal), JSON.stringify(await underBox(app.page)));
+        await type(app.page, 'input[type="password"]', "4");
+        await pause(app.page, 300);
+        expect("typing again takes the refusal and the lock line away", (await underBox(app.page)).length === 0, JSON.stringify(await underBox(app.page)));
+
+        // A locked account: 429 with auth.locked, drawn the same way, and
+        // no lock line of the portal's own beside it.
+        app.stub.state.refuse["POST /api/auth/login"] = { api: "auth.locked", once: true };
+        await type(app.page, 'input[type="password"]', "4907");
+        await clickText(app.page, say("Sign In", language));
+        await pause(app.page, 900);
+        const lockedLines = await underBox(app.page);
+        const shown = lockedLines.length === 1 && lockedLines[0].alert && lockedLines[0].text === locked;
+        expect("a locked account is drawn under the PIN box in the API's own words", shown, JSON.stringify(lockedLines));
+        if (extra) extra.refusalsShown += shown ? 1 : 0;
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+
+      // The install sheet waits for the portal itself: never over the
+      // sign-in card, never over Set your PIN, and offered once the new
+      // PIN is saved and the portal is up. Set your PIN says its rules
+      // under New PIN before anyone breaks one.
+      const fresh = await open({ signedIn: false, installSheet: "fresh", stubOptions: { mustSetPin: true } });
+      try {
+        await letSheetOffer(fresh.page);
+        expect("the install sheet is not offered over the sign-in card", !(await sheetUp(fresh.page)), (await sheetText(fresh.page)).slice(0, 120));
+        await type(fresh.page, 'input[autocomplete="username"]', "4821");
+        await type(fresh.page, 'input[type="password"]', "4907");
+        await clickText(fresh.page, say("Sign In", language));
+        await pause(fresh.page, 1500);
+        const rules = spanishOf("4 digits. Not all the same, not in a row like 1234, and not your badge number. The PIN you were given works until you save a new one.", language);
+        const under = await underBox(fresh.page, 0);
+        expect("Set your PIN says the rules under New PIN before anything is typed", under.some(l => l.text === rules && !l.alert), JSON.stringify(under));
+        await spokenHere(fresh, language, expect);
+        await letSheetOffer(fresh.page);
+        expect("the install sheet is not offered over Set your PIN", !(await sheetUp(fresh.page)), (await sheetText(fresh.page)).slice(0, 120));
+        await typeNth(fresh.page, 'input[type="password"]', 0, "5739");
+        await typeNth(fresh.page, 'input[type="password"]', 1, "5739");
+        await clickText(fresh.page, say("Save PIN", language));
+        await pause(fresh.page, 1500);
+        expect("the new PIN is saved and the portal is up", await fresh.page.evaluate(() => !!document.querySelector(".sp-content")), (await bodyText(fresh.page)).slice(0, 160));
+        await letSheetOffer(fresh.page);
+        expect("once the portal is up, the install sheet is offered", await sheetUp(fresh.page), (await bodyText(fresh.page)).slice(0, 160));
+      } finally { await fresh.context.close(); }
+
+      // Forgot your PIN says the no-email line before Send, so a person
+      // with no email on file never waits for a link that cannot come.
+      const forgot = await open({ signedIn: false });
+      try {
+        await clickText(forgot.page, say("Forgot your PIN?", language));
+        await pause(forgot.page, 700);
+        const where = await forgot.page.evaluate(([line, send]) => {
+          const d = Array.from(document.querySelectorAll("div")).find(x => x.children.length === 0 && x.textContent.trim() === line && x.offsetParent !== null);
+          const b = Array.from(document.querySelectorAll("button")).find(x => x.textContent.trim() === send);
+          return { line: !!d, send: !!b, above: !!d && !!b && d.getBoundingClientRect().bottom <= b.getBoundingClientRect().top };
+        }, [spanishOf("No email on file? A link cannot reach you. Ask your supervisor to reset your PIN.", language), say("Send Reset Link", language)]);
+        expect("Forgot your PIN says the no-email line above Send, with nothing sent yet",
+          where.line && where.above && sent(forgot.stub, "POST", "/api/auth/reset/request").length === 0, JSON.stringify(where));
+        await spokenHere(forgot, language, expect);
+      } finally { await forgot.context.close(); }
     },
   },
   {
@@ -1746,6 +1844,54 @@ const JOURNEYS = [
     },
   },
   {
+    id: "localday",
+    label: "The phone's own day: at the suite's 9:30 PM, Home and Schedule mark Thursday, October 1 as today and leave October 2 unmarked, and a due date sent as midnight UTC reads its own day on an assigned card and on its detail",
+    run: async (open, language, expect) => {
+      // The dates a week strip marks as today, each read off the day it
+      // draws: the one day with the gold edge.
+      const todayMarked = (page) => page.evaluate(() => {
+        const grid = Array.from(document.querySelectorAll(".sp-content div")).find(d => getComputedStyle(d).display === "grid" && d.children.length === 7);
+        if (!grid) return null;
+        return Array.from(grid.children).filter(c => /231, 176, 23/.test(getComputedStyle(c).borderTopColor)).map((c) => {
+          const n = Array.from(c.querySelectorAll("div")).find(d => /^\d{1,2}$/.test(d.textContent.trim()));
+          return n ? n.textContent.trim() : "?";
+        });
+      });
+      const app = await open({});
+      try {
+        await openTab(app.page, "clock", language);
+        await pause(app.page, 1200);
+        const home = await todayMarked(app.page);
+        expect("Home's week strip marks October 1 as today and leaves October 2 unmarked", JSON.stringify(home) === JSON.stringify(["1"]), JSON.stringify(home));
+        await openTab(app.page, "schedule", language);
+        await pause(app.page, 1200);
+        const week = await todayMarked(app.page);
+        expect("Schedule marks October 1 as today and leaves October 2 unmarked", JSON.stringify(week) === JSON.stringify(["1"]), JSON.stringify(week));
+      } finally { await app.context.close(); }
+
+      // A due date the API sends as a day at midnight UTC, which is still
+      // the evening before in New York at the suite's clock.
+      const due = await open({ stubOptions: { assignedDue: "2026-10-02T00:00:00.000Z" } });
+      try {
+        const dayIn = (opts) => due.page.evaluate(([l, o]) => [new Date(2026, 9, 2).toLocaleDateString(l, o), new Date(2026, 9, 1).toLocaleDateString(l, o)], [language === "es" ? "es-US" : "en-US", opts]);
+        await openTab(due.page, "issuetasks", language);
+        await pause(due.page, 900);
+        const [cardDay, cardEve] = await dayIn({ month: "short", day: "numeric" });
+        const card = await bodyText(due.page);
+        expect("the assigned card reads the due day as October 2", has(card, say("Due:", language) + " " + cardDay) && !has(card, say("Due:", language) + " " + cardEve), card.slice(0, 260));
+        await due.page.evaluate((label) => {
+          const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.textContent.indexOf(label) !== -1);
+          if (b) b.click();
+        }, "Replace the cracked light cover");
+        await pause(due.page, 700);
+        const [detailDay, detailEve] = await dayIn({ month: "short", day: "numeric", year: "numeric" });
+        const detail = await bodyText(due.page);
+        expect("its detail reads October 2 too", has(detail, detailDay) && !has(detail, detailEve), detail.slice(0, 300));
+        await spokenHere(due, language, expect);
+      } finally { await due.context.close(); }
+    },
+  },
+  {
     id: "timeoff",
     label: "Request time off, whole days and part of a day, then cancel it",
     run: async (open, language, expect) => {
@@ -1820,7 +1966,7 @@ const JOURNEYS = [
         for (let i = 0; i < 6 && !opened; i += 1) {
           await app.page.evaluate((n) => {
             const grid = Array.from(document.querySelectorAll(".sp-content div")).find(d => getComputedStyle(d).display === "grid" && d.children.length === 7);
-            const cards = grid ? Array.from(grid.querySelectorAll("div")).filter(d => d.onclick) : [];
+            const cards = grid ? Array.from(grid.querySelectorAll("button")) : [];
             if (cards[n]) cards[n].click();
           }, i);
           await pause(app.page, 700);
@@ -2676,7 +2822,9 @@ const JOURNEYS = [
           expect("refusal shown: " + said.en, shown, "wanted " + JSON.stringify(said[language]) + " in " + JSON.stringify(text.slice(0, 300)));
           if (extra) extra.refusalsShown += shown ? 1 : 0;
           const left = await app.page.evaluate(() => Array.from(document.querySelectorAll("button, a[href], input, select, textarea")).filter(e => e.offsetParent !== null && getComputedStyle(e).opacity !== "0").map(e => e.textContent.trim()));
-          expect("nothing else is on the page but the language choice: " + c.key, left.length === 2 && left.indexOf(nameOf(language)) !== -1 && left.indexOf(nameOf(other)) !== -1 && has(text, PUBLIC_COMPANY) === false, JSON.stringify(left));
+          // The text size pill sits beside the language choice from Step 184 on.
+          const pill = "A" + say("Text size", language);
+          expect("nothing else is on the page but the language choice and the text size pill: " + c.key, left.length === 3 && left.indexOf(nameOf(language)) !== -1 && left.indexOf(nameOf(other)) !== -1 && left.indexOf(pill) !== -1 && has(text, PUBLIC_COMPANY) === false, JSON.stringify(left));
           await spokenHere(app, language, expect);
           await clickText(app.page, nameOf(other));
           await pause(app.page, 1200);
@@ -3363,6 +3511,171 @@ const JOURNEYS = [
     },
   },
   {
+    id: "helprate",
+    label: "Rating an answer, and names under it: Yes, then No with a note, each told to the API and thanked, the conversation read back with the second rating on it, a refusal in the API's words under the choices, and the sources named by the API's own names",
+    run: async (open, language, expect, extra) => {
+      // The rating row under the last answer: whether each choice reads as
+      // chosen, and the lines under them.
+      const rateRow = (page) => page.evaluate(([yes, no, ask]) => {
+        const label = Array.from(document.querySelectorAll(".sp-content span")).filter(s => s.textContent.trim() === ask).pop();
+        if (!label) return null;
+        const holder = label.parentElement.parentElement;
+        const b = (w) => Array.from(holder.querySelectorAll("button")).find(x => x.textContent.trim() === w);
+        return {
+          yes: b(yes) ? b(yes).getAttribute("aria-pressed") : null,
+          no: b(no) ? b(no).getAttribute("aria-pressed") : null,
+          box: !!holder.querySelector("textarea"),
+          lines: Array.from(holder.children).slice(1).map(x => x.innerText.replace(/\s+/g, " ").trim()).filter(Boolean),
+          alert: (Array.from(holder.querySelectorAll('[role="alert"]')).pop() || { textContent: "" }).textContent.trim(),
+        };
+      }, [spanishOf("Yes", language), spanishOf("No", language), spanishOf("Was this helpful?", language)]);
+      const tapInRow = (page, words) => page.evaluate(([w, ask]) => {
+        const label = Array.from(document.querySelectorAll(".sp-content span")).filter(s => s.textContent.trim() === ask).pop();
+        const b = label && Array.from(label.parentElement.parentElement.querySelectorAll("button")).find(x => x.textContent.trim() === w);
+        if (b) b.click();
+        return !!b;
+      }, [words, spanishOf("Was this helpful?", language)]);
+      const ratings = (stub) => stub.state.calls.filter(c => c.method === "POST" && /^\/api\/agent\/messages\/[^/]+\/feedback$/.test(c.path));
+      const thanks = spanishOf("Thanks. This helps Help get better.", language);
+      // Invented titles for two sources, the first named by the library and
+      // the second left empty, which falls back to the portal's own words.
+      const guide = language === "es" ? "Gu\u00eda del portal del personal" : "Staff portal guide";
+      const app = await open({ stubOptions: { drafts: [{ id: "draft-one", formName: "Incident report", answered: 1, remaining: 4, conversationId: "cv-one" }] } });
+      try {
+        await openTab(app.page, "agent", language);
+        await pause(app.page, 800);
+        app.stub.state.help.next = { citedDocs: ["APP-PORTAL", SOURCE_REF], citedNames: [{ code: "APP-PORTAL", name: guide }, { code: SOURCE_REF, name: "" }], pauseMs: 20 };
+        await askHelp(app.page, language, "Where do the floor pads go");
+        await answerDone(app.page, 6000);
+        await pause(app.page, 500);
+        const lines = await sourceLines(app.page, say("Based on", language));
+        expect("the sources are named by the API's own names, one left empty falling back to the portal's words", lines.pop() === say("Based on", language) + " " + guide + ", " + say("general cleaning guidance", language), JSON.stringify(lines));
+        let row = await rateRow(app.page);
+        expect("an answer the API gave an id asks Was this helpful?, with neither choice made", !!row && row.yes === "false" && row.no === "false", JSON.stringify(row));
+        await spokenHere(app, language, expect);
+
+        await tapInRow(app.page, spanishOf("Yes", language));
+        await pause(app.page, 800);
+        const first = ratings(app.stub).pop();
+        row = await rateRow(app.page);
+        expect("Yes rates at once, and the thanks line shows with Yes drawn as chosen", !!first && first.body.helpful === true && first.body.note === undefined && !!row && row.yes === "true" && row.lines.indexOf(thanks) !== -1, (first ? JSON.stringify(first.body) : "nothing sent") + " " + JSON.stringify(row));
+
+        await tapInRow(app.page, spanishOf("No", language));
+        await pause(app.page, 500);
+        row = await rateRow(app.page);
+        expect("No opens a box for what was missing", !!row && row.box, JSON.stringify(row));
+        await type(app.page, '.sp-content textarea[aria-label="' + spanishOf("What was missing?", language) + '"]', "It did not say which floor");
+        await pause(app.page, 300);
+        await tapInRow(app.page, spanishOf("Send", language));
+        await pause(app.page, 900);
+        const second = ratings(app.stub).pop();
+        row = await rateRow(app.page);
+        expect("Send rates again with the note, and No is drawn as chosen", !!second && second.body.helpful === false && second.body.note === "It did not say which floor" && !!row && row.no === "true" && row.yes === "false" && row.lines.indexOf(thanks) !== -1, (second ? JSON.stringify(second.body) : "nothing sent") + " " + JSON.stringify(row));
+        expect("both ratings name the same answer", ratings(app.stub).length === 2 && ratings(app.stub)[0].path === ratings(app.stub)[1].path, JSON.stringify(ratings(app.stub).map(c => c.path)));
+
+        // The conversation read back: the answer shows the rating it carries.
+        await tapWords(app.page, say("Resume", language));
+        await pause(app.page, 1500);
+        const kept = app.stub.state.stored.filter(m => m.role === "assistant").pop();
+        row = await rateRow(app.page);
+        expect("the conversation read back carries the second rating and its note", !!kept && !!kept.feedback && kept.feedback.helpful === false && kept.feedback.note === "It did not say which floor", JSON.stringify(kept && kept.feedback));
+        expect("and the answer read back is drawn with No chosen and the thanks line", !!row && row.no === "true" && row.lines.indexOf(thanks) !== -1, JSON.stringify(row));
+
+        // A rating the API turns away shows its words under the choices.
+        app.stub.state.refuse[ratings(app.stub)[0].method + " " + ratings(app.stub)[0].path] = { api: "help.messageNotFound", once: true };
+        await tapInRow(app.page, spanishOf("Yes", language));
+        await pause(app.page, 800);
+        row = await rateRow(app.page);
+        const refused = refusalIn(API_REFUSALS["help.messageNotFound"], language);
+        const shown = !!row && row.alert === refused;
+        expect("a rating turned away shows the API's words under the choices", shown, JSON.stringify(row));
+        if (extra) extra.refusalsShown += shown ? 1 : 0;
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "helpdiscard",
+    label: "Discarding a report Help started: from its card and from a row, each asked first and gone from the list, the list read again with neither on it, and a Discard the API turns away said in its words",
+    run: async (open, language, expect, extra) => {
+      const DRAFTS = [
+        { id: "draft-one", formName: "Incident report", answered: 1, remaining: 4, conversationId: "cv-one" },
+        { id: "draft-two", formName: "Site walk", answered: 2, remaining: 6, conversationId: "cv-one" },
+      ];
+      const asked = [];
+      const discards = (stub) => stub.state.calls.filter(c => c.method === "POST" && /^\/api\/forms\/drafts\/[^/]+\/discard$/.test(c.path)).map(c => c.path.split("/")[4]);
+      const rowNames = (page) => page.evaluate((head) => {
+        const h = Array.from(document.querySelectorAll(".sp-content div")).find(d => d.children.length === 0 && d.textContent.trim() === head);
+        return h ? Array.from(h.parentElement.children).slice(1).map(r => r.innerText.split("\n")[0].trim()) : [];
+      }, spanishOf("Unfinished reports", language));
+      const discardRow = (page, name) => page.evaluate(([want, word]) => {
+        const r = Array.from(document.querySelectorAll(".sp-content div")).find(d => d.children.length > 1 && d.innerText.split("\n")[0].trim() === want && Array.from(d.children).some(c => c.tagName === "BUTTON" && c.textContent.trim() === word));
+        const b = r && Array.from(r.children).find(c => c.tagName === "BUTTON" && c.textContent.trim() === word);
+        if (b) b.click();
+        return !!b;
+      }, [name, spanishOf("Discard", language)]);
+      const app = await open({ stubOptions: { drafts: DRAFTS } });
+      app.page.on("dialog", (d) => asked.push(d.message()));
+      try {
+        await openTab(app.page, "agent", language);
+        await pause(app.page, 900);
+        app.stub.state.help.next = { answer: "report" };
+        await askHelp(app.page, language, "Someone slipped in the hall");
+        await answerDone(app.page, 6000);
+        await pause(app.page, 600);
+        // The card's own Discard, asked first, then the discard route.
+        const onCard = await app.page.evaluate(([card, word]) => {
+          const h = Array.from(document.querySelectorAll(".sp-content div")).find(d => d.children.length === 0 && d.textContent.trim() === card);
+          let box = h;
+          for (let i = 0; i < 4 && box && !Array.from(box.querySelectorAll("button")).some(b => b.textContent.trim() === word); i += 1) box = box.parentElement;
+          const b = box && Array.from(box.querySelectorAll("button")).find(x => x.textContent.trim() === word);
+          if (b) b.click();
+          return !!b;
+        }, [spanishOf("Report in progress", language), spanishOf("Discard", language)]);
+        await pause(app.page, 1000);
+        expect("the report in progress carries Discard", onCard, (await bodyText(app.page)).slice(-240));
+        expect("Discard asks first, in the person's language", asked[0] === spanishOf("Discard this report? It will not be sent.", language), JSON.stringify(asked));
+        expect("Discard on the card discards the card's report and clears the card", JSON.stringify(discards(app.stub)) === JSON.stringify(["draft-one"]) && !has(await bodyText(app.page), spanishOf("Report in progress", language)), JSON.stringify(discards(app.stub)));
+        expect("Report discarded. is said", has((await toastText(app.page)) + " " + (await bodyText(app.page)), spanishOf("Report discarded.", language)), await toastText(app.page));
+        await noToast(app.page);
+        // A row's Discard.
+        await discardRow(app.page, servedIn("Site walk", language));
+        await pause(app.page, 1000);
+        expect("Discard on a row discards that report and the row leaves the list", JSON.stringify(discards(app.stub)) === JSON.stringify(["draft-one", "draft-two"]) && (await rowNames(app.page)).length === 0, JSON.stringify(await rowNames(app.page)));
+        // The list read again, as a new visit to Help reads it.
+        await openTab(app.page, "settings", language);
+        await pause(app.page, 600);
+        const reads = sent(app.stub, "GET", "/api/agent/drafts").length;
+        await openTab(app.page, "agent", language);
+        await pause(app.page, 1200);
+        expect("the list read again holds neither report", sent(app.stub, "GET", "/api/agent/drafts").length > reads && (await rowNames(app.page)).length === 0, JSON.stringify(await rowNames(app.page)));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+
+      // A row this phone still shows, whose report was discarded on another
+      // phone, and one whose report is gone: each Discard is turned away in
+      // the API's words, and the list is read again.
+      for (const [key, behind] of [["forms.notADraft", (st) => { st.discarded.push("draft-two"); st.drafts = st.drafts.filter(d => d.id !== "draft-two"); }], ["forms.reportNotFound", (st) => { st.drafts = st.drafts.filter(d => d.id !== "draft-two"); }]]) {
+        const stale = await open({ stubOptions: { drafts: [DRAFTS[1]] } });
+        try {
+          await openTab(stale.page, "agent", language);
+          await pause(stale.page, 1000);
+          behind(stale.stub.state);
+          const reads = sent(stale.stub, "GET", "/api/agent/drafts").length;
+          await discardRow(stale.page, servedIn("Site walk", language));
+          await pause(stale.page, 1000);
+          const told = await toastText(stale.page);
+          const words = refusalIn(API_REFUSALS[key], language);
+          const shown = has(told, words);
+          expect("a Discard turned away with " + key + " says the API's words", shown, JSON.stringify(told));
+          if (extra) extra.refusalsShown += shown ? 1 : 0;
+          expect("and the list is read again, without the row", sent(stale.stub, "GET", "/api/agent/drafts").length > reads && (await rowNames(stale.page)).length === 0, JSON.stringify(await rowNames(stale.page)));
+          await spokenHere(stale, language, expect);
+        } finally { await stale.context.close(); }
+      }
+    },
+  },
+  {
     id: "settingshold",
     label: "Switch language and text size, reload, and prove both held",
     run: async (open, language, expect) => {
@@ -3512,11 +3825,315 @@ const JOURNEYS = [
             const bar = Array.from(document.querySelectorAll("div")).find((el) => { const s = getComputedStyle(el); return s.position === "fixed" && s.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5; });
             if (!bar) return null;
             const active = Array.from(bar.querySelectorAll(":scope > button")).find(b => { const sp = b.querySelector("span"); return sp && getComputedStyle(sp).fontWeight === "700"; });
-            return active ? active.textContent.trim().replace(/^\d+/, "") : "under More";
+            return active ? active.textContent.trim().replace(/^(9\+|\d+)/, "") : "under More";
           });
           expect("a " + subject + " notice opens " + tab, !!on, String(on));
         } finally { await app.context.close(); }
       }
+    },
+  },
+  {
+    id: "notifplace",
+    label: "The bell and the phone open the right place: a chat notice and a tag notice open Chat on their chat, an announcement opens its sheet in the screen's language with who sent it and when, a tapped phone alert lands where the bell would, and ?open= at start opens the sheet once the person is in, and never twice",
+    run: async (open, language, expect) => {
+      const notice = (id, subjectType, subjectId, title) => ({ id: id, subjectType: subjectType, subjectId: subjectId, title: title, body: "An invented notice.", link: null, createdAt: "2026-10-01T18:00:00.000Z", readAt: null, count: 1 });
+      const NOTICES = [
+        notice("n-chat", "chat", "ch-north", "New messages in North Building"),
+        notice("n-tag", "chat_mention", "ch-north", "Sam Second tagged you in North Building"),
+        notice("n-ann", "announcement", ANNOUNCEMENT.id, "An announcement from the office"),
+      ];
+      const openBell = (page) => page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaciones/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); return !!b; });
+      const tapNotice = (page, title) => page.evaluate((want) => {
+        const b = Array.from(document.querySelectorAll('div[style*="z-index: 400"] button')).find(x => x.innerText.indexOf(want) !== -1);
+        if (b) b.click();
+        return !!b;
+      }, title);
+      // Where the portal is: the tab that reads as chosen on the bar, and
+      // the chat that says it is chosen.
+      const where = (page) => page.evaluate(() => {
+        const bar = Array.from(document.querySelectorAll("div")).find((el) => { const s = getComputedStyle(el); return s.position === "fixed" && s.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5; });
+        // The chosen tab's name is drawn at 600, the others at 500.
+        const on = bar && Array.from(bar.querySelectorAll(":scope > button")).find(b => { const sp = b.querySelector("span"); return sp && getComputedStyle(sp).fontWeight === "600"; });
+        const chat = Array.from(document.querySelectorAll('.sp-content button[aria-pressed="true"]')).map(b => b.textContent.replace(/\s+/g, " ").trim())[0] || null;
+        return { tab: on ? on.textContent.trim().replace(/^[\d+]+/, "") : null, chat: chat };
+      });
+      const onNorth = (w) => !!w && w.tab === say("Chat", language) && !!w.chat && w.chat.indexOf("North Building") === 0;
+      const title = ANNOUNCEMENT.title[language], body = ANNOUNCEMENT.body[language];
+      const other = language === "es" ? "en" : "es";
+      const sheetUp = (page) => page.evaluate(() => !!document.getElementById("ocsa-announcement-title"));
+
+      // A chat notice, then a tag notice, each opening Chat on North Building.
+      for (const n of NOTICES.slice(0, 2)) {
+        const app = await open({ stubOptions: { notifications: [n] } });
+        try {
+          await pause(app.page, 900);
+          await openBell(app.page);
+          await pause(app.page, 900);
+          await tapNotice(app.page, servedIn(n.title, "en"));
+          await pause(app.page, 1300);
+          const w = await where(app.page);
+          expect("a " + n.subjectType + " notice opens Chat on the chat it names", onNorth(w), JSON.stringify(w));
+          expect("a " + n.subjectType + " notice reads that chat", chatReads(app.stub).indexOf("ch-north") !== -1, JSON.stringify(chatReads(app.stub)));
+        } finally { await app.context.close(); }
+      }
+
+      // An announcement notice opens its sheet, drawn in the screen's
+      // language, with who sent it and when under the body.
+      const ann = await open({ stubOptions: { notifications: [NOTICES[2]] } });
+      try {
+        await pause(ann.page, 900);
+        await openBell(ann.page);
+        await pause(ann.page, 900);
+        await tapNotice(ann.page, "An announcement from the office");
+        await pause(ann.page, 1200);
+        const text = await sheetText(ann.page);
+        const asked = sent(ann.stub, "GET", "/api/announcements/" + ANNOUNCEMENT.id).length;
+        expect("an announcement notice opens its sheet, read from the announcement route", (await sheetUp(ann.page)) && asked === 1, asked + " reads: " + text.slice(0, 160));
+        expect("the sheet draws the title and the body in the screen's language, with none of the other's", has(text, title) && has(text, body) && !has(text, ANNOUNCEMENT.title[other]), text.slice(0, 300));
+        const from = fill(spanishOf("From {name}", language), { name: "Jordan Office" });
+        const order = await ann.page.evaluate(([b, f]) => {
+          const all = Array.from(document.querySelectorAll('[role="dialog"] div, [role="dialog"] span')).filter(e => e.children.length === 0);
+          const bi = all.findIndex(e => e.textContent.trim() === b), fi = all.findIndex(e => e.textContent.trim() === f);
+          return { body: bi, from: fi, under: bi !== -1 && fi > bi };
+        }, [body, from]);
+        expect("From and the time are under the body", order.under && /\d{1,2}:\d{2}/.test(text.slice(text.indexOf(from))), JSON.stringify(order) + " " + text.slice(0, 300));
+        await spokenHere(ann, language, expect);
+        await tapInSheet(ann.page, say("Close", language));
+        expect("Close takes the sheet away", !(await sheetUp(ann.page)), "still up");
+      } finally { await ann.context.close(); }
+
+      // A tapped phone alert, told to a window already open: the worker's
+      // message lands on the same place the bell would open.
+      const tapped = await open({});
+      try {
+        await pause(tapped.page, 900);
+        await tapped.page.evaluate(() => navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { type: "ocsa-open", subjectType: "chat_mention", subjectId: "ch-north" } })));
+        await pause(tapped.page, 1300);
+        const w = await where(tapped.page);
+        expect("a phone alert's message opens Chat on the chat it names", onNorth(w), JSON.stringify(w));
+        await tapped.page.evaluate((id) => navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { type: "ocsa-open", subjectType: "announcement", subjectId: id } })), ANNOUNCEMENT.id);
+        await pause(tapped.page, 1200);
+        expect("a phone alert's message about an announcement opens its sheet", await sheetUp(tapped.page), (await bodyText(tapped.page)).slice(0, 160));
+      } finally { await tapped.context.close(); }
+
+      // A tapped phone alert that opened a new window: ?open= at start,
+      // held on the sign-in card, opened once the person is in, and never
+      // opened again.
+      const fresh = await open({ signedIn: false, path: "/?open=announcement:" + ANNOUNCEMENT.id });
+      try {
+        await pause(fresh.page, 600);
+        expect("the address is cleared at once", await fresh.page.evaluate(() => window.location.search.indexOf("open=") === -1), await fresh.page.evaluate(() => window.location.href));
+        expect("nothing opens over the sign-in card", !(await sheetUp(fresh.page)), "the sheet is up");
+        await type(fresh.page, 'input[autocomplete="username"]', "4821");
+        await type(fresh.page, 'input[type="password"]', "4907");
+        await clickText(fresh.page, say("Sign In", language));
+        await pause(fresh.page, 1800);
+        expect("once the person is in, the announcement opens", (await sheetUp(fresh.page)) && has(await sheetText(fresh.page), title), (await sheetText(fresh.page)).slice(0, 160));
+        await tapInSheet(fresh.page, say("Close", language));
+        await openTab(fresh.page, "schedule", language);
+        await pause(fresh.page, 900);
+        await openTab(fresh.page, "clock", language);
+        await pause(fresh.page, 900);
+        const reads = sent(fresh.stub, "GET", "/api/announcements/" + ANNOUNCEMENT.id).length;
+        expect("it never opens twice", !(await sheetUp(fresh.page)) && reads === 1, reads + " reads, sheet " + (await sheetUp(fresh.page)));
+      } finally { await fresh.context.close(); }
+    },
+  },
+  {
+    id: "phonealerts",
+    label: "Phone alerts: the Settings row only where the API has the route, the phone part only with a key, each of the five phone lines by permission and phone, a save turned away put back with its line, the card once and never after Not now, and signing out that takes this phone off first",
+    run: async (open, language, expect) => {
+      const row = (page) => hasButton(page, say("Phone alerts", language));
+      const openAlerts = async (page) => {
+        await openTab(page, "settings", language);
+        await pause(page, 900);
+        await tapWords(page, say("Phone alerts", language));
+        await pause(page, 1500);
+      };
+      const cardUp = (page) => page.evaluate(() => !!document.getElementById("ocsa-alerts-card-title"));
+      const LINES = {
+        ios: "On an iPhone, add the app to your Home Screen first, then open it from there to turn on alerts.",
+        unsupported: "This phone cannot receive alerts.",
+        denied: "This phone blocked alerts for this app. Turn them on in the phone's settings.",
+        on: "Alerts are on for this phone.",
+      };
+      const phoneSays = async (page) => {
+        const text = await bodyText(page);
+        return Object.keys(LINES).filter(k => has(text, spanishOf(LINES[k], language)));
+      };
+
+      // The row: hidden while the settings route answers 404, shown once
+      // it answers.
+      const noRoute = await open({ stubOptions: { alertSettings: null } });
+      try {
+        await openTab(noRoute.page, "settings", language);
+        await pause(noRoute.page, 1000);
+        expect("the Phone alerts row is hidden while the settings route answers 404", !(await row(noRoute.page)), "the row is there");
+      } finally { await noRoute.context.close(); }
+
+      // Each of the five phone lines, by the permission and the phone: an
+      // iPhone browser tab, a browser with no Push API, alerts blocked,
+      // alerts on, and nothing decided yet, which offers Turn on.
+      const PHONES = [
+        { what: "an iPhone browser tab", open: { push: { permission: "default" } }, says: ["ios"] },
+        { what: "a browser with no Push API", open: { userAgent: ANDROID, push: { supported: false } }, says: ["unsupported"] },
+        { what: "alerts blocked", open: { userAgent: ANDROID, push: { permission: "denied" } }, says: ["denied"] },
+        { what: "alerts on", open: { userAgent: ANDROID, push: { permission: "granted", subscribed: true } }, says: ["on"], button: "Turn off on this phone" },
+        { what: "nothing decided", open: { userAgent: ANDROID, push: { permission: "default" } }, says: [], button: "Turn on alerts on this phone", card: true },
+      ];
+      for (const p of PHONES) {
+        const app = await open(p.open);
+        try {
+          await pause(app.page, 1500);
+          // Nothing decided on an Android phone is where the card asks.
+          if (p.card) {
+            expect("on a phone that has decided nothing, the card asks after the first sign-in", await cardUp(app.page), "no card");
+            await tapInSheet(app.page, say("Not now", language));
+          }
+          await openTab(app.page, "settings", language);
+          await pause(app.page, 900);
+          expect(p.what + ": the Phone alerts row is there once the settings route answers", await row(app.page), "no row");
+          await openAlerts(app.page);
+          const said = await phoneSays(app.page);
+          expect(p.what + ": the phone part says " + (p.says.length ? JSON.stringify(LINES[p.says[0]]) : "nothing") + " and nothing else", JSON.stringify(said) === JSON.stringify(p.says), JSON.stringify(said));
+          if (p.button) expect(p.what + ": the phone part offers " + p.button, await hasButton(app.page, say(p.button, language)), (await bodyText(app.page)).slice(0, 200));
+          await spokenHere(app, language, expect);
+          if (p.card) {
+            // Turn on asks the browser from the tap, subscribes, and tells
+            // the API; the part then says alerts are on.
+            await tapWords(app.page, say("Turn on alerts on this phone", language));
+            await pause(app.page, 1500);
+            const posted = lastSent(app.stub, "POST", "/api/push/subscriptions");
+            expect("Turn on subscribes and tells the API this phone's endpoint", !!posted && posted.body.endpoint === PUSH_ENDPOINT && !!posted.body.keys && !!posted.body.keys.p256dh, posted ? JSON.stringify(posted.body).slice(0, 160) : "nothing sent");
+            expect("once turned on, the phone part says so", JSON.stringify(await phoneSays(app.page)) === JSON.stringify(["on"]), JSON.stringify(await phoneSays(app.page)));
+          }
+        } finally { await app.context.close(); }
+      }
+
+      // The phone part is hidden while the API has no key; the settings
+      // part is still there.
+      const noKey = await open({ userAgent: ANDROID, push: { permission: "granted", subscribed: true }, stubOptions: { pushKey: null } });
+      try {
+        await pause(noKey.page, 1200);
+        await openAlerts(noKey.page);
+        const text = await bodyText(noKey.page);
+        expect("with no key, the phone part is hidden and the settings are there", (await phoneSays(noKey.page)).length === 0 && !has(text, spanishOf("Turn off on this phone", language)) && has(text, spanishOf("Chat messages", language)), text.slice(0, 220));
+      } finally { await noKey.context.close(); }
+
+      // A save the API turns away puts the choice back and says so under
+      // the control, for the chat choice and for a switch.
+      const saves = await open({});
+      try {
+        await openAlerts(saves.page);
+        const checked = (page) => page.evaluate(() => ({
+          chat: Array.from(document.querySelectorAll('.sp-content [role="radio"]')).filter(b => b.getAttribute("aria-checked") === "true").map(b => b.innerText.trim()),
+          switches: Array.from(document.querySelectorAll('.sp-content [role="switch"]')).map(b => b.getAttribute("aria-checked")),
+        }));
+        const faults = (page) => page.evaluate((line) => Array.from(document.querySelectorAll('.sp-content [role="alert"]')).filter(a => a.textContent.trim() === line).length, spanishOf("Your settings did not save.", language));
+        saves.stub.state.refuse["PATCH /api/notifications/settings"] = { status: 400, once: true, body: { error: "Send chat as all, mentions or off, and schedule, pickups, supplies, issues or forms as true or false", code: "notifications.badSetting", keys: ["chat"] } };
+        await tapWords(saves.page, spanishOf("Only when I'm tagged", language));
+        await pause(saves.page, 900);
+        const afterChat = await checked(saves.page);
+        expect("a chat choice turned away is put back", JSON.stringify(afterChat.chat) === JSON.stringify([spanishOf("Every message", language)]), JSON.stringify(afterChat));
+        expect("the line says it did not save, under the chat choice", (await faults(saves.page)) === 1, (await faults(saves.page)) + " lines");
+        saves.stub.state.refuse["PATCH /api/notifications/settings"] = { status: 400, once: true, body: { error: "Send chat as all, mentions or off, and schedule, pickups, supplies, issues or forms as true or false", code: "notifications.badSetting", keys: ["supplies"] } };
+        await tapWords(saves.page, spanishOf("Supply requests", language));
+        await pause(saves.page, 900);
+        const afterSwitch = await checked(saves.page);
+        expect("a switch turned away is put back on", afterSwitch.switches.every(v => v === "true") && afterSwitch.switches.length === 5, JSON.stringify(afterSwitch));
+        await tapWords(saves.page, spanishOf("Only when I'm tagged", language));
+        await pause(saves.page, 900);
+        expect("a save that goes through is kept, on the screen and on the API", JSON.stringify((await checked(saves.page)).chat) === JSON.stringify([spanishOf("Only when I'm tagged", language)]) && saves.stub.state.push.settings.chat === "mentions", JSON.stringify(await checked(saves.page)) + " " + JSON.stringify(saves.stub.state.push.settings));
+        await spokenHere(saves, language, expect);
+      } finally { await saves.context.close(); }
+
+      // The card after the first sign-in: once, and never again after Not now.
+      const card = await open({ userAgent: ANDROID, push: { permission: "default" } });
+      try {
+        await pause(card.page, 1500);
+        expect("the card asks once the portal is up", await cardUp(card.page), "no card");
+        await spokenHere(card, language, expect);
+        await tapInSheet(card.page, say("Not now", language));
+        expect("Not now takes the card away", !(await cardUp(card.page)), "still up");
+        await card.page.reload({ waitUntil: "domcontentloaded" });
+        await card.page.waitForSelector(".sp-content", { timeout: 20000 }).catch(() => {});
+        await pause(card.page, 2000);
+        expect("after Not now the card never comes back", !(await cardUp(card.page)), "the card is back");
+        expect("Not now asks nothing of the browser and posts nothing", sent(card.stub, "POST", "/api/push/subscriptions").length === 0, sent(card.stub, "POST", "/api/push/subscriptions").length + " posted");
+      } finally { await card.context.close(); }
+
+      // Signing out takes this phone's subscription off the API before the
+      // token is forgotten.
+      const out = await open({ userAgent: ANDROID, push: { permission: "granted", subscribed: true } });
+      try {
+        await pause(out.page, 1500);
+        await out.page.evaluate(() => {
+          const content = document.querySelector(".sp-content");
+          const buttons = Array.from(document.querySelectorAll("button")).filter(x => content && (x.compareDocumentPosition(content) & Node.DOCUMENT_POSITION_FOLLOWING));
+          const last = buttons[buttons.length - 1];
+          if (last) last.click();
+        });
+        await pause(out.page, 1500);
+        const del = lastSent(out.stub, "DELETE", "/api/push/subscriptions");
+        expect("signing out sends the DELETE with this phone's endpoint, under the person's token", !!del && del.body && del.body.endpoint === PUSH_ENDPOINT && del.headers.authorization === "Bearer token-one", del ? JSON.stringify(del.body) + " " + del.headers.authorization : "nothing sent");
+        expect("the API no longer holds the endpoint, and the person is signed out", !out.stub.state.push.rows[PUSH_ENDPOINT] && (await out.page.evaluate(() => !document.querySelector(".sp-content"))), JSON.stringify(out.stub.state.push.rows));
+      } finally { await out.context.close(); }
+    },
+  },
+  {
+    id: "updatekeepsworker",
+    label: "An update's reload keeps the service worker, and the phone's alerts with it",
+    run: async (open, language, expect) => {
+      const app = await open({ userAgent: ANDROID, push: { permission: "granted", subscribed: true }, buildStamp: "a-newer-build" });
+      try {
+        await app.page.waitForFunction(() => !!(navigator.serviceWorker && navigator.serviceWorker.controller), null, { timeout: 10000 }).catch(() => {});
+        await app.page.evaluate(() => { window.auditBeforeUpdate = true; });
+        // The check runs five seconds after the portal starts; with nothing
+        // underway, the update reloads the portal at once.
+        await Promise.all([
+          app.page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {}),
+          app.page.clock.runFor(5600),
+        ]);
+        await app.page.waitForSelector(".sp-content", { timeout: 20000 }).catch(() => {});
+        await pause(app.page, 1500);
+        const after = await app.page.evaluate(async (keys) => ({
+          reloaded: !window.auditBeforeUpdate,
+          unregistered: Number(window.localStorage.getItem(keys.unregistered) || 0),
+          registered: navigator.serviceWorker ? (await navigator.serviceWorker.getRegistrations()).length : 0,
+          subscription: !!window.localStorage.getItem(keys.sub),
+        }), PUSH_KEYS);
+        expect("the update reloads the portal", after.reloaded, JSON.stringify(after));
+        expect("the update's reload never unregisters the service worker, and it is still there", after.unregistered === 0 && after.registered >= 1, JSON.stringify(after));
+        expect("the phone's subscription is still in place after the reload", after.subscription, JSON.stringify(after));
+        await openTab(app.page, "settings", language);
+        await pause(app.page, 900);
+        await tapWords(app.page, say("Phone alerts", language));
+        await pause(app.page, 1500);
+        expect("Phone alerts still says alerts are on for this phone", has(await bodyText(app.page), spanishOf("Alerts are on for this phone.", language)), (await bodyText(app.page)).slice(0, 200));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "phonefollows",
+    label: "The phone follows whoever signed in: on boot with a stored session, and after another person signs in on the same phone, the endpoint is filed under the person signed in",
+    run: async (open, language, expect) => {
+      const app = await open({ userAgent: ANDROID, push: { permission: "granted", subscribed: true } });
+      try {
+        await pause(app.page, 1800);
+        expect("on boot with a stored session, the phone's endpoint is filed under the person signed in", app.stub.state.push.rows[PUSH_ENDPOINT] === PERSON.id, JSON.stringify(app.stub.state.push.rows));
+        // The session runs out, with no signing out, so the phone keeps its
+        // subscription, and another person signs in on the same phone.
+        await app.page.evaluate(() => window.dispatchEvent(new Event("ocsa-session-expired")));
+        await pause(app.page, 900);
+        app.stub.state.person = SECOND_PERSON;
+        await type(app.page, 'input[autocomplete="username"]', "4822");
+        await type(app.page, 'input[type="password"]', "4907");
+        await clickText(app.page, say("Sign In", language));
+        await pause(app.page, 1800);
+        expect("after another person signs in, the endpoint is filed under them", app.stub.state.push.rows[PUSH_ENDPOINT] === SECOND_PERSON.id, JSON.stringify(app.stub.state.push.rows));
+        const asked = await app.page.evaluate((keys) => window.localStorage.getItem(keys.permission), PUSH_KEYS);
+        expect("nothing is asked of the browser along the way", asked === "granted", String(asked));
+      } finally { await app.context.close(); }
     },
   },
   {
@@ -3700,6 +4317,136 @@ const JOURNEYS = [
     },
   },
   {
+    id: "leftovers",
+    label: "Scout 142's leftovers: + Schedule only for someone who may schedule, every scored card folding away except the last one touched, and Register naming a weak PIN before anything is sent",
+    run: async (open, language, expect) => {
+      // + Schedule follows the capability the schedule route enforces.
+      for (const [role, may] of [["custodial_lead", false], ["supervisor", true]]) {
+        const app = await open({ stubOptions: { person: Object.assign({}, PERSON, { role: role }) } });
+        try {
+          await openTab(app.page, "inspect", language);
+          await pause(app.page, 1100);
+          const shown = await hasButton(app.page, say("+ Schedule", language));
+          expect((may ? "a supervisor, who may schedule an inspection, sees + Schedule" : "a custodial lead, who may not schedule one, sees no + Schedule"), shown === may, "+ Schedule " + (shown ? "shown" : "not shown"));
+          expect("the capability is read from the permissions route", sent(app.stub, "GET", "/api/users/me/permissions").length > 0, "never asked");
+        } finally { await app.context.close(); }
+      }
+
+      // A long inspection: three cards scored, the first two fold away and
+      // the one touched last stays, then the fold opens.
+      const long = await open({ stubOptions: { inspections: [INSPECTION_LONG] } });
+      try {
+        await openTab(long.page, "inspect", language);
+        await pause(long.page, 900);
+        // The API sends an inspection's name as written, in English.
+        await clickText(long.page, INSPECTION_LONG.template_name);
+        await pause(long.page, 900);
+        const drawn = () => long.page.evaluate(() => Array.from(document.querySelectorAll("[data-inspect-item]")).map(c => c.getAttribute("data-inspect-item")));
+        for (const it of INSPECTION_LONG.items.slice(0, 3)) {
+          await type(long.page, '[data-inspect-item="' + it.id + '"] input[type="range"]', "5");
+          await pause(long.page, 300);
+        }
+        const open3 = await drawn();
+        const show = fill(spanishOf("Show {0} scored items", language), { 0: 2 });
+        expect("two scored cards fold away, and the one touched last stays", JSON.stringify(open3) === JSON.stringify(["il-3", "il-4", "il-5"]) && (await hasButton(long.page, show)) && has(await bodyText(long.page), spanishOf("Scored", language)), JSON.stringify(open3));
+        await spokenHere(long, language, expect);
+        await tapWords(long.page, show);
+        await pause(long.page, 500);
+        const all = await drawn();
+        expect("the fold opens on the two scored cards", ["il-1", "il-2", "il-3", "il-4", "il-5"].every(id => all.indexOf(id) !== -1), JSON.stringify(all));
+      } finally { await long.context.close(); }
+
+      // Register with 1234: the weak PIN is named before anything is sent.
+      const reg = await open({ signedIn: false });
+      try {
+        await clickText(reg.page, say("New Employee? Register Here", language));
+        await pause(reg.page, 700);
+        const person = ["Riley", "Invented", "0000000009", "nine@example.invalid", "1234", "1234"];
+        for (let i = 0; i < person.length; i += 1) await typeNth(reg.page, "input", i, person[i]);
+        await clickText(reg.page, say("Register", language));
+        await pause(reg.page, 900);
+        const text = await bodyText(reg.page);
+        expect("Register names a PIN in a row before anything is sent", has(text, spanishOf("Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.", language)) && sent(reg.stub, "POST", "/api/auth/register").length === 0, text.slice(0, 260));
+        await spokenHere(reg, language, expect);
+      } finally { await reg.context.close(); }
+    },
+  },
+  {
+    id: "formsbyapp",
+    label: "Forms by app, and a draft drawn from its own version: the catalog asked for the portal's forms, and a report opened on the version it was started on, with a newer one in the catalog",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { formVersions: true } });
+      try {
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        const asked = lastSent(app.stub, "GET", "/api/forms");
+        expect("the catalog is asked for the forms offered on the portal", !!asked && asked.path === "/api/forms" && new URLSearchParams(asked.search).get("app") === "portal", asked ? asked.path + asked.search : "never asked");
+        await clickText(app.page, say("Start report", language));
+        await pause(app.page, 1500);
+        const text = await bodyText(app.page);
+        const kept = servedIn("Where did it happen", language), newer = servedIn("Which room was it in", language);
+        expect("the report is drawn from the version sent beside its draft, with none of the catalog's newer questions", has(text, kept) && !has(text, newer), text.slice(0, 300));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "personquestion",
+    label: "The person question: a person picked, saved as an id and a name, cleared and picked again, the review naming them, and the employee's signature card opening with their name",
+    run: async (open, language, expect) => {
+      const w = FORM_E_WORDS[language === "es" ? "es" : "en"];
+      const saves = (stub) => stub.state.calls.filter(c => c.method === "PATCH" && c.path === "/api/forms/drafts/draft-four");
+      const pickRow = (page, name) => page.evaluate((want) => {
+        const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.replace(/\s+/g, " ").trim() === want);
+        if (b) b.click();
+        return !!b;
+      }, name);
+      const nameBox = (page) => page.evaluate((label) => {
+        const l = Array.from(document.querySelectorAll(".sp-content div")).find(d => d.children.length === 0 && d.textContent.trim() === label && d.nextElementSibling && d.nextElementSibling.tagName === "INPUT");
+        return l ? l.nextElementSibling.value : null;
+      }, say("Name", language));
+      const app = await open({ stubOptions: { personForm: true } });
+      try {
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, w.title);
+        await pause(app.page, 600);
+        const listed = await app.page.evaluate(() => Array.from(document.querySelectorAll(".sp-content button")).map(b => b.innerText.replace(/\s+/g, " ").trim()));
+        expect("the person question offers the staff by name, the one filing among them", listed.indexOf("Carla Castro") !== -1 && listed.indexOf("Alex Tester") !== -1, JSON.stringify(listed.slice(0, 20)));
+        await pickRow(app.page, "Carla Castro");
+        await pause(app.page, 400);
+        expect("the pick is drawn as a chip", await app.page.evaluate((label) => Array.from(document.querySelectorAll(".sp-content button")).some(b => (b.getAttribute("aria-label") || "") === label), fill(say("Remove {name}", language), { name: "Carla Castro" })), "no chip");
+        expect("the employee's signature card opens with the picked name in its Name box", (await nameBox(app.page)) === "Carla Castro", JSON.stringify(await nameBox(app.page)));
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 1000);
+        let save = saves(app.stub).pop();
+        expect("the pick is saved as the person's id and name", !!save && JSON.stringify(save.body.answers.who) === JSON.stringify({ id: "s-03", name: "Carla Castro" }), save ? JSON.stringify(save.body) : "nothing saved");
+        expect("the review names the person", has(await bodyText(app.page), "Carla Castro"), (await bodyText(app.page)).slice(0, 300));
+        await spokenHere(app, language, expect);
+
+        // Cleared and picked again.
+        await clickText(app.page, say("Back", language));
+        await pause(app.page, 800);
+        await tapLabel(app.page, fill(say("Remove {name}", language), { name: "Carla Castro" }));
+        await pause(app.page, 400);
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 1000);
+        save = saves(app.stub).pop();
+        expect("cleared, the answer is saved as nothing", !!save && save.body.answers.who === null, save ? JSON.stringify(save.body) : "nothing saved");
+        await clickText(app.page, say("Back", language));
+        await pause(app.page, 800);
+        await pickRow(app.page, "Ben Brooks");
+        await pause(app.page, 400);
+        expect("the signature card's Name box follows the new pick", (await nameBox(app.page)) === "Ben Brooks", JSON.stringify(await nameBox(app.page)));
+        await clickText(app.page, say("Next", language));
+        await pause(app.page, 1000);
+        save = saves(app.stub).pop();
+        expect("picked again, the new person is saved by id and name", !!save && JSON.stringify(save.body.answers.who) === JSON.stringify({ id: "s-02", name: "Ben Brooks" }) && JSON.stringify(app.stub.state.answersE.who) === JSON.stringify({ userId: "s-02", name: "Ben Brooks" }), save ? JSON.stringify(save.body) : "nothing saved");
+        expect("the review names the new person", has(await bodyText(app.page), "Ben Brooks") && !has(await bodyText(app.page), "Carla Castro"), (await bodyText(app.page)).slice(0, 300));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
     id: "picklists",
     label: "The four pick lists, drawn from the list the API sends: severities, request types, urgency and the reasons to drop a shift",
     run: async (open, language, expect) => {
@@ -3734,7 +4481,7 @@ const JOURNEYS = [
         for (let i = 0; i < 6 && !opened; i += 1) {
           await app.page.evaluate((n) => {
             const grid = Array.from(document.querySelectorAll(".sp-content div")).find(d => getComputedStyle(d).display === "grid" && d.children.length === 7);
-            const cards = grid ? Array.from(grid.querySelectorAll("div")).filter(d => d.onclick) : [];
+            const cards = grid ? Array.from(grid.querySelectorAll("button")) : [];
             if (cards[n]) cards[n].click();
           }, i);
           await pause(app.page, 700);
@@ -3868,6 +4615,185 @@ const JOURNEYS = [
     },
   },
   {
+    id: "fortyfour",
+    label: "Forty-four pixels: every control Step 178 gave the tap height is at least 44 tall at both ends of the text size scale, and the Profile camera 44 by 44, each reached the way a person reaches it",
+    run: async (open, language, expect) => {
+      // The size of the first control on the screen that reads exactly
+      // these words, a button or a label, as it is drawn. The words are
+      // read as written, since several of these buttons draw theirs in
+      // capitals.
+      const sizeOf = (page, words) => page.evaluate((w) => {
+        const el = Array.from(document.querySelectorAll("button, label")).find(x => x.getClientRects().length > 0 && x.textContent.replace(/\s+/g, " ").trim() === w);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return [Math.round(r.width), Math.round(r.height)];
+      }, words);
+      // The shortest of the buttons in a grid of days: the week strip's
+      // chips, or the month's cells.
+      const shortestIn = (page, month) => page.evaluate((m) => {
+        const grid = Array.from(document.querySelectorAll(".sp-content div")).find(d => getComputedStyle(d).display === "grid"
+          && (m ? d.querySelectorAll(":scope > button").length >= 28 : d.children.length === 7));
+        const buttons = grid ? Array.from(grid.querySelectorAll("button")).filter(b => b.getClientRects().length > 0) : [];
+        if (!buttons.length) return null;
+        const sizes = buttons.map((b) => { const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
+        return sizes.sort((a, b) => a[1] - b[1])[0].concat([sizes.length]);
+      }, !!month);
+      const tapWordsAnywhere = (page, words) => page.evaluate((w) => {
+        const b = Array.from(document.querySelectorAll("button")).find(x => x.getClientRects().length > 0 && x.textContent.replace(/\s+/g, " ").trim() === w && !x.disabled);
+        if (b) b.click();
+        return !!b;
+      }, words);
+      const labels = (slug) => (lookupsIn(language).find(c => c.slug === slug) || { values: [] }).values.map(v => v.displayLabel || spanishOf(v.label, language));
+      for (const textSize of ["standard", "largest"]) {
+        const tall = (what, size) => expect(what + " is at least 44 tall at the " + textSize + " text size", !!size && size[1] >= 44, size ? size.slice(0, 2).join(" by ") : "not on the screen");
+        const app = await open({ textSize: textSize, stubOptions: { myPickups: [{ id: "pk-9", site_name: "South Building", scheduled_date: "2026-10-08", start_time: "17:00", end_time: "23:00", status: "claimed" }] } });
+        try {
+          // Home: the week strip's chips, and the month's cells.
+          await openTab(app.page, "clock", language);
+          await pause(app.page, 1000);
+          tall("a chip on Home's week strip", await shortestIn(app.page, false));
+          await tapWordsAnywhere(app.page, say("Month", language));
+          await pause(app.page, 800);
+          tall("a cell of Home's month", await shortestIn(app.page, true));
+          await tapWordsAnywhere(app.page, say("Week", language));
+          await pause(app.page, 500);
+
+          // Schedule: a shift's detail, Request to Drop This Shift, and the
+          // drop form's Cancel and Submit Request.
+          await openTab(app.page, "schedule", language);
+          await pause(app.page, 1000);
+          tall("a chip on Schedule's week strip", await shortestIn(app.page, false));
+          // A scheduled shift's chip reads its start and end; the shift on
+          // site now reads its start alone.
+          await app.page.evaluate(() => {
+            const grid = Array.from(document.querySelectorAll(".sp-content div")).find(d => getComputedStyle(d).display === "grid" && d.children.length === 7);
+            const chip = grid && Array.from(grid.querySelectorAll("button")).find(b => b.textContent.indexOf(" - ") !== -1);
+            if (chip) chip.click();
+          });
+          await pause(app.page, 800);
+          tall("Request to Drop This Shift", await sizeOf(app.page, say("Request to Drop This Shift", language)));
+          await tapWordsAnywhere(app.page, say("Request to Drop This Shift", language));
+          await pause(app.page, 600);
+          tall("the drop form's Cancel", await sizeOf(app.page, say("Cancel", language)));
+          tall("the drop form's Submit Request", await sizeOf(app.page, say("Submit Request", language)));
+          await app.page.mouse.click(8, 8);
+          await pause(app.page, 600);
+
+          // Tasks: an item's detail and Back to checklist.
+          await openTab(app.page, "tasks", language);
+          await pause(app.page, 1000);
+          await app.page.evaluate((name) => {
+            const d = Array.from(document.querySelectorAll(".sp-content div")).find(x => typeof x.onclick === "function" && x.innerText.trim() === name);
+            if (d) d.click();
+          }, itemName("task-1", language));
+          await pause(app.page, 700);
+          tall("Back to checklist", await sizeOf(app.page, say("Back to checklist", language)));
+          await tapWordsAnywhere(app.page, say("Back to checklist", language));
+          await pause(app.page, 500);
+
+          // Assigned: its card, and in the detail Back, In Progress,
+          // Resolved and Cannot Resolve, and each panel's Cancel and Submit.
+          await openTab(app.page, "issuetasks", language);
+          await pause(app.page, 900);
+          const card = await app.page.evaluate((label) => {
+            const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.indexOf(label) !== -1);
+            if (!b) return null;
+            const r = b.getBoundingClientRect();
+            b.click();
+            return [Math.round(r.width), Math.round(r.height)];
+          }, "Replace the cracked light cover");
+          tall("an assigned card", card);
+          await pause(app.page, 700);
+          for (const w of ["Back to assigned tasks", "In Progress", "Resolved", "Cannot Resolve"]) tall("Assigned's " + w, await sizeOf(app.page, say(w, language)));
+          await tapWordsAnywhere(app.page, say("Resolved", language));
+          await pause(app.page, 500);
+          tall("the resolve panel's Cancel", await sizeOf(app.page, say("Cancel", language)));
+          tall("Submit Resolution", await sizeOf(app.page, say("Submit Resolution", language)));
+          await tapWordsAnywhere(app.page, say("Cancel", language));
+          await pause(app.page, 400);
+          await tapWordsAnywhere(app.page, say("Cannot Resolve", language));
+          await pause(app.page, 500);
+          tall("the cannot resolve panel's Cancel", await sizeOf(app.page, say("Cancel", language)));
+          tall("the cannot resolve panel's Submit", await sizeOf(app.page, say("Submit", language)));
+          await tapWordsAnywhere(app.page, say("Cancel", language));
+          await pause(app.page, 400);
+          await tapWordsAnywhere(app.page, say("Back to assigned tasks", language));
+          await pause(app.page, 400);
+
+          // Supplies: the request's type chips, its urgency buttons, its
+          // Cancel and Submit Request, and Log Usage on an open supply.
+          await openTab(app.page, "supplies", language);
+          await pause(app.page, 900);
+          await tapWordsAnywhere(app.page, say("+ Request", language));
+          await pause(app.page, 600);
+          for (const w of labels("request_types")) tall("the request type " + JSON.stringify(w), await sizeOf(app.page, w));
+          for (const w of labels("urgency_levels")) tall("the urgency " + JSON.stringify(w), await sizeOf(app.page, w));
+          tall("the request's Cancel", await sizeOf(app.page, say("Cancel", language)));
+          tall("Submit Request", await sizeOf(app.page, say("Submit Request", language)));
+          await tapWordsAnywhere(app.page, say("Cancel", language));
+          await pause(app.page, 400);
+          await app.page.evaluate(() => {
+            const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.indexOf("Paper towels") !== -1);
+            if (b) b.click();
+          });
+          await pause(app.page, 500);
+          tall("Log Usage", await sizeOf(app.page, say("Log Usage", language)));
+
+          // Pickup: Release Shift on a claimed shift.
+          await openTab(app.page, "pickup", language);
+          await pause(app.page, 900);
+          await app.page.evaluate((w) => {
+            const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.textContent.replace(/\s+/g, " ").trim().indexOf(w) === 0);
+            if (b) b.click();
+          }, say("My Pickups", language));
+          await pause(app.page, 800);
+          tall("Release Shift", await sizeOf(app.page, say("Release Shift", language)));
+
+          // Profile: the camera, 44 by 44 around its gold circle, and
+          // Cancel and Save while the profile is edited.
+          await openTab(app.page, "profile", language);
+          await pause(app.page, 1000);
+          const camera = await app.page.evaluate(() => {
+            const l = Array.from(document.querySelectorAll(".sp-content label")).find(x => x.querySelector('input[type="file"]'));
+            if (!l) return null;
+            const r = l.getBoundingClientRect();
+            return [Math.round(r.width), Math.round(r.height)];
+          });
+          expect("the Profile camera is at least 44 by 44 at the " + textSize + " text size", !!camera && camera[0] >= 44 && camera[1] >= 44, camera ? camera.join(" by ") : "not on the screen");
+          await tapWordsAnywhere(app.page, say("Edit", language));
+          await pause(app.page, 600);
+          tall("the profile's Cancel", await sizeOf(app.page, say("Cancel", language)));
+          tall("the profile's Save", await sizeOf(app.page, say("Save", language)));
+        } finally { await app.context.close(); }
+
+        // Inspect, for someone who may schedule one: + Schedule, and Attach
+        // Photo on an inspection's card.
+        const insp = await open({ textSize: textSize, stubOptions: { person: Object.assign({}, PERSON, { role: "admin" }), inspections: [INSPECTION] } });
+        try {
+          await openTab(insp.page, "inspect", language);
+          await pause(insp.page, 1000);
+          tall("+ Schedule", await sizeOf(insp.page, say("+ Schedule", language)));
+          await clickText(insp.page, INSPECTION.template_name);
+          await pause(insp.page, 800);
+          tall("Attach Photo", await sizeOf(insp.page, say("Attach Photo", language)));
+        } finally { await insp.context.close(); }
+
+        // Update now, on the bar that shows while a newer build waits on a
+        // person who is in the middle of typing.
+        const upd = await open({ textSize: textSize, buildStamp: "a-newer-build" });
+        try {
+          await openTab(upd.page, "agent", language);
+          await pause(upd.page, 800);
+          await upd.page.focus(".sp-content textarea").catch(() => {});
+          await type(upd.page, ".sp-content textarea", "A question still being typed");
+          await upd.page.clock.runFor(5600);
+          await pause(upd.page, 800);
+          tall("Update now", await sizeOf(upd.page, say("Update now", language)));
+        } finally { await upd.context.close(); }
+      }
+    },
+  },
+  {
     id: "assignedstatus",
     label: "An assigned task marked in progress, and the line that says so",
     run: async (open, language, expect) => {
@@ -3928,6 +4854,93 @@ const JOURNEYS = [
         // Whatever the failed send says, the browser's own words are not it.
         await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "listfaults",
+    label: "A list that did not load says so with Try again and comes back when it is tapped, on all eight lists that can fail; a site with no supplies says so; and a screen that throws draws the last resort, whose Reload brings the portal back",
+    run: async (open, language, expect) => {
+      const REFUSED = { status: 500, error: "Something went wrong on our end. Try again in a minute." };
+      const LINE = "This list did not load.";
+      // The line a list says in its place, and the Try again beside it.
+      const faultOf = (page, line) => page.evaluate(([l, retry]) => {
+        const a = Array.from(document.querySelectorAll('.sp-content [role="alert"]')).find(x => x.textContent.trim() === l && x.offsetParent !== null);
+        const b = a && Array.from(a.parentElement.querySelectorAll("button")).find(x => x.textContent.trim() === retry);
+        return { line: !!a, retry: !!b };
+      }, [line, say("Try again", language)]);
+      const tapRetry = (page, line) => page.evaluate(([l, retry]) => {
+        const a = Array.from(document.querySelectorAll('.sp-content [role="alert"]')).find(x => x.textContent.trim() === l && x.offsetParent !== null);
+        const b = a && Array.from(a.parentElement.querySelectorAll("button")).find(x => x.textContent.trim() === retry);
+        if (b) b.click();
+        return !!b;
+      }, [line, say("Try again", language)]);
+      const weekDrawn = (page) => page.evaluate(() => Array.from(document.querySelectorAll(".sp-content div")).some(d => getComputedStyle(d).display === "grid" && d.children.length === 7));
+      const asked = (stub, route) => stub.state.calls.filter(c => c.method + " " + c.path === route).length;
+      // Each list, the route that fills it, where a person meets it, the
+      // line it says when the route fails, and what is back once it answers.
+      const LISTS = [
+        { what: "Home's sites", route: "GET /api/shift-sessions/sites", tab: "clock", line: "Your sites did not load.", stub: { clockedIn: false }, back: async page => has(await bodyText(page), "South Building") },
+        { what: "Assigned", route: "GET /api/clock/tasks/assigned", tab: "issuetasks", line: LINE, back: async page => has(await bodyText(page), "Replace the cracked light cover") },
+        { what: "Supplies", route: "GET /api/supplies", tab: "supplies", line: LINE, back: async page => has(await bodyText(page), "Paper towels") },
+        { what: "Schedule", route: "GET /api/pickups/my-schedule", tab: "schedule", line: LINE, back: weekDrawn },
+        { what: "Report, for an admin", route: "GET /api/issues", tab: "Issues", line: LINE, stub: { person: Object.assign({}, PERSON, { role: "admin" }) }, back: async page => has(await bodyText(page), spanishOf("No issues reported yet.", language)) },
+        { what: "Pickup", route: "GET /api/pickups/available", tab: "pickup", line: LINE, back: async page => has(await bodyText(page), say("Claim This Shift", language)) },
+        { what: "Inspect", route: "GET /api/inspections/scheduled", tab: "inspect", line: LINE, stub: { inspections: [INSPECTION] }, back: async page => has(await bodyText(page), INSPECTION.template_name) },
+        { what: "Profile", route: "GET /api/users/profile/me", tab: "profile", line: "Your profile did not load.", back: async page => has(await bodyText(page), "OCSA-0001") },
+      ];
+      for (const c of LISTS) {
+        const app = await open({ stubOptions: Object.assign({ refuse: { [c.route]: REFUSED } }, c.stub || {}) });
+        try {
+          await openTab(app.page, c.tab, language);
+          await pause(app.page, 1200);
+          const said = await faultOf(app.page, spanishOf(c.line, language));
+          expect(c.what + ": a list that did not load says so where it would be, with Try again", said.line && said.retry, JSON.stringify(said) + " " + (await bodyText(app.page)).slice(0, 200));
+          await spokenHere(app, language, expect);
+          delete app.stub.state.refuse[c.route];
+          const before = asked(app.stub, c.route);
+          await tapRetry(app.page, spanishOf(c.line, language));
+          await pause(app.page, 1200);
+          const gone = !(await faultOf(app.page, spanishOf(c.line, language))).line;
+          const back = await c.back(app.page);
+          expect(c.what + ": Try again asks again and the list comes back", asked(app.stub, c.route) > before && gone && back,
+            "asked " + (asked(app.stub, c.route) - before) + " more, line gone " + gone + ", back " + back + ": " + (await bodyText(app.page)).slice(0, 200));
+        } finally { await app.context.close(); }
+      }
+
+      // A site with no supplies set up says so, apart from a list that
+      // did not load.
+      const none = await open({ stubOptions: { supplies: [] } });
+      try {
+        await openTab(none.page, "supplies", language);
+        await pause(none.page, 1200);
+        const text = await bodyText(none.page);
+        expect("a site with no supplies says so", has(text, spanishOf("No supplies are set up for this site.", language)) && !has(text, spanishOf(LINE, language)), text.slice(0, 220));
+        await spokenHere(none, language, expect);
+      } finally { await none.context.close(); }
+
+      // A profile answered without its user throws while it is drawn. The
+      // last resort draws one line and Reload, in the phone's language, in
+      // place of a blank page, and Reload brings the portal back.
+      const thrown = await open({});
+      try {
+        thrown.stub.state.refuse["GET /api/users/profile/me"] = { status: 200, body: {}, once: true };
+        await openTab(thrown.page, "profile", language);
+        await pause(thrown.page, 1200);
+        const last = await thrown.page.evaluate(([line, reload]) => ({
+          line: Array.from(document.querySelectorAll('[role="alert"]')).some(a => a.textContent.trim() === line),
+          reload: Array.from(document.querySelectorAll("button")).some(b => b.textContent.trim() === reload),
+          portal: !!document.querySelector(".sp-content"),
+        }), [spanishOf("Something went wrong on this screen.", language), spanishOf("Reload", language)]);
+        expect("a screen that throws draws the last resort's line and Reload, in the phone's language, and nothing of the portal", last.line && last.reload && !last.portal, JSON.stringify(last) + " " + (await bodyText(thrown.page)).slice(0, 160));
+        await spokenHere(thrown, language, expect);
+        await Promise.all([
+          thrown.page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {}),
+          clickText(thrown.page, spanishOf("Reload", language)),
+        ]);
+        await thrown.page.waitForSelector(".sp-content", { timeout: 20000 }).catch(() => {});
+        await pause(thrown.page, 1200);
+        expect("Reload brings the portal back", await thrown.page.evaluate(() => !!document.querySelector(".sp-content")), (await bodyText(thrown.page)).slice(0, 160));
+      } finally { await thrown.context.close(); }
     },
   },
   // --- Chat. Step 130: every chat reachable, and every message accounted for.
@@ -4244,9 +5257,11 @@ const JOURNEYS = [
     run: async (open, language, expect) => {
       const failed = "Your chats did not load. Try again in a minute.";
       const none = "No chats are set up for you yet. Ask your supervisor.";
-      const app = await open({});
+      // Refused from the start: the portal reads the list at sign in for
+      // the bar's badge, and a list already drawn stays drawn when a later
+      // read is turned away.
+      const app = await open({ stubOptions: { refuse: { "GET /api/chat/channels": { status: 500, body: { error: "Server error" } } } } });
       try {
-        app.stub.state.refuse["GET /api/chat/channels"] = { status: 500, body: { error: "Server error" } };
         await openChat(app.page, language);
         const said = await bodyText(app.page);
         expect("a list turned away says Your chats did not load, with Try again", has(said, say(failed, language)) && (await hasButton(app.page, say("Try again", language))), said.slice(0, 240));
@@ -4315,6 +5330,111 @@ const JOURNEYS = [
         await pause(app.page, 1500);
         expect("the app comes back after the update", await app.page.evaluate(() => !!document.querySelector(".sp-content") && document.body.innerText.trim().length > 0), "blank");
       } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "chatbadge",
+    label: "Chat says what arrived and who it is for: the bar's Chat count sums the chats' counts and goes as each is opened, a read told once per opening, Tag someone from a typed @ and from its button and never in a private chat, a deleted @Name dropped from the send, and a tag drawn highlighted with the bubble marked only for the person tagged",
+    run: async (open, language, expect) => {
+      // The count on the bar's Chat tab, as drawn: its numeral, or "" for
+      // none at all.
+      const chatCount = (page) => page.evaluate((want) => {
+        const bar = Array.from(document.querySelectorAll("div")).find((el) => { const s = getComputedStyle(el); return s.position === "fixed" && s.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5; });
+        const b = bar && Array.from(bar.querySelectorAll(":scope > button")).find(x => x.textContent.trim().replace(/^[\d+]+/, "") === want);
+        if (!b) return null;
+        const n = Array.from(b.querySelectorAll("div")).find(d => d.children.length === 0 && /^\d+\+?$/.test(d.textContent.trim()));
+        return n ? n.textContent.trim() : "";
+      }, say("Chat", language));
+      const readsOf = (stub, id) => stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/chat/channels/" + id + "/read").length;
+      const tagUp = (page) => page.evaluate(() => !!document.getElementById("ocsa-tag-title"));
+      const tagButton = (page) => page.evaluate((label) => Array.from(document.querySelectorAll(".sp-content button")).some(b => (b.getAttribute("aria-label") || "") === label), say("Tag someone", language));
+      const pickInSheet = (page, name) => page.evaluate((want) => {
+        const d = document.getElementById("ocsa-tag-title");
+        const sheet = d && d.closest('[role="dialog"]');
+        const b = sheet && Array.from(sheet.querySelectorAll("button")).find(x => x.innerText.replace(/\s+/g, " ").trim().indexOf(want) === 0);
+        if (b) b.click();
+        return !!b;
+      }, name);
+      const app = await open({ stubOptions: { chat: { unread: { "ch-north": 2, "ch-all": 3, "dm-u-one": 0 }, tagged: true } } });
+      try {
+        await pause(app.page, 600);
+        expect("before Chat is opened, the bar's Chat count is the two chats' counts summed", (await chatCount(app.page)) === "5", JSON.stringify(await chatCount(app.page)));
+        await openChat(app.page, language);
+        await tapChat(app.page, "North Building");
+        await pause(app.page, 1300);
+        expect("opening one chat takes its count off at once", (await chatCount(app.page)) === "3", JSON.stringify(await chatCount(app.page)));
+        expect("opening it tells the API once", readsOf(app.stub, "ch-north") === 1, readsOf(app.stub, "ch-north") + " reads");
+        await tapChat(app.page, chatName({ id: "ch-all", type: "general", name: "All staff" }, language));
+        await pause(app.page, 1300);
+        expect("opening the other takes the count off the bar", (await chatCount(app.page)) === "", JSON.stringify(await chatCount(app.page)));
+        expect("the other is told once too, and the first no more", readsOf(app.stub, "ch-all") === 1 && readsOf(app.stub, "ch-north") === 1, readsOf(app.stub, "ch-all") + " and " + readsOf(app.stub, "ch-north") + " reads");
+
+        // In the site chat: a message that tags the reader is marked, one
+        // that tags someone else is not, and both draw the tag highlighted.
+        await tapChat(app.page, "North Building");
+        await pause(app.page, 1200);
+        const marks = await app.page.evaluate((texts) => texts.map((want) => {
+          const d = Array.from(document.querySelectorAll(".sp-content div")).find(x => x.innerText.replace(/\s+/g, " ").trim() === want && x.querySelector("span"));
+          if (!d) return null;
+          const tag = Array.from(d.querySelectorAll("span")).map(s => ({ text: s.textContent.trim(), weight: Number(getComputedStyle(s).fontWeight) }));
+          return { tag: tag, background: getComputedStyle(d).backgroundColor };
+        }), ["@Alex Tester can you check the side door", "@Sam Second the spare key is at the desk"]);
+        const [mine, theirs] = marks;
+        expect("a tag is drawn highlighted", !!mine && !!theirs && mine.tag.some(s => s.text === "@Alex Tester" && s.weight >= 600) && theirs.tag.some(s => s.text === "@Sam Second" && s.weight >= 600), JSON.stringify(marks));
+        expect("the bubble is marked only where the reader is tagged", !!mine && !!theirs && /231, 176, 23/.test(mine.background) && !/231, 176, 23/.test(theirs.background), JSON.stringify(marks));
+
+        // Tag someone, from a typed @ and from its button.
+        expect("a site chat offers Tag someone", await tagButton(app.page), "no button");
+        await type(app.page, CHAT_BOX, "@");
+        await pause(app.page, 500);
+        expect("an @ typed at the start of a word opens Tag someone", await tagUp(app.page), "the sheet did not open");
+        await spokenHere(app, language, expect);
+        await pickInSheet(app.page, "Sam Second");
+        await pause(app.page, 400);
+        expect("a pick puts @Name and a space in the words", (await boxText(app.page, CHAT_BOX)) === "@Sam Second ", JSON.stringify(await boxText(app.page, CHAT_BOX)));
+        await tapLabel(app.page, say("Tag someone", language));
+        await pause(app.page, 500);
+        expect("the button opens Tag someone too", await tagUp(app.page), "the sheet did not open");
+        await pickInSheet(app.page, "Jordan Office");
+        await pause(app.page, 400);
+        // One of the two tags is deleted from the words before the send.
+        const words = "@Sam Second please check the side door";
+        await type(app.page, CHAT_BOX, words);
+        await pause(app.page, 300);
+        await tapSend(app.page, language);
+        await pause(app.page, 1200);
+        const last = chatSends(app.stub, words).pop();
+        expect("a deleted @Name drops its id from the send, and the one left is sent", !!last && JSON.stringify(last.body.mentions) === JSON.stringify([SECOND_PERSON.id]), last ? JSON.stringify(last.body) : "nothing sent");
+
+        // A private chat has no Tag someone, and an @ opens nothing.
+        await tapChat(app.page, say("Admin (Private)", language));
+        await pause(app.page, 1200);
+        expect("a private chat has no Tag someone", !(await tagButton(app.page)), "the button is there");
+        await type(app.page, CHAT_BOX, "@");
+        await pause(app.page, 500);
+        expect("an @ in a private chat opens nothing", !(await tagUp(app.page)), "the sheet opened");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+
+      // A chat nobody else can read says so, and an API with no members
+      // route hides Tag someone altogether.
+      const alone = await open({ stubOptions: { chat: { alone: true } } });
+      try {
+        await openChat(alone.page, language);
+        await tapChat(alone.page, "North Building");
+        await pause(alone.page, 1000);
+        await tapLabel(alone.page, say("Tag someone", language));
+        await pause(alone.page, 600);
+        expect("a chat with nobody else says so", has(await sheetText(alone.page), spanishOf("No one else can read this chat.", language)), (await sheetText(alone.page)).slice(0, 160));
+        await spokenHere(alone, language, expect);
+      } finally { await alone.context.close(); }
+      const noRoute = await open({ stubOptions: { chat: { membersRoute: false } } });
+      try {
+        await openChat(noRoute.page, language);
+        await tapChat(noRoute.page, "North Building");
+        await pause(noRoute.page, 1000);
+        expect("an API that answers 404 on the members route shows no Tag someone", !(await tagButton(noRoute.page)), "the button is there");
+      } finally { await noRoute.context.close(); }
     },
   },
   {

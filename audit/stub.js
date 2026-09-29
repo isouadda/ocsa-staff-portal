@@ -278,6 +278,17 @@ function shiftsFor(siteId, startMs) {
   return list;
 }
 
+// Each capability and the tiers that hold it by default, as the API's
+// middleware/capabilities.js lists them. Nobody here holds an override.
+const CAPABILITIES = {
+  manage_permissions: ["admin"], manage_settings: ["admin"], manage_lookups: ["admin"], manage_staff: ["admin"],
+  manage_sites: ["admin"], manage_integrations: ["admin"], manage_tasks: ["admin", "supervisor"],
+  manage_inspections: ["admin", "supervisor"], manage_time: ["admin"], manage_schedule: ["admin", "supervisor"],
+  approve_time_off: [], manage_supplies: ["admin"], manage_vendors: ["admin"], view_reports: ["admin", "supervisor"],
+  read_incident_reports: ["admin"], export_payroll: ["admin"], manage_admins: [], send_announcements: ["admin"],
+  view_help_insights: ["admin"],
+};
+
 // One scheduled inspection and the items it asks about. The template's
 // name, each item and each item's zone are English, the way the live API
 // sends them.
@@ -286,6 +297,18 @@ const INSPECTION = {
   items: [
     { id: "it-1", label: "Glass doors are free of smudges", zone: "Lobby", max_score: 5, cims_category: "SD" },
     { id: "it-2", label: "Floor mats are straight and dry", zone: "Lobby", max_score: 5, cims_category: "SD" },
+  ],
+};
+// A long one, five items, for a case that scores several and watches the
+// scored ones fold away.
+const INSPECTION_LONG = {
+  id: "in-long", template_name: "Restroom walk", site_id: "site-north", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled",
+  items: [
+    { id: "il-1", label: "Mirrors are free of streaks", zone: "Restroom", max_score: 5, cims_category: "SD" },
+    { id: "il-2", label: "Sinks are clean and dry", zone: "Restroom", max_score: 5, cims_category: "SD" },
+    { id: "il-3", label: "Soap dispensers are full", zone: "Restroom", max_score: 5, cims_category: "SD" },
+    { id: "il-4", label: "Floors are mopped", zone: "Restroom", max_score: 5, cims_category: "SD" },
+    { id: "il-5", label: "Trash is emptied", zone: "Restroom", max_score: 5, cims_category: "SD" },
   ],
 };
 // One on the list that the API no longer has when it is opened.
@@ -405,6 +428,12 @@ const FORM = {
   ],
 };
 
+// The incident report's second version, published after the first, whose
+// second question reads differently. With stubOptions.formVersions the
+// catalog lists this one, the latest, while a draft started on the first
+// is sent beside the first.
+const FORM_V2 = Object.assign({}, FORM, { version: 2, fields: FORM.fields.map(f => (f.key === "where" ? Object.assign({}, f, { label: "Which room was it in" }) : f)) });
+
 function makeState(opts) {
   const o = opts || {};
   return {
@@ -447,16 +476,40 @@ function makeState(opts) {
     timeOffTypesLive: o.timeOffTypesLive !== false,
     myTimeOff: o.myTimeOff || [],
     drafts: o.drafts || [],
+    // Every draft discarded, by id.
+    discarded: [],
     notifications: o.notifications || [],
     // Copied, since /complete marks one completed and the fixture is shared.
     inspections: (o.inspections || []).map(i => Object.assign({}, i)),
     // Step 145: every problem filed through POST /api/issues, in order.
     issues: [],
+    // The supplies at the open shift's site, which a case can answer
+    // with none. null answers the one supply every case has always had.
+    supplies: Array.isArray(o.supplies) ? o.supplies : null,
+    // A due date on the assigned task, as the API sends one, when a case
+    // gives it: a DATE column reaches JSON as that day at midnight UTC.
+    assignedDue: o.assignedDue || null,
+    // The open shifts this person has claimed, none unless a case says.
+    myPickups: o.myPickups || [],
+    // The announcements the office has sent.
+    announcements: o.announcements || [ANNOUNCEMENT],
+    // permissionsRoute false is an API from before Step 179, which answers
+    // GET /api/users/me/permissions 404.
+    permissionsRoute: o.permissionsRoute !== false,
+    // Phone alerts. key is the server's public key, null when it has none,
+    // and "missing" for an API with no key route yet. settings is null for
+    // an API whose settings route is not there yet, which answers 404.
+    // rows holds each endpoint the API keeps and whose it is.
+    push: {
+      key: o.pushKey === undefined ? PUSH_KEY : o.pushKey,
+      settings: o.alertSettings === null ? null : Object.assign({}, ALERT_DEFAULTS, o.alertSettings || {}),
+      rows: Object.assign({}, o.pushRows || {}),
+    },
     conversationId: "cv-one",
     // Help: what the next question is answered with, the points the one
     // being answered can be stopped at, and the conversation as the API
     // keeps it. See helpPlay below.
-    help: { next: null, holds: {}, asked: 0 },
+    help: { next: null, holds: {}, asked: 0, seq: 0 },
     stored: [],
     uploadsFail: false,
     prefsPatches: [],
@@ -478,6 +531,11 @@ function makeState(opts) {
     // answers.
     sectionsForm: o.sectionsForm === "one" ? "one" : !!o.sectionsForm,
     answersS: {},
+    // The incident report's second version in the catalog.
+    formVersions: !!o.formVersions,
+    // The form about one person, served when a case asks, and its answers.
+    personForm: !!o.personForm,
+    answersE: {},
     // Everyone Speak Up can name, and every report filed through it.
     staff: o.staff || STAFF.slice(),
     filed: [],
@@ -512,8 +570,16 @@ function chatStateOf(o) {
   if (c.only) channels = channels.filter(ch => ch.id === c.only);
   if (c.empty) channels = [];
   const messages = {};
-  channels.forEach((ch) => { messages[ch.id] = chatSeed(ch.id, !!c.oddRows); });
-  return { channels: channels.map(ch => Object.assign({ unreadCount: 0 }, ch)), messages: messages, seq: 0, holdMs: 0, saveThenDrop: false, noMessage: false };
+  channels.forEach((ch) => { messages[ch.id] = chatSeed(ch.id, !!c.oddRows, !!c.tagged); });
+  // unread sets a chat's count on the list by its id.
+  const unread = c.unread || {};
+  return {
+    channels: channels.map(ch => Object.assign({ unreadCount: 0 }, ch, unread[ch.id] !== undefined ? { unreadCount: unread[ch.id] } : {})),
+    messages: messages, seq: 0, holdMs: 0, saveThenDrop: false, noMessage: false,
+    // membersRoute false is an API from before Step 179, which answers the
+    // members route 404; alone is a chat nobody else can read.
+    membersRoute: c.membersRoute !== false, alone: !!c.alone,
+  };
 }
 
 
@@ -708,6 +774,37 @@ function formS(lang, one) {
   };
 }
 
+// A fourth form, invented: a check-in about one employee, with a person
+// question, Step 186's type, that says who the form is about, and the
+// employee's signature, drawn on the phone. The form names its person
+// question as aboutPerson. Served only to a case that asks for it with
+// stubOptions.personForm.
+const FORM_E_CODE = "TEST-FORM-E";
+const FORM_E_WORDS = {
+  en: { title: "Employee check-in", first: "Who and how it went", who: "Who is this about", notes: "What went well", sign: "Employee signature" },
+  es: { title: "Revision con el empleado", first: "Quien y como le fue", who: "De quien se trata", notes: "Que salio bien", sign: "Firma del empleado" },
+};
+function formE(lang) {
+  const w = FORM_E_WORDS[lang === "es" ? "es" : "en"];
+  const field = (key, type, required) => ({ key: key, label: w[key], type: type, required: required, osha: false, prefilled: false, options: [], appliesWhen: null, help: null, section: "1" });
+  return {
+    code: FORM_E_CODE, title: w.title, version: 1, aboutPerson: "who",
+    sections: [{ key: "1", title: w.first }],
+    fields: [field("who", "person", true), field("notes", "textarea", false), field("sign", "customer_signature", false)],
+  };
+}
+function draftE(state, lang) {
+  const form = formE(lang);
+  const answers = state.answersE;
+  const answered = form.fields.filter(f => answers[f.key] !== undefined && answers[f.key] !== null && answers[f.key] !== "").length;
+  return {
+    id: "draft-four", formCode: form.code, formName: form.title,
+    answers: JSON.parse(JSON.stringify(answers)),
+    status: "draft", answered: answered, remaining: form.fields.length - answered,
+    missing: form.fields.filter(f => f.required && !answers[f.key]).map(f => f.key),
+  };
+}
+
 function draftS(state, lang) {
   const form = formS(lang, state.sectionsForm === "one");
   const answers = state.answersS;
@@ -883,13 +980,38 @@ const staffPrivate = (p, i) => ({
   unreadCount: i % 4 === 1 ? (i % 3) + 1 : 0,
 });
 // Chat's refusals as Step 132 writes them, one per code, in each
-// language. A read can get the first two, and a send any of the four.
+// language, and the two Step 179 added for a message that tags people.
+// A read can get the first two, and a send any of the six.
 const CHAT_TEXT_MAX = 2000;
+const CHAT_MENTIONS_MAX = 10;
 const CHAT_REFUSALS = {
   "chat.notFound": { status: 404, en: "This chat was not found.", es: "No se encontr\u00f3 este chat." },
   "chat.noAccess": { status: 403, en: "You do not have access to this chat.", es: "No tiene acceso a este chat." },
   "chat.textRequired": { status: 400, en: "Type a message first.", es: "Escriba un mensaje primero." },
   "chat.textTooLong": { status: 400, en: "This message is too long. Keep it to 2000 characters or fewer.", es: "Este mensaje es demasiado largo. Use 2000 caracteres o menos." },
+  "chat.mentionNotMember": { status: 400, en: "One of the people tagged is not in this chat.", es: "Una de las personas etiquetadas no est\u00e1 en este chat." },
+  "chat.tooManyMentions": { status: 400, en: "Tag at most 10 people in one message.", es: "Etiquete como m\u00e1ximo 10 personas en un mensaje." },
+};
+// The people who can read each chat, Step 179 in the API, whom a message
+// there may tag: a site chat's are the people at the site and the office,
+// the general chat's are everyone, and a private chat's are its staff
+// member and the office. The members route answers them without the
+// caller, by name.
+const CHAT_PEOPLE = [PERSON, SECOND_PERSON, ADMIN_PERSON].map(p => ({ id: p.id, name: p.firstName + " " + p.lastName, role: p.role }))
+  .concat(STAFF.slice(0, 3).map(p => ({ id: p.id, name: p.firstName + " " + p.lastName, role: "custodian" })));
+const chatPeopleOf = (id) => {
+  const byName = (list) => list.slice().sort((a, b) => a.name.localeCompare(b.name));
+  if (id === CHAT_GENERAL.id) return byName(CHAT_PEOPLE);
+  if (id === "ch-north") return byName(CHAT_PEOPLE.slice(0, 4));
+  if (/^dm-/.test(id)) return byName(CHAT_PEOPLE.filter(p => p.role === "admin" || "dm-" + p.id === id));
+  return byName(CHAT_PEOPLE.filter(p => p.role === "admin").concat([CHAT_PEOPLE[4]]));
+};
+// A message's words cut at every tag it carries, the way the screen draws
+// them: the tags, and the words between, each a piece of its own.
+const mentionPieces = (text, mentions) => {
+  const names = (mentions || []).filter(m => m && m.name).map(m => "@" + m.name).sort((a, b) => b.length - a.length);
+  if (!names.length) return [text];
+  return String(text).split(new RegExp("(" + names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")")).map(p => p.trim()).filter(Boolean);
 };
 const CHAT_SEND_REFUSALS = Object.keys(CHAT_REFUSALS).map(code => Object.assign({ code: code }, CHAT_REFUSALS[code]));
 // The refusals a send got before Step 132, English with no code. An API
@@ -907,6 +1029,14 @@ const CHAT_UNCODED_REFUSALS = [
 // state.refuse as { api: key }, and its sentence is written in the
 // request's language, ?locale= first and the account's after it.
 const API_REFUSALS = {
+  // A sign-in the API has locked after too many wrong tries, Step 175:
+  // 429, with the minutes the lock lasts, fifteen by default.
+  "auth.locked": { status: 429, en: "Too many tries. Wait {minutes} minutes, then try again.", es: "Demasiados intentos. Espere {minutes} minutos y vuelva a intentarlo.", vars: { minutes: 15 } },
+  // An answer rated that is not one of the person's own, Step 183.
+  "help.messageNotFound": { status: 404, en: "Answer not found", es: "No se encontr\u00f3 la respuesta" },
+  // A draft discarded that is gone or no longer a draft, Step 183.
+  "forms.reportNotFound": { status: 404, en: "Report not found", es: "No se encontr\u00f3 el reporte" },
+  "forms.notADraft": { status: 409, en: "Only a draft can be discarded.", es: "Solo se puede descartar un borrador." },
   "timeOff.lastBeforeFirst": { status: 400, en: "The last day cannot be before the first day", es: "El \u00faltimo d\u00eda no puede ser anterior al primer d\u00eda" },
   "pickups.alreadyClaimed": { status: 409, en: "Shift was already claimed", es: "Este turno ya fue tomado" },
   "supplies.requestTypeRequired": { status: 400, en: "Request type is required", es: "Elija el tipo de solicitud" },
@@ -1034,9 +1164,52 @@ function sniffImage(buf) {
   }
   return null;
 }
+// --- announcements, Step 179 in the API ---------------------------------
+//
+// One announcement from the office, the way GET /api/announcements/:id
+// sends it: its title and body in both languages, who sent it and when.
+// An id that names none answers announcements.notFound. Invented.
+const ANNOUNCEMENT = {
+  id: "an-1",
+  title: { en: "The lobby floor is being waxed", es: "Se est\u00e1 encerando el piso del vest\u00edbulo" },
+  body: { en: "Use the side entrance on Friday night. The front doors stay locked until 6 AM.", es: "Use la entrada lateral el viernes en la noche. Las puertas del frente siguen cerradas hasta las 6 AM." },
+  audience: { type: "all" }, sentBy: { id: "u-admin", name: "Jordan Office" }, sentAt: "2026-10-01T20:00:00.000Z",
+  recipients: 12, withPush: true, translated: true,
+};
+const ANNOUNCEMENT_NOT_FOUND = ["Announcement not found", "No se encontr\u00f3 el anuncio"];
+
+// A rating the API turns away, Step 183, which the portal never sends: a
+// rating that is not true or false, and a note over 500 characters.
+const RATING_NOTE_MAX = 500;
+const RATING_INVALID = { en: "Say whether the answer was helpful: helpful must be true or false", es: "Indique si la respuesta fue \u00fatil: helpful debe ser true o false" };
+const RATING_NOTE_LONG = { en: "The note can be at most {max} characters", es: "La nota puede tener como m\u00e1ximo {max} caracteres" };
+
+// --- phone alerts, Step 179 in the API ----------------------------------
+//
+// GET /api/push/key answers the server's public key, or null when it has
+// none, and the apps then offer nothing. POST /api/push/subscriptions
+// takes an endpoint, which must be https, and its p256dh and auth keys,
+// and files the endpoint under the caller: the same endpoint sent again
+// moves to whoever sends it. DELETE takes the caller's own endpoint off,
+// and answers ok whether or not it was there. The settings are the chat
+// choice and five switches, each read with its default when unset, and a
+// PATCH writes only the keys it carries and refuses the whole body when
+// any key is wrong. The key is invented, 87 characters of base64url the
+// way a real one is, so the browser can read it as 65 bytes.
+const PUSH_KEY = "BInventedPublicKeyForTheAuditOnly000000000000000000000000000000000000000000000000000000";
+const ALERT_DEFAULTS = { chat: "all", schedule: true, pickups: true, supplies: true, issues: true, forms: true };
+const ALERT_SWITCHES = ["schedule", "pickups", "supplies", "issues", "forms"];
+const ALERT_CHAT = ["all", "mentions", "off"];
+const PUSH_REFUSALS = {
+  "notifications.badSetting": { status: 400, en: "Send chat as all, mentions or off, and schedule, pickups, supplies, issues or forms as true or false", es: "Env\u00ede chat como all, mentions u off, y schedule, pickups, supplies, issues o forms como true o false" },
+  "push.badSubscription": { status: 400, en: "Send the subscription's endpoint and its p256dh and auth keys", es: "Env\u00ede el endpoint de la suscripci\u00f3n y sus claves p256dh y auth" },
+};
+
 // A chat's messages as the API keeps them, oldest first. Every text is
 // invented. oddRows adds rows missing a name, a time, or both.
-const chatSeed = (channelId, odd) => {
+// tagged adds two messages to the site chat that tag people, one of them
+// the person a case signs in as.
+const chatSeed = (channelId, odd, tagged) => {
   const at = (h) => iso(NOW.getTime() - h * 60 * 60 * 1000);
   const rows = {
     "ch-north": [
@@ -1050,6 +1223,10 @@ const chatSeed = (channelId, odd) => {
       { id: "m-d1", senderId: ADMIN_PERSON.id, senderName: ADMIN_PERSON.firstName + " " + ADMIN_PERSON.lastName, senderRole: "admin", text: "Your badge is ready at the office.", sentAt: at(3), isEdited: false, isPinned: false },
     ],
   }[channelId] || [];
+  if (tagged && channelId === "ch-north") {
+    rows.push({ id: "m-t1", senderId: SECOND_PERSON.id, senderName: SECOND_PERSON.firstName + " " + SECOND_PERSON.lastName, senderRole: "lead", text: "@Alex Tester can you check the side door", sentAt: at(2), isEdited: false, isPinned: false, mentions: [{ id: PERSON.id, name: "Alex Tester" }] });
+    rows.push({ id: "m-t2", senderId: ADMIN_PERSON.id, senderName: ADMIN_PERSON.firstName + " " + ADMIN_PERSON.lastName, senderRole: "admin", text: "@Sam Second the spare key is at the desk", sentAt: at(1), isEdited: false, isPinned: false, mentions: [{ id: SECOND_PERSON.id, name: "Sam Second" }] });
+  }
   if (odd && channelId === "ch-north") {
     rows.push({ id: "m-odd1", senderId: "s-03", text: "A note with no name on it." });
     rows.push({ id: "m-odd2", senderId: "s-04", senderName: "Dan Delgado", senderRole: "custodian", text: "A note with no time on it." });
@@ -1236,6 +1413,13 @@ const TWIN_PAIRS = [
   ["Glass doors are free of smudges", "Las puertas de vidrio no tienen manchas"],
   ["Floor mats are straight and dry", "Los tapetes est\u00e1n derechos y secos"],
   ["Lobby", "Vest\u00edbulo"],
+  // The long inspection and its items.
+  ["Restroom walk", "Recorrido de los ba\u00f1os"],
+  ["Mirrors are free of streaks", "Los espejos no tienen rayas"],
+  ["Sinks are clean and dry", "Los lavabos est\u00e1n limpios y secos"],
+  ["Soap dispensers are full", "Los dispensadores de jab\u00f3n est\u00e1n llenos"],
+  ["Floors are mopped", "Los pisos est\u00e1n trapeados"],
+  ["Trash is emptied", "La basura est\u00e1 vac\u00eda"],
   INSPECTION_NOT_FOUND,
   ["This inspection was already completed", "Esta inspecci\u00f3n ya fue completada"],
   ["Stairwell walk", "Recorrido de la escalera"],
@@ -1268,11 +1452,26 @@ const TWIN_PAIRS = [
   // way the route fills it, and the photo refusals the stub answers on its own.
   .concat(Object.keys(API_REFUSALS).map(k => [refusalIn(API_REFUSALS[k], "en", API_REFUSALS[k].vars), refusalIn(API_REFUSALS[k], "es", API_REFUSALS[k].vars)]))
   .concat(Object.keys(FILE_REFUSALS).map(k => [FILE_REFUSALS[k].en, FILE_REFUSALS[k].es]))
+  // An announcement the API no longer has, and the notices that name a
+  // chat, a tag and an announcement.
+  .concat([ANNOUNCEMENT_NOT_FOUND,
+    ["New messages in North Building", "Mensajes nuevos en North Building"],
+    ["Sam Second tagged you in North Building", "Sam Second lo etiquet\u00f3 en North Building"],
+    ["An announcement from the office", "Un anuncio de la oficina"]])
+  // A rating turned away, which the portal never sends.
+  .concat([[RATING_INVALID.en, RATING_INVALID.es], [refusalIn(RATING_NOTE_LONG, "en", { max: RATING_NOTE_MAX }), refusalIn(RATING_NOTE_LONG, "es", { max: RATING_NOTE_MAX })]])
+  // Phone alerts' two refusals, which the portal answers with a line of
+  // its own and never draws.
+  .concat(Object.keys(PUSH_REFUSALS).map(k => [PUSH_REFUSALS[k].en, PUSH_REFUSALS[k].es]))
   // The form with titled sections, written in both languages above.
   .concat(Object.keys(FORM_S_WORDS.en).map(k => [FORM_S_WORDS.en[k], FORM_S_WORDS.es[k]]))
   // The customer's two forms, written in both languages above.
   .concat(Object.keys(FORM_C_WORDS.en).map(k => [FORM_C_WORDS.en[k], FORM_C_WORDS.es[k]]))
-  .concat(Object.keys(FORM_V_WORDS.en).map(k => [FORM_V_WORDS.en[k], FORM_V_WORDS.es[k]]));
+  .concat(Object.keys(FORM_V_WORDS.en).map(k => [FORM_V_WORDS.en[k], FORM_V_WORDS.es[k]]))
+  // The incident report's second version.
+  .concat([["Which room was it in", "En qu\u00e9 cuarto fue"]])
+  // The form about one person.
+  .concat(Object.keys(FORM_E_WORDS.en).map(k => [FORM_E_WORDS.en[k], FORM_E_WORDS.es[k]]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -1481,10 +1680,15 @@ function createStub(opts) {
     }
     const upTo = next.error ? next.error.after : next.drop ? next.drop.after : pieces.length;
     pieces.slice(0, upTo).forEach(piece);
+    // Since Step 183 the answer's id is chosen before the answer is kept,
+    // so done carries it and the person can rate the answer by it. The
+    // names of the sources it cites come when a case gives them.
+    state.help.seq += 1;
+    const messageId = "00000000-0000-4000-8000-" + String(state.help.seq).padStart(12, "0");
     const done = Object.assign({
-      reply: reply, conversationId: state.conversationId,
+      messageId: messageId, reply: reply, conversationId: state.conversationId,
       citedDocs: next.citedDocs || answer.citedDocs || [], degraded: !!answer.degraded, noProcedure: !!answer.noProcedure,
-    }, answer.formResponse ? { formResponse: answer.formResponse } : {});
+    }, next.citedNames ? { citedNames: next.citedNames } : {}, answer.formResponse ? { formResponse: answer.formResponse } : {});
     if (next.error) steps.push({ event: "error", data: { error: next.error.error, status: next.error.status } });
     else if (next.drop) steps.push({ drop: true });
     else steps.push({ event: "done", data: done });
@@ -1492,7 +1696,7 @@ function createStub(opts) {
     // dropped connection still finishes the answer and keeps it; an error
     // keeps nothing.
     state.stored.push({ role: "user", text: body && typeof body.text === "string" ? body.text : "", at: 0 });
-    const kept = { role: "assistant", text: reply, citedDocs: done.citedDocs, degraded: done.degraded, noProcedure: done.noProcedure, at: Infinity };
+    const kept = { id: messageId, role: "assistant", text: reply, citedDocs: done.citedDocs, citedNames: next.citedNames || null, degraded: done.degraded, noProcedure: done.noProcedure, feedback: null, at: Infinity };
     if (!next.error) state.stored.push(kept);
     state.help.holds = holds;
     return {
@@ -1678,7 +1882,10 @@ function createStub(opts) {
     const lang = languageOf(search, state);
     // --- signing in and getting in
     if (key === "POST /api/auth/login") {
-      if (body && body.pin !== "4907") return json(401, { error: LOGIN_REFUSAL[0] });
+      // A wrong PIN carries its key as its code, the way the API's
+      // errorBody sends every refusal; the portal counts the ones in a
+      // row by it.
+      if (body && body.pin !== "4907") return json(401, { error: LOGIN_REFUSAL[0], code: "auth.invalidCredentials" });
       return json(200, { token: "token-one" });
     }
     if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: SITES, preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
@@ -1720,6 +1927,17 @@ function createStub(opts) {
       Object.assign(state.accountPreferences, body || {});
       return json(200, { ok: true });
     }
+    // The caller's own capabilities, Step 179 in the API, read off the role
+    // the way middleware/capabilities.js reads them: an admin and a
+    // supervisor hold the ones their tier holds, and everyone else, a lead
+    // or a custodial lead among them, holds a staff member's.
+    if (key === "GET /api/users/me/permissions") {
+      if (!state.permissionsRoute) return json(404, { error: "Endpoint not found" });
+      const tier = state.person.role === "admin" || state.person.role === "supervisor" ? state.person.role : "staff";
+      const capabilities = {};
+      Object.keys(CAPABILITIES).forEach((k) => { capabilities[k] = CAPABILITIES[k].indexOf(tier) !== -1; });
+      return json(200, { role: state.person.role, capabilities: capabilities });
+    }
     if (key === "GET /api/users/profile/me") return json(200, {
       user: Object.assign({}, state.person, { employeeId: "OCSA-0001", preferredLanguage: "English", addressLine1: "", city: "", state: "", zipCode: "", emergencyContactName: "", emergencyContactPhone: "", birthday: "1990-08-14" }),
       assignments: [{ site_name: "North Building", role_at_site: "Staff", shift_name: "Evening", shift_start: "17:00", shift_end: "23:00" }],
@@ -1730,7 +1948,8 @@ function createStub(opts) {
     // --- the shift
     if (key === "GET /api/clock/status") return json(200, clockStatus());
     if (key === "GET /api/clock/tasks/assigned") return json(200, [
-      { task_id: "at-1", label: "Replace the cracked light cover", description: "Second floor corridor.", site_name: "North Building", building_name: "Main Hall", floor_number: "2", zone: "Corridor", priority: "high", cims_category: "SD", created_by_name: "A supervisor", task_created_at: iso(NOW.getTime() - DAY) },
+      Object.assign({ task_id: "at-1", label: "Replace the cracked light cover", description: "Second floor corridor.", site_name: "North Building", building_name: "Main Hall", floor_number: "2", zone: "Corridor", priority: "high", cims_category: "SD", created_by_name: "A supervisor", task_created_at: iso(NOW.getTime() - DAY) },
+        state.assignedDue ? { due_date: state.assignedDue } : {}),
     ]);
     // A check needs no link, only an open session at the item's site, and
     // counts once a checklist day for each person. An uncheck takes back
@@ -1818,7 +2037,7 @@ function createStub(opts) {
       { id: "pk-4", scheduled_date: "2026-10-11", start_time: "08:00", end_time: "12:00", site_name: "South Building", origin: "extra_coverage", service_category: "Day porter" },
       { id: "pk-5", scheduled_date: "2026-10-12", start_time: "14:00", end_time: "18:00", site_name: "North Building", origin: "new_shift", service_category: "Day porter" },
     ]);
-    if (key === "GET /api/pickups/my-pickups") return json(200, []);
+    if (key === "GET /api/pickups/my-pickups") return json(200, state.myPickups);
     if (key === "POST /api/pickups/request-drop") return json(200, { ok: true });
     if (method === "POST" && /^\/api\/pickups\/[^/]+\/claim$/.test(pathname)) return json(200, { ok: true });
     if (method === "DELETE" && /^\/api\/pickups\//.test(pathname)) return json(200, { ok: true });
@@ -1835,21 +2054,49 @@ function createStub(opts) {
     }
 
     // --- chat, the three routes as Scout 138 read and ran them, and the
-    // refusals as Step 132 writes them
+    // refusals as Step 132 writes them; and Step 179's read receipt, the
+    // people a message may tag, and the tags on a message
     if (key === "GET /api/chat/channels") return json(200, state.chat.channels.map(ch => Object.assign({}, ch)));
-    if (/^\/api\/chat\/channels\/[^/]+\/messages$/.test(pathname) && (method === "GET" || method === "POST")) {
-      const id = decodeURIComponent(pathname.split("/")[4]);
+    const chatRoute = /^\/api\/chat\/channels\/([^/]+)\/(messages|read|members)$/.exec(pathname);
+    if (chatRoute && (chatRoute[2] === "messages" ? (method === "GET" || method === "POST") : chatRoute[2] === "read" ? method === "POST" : method === "GET")) {
+      const id = decodeURIComponent(chatRoute[1]);
+      // An API from before Step 179 has no members route.
+      if (chatRoute[2] === "members" && !state.chat.membersRoute) return json(404, { error: "Endpoint not found" });
       const mine = state.chat.channels.some(ch => ch.id === id);
       const anywhere = mine || id === CHAT_GENERAL.id || CHAT_SITES.some(s => s.id === id) || /^dm-/.test(id);
       if (!anywhere) return chatRefusal("chat.notFound", search);
       if (!mine) return chatRefusal("chat.noAccess", search);
+      // Reading a chat, by its messages or by the read route, moves the
+      // caller's receipt to now, so its count on the list is zero.
+      const seen = () => state.chat.channels.forEach((ch) => { if (ch.id === id) ch.unreadCount = 0; });
+      if (chatRoute[2] === "read") { seen(); return json(200, { ok: true }); }
+      if (chatRoute[2] === "members") {
+        const people = state.chat.alone ? [] : chatPeopleOf(id).filter(p => p.id !== state.person.id);
+        return json(200, { members: people.map(p => ({ id: p.id, name: p.name, role: p.role })) });
+      }
       const kept = state.chat.messages[id] || (state.chat.messages[id] = []);
-      if (method === "GET") return json(200, kept.slice(-50).map(m => Object.assign({}, m)));
+      if (method === "GET") {
+        seen();
+        // A message that tags someone is drawn cut at each tag, and each
+        // piece is still the sender's own words.
+        kept.forEach((m) => { if (Array.isArray(m.mentions) && m.mentions.length) mentionPieces(m.text, m.mentions).forEach(p => recordWord(p, "name")); });
+        return json(200, kept.slice(-50).map(m => Object.assign({ mentions: [] }, m)));
+      }
       const text = body && typeof body.text === "string" ? body.text.trim() : "";
       if (!text) return chatRefusal("chat.textRequired", search);
       if (text.length > CHAT_TEXT_MAX) return chatRefusal("chat.textTooLong", search);
+      // The people it tags: at most ten, each someone else who can read
+      // the chat, a repeated id counted once, the way the API reads them.
+      const asked = body && body.mentions !== undefined && body.mentions !== null ? body.mentions : [];
+      if (!Array.isArray(asked)) return chatRefusal("chat.mentionNotMember", search);
+      const ids = Array.from(new Set(asked.map(v => String(v))));
+      if (ids.length > CHAT_MENTIONS_MAX) return chatRefusal("chat.tooManyMentions", search);
+      const people = chatPeopleOf(id);
+      if (ids.some(x => x === state.person.id || !people.some(p => p.id === x))) return chatRefusal("chat.mentionNotMember", search);
+      const tagged = ids.map(x => people.find(p => p.id === x)).sort((a, b) => a.name.localeCompare(b.name)).map(p => ({ id: p.id, name: p.name }));
       state.chat.seq += 1;
-      const row = { id: "m-sent-" + state.chat.seq, senderId: state.person.id, senderName: state.person.firstName + " " + state.person.lastName, senderRole: state.person.role, text: text, sentAt: iso(clockNow()) };
+      const row = { id: "m-sent-" + state.chat.seq, senderId: state.person.id, senderName: state.person.firstName + " " + state.person.lastName, senderRole: state.person.role, text: text, sentAt: iso(clockNow()), mentions: tagged };
+      if (tagged.length) mentionPieces(text, tagged).forEach(p => recordWord(p, "name"));
       kept.push(Object.assign({ isEdited: false, isPinned: false }, row));
       const held = state.chat.holdMs > 0 ? { after: new Promise(done => setTimeout(done, state.chat.holdMs)) } : {};
       // Kept, and then the connection goes before the answer does, the way
@@ -1881,19 +2128,36 @@ function createStub(opts) {
       if (play.error) return Object.assign(json(play.error.status, { error: play.error.error }), { after: after });
       return Object.assign(json(200, play.done), { after: after });
     }
-    if (pathname === "/api/agent/drafts" && method === "GET") return json(200, state.drafts);
+    // The unfinished reports, a discarded one no longer among them.
+    if (pathname === "/api/agent/drafts" && method === "GET") return json(200, state.drafts.filter(d => state.discarded.indexOf(String(d.id)) === -1));
     // The conversation as the API keeps it: every question, and every
     // answer once it is written. An answer is a Help reply, and a question
-    // is the person's own words.
+    // is the person's own words. Since Step 183 each answer carries its id
+    // and its rating, null until it is rated.
     if (method === "GET" && /^\/api\/agent\/conversations\//.test(pathname)) {
       const now = Date.now();
       const messages = pathname.split("/").pop() === state.conversationId
         ? state.stored.filter(m => m.at <= now).map(m => (m.role === "assistant"
-          ? { role: m.role, text: m.text, citedDocs: m.citedDocs, degraded: m.degraded, noProcedure: m.noProcedure }
+          ? Object.assign({ id: m.id, role: m.role, text: m.text, citedDocs: m.citedDocs, degraded: m.degraded, noProcedure: m.noProcedure, feedback: m.feedback ? Object.assign({}, m.feedback) : null }, m.citedNames ? { citedNames: m.citedNames } : {})
           : { role: m.role, text: m.text }))
         : [];
       messages.forEach((m) => { if (m.role === "assistant") recordWord(m.text, "Help reply"); });
       return json(200, { messages: messages });
+    }
+    // Rating an answer, Step 183: helpful true or false, and a note of at
+    // most 500 characters. Rating again replaces the rating. An id that is
+    // not one of this person's answers answers help.messageNotFound.
+    const rating = method === "POST" ? /^\/api\/agent\/messages\/([^/]+)\/feedback$/.exec(pathname) : null;
+    if (rating) {
+      const b = body && typeof body === "object" ? body : {};
+      const lang = languageOf(search, state);
+      if (b.note !== undefined && b.note !== null && String(b.note).trim().length > RATING_NOTE_MAX) return json(400, { error: refusalIn(RATING_NOTE_LONG, lang, { max: RATING_NOTE_MAX }), code: "help.noteTooLong" });
+      if (typeof b.helpful !== "boolean") return json(400, { error: refusalIn(RATING_INVALID, lang), code: "help.feedbackInvalid" });
+      const note = b.note === undefined || b.note === null ? null : String(b.note).trim() || null;
+      const row = state.stored.find(m => m.role === "assistant" && m.id === decodeURIComponent(rating[1]));
+      if (!row) return apiRefusal("help.messageNotFound", search);
+      row.feedback = { helpful: b.helpful, note: note, at: iso(clockNow()) };
+      return json(200, { ok: true, feedback: Object.assign({}, row.feedback) });
     }
     if (method === "POST" && /^\/api\/agent\/drafts\/[^/]+\/submit$/.test(pathname)) return json(200, { ok: true });
 
@@ -1985,6 +2249,22 @@ function createStub(opts) {
       return json(200, { ok: true });
     }
 
+    // --- discarding a draft, Step 183: the person who started it, while it
+    // is a draft. A discarded draft leaves the drafts list; one discarded
+    // already answers forms.notADraft, and one that is not there answers
+    // forms.reportNotFound. The report Help starts is draft-one.
+    const discarding = method === "POST" ? /^\/api\/forms\/drafts\/([^/]+)\/discard$/.exec(pathname) : null;
+    if (discarding) {
+      const id = decodeURIComponent(discarding[1]);
+      if (state.discarded.indexOf(id) !== -1) {
+        const r = apiRefusal("forms.notADraft", search);
+        return json(r.status, Object.assign(JSON.parse(r.body), { status: "void" }));
+      }
+      if (id !== "draft-one" && !state.drafts.some(d => String(d.id) === id)) return apiRefusal("forms.reportNotFound", search);
+      state.discarded.push(id);
+      return json(200, { ok: true });
+    }
+
     // --- report forms
     //
     // Two forms now: the one built today, and the second one carrying a
@@ -1994,12 +2274,52 @@ function createStub(opts) {
     const second = (p) => /TEST-FORM-P/.test(p) || /draft-two/.test(p);
     const third = (p) => state.sectionsForm && (/TEST-FORM-S/.test(p) || /draft-three/.test(p));
     const thirdForm = () => formS(lang, state.sectionsForm === "one");
+    // The form about one person, served when a case asks for it.
+    const fourth = (p) => state.personForm && (/TEST-FORM-E/.test(p) || /draft-four/.test(p));
     // The catalog carries each form whole, fields and all, because the
     // form is what says which questions a report has and the screen
     // reads them from here. It served only the code and the title until
-    // now, which is why no question has ever drawn in the suite.
+    // now, which is why no question has ever drawn in the suite. Since
+    // Step 186 it is the latest published version of each form, and a
+    // draft keeps the version it was started on, which the draft routes
+    // send beside it; with formVersions the incident report has a second
+    // version out.
     if (pathname === "/api/forms") {
-      return json(200, { forms: [FORM, formP(lang)].concat(state.sectionsForm ? [thirdForm()] : []) });
+      return json(200, { forms: [state.formVersions ? FORM_V2 : FORM, formP(lang)].concat(state.sectionsForm ? [thirdForm()] : []).concat(state.personForm ? [formE(lang)] : []) });
+    }
+    if (fourth(pathname)) {
+      if (method === "GET" && /^\/api\/forms\/drafts\//.test(pathname)) return json(200, { draft: draftE(state, lang), form: formE(lang) });
+      if (method === "POST" && /^\/api\/forms\/[^/]+\/drafts$/.test(pathname)) return json(200, { draft: draftE(state, lang), form: formE(lang) });
+      if (method === "GET" && /^\/api\/forms\/[^/]+$/.test(pathname)) return json(200, { form: formE(lang) });
+      // A person is read off the staff by its id, the way Step
+      // 186 reads one: the id picks the person, and the name kept is the
+      // one the staff list has today. Every key is checked before any is
+      // written.
+      if (method === "PATCH" && /^\/api\/forms\/drafts\//.test(pathname)) {
+        const written = (body && body.answers) || {};
+        const fields = formE(lang).fields;
+        const merge = {};
+        const invalid = [];
+        Object.keys(written).forEach((k) => {
+          const f = fields.find(x => x.key === k);
+          const v = written[k];
+          if (!f) { invalid.push(k); return; }
+          if (v === null || v === "") { merge[k] = null; return; }
+          if (f.type !== "person") { merge[k] = v; return; }
+          const id = v && typeof v === "object" ? String(v.userId || v.id || "") : String(v);
+          const who = state.staff.concat([state.person]).find(p => String(p.id) === id);
+          if (!who) { invalid.push(k); return; }
+          merge[k] = { userId: who.id, name: who.firstName + " " + who.lastName };
+        });
+        if (invalid.length > 0) { const r = apiRefusal("forms.invalidAnswers", search); return json(r.status, Object.assign(JSON.parse(r.body), { keys: invalid })); }
+        Object.keys(merge).forEach((k) => { if (merge[k] === null) delete state.answersE[k]; else state.answersE[k] = merge[k]; });
+        return json(200, { draft: draftE(state, lang), form: formE(lang) });
+      }
+      if (method === "POST" && /^\/api\/forms\/drafts\/[^/]+\/submit$/.test(pathname)) {
+        const short = draftE(state, lang).missing;
+        if (short.length > 0) return json(400, { error: "Answer every required question before sending", missing: short });
+        return json(200, { ok: true, reference: "TEST-FORM-E-0001" });
+      }
     }
     if (method === "GET" && /^\/api\/forms\/drafts\//.test(pathname)) {
       if (third(pathname)) return json(200, { draft: draftS(state, lang), form: thirdForm() });
@@ -2170,7 +2490,7 @@ function createStub(opts) {
       issue.photos.push(body.photoUrl);
       return json(201, { photo: { id: "ph-" + issue.photos.length, issue_id: issue.id, photo_url: body.photoUrl } });
     }
-    if (key === "GET /api/supplies") return json(200, [{ id: "sup-1", name: "Paper towels", qr_code: "QR-0001", unit: "rolls", is_low: true }]);
+    if (key === "GET /api/supplies") return json(200, state.supplies || [{ id: "sup-1", name: "Paper towels", qr_code: "QR-0001", unit: "rolls", is_low: true }]);
     if (key === "POST /api/supplies/log-usage") return json(200, { message: "Usage logged", log: { id: "log-1", supply_name: "Paper towels", quantity: 1 }, lowStockAlert: false });
     if (key === "POST /api/supplies/requests") return json(200, { ok: true });
 
@@ -2217,6 +2537,46 @@ function createStub(opts) {
       if (ids.length > 10) return json(400, { error: HR_CASE_REFUSALS[4] });
       state.filed.push(said);
       return json(201, { id: "hr-case-one", status: "open", createdAt: iso(NOW), updatedAt: iso(NOW) });
+    }
+
+    // --- an announcement, opened from its notice
+    const announcementOne = method === "GET" ? /^\/api\/announcements\/([^/]+)$/.exec(pathname) : null;
+    if (announcementOne) {
+      const found = state.announcements.find(a => a.id === decodeURIComponent(announcementOne[1]));
+      if (!found) return json(404, { error: ANNOUNCEMENT_NOT_FOUND[languageOf(search, state) === "es" ? 1 : 0], code: "announcements.notFound" });
+      return json(200, { announcement: JSON.parse(JSON.stringify(found)) });
+    }
+
+    // --- phone alerts, Step 179 in the API
+    if (key === "GET /api/push/key") {
+      if (state.push.key === "missing") return json(404, { error: "Endpoint not found" });
+      return json(200, { publicKey: state.push.key });
+    }
+    if (key === "POST /api/push/subscriptions" || key === "DELETE /api/push/subscriptions") {
+      const b = body && typeof body === "object" ? body : {};
+      const endpoint = typeof b.endpoint === "string" && /^https:\/\//i.test(b.endpoint.trim()) ? b.endpoint.trim() : null;
+      const bad = () => { const r = PUSH_REFUSALS["push.badSubscription"]; return json(r.status, { error: refusalIn(r, languageOf(search, state)), code: "push.badSubscription" }); };
+      if (method === "POST") {
+        const keys = b.keys && typeof b.keys === "object" ? b.keys : {};
+        if (!endpoint || !keys.p256dh || !keys.auth) return bad();
+        state.push.rows[endpoint] = state.person.id;
+        return json(201, { ok: true });
+      }
+      if (!endpoint) return bad();
+      if (state.push.rows[endpoint] === state.person.id) delete state.push.rows[endpoint];
+      return json(200, { ok: true });
+    }
+    if (key === "GET /api/notifications/settings" || key === "PATCH /api/notifications/settings") {
+      if (state.push.settings === null) return json(404, { error: "Endpoint not found" });
+      if (method === "GET") return json(200, Object.assign({}, state.push.settings));
+      const b = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+      const wrong = Object.keys(b).filter(k => !(k === "chat" ? ALERT_CHAT.indexOf(b[k]) !== -1 : ALERT_SWITCHES.indexOf(k) !== -1 && typeof b[k] === "boolean"));
+      if (wrong.length > 0 || Object.keys(b).length === 0) {
+        const r = PUSH_REFUSALS["notifications.badSetting"];
+        return json(r.status, { error: refusalIn(r, languageOf(search, state)), code: "notifications.badSetting", keys: wrong.length ? wrong : ["chat"].concat(ALERT_SWITCHES) });
+      }
+      Object.assign(state.push.settings, b);
+      return json(200, Object.assign({}, state.push.settings));
     }
 
     // --- the bell
@@ -2318,8 +2678,9 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES, localeFault, localeRows,
-  CUSTOMER_LINKS, FORM_C_CODE, FORM_V_CODE, formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, PUBLIC_MAX_PHOTOS, PUBLIC_FILINGS_MAX, customerSignatureLine };
+  CUSTOMER_LINKS, FORM_C_CODE, FORM_V_CODE, formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, PUBLIC_MAX_PHOTOS, PUBLIC_FILINGS_MAX, customerSignatureLine,
+  ANNOUNCEMENT, FORM_E_WORDS };
