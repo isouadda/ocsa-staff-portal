@@ -3844,8 +3844,14 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
               <div key={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: inset }}>
                 <button onClick={() => tap(task, done, lock)} disabled={lock === "earlier"} aria-label={tr(done ? "Mark {name} not done" : "Mark {name} done", { name: w.label })} style={mkTapFrame({ flexShrink: 0, marginTop: 1, cursor: lock === "earlier" ? "default" : "pointer" })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></button>
                 <div style={{ flex: "1 1 120px", minWidth: 0 }}>
-                  <div onClick={() => hasInfo ? setDetail(task) : tap(task, done, lock)} style={{ cursor: "pointer" }}><div style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{w.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</div></div>
-                  {when && <div style={rowLineSt}>{when}</div>}
+                  {/* The name and the line under it are one button the tap
+                      height, which opens the item's detail, or on a row
+                      with none does what it always did. The note stays
+                      outside it, so it is still read out when it comes. */}
+                  <button type="button" onClick={() => hasInfo ? setDetail(task) : tap(task, done, lock)} style={mkTapFrame({ display: "flex", flexDirection: "column", alignItems: "stretch", width: "100%", textAlign: "left", fontFamily: FONT_BODY })}>
+                    <span style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{w.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</span>
+                    {when && <span style={{ ...rowLineSt, display: "block" }}>{when}</span>}
+                  </button>
                   {note && <div role="alert" style={{ ...rowLineSt, color: t.text, fontWeight: 600 }}>{note}</div>}
                 </div>
                 {task.priority === "high" && <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}><span style={chipPriority}>{tr("PRIORITY")}</span></div>}
