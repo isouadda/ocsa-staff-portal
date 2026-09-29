@@ -2718,6 +2718,9 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   const [view, setView] = useState("week");
   const [data, setData] = useState({ scheduled: [], actual: [], pickups: [] });
   const [detail, setDetail] = useState(null);
+  // The day tapped on the week strip, as YYYY-MM-DD, whose sheet lists
+  // everything on it. null while no day is open.
+  const [dayOpen, setDayOpen] = useState(null);
   const [weekStart, setWeekStart] = useState(() => {
     const now = new Date();
     const day = now.getDay();
@@ -2848,10 +2851,16 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   const stepChip = { display: "inline-flex", alignItems: "center", background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.sm, padding: "6px 12px", color: t.textMut, fontSize: 14 };
   const todayChip = { display: "inline-flex", alignItems: "center", fontSize: 9, padding: "3px 9px", borderRadius: R.sm, border: "1px solid " + BLUE, background: "transparent", color: BLUE, fontWeight: 600, fontFamily: FONT_HEAD };
 
-  // A chip on the week strip, which opens the shift, the day worked, the
-  // pickup or the time off it names, and so is a button with the tap
-  // height. It is drawn the size it was; the height is the frame's.
-  const chipSt = { display: "block", width: "100%", minHeight: TAP, padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, textAlign: "left", fontFamily: FONT_HEAD, lineHeight: "normal", cursor: "pointer" };
+  // A chip on the week strip names a shift, a day worked, a pickup or
+  // time off. The day around it is the control, so the chip is drawn
+  // the way it was as a button of its own, its words centered in the
+  // tap height, and opens nothing itself.
+  const chipSt = { display: "flex", flexDirection: "column", justifyContent: "center", width: "100%", minHeight: TAP, padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, textAlign: "left", fontFamily: FONT_HEAD, lineHeight: "normal" };
+  // Each kind's colors, shared by its chip and its row on the day's sheet.
+  const schedLook = { background: GOLD + "18", color: t.goldText, border: "1px solid " + GOLD + "30" };
+  const workedLook = { background: GREEN + "15", color: GREEN, border: "1px solid " + GREEN + "30" };
+  const pickupLook = (p) => { const pc = p.status === "approved" ? GREEN : BLUE; return { background: pc + "15", color: pc, border: "1px solid " + pc + "30" }; };
+  const offLook = (r) => { const waiting = r.status !== "approved"; return { background: TIME_OFF_COLOR + (waiting ? "14" : "22"), color: TIME_OFF_COLOR, border: waiting ? "1px dashed " + TIME_OFF_COLOR : "1px solid " + TIME_OFF_COLOR }; };
   const offLabel = { fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3, fontFamily: FONT_HEAD };
   const offValue = { fontSize: 13, color: t.text, fontWeight: 500, overflowWrap: "anywhere" };
   // Both limits are local calendar days, so the pickers agree with
@@ -2895,8 +2904,8 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
     setReqBusy(false);
   };
 
-  // A row already carries the whole request; a calendar chip carries
-  // only an id, so that one is read back first.
+  // A row of My time off already carries the whole request; a row on a
+  // day's sheet carries only an id, so that one is read back first.
   const openOffById = async (id) => {
     if (!id) return;
     setOffErr(null); setConfirmCancel(false);
@@ -2953,9 +2962,15 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
 
       {!loading && failed && <ListFault icon={CalIco} text={tr("This list did not load.")} onRetry={loadSchedule} t={t} />}
 
-      {/* WEEK VIEW */}
+      {/* WEEK VIEW. Each day is the control: a see-through frame at
+          least 44 wide around the day drawn as it was, which opens the
+          day's sheet. The frames touch, each holding half of the old
+          4 pixel gap on either side of its day, and the row reaches 2
+          pixels past the edges, so every day sits where it did and a
+          phone 360 wide gives each frame 44. Narrower, the week
+          scrolls sideways in its own box, as it did under 300. */}
       {!loading && !failed && view === "week" && (
-        <div style={{ overflowX: "auto", display: "flex", flex: compact ? undefined : 1 }}><div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 4, minWidth: 300, flex: 1 }}>
+        <div style={{ overflowX: "auto", display: "flex", flex: compact ? undefined : 1, margin: "0 -2px" }}><div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(" + TAP + "px, 1fr))", flex: 1 }}>
           {weekDays.map((ds, i) => {
             const sched = getSchedForDay(ds);
             const actual = getActualForDay(ds);
@@ -2965,43 +2980,38 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
             const dayOff = getTimeOffForDay(ds);
             const hasAny = sched.length > 0 || actual.length > 0 || pickups.length > 0 || dayOff.length > 0;
             return (
-              <div key={ds} style={{ background: today ? t.goldBg : t.card, border: "1px solid " + (today ? t.goldBorder : t.borderSolid), borderRadius: R.md, padding: 6, minHeight: compact ? 80 : 120, flex: compact ? undefined : 1, boxShadow: t.shadow }}>
-                <div style={{ textAlign: "center", marginBottom: 4 }}>
-                  <div style={{ fontSize: 9, fontWeight: 600, color: today ? t.goldText : t.textMut, textTransform: "uppercase" }}>{dayNames[i]}</div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: today ? t.goldText : t.text, fontFamily: FONT_HEAD }}>{dt.getDate()}</div>
-                </div>
-                {sched.map(s => (
-                  <button type="button" key={s.id} onClick={() => setDetail({ type: "scheduled", ...s })} style={{ ...chipSt, background: GOLD + "18", color: t.goldText, border: "1px solid " + GOLD + "30" }}>
-                    {fmtTm(s.start_time)}{s.end_time ? " - " + fmtTm(s.end_time) : ""}{s.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{s.site_name}</div>}{isDropRequested(s.id) && <div style={{ fontSize: 7, marginTop: 1, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("Drop requested")}</div>}
-                  </button>
-                ))}
-                {actual.map(a => (
-                  <button type="button" key={a.id} onClick={() => setDetail({ type: "actual", ...a })} style={{ ...chipSt, background: GREEN + "15", color: GREEN, border: "1px solid " + GREEN + "30" }}>
-                    {fmtClockTm(a.clock_in_time)}{a.duration_minutes ? tr(" ({h}h)", { h: Math.floor(a.duration_minutes / 60) }) : a.shift_status === "active" ? tr(" (live)") : ""}{a.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{a.site_name}</div>}
-                  </button>
-                ))}
-                {pickups.map(p => {
-                  const pc = p.status === "approved" ? GREEN : BLUE;
-                  return (
-                    <button type="button" key={p.id} onClick={() => setDetail({ type: "pickup", ...p })} style={{ ...chipSt, background: pc + "15", color: pc, border: "1px solid " + pc + "30" }}>
-                      {fmtTm(p.start_time)} <span style={{ fontSize: 7, textTransform: "uppercase" }}>{p.status === "approved" ? tr("approved") : tr("claimed")}</span>
+              <button type="button" key={ds} onClick={() => setDayOpen(ds)} style={mkTapFrame({ display: "flex", alignItems: "stretch", width: "100%", padding: "0 2px", textAlign: "left", fontFamily: FONT_BODY })}>
+                <div style={{ flex: 1, minWidth: 0, background: today ? t.goldBg : t.card, border: "1px solid " + (today ? t.goldBorder : t.borderSolid), borderRadius: R.md, padding: 6, minHeight: compact ? 80 : 120, boxShadow: t.shadow }}>
+                  <div style={{ textAlign: "center", marginBottom: 4 }}>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: today ? t.goldText : t.textMut, textTransform: "uppercase" }}>{dayNames[i]}</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: today ? t.goldText : t.text, fontFamily: FONT_HEAD }}>{dt.getDate()}</div>
+                  </div>
+                  {sched.map(s => (
+                    <div key={s.id} style={{ ...chipSt, ...schedLook }}>
+                      <div>{fmtTm(s.start_time)}{s.end_time ? " - " + fmtTm(s.end_time) : ""}</div>{s.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{s.site_name}</div>}{isDropRequested(s.id) && <div style={{ fontSize: 7, marginTop: 1, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("Drop requested")}</div>}
+                    </div>
+                  ))}
+                  {actual.map(a => (
+                    <div key={a.id} style={{ ...chipSt, ...workedLook }}>
+                      <div>{fmtClockTm(a.clock_in_time)}{a.duration_minutes ? tr(" ({h}h)", { h: Math.floor(a.duration_minutes / 60) }) : a.shift_status === "active" ? tr(" (live)") : ""}</div>{a.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{a.site_name}</div>}
+                    </div>
+                  ))}
+                  {pickups.map(p => (
+                    <div key={p.id} style={{ ...chipSt, ...pickupLook(p) }}>
+                      <div>{fmtTm(p.start_time)} <span style={{ fontSize: 7, textTransform: "uppercase" }}>{p.status === "approved" ? tr("approved") : tr("claimed")}</span></div>
                       {p.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{p.site_name}</div>}
-                    </button>
-                  );
-                })}
-                {dayOff.map(r => {
-                  const waiting = r.status !== "approved";
-                  const offSt = { ...chipSt, background: TIME_OFF_COLOR + (waiting ? "14" : "22"), color: TIME_OFF_COLOR, border: waiting ? "1px dashed " + TIME_OFF_COLOR : "1px solid " + TIME_OFF_COLOR, cursor: compact ? "default" : "pointer" };
-                  const inside = (<>
-                    {tr("Time off")}
-                    {r.partDay && r.startTime && <div style={{ fontSize: 8, opacity: 0.9 }}>{fmtTm(r.startTime)}</div>}
-                    {waiting && <div style={{ fontSize: 7, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("requested")}</div>}
-                  </>);
-                  // On Home the chip opens nothing, so it is not a control.
-                  return compact ? <div key={r.id} style={offSt}>{inside}</div> : <button type="button" key={r.id} onClick={() => openOffById(r.id)} style={offSt}>{inside}</button>;
-                })}
-                {!hasAny && <div style={{ fontSize: 10, color: t.textMut, opacity: 0.3, textAlign: "center", marginTop: 8 }}>-</div>}
-              </div>
+                    </div>
+                  ))}
+                  {dayOff.map(r => (
+                    <div key={r.id} style={{ ...chipSt, ...offLook(r) }}>
+                      <div>{tr("Time off")}</div>
+                      {r.partDay && r.startTime && <div style={{ fontSize: 8, opacity: 0.9 }}>{fmtTm(r.startTime)}</div>}
+                      {r.status !== "approved" && <div style={{ fontSize: 7, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("requested")}</div>}
+                    </div>
+                  ))}
+                  {!hasAny && <div style={{ fontSize: 10, color: t.textMut, opacity: 0.3, textAlign: "center", marginTop: 8 }}>-</div>}
+                </div>
+              </button>
             );
           })}
         </div></div>
@@ -3086,6 +3096,59 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
           {myOff.length >= TIME_OFF_PAGE && <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{tr("Showing your latest 50 requests.")}</div>}
         </div>
       )}
+
+      {/* ONE DAY, from the week strip. A row for each chip the day draws,
+          in the same order and colors, each opening what the chip did:
+          a shift, a day worked or a pickup opens its detail, and time
+          off opens its request, which on Home opens nothing, as there.
+          The sheet closes before the next one opens. */}
+      {dayOpen && (() => {
+        const sched = getSchedForDay(dayOpen);
+        const actual = getActualForDay(dayOpen);
+        const pickups = getPickupsForDay(dayOpen);
+        const dayOff = getTimeOffForDay(dayOpen);
+        const none = sched.length === 0 && actual.length === 0 && pickups.length === 0 && dayOff.length === 0;
+        const rowSt = (look) => ({ display: "block", width: "100%", minHeight: TAP, marginBottom: 8, padding: "10px 12px", borderRadius: R.md, background: look.background, border: look.border, textAlign: "left", cursor: "pointer", fontFamily: FONT_BODY });
+        const rowBody = (look, kind, time, site) => (<>
+          <span style={{ display: "block", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", color: look.color, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{kind}</span>
+          <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: t.text, marginTop: 3, fontFamily: FONT_HEAD }}>{time}</span>
+          {site && <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{site}</span>}
+        </>);
+        const kindWith = (kind, tag) => (tag ? kind + " - " + tag : kind);
+        const then = (open) => () => { setDayOpen(null); open(); };
+        return (
+          <div onClick={() => setDayOpen(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+            <div role="dialog" aria-modal="true" aria-labelledby="ocsa-day-sheet-title" onClick={e => e.stopPropagation()} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "20px 20px 30px", boxShadow: t.popShadow, maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 40px)", overflowY: "auto" }}>
+              <div style={{ width: 40, height: 4, borderRadius: 2, background: t.textMut, margin: "0 auto 16px", opacity: 0.3 }} />
+              <div id="ocsa-day-sheet-title" style={{ fontSize: 15, fontWeight: 600, color: t.text, marginBottom: 14, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{formatDate(dayOpen + "T00:00:00")}</div>
+              {none && <div style={{ fontSize: 12, color: t.textMut, padding: "10px 0", marginBottom: 8 }}>{tr("Nothing scheduled this day.")}</div>}
+              {sched.map(s => (
+                <button type="button" key={"s-" + s.id} onClick={then(() => setDetail({ type: "scheduled", ...s }))} style={rowSt(schedLook)}>
+                  {rowBody(schedLook, kindWith(tr("Scheduled Shift"), isDropRequested(s.id) ? tr("Drop requested") : ""), fmtTm(s.start_time) + (s.end_time ? " - " + fmtTm(s.end_time) : ""), s.site_name)}
+                </button>
+              ))}
+              {actual.map(a => (
+                <button type="button" key={"a-" + a.id} onClick={then(() => setDetail({ type: "actual", ...a }))} style={rowSt(workedLook)}>
+                  {rowBody(workedLook, kindWith(tr("Worked Shift"), a.shift_status === "active" ? tr("On Site") : ""), fmtClockTm(a.clock_in_time) + (a.clock_out_time ? " - " + fmtClockTm(a.clock_out_time) : ""), a.site_name)}
+                </button>
+              ))}
+              {pickups.map(p => (
+                <button type="button" key={"p-" + p.id} onClick={then(() => setDetail({ type: "pickup", ...p }))} style={rowSt(pickupLook(p))}>
+                  {rowBody(pickupLook(p), kindWith(tr("Pickup Shift"), p.status === "approved" ? tr("approved") : tr("claimed")), fmtTm(p.start_time) + (p.end_time ? " - " + fmtTm(p.end_time) : ""), p.site_name)}
+                </button>
+              ))}
+              {dayOff.map(r => {
+                const look = offLook(r);
+                const inside = rowBody(look, kindWith(tr("Time off"), r.status !== "approved" ? tr("requested") : ""), r.partDay && r.startTime ? fmtTm(r.startTime) + (r.endTime ? " - " + fmtTm(r.endTime) : "") : timeOffDates(r.startsOn, r.endsOn), null);
+                return compact
+                  ? <div key={"o-" + r.id} style={{ ...rowSt(look), cursor: "default" }}>{inside}</div>
+                  : <button type="button" key={"o-" + r.id} onClick={then(() => openOffById(r.id))} style={rowSt(look)}>{inside}</button>;
+              })}
+              <button type="button" onClick={() => setDayOpen(null)} style={{ width: "100%", minHeight: TAP, padding: "12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 4, fontFamily: FONT_HEAD }}>{tr("Close")}</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* REQUEST TIME OFF SHEET */}
       {reqOpen && reqForm && (

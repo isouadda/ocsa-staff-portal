@@ -266,6 +266,7 @@ export const WORDS = {
   "Note: {note}": "Nota: {note}",
   "Notes": "Notas",
   "Notes (optional)": "Notas (opcional)",
+  "Nothing scheduled this day.": "No hay nada programado este d\u00eda.",
   "On Site": "En sitio",
   "Only you and the person who approves time off can read this.": "Solo usted y la persona que aprueba el tiempo libre pueden leer esto.",
   "Other": "Otro",
