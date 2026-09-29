@@ -648,6 +648,15 @@ export const WORDS = {
   "{answered} answered": "{answered} respondidas",
   "{answered} answered, {remaining} to go": "{answered} respondidas, faltan {remaining}",
 
+  // Acknowledgement page
+  "Acknowledge this report": "Confirmar recibo de este reporte",
+  "Comments": "Comentarios",
+  "Not sent yet. Check your signal and tap Acknowledge this report again.": "Todav\u00eda no se envi\u00f3. Revise su se\u00f1al y toque Confirmar recibo de este reporte otra vez.",
+  "Rate this month": "Calificar este mes",
+  "Signature": "Firma",
+  "Thank you. Your acknowledgement is recorded.": "Gracias. Su confirmaci\u00f3n qued\u00f3 registrada.",
+  "This report could not load. Check your signal and try again.": "Este reporte no carg\u00f3. Revise su se\u00f1al e intente de nuevo.",
+
   // Shortcuts
   "Add to bar": "Agregar a la barra",
   "Add to bar {name}": "Agregar {name} a la barra",

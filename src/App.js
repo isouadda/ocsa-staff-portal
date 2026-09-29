@@ -906,6 +906,10 @@ function readEntryFromUrl() {
     // read off the path as written, since its case matters.
     var link = /^\/c\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
     if (link) return { screen: "customer", token: link[1] };
+    // A client's acknowledgement of a monthly report, opened from the
+    // mail that carries it: /a/<token>, read the same way.
+    var ack = /^\/a\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+    if (ack) return { screen: "acknowledge", token: ack[1] };
     return null;
   } catch (e) { return null; }
 }
@@ -2143,6 +2147,7 @@ export default function OCSAStaffPortal() {
       {screen === "reset" && <ResetScreen token={ENTRY ? ENTRY.token : null} onReset={handleAuthSuccess} onGoLogin={goLogin} onGoForgot={() => setScreen("forgot")} showToast={showToast} t={t} />}
       {screen === "forgot" && <ForgotScreen onGoLogin={goLogin} showToast={showToast} t={t} />}
       {screen === "customer" && <CustomerFormScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
+      {screen === "acknowledge" && <AcknowledgeScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
       {screen === "setpin" && <SetPinScreen token={token} user={user} onDone={handlePinSet} onSignOut={handleLogout} showToast={showToast} t={t} />}
       {!booting && screen === "main" && (
         <>
@@ -5812,6 +5817,10 @@ function formSectionHelp(form, key, language) {
   if (typeof v === "string") return v.trim();
   return v && typeof v === "object" ? String(v[language] || v.en || "").trim() : "";
 }
+// Words the API sends either already in the language asked for or as en
+// and es: read in the person's language, and in English where there is
+// no Spanish. Anything else is no words at all.
+const formInLanguage = (v, language) => String(typeof v === "string" ? v : v && typeof v === "object" ? (v[language] || v.en || "") : "").trim();
 
 const formOptionLabel = (f, v) => {
   const s = String(v);
@@ -6057,6 +6066,31 @@ const formOfDraftReply = (r) => {
   return [r && r.form, d && d.form, d && d.definition].find(x => x && typeof x === "object" && Array.isArray(x.fields)) || null;
 };
 
+// The top of a page opened from a link with no sign-in: the company's
+// logo, its name and the site's, and the language choice and the text
+// size when the page still has something to tap. The logo is the
+// company's when the API sends one and the portal's own when it does
+// not. The text size is the same pill the sign-in screen offers, kept on
+// this phone, and its row wraps the way the sign-in screen's does: at
+// Largest in Spanish the two languages and the pill were wider than the
+// phone and pushed the page sideways.
+function PublicHead({ logo, companyName, siteName, withPicker, locale, setLanguage, t, themeMode }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 160px", minWidth: 0 }}>
+        <div style={{ flexShrink: 0, padding: themeMode === "dark" ? "6px 8px" : 0, background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: R.sm }}>
+          <img src={logo || LOGO_SM} alt="" style={{ display: "block", height: 32, maxWidth: 120, objectFit: "contain" }} />
+        </div>
+        <div style={{ minWidth: 0 }}>
+          {companyName && <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{companyName}</div>}
+          {siteName && <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.4, overflowWrap: "anywhere" }}>{siteName}</div>}
+        </div>
+      </div>
+      {withPicker && <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10, flex: "1 1 220px", maxWidth: 360 }}><div style={{ flex: 1, minWidth: 140 }}><LangPicker value={locale} onChange={setLanguage} t={t} /></div><TextSizeButton t={t} /></div>}
+    </div>
+  );
+}
+
 // A customer's form, opened from a QR code posted in the building, at
 // /c/<token>, with no sign-in and nothing of the app around it: the
 // company's logo and the site's name, the language choice, and the same
@@ -6086,27 +6120,10 @@ function CustomerFormScreen({ token, t, themeMode }) {
 
   const company = (got.data && got.data.company) || {};
   const site = (got.data && got.data.site) || {};
-  const logo = company.logoUrl || LOGO_SM;
-  // The logo, the company and the site, with the language choice and the
-  // text size beside them everywhere but on the thank-you, which has
-  // nothing left to tap. The text size is the same pill the sign-in
-  // screen offers, kept on this phone, and its row wraps the way the
-  // sign-in screen's does: at Largest in Spanish the two languages and
-  // the pill were wider than the phone and pushed the page sideways.
-  const headOf = (withPicker) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 160px", minWidth: 0 }}>
-        <div style={{ flexShrink: 0, padding: themeMode === "dark" ? "6px 8px" : 0, background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: R.sm }}>
-          <img src={logo} alt="" style={{ display: "block", height: 32, maxWidth: 120, objectFit: "contain" }} />
-        </div>
-        <div style={{ minWidth: 0 }}>
-          {company.name && <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{company.name}</div>}
-          {site.name && <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.4, overflowWrap: "anywhere" }}>{site.name}</div>}
-        </div>
-      </div>
-      {withPicker && <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10, flex: "1 1 220px", maxWidth: 360 }}><div style={{ flex: 1, minWidth: 140 }}><LangPicker value={locale} onChange={setLanguage} t={t} /></div><TextSizeButton t={t} /></div>}
-    </div>
-  );
+  // The head every page opened from a link draws, with the language
+  // choice and the text size everywhere but on the thank-you, which has
+  // nothing left to tap.
+  const headOf = (withPicker) => <PublicHead logo={company.logoUrl} companyName={company.name} siteName={site.name} withPicker={withPicker} locale={locale} setLanguage={setLanguage} t={t} themeMode={themeMode} />;
   const head = headOf(true);
 
   if (got.loading && !got.data) {
@@ -6126,6 +6143,236 @@ function CustomerFormScreen({ token, t, themeMode }) {
   const form = got.data.form;
   const draft = { id: null, formCode: form.code, formName: form.title, answers: {}, status: "draft", answered: 0, remaining: 0, missing: [] };
   return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, head: head, thanksHead: headOf(false) }} />;
+}
+
+// The client's acknowledgement of a monthly report, the page the mail
+// that carries the report links to.
+const ACK_LOAD_FAILED = "This report could not load. Check your signal and try again.";
+const ACK_NOT_SENT = "Not sent yet. Check your signal and tap Acknowledge this report again.";
+const ACK_THANKS = "Thank you. Your acknowledgement is recorded.";
+// The boxes a refusal can be drawn under, by the name the API gives each.
+const ACK_BOXES = ["name", "role", "comments", "signature"];
+// Which box a refusal goes under: the one its keys name, else the one its
+// code is about, else none, and a refusal with none is drawn above the
+// button.
+function ackBoxOf(err) {
+  const keys = Array.isArray(err && err.body && err.body.keys) ? err.body.keys.map(String) : [];
+  const named = keys.find(k => ACK_BOXES.indexOf(k) !== -1);
+  if (named) return named;
+  const code = String((err && err.code) || "");
+  if (/nameRequired$/.test(code)) return "name";
+  if (/signature/i.test(code)) return "signature";
+  return null;
+}
+// A day the API sends as YYYY-MM-DD, read as that day on the phone's own
+// calendar rather than as midnight in UTC, which is the day before here.
+const ackDay = (d) => {
+  const s = String(d || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + "T00:00:00").toLocaleDateString(dateLocale(), { month: "long", day: "numeric", year: "numeric" }) : "";
+};
+// The report as a review draws it: each section's fields in the order
+// they come, under the section's title, then any field that sits in no
+// section on the list. A section that carries its own fields draws those.
+function ackGroups(data, language) {
+  const fields = Array.isArray(data.fields) ? data.fields.filter(f => f && typeof f === "object") : [];
+  const list = Array.isArray(data.sections) ? data.sections.filter(s => s && typeof s === "object") : [];
+  const keys = list.map(s => String(s.key));
+  const groups = list.map(s => ({
+    key: String(s.key),
+    title: formInLanguage(s.title !== undefined ? s.title : { en: s.en, es: s.es }, language),
+    fields: Array.isArray(s.fields) ? s.fields.filter(f => f && typeof f === "object") : fields.filter(f => formSectionOf(f) === String(s.key)),
+  }));
+  const rest = fields.filter(f => keys.indexOf(formSectionOf(f)) === -1);
+  if (rest.length > 0) groups.push({ key: "", title: "", fields: rest });
+  return groups.filter(g => g.fields.length > 0);
+}
+// One answer as the review reads it: the words the API wrote for it, a
+// plain answer as it is, and nothing for anything else.
+const ackRead = (f) => {
+  if (typeof f.displayValue === "string" && f.displayValue.trim() !== "") return f.displayValue;
+  return formPlainValue(f.value) && String(f.value).trim() !== "" ? String(f.value) : null;
+};
+
+// At /a/<token>, with no sign-in and nothing of the app around it: the
+// head the customer's form draws, the report's title and period, and the
+// report read only, section by section, the way a report's review draws
+// it. Under it the client's comments, name and role, a signature drawn
+// with a finger, and one button. The report is read in the language on
+// the screen and read again when it changes, and what the client typed
+// stays through it. A link that was used or names nothing shows the API's
+// one line and nothing else. Nothing typed, drawn or read here is kept on
+// the phone, and the token is never stored.
+function AcknowledgeScreen({ token, t, themeMode }) {
+  const { language, setLanguage } = useContext(LanguageCtx);
+  const locale = language === "es" ? "es" : "en";
+  const [got, setGot] = useState({ loading: true, data: null, said: null, offline: false });
+  const [asked, setAsked] = useState(0);
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("");
+  const [comments, setComments] = useState("");
+  const [strokes, setStrokes] = useState([]);
+  const [signature, setSignature] = useState(null);
+  const [sending, setSending] = useState(false);
+  // The API's words when it refused: under the box they name, or above
+  // the button when they name none.
+  const [boxErr, setBoxErr] = useState({});
+  const [sendErr, setSendErr] = useState(null);
+  // The acknowledgement is in; or the API's one line for a link that was
+  // used or names nothing, which takes the page's place.
+  const [done, setDone] = useState(false);
+  const [closed, setClosed] = useState(null);
+  const boxRefs = useRef({});
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+  // Something typed or drawn and not sent yet, or a send on its way.
+  useBusy("acknowledgement", sending || (!done && !closed && (name.trim() !== "" || role.trim() !== "" || comments.trim() !== "" || strokes.length > 0)));
+
+  useEffect(() => {
+    let live = true;
+    setGot(prev => Object.assign({}, prev, { loading: true }));
+    (async () => {
+      try {
+        const r = await api("/api/public/acknowledge/" + encodeURIComponent(token || "") + "?locale=" + locale, { noAuthEvent: true });
+        const readable = !!r && typeof r === "object" && (Array.isArray(r.sections) || Array.isArray(r.fields));
+        if (live) setGot({ loading: false, data: readable ? r : null, said: readable ? null : tr(ACK_LOAD_FAILED), offline: false });
+      } catch (err) {
+        const offline = err.status === undefined || err.status === null;
+        if (live) setGot({ loading: false, data: null, said: offline ? tr(ACK_LOAD_FAILED) : tr(err.message), offline: offline });
+      }
+    })();
+    return () => { live = false; };
+  }, [token, locale, asked]);
+
+  const data = got.data;
+  const company = (data && data.company && typeof data.company === "object") ? data.company : {};
+  const headOf = (withPicker) => <PublicHead logo={company.logoUrl} companyName={company.name} siteName={data ? String(data.siteName || "").trim() : ""} withPicker={withPicker} locale={locale} setLanguage={setLanguage} t={t} themeMode={themeMode} />;
+  const cardSt = { background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 18 };
+
+  if (closed || (!data && !got.loading)) {
+    return (
+      <div style={{ padding: 16 }}>
+        {headOf(true)}
+        <div style={cardSt}>
+          <div role="alert" style={{ fontSize: 14, color: t.text, lineHeight: 1.55 }}>{closed || got.said}</div>
+          {!closed && got.offline && <button type="button" onClick={() => setAsked(n => n + 1)} style={{ width: "100%", minHeight: TAP, marginTop: 14, borderRadius: R.md, border: "1px solid " + GOLD, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button>}
+        </div>
+      </div>
+    );
+  }
+  if (!data) {
+    return <div style={{ padding: 16 }}>{headOf(true)}<div style={{ fontSize: 13, color: t.textMut, lineHeight: 1.5 }}>{tr("Loading...")}</div></div>;
+  }
+
+  // The survey the mail links to beside the report, opened from the
+  // thank-you. Only a web address is ever opened.
+  const surveyUrl = typeof data.surveyUrl === "string" && /^https?:\/\//i.test(data.surveyUrl.trim()) ? data.surveyUrl.trim() : null;
+  const linkBtn = { ...mkPrimaryBtn(t, false), display: "block", boxSizing: "border-box", minHeight: TAP, marginTop: 16, textAlign: "center", textDecoration: "none" };
+  if (done) {
+    return (
+      <div style={{ padding: 16 }}>
+        {headOf(false)}
+        <div style={cardSt}>
+          <div role="status" style={{ fontSize: 15, color: t.text, lineHeight: 1.55, fontFamily: FONT_HEAD, fontWeight: 600 }}>{tr(ACK_THANKS)}</div>
+          {surveyUrl && <a href={surveyUrl} target="_blank" rel="noopener noreferrer" style={linkBtn}>{tr("Rate this month")}</a>}
+        </div>
+      </div>
+    );
+  }
+
+  const title = formInLanguage(data.title, locale) || tr(FORMS_UNTITLED);
+  const from = ackDay(data.periodStart), to = ackDay(data.periodEnd);
+  const period = from && to ? tr("{start} to {end}", { start: from, end: to }) : (from || to);
+  const groups = ackGroups(data, locale);
+  const titled = groups.length > 1;
+
+  const clearBox = (k) => setBoxErr(prev => { if (!prev[k]) return prev; const next = Object.assign({}, prev); delete next[k]; return next; });
+  const send = async () => {
+    if (sending) return;
+    setSending(true); setSendErr(null); setBoxErr({});
+    try {
+      await api("/api/public/acknowledge/" + encodeURIComponent(token || "") + "?locale=" + locale, { method: "POST", body: { name: name.trim(), role: role.trim(), comments: comments.trim(), signature: signature }, noAuthEvent: true });
+      if (!alive.current) return;
+      // What was typed and drawn leaves memory once it is in.
+      setName(""); setRole(""); setComments(""); setStrokes([]); setSignature(null);
+      setDone(true);
+    } catch (err) {
+      if (!alive.current) return;
+      const box = ackBoxOf(err);
+      if (err.status === undefined || err.status === null) setSendErr(tr(ACK_NOT_SENT));
+      else if (err.status === 404 || err.status === 409) setClosed(tr(err.message));
+      else if (box) {
+        setBoxErr({ [box]: tr(err.message) });
+        setTimeout(() => { const el = boxRefs.current[box]; if (el && el.scrollIntoView) el.scrollIntoView({ block: "center" }); }, 0);
+      } else setSendErr(tr(err.message));
+    }
+    if (alive.current) setSending(false);
+  };
+
+  const qSt = { marginBottom: 20 };
+  const labelSt = { display: "block", fontSize: 14, fontWeight: 600, color: t.text, lineHeight: 1.45, fontFamily: FONT_HEAD, overflowWrap: "anywhere" };
+  const reqSt = { fontSize: 11, fontWeight: 600, color: t.textMut, marginLeft: 6, whiteSpace: "nowrap" };
+  const inputSt = { ...mkInput(t), minHeight: TAP, marginTop: 8 };
+  const errOf = (k) => boxErr[k] ? <div role="alert" style={mkFieldErr(t)}>{boxErr[k]}</div> : null;
+
+  return (
+    <div style={{ padding: 16 }}>
+      {headOf(true)}
+      <div role="heading" aria-level={1} style={{ fontSize: 17, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{title}</div>
+      {period && <div style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4 }}>{period}</div>}
+
+      <div style={{ marginTop: 18 }}>
+        {groups.map((g, i) => (
+          <div key={g.key + ":" + i} style={{ marginBottom: 22 }}>
+            {titled && <div style={{ ...mkLabel(t), marginBottom: 10 }}>{tr("Section {n}", { n: i + 1 })}</div>}
+            {g.title && <div role="heading" aria-level={2} style={{ fontSize: 15, fontWeight: 600, color: t.text, lineHeight: 1.35, fontFamily: FONT_HEAD, overflowWrap: "anywhere", marginBottom: 10 }}>{g.title}</div>}
+            {g.fields.map((f, j) => {
+              const read = ackRead(f);
+              return (
+                <div key={String(f.key || j)} style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{formInLanguage(f.label, locale)}</div>
+                  <div style={{ fontSize: 14, color: read ? t.text : t.textMut, fontWeight: read ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere", whiteSpace: "pre-line" }}>{read || tr("Not answered")}</div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ borderTop: "1px solid " + t.borderSolid, paddingTop: 18 }}>
+        <div style={qSt} ref={el => { boxRefs.current.comments = el; }}>
+          <label htmlFor="ack-comments" style={labelSt}>{tr("Comments")}</label>
+          <textarea id="ack-comments" rows={4} maxLength={FORM_VALUE_MAX} value={comments} onChange={e => { setComments(e.target.value); clearBox("comments"); }} style={{ ...inputSt, minHeight: 104, resize: "vertical", lineHeight: 1.5 }} />
+          {errOf("comments")}
+        </div>
+        <div style={qSt} ref={el => { boxRefs.current.name = el; }}>
+          <label htmlFor="ack-name" style={labelSt}>{tr("Your name")}<span style={reqSt}>{tr("Required")}</span></label>
+          <input id="ack-name" type="text" autoComplete="name" maxLength={CUSTOMER_NAME_MAX} value={name} onChange={e => { setName(e.target.value); clearBox("name"); }} aria-invalid={!!boxErr.name} style={inputSt} />
+          {errOf("name")}
+        </div>
+        <div style={qSt} ref={el => { boxRefs.current.role = el; }}>
+          <label htmlFor="ack-role" style={labelSt}>{tr("Your role")}</label>
+          <input id="ack-role" type="text" autoComplete="organization-title" maxLength={CUSTOMER_NAME_MAX} value={role} onChange={e => { setRole(e.target.value); clearBox("role"); }} style={inputSt} />
+          {errOf("role")}
+        </div>
+        <div style={qSt} ref={el => { boxRefs.current.signature = el; }}>
+          <div style={labelSt}>{tr("Signature")}<span style={reqSt}>{tr("Required")}</span></div>
+          <div style={{ marginTop: 8, borderRadius: R.md, border: "1px solid " + (boxErr.signature ? RED : t.borderSolid), background: "#FFFFFF", overflow: "hidden" }}>
+            <SignatureBox strokes={strokes} onStroke={(stroke, size) => {
+              const all = strokes.concat([stroke]);
+              setStrokes(all);
+              setSignature(signaturePng(all, size.w, size.h));
+              clearBox("signature");
+            }} height={SIGN_BOX_HEIGHT} />
+          </div>
+          <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+          <button type="button" onClick={() => { setStrokes([]); setSignature(null); }} disabled={strokes.length === 0} style={{ width: "100%", minHeight: TAP, marginTop: 10, padding: "10px 12px", borderRadius: R.md, cursor: strokes.length === 0 ? "default" : "pointer", border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, opacity: strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+          {errOf("signature")}
+        </div>
+        {sendErr && <div role="alert" style={{ padding: "10px 12px", marginBottom: 14, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text, fontSize: 13, lineHeight: 1.5 }}>{sendErr}</div>}
+        <button type="button" onClick={send} disabled={sending} style={{ ...mkPrimaryBtn(t, sending), minHeight: TAP, cursor: sending ? "default" : "pointer" }}>{sending ? tr("Sending") : tr("Acknowledge this report")}</button>
+      </div>
+    </div>
+  );
 }
 
 // The list of forms, and the one button on each card.

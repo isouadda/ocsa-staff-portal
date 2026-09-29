@@ -582,6 +582,13 @@ This table is full.,Esta tabla está llena.,Forms
 Untitled report,Reporte sin título,Forms
 {answered} answered,{answered} respondidas,Forms
 "{answered} answered, {remaining} to go","{answered} respondidas, faltan {remaining}",Forms
+Acknowledge this report,Confirmar recibo de este reporte,Acknowledgement page
+Comments,Comentarios,Acknowledgement page
+Not sent yet. Check your signal and tap Acknowledge this report again.,Todavía no se envió. Revise su señal y toque Confirmar recibo de este reporte otra vez.,Acknowledgement page
+Rate this month,Calificar este mes,Acknowledgement page
+Signature,Firma,Acknowledgement page
+Thank you. Your acknowledgement is recorded.,Gracias. Su confirmación quedó registrada.,Acknowledgement page
+This report could not load. Check your signal and try again.,Este reporte no cargó. Revise su señal e intente de nuevo.,Acknowledgement page
 Add to bar,Agregar a la barra,Shortcuts
 Add to bar {name},Agregar {name} a la barra,Shortcuts
 Always first,Siempre primero,Shortcuts
