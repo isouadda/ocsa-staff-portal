@@ -1407,6 +1407,9 @@ export default function OCSAStaffPortal() {
   // The language the list in tasks came back in, so an item's own words
   // from the API are drawn only on a screen in that language.
   const [tasksLang, setTasksLang] = useState(null);
+  // The checklist day the list in tasks belongs to, YYYY-MM-DD, once the
+  // API sends it (Step 198), and null until then.
+  const [tasksDay, setTasksDay] = useState(null);
   // Every clock status request takes a number and only the newest one may
   // fill the Set. An older response landing late would otherwise clear a
   // box that was ticked after it was requested. A person's own list reads
@@ -1740,7 +1743,7 @@ export default function OCSAStaffPortal() {
   // flight, which a check or an uncheck needs: the list then carries what
   // the API says was done. Only the newest request's answer is taken.
   const tasksSeq = useRef(0);
-  const loadTasks = async (again) => { const path = checklistAsk; const key = checklistKey; const lang = language; if (!path || (again !== true && tasksReqAsked.current === key)) return; const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (mine !== tasksSeq.current) return; setTasks(tt); setTasksLang(lang); tasksAsked.current = key; setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; }); const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); takeStatus(cs, seq); } catch (err) { console.error(err); if (mine === tasksSeq.current) setTasksFailed(true); } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; } };
+  const loadTasks = async (again) => { const path = checklistAsk; const key = checklistKey; const lang = language; if (!path || (again !== true && tasksReqAsked.current === key)) return; const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (mine !== tasksSeq.current) return; const got = checklistAnswer(tt); setTasks(got.rows); setTasksDay(got.day); setTasksLang(lang); tasksAsked.current = key; setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; }); const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); takeStatus(cs, seq); } catch (err) { console.error(err); if (mine === tasksSeq.current) setTasksFailed(true); } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; } };
   // A check or an uncheck, sent the way it always has been, for the row as
   // the screen draws it. A row outside the id lists is drawn from this
   // phone's own tap until the list comes back. Then the list and the
@@ -2198,7 +2201,7 @@ export default function OCSAStaffPortal() {
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
               {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
-              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
+              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
@@ -3553,6 +3556,19 @@ function checklistRequest(cs, userId, lang) {
   if (own && !userId) return null;
   return "/api/sites/" + cs.shift.siteId + "/tasks?" + (own ? "user_id=" + userId + "&" : "") + "day=today&locale=" + (lang === "es" ? "es" : "en");
 }
+// The rows the list answers, and the checklist day it carries (Step 198),
+// YYYY-MM-DD or null. The route answers a bare list today, which has no
+// top level to carry the day, so the day is read from checklistDay beside
+// the rows under tasks, or from the rows where each carries it. Any other
+// answer is kept as it came, the way it always was.
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+function checklistAnswer(tt) {
+  const rows = Array.isArray(tt) ? tt : (tt && Array.isArray(tt.tasks) ? tt.tasks : tt);
+  const top = tt && !Array.isArray(tt) && typeof tt === "object" ? tt.checklistDay : null;
+  const onRow = Array.isArray(rows) ? (rows.find(r => r && YMD_RE.test(String(r.checklistDay || ""))) || {}).checklistDay : null;
+  const day = YMD_RE.test(String(top || "")) ? top : onRow || null;
+  return { rows, day };
+}
 // Where a row belongs on the checklist. The day's own work is counted in
 // its percentage when it is due today. Work that repeats over a week, two
 // weeks, a month, a quarter or a season has a section of its own, in
@@ -3576,15 +3592,24 @@ function companyDay(ms) {
   new Intl.DateTimeFormat("en-US", { timeZone: clientConfig.company.timeZone, year: "numeric", month: "numeric", day: "numeric" }).formatToParts(new Date(ms)).forEach((x) => { p[x.type] = Number(x.value); });
   return Math.round(Date.UTC(p.year, p.month - 1, p.day) / 86400000);
 }
-function doneWhen(done) {
+// A list that carries its checklistDay and a completion that carries its
+// own (Step 198) are counted by those two days instead, so work done at
+// 11 PM still reads Done today at 1 AM on the same night's list, which runs
+// to 4:00 AM. The weekday and the date are then the completion's checklist
+// day, drawn at noon UTC in UTC so no zone moves it.
+const ymdDayNumber = (ymd) => (YMD_RE.test(String(ymd || "")) ? Math.round(Date.UTC(Number(ymd.slice(0, 4)), Number(ymd.slice(5, 7)) - 1, Number(ymd.slice(8, 10))) / 86400000) : null);
+function doneWhen(done, listDay) {
   const at = done && done.completedAt ? new Date(done.completedAt) : null;
   if (!at || isNaN(at.getTime()) || !done.firstName) return null;
-  const zone = clientConfig.company.timeZone;
-  const ago = companyDay(Date.now()) - companyDay(at.getTime());
+  const listN = ymdDayNumber(listDay), doneN = ymdDayNumber(done.checklistDay);
+  const byDay = listN !== null && doneN !== null;
+  const zone = byDay ? "UTC" : clientConfig.company.timeZone;
+  const shown = byDay ? new Date(doneN * 86400000 + 43200000) : at;
+  const ago = byDay ? listN - doneN : companyDay(Date.now()) - companyDay(at.getTime());
   if (ago <= 0) return tr("Done today by {firstName}", { firstName: done.firstName });
   if (ago === 1) return tr("Done yesterday by {firstName}", { firstName: done.firstName });
-  if (ago <= 6) return tr("Done {weekday} by {firstName}", { weekday: at.toLocaleDateString(dateLocale(), { weekday: "long", timeZone: zone }), firstName: done.firstName });
-  return tr("Done {date} by {firstName}", { date: at.toLocaleDateString(dateLocale(), { month: "short", day: "numeric", timeZone: zone }), firstName: done.firstName });
+  if (ago <= 6) return tr("Done {weekday} by {firstName}", { weekday: shown.toLocaleDateString(dateLocale(), { weekday: "long", timeZone: zone }), firstName: done.firstName });
+  return tr("Done {date} by {firstName}", { date: shown.toLocaleDateString(dateLocale(), { month: "short", day: "numeric", timeZone: zone }), firstName: done.firstName });
 }
 // An item's words as the screen draws them. Step 118 in the API sends
 // display: { label, description, zone } in the language asked for, and
@@ -3718,7 +3743,7 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
   );
 }
 
-function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, shiftSheet, onChangeShift, t }) {
+function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, t }) {
   const [detail, setDetail] = useState(null);
   const loaded = Array.isArray(tasks);
   const standardTasks = standardTasksOf(tasks);
@@ -3842,7 +3867,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   // Who did it and when, under a periodic row that is done and under a
   // day's row done on an earlier day, the every other day row checked the
   // day before.
-  const whenOf = (tk) => (tk.doneThisPeriod && (isPeriodic(tk) || (sectionOf(tk) === "today" && !isDueToday(tk))) ? doneWhen(tk.doneThisPeriod) : null);
+  const whenOf = (tk) => (tk.doneThisPeriod && (isPeriodic(tk) || (sectionOf(tk) === "today" && !isDueToday(tk))) ? doneWhen(tk.doneThisPeriod, listDay) : null);
   const rows = standardTasks.map(rowNow);
   // Today's own work first, counted in the percentage when it is due. Then
   // each period with work, titled with its own count, and as needed work
