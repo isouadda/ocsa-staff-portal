@@ -28,12 +28,62 @@
 // by plain helper functions that cannot hold a hook.
 let current = "en";
 
+// Every language this file holds words for, each named in its own
+// language, in the order the pickers draw them. A language added
+// later is one more line here and its table below.
+export const LANGUAGE_NAMES = { en: "English", es: "Espa\u00f1ol", fr: "Fran\u00e7ais" };
+
+// The languages the portal offers. English and Spanish always; French
+// only once the API lists it (Step 209), so until then no screen shows
+// it and no call names it. The list the API last gave is kept on this
+// phone, so the first frame and the small script at the top of
+// public/index.html know what is offered before the API is asked.
+export const LANGUAGES_KEY = "ocsa-staff-languages";
+const ALWAYS = ["en", "es"];
+
+// A list is kept when it names English and Spanish, and is cut to the
+// languages this file holds words for, in the order it gives them.
+// Anything else is null.
+export function offeredFrom(list) {
+  if (!Array.isArray(list) || list.indexOf("en") === -1 || list.indexOf("es") === -1) return null;
+  const out = [];
+  list.forEach((code) => {
+    if (typeof code === "string" && Object.prototype.hasOwnProperty.call(LANGUAGE_NAMES, code) && out.indexOf(code) === -1) out.push(code);
+  });
+  return out;
+}
+
+function storedOffered() {
+  try { return offeredFrom(JSON.parse(window.localStorage.getItem(LANGUAGES_KEY))) || ALWAYS; } catch (e) { return ALWAYS; }
+}
+
+let offered = storedOffered();
+
+export function offeredLanguages() {
+  return offered;
+}
+
+export function isOffered(lang) {
+  return offered.indexOf(lang) !== -1;
+}
+
+// A language that is not offered falls to English, the way anything
+// but Spanish always has.
 export function setWordsLanguage(lang) {
-  current = lang === "es" ? "es" : "en";
+  current = isOffered(lang) ? lang : "en";
 }
 
 export function wordsLanguage() {
   return current;
+}
+
+// The language a call names: the one given, or with none the one on
+// the screen, when it is offered, and English otherwise. Every path
+// that sends a language asks here, so none can send one the API has
+// not listed.
+export function languageToSend(lang) {
+  const v = lang === undefined ? current : lang;
+  return isOffered(v) ? v : "en";
 }
 
 // English is the key, so there is no English table.
