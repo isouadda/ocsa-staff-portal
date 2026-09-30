@@ -167,7 +167,7 @@ export const WORDS = {
   "Tap Add to Home Screen.": "Toque Agregar a la pantalla de inicio.",
   "Tap Add.": "Toque Agregar.",
   "Tap Install below.": "Toque Instalar abajo.",
-  "Tap the Share button {share} at the bottom of the screen.": "Toque el bot\u00f3n Compartir {share} abajo en la pantalla.",
+  "Tap Share {share} at the bottom of the screen. If you do not see it, tap the three dots first, then Share.": "Toque Compartir {share} abajo en la pantalla. Si no lo ve, toque primero los tres puntos y luego Compartir.",
   "Tap the Share button {share} in the address bar.": "Toque el bot\u00f3n Compartir {share} en la barra de direcciones.",
   "Task completed": "Tarea completada",
   "Task unchecked": "Tarea desmarcada",

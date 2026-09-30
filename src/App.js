@@ -1189,6 +1189,13 @@ const barFontSize = (px, zoom) => px * Math.min(zoom, zoomOf("large")) / zoom;
 // stops growing there, the same way. At the Largest size it is still
 // drawn at 52 pixels against the 40 it draws at Standard.
 const timerFontSize = (px, zoom) => px * Math.min(zoom, zoomOf("xlarge")) / zoom;
+// It also never draws wider than its card. The card is the screen less
+// 94 pixels, the side padding of the page, of Home and of the card, and
+// the eight characters run about 5.2 times the size plus 8 pixels of
+// spacing. The screen's width is divided by the zoom, the way the two
+// heights below are. On a phone 320 wide at Extra large and Largest,
+// and at Largest on most phones, that is the smaller of the two.
+const timerFontCss = (px, zoom) => "min(" + timerFontSize(px, zoom) + "px, calc((100vw / " + zoom + " - 102px) / 5.2))";
 // Read before the first render. An unreadable or unknown value is Standard.
 function readTextSize() {
   try {
@@ -1312,6 +1319,10 @@ function LanguageButton({ t }) {
 // one of the three has gone.
 const TOAST_MS = 3000;
 const TOAST_MAX = 3;
+// An error toast's red. The brand's own red carries white at 3.57 to 1,
+// under the 4.5 to 1 small words need; this one, the badge red light
+// mode already draws, carries it at 5.62 to 1.
+const TOAST_RED = "#C62828";
 function toastQueue(onChange) {
   const q = { shown: [], waiting: [], timers: new Map(), seq: 0 };
   const pump = () => {
@@ -2185,14 +2196,20 @@ export default function OCSAStaffPortal() {
                   <div style={{ fontSize: 10, color: themeMode === "light" ? "rgba(255,255,255,0.82)" : GOLD, letterSpacing: "0.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.role ? roleWord(user.role) : ""}</div>
                 </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                {clockStatus?.clockedIn && (<div style={{ display: "flex", alignItems: "center", gap: 5, background: themeMode === "light" ? GREEN : "rgba(46,204,113,0.15)", padding: "3px 8px", borderRadius: 20, fontSize: 10, color: themeMode === "light" ? NAVY : GREEN, fontWeight: 600 }}><div style={{ width: 5, height: 5, borderRadius: "50%", background: themeMode === "light" ? NAVY : GREEN, animation: "pulse 2s infinite" }} />{tr("ON SITE")}</div>)}
-                <button onClick={() => setNotifOpen(true)} aria-label={unread > 0 ? tr("{count} unread notifications", { count: unread }) : tr("Notifications")} aria-expanded={notifOpen} style={{ position: "relative", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, minWidth: 44, minHeight: 44, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
-                  <BellIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#A8B8C8"} />
-                  {unread > 0 && <span style={{ position: "absolute", top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8, background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", fontFamily: FONT_HEAD }}>{unread > 9 ? "9+" : unread}</span>}
-                </button>
-                <button onClick={() => { setActiveTab("settings"); setShowMore(false); }} aria-label={tr("Settings")} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, minWidth: 44, minHeight: 44, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}><GearIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#A8B8C8"} /></button>
-                <button onClick={handleLogout} aria-label={tr("Sign out")} style={mkTapFrame()}><LogOutIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#8899AA"} /></button>
+              {/* The chip and the three buttons. Where they do not fit on
+                  one line, as on a phone 360 wide at the Largest size, the
+                  chip keeps its words on a line of its own above the
+                  buttons, and the three buttons always stay together. */}
+              <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, minWidth: 0 }}>
+                {clockStatus?.clockedIn && (<div style={{ display: "flex", alignItems: "center", gap: 5, background: themeMode === "light" ? GREEN : "rgba(46,204,113,0.15)", padding: "3px 8px", borderRadius: 20, fontSize: 10, color: themeMode === "light" ? NAVY : GREEN, fontWeight: 600, whiteSpace: "nowrap" }}><div style={{ width: 5, height: 5, borderRadius: "50%", background: themeMode === "light" ? NAVY : GREEN, animation: "pulse 2s infinite" }} />{tr("ON SITE")}</div>)}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <button onClick={() => setNotifOpen(true)} aria-label={unread > 0 ? tr("{count} unread notifications", { count: unread }) : tr("Notifications")} aria-expanded={notifOpen} style={{ position: "relative", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, minWidth: 44, minHeight: 44, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                    <BellIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#A8B8C8"} />
+                    {unread > 0 && <span style={{ position: "absolute", top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8, background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", fontFamily: FONT_HEAD }}>{unread > 9 ? "9+" : unread}</span>}
+                  </button>
+                  <button onClick={() => { setActiveTab("settings"); setShowMore(false); }} aria-label={tr("Settings")} style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, minWidth: 44, minHeight: 44, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}><GearIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#A8B8C8"} /></button>
+                  <button onClick={handleLogout} aria-label={tr("Sign out")} style={mkTapFrame()}><LogOutIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#8899AA"} /></button>
+                </div>
               </div>
             </div>
           </div>
@@ -2217,17 +2234,23 @@ export default function OCSAStaffPortal() {
             </div>
           </div>
 
-          {/* More menu overlay */}
+          {/* More menu overlay. Its three columns share the width, and
+              each name has all of its column but 2 pixels a side. On a
+              phone under 360 wide the sheet comes 8 pixels from each edge
+              rather than 16 (.sp-more below), which fits every name whole
+              at Largest in both languages. A word still too long for its
+              column breaks inside it, with a hyphen where the phone can,
+              so the sheet never runs off the screen. */}
           {showMore && <div onClick={() => setShowMore(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 150 }}>
-            <div onClick={e => e.stopPropagation()} style={{ position: "fixed", bottom: 60, left: "50%", transform: "translateX(-50%)", width: "calc(100% - 32px)", maxWidth: 400, background: t.card, borderRadius: R.lg, border: "1px solid " + t.border, padding: "12px 8px", boxShadow: t.popShadow, zIndex: 151 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4 }}>
+            <div className="sp-more" onClick={e => e.stopPropagation()} style={{ position: "fixed", bottom: 60, left: "50%", transform: "translateX(-50%)", maxWidth: 400, background: t.card, borderRadius: R.lg, border: "1px solid " + t.border, boxShadow: t.popShadow, zIndex: 151 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 4 }}>
                 {moreTabs.map(tab => { const active = activeTab === tab.id; const TabIco = tab.icon; return (
-                  <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMore(false); }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 8px", background: active ? t.goldBg : "transparent", border: active ? "1px solid " + t.goldBorder : "1px solid transparent", borderRadius: 12, cursor: "pointer" }}>
+                  <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMore(false); }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 2px", background: active ? t.goldBg : "transparent", border: active ? "1px solid " + t.goldBorder : "1px solid transparent", borderRadius: 12, cursor: "pointer" }}>
                     <div style={{ position: "relative" }}>
                       <TabIco sz={22} c={active ? t.goldText : t.textSec} />
                       {tab.badge > 0 && <div style={mkCountBadge(t)}>{badgeText(tab.badge)}</div>}
                     </div>
-                    <span style={{ fontSize: 10, fontWeight: active ? 600 : 500, color: active ? t.goldText : t.textSec }}>{tab.label}</span>
+                    <span style={{ fontSize: 10, fontWeight: active ? 600 : 500, color: active ? t.goldText : t.textSec, maxWidth: "100%", overflowWrap: "anywhere", hyphens: "auto" }}>{tab.label}</span>
                   </button>
                 ); })}
               </div>
@@ -2235,13 +2258,17 @@ export default function OCSAStaffPortal() {
             </div>
           </div>}
 
-          {/* Bottom navigation */}
-          <div ref={barRef} style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 960, background: t.navBg, borderTop: "1px solid " + t.navBorder, display: "flex", padding: "8px 0 12px", zIndex: 100, boxShadow: themeMode === "light" ? "0 -2px 10px rgba(0,0,0,0.06)" : "0 -2px 10px rgba(0,0,0,0.2)" }}>
+          {/* Bottom navigation. Home, the four shortcuts and More share
+              the width evenly, since minWidth 0 lets each button take its
+              share, and the bar keeps 4 pixels at either end for the
+              count on More, which sits past its icon. On a phone 320 wide
+              at Largest, More and its count stay on the screen. */}
+          <div ref={barRef} style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 960, background: t.navBg, borderTop: "1px solid " + t.navBorder, display: "flex", padding: "8px 4px 12px", zIndex: 100, boxShadow: themeMode === "light" ? "0 -2px 10px rgba(0,0,0,0.06)" : "0 -2px 10px rgba(0,0,0,0.2)" }}>
             {primaryTabs.map(tab => {
               const active = activeTab === tab.id;
               const TabIco = tab.icon;
               return (
-                <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMore(false); }} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
+                <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMore(false); }} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
                   <div style={{ position: "relative" }}>
                     <TabIco sz={22} c={active ? t.goldText : t.textMut} />
                     {tab.badge > 0 && <div style={mkCountBadge(t)}>{badgeText(tab.badge)}</div>}
@@ -2251,7 +2278,7 @@ export default function OCSAStaffPortal() {
                 </button>
               );
             })}
-            <button onClick={() => setShowMore(!showMore)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
+            <button onClick={() => setShowMore(!showMore)} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
               <div style={{ position: "relative" }}>
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={isMoreActive || showMore ? t.goldText : t.textMut} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
                 {totalBadge > 0 && !isMoreActive && <div style={mkCountBadge(t)}>{badgeText(totalBadge)}</div>}
@@ -2304,7 +2331,14 @@ export default function OCSAStaffPortal() {
         />
       )}
 
-      {toasts.length > 0 && (<div style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", zIndex: 1000, maxWidth: "90%", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>{toasts.map(x => (<div key={x.id} style={{ background: x.type === "error" ? RED : x.type === "notice" ? ORANGE : GREEN, color: x.type === "notice" ? NAVY : "#F8F7F4", padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", textAlign: "center" }}>{x.msg}</div>))}</div>)}
+      {/* The toasts. The stack is always on the page, empty between
+          toasts, so a screen reader is already listening when one comes
+          and reads it out without moving anyone's place. It takes no
+          taps: a tap on a row under a toast reaches the row. A toast that
+          carries a button of its own gives that button pointerEvents
+          "auto" and nothing else. Success is navy on green and a notice
+          navy on orange; an error is white on the deeper red, 5.6 to 1. */}
+      <div role="status" aria-live="polite" style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", zIndex: 1000, maxWidth: "90%", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, pointerEvents: "none" }}>{toasts.map(x => (<div key={x.id} style={{ background: x.type === "error" ? TOAST_RED : x.type === "notice" ? ORANGE : GREEN, color: x.type === "error" ? "#FFFFFF" : NAVY, padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", textAlign: "center" }}>{x.msg}</div>))}</div>
 
       <style>{`
         @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
@@ -2319,6 +2353,8 @@ export default function OCSAStaffPortal() {
         .sp-content > div { flex: 1; display: flex; flex-direction: column; animation: slideUp 0.2s ease-out; }
         .sp-content { padding: 0 12px; }
         @media (min-width: 640px) { .sp-content { padding: 0 20px; } }
+        .sp-more { width: calc(100% - 32px); padding: 12px 8px; }
+        @media (max-width: 359px) { .sp-more { width: calc(100% - 16px); padding: 12px 4px; } }
         button:active { opacity: 0.8; }
       `}</style>
     </div>
@@ -2812,7 +2848,13 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
       } else {
         ed = toISO(getWeekEnd());
       }
-      const d = await api("/api/pickups/my-schedule?start_date=" + sd + "&end_date=" + ed, { token });
+      // The API reads the days worked from midnight UTC on the first day
+      // to midnight UTC after the last, which here ends at 8 PM on the
+      // last day. One more day asked for brings a shift started that
+      // evening. The day after shows only where the screen draws it, as
+      // the month's dimmed cell after its last day.
+      const askTo = toISO(addDays(new Date(ed + "T00:00:00"), 1));
+      const d = await api("/api/pickups/my-schedule?start_date=" + sd + "&end_date=" + askTo, { token });
       setData(d); setFailed(false);
     } catch (err) { console.error("Schedule load error:", err); setFailed(true); }
     setLoading(false);
@@ -2860,9 +2902,12 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
     const d = typeof s.scheduled_date === "string" ? s.scheduled_date.slice(0, 10) : s.scheduled_date?.toISOString?.()?.split("T")?.[0];
     return d === ds;
   });
+  // A day worked sits on the day it started here, never on its date in
+  // UTC: a shift started at 8 PM or later in Philadelphia, 7 PM in
+  // winter, is already tomorrow in UTC and showed on tomorrow.
   const getActualForDay = (ds) => data.actual.filter(s => {
-    const d = typeof s.clock_in_time === "string" ? s.clock_in_time.slice(0, 10) : s.clock_in_time?.toISOString?.()?.split("T")?.[0];
-    return d === ds;
+    const at = s.clock_in_time ? new Date(s.clock_in_time) : null;
+    return !!at && !isNaN(at.getTime()) && ymdLocal(at) === ds;
   });
   const getPickupsForDay = (ds) => data.pickups.filter(s => {
     const d = typeof s.scheduled_date === "string" ? s.scheduled_date.slice(0, 10) : s.scheduled_date?.toISOString?.()?.split("T")?.[0];
@@ -2882,7 +2927,8 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   // A chip on the week strip names a shift, a day worked, a pickup or
   // time off. The day around it is the control, so the chip is drawn
   // the way it was as a button of its own, its words centered in the
-  // tap height, and opens nothing itself.
+  // tap height, and opens nothing itself. No word on a chip is drawn
+  // under 9 pixels.
   const chipSt = { display: "flex", flexDirection: "column", justifyContent: "center", width: "100%", minHeight: TAP, padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, textAlign: "left", fontFamily: FONT_HEAD, lineHeight: "normal" };
   // Each kind's colors, shared by its chip and its row on the day's sheet.
   const schedLook = { background: GOLD + "18", color: t.goldText, border: "1px solid " + GOLD + "30" };
@@ -2964,7 +3010,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
 
   return (
     <div style={{ padding: "0 16px 16px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", columnGap: 8, marginBottom: 10 }}>
         <div style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("My Schedule")}</div>
         <div style={{ display: "flex", gap: 4 }}>
           <button onClick={() => setView("week")} style={mkTapFrame()}><span style={viewChip(view === "week")}>{tr("Week")}</span></button>
@@ -3016,25 +3062,25 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                   </div>
                   {sched.map(s => (
                     <div key={s.id} style={{ ...chipSt, ...schedLook }}>
-                      <div>{fmtTm(s.start_time)}{s.end_time ? " - " + fmtTm(s.end_time) : ""}</div>{s.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{s.site_name}</div>}{isDropRequested(s.id) && <div style={{ fontSize: 7, marginTop: 1, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("Drop requested")}</div>}
+                      <div>{fmtTm(s.start_time)}{s.end_time ? " - " + fmtTm(s.end_time) : ""}</div>{s.site_name && <div style={{ fontSize: 9, opacity: 0.8 }}>{s.site_name}</div>}{isDropRequested(s.id) && <div style={{ fontSize: 9, marginTop: 1, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("Drop requested")}</div>}
                     </div>
                   ))}
                   {actual.map(a => (
                     <div key={a.id} style={{ ...chipSt, ...workedLook }}>
-                      <div>{fmtClockTm(a.clock_in_time)}{a.duration_minutes ? tr(" ({h}h)", { h: Math.floor(a.duration_minutes / 60) }) : a.shift_status === "active" ? tr(" (live)") : ""}</div>{a.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{a.site_name}</div>}
+                      <div>{fmtClockTm(a.clock_in_time)}{a.duration_minutes ? tr(" ({h}h)", { h: Math.floor(a.duration_minutes / 60) }) : a.shift_status === "active" ? tr(" (live)") : ""}</div>{a.site_name && <div style={{ fontSize: 9, opacity: 0.8 }}>{a.site_name}</div>}
                     </div>
                   ))}
                   {pickups.map(p => (
                     <div key={p.id} style={{ ...chipSt, ...pickupLook(p) }}>
-                      <div>{fmtTm(p.start_time)} <span style={{ fontSize: 7, textTransform: "uppercase" }}>{p.status === "approved" ? tr("approved") : tr("claimed")}</span></div>
-                      {p.site_name && <div style={{ fontSize: 8, opacity: 0.8 }}>{p.site_name}</div>}
+                      <div>{fmtTm(p.start_time)} <span style={{ fontSize: 9, textTransform: "uppercase" }}>{p.status === "approved" ? tr("approved") : tr("claimed")}</span></div>
+                      {p.site_name && <div style={{ fontSize: 9, opacity: 0.8 }}>{p.site_name}</div>}
                     </div>
                   ))}
                   {dayOff.map(r => (
                     <div key={r.id} style={{ ...chipSt, ...offLook(r) }}>
                       <div>{tr("Time off")}</div>
-                      {r.partDay && r.startTime && <div style={{ fontSize: 8, opacity: 0.9 }}>{fmtTm(r.startTime)}</div>}
-                      {r.status !== "approved" && <div style={{ fontSize: 7, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("requested")}</div>}
+                      {r.partDay && r.startTime && <div style={{ fontSize: 9, opacity: 0.9 }}>{fmtTm(r.startTime)}</div>}
+                      {r.status !== "approved" && <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.3px", opacity: 0.9 }}>{tr("requested")}</div>}
                     </div>
                   ))}
                   {!hasAny && <div style={{ fontSize: 10, color: t.textMut, opacity: 0.3, textAlign: "center", marginTop: 8 }}>-</div>}
@@ -3495,7 +3541,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
       {ci && clockStatus.shift && (
         <div style={{ textAlign: "center", padding: "20px 18px", marginBottom: 16, background: t.card, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
           <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 8, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Time on Site")}</div>
-          <div style={{ fontSize: timerFontSize(40, clockZoom), fontWeight: 600, letterSpacing: "1px", color: t.text, lineHeight: 1, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pad(h)}:{pad(m)}:{pad(s)}</div>
+          <div style={{ fontSize: timerFontCss(40, clockZoom), fontWeight: 600, letterSpacing: "1px", color: t.text, lineHeight: 1, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pad(h)}:{pad(m)}:{pad(s)}</div>
           <div style={{ fontSize: 11, color: t.textSec, marginTop: 8 }}>{sameLocalDay(clockStatus.shift.clockInTime, currentTime) ? tr("Started at {time}", { time: formatTime(clockStatus.shift.clockInTime) }) : tr("Started {day} at {time}", { day: formatDayShort(clockStatus.shift.clockInTime), time: formatTime(clockStatus.shift.clockInTime) })}</div>
           <div style={{ fontSize: 12, color: t.text, marginTop: 4, fontWeight: 600 }}>{clockStatus.shift.siteName}</div>
           {(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.goldText, marginTop: 3 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>}
@@ -4942,7 +4988,7 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToa
         <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Title")}</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder={tr("Brief description")} style={inputSt} /></div>
         <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Details")}</label><textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder={tr("Additional details...")} rows={3} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
         <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Zone")}</label><input value={zone} onChange={e => setZone(e.target.value)} placeholder={tr("e.g. Restroom, Lobby")} style={inputSt} /></div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Severity")}</label><div style={{ display: "flex", gap: 6 }}>{sevs.map(s => (<button key={s.v} onClick={() => setSev(s.v)} style={{ flex: 1, minHeight: TAP, padding: "9px", borderRadius: R.sm, border: sev === s.v ? "2px solid " + s.c : "1px solid " + t.borderSolid, background: sev === s.v ? s.c + "1A" : "transparent", cursor: "pointer", color: s.c, fontSize: 12, fontWeight: 600, textAlign: "center", fontFamily: FONT_HEAD, letterSpacing: "0.3px" }}>{s.l}</button>))}</div></div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Severity")}</label><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{sevs.map(s => (<button key={s.v} onClick={() => setSev(s.v)} style={{ flex: 1, minHeight: TAP, padding: "9px", borderRadius: R.sm, border: sev === s.v ? "2px solid " + s.c : "1px solid " + t.borderSolid, background: sev === s.v ? s.c + "1A" : "transparent", cursor: "pointer", color: s.c, fontSize: 12, fontWeight: 600, textAlign: "center", fontFamily: FONT_HEAD, letterSpacing: "0.3px" }}>{s.l}</button>))}</div></div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Photo")}</label><input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GOLD, borderRadius: R.sm, cursor: "pointer", color: t.goldText, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={t.goldText} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo or Choose from Gallery")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("JPG, PNG up to 10MB")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} /><button onClick={removePhoto} aria-label={tr("Remove photo")} style={mkTapFrame({ position: "absolute", top: -2, right: -2 })}><span style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", color: "#F8F7F4", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</span></button><div style={{ fontSize: 10, color: GREEN, marginTop: 4 }}>{tr("Photo attached:")} {photo?.name}</div></div>)}</div>
         <button onClick={handleSubmit} disabled={uploading} style={{ width: "100%", minHeight: TAP, padding: "13px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Issue")}</button>
       </div>)}
@@ -4966,7 +5012,7 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
       {(reqForm.type === "refill" || reqForm.type === "damage_report") && supplies.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Supply Item")}</label><select value={reqForm.supplyId || ""} onChange={e => setReqForm({ ...reqForm, supplyId: e.target.value || null, itemName: supplies.find(s => s.id === e.target.value)?.name || "" })} style={inputSt}><option value="">{tr("Select supply...")}</option>{supplies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>)}
       {(reqForm.type === "new_gear" || reqForm.type === "new_supply") && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Item Name")}</label><input value={reqForm.itemName} onChange={e => setReqForm({ ...reqForm, itemName: e.target.value })} placeholder={tr("What do you need?")} style={inputSt} /></div>)}
       <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Details")}</label><textarea value={reqForm.description} onChange={e => setReqForm({ ...reqForm, description: e.target.value })} placeholder={tr("Describe the request...")} rows={2} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
-      <div style={{ marginBottom: 12 }}><label style={labelSt}>{tr("Urgency")}</label><div style={{ display: "flex", gap: 6 }}>{(() => { const urgOpts = getOpts("urgency_levels"); const urgColors = lkColorMap("urgency_levels"); const items = urgOpts.length > 0 ? urgOpts.map(o => ({ v: o.v, l: o.l, c: urgColors[o.v] || t.textSec })) : [{ v: "low", l: tr("Low"), c: GREEN }, { v: "normal", l: tr("Normal"), c: t.textSec }, { v: "high", l: tr("High"), c: ORANGE }, { v: "urgent", l: tr("Urgent"), c: RED }]; return items.map(u => (<button key={u.v} onClick={() => setReqForm({ ...reqForm, urgency: u.v })} style={{ flex: 1, minHeight: TAP, padding: "7px", borderRadius: R.sm, border: reqForm.urgency === u.v ? "2px solid " + u.c : "1px solid " + t.borderSolid, background: reqForm.urgency === u.v ? u.c + "1A" : "transparent", color: u.c, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{u.l}</button>)); })()}</div></div>
+      <div style={{ marginBottom: 12 }}><label style={labelSt}>{tr("Urgency")}</label><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{(() => { const urgOpts = getOpts("urgency_levels"); const urgColors = lkColorMap("urgency_levels"); const items = urgOpts.length > 0 ? urgOpts.map(o => ({ v: o.v, l: o.l, c: urgColors[o.v] || t.textSec })) : [{ v: "low", l: tr("Low"), c: GREEN }, { v: "normal", l: tr("Normal"), c: t.textSec }, { v: "high", l: tr("High"), c: ORANGE }, { v: "urgent", l: tr("Urgent"), c: RED }]; return items.map(u => (<button key={u.v} onClick={() => setReqForm({ ...reqForm, urgency: u.v })} style={{ flex: 1, minHeight: TAP, padding: "7px", borderRadius: R.sm, border: reqForm.urgency === u.v ? "2px solid " + u.c : "1px solid " + t.borderSolid, background: reqForm.urgency === u.v ? u.c + "1A" : "transparent", color: u.c, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{u.l}</button>)); })()}</div></div>
       <div style={{ display: "flex", gap: 8 }}><button onClick={() => setReqForm(null)} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={handleSubmitReq} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.sm, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Submit Request")}</button></div>
     </div>
   );
@@ -5636,7 +5682,7 @@ function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize
       <div style={cardSt}>
         <div style={{ ...labelSt, marginBottom: 6 }}>{tr("Appearance")}</div>
         <div style={lineSt}>{tr("Choose how the app looks.")}</div>
-        <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
           {[["light", tr("Light")], ["dark", tr("Dark")]].map(([id, label]) => {
             const picked = themeMode === id;
             return <button key={id} onClick={() => setTheme(id)} aria-label={label} style={pickBtn(picked)}><span style={dot(picked)} />{label}</button>;
@@ -5659,7 +5705,7 @@ function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize
       <div style={cardSt}>
         <div style={{ ...labelSt, marginBottom: 6 }}>{tr("Language")}</div>
         <div style={lineSt}>{tr("The app, Help and report forms use this language.")}</div>
-        <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
           {LANGUAGES.map(l => {
             const picked = language === l.id;
             return <button key={l.id} onClick={() => setLanguage(l.id)} aria-label={l.label} style={pickBtn(picked)}><span style={dot(picked)} />{l.label}</button>;
@@ -7824,7 +7870,7 @@ function PickupView({ token, user, showToast, t }) {
           )}
           {available.map(s => (
             <div key={s.id} style={{ background: t.card, borderRadius: R.md, padding: 14, marginBottom: 10, border: "1px solid " + (s.urgency === "urgent" ? RED + "40" : t.border), boxShadow: t.shadow }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-start", gap: 6, marginBottom: 8 }}>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                     <span style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{s.site_name}</span>

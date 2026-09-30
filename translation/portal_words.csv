@@ -126,7 +126,7 @@ Tap Add to Home screen or Install app.,Toque Agregar a la pantalla de inicio o I
 Tap Add to Home Screen.,Toque Agregar a la pantalla de inicio.,"App wide, the install sheet"
 Tap Add.,Toque Agregar.,"App wide, the install sheet"
 Tap Install below.,Toque Instalar abajo.,"App wide, the install sheet"
-Tap the Share button {share} at the bottom of the screen.,Toque el botón Compartir {share} abajo en la pantalla.,"App wide, the install sheet"
+"Tap Share {share} at the bottom of the screen. If you do not see it, tap the three dots first, then Share.","Toque Compartir {share} abajo en la pantalla. Si no lo ve, toque primero los tres puntos y luego Compartir.","App wide, the install sheet"
 Tap the Share button {share} in the address bar.,Toque el botón Compartir {share} en la barra de direcciones.,"App wide, the install sheet"
 Task completed,Tarea completada,App wide
 Task unchecked,Tarea desmarcada,App wide
