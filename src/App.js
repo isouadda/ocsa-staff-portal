@@ -1,6 +1,6 @@
 import { Component, useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
 import clientConfig from './clientConfig';
-import { tr, dateLocale, setWordsLanguage, wordsLanguage, LANGUAGE_NAMES, offeredLanguages, isOffered, languageToSend } from "./words";
+import { tr, dateLocale, setWordsLanguage, wordsLanguage, LANGUAGE_NAMES, offeredLanguages, offeredFrom, setOfferedLanguages, isOffered, languageToSend } from "./words";
 import { BUILD_STAMP } from "./buildStamp";
 import { detectInstallMode } from "./homeScreenPromptRules";
 
@@ -1153,6 +1153,44 @@ function signedOut(path, language) {
 }
 function saveLanguage(v) { try { window.localStorage.setItem(LANGUAGE_KEY, v); } catch (e) {} }
 
+// Which languages the API speaks, Step 209: GET /api/languages, asked
+// once at start, signed in or out, with no token, since the sign-in
+// screens and the public pages draw the pickers too. It answers
+// { languages: [...] } once the API has the route. Three answers:
+//   a list naming English and Spanish: that list;
+//   a 404, or an answer with no such list (the audit stub answers a
+//   route it does not know with { ok: true }): null, English and Spanish;
+//   no answer at all, no signal or a server fault: undefined, and the
+//   list this phone already holds stays, so a person reading French is
+//   not moved off it by a dropped signal.
+// The answer is handed to src/words.js before anything waiting on it
+// runs. Asked once per page load, however many times the root mounts.
+let languagesAsked = null;
+function askLanguages() {
+  if (languagesAsked) return languagesAsked;
+  languagesAsked = (async () => {
+    let res;
+    try { res = await reach(API + "/api/languages", {}); } catch (e) { return undefined; }
+    if (res.status !== 404 && !res.ok) return undefined;
+    let body = null;
+    if (res.ok) { try { body = await res.json(); } catch (e) { body = null; } }
+    const list = offeredFrom(body && body.languages);
+    setOfferedLanguages(list);
+    return list;
+  })();
+  return languagesAsked;
+}
+// A language the API names for the account before its list is back, the
+// preferredLanguage an emailed link carries: chosen at once when it is
+// offered, the way English and Spanish always have been, and once the
+// list is back when it is one the portal holds, so a French account's
+// link opens in French as soon as the API lists French.
+function chooseWhenOffered(lang, choose) {
+  if (isOffered(lang)) { choose(lang); return; }
+  if (!Object.prototype.hasOwnProperty.call(LANGUAGE_NAMES, String(lang))) return;
+  askLanguages().then(() => { if (isOffered(lang)) choose(lang); });
+}
+
 // Settings belong to the account once the API carries them. Until then each
 // device works on its own exactly as before, and nothing is sent anywhere.
 const PREF_KEYS = ["shortcuts", "textSize", "theme", "language"];
@@ -1586,9 +1624,25 @@ export default function OCSAStaffPortal() {
   // path, so a choice made before signing in is sent up afterwards.
   const toggleTheme = () => setTheme(themeMode === "dark" ? "light" : "dark");
   const [language, setLanguageState] = useState(firstLanguage);
-  // The languages offered, drawn by every picker. Read from this phone
-  // at start (src/words.js).
-  const [languages] = useState(offeredLanguages);
+  // The languages offered, drawn by every picker: the list this phone
+  // kept, and then the API's answer. A language chosen on this phone
+  // stays while the answer offers it. Otherwise the language is worked
+  // out again from the new list the way the first frame works it out:
+  // a phone set to French turns to French once French is offered, and
+  // a person reading French when the answer drops it moves to the
+  // phone's own language, English or Spanish. Nothing is saved for
+  // either, so a French choice kept on this phone comes back if French
+  // does.
+  const [languages, setLanguages] = useState(offeredLanguages);
+  useEffect(() => {
+    let alive = true;
+    askLanguages().then((list) => {
+      if (!alive || list === undefined) return;
+      setLanguages(offeredLanguages());
+      setLanguageState(prev => (isOffered(prev) && storedLanguage() !== null ? prev : firstLanguage()));
+    });
+    return () => { alive = false; };
+  }, []);
   const setLanguage = (v) => { setLanguageState(v); saveLanguage(v); queuePref({ language: v }); };
   // The page says which language it is in, so a screen reader reads it in
   // the right voice and the browser never offers to translate it, and the
@@ -2563,7 +2617,7 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
     let alive = true;
     setPhase("checking");
     api(signedOut("/api/auth/activate/" + encodeURIComponent(token), localeRef.current), { noAuthEvent: true })
-      .then(d => { if (!alive) return; setInfo(d); if (d && isOffered(d.preferredLanguage)) chooseRef.current(d.preferredLanguage); setPhase("form"); })
+      .then(d => { if (!alive) return; setInfo(d); if (d) chooseWhenOffered(d.preferredLanguage, (v) => { if (alive) chooseRef.current(v); }); setPhase("form"); })
       .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(wentNowhere(e) ? ERR_OFFLINE : ERR_GENERIC) }); setPhase("error"); } });
     return () => { alive = false; };
   }, [token, attempt]);
@@ -2679,7 +2733,7 @@ function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
     let alive = true;
     setPhase("checking");
     api(signedOut("/api/auth/reset/" + encodeURIComponent(token), languageRef.current), { noAuthEvent: true })
-      .then(d => { if (!alive) return; setInfo(d); if (d && isOffered(d.preferredLanguage)) chooseRef.current(d.preferredLanguage); setPhase("form"); })
+      .then(d => { if (!alive) return; setInfo(d); if (d) chooseWhenOffered(d.preferredLanguage, (v) => { if (alive) chooseRef.current(v); }); setPhase("form"); })
       .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(wentNowhere(e) ? ERR_OFFLINE : ERR_GENERIC) }); setPhase("error"); } });
     return () => { alive = false; };
   }, [token, attempt]);

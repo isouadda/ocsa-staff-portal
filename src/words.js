@@ -63,6 +63,22 @@ export function offeredLanguages() {
   return offered;
 }
 
+// What the API said it speaks. A list naming English and Spanish is
+// offered from here and kept on this phone. null, the API saying it has
+// no list, puts back English and Spanish and forgets a list kept from an
+// earlier answer, so the next start does not offer what the API no
+// longer lists. The language on the screen falls to English here when
+// it is no longer offered; the portal then moves it to the phone's.
+export function setOfferedLanguages(list) {
+  const next = offeredFrom(list);
+  offered = next || ALWAYS;
+  try {
+    if (next) window.localStorage.setItem(LANGUAGES_KEY, JSON.stringify(next));
+    else if (window.localStorage.getItem(LANGUAGES_KEY) !== null) window.localStorage.removeItem(LANGUAGES_KEY);
+  } catch (e) {}
+  if (!isOffered(current)) current = "en";
+}
+
 export function isOffered(lang) {
   return offered.indexOf(lang) !== -1;
 }
