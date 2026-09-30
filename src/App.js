@@ -4124,17 +4124,24 @@ function chatToOpen(list, last) {
 // "Admin (Private)" and gives no staffUserId. An admin has none; every
 // private chat on an admin's list is a staff member's.
 const isOwnPrivate = (ch) => !!ch && ch.type === "admin_dm" && !ch.staffUserId;
-// The private chats in the order they are drawn: the person's own first,
-// then those with unread messages, then by the newest last message, a
+// Chats with unread messages first, then by the newest last message, a
 // chat never written in after those. Ties keep the order the API sent.
-function privateChatsOf(list) {
-  const all = (Array.isArray(list) ? list : []).filter(ch => ch && ch.id && ch.type === "admin_dm");
+function newestFirst(list) {
   const at = (ch) => { const ms = Date.parse(ch.lastMessageAt); return isNaN(ms) ? 0 : ms; };
-  const others = all.filter(ch => !isOwnPrivate(ch)).map((ch, i) => ({ ch, i }))
+  return list.map((ch, i) => ({ ch, i }))
     .sort((a, b) => ((a.ch.unreadCount > 0 ? 0 : 1) - (b.ch.unreadCount > 0 ? 0 : 1)) || (at(b.ch) - at(a.ch)) || (a.i - b.i))
     .map(x => x.ch);
-  return all.filter(isOwnPrivate).concat(others);
 }
+// The private chats in the order they are drawn: the person's own first,
+// then the rest newest first.
+function privateChatsOf(list) {
+  const all = (Array.isArray(list) ? list : []).filter(ch => ch && ch.id && ch.type === "admin_dm");
+  return all.filter(isOwnPrivate).concat(newestFirst(all.filter(ch => !isOwnPrivate(ch))));
+}
+// An office person's direct chats with other office people (Step 212),
+// each named for the other person, newest first. Nobody else's list
+// carries one.
+const directChatsOf = (list) => newestFirst((Array.isArray(list) ? list : []).filter(ch => ch && ch.id && ch.type === "direct"));
 
 // Office people (Step 212 in the API): an admin or a supervisor, the two
 // roles the API gives every site and every person's private chat. Step
@@ -4279,13 +4286,15 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
     if (sendLanded(messages, fault, user?.id)) { setFault(null); setText(prev => (prev.trim() === fault.text ? "" : prev)); }
   }, [messages]);
   const list = Array.isArray(channels) ? channels : [];
-  // Group chats wrap onto as many lines as they need, and private chats sit
+  // Group chats wrap onto as many lines as they need, an office person's
+  // direct chats wrap under a heading of their own, and private chats sit
   // in a row of their own that scrolls sideways, so every chat on the list
   // can be reached at any width. At the larger text sizes the chats can
   // run taller than the screen, so they take at most a little under half
   // of it and scroll there, and give up their room before the messages
   // do, which always keep a few lines between the chats and the box.
   const siteChannels = list.filter(c => c.type === "site" || c.type === "general");
+  const directs = directChatsOf(list);
   const privates = privateChatsOf(list);
   const active = list.find(c => c.id === activeChannel) || null;
   const isDm = !!active && active.type === "admin_dm";
@@ -4336,7 +4345,8 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
     if (showFault) { retry(); return; }
     send(activeChannel, words, knownIds(), newSendId());
   };
-  // A site chat and the general chat can tag; a private chat cannot.
+  // A site chat, the general chat and a direct chat can tag; a private
+  // chat cannot.
   const canTag = !!active && !isDm;
   const loadMembers = async (id) => {
     setMembers({ of: id, state: "loading", list: [] });
@@ -4406,6 +4416,15 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
       <div style={{ flex: "0 1 auto", maxHeight: "45%", overflowY: "auto", padding: "10px 12px 0", borderBottom: "1px solid " + t.borderSolid, paddingBottom: 10 }}>
         {canStart && (<div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}><button type="button" onClick={() => { setOpenFault(null); setNewQuery(""); setNewOpen(true); }} aria-haspopup="dialog" style={{ display: "inline-flex", alignItems: "center", gap: 6, maxWidth: "100%", minHeight: TAP, padding: "0 14px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, textAlign: "left" }}><PlusIco sz={14} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("New message")}</span></button></div>)}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={activeChannel === ch.id} style={mkTapFrame({ maxWidth: "100%" })}><span style={{ display: "inline-flex", alignItems: "center", padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 600 : 500, fontFamily: FONT_HEAD, textAlign: "left", overflowWrap: "anywhere" }}>{ch.name || ch.siteName}{ch.unreadCount > 0 && <span style={{ marginLeft: 6, background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{badgeText(ch.unreadCount)}</span>}</span></button>))}</div>
+        {directs.length > 0 && (<div style={{ marginBottom: 8 }}>
+          <div id="ocsa-direct-chats" style={{ fontSize: 10, fontWeight: 600, color: t.textMut, textTransform: "uppercase", letterSpacing: "1px", margin: "2px 0 6px", fontFamily: FONT_HEAD }}>{tr("Direct messages")}</div>
+          <div role="group" aria-labelledby="ocsa-direct-chats" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {directs.map((ch) => {
+              const on = activeChannel === ch.id;
+              return (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={on} style={{ flex: "1 1 140px", maxWidth: "100%", minWidth: 0, display: "flex", alignItems: "center", gap: 8, minHeight: TAP, padding: "8px 12px", borderRadius: R.md, background: on ? t.goldBg : t.hover, border: on ? "1.5px solid " + t.goldBorder : "1px solid " + t.borderSolid, boxShadow: on ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><PersonIco sz={12} c={on ? t.goldText : t.textMut} style={{ flexShrink: 0 }} /><div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: on ? 600 : 500, color: on ? t.goldText : t.textSec, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{ch.name}</div>{ch.unreadCount > 0 && <div style={{ background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{badgeText(ch.unreadCount)}</div>}</button>);
+            })}
+          </div>
+        </div>)}
         {privates.length > 0 && (<div>
           <div id="ocsa-private-chats" style={{ fontSize: 10, fontWeight: 600, color: t.textMut, textTransform: "uppercase", letterSpacing: "1px", margin: "2px 0 6px", fontFamily: FONT_HEAD }}>{tr("Private chats")}</div>
           <div role="group" aria-labelledby="ocsa-private-chats" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>

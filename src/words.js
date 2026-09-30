@@ -447,6 +447,7 @@ export const WORDS = {
   "New message": "Mensaje nuevo",
   "Office": "Oficina",
   "That chat did not open. Try again.": "Ese chat no se abri\u00f3. Intente de nuevo.",
+  "Direct messages": "Mensajes directos",
 
   // Help
   "Add a photo": "Agregar una foto",
@@ -1259,6 +1260,7 @@ WORDS.fr = {
   "New message": "Nouveau message",
   "Office": "Bureau",
   "That chat did not open. Try again.": "Cette discussion ne s'est pas ouverte. R\u00e9essayez.",
+  "Direct messages": "Messages directs",
   // Help
   "Add a photo": "Ajouter une photo",
   "Based on": "D'apr\u00e8s",
