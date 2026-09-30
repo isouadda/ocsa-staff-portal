@@ -2294,6 +2294,7 @@ export default function OCSAStaffPortal() {
         <NotificationsSheet
           token={token}
           t={t}
+          locale={language}
           unread={unread}
           onUnreadChanged={setUnread}
           onOpen={openPlace}
@@ -5430,28 +5431,39 @@ function notifOffOrigin(link) {
   } catch (e) { return false; }
 }
 
-function NotificationsSheet({ token, t, unread, onClose, onOpen, onUnreadChanged }) {
+// Notices are read in the screen's language, Step 206: the API renders a
+// notice's title and body in the call's locale when it keeps the notice's
+// keys, and answers the words it stored when it does not. The list names
+// the language itself and is read again from the top when the language
+// changes while the sheet is open; only the latest read is drawn, so a
+// page that arrives in the language just left is dropped.
+function NotificationsSheet({ token, t, locale, unread, onClose, onOpen, onUnreadChanged }) {
   const [rows, setRows] = useState(null);
   const [failed, setFailed] = useState(false);
   const [more, setMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [allBusy, setAllBusy] = useState(false);
   const nowMs = Date.now();
+  const lang = locale === "es" ? "es" : "en";
+  const readSeq = useRef(0);
 
   const load = useCallback(async (before) => {
+    const seq = ++readSeq.current;
     setBusy(true); setFailed(false);
     try {
-      const d = await api("/api/notifications?limit=" + NOTIF_PAGE + (before ? "&before=" + encodeURIComponent(before) : ""), { token });
+      const d = await api("/api/notifications?limit=" + NOTIF_PAGE + (before ? "&before=" + encodeURIComponent(before) : "") + "&locale=" + lang, { token });
+      if (seq !== readSeq.current) return;
       const list = Array.isArray(d && d.notifications) ? d.notifications : [];
       setRows(prev => (before && Array.isArray(prev)) ? prev.concat(list) : list);
       setMore(list.length === NOTIF_PAGE);
       if (d && typeof d.unread === "number") onUnreadChanged(d.unread);
     } catch (err) {
+      if (seq !== readSeq.current) return;
       setFailed(true);
       if (!before) setRows(null);
     }
     setBusy(false);
-  }, [token, onUnreadChanged]);
+  }, [token, lang, onUnreadChanged]);
 
   useEffect(() => { load(null); }, [load]);
 
