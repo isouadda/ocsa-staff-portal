@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { detectInstallMode, readPromptState, writePromptState, shouldShowPrompt } from "./homeScreenPromptRules";
 import { storedZoom } from "./App";
 import { tr } from "./words";
+import clientConfig from "./clientConfig";
 
 // A bottom sheet that shows how to save the app to the home screen, with
 // steps for the phone and browser in use. Mounted once, beside the app.
@@ -22,9 +23,10 @@ const FONT = "-apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, 
 const NAVY = "#0A1628";
 const BLUE = "#15558F";
 const ICON = process.env.PUBLIC_URL + "/icons/icon-192.png";
-// The one place this name is written. It rides into the title as a
-// placeholder so the Spanish line carries no client name of its own.
-const APP_NAME = "OCSA Staff";
+// The name the home screen gives the app, read from the client's config.
+// It rides into the title as a placeholder so the Spanish line carries no
+// client name of its own.
+const APP_NAME = clientConfig.company.appName;
 
 // Which screen the app has up, as it writes it on the document. Only the
 // portal itself, signed in and past Set your PIN, is one the sheet may
@@ -138,7 +140,9 @@ export default function HomeScreenPrompt() {
   const stepsFor = {
     android_prompt: [tr("Tap Install below."), tr("Confirm on the next screen.")],
     android_manual: [tr("Open the browser menu. It is usually three dots at the top right."), tr("Tap Add to Home screen or Install app."), tr("Tap Add or Install.")],
-    ios_safari: [tr("Tap the Share button {share} at the bottom of the screen."), tr("Scroll down and tap Add to Home Screen."), tr("Tap Add.")],
+    // Safari on iOS 26 hides Share behind the three dots unless a person
+    // has chosen the older layout, so the first step names both ways in.
+    ios_safari: [tr("Tap Share {share} at the bottom of the screen. If you do not see it, tap the three dots first, then Share."), tr("Scroll down and tap Add to Home Screen."), tr("Tap Add.")],
     ios_other_browser: [tr("Tap the Share button {share} in the address bar."), tr("Tap Add to Home Screen."), tr("Tap Add.")],
     in_app_browser: [],
   };

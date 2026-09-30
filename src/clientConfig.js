@@ -3,6 +3,9 @@ const clientConfig = {
     name: 'OCSA Cleaning Inc.',
     shortName: 'OCSA Cleaning',
     brandTag: 'OCSA',
+    // The app's name on a home screen, the same as public/manifest.json
+    // and the apple-mobile-web-app-title in public/index.html.
+    appName: 'OCSA Staff',
     location: 'Philadelphia, PA',
     confidentialLabel: 'Confidential Record',
     footerLine: 'OCSA Cleaning Inc. | Philadelphia, PA | Confidential Record',
