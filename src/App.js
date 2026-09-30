@@ -1319,6 +1319,10 @@ function LanguageButton({ t }) {
 // one of the three has gone.
 const TOAST_MS = 3000;
 const TOAST_MAX = 3;
+// An error toast's red. The brand's own red carries white at 3.57 to 1,
+// under the 4.5 to 1 small words need; this one, the badge red light
+// mode already draws, carries it at 5.62 to 1.
+const TOAST_RED = "#C62828";
 function toastQueue(onChange) {
   const q = { shown: [], waiting: [], timers: new Map(), seq: 0 };
   const pump = () => {
@@ -2327,7 +2331,14 @@ export default function OCSAStaffPortal() {
         />
       )}
 
-      {toasts.length > 0 && (<div style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", zIndex: 1000, maxWidth: "90%", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>{toasts.map(x => (<div key={x.id} style={{ background: x.type === "error" ? RED : x.type === "notice" ? ORANGE : GREEN, color: x.type === "notice" ? NAVY : "#F8F7F4", padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", textAlign: "center" }}>{x.msg}</div>))}</div>)}
+      {/* The toasts. The stack is always on the page, empty between
+          toasts, so a screen reader is already listening when one comes
+          and reads it out without moving anyone's place. It takes no
+          taps: a tap on a row under a toast reaches the row. A toast that
+          carries a button of its own gives that button pointerEvents
+          "auto" and nothing else. Success is navy on green and a notice
+          navy on orange; an error is white on the deeper red, 5.6 to 1. */}
+      <div role="status" aria-live="polite" style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", zIndex: 1000, maxWidth: "90%", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, pointerEvents: "none" }}>{toasts.map(x => (<div key={x.id} style={{ background: x.type === "error" ? TOAST_RED : x.type === "notice" ? ORANGE : GREEN, color: x.type === "error" ? "#FFFFFF" : NAVY, padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", textAlign: "center" }}>{x.msg}</div>))}</div>
 
       <style>{`
         @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
