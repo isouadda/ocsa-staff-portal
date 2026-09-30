@@ -2848,7 +2848,13 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
       } else {
         ed = toISO(getWeekEnd());
       }
-      const d = await api("/api/pickups/my-schedule?start_date=" + sd + "&end_date=" + ed, { token });
+      // The API reads the days worked from midnight UTC on the first day
+      // to midnight UTC after the last, which here ends at 8 PM on the
+      // last day. One more day asked for brings a shift started that
+      // evening. The day after shows only where the screen draws it, as
+      // the month's dimmed cell after its last day.
+      const askTo = toISO(addDays(new Date(ed + "T00:00:00"), 1));
+      const d = await api("/api/pickups/my-schedule?start_date=" + sd + "&end_date=" + askTo, { token });
       setData(d); setFailed(false);
     } catch (err) { console.error("Schedule load error:", err); setFailed(true); }
     setLoading(false);
@@ -2896,9 +2902,12 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
     const d = typeof s.scheduled_date === "string" ? s.scheduled_date.slice(0, 10) : s.scheduled_date?.toISOString?.()?.split("T")?.[0];
     return d === ds;
   });
+  // A day worked sits on the day it started here, never on its date in
+  // UTC: a shift started at 8 PM or later in Philadelphia, 7 PM in
+  // winter, is already tomorrow in UTC and showed on tomorrow.
   const getActualForDay = (ds) => data.actual.filter(s => {
-    const d = typeof s.clock_in_time === "string" ? s.clock_in_time.slice(0, 10) : s.clock_in_time?.toISOString?.()?.split("T")?.[0];
-    return d === ds;
+    const at = s.clock_in_time ? new Date(s.clock_in_time) : null;
+    return !!at && !isNaN(at.getTime()) && ymdLocal(at) === ds;
   });
   const getPickupsForDay = (ds) => data.pickups.filter(s => {
     const d = typeof s.scheduled_date === "string" ? s.scheduled_date.slice(0, 10) : s.scheduled_date?.toISOString?.()?.split("T")?.[0];
