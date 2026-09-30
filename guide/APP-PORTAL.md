@@ -386,7 +386,9 @@ Who can do this: anyone
 3. Under **Language** (**Idioma**), tap **English** or **Español**.
 4. The whole portal switches right away, including dates. Help answers in that language, and report forms ask their questions in it. Notices in the bell switch too, except some older ones, which stay in the language they were first written in.
 5. Your choice follows you to any phone or computer you sign in on.
-Words people use for this: espanol, change the language, put it in spanish, idioma.
+6. French comes to the portal once OCSA offers it. From then, **Language** (**Idioma**) lists **Français** too, and the button under **Sign In** (**Iniciar sesión**) names the other two languages and opens a list of all three. A phone set to French opens the portal in French. Until French is offered, the portal shows English and Spanish only.
+If it does not work: if **Français** is not in the list, French is not offered yet. Choose English or Spanish for now.
+Words people use for this: espanol, change the language, put it in spanish, idioma, french, francais, put it in french, langue.
 Last checked: 2026-09-30
 
 ## Change the shortcuts on your bottom bar (staff portal)

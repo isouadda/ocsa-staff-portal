@@ -6722,11 +6722,14 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
 
   // With no shift open, a report is started for a site the person names,
   // Step 206, from the sites GET /api/forms/my-sites answers. It is read
-  // once a visit, as the list loads, and a tap waits on that one read. An
-  // API without the route, or one that answers no sites, starts the
-  // report the way it always has, with no site, and a read that did not
-  // come is asked again on the next tap. With a shift open the shift's
-  // site is the report's, so nothing is asked.
+  // once a visit, on the first Start report that needs it, and every
+  // later tap uses that one read. An API without the route, or one that
+  // answers no sites, starts the report the way it always has, with no
+  // site, and a read that did not come is asked again on the next tap.
+  // With a shift open the shift's site is the report's, so nothing is
+  // asked. Until Step 209 it was read as the list loaded, and the portal
+  // reloading itself for a new version, five seconds into a visit, came
+  // back to Forms and read it a second time.
   const sitesRead = useRef(null);
   const mySites = useCallback(() => {
     if (!sitesRead.current) {
@@ -6737,7 +6740,6 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
     }
     return sitesRead.current;
   }, [token]);
-  useEffect(() => { if (!shiftOpen) mySites(); }, [shiftOpen, mySites]);
 
   // A report already started is handed back by the API whatever site is
   // named, so Continue never asks. One site is picked for the person and
