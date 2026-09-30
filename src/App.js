@@ -2227,7 +2227,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
-              {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
+              {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
               {activeTab === "phonealerts" && <PhoneAlertsView token={token} t={t} onBack={() => setActiveTab("settings")} />}
               {activeTab === "profile" && <MyProfileView token={token} user={user} showToast={showToast} t={t} setUser={setUser} setActiveTab={setActiveTab} />}
@@ -6522,13 +6522,18 @@ function AcknowledgeScreen({ token, t, themeMode }) {
 }
 
 // The list of forms, and the one button on each card.
-function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDraft }) {
+function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, onOpenedDraft }) {
   const [forms, setForms] = useState(null);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
   const [starting, setStarting] = useState(null);
   const [open, setOpen] = useState(null);
+  // The site question, Step 206: the form being started, its title, the
+  // sites offered and the one picked, and what the API said when it
+  // refused the start.
+  const [asking, setAsking] = useState(null);
+  const [siteFault, setSiteFault] = useState(null);
 
   const locale = language === "es" ? "es" : "en";
 
@@ -6591,12 +6596,53 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
     })();
   }, [openDraft, forms, locale, token, openOn, onOpenedDraft, showToast]);
 
-  const startOn = async (code) => {
+  // With no shift open, a report is started for a site the person names,
+  // Step 206, from the sites GET /api/forms/my-sites answers. It is read
+  // once a visit, as the list loads, and a tap waits on that one read. An
+  // API without the route, or one that answers no sites, starts the
+  // report the way it always has, with no site, and a read that did not
+  // come is asked again on the next tap. With a shift open the shift's
+  // site is the report's, so nothing is asked.
+  const sitesRead = useRef(null);
+  const mySites = useCallback(() => {
+    if (!sitesRead.current) {
+      const read = api("/api/forms/my-sites", { token })
+        .then(d => (d && Array.isArray(d.sites) ? d.sites : []).filter(s => s && s.id !== undefined && s.id !== null))
+        .catch(err => { if (!(err && err.status === 404) && sitesRead.current === read) sitesRead.current = null; return []; });
+      sitesRead.current = read;
+    }
+    return sitesRead.current;
+  }, [token]);
+  useEffect(() => { if (!shiftOpen) mySites(); }, [shiftOpen, mySites]);
+
+  // A report already started is handed back by the API whatever site is
+  // named, so Continue never asks. One site is picked for the person and
+  // shown; with more, nothing is picked until they choose.
+  const startOn = async (code, siteId) => {
+    const named = siteId !== undefined && siteId !== null;
     setStarting(code);
     try {
-      const r = await api("/api/forms/" + encodeURIComponent(code) + "/drafts?locale=" + locale, { method: "POST", token });
+      if (!named && !shiftOpen && !draftFor(code)) {
+        const sites = await mySites();
+        if (!alive.current) return;
+        if (sites.length > 0) {
+          const f = (forms || []).find(x => String(x.code) === String(code));
+          setSiteFault(null);
+          setAsking({ code: code, title: f ? f.title : "", sites: sites, siteId: sites.length === 1 ? sites[0].id : null });
+          setStarting(null);
+          try { window.scrollTo(0, 0); } catch (e) {}
+          return;
+        }
+      }
+      const r = await api("/api/forms/" + encodeURIComponent(code) + "/drafts?locale=" + locale, named ? { method: "POST", token, body: { siteId: siteId } } : { method: "POST", token });
+      if (!alive.current) return;
+      setAsking(null);
       openOn(r);
-    } catch (err) { showToast(tr(err.message), "error"); }
+    } catch (err) {
+      // A refusal of the site named, forms.siteNotYours or sites.notFound,
+      // is drawn in the API's words under the picker.
+      if (named) setSiteFault(tr(err.message)); else showToast(tr(err.message), "error");
+    }
     setStarting(null);
   };
 
@@ -6610,6 +6656,36 @@ function FormsView({ token, user, showToast, t, language, openDraft, onOpenedDra
   if (open) {
     const form = open.form || (forms || []).find(f => String(f.code) === String(open.draft.formCode)) || null;
     return <FormFiller token={token} t={t} locale={locale} form={form} draft={open.draft} user={user} onLeave={() => { setOpen(null); load(); }} />;
+  }
+
+  // The form's first screen when no shift is open: which site the report
+  // is for. Drawn the way the shift question is, as a card of choices.
+  if (asking) {
+    const busy = starting === asking.code;
+    const picked = (s) => asking.siteId !== null && String(s.id) === String(asking.siteId);
+    const off = busy || asking.siteId === null;
+    return (
+      <div style={{ padding: 16 }}>
+        <div style={{ background: t.card, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow, padding: "18px 16px" }}>
+          <div style={{ ...titleSt, overflowWrap: "anywhere" }}>{asking.title || tr(FORMS_UNTITLED)}</div>
+          <div id="ocsa-form-site-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, lineHeight: 1.35, fontFamily: FONT_HEAD, marginTop: 14 }}>{tr("Which site is this for?")}</div>
+          <div role="radiogroup" aria-labelledby="ocsa-form-site-title" style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
+            {asking.sites.map(s => {
+              const on = picked(s);
+              return (
+                <button key={String(s.id)} type="button" role="radio" aria-checked={on} disabled={busy} onClick={() => { setAsking(a => (a ? { ...a, siteId: s.id } : a)); setSiteFault(null); }} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: TAP, padding: "11px 14px", borderRadius: R.md, cursor: busy ? "default" : "pointer", textAlign: "left", background: on ? t.goldBg : t.card, border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text }}>
+                  <span style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: on ? GOLD : "transparent", border: on ? "none" : "2px solid " + t.borderSolid }} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: on ? 600 : 500, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{s.name}</span>
+                </button>
+              );
+            })}
+          </div>
+          {siteFault && (<div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 12, padding: "10px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><AlertIco sz={16} c={RED} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0, overflowWrap: "anywhere" }}>{siteFault}</div></div>)}
+          <button type="button" onClick={() => startOn(asking.code, asking.siteId)} disabled={off} style={{ ...mkPrimaryBtn(t, off), minHeight: TAP, marginTop: 14, cursor: off ? "default" : "pointer" }}>{busy ? tr("Opening") : tr("Start report")}</button>
+          <button type="button" onClick={() => { setAsking(null); setSiteFault(null); }} disabled={busy} style={{ width: "100%", minHeight: TAP, marginTop: 10, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>{tr("Back")}</button>
+        </div>
+      </div>
+    );
   }
 
   return (
