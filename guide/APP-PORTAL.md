@@ -286,16 +286,17 @@ Last checked: 2026-09-30
 Who can do this: anyone signed in
 1. Tap **More** (**Más**), then **Forms** (**Formularios**).
 2. Tap **Start report** (**Comenzar reporte**) on the report you need, or **Continue** (**Continuar**) on one you already started.
-3. Answer the questions on each page and tap **Next** (**Siguiente**). New questions appear when an answer needs them. Your answers save each time you tap **Next** (**Siguiente**) or **Back** (**Atrás**).
-4. On **Review** (**Revisar**), check your answers. Anything under **These still need an answer** (**Estas todavía necesitan respuesta**) must be filled first. Tap **Edit** (**Editar**) to change a section.
-5. Tap **Submit report** (**Enviar reporte**), then **Send it** (**Enviarlo**). The people who handle these reports are told.
-If it does not work: if it says your answers are not saved yet, check your signal and tap **Next** (**Siguiente**) again.
-Words people use for this: i got hurt, someone got hurt, injury, accident, blood, needle, spill report, incident.
-Last checked: 2026-09-22
+3. With no shift open, a new report first asks **Which site is this for?** (**¿Para qué sitio es este reporte?**). Staff see the sites they are assigned to; supervisors and admins see every active site. Tap the site, then **Start report** (**Comenzar reporte**). With one site, it is already picked. **Back** (**Atrás**) returns to the list. With a shift open, the report goes to that shift's site and nothing is asked.
+4. Answer the questions on each page and tap **Next** (**Siguiente**). New questions appear when an answer needs them. Your answers save each time you tap **Next** (**Siguiente**) or **Back** (**Atrás**).
+5. On **Review** (**Revisar**), check your answers. Anything under **These still need an answer** (**Estas todavía necesitan respuesta**) must be filled first. Tap **Edit** (**Editar**) to change a section.
+6. Tap **Submit report** (**Enviar reporte**), then **Send it** (**Enviarlo**). The people who handle these reports are told.
+If it does not work: if it says your answers are not saved yet, check your signal and tap **Next** (**Siguiente**) again. If a red line under the sites says that site cannot be used, pick another or ask your supervisor.
+Words people use for this: i got hurt, someone got hurt, injury, accident, blood, needle, spill report, incident, which site, no shift open.
+Last checked: 2026-09-30
 
 ## Fill in the daily service log (staff portal)
 Who can do this: anyone signed in. In practice the crew lead, at the end of every shift, one log per site per shift.
-1. Start your shift at the site first, so the log carries the site's name.
+1. Start your shift at the site first, so the log carries the site's name. With no shift open, the log first asks **Which site is this for?** (**¿Para qué sitio es este reporte?**): tap the site, then **Start report** (**Comenzar reporte**), and the log carries that site's name.
 2. Tap **More** (**Más**), then **Forms** (**Formularios**).
 3. On **Daily Service Log** (**Registro diario de servicio**), tap **Start report** (**Comenzar reporte**), or **Continue** (**Continuar**) to finish one already started.
 4. Answer each section and tap **Next** (**Siguiente**). On a checklist, tap one answer for every item. Under **What was not done** (**Lo que no se hizo**), tap **Add row** (**Agregar fila**) for each thing left for the next shift.
@@ -307,13 +308,13 @@ Last checked: 2026-09-30
 
 ## Fill in the monthly PPE check (staff portal)
 Who can do this: supervisors and admins, once a month per site. Cleaners do not see this form.
-1. Start your shift at the site first, so the check carries the site's name.
+1. Start your shift at the site first, so the check carries the site's name. With no shift open, the check first asks **Which site is this for?** (**¿Para qué sitio es este reporte?**): tap the site, then **Start report** (**Comenzar reporte**), and the check carries that site's name.
 2. Tap **More** (**Más**), then **Forms** (**Formularios**).
 3. On **PPE Compliance Log, monthly check** (**Registro de cumplimiento de EPP, revisión mensual**), tap **Start report** (**Comenzar reporte**), or **Continue** (**Continuar**) to finish one already started.
 4. Answer each section and tap **Next** (**Siguiente**). Under **Wear checks** (**Revisiones de uso**), tap **Add row** (**Agregar fila**) for each check, at least two. Under **Problems this month** (**Problemas de este mes**), add a row for each problem.
 5. On the last section, tap **Sign** (**Firmar**) under **Site supervisor** (**Supervisor del sitio**), draw your signature with your finger in the sheet that opens, and tap **Sign** (**Firmar**) there.
 6. Tap **Next** (**Siguiente**), check the answers, tap **Submit report** (**Enviar reporte**), then **Send it** (**Enviarlo**).
-If it does not work: with no shift open at the site, the check is filed with no site.
+If it does not work: a red line under the sites says why that site cannot be named; pick another, or start your shift at the site.
 Words people use for this: ppe check, protective equipment, gloves check, goggles, monthly safety check, wear checks.
 Last checked: 2026-09-30
 
@@ -356,7 +357,9 @@ Who can do this: anyone signed in
 2. Tap a notice to open what it is about. A chat notice opens that chat; an announcement opens the **Announcement** (**Anuncio**) with the title, the message, **From {name}** (**De {name}**) and when it was sent.
 3. Tap **Mark all read** (**Marcar todas como leídas**) to clear the number.
 The bell keeps every notice, even the ones your phone does not buzz for.
-Last checked: 2026-09-28
+Notices show in the language the app is set to, and switch when you switch it. Some older notices stay in the language they were first written in.
+Words people use for this: notifications, the bell, unread notices, notices in the wrong language, notices in english, notificaciones.
+Last checked: 2026-09-30
 
 ## Make the text bigger (staff portal)
 Who can do this: anyone
@@ -381,10 +384,10 @@ Who can do this: anyone
 1. Before you sign in, tap **Español** or **English** under **Sign In** (**Iniciar sesión**). Until you choose, the portal follows your phone's language.
 2. Once signed in, tap the gear at the top right to open **Settings** (**Ajustes**).
 3. Under **Language** (**Idioma**), tap **English** or **Español**.
-4. The whole portal switches right away, including dates. Help answers in that language, and report forms ask their questions in it.
+4. The whole portal switches right away, including dates. Help answers in that language, and report forms ask their questions in it. Notices in the bell switch too, except some older ones, which stay in the language they were first written in.
 5. Your choice follows you to any phone or computer you sign in on.
 Words people use for this: espanol, change the language, put it in spanish, idioma.
-Last checked: 2026-09-22
+Last checked: 2026-09-30
 
 ## Change the shortcuts on your bottom bar (staff portal)
 Who can do this: anyone signed in
@@ -493,20 +496,20 @@ Last checked: 2026-09-26
 
 ## Log a customer complaint (staff portal)
 Who can do this: supervisors and admins, the same day the complaint comes in. Cleaners do not see this form; a cleaner who hears a complaint tells their supervisor.
-1. Tap **More** (**Más**), then **Forms** (**Formularios**). You do not need a shift open: the form asks which site.
-2. On **Customer Complaint Log** (**Registro de quejas de clientes**), tap **Start report** (**Comenzar reporte**), or **Continue** (**Continuar**) to finish one already started.
+1. Tap **More** (**Más**), then **Forms** (**Formularios**). You do not need a shift open.
+2. On **Customer Complaint Log** (**Registro de quejas de clientes**), tap **Start report** (**Comenzar reporte**), or **Continue** (**Continuar**) to finish one already started. With no shift open, a new one first asks **Which site is this for?** (**¿Para qué sitio es este reporte?**): tap the site, then **Start report** (**Comenzar reporte**). The form also asks for the site by name in its first section.
 3. Under **The complaint** (**La queja**): the site, the date and time it came in, how it came in, the customer or company, the contact, the area affected, what the customer said, in their words, and what they want done. Tap **Next** (**Siguiente**).
 4. Under **Type and urgency** (**Tipo y urgencia**): what kind of complaint it is, how urgent it is, who is handling it, and whether the customer heard back from us the same working day. Critical means health or safety, a chemical smell, an unsecured building or a risk to the contract; go by how the customer sees it. The site supervisor normally handles it; if the complaint is about that supervisor, the Field Lead does. Tap **Next** (**Siguiente**).
 5. Check the answers, tap **Submit report** (**Enviar reporte**), then **Send it** (**Enviarlo**). There is no sign-off before sending. The app fills in who logged it.
 6. **What was done** (**Lo que se hizo**) is the supervisor section. A supervisor or admin other than you fills it in on the admin dashboard and signs **Complaint closed** (**Queja cerrada**).
 If it does not work: **Submit report** (**Enviar reporte**) stays off until every required answer is in, and **These still need an answer** (**Estas todavía necesitan respuesta**) lists what is left.
 Words people use for this: customer complaint, complaint log, a client complained, tenant complained, building management complained, log a complaint, queja de cliente, registro de quejas, cliente se quejó.
-Last checked: 2026-09-26
+Last checked: 2026-09-30
 
 ## Do a safety inspection (staff portal)
 Who can do this: supervisors and admins, monthly at every site and once a quarter unannounced. Cleaners do not see this form.
-1. Tap **More** (**Más**), then **Forms** (**Formularios**). You do not need a shift open: the form asks which site.
-2. On **Safety Inspection Checklist** (**Lista de inspección de seguridad**), tap **Start report** (**Comenzar reporte**), or **Continue** (**Continuar**) to finish one already started. The form is six screens; **Next** (**Siguiente**) and **Back** (**Atrás**) move between them.
+1. Tap **More** (**Más**), then **Forms** (**Formularios**). You do not need a shift open.
+2. On **Safety Inspection Checklist** (**Lista de inspección de seguridad**), tap **Start report** (**Comenzar reporte**), or **Continue** (**Continuar**) to finish one already started. With no shift open, a new one first asks **Which site is this for?** (**¿Para qué sitio es este reporte?**): tap the site, then **Start report** (**Comenzar reporte**). The form also asks for the site by name in its first section. The form is six screens; **Next** (**Siguiente**) and **Back** (**Atrás**) move between them.
 3. **The inspection** (**La inspección**): the site, what kind of inspection it is, who came with you, the areas covered and anything you could not get into, and the date of the previous inspection.
 4. **The checklist** (**La lista**): fifteen areas, from chemical storage to documentation. Under each one, read what to check, then tap **Pass** (**Cumple**), **Fail** (**No cumple**) or **Not applicable** (**No aplica**). Every area must be answered; a blank one means it was never looked at. Mark Vehicles Not applicable if the site has no vehicle.
 5. **What the crew said** (**Lo que dijo el equipo**): ask at least two people on shift what they would change about safety, and tap **Add row** (**Agregar fila**) for each: their role, what they said in their words, and what was done about it. Two rows at least, or the form will not send.
@@ -531,8 +534,8 @@ Last checked: 2026-09-26
 
 ## Raise a corrective action (staff portal)
 Who can do this: supervisors and admins, when the same defect keeps happening. Cleaners do not see this form.
-1. Tap **More** (**Más**), then **Forms** (**Formularios**). You do not need a shift open: the form asks which site.
-2. On **Corrective Action Report** (**Reporte de acción correctiva**), tap **Start report** (**Comenzar reporte**), or **Continue** (**Continuar**) to finish one already started. The form is three screens; **Next** (**Siguiente**) and **Back** (**Atrás**) move between them.
+1. Tap **More** (**Más**), then **Forms** (**Formularios**). You do not need a shift open.
+2. On **Corrective Action Report** (**Reporte de acción correctiva**), tap **Start report** (**Comenzar reporte**), or **Continue** (**Continuar**) to finish one already started. With no shift open, a new one first asks **Which site is this for?** (**¿Para qué sitio es este reporte?**): tap the site, then **Start report** (**Comenzar reporte**). The form also asks for the site by name in its first section. The form is three screens; **Next** (**Siguiente**) and **Back** (**Atrás**) move between them.
 3. **What triggered this** (**Qué lo originó**): the site, the customer, what triggered it (a repeat complaint, a failed inspection, a safety event, a pattern across sites), where it is on record, what has been happening and how often, and what was already done to fix the defect itself. Fixing the defect is the immediate correction; this form records what stops it happening again.
 4. **The cause** (**La causa**): ask why until the answer is something OCSA can change. Three whys are required and two more are there if you need them. Then pick where the cause sits (method, training, staffing or time, equipment, scope, supervision, communication, site condition) and write the root cause in one sentence.
 5. **The action** (**La acción**): tap **Add row** (**Agregar fila**) for each thing that will change, with one owner and a due date. Answer whether it changes a document, whether anyone needs retraining, and whether the same cause could exist at other sites. Then tap **Sign** (**Firmar**) under **Raised by** (**Levantado por**), draw your signature with your finger in the sheet that opens, and tap **Sign** (**Firmar**) there.
@@ -553,8 +556,8 @@ Last checked: 2026-09-26
 
 ## Do an environmental audit (staff portal)
 Who can do this: supervisors and admins, twice a year at every site, with the site supervisor present. Cleaners do not see this form.
-1. Tap **More** (**Más**), then **Forms** (**Formularios**). You do not need a shift open: the form asks which site.
-2. On **Environmental Compliance Audit** (**Auditoría de cumplimiento ambiental**), tap **Start report** (**Comenzar reporte**), or **Continue** (**Continuar**) to finish one already started. The form is five screens; **Next** (**Siguiente**) and **Back** (**Atrás**) move between them.
+1. Tap **More** (**Más**), then **Forms** (**Formularios**). You do not need a shift open.
+2. On **Environmental Compliance Audit** (**Auditoría de cumplimiento ambiental**), tap **Start report** (**Comenzar reporte**), or **Continue** (**Continuar**) to finish one already started. With no shift open, a new one first asks **Which site is this for?** (**¿Para qué sitio es este reporte?**): tap the site, then **Start report** (**Comenzar reporte**). The form also asks for the site by name in its first section. The form is five screens; **Next** (**Siguiente**) and **Back** (**Atrás**) move between them.
 3. **The audit** (**La auditoría**): the site, who was with you, the period covered since the previous audit, and the date of the previous audit.
 4. **What was checked** (**Lo que se revisó**): seventeen areas, from the site profile to the records. Under each one, read what to check, then tap **Pass** (**Cumple**), **Fail** (**No cumple**) or **Not applicable** (**No aplica**). Every area must be answered. For wash water, ask the crew where they pour a mop bucket and have them show you.
 5. **Findings** (**Hallazgos**): tap **Add row** (**Agregar fila**) for every area you marked Fail, and for anything you fixed on the spot: where and what, the severity A, B, C or D (the meaning of each is written above the table), one owner by name, and a due date. Then answer whether any discharge was found or suspected, and if so who was called during the shift and when.

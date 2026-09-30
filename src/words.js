@@ -636,6 +636,7 @@ export const WORDS = {
   "Sign with your finger": "Firme con el dedo",
   "Signed by {name} on {date} at {time}": "Firmado por {name} el {date} a las {time}",
   "Start report": "Comenzar reporte",
+  "Which site is this for?": "\u00bfPara qu\u00e9 sitio es este reporte?",
   "Take photo or choose from gallery": "Tomar foto o elegir de la galer\u00eda",
   "These still need an answer": "Estas todav\u00eda necesitan respuesta",
   "This question cannot be answered here yet. Your supervisor will finish it.": "Esta pregunta todav\u00eda no se puede responder aqu\u00ed. Su supervisor la completar\u00e1.",
