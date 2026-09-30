@@ -24,7 +24,6 @@
 # from ocsa-api translation/api_words.csv.
 **You do not have access to this chat.** (**No tiene acceso a este chat.**)
 **This chat was not found.** (**No se encontr\u00f3 este chat.**)
-**Type a message first.** (**Escriba un mensaje primero.**)
 
 # Served by the API: the words of the forms Daily Service Log and PPE
 # Compliance Log, drawn as the API sends them, from ocsa-api
@@ -212,16 +211,6 @@
 **Summary** (**Resumen**)
 **Employee signature** (**Firma del empleado**)
 **Employee Performance Evaluation** (**Evaluaci\u00f3n del desempe\u00f1o del empleado**)
-**The review** (**La evaluaci\u00f3n**)
-**Ratings** (**Calificaciones**)
-**Rating** (**Calificaci\u00f3n**)
-**Meets the standard** (**Cumple el est\u00e1ndar**)
-**Is this person a supervisor?** (**\u00bfEsta persona es supervisor?**)
-**Safety performance of the crew** (**Desempe\u00f1o de seguridad del equipo**)
-**Overall rating** (**Calificaci\u00f3n general**)
-**Outcome of a probationary review** (**Resultado de la evaluaci\u00f3n del per\u00edodo de prueba**)
-**Employee comments** (**Comentarios del empleado**)
-**Reviewed by** (**Evaluado por**)
 
 # Served by the API: the words of the form Site-Specific Orientation Checklist, drawn as the
 # API sends them, from ocsa-api translation/forms_site_orientation_checklist_spanish.csv.

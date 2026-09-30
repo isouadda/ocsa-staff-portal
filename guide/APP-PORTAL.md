@@ -11,15 +11,15 @@ Words people use for this: cannot log in, cannot get in, my pin does not work, l
 Last checked: 2026-09-28
 
 ## Reset a forgotten PIN (staff portal)
-Who can do this: anyone with an account and an email or phone on file
+Who can do this: anyone with an account and an email address on file
 1. On the sign in screen, tap **Forgot your PIN?** (**¿Olvidó su PIN?**).
-2. Type your badge number, phone number or email.
-3. Tap **Send Reset Link** (**Enviar enlace**).
-4. Open the link in the email you receive. It opens in the language your account is set to, and **Español** or **English** at the bottom of the card switches it.
-5. Type a new 4 digit PIN in **New PIN (4 digits)** (**PIN nuevo (4 dígitos)**) and tap **Save PIN** (**Guardar PIN**).
-If it does not work: a PIN that is not 4 digits reads **PIN must be exactly 4 digits.** (**El PIN debe tener exactamente 4 dígitos.**) Links expire and work only once. Tap **Request a New Link** (**Pedir un enlace nuevo**), or ask your supervisor to reset your PIN from the dashboard.
-Words people use for this: forgot my pin, lost my pin, i need a new pin, locked out.
-Last checked: 2026-09-22
+2. Type your badge number, phone number or email, and tap **Send Reset Link** (**Enviar enlace**). If that matches an account, a link is on its way by email. The link is good for one hour.
+3. Open the link in the email you receive. It opens in the language your account is set to, and **Español** or **English** at the bottom of the card switches it.
+4. Type a new 4 digit PIN in **New PIN (4 digits)** (**PIN nuevo (4 dígitos)**), type the same 4 digits again in **Confirm PIN** (**Confirmar PIN**), and tap **Save PIN** (**Guardar PIN**).
+5. **PIN saved. Signing you in...** (**PIN guardado. Iniciando su sesión...**) shows, and the app opens signed in.
+If it does not work: a PIN that is not 4 digits reads **PIN must be exactly 4 digits.** (**El PIN debe tener exactamente 4 dígitos.**) under New PIN. When the two boxes differ, **The two PINs do not match. Type the same 4 digits in both fields.** (**Los dos PIN no coinciden. Escriba los mismos 4 dígitos en las dos casillas.**) shows under **Confirm PIN** (**Confirmar PIN**): type the same PIN in both. With no email on file, no link can reach you, as the screen says under the box: **No email on file? A link cannot reach you. Ask your supervisor to reset your PIN.** (**¿No tiene correo registrado? No le puede llegar un enlace. Pida a su supervisor que restablezca su PIN.**) Links expire and work only once. An old link reads **This link is no longer valid. Links expire, and each one can only be used once.** (**Este enlace ya no sirve. Los enlaces vencen y cada uno se puede usar una sola vez.**) Tap **Request a New Link** (**Pedir un enlace nuevo**), or ask your supervisor to reset your PIN from the dashboard.
+Words people use for this: forgot my pin, lost my pin, i need a new pin, locked out, reset link, confirm pin, the pins do not match, no email.
+Last checked: 2026-09-30
 
 ## Register as a new employee (staff portal)
 Who can do this: a new employee without an account
@@ -33,12 +33,14 @@ Last checked: 2026-09-22
 
 ## Activate your account from the email (staff portal)
 Who can do this: someone who received an activation email
-1. Open the link in your activation email. It opens in the language your account is set to.
-2. In **Badge Number** (**Número de empleado**), type the badge number from the email.
-3. Choose a 4 digit PIN, and pick your **Language** (**Idioma**). The whole screen switches as you tap.
-4. Tap **Activate Account** (**Activar cuenta**).
-If it does not work: a missing badge number reads **Enter the badge number from your email.** (**Escriba el número de empleado que aparece en su correo.**) Open the link from the email again, or ask your supervisor to send a new one. Each link works only once.
-Last checked: 2026-09-22
+1. Open the link in your activation email. When your account has a language set, the screen opens in it.
+2. In **Badge Number** (**Número de empleado**), type the badge number from the email. An account with no badge number yet is not asked for one.
+3. Type a 4 digit PIN in **PIN (4 digits)** (**PIN (4 dígitos)**) and the same 4 digits again in **Confirm PIN** (**Confirmar PIN**). A PIN cannot be four of the same digit, digits in a row such as 1234, or your badge number or its last four digits.
+4. Pick your **Language** (**Idioma**). The whole screen switches as you tap.
+5. Tap **Activate Account** (**Activar cuenta**). **PIN set. Signing you in...** (**PIN guardado. Iniciando su sesión...**) shows, and the app opens signed in.
+If it does not work: a missing badge number reads **Enter the badge number from your email.** (**Escriba el número de empleado que aparece en su correo.**) A badge number that does not match shows OCSA's reason under the box, and from the third try **Ask your supervisor to confirm your badge number.** (**Pida a su supervisor que confirme su número de empleado.**) A PIN the rules turn away says why under it, and two PINs that differ read **The two PINs do not match. Type the same 4 digits in both fields.** (**Los dos PIN no coinciden. Escriba los mismos 4 dígitos en las dos casillas.**) A used or expired link reads **This link is no longer valid. Links expire, and each one can only be used once.** (**Este enlace ya no sirve. Los enlaces vencen y cada uno se puede usar una sola vez.**): ask your supervisor to send a new one. **Your PIN has been saved. Signing in will work once your account is active.** (**Su PIN se guardó. Podrá iniciar sesión cuando su cuenta esté activa.**) means your supervisor still has to turn your account on.
+Words people use for this: activate my account, activation email, badge number does not match, set up my account, my link does not work, activar cuenta.
+Last checked: 2026-09-30
 
 ## Sign out (staff portal)
 Who can do this: anyone signed in
@@ -50,14 +52,14 @@ Last checked: 2026-09-22
 ## Start your shift at a site (staff portal)
 Who can do this: anyone signed in
 1. Tap **Home** (**Inicio**) on the bottom bar.
-2. Under **Choose a Site to Start** (**Elija un sitio para comenzar**), tap the site you are working at.
-3. Tap **Start Shift at** (**Comenzar turno en**) followed by the site name.
+2. Under **Choose a Site to Start** (**Elija un sitio para comenzar**), tap the site you are working at. Your sites are grouped under **Scheduled Today** (**Programado para hoy**), **Your Assigned Sites** (**Sus sitios asignados**) and **All Other Sites** (**Todos los demás sitios**). A tap only chooses the site.
+3. Tap **Start Shift at** (**Comenzar turno en**) followed by the site name. **Shift started** (**Turno iniciado**) says it began, and the app opens **Tasks** (**Tareas**).
 4. At a site with more than one shift, **Tasks** (**Tareas**) asks **Which shift are you working?** (**¿Qué turno está trabajando?**), each shift with its hours under it. The shift your start time falls in is already chosen. Tap another if it is wrong, then tap **Use this shift** (**Usar este turno**). At a site with one shift or none, nothing is asked.
 5. Your checklist for that site loads under **Tasks** (**Tareas**) for the shift you chose: your own tasks if a manager linked you to some, and the site's whole checklist if not. The bar under **Time on Site** (**Tiempo en el sitio**) on Home counts today's work on that same list.
 Starting a shift here opens your task list. Your hours for pay are recorded on the ADP tablet at the site, so clock in there too. See clocking in on the ADP tablet in the ADP guide.
-If it does not work: if no sites show, ask your supervisor to assign you to the site. If the shift question says it could not reach OCSA, check your signal and tap **Try again** (**Intentar de nuevo**).
-Words people use for this: clock in, punch in, start work, begin my shift, log my hours, which shift, day shift, night shift.
-Last checked: 2026-09-23
+If it does not work: if Home says **Your sites did not load.** (**Sus sitios no se cargaron.**), check your signal and tap **Try again** (**Intentar de nuevo**) under it. If it says **No sites available yet.** (**Todavía no hay sitios disponibles.**), ask your supervisor to assign you to the site. If a line says **A shift is still open at {site}. End it before starting another.** (**Todavía hay un turno abierto en {site}. Termínelo antes de comenzar otro.**), a shift of yours is still open at that site: end it on Home first (see End your shift), then start this one. If the shift question says it could not reach OCSA, check your signal and tap **Try again** (**Intentar de nuevo**).
+Words people use for this: clock in, punch in, start work, begin my shift, log my hours, which shift, day shift, night shift, my sites did not load, a shift is still open.
+Last checked: 2026-09-30
 
 ## Change your shift (staff portal)
 Who can do this: anyone with a shift started at a site that has more than one shift
@@ -70,21 +72,24 @@ Last checked: 2026-09-23
 ## End your shift (staff portal)
 Who can do this: anyone with a shift started
 1. Tap **Home** (**Inicio**).
-2. Tap **End Shift** (**Terminar turno**).
+2. On the **Time on Site** (**Tiempo en el sitio**) card, tap **End Shift** (**Terminar turno**).
+3. The phone asks **End your shift at {site}?** (**¿Terminar su turno en {site}?**) with the site's name. Tap OK to end it, or Cancel to keep it open.
+4. **Shift ended at {time}** (**Turno terminado a las {time}**) says when it ended, and Home shows your sites again.
 Clock out on the ADP tablet at the site too, since that is where your hours for pay are recorded.
-Words people use for this: clock out, punch out, finish work, end my day.
-Last checked: 2026-09-22
+If it does not work: **This shift was already ended** (**Este turno ya estaba terminado**) means it was ended on another phone or by a supervisor. **Could not find your open shift. Reload and try again.** (**No se encontró su turno abierto. Recargue e intente de nuevo.**) means the app lost track of it: close the app, open it again and tap **End Shift** (**Terminar turno**).
+Words people use for this: clock out, punch out, finish work, end my day, end shift question, it asks if i want to end.
+Last checked: 2026-09-30
 
 ## Check off a task on your checklist (staff portal)
 Who can do this: anyone with a shift started
 1. Start your shift at the site first.
 2. Tap **Tasks** (**Tareas**) on the bottom bar. If a manager linked you to particular tasks, you see just those. If not, you see the site's whole checklist for your shift, and a task anyone at the site checked today shows as checked for everyone there.
-3. Tap the box next to the task. It turns green when it is done. The app saves the exact time you checked it.
-4. For a task with instructions, a photo or a video, tap the task to open it, then tap **Mark Complete** (**Marcar como completada**).
+3. Tap the box next to the task. It turns green when it is done, and **Task completed** (**Tarea completada**) says so. The app saves the exact time you checked it.
+4. A blue dot after a task's name means the task has details: instructions, a photo or a video. A tap on the name of a task with a blue dot opens its details, where you tap **Mark Complete** (**Marcar como completada**) (see See a checklist task's details). A tap on the name of a task with no dot checks it, the same as the box.
 How the list is laid out: the list opens on **Today** (**Hoy**), today's work, with each block of work titled with its time first, such as 7:00 PM Restroom Round 1, then each building and floor as before. The percentage on **Your Assignment** (**Su asignación**), and the count on Home, count only the work due today. Below it, when there is any, come **This week** (**Esta semana**), **Every two weeks** (**Cada dos semanas**), **This month** (**Este mes**), **This quarter** (**Este trimestre**) and **This season** (**Esta temporada**), each with its own count, such as 1 of 2 done (1 de 2 hechas). That work stays on the list until anyone at the site does it in its period, and then says who did it and when, such as Done Tuesday by Ana (Hecho el martes por Ana). Last comes **As needed** (**Según se necesite**), which is never counted. A task done every other day that was done yesterday shows done and does not count today. A coworker's check today shows Checked by (Marcado por) and their first name. The day's list starts fresh at 4:00 AM, so a night shift's checks after midnight stay on that night's list, and work done before midnight still says Done today (Hecho hoy) until 4:00 AM. Task, zone, shift and block names show in Spanish on a Spanish screen.
 If it does not work: if the list says **Start your shift to see and check off your tasks.** (**Comience su turno para ver y marcar sus tareas.**), start your shift first. If it says **Your tasks did not load.** (**Sus tareas no cargaron.**), tap **Try again** (**Intentar de nuevo**).
-Words people use for this: my checklist, my tasks, my list, the list is empty, what do i clean today, whole site checklist, my coworker checked it, weekly tasks, monthly tasks, the percentage is wrong, why is it not 100, it says done yesterday.
-Last checked: 2026-09-29
+Words people use for this: my checklist, my tasks, my list, the list is empty, what do i clean today, whole site checklist, my coworker checked it, weekly tasks, monthly tasks, the percentage is wrong, why is it not 100, it says done yesterday, blue dot, tap the name, task details.
+Last checked: 2026-09-30
 
 ## Uncheck a task checked by mistake (staff portal)
 Who can do this: the person who checked it, the same day
@@ -126,11 +131,14 @@ Words people use for this: extra hours, extra shift, more work, open shifts, cov
 Last checked: 2026-09-22
 
 ## Release a shift you picked up (staff portal)
-Who can do this: the person who claimed the shift
+Who can do this: the person who claimed the shift, while it waits for a manager's approval
 1. Tap **More** (**Más**), then **Pickup** (**Turnos libres**).
 2. Tap **My Pickups** (**Los míos**).
-3. Tap **Release Shift** (**Soltar turno**) on that shift, and confirm.
-Last checked: 2026-09-22
+3. A shift still waiting says **Waiting for manager approval** (**Esperando la aprobación del gerente**), with **Release Shift** (**Soltar turno**) under it. Tap **Release Shift** (**Soltar turno**).
+4. The phone asks **Release this shift? It will go back to the open pool for someone else to claim.** (**¿Soltar este turno? Volverá a la lista abierta para que otra persona lo tome.**) Tap OK. **Shift released** (**Turno soltado**) says it went back.
+Once a manager approves it, the shift says **Approved. You are scheduled for this shift.** (**Aprobado. Está programado para este turno.**) and **Release Shift** (**Soltar turno**) is gone. To give up an approved shift, ask your supervisor.
+Words people use for this: give back a pickup, release a shift, i cannot work the shift i picked up, cancel a pickup, soltar turno.
+Last checked: 2026-09-30
 
 ## Finish a task assigned to you (staff portal)
 Who can do this: the person the task is assigned to
@@ -152,26 +160,28 @@ Who can do this: the person the task is assigned to
 Last checked: 2026-09-22
 
 ## Report a problem at a site (staff portal)
-Who can do this: anyone signed in
-1. Tap **More** (**Más**), then **Report** (**Reportar**).
-2. Under **Report an Issue** (**Reportar un problema**), choose the site.
-3. Give it a short title, and add details.
-4. Choose the zone and the severity.
-5. To add a picture, tap **Take Photo or Choose from Gallery** (**Tomar foto o elegir de la galería**).
-6. Tap **Submit Issue** (**Enviar problema**). The people set to hear about problems are told.
-Words people use for this: something is broken, report an issue, maintenance problem, report damage, something happened at my site.
-Last checked: 2026-09-22
+Who can do this: anyone signed in. Supervisors and admins also see the list of problems reported.
+1. Tap **More** (**Más**), then **Report** (**Reportar**). The form **Report an Issue** (**Reportar un problema**) is open. Supervisors and admins tap **Issues** (**Problemas**) instead, which lists the problems reported, then **+ Report** (**+ Reportar**) to open the form; **Cancel** (**Cancelar**) closes it.
+2. With no shift open, choose the site under **Site** (**Sitio**). With a shift open, the report goes to that shift's site and no site is asked.
+3. Give it a short title under **Title** (**Título**). It is required. Add more under **Details** (**Detalles**).
+4. Under **Zone** (**Zona**), type where it is in your own words, such as a restroom or the lobby. Under **Severity** (**Gravedad**), tap how serious it is.
+5. To add a picture, tap **Take Photo or Choose from Gallery** (**Tomar foto o elegir de la galería**). A JPG or PNG up to 10 MB is taken.
+6. Tap **Submit Issue** (**Enviar problema**). **Issue reported** (**Problema reportado**) says it went, and the people set to hear about problems are told.
+If it does not work: **Enter issue title** (**Escriba un título para el problema**) means the title is empty. **Select a site** (**Elija un sitio**) means no shift is open and no site was chosen. **Photo must be under 10MB** (**La foto debe pesar menos de 10 MB**) means the picture is too large; choose a smaller one.
+Words people use for this: something is broken, report an issue, maintenance problem, report damage, something happened at my site, issues list, where do i pick the site.
+Last checked: 2026-09-30
 
 ## Request supplies or report damaged gear (staff portal)
 Who can do this: anyone signed in, with or without a shift started
-1. Tap **More** (**Más**), then **Supplies** (**Suministros**).
+1. Tap **More** (**Más**), then **Supplies** (**Suministros**). With no shift started the screen says **Start your shift to log usage. Requests can be submitted anytime.** (**Comience su turno para registrar el uso. Las solicitudes se pueden enviar en cualquier momento.**)
 2. Tap **+ Request** (**+ Solicitar**). The form is headed **Supply/Gear Request** (**Solicitud de suministros o equipo**).
-3. Under **Request Type** (**Tipo de solicitud**), choose what kind of request it is from the list, such as **New Supply** (**Suministro nuevo**).
-4. Choose the supply item or type the item name, and describe what you need.
-5. Under **Urgency** (**Urgencia**), choose how urgent it is from the list.
-6. Tap **Submit Request** (**Enviar solicitud**). You get a notice when it is approved or denied.
+3. Under **Request Type** (**Tipo de solicitud**), tap the kind of request, such as **Refill** (**Reposición**), **Damage Report** (**Reporte de daño**), **New Gear** (**Equipo nuevo**) or **New Supply** (**Suministro nuevo**).
+4. For a refill or a damage report, choose the item under **Supply Item** (**Artículo**). For new gear or a new supply, type it under **Item Name** (**Nombre del artículo**); it is required. Describe what you need under **Details** (**Detalles**) if you want.
+5. Under **Urgency** (**Urgencia**), tap how urgent it is. It starts on **Normal** (**Normal**).
+6. Tap **Submit Request** (**Enviar solicitud**). The form closes, and **Request submitted** (**Solicitud enviada**) says it went. You get a notice when it is approved or denied.
+If it does not work: **Select a request type** (**Elija un tipo de solicitud**) or **Enter the item name** (**Escriba el nombre del artículo**) says what is missing. If OCSA turns the request away, the reason shows at the top of the screen and the form has closed: tap **+ Request** (**+ Solicitar**) and fill it in again. **Cancel** (**Cancelar**) closes the form without sending.
 Words people use for this: i need supplies, out of trash bags, need gloves, order supplies, broken vacuum, need a mop, necesito suministros, pedir suministros.
-Last checked: 2026-09-26
+Last checked: 2026-09-30
 
 ## Log supplies you used (staff portal)
 Who can do this: anyone with a shift started
@@ -195,32 +205,34 @@ Words people use for this: do an inspection, score an inspection, weekly inspect
 Last checked: 2026-09-29
 
 ## Schedule an inspection from the portal (staff portal)
-Who can do this: supervisors and admins, and anyone an admin has given the permission to schedule inspections. Nobody else sees **+ Schedule** (**+ Programar**)
+Who can do this: anyone an admin has given the permission to schedule inspections. Nobody else sees **+ Schedule** (**+ Programar**).
 1. Tap **More** (**Más**), then **Inspect** (**Inspección**).
-2. Tap **+ Schedule** (**+ Programar**).
-3. Choose the template, the site and the date.
-4. Tap **Schedule Inspection** (**Programar inspección**) to save it.
-Last checked: 2026-09-28
+2. Tap **+ Schedule** (**+ Programar**). The **Schedule Inspection** (**Programar inspección**) sheet opens.
+3. Choose the template, the site and the date. All three are needed.
+4. Tap **Schedule Inspection** (**Programar inspección**). **Inspection scheduled** (**Inspección programada**) says it is saved. The inspection is assigned to you and shows under **My Inspections** (**Mis inspecciones**).
+If it does not work: **Template, site, and date are required** (**Se necesitan la plantilla, el sitio y la fecha**) means one of the three is missing. If you should have **+ Schedule** (**+ Programar**) and do not, ask an admin to give you the permission.
+Words people use for this: schedule an inspection, plan an inspection, add an inspection, programar inspección.
+Last checked: 2026-09-30
 
 ## Send a message in Chat (staff portal)
 Who can do this: anyone signed in
 1. Tap **Chat** (**Mensajes**) on the bottom bar. Chat opens on the chat you last picked on this phone, or on your only chat if you have one. Otherwise the middle of the screen says **Pick a chat to start.** (**Elija un chat para empezar.**)
-2. Tap a chat at the top: your site's chat, the general chat, or **Admin (Private)** (**Administración (privado)**) under **Private chats** (**Chats privados**) to write privately to management. Only you and management see those messages.
-3. Type your message in the box and tap the arrow beside it. The arrow lights up once the box has words and a chat is picked.
+2. Tap a chat at the top: your site's chat, the general chat, or **Admin (Private)** (**Administración (privado)**) under **Private chats** (**Chats privados**) to write privately to management. Only you and management see those messages, and that chat says **Private conversation with admin.** (**Conversación privada con la administración.**) at the top. A chat with nothing in it yet says **No messages yet.** (**Todavía no hay mensajes.**)
+3. Type your message in the box, which says **Type a message...** (**Escriba un mensaje...**), and tap the arrow beside it. The arrow lights up once the box has words and a chat is picked. In a site chat or the general chat, the @ button beside the box tags someone (see Tag someone in a chat).
 4. While the message is on its way, the arrow is off and your words stay in the box. They leave the box once the message shows in the chat as yours, with its time. Everyone else who can read that chat gets an alert.
 A number on **Chat** (**Mensajes**) counts the messages you have not read; each chat shows its own number, and opening it clears it.
 If it does not work: if the arrow stays dim and a tap says **Pick a chat at the top first.** (**Primero elija un chat arriba.**), pick a chat and tap the arrow again. Your words stay in the box. If the message does not go, a line under the box says why, with **Try again** (**Intentar de nuevo**).
 Words people use for this: message my supervisor, text the office, send a message, group chat, site chat, private message, the send button is grey, unread messages, chat, mensajes.
-Last checked: 2026-09-28
+Last checked: 2026-09-30
 
 ## When a message in Chat does not go (staff portal)
 Who can do this: anyone signed in
-1. Your words stay in the box, and a line under it says what happened. When OCSA gives the reason, the line is OCSA's own words, such as **You do not have access to this chat.** (**No tiene acceso a este chat.**), **This chat was not found.** (**No se encontró este chat.**) or **Type a message first.** (**Escriba un mensaje primero.**). With no signal it says **Could not reach OCSA. Check your connection and try again.** (**No se pudo conectar con OCSA. Revise su conexión e intente de nuevo.**), and otherwise **Your message was not sent.** (**Su mensaje no fue enviado.**).
-2. Tap **Try again** (**Intentar de nuevo**) beside the line. It looks at the chat first, so a message that went through before the signal dropped shows once and is never sent twice.
-3. The box holds up to 2,000 characters. Split a longer message into two.
-If it does not work: if a chat keeps saying you do not have access to it, ask your supervisor.
-Words people use for this: message not sent, my message did not go, chat not working, message failed, sent twice, no signal in chat, message too long, no access to this chat.
-Last checked: 2026-09-25
+1. Your words stay in the box, and while that chat is open a line under the box says what happened. When OCSA gives the reason, the line is OCSA's own words, such as **You do not have access to this chat.** (**No tiene acceso a este chat.**) or **This chat was not found.** (**No se encontró este chat.**). In a chat you can read and cannot write in, it says **You cannot send messages in this chat.** (**No puede enviar mensajes en este chat.**). With no signal it says **Could not reach OCSA. Check your connection and try again.** (**No se pudo conectar con OCSA. Revise su conexión e intente de nuevo.**), and otherwise **Your message was not sent.** (**Su mensaje no fue enviado.**).
+2. Tap **Try again** (**Intentar de nuevo**) beside the line, or the arrow, which does the same while the line shows. Both look at the chat first, so a message that went through before the signal dropped shows once and is never sent twice. Words you changed in the box go as a new message.
+3. The box holds up to 2,000 characters and takes no more. Split a longer message into two.
+If it does not work: if a chat keeps saying you do not have access to it, or that you cannot send messages in it, ask your supervisor.
+Words people use for this: message not sent, my message did not go, chat not working, message failed, sent twice, no signal in chat, message too long, no access to this chat, cannot send messages in this chat.
+Last checked: 2026-09-30
 
 ## Find a chat (staff portal)
 Who can do this: anyone signed in
@@ -262,10 +274,13 @@ Last checked: 2026-09-29
 ## Send Help a photo (staff portal)
 Who can do this: anyone signed in
 1. Tap **Help** (**Ayuda**).
-2. Tap the camera button beside the box, whose spoken label is **Add a photo** (**Agregar una foto**), then take a picture or choose one from your phone. You can send up to 3 at once.
-3. Add a question if you want, for example "what should I know about this product?"
-4. Tap the send arrow.
-Last checked: 2026-09-22
+2. Tap the camera button beside the box, whose spoken label is **Add a photo** (**Agregar una foto**), then take a picture or choose one from your phone. You can also paste a picture into the box.
+3. Each photo shows by the box with **Uploading...** (**Subiendo...**) until it is ready. The x on a photo, whose spoken label is **Remove photo** (**Quitar foto**), takes it off. You can send up to 3 at once; with 3 added, the camera button dims.
+4. Add a question if you want, for example "what should I know about this product?"
+5. Tap the send arrow. It lights up once every photo is ready, with or without words.
+If it does not work: a photo that did not go up shows why, such as **Photo upload failed** (**No se pudo subir la foto**), with **Try again** (**Intentar de nuevo**) on it. **This photo could not be read here. Choose a JPEG or PNG, or take a screenshot of it.** (**Esta foto no se pudo leer aquí. Elija un JPEG o PNG, o tome una captura de pantalla.**) means the phone could not open that picture.
+Words people use for this: send a photo, picture of a label, what is this product, photo did not upload, more than three photos, enviar foto.
+Last checked: 2026-09-30
 
 ## Fill in a safety incident or biohazard report as a form (staff portal)
 Who can do this: anyone signed in
@@ -284,11 +299,11 @@ Who can do this: anyone signed in. In practice the crew lead, at the end of ever
 2. Tap **More** (**Más**), then **Forms** (**Formularios**).
 3. On **Daily Service Log** (**Registro diario de servicio**), tap **Start report** (**Comenzar reporte**), or **Continue** (**Continuar**) to finish one already started.
 4. Answer each section and tap **Next** (**Siguiente**). On a checklist, tap one answer for every item. Under **What was not done** (**Lo que no se hizo**), tap **Add row** (**Agregar fila**) for each thing left for the next shift.
-5. On the last section, tap **Sign** (**Firmar**) under **Crew lead** (**Líder de equipo**).
+5. On the last section, tap **Sign** (**Firmar**) under **Crew lead** (**Líder de equipo**), draw your signature with your finger in the sheet that opens, and tap **Sign** (**Firmar**) there.
 6. Tap **Next** (**Siguiente**), check the answers, tap **Submit report** (**Enviar reporte**), then **Send it** (**Enviarlo**).
 If it does not work: **Submit report** (**Enviar reporte**) stays off until every required answer and the sign-off are in, and **These still need an answer** (**Estas todavía necesitan respuesta**) lists what is left.
 Words people use for this: daily log, service log, end of shift report, shift report, what we cleaned today, crew lead log.
-Last checked: 2026-09-23
+Last checked: 2026-09-30
 
 ## Fill in the monthly PPE check (staff portal)
 Who can do this: supervisors and admins, once a month per site. Cleaners do not see this form.
@@ -296,22 +311,22 @@ Who can do this: supervisors and admins, once a month per site. Cleaners do not 
 2. Tap **More** (**Más**), then **Forms** (**Formularios**).
 3. On **PPE Compliance Log, monthly check** (**Registro de cumplimiento de EPP, revisión mensual**), tap **Start report** (**Comenzar reporte**), or **Continue** (**Continuar**) to finish one already started.
 4. Answer each section and tap **Next** (**Siguiente**). Under **Wear checks** (**Revisiones de uso**), tap **Add row** (**Agregar fila**) for each check, at least two. Under **Problems this month** (**Problemas de este mes**), add a row for each problem.
-5. On the last section, tap **Sign** (**Firmar**) under **Site supervisor** (**Supervisor del sitio**).
+5. On the last section, tap **Sign** (**Firmar**) under **Site supervisor** (**Supervisor del sitio**), draw your signature with your finger in the sheet that opens, and tap **Sign** (**Firmar**) there.
 6. Tap **Next** (**Siguiente**), check the answers, tap **Submit report** (**Enviar reporte**), then **Send it** (**Enviarlo**).
 If it does not work: with no shift open at the site, the check is filed with no site.
 Words people use for this: ppe check, protective equipment, gloves check, goggles, monthly safety check, wear checks.
-Last checked: 2026-09-23
+Last checked: 2026-09-30
 
 ## Fill in a table, a checklist or a sign-off on a report (staff portal)
 Who can do this: anyone filling in a report that has one
-1. A table: tap **Add row** (**Agregar fila**), then fill in the boxes on the new card. Add as many rows as you need. When the table has all the rows the report allows, it says **This table is full.** (**Esta tabla está llena.**)
-2. A card folds to one line, such as **Row 1** (**Fila 1**), once its answers are in. Tap it to open it again, or tap **Remove row** (**Quitar fila**) to take it off.
+1. A table: a table that needs a set number of rows starts with that many open, ready to fill. Tap **Add row** (**Agregar fila**) for each row more, then fill in the boxes on the new card. When the table has all the rows the report allows, it says **This table is full.** (**Esta tabla está llena.**)
+2. A card folds to one line, such as **Row 1** (**Fila 1**) and its first answer, once its answers are in. Tap it to open it again. When the table holds more rows than it needs, an open card shows **Remove row** (**Quitar fila**) to take that row off.
 3. A checklist: for each item on the list, tap the answer that fits.
-4. A sign-off: tap **Sign** (**Firmar**) under your position. Your name and the time are stamped once OCSA answers. Until then nothing is stamped.
+4. A sign-off: tap **Sign** (**Firmar**) under your position. A sheet opens with the sign-off's name, a white box and **Sign with your finger** (**Firme con el dedo**). Draw your signature in the box and tap **Sign** (**Firmar**) in the sheet; **Clear** (**Borrar**) wipes it to start again. Your drawing, your name and the time are stamped once OCSA answers (see Sign a form with your finger).
 5. On **Review** (**Revisar**), **These still need an answer** (**Estas todavía necesitan respuesta**) names each question and the rows of a table or checklist still missing an answer.
-If it does not work: if it says the sign-off was not sent, check your signal and tap **Sign** (**Firmar**) again.
-Words people use for this: add a row, table, checklist, sign the report, signature, sign off, fila, firmar.
-Last checked: 2026-09-22
+If it does not work: if the sign-off was not sent, the sheet says why and keeps your drawing. With no signal it says **Not signed yet. Check your signal and tap Sign again.** (**Todavía no se firmó. Revise su señal y toque Firmar otra vez.**): check your signal and tap **Sign** (**Firmar**) again.
+Words people use for this: add a row, table, checklist, sign the report, signature, sign off, remove a row, cannot remove a row, fila, firmar.
+Last checked: 2026-09-30
 
 ## Continue a report started in Help (staff portal)
 Who can do this: the person who started the report
@@ -324,16 +339,16 @@ Last checked: 2026-09-28
 
 ## Report a problem with someone at work (staff portal)
 Who can do this: anyone signed in
-1. Tap **More** (**Más**), then **Speak Up** (**Confianza**).
+1. Tap **More** (**Más**), then **Speak Up** (**Confianza**). The screen is headed **Report a problem with someone** (**Reportar un problema con alguien**) and says **Nothing you write here is kept. If you leave this screen before you send, it is gone.** (**Nada de lo que escriba aquí se guarda. Si sale de esta pantalla antes de enviar, se pierde.**)
 2. Under **What happened** (**Qué pasó**), write it in your own words. One sentence is enough.
 3. Answer **Is this about someone in management?** (**¿Es sobre alguien de la gerencia?**) by tapping **Yes** (**Sí**) or **No**. The line under it reads **Anyone you pick below will not be able to see this report.** (**Nadie que usted elija abajo podrá ver este reporte.**)
-4. Under **Who is involved?** (**¿Quién está involucrado?**), type in **Search by name** (**Buscar por nombre**) and tap a name to add the people the report is about. Each name you add sits above the box; tap it to take it off. You can name up to 10 people, and anyone you name cannot see the report, cannot be given it and is never told about it.
+4. Under **Who is involved?** (**¿Quién está involucrado?**), type in **Search by name** (**Buscar por nombre**) and tap a name to add the people the report is about. Each name you add sits above the box; tap it to take it off. You can name up to 10 people; with more, the report is turned away when you tap **Send** (**Enviar**), with the reason in the red line. Anyone you name cannot see the report, cannot be given it and is never told about it.
 5. Answering **Yes** (**Sí**) means naming at least one person, and the heading reads **Who is it about? Pick at least one person.** (**¿Sobre quién es? Elija al menos una persona.**) Answering **No** leaves naming people up to you.
 6. Tap **Send** (**Enviar**). It stays unavailable until you have written something and answered the question, and with **Yes** (**Sí**), until you have named someone.
-7. Keep the reference number shown under **Your reference** (**Su número de referencia**). Someone responds within 72 hours.
+7. **We got your report.** (**Recibimos su reporte.**) shows. Keep the reference number shown under **Your reference** (**Su número de referencia**). Someone responds within 72 hours.
 If it does not work: nothing you type is kept until it is sent. If the names do not appear, the screen says **The staff list did not load. Try again in a minute.** (**La lista del personal no cargó. Intente de nuevo en un minuto.**), and **Try again** (**Intentar de nuevo**) loads it again. If the report is turned away, a red line above **Send** (**Enviar**) says why, and what you wrote stays in the box.
 Words people use for this: harassment, someone is bothering me, complaint about a coworker, speak up, my supervisor is unfair, discrimination, report my boss, who can see my report, name someone in my report.
-Last checked: 2026-09-22
+Last checked: 2026-09-30
 
 ## See your notifications (staff portal)
 Who can do this: anyone signed in
@@ -344,19 +359,22 @@ The bell keeps every notice, even the ones your phone does not buzz for.
 Last checked: 2026-09-28
 
 ## Make the text bigger (staff portal)
-Who can do this: anyone signed in
-1. Tap the gear at the top right to open **Settings** (**Ajustes**).
-2. Under **Text size** (**Tamaño del texto**), tap a larger size.
-3. Your choice follows you to any phone or computer you sign in on.
-Last checked: 2026-09-22
+Who can do this: anyone
+1. Before you sign in, tap **Text size** (**Tamaño del texto**) under the card, tap a size and tap **Done** (**Listo**).
+2. Once signed in, tap the gear to open **Settings** (**Ajustes**).
+3. Under **Text size** (**Tamaño del texto**), tap **Standard** (**Normal**), **Large** (**Grande**), **Extra large** (**Más grande**) or **Largest** (**El más grande**). The whole app changes as you tap.
+4. Your choice follows you to any phone or computer you sign in on.
+Words people use for this: bigger letters, the words are too small, large text, zoom, i cannot read it, letra más grande.
+Last checked: 2026-09-30
 
 ## Switch between light and dark (staff portal)
-Who can do this: anyone signed in
-1. Tap the gear to open **Settings** (**Ajustes**).
-2. Under **Appearance** (**Apariencia**), tap **Light** (**Claro**) or **Dark** (**Oscuro**).
-3. Until you choose, the app follows your phone: a phone set to light opens it in light, and a phone set to dark opens it in dark. Once you choose, your choice wins.
+Who can do this: anyone
+1. Before you sign in, tap **Light Mode** (**Modo claro**) or **Dark Mode** (**Modo oscuro**) under the sign in card. It names the one you are not in.
+2. Once signed in, tap the gear to open **Settings** (**Ajustes**).
+3. Under **Appearance** (**Apariencia**), tap **Light** (**Claro**) or **Dark** (**Oscuro**).
+4. Until you choose, the app opens the way your phone is set: light on a phone set to light, and dark on any other. Once you choose, your choice wins, and it follows you to any phone or computer you sign in on.
 Words people use for this: dark mode, light mode, turn on dark mode, turn off dark mode, night mode, the screen is too bright, the screen is too dark, change the colors.
-Last checked: 2026-09-22
+Last checked: 2026-09-30
 
 ## Switch the app to Spanish or English (staff portal)
 Who can do this: anyone
@@ -370,29 +388,35 @@ Last checked: 2026-09-22
 
 ## Change the shortcuts on your bottom bar (staff portal)
 Who can do this: anyone signed in
-1. Tap the gear to open **Settings** (**Ajustes**), then tap **Edit shortcuts** (**Editar accesos directos**). You can also tap **More** (**Más**), then **Edit shortcuts** (**Editar accesos directos**).
-2. Under **On your bar** (**En su barra**), use **Move up** (**Subir**), **Move down** (**Bajar**) or **Remove** (**Quitar**).
-3. Under **Under More** (**En Más**), tap **Add to bar** (**Agregar a la barra**) on a place you want. If the bar is full, you are asked **Replace which one?** (**¿Cuál quiere reemplazar?**).
-4. Tap **Done** (**Listo**). **Reset to default** (**Volver a lo original**) puts the bar back the way it came.
-Last checked: 2026-09-22
+1. Tap the gear to open **Settings** (**Ajustes**), then tap **Edit shortcuts** (**Editar accesos directos**). You can also tap **More** (**Más**), then **Edit shortcuts** (**Editar accesos directos**). The top of the sheet shows the bar as it will look.
+2. Under **On your bar** (**En su barra**), Home is **Always first** (**Siempre primero**) and More is **Always last** (**Siempre al final**). For each of the four places between them, use **Move up** (**Subir**), **Move down** (**Bajar**) or **Remove** (**Quitar**). A removed place leaves its spot empty, marked **Pick something for this spot** (**Elija algo para este lugar**).
+3. Under **Under More** (**En Más**), tap **Add to bar** (**Agregar a la barra**) on a place you want. It takes the first empty spot. If the bar is full, you are asked **Replace which one?** (**¿Cuál quiere reemplazar?**): tap the one it replaces.
+4. Tap **Done** (**Listo**) to save. **Shortcuts saved** (**Accesos directos guardados**) says so. **Done** (**Listo**) stays off until all four spots are filled. **Close** (**Cerrar**) leaves without changing anything.
+5. **Reset to default** (**Volver a lo original**) asks **Put the bar back the way it came?** (**¿Dejar la barra como estaba al principio?**). Tap **Reset** (**Restablecer**), then **Done** (**Listo**) to save it.
+Your bar follows you to any phone or computer you sign in on.
+Words people use for this: change my bar, move chat, put supplies on my bar, shortcuts, reset my bar, done is grey, accesos directos.
+Last checked: 2026-09-30
 
 ## Change your PIN (staff portal)
 Who can do this: anyone signed in
 1. Tap the gear to open **Settings** (**Ajustes**).
 2. Under **Change PIN** (**Cambiar PIN**), type your **Current PIN** (**PIN actual**).
-3. Type your **New PIN** (**PIN nuevo**) and type it again in **Confirm New PIN** (**Confirmar PIN nuevo**).
-4. Tap **Update PIN** (**Actualizar PIN**).
-If it does not work: **Enter your current 4-digit PIN.** (**Escriba su PIN actual de 4 dígitos.**) means the current PIN box is empty. "Current PIN is incorrect" ("El PIN actual no es correcto"), under **Current PIN** (**PIN actual**), means the current PIN you typed is wrong. Under **New PIN** (**PIN nuevo**): **Your new PIN must be different from your current PIN.** (**Su PIN nuevo debe ser distinto de su PIN actual.**) means the two match; "Choose a PIN that is not repeated digits, a sequence, or your badge number" ("Elija un PIN que no sea un mismo dígito repetido, una secuencia ni su número de empleado") means OCSA will not take it; **PIN must be exactly 4 digits.** (**El PIN debe tener exactamente 4 dígitos.**) means it is not four digits. A PIN cannot be four of the same digit, digits in a row, or your badge number.
-Words people use for this: change my password, new pin, update my pin, wrong pin, pin too easy.
-Last checked: 2026-09-28
+3. Type your **New PIN** (**PIN nuevo**) and the same 4 digits again in **Confirm New PIN** (**Confirmar PIN nuevo**).
+4. Tap **Update PIN** (**Actualizar PIN**). **PIN updated** (**PIN actualizado**) says it worked, and the three boxes empty.
+If it does not work: the reason shows under the box it is about. **Enter your current 4-digit PIN.** (**Escriba su PIN actual de 4 dígitos.**) means the current PIN box does not hold 4 digits. "Current PIN is incorrect" ("El PIN actual no es correcto"), under **Current PIN** (**PIN actual**), means the current PIN you typed is wrong. Under **New PIN** (**PIN nuevo**): **PIN must be exactly 4 digits.** (**El PIN debe tener exactamente 4 dígitos.**) means it is not four digits; **Four of the same digit is too easy to guess. Use a mix of digits.** (**Cuatro dígitos iguales son muy fáciles de adivinar. Use dígitos distintos.**), **Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.** (**Los dígitos seguidos, como 1234 o 4321, son muy fáciles de adivinar. Use otro orden.**) and **Your PIN cannot be your badge number or its last four digits.** (**Su PIN no puede ser su número de empleado ni sus últimos cuatro dígitos.**) say what makes it too easy; **Your new PIN must be different from your current PIN.** (**Su PIN nuevo debe ser distinto de su PIN actual.**) means the two match. Under **Confirm New PIN** (**Confirmar PIN nuevo**), **The two PINs do not match. Type the same 4 digits in both fields.** (**Los dos PIN no coinciden. Escriba los mismos 4 dígitos en las dos casillas.**) means the two new boxes differ.
+Words people use for this: change my password, new pin, update my pin, wrong pin, pin too easy, pins do not match.
+Last checked: 2026-09-30
 
 ## Update your personal information or photo (staff portal)
 Who can do this: anyone signed in
-1. Tap your picture or initials at the top left to open your profile.
-2. To change your photo, tap the camera on your picture.
-3. Under **Personal Information** (**Información personal**), tap **Edit** (**Editar**), change your birthday, address or emergency contact, and tap **Save** (**Guardar**).
+1. Tap your picture or initials at the top left, whose spoken label is **Profile** (**Perfil**), to open your profile.
+2. To change your photo, tap the camera on your picture and take or choose one. **Photo updated** (**Foto actualizada**) says it is saved.
+3. Under **Personal Information** (**Información personal**), tap **Edit** (**Editar**). You can change your **Birthday** (**Fecha de nacimiento**), your address, your **Emergency Contact** (**Contacto de emergencia**) and their **Emergency Phone** (**Teléfono de emergencia**). None of them is required.
+4. Tap **Save** (**Guardar**). **Profile updated** (**Perfil actualizado**) says it worked. **Cancel** (**Cancelar**) leaves without changing anything.
+Your name, role, phone number, email, **Employee ID** (**ID de empleado**) and **Badge Number** (**Número de empleado**) show on your profile and cannot be changed there. Ask your supervisor to change them.
+If it does not work: a photo over 20 MB is turned away with **Photo must be under 20MB** (**La foto debe pesar menos de 20 MB**); choose a smaller one.
 Words people use for this: change my address, change my phone number, emergency contact, update my info, my profile picture.
-Last checked: 2026-09-22
+Last checked: 2026-09-30
 
 ## Request time off (staff portal)
 Who can do this: anyone signed in
@@ -442,9 +466,9 @@ Who can do this: anyone filling in the daily service log, usually the crew lead 
 8. **Did you find anything unsafe in the building?** (**¿Encontró algo peligroso en el edificio?**): for example a loose railing, bare wires or water near an outlet. If yes, say what and where.
 9. **Did you tell your supervisor?** (**¿Le avisó a su supervisor?**): this shows when someone was hurt or you found something unsafe.
 10. **Site notes** (**Notas del sitio**): anything wrong with the building (leaks, damage, pests, broken fixtures, lights out, doors that do not lock), areas that need attention next visit, and anything a customer or someone in the building said. Anything that sounds like a complaint goes to your supervisor before the end of your shift.
-11. **Crew lead** (**Líder de equipo**): tap **Sign** (**Firmar**) once everything is answered. A supervisor signs the review after it is sent.
+11. **Crew lead** (**Líder de equipo**): tap **Sign** (**Firmar**) once everything is answered, draw your signature with your finger in the sheet that opens, and tap **Sign** (**Firmar**) there. A supervisor signs the review after it is sent.
 Words people use for this: what does contact time mean, mixing equipment, running low, what was not done, nearly hurt, exposed, site notes, crew lead sign, qué es tiempo de contacto, qué significa esta pregunta.
-Last checked: 2026-09-26
+Last checked: 2026-09-30
 
 ## What the monthly PPE check asks (staff portal)
 Who can do this: supervisors and admins, once a month per site
@@ -454,9 +478,9 @@ Who can do this: supervisors and admins, once a month per site
 4. **Problems this month** (**Problemas de este mes**): shortages, torn gloves, cracked glasses, skin reactions, sizes that did not fit. For each one: what happened, the date, what was done, and whether it is closed. For a skin reaction, write the person's role, never their name.
 5. **Did anyone stop work because equipment was missing?** (**¿Alguien dejó de trabajar porque faltaba equipo?**): stopping is the right thing to do, and it never gets anyone in trouble.
 6. **Does anything this month mean the site's hazard assessment should be looked at again?** (**¿Algo de este mes indica que se debe revisar de nuevo la evaluación de riesgos del sitio?**): the hazard assessment is the written list of what protective equipment each task at this site needs. Answer yes if a new task, a new product or a problem this month means that list may be out of date, then say what.
-7. **Site supervisor** (**Supervisor del sitio**): tap **Sign** (**Firmar**) before sending. Someone else signs **Field Lead, reviewed** (**Encargado de campo, revisado**) after it is sent.
+7. **Site supervisor** (**Supervisor del sitio**): tap **Sign** (**Firmar**) before sending, draw your signature with your finger in the sheet that opens, and tap **Sign** (**Firmar**) there. Someone else signs **Field Lead, reviewed** (**Encargado de campo, revisado**) after it is sent.
 Words people use for this: ppe check questions, wear checks, hazard assessment, what does this question mean, monthly check help, revisión mensual de EPP.
-Last checked: 2026-09-26
+Last checked: 2026-09-30
 
 ## Get help with a question on a form (staff portal)
 Who can do this: anyone signed in
@@ -488,11 +512,11 @@ Who can do this: supervisors and admins, monthly at every site and once a quarte
 5. **What the crew said** (**Lo que dijo el equipo**): ask at least two people on shift what they would change about safety, and tap **Add row** (**Agregar fila**) for each: their role, what they said in their words, and what was done about it. Two rows at least, or the form will not send.
 6. **Findings** (**Hallazgos**): tap **Add row** (**Agregar fila**) for every area you marked Fail, and for anything you fixed on the spot: where and what, the severity A, B, C or D (the meaning of each is written above the table), one owner by name, and a due date. Then answer whether any work was stopped or any item taken out of service today.
 7. **The previous inspection** (**La inspección anterior**): a row for each earlier finding, whether it was closed and whether it stayed fixed, and whether any finding came back.
-8. **Result** (**Resultado**): pick the overall result, then tap **Sign** (**Firmar**) beside **Inspected by** (**Inspeccionado por**).
+8. **Result** (**Resultado**): pick the overall result, then tap **Sign** (**Firmar**) under **Inspected by** (**Inspeccionado por**), draw your signature with your finger in the sheet that opens, and tap **Sign** (**Firmar**) there.
 9. Tap **Next** (**Siguiente**), check the answers, tap **Submit report** (**Enviar reporte**), then **Send it** (**Enviarlo**). Someone other than you verifies the findings in person on the admin dashboard and signs **Field Lead, reviewed** (**Encargado de campo, revisado**).
 If it does not work: **Submit report** (**Enviar reporte**) stays off until every area is answered, the crew table has two rows, and Inspected by is signed; **These still need an answer** (**Estas todavía necesitan respuesta**) lists what is left. A severity A finding is a phone call to the Field Lead during the shift, before the form is finished.
 Words people use for this: safety inspection, safety walk, monthly inspection, quarterly inspection, safety checklist, chemical storage, eyewash, spill kit, findings, inspección de seguridad, lista de seguridad.
-Last checked: 2026-09-26
+Last checked: 2026-09-30
 
 ## What the safety inspection asks (staff portal)
 Who can do this: supervisors and admins
@@ -511,11 +535,11 @@ Who can do this: supervisors and admins, when the same defect keeps happening. C
 2. On **Corrective Action Report** (**Reporte de acción correctiva**), tap **Start report** (**Comenzar reporte**), or **Continue** (**Continuar**) to finish one already started. The form is three screens; **Next** (**Siguiente**) and **Back** (**Atrás**) move between them.
 3. **What triggered this** (**Qué lo originó**): the site, the customer, what triggered it (a repeat complaint, a failed inspection, a safety event, a pattern across sites), where it is on record, what has been happening and how often, and what was already done to fix the defect itself. Fixing the defect is the immediate correction; this form records what stops it happening again.
 4. **The cause** (**La causa**): ask why until the answer is something OCSA can change. Three whys are required and two more are there if you need them. Then pick where the cause sits (method, training, staffing or time, equipment, scope, supervision, communication, site condition) and write the root cause in one sentence.
-5. **The action** (**La acción**): tap **Add row** (**Agregar fila**) for each thing that will change, with one owner and a due date. Answer whether it changes a document, whether anyone needs retraining, and whether the same cause could exist at other sites. Then tap **Sign** (**Firmar**) beside **Raised by** (**Levantado por**).
+5. **The action** (**La acción**): tap **Add row** (**Agregar fila**) for each thing that will change, with one owner and a due date. Answer whether it changes a document, whether anyone needs retraining, and whether the same cause could exist at other sites. Then tap **Sign** (**Firmar**) under **Raised by** (**Levantado por**), draw your signature with your finger in the sheet that opens, and tap **Sign** (**Firmar**) there.
 6. Tap **Next** (**Siguiente**), check the answers, tap **Submit report** (**Enviar reporte**), then **Send it** (**Enviarlo**). The approval, completion, verification, effectiveness check and closure are done by another supervisor or admin on the admin dashboard over the following weeks.
 If it does not work: **Submit report** (**Enviar reporte**) stays off until the first three whys, the cause, at least one action and Raised by are in; **These still need an answer** (**Estas todavía necesitan respuesta**) lists what is left.
 Words people use for this: corrective action, root cause, five whys, it keeps happening, repeat complaint, same problem again, acción correctiva, causa raíz.
-Last checked: 2026-09-26
+Last checked: 2026-09-30
 
 ## What the corrective action report asks (staff portal)
 Who can do this: supervisors and admins
@@ -535,11 +559,11 @@ Who can do this: supervisors and admins, twice a year at every site, with the si
 4. **What was checked** (**Lo que se revisó**): seventeen areas, from the site profile to the records. Under each one, read what to check, then tap **Pass** (**Cumple**), **Fail** (**No cumple**) or **Not applicable** (**No aplica**). Every area must be answered. For wash water, ask the crew where they pour a mop bucket and have them show you.
 5. **Findings** (**Hallazgos**): tap **Add row** (**Agregar fila**) for every area you marked Fail, and for anything you fixed on the spot: where and what, the severity A, B, C or D (the meaning of each is written above the table), one owner by name, and a due date. Then answer whether any discharge was found or suspected, and if so who was called during the shift and when.
 6. **The previous audit** (**La auditoría anterior**): a row for each earlier finding, whether it was closed and whether it stayed fixed, and whether any finding came back.
-7. **Result** (**Resultado**): pick the overall result, then tap **Sign** (**Firmar**) beside **Performed by** (**Realizado por**).
+7. **Result** (**Resultado**): pick the overall result, then tap **Sign** (**Firmar**) under **Performed by** (**Realizado por**), draw your signature with your finger in the sheet that opens, and tap **Sign** (**Firmar**) there.
 8. Tap **Next** (**Siguiente**), check the answers, tap **Submit report** (**Enviar reporte**), then **Send it** (**Enviarlo**). Someone other than you verifies the findings in person on the admin dashboard and signs **Field Lead, reviewed** (**Encargado de campo, revisado**).
 If it does not work: **Submit report** (**Enviar reporte**) stays off until every area is answered and Performed by is signed; **These still need an answer** (**Estas todavía necesitan respuesta**) lists what is left. Anything involving a discharge to a drain, soil or water is a phone call during the shift, before the form is finished.
 Words people use for this: environmental audit, storm drain, where does the mop water go, discharge point, waste streams, universal waste, spill kit, auditoría ambiental, drenaje pluvial, agua de trapeador.
-Last checked: 2026-09-27
+Last checked: 2026-09-30
 
 ## What the environmental audit asks (staff portal)
 Who can do this: supervisors and admins
@@ -560,11 +584,11 @@ Who can do this: supervisors and admins, once per site, again after any injury i
 4. **The tasks** (**Las tareas**): tap **Add row** (**Agregar fila**) once per task done at this site, and write the hazards before the equipment. At least one row.
 5. **Equipment at the site** (**Equipo en el sitio**): what is stocked, glove sizes, eye protection, where it is stored, how a cleaner gets a replacement the same shift, where the eyewash is, any gaps and when they were closed, and whether any task needs a respirator. OCSA supplies no respirators: a task that needs one stops, and you call the Field Lead.
 6. **Employees covered** (**Empleados cubiertos**): **Add row** (**Agregar fila**) per person, with the equipment issued, **Fit confirmed** (**Ajuste confirmado**) and the training date; then who watched each person demonstrate correct use.
-7. **Written verification** (**Verificación escrita**): read the statement, add **Photos** (**Fotos**) if you have them, then tap **Sign** (**Firmar**) beside **Assessed by** (**Evaluado por**) and sign with your finger.
+7. **Written verification** (**Verificación escrita**): read the statement, add **Photos** (**Fotos**) if you have them, then tap **Sign** (**Firmar**) under **Assessed by** (**Evaluado por**), draw your signature with your finger in the sheet that opens, and tap **Sign** (**Firmar**) there.
 8. Tap **Next** (**Siguiente**), check the answers, tap **Submit report** (**Enviar reporte**), then **Send it** (**Enviarlo**). An admin approves it on the dashboard with the date of the next reassessment.
 If it does not work: **These still need an answer** (**Estas todavía necesitan respuesta**) lists what is left; the two tables need at least one row each and the shifts and the ways need at least one choice each.
 Words people use for this: PPE hazard assessment, hazard assessment, written verification, glove sizes, eyewash station, respirator, evaluación de riesgos para EPP, lavaojos.
-Last checked: 2026-09-27
+Last checked: 2026-09-30
 
 ## What the PPE hazard assessment asks (staff portal)
 Who can do this: supervisors and admins
@@ -589,11 +613,11 @@ Who can do this: supervisors and admins, the secretary of the safety committee, 
 4. **The previous meeting** (**La reunión anterior**): its date, whether its minutes were confirmed, and any corrections in full.
 5. **Open items** (**Asuntos abiertos**): **Add row** (**Agregar fila**) per item with its owner, due date and **Status this meeting** (**Estado en esta reunión**). An item stays until it is closed and verified.
 6. **Standing agenda** (**Agenda permanente**): answer all nine items; where there is nothing to report, write none. Describe injuries by task, location and cause; medical information about a person never goes in the minutes.
-7. **New business and recommendations** (**Asuntos nuevos y recomendaciones**): items raised, recommendations to management (one row each), whether anything was an immediate danger, previous responses read in, the next meeting's date, time and place, the site chosen for the employee representative inspection, **Photos** (**Fotos**) if any, then tap **Sign** (**Firmar**) beside **Recorded by** (**Registrada por**) and sign with your finger.
+7. **New business and recommendations** (**Asuntos nuevos y recomendaciones**): items raised, recommendations to management (one row each), whether anything was an immediate danger, previous responses read in, the next meeting's date, time and place, the site chosen for the employee representative inspection, **Photos** (**Fotos**) if any, then tap **Sign** (**Firmar**) under **Recorded by** (**Registrada por**), draw your signature with your finger in the sheet that opens, and tap **Sign** (**Firmar**) there.
 8. Tap **Next** (**Siguiente**), check the answers, tap **Submit report** (**Enviar reporte**), then **Send it** (**Enviarlo**). The chair confirms the minutes on the dashboard at the following meeting.
 If it does not work: **These still need an answer** (**Estas todavía necesitan respuesta**) lists what is left; the members table needs at least four rows, and every one of the nine standing items needs an answer, even none.
 Words people use for this: safety committee, committee minutes, meeting minutes, attendance, quorum, standing agenda, acta del comité, quórum, minuta.
-Last checked: 2026-09-27
+Last checked: 2026-09-30
 
 ## What the safety committee minutes ask (staff portal)
 Who can do this: supervisors and admins
@@ -635,11 +659,11 @@ Last checked: 2026-09-28
 ## Enter a number on a form (staff portal)
 Who can do this: anyone filling a form in the app
 1. A number question shows one box. Tap it; the phone offers its number keys.
-2. Type the number. A minus sign and a decimal point are allowed, for example -2 or 12.5. Leave it empty if the question is not required.
-3. **Next** (**Siguiente**) saves it. **Review** (**Revisar**) shows it as you typed it.
-If it does not work: the reason is shown under the question in the form's own words. Take out any letters, spaces or commas and type the digits only.
+2. Type the number. The box takes digits, one minus sign at the start and one decimal point, for example -2 or 12.5. Letters, spaces and commas cannot be typed in it. A question marked **Required** (**Obligatorio**) needs an answer; leave any other one empty if it does not apply.
+3. **Next** (**Siguiente**) saves it. **Review** (**Revisar**) shows it, and an empty one reads **Not answered** (**Sin responder**).
+If it does not work: if OCSA turns the number away, the reason shows under the question in the form's own words and at the top of the page: change the number and tap **Next** (**Siguiente**) again. With no signal, **Not saved yet. Check your signal and tap Next again.** (**Todavía no se guardó. Revise su señal y toque Siguiente otra vez.**) shows at the top.
 Words people use for this: number box, how many, square feet, count, type a number, negative number, decimal, número, cuántos, pies cuadrados.
-Last checked: 2026-09-28
+Last checked: 2026-09-30
 
 ## Have a customer sign a form you are filling (staff portal)
 Who can do this: supervisors and admins filling a form that asks for a customer's or an employee's signature, such as a site assessment or a site orientation
@@ -678,15 +702,17 @@ Last checked: 2026-09-28
 ## Give a site orientation (staff portal)
 Who can do this: supervisors and admins, before a new hire's first shift alone at a site. Cleaners do not see this form.
 1. Tap **More** (**Más**), then **Forms** (**Formularios**).
-2. On **Site-Specific Orientation Checklist** (**Lista de orientación específica del sitio**), tap **Start report** (**Comenzar reporte**).
+2. On **Site-Specific Orientation Checklist** (**Lista de orientación específica del sitio**), tap **Start report** (**Comenzar reporte**), or **Continue** (**Continuar**) to finish one already started. **Next** (**Siguiente**) and **Back** (**Atrás**) move between the sections.
 3. Fill **Employee and site** (**Empleado y sitio**), including **Working language** (**Idioma de trabajo**). Give the orientation in that language.
 4. Walk the site with the new hire and answer every row of **Access and security covered** (**Acceso y seguridad cubiertos**), **The work covered** (**El trabajo cubierto**) and **Safety covered** (**Seguridad cubierta**) with **Done** (**Hecho**) or **Not applicable** (**No aplica**).
-5. Fill **People and reporting** (**Personas y reportes**). Answer **Is this a school site?** (**¿Es un sitio escolar?**); when it is, answer every row of **School site lines** (**Líneas para sitios escolares**).
-6. Hand the phone to the new hire. They read **The employee confirms** (**El empleado confirma**), answer **Yes** (**Sí**) on each line. Under **Employee signature** (**Firma del empleado**) they type their name in **Name** (**Nombre**), draw their signature with a finger, and tap **Save signature** (**Guardar firma**).
-7. Add pictures if there are any, tap **Sign** (**Firmar**) beside **Orientation delivered** (**Orientación impartida**), then **Submit report** (**Enviar reporte**) and **Send it** (**Enviarlo**). An admin files it in the personnel file from the admin dashboard.
-If it does not work: the orientation cannot be sent until **Employee signature** (**Firma del empleado**) and **Orientation delivered** (**Orientación impartida**) are both signed.
+5. Fill **People and reporting** (**Personas y reportes**). On the next section, answer **Is this a school site?** (**¿Es un sitio escolar?**); when it is, answer every row of **School site lines** (**Líneas para sitios escolares**).
+6. On the last section, hand the phone to the new hire. They read **The employee confirms** (**El empleado confirma**) and answer **Yes** (**Sí**) on each line. Add pictures under the photos question if there are any.
+7. Under **Employee signature** (**Firma del empleado**), the new hire types their name in **Name** (**Nombre**), and their **Role** (**Puesto**) if they want, draws their signature with a finger, and taps **Save signature** (**Guardar firma**).
+8. Under **Orientation delivered** (**Orientación impartida**), tap **Sign** (**Firmar**), draw your signature with your finger in the sheet that opens, and tap **Sign** (**Firmar**) there.
+9. Tap **Next** (**Siguiente**), check the answers on **Review** (**Revisar**), tap **Submit report** (**Enviar reporte**), then **Send it** (**Enviarlo**). An admin files it in the personnel file from the admin dashboard.
+If it does not work: **Submit report** (**Enviar reporte**) stays off until **These still need an answer** (**Estas todavía necesitan respuesta**) is empty; the orientation cannot be sent until **Employee signature** (**Firma del empleado**) and **Orientation delivered** (**Orientación impartida**) are both signed.
 Words people use for this: site orientation, new hire orientation, first day at a site, show the new person around, orientation checklist, orientación del sitio, empleado nuevo.
-Last checked: 2026-09-28
+Last checked: 2026-09-30
 
 ## Log a customer contact (staff portal)
 Who can do this: supervisors and admins, the same shift the contact comes in. Cleaners do not see this form.
@@ -700,17 +726,11 @@ Words people use for this: customer called, log a call, customer email, customer
 Last checked: 2026-09-28
 
 ## Fill in a performance review with the employee (staff portal)
-Who can do this: supervisors and admins. It is meant for a desk with the employee beside you, and the admin dashboard is the easier place for it; the app offers it too.
-1. Tap **More** (**Más**), then **Forms** (**Formularios**).
-2. On **Employee Performance Evaluation** (**Evaluación del desempeño del empleado**), tap **Start report** (**Comenzar reporte**).
-3. Fill **The review** (**La evaluación**). In **Ratings** (**Calificaciones**), give every row a **Rating** (**Calificación**); every rating below **Meets the standard** (**Cumple el estándar**) needs an example in **Comments** (**Comentarios**).
-4. Answer **Is this person a supervisor?** (**¿Esta persona es supervisor?**). When it is Yes, rate every row of **Safety performance of the crew** (**Desempeño de seguridad del equipo**).
-5. Fill **Summary** (**Resumen**), including **Overall rating** (**Calificación general**). For a probationary review, answer **Outcome of a probationary review** (**Resultado de la evaluación del período de prueba**); a decision to end employment is never made on this form.
-6. Hand the phone to the employee for **Employee comments** (**Comentarios del empleado**), then **Employee signature** (**Firma del empleado**): they type their name in **Name** (**Nombre**), draw their signature and tap **Save signature** (**Guardar firma**). Signing shows they saw the review; it does not mean they agree.
-7. Tap **Sign** (**Firmar**) beside **Reviewed by** (**Evaluado por**), then **Submit report** (**Enviar reporte**) and **Send it** (**Enviarlo**). An admin files it in the personnel file from the admin dashboard.
-If it does not work: the review cannot be sent until every row of **Ratings** (**Calificaciones**) has a rating and **Employee signature** (**Firma del empleado**) and **Reviewed by** (**Evaluado por**) are both signed; **These still need an answer** (**Estas todavía necesitan respuesta**) names what is left.
+Who can do this: supervisors and admins, on the admin dashboard
+1. The performance review, **Employee Performance Evaluation** (**Evaluación del desempeño del empleado**), is filled on the admin dashboard, at a desk with the employee beside you.
+2. OCSA offers it on the dashboard only, so the staff portal does not list it under **Forms** (**Formularios**). Open it on the admin dashboard.
 Words people use for this: performance review, evaluation, annual review, probation review, ninety day review, 90 day review, evaluación del desempeño, evaluación anual.
-Last checked: 2026-09-28
+Last checked: 2026-09-30
 
 ## Choose your own PIN the first time you sign in (staff portal)
 Who can do this: anyone signing in for the first time with the PIN on their sign-in slip, or after a supervisor reset their PIN
@@ -723,20 +743,24 @@ Words people use for this: first time, first login, sign-in slip, temporary pin,
 Last checked: 2026-09-28
 
 ## Add the app to your home screen (staff portal)
-Who can do this: anyone signed in, on a phone
-1. After you sign in, the app offers once to add itself to your home screen, with the steps for your phone.
-2. On an iPhone, tap the Share button, then Add to Home Screen. On Android, tap Add to Home screen or Install app in the browser's menu.
-3. **Not now** (**Ahora no**) asks again in seven days; **Don't show again** (**No mostrar más**) stops asking.
+Who can do this: anyone signed in, on a phone or tablet
+1. A moment after you sign in, the app offers once to add itself to your home screen, with the steps for your phone and browser. It does not offer while the app is already open from your home screen.
+2. On an iPhone in Safari, tap Share at the bottom of the screen. If you do not see it, tap the three dots first, then Share. Scroll down and tap Add to Home Screen, then tap Add.
+3. In Chrome or another browser on an iPhone, tap the Share button in the address bar, then Add to Home Screen, then Add.
+4. On Android, when the browser can install the app, tap **Install** (**Instalar**) on the sheet and confirm on the next screen. Otherwise open the browser menu, usually three dots at the top right, tap Add to Home screen or Install app, then Add or Install.
+5. In a page opened inside another app, such as a link tapped in Facebook or Instagram, the sheet says **This page is open inside another app. Open it in Safari or Chrome first, then add it to your home screen.** (**Esta página está abierta dentro de otra aplicación. Ábrala primero en Safari o Chrome y luego agréguela a su pantalla de inicio.**) with the page's address under it. Tap **Copy address** (**Copiar la dirección**), open Safari or Chrome, paste the address there, and add it from that browser.
+6. **Not now** (**Ahora no**) asks again in seven days, and a tap outside the sheet counts as Not now. **Don't show again** (**No mostrar más**) stops asking.
 Adding it to the home screen is needed on an iPhone before the app can send alerts to the phone.
-Words people use for this: install the app, add to home screen, app icon, download the app, instalar la aplicación.
-Last checked: 2026-09-28
+Words people use for this: install the app, add to home screen, app icon, download the app, where is share, i cannot find share, three dots, install button, opened in facebook, instalar la aplicación.
+Last checked: 2026-09-30
 
 ## Update the app (staff portal)
 Who can do this: anyone
-1. When OCSA ships a change, a bar says **A new version is ready** (**Hay una versión nueva lista**).
-2. Tap **Update now** (**Actualizar ahora**). The app reloads with the change; you stay signed in.
-Words people use for this: update, new version, refresh the app, the app looks different, actualizar.
-Last checked: 2026-09-28
+1. When OCSA ships a change, the app updates itself. It checks when it opens, every 15 minutes while it is on screen, and when you come back to it, then reloads with the change and stays on the screen you were on. Nothing is shown and you stay signed in.
+2. While you are in the middle of something, such as a report with answers not yet saved, an open sheet or a box you are typing in, the app waits. A bar at the top then says **A new version is ready** (**Hay una versión nueva lista**).
+3. Finish what you are doing and the app updates by itself, or tap **Update now** (**Actualizar ahora**) to update at once. Anything typed and not yet saved is lost, so on a report tap **Next** (**Siguiente**) first.
+Words people use for this: update, new version, refresh the app, the app looks different, the bar at the top, actualizar.
+Last checked: 2026-09-30
 
 ## Tag someone in a chat (staff portal)
 Who can do this: anyone signed in, in a site chat or the general chat
@@ -765,3 +789,62 @@ Who can do this: anyone signed in
 **Announcements from the office always come through.** (**Los anuncios de la oficina siempre llegan.**) The bell keeps every notice whatever you choose.
 Words people use for this: too many alerts, mute the chat, stop notifications, only when tagged, notification settings, silenciar.
 Last checked: 2026-09-28
+
+## What Home shows (staff portal)
+Who can do this: anyone signed in
+1. **Home** (**Inicio**) is the first place on the bottom bar and the screen the app opens on. At the top are today's date and the time.
+2. With a shift open, the **Time on Site** (**Tiempo en el sitio**) card shows how long you have been on site, when you started, the site, building and floor, and a bar with today's tasks done out of the total, such as 3/12. **End Shift** (**Terminar turno**) on it ends the shift (see End your shift).
+3. Under it, **Choose a Site to Start** (**Elija un sitio para comenzar**) lists your sites, grouped under **Scheduled Today** (**Programado para hoy**), **Your Assigned Sites** (**Sus sitios asignados**) and **All Other Sites** (**Todos los demás sitios**). Tap one, then **Start Shift at** (**Comenzar turno en**) and its name (see Start your shift at a site). With a shift open, the heading reads **Shift Open at {site}** (**Turno abierto en {site}**) and the list is dimmed until the shift ends.
+4. Last comes **My Schedule** (**Mi horario**), your week. **Week** (**Semana**) and **Month** (**Mes**) change the view, the arrows move a week or a month, and **Today** (**Hoy**) comes back to this week. Tap a day to see what is on it, and tap a shift there to open it. Time off shows here too and opens from **Schedule** (**Horario**).
+5. The header at the top and the bar at the bottom are on every screen (see Use the bottom bar and More).
+Words people use for this: home screen, main screen, first screen, what is on home, where do i start, time on site, inicio, pantalla principal.
+Last checked: 2026-09-30
+
+## See a checklist task's details (staff portal)
+Who can do this: anyone with a shift started
+1. On **Tasks** (**Tareas**), a blue dot after a task's name means it has details.
+2. Tap the task's name. Its details fill the screen: the name, a **PRIORITY** (**PRIORIDAD**) tag on high priority work, where it is, who checked it and when once someone has, **Instructions** (**Instrucciones**), a **Reference Photo** (**Foto de referencia**) or **Reference Video** (**Video de referencia**), and the **Due Date:** (**Fecha límite:**) when it has one.
+3. Tap **Mark Complete** (**Marcar como completada**) at the bottom to check it, or **Uncheck Task** (**Desmarcar tarea**) to take back your own check from today. Either one takes you back to the list.
+4. **Back to checklist** (**Volver a la lista**) at the top goes back without changing anything.
+Work done on an earlier day in its period shows its details with no button at the bottom. A coworker's check stays theirs: **Uncheck Task** (**Desmarcar tarea**) on it shows **Only the person who checked this can uncheck it.** (**Solo la persona que marcó esta tarea puede desmarcarla.**)
+Words people use for this: task details, instructions, how do i do this task, reference photo, video, blue dot, what does the dot mean, instrucciones.
+Last checked: 2026-09-30
+
+## Use Tasks before your shift starts (staff portal)
+Who can do this: anyone signed in
+1. Before a shift is started, **Tasks** (**Tareas**) says **Start your shift to see and check off your tasks.** (**Comience su turno para ver y marcar sus tareas.**) and **No tasks loaded. Start your shift at a site to see your checklist.** (**No hay tareas. Comience su turno en un sitio para ver su lista.**)
+2. Go to **Home** (**Inicio**) and start your shift at the site (see Start your shift at a site). The app opens **Tasks** (**Tareas**) with that site's checklist, after asking which shift at a site with more than one.
+3. If a shift of yours was ended on another phone or by a supervisor, its list can still show here, dimmed, until you start again. Nothing on it can be checked. A task with a blue dot still opens its details to read.
+Words people use for this: tasks are empty, no tasks, why can i not see my list, checklist before my shift, start my shift first, no hay tareas.
+Last checked: 2026-09-30
+
+## Use the bottom bar and More (staff portal)
+Who can do this: anyone signed in
+1. The bar at the bottom holds **Home** (**Inicio**), four shortcuts and **More** (**Más**). The four start as **Schedule** (**Horario**), **Tasks** (**Tareas**), **Chat** (**Mensajes**) and **Help** (**Ayuda**).
+2. Tap **More** (**Más**) for the rest: **Assigned** (**Asignadas**), **Report** (**Reportar**), **Supplies** (**Suministros**), **Pickup** (**Turnos libres**), **Inspect** (**Inspección**), **Speak Up** (**Confianza**), **Settings** (**Ajustes**) and **Forms** (**Formularios**). Supervisors and admins see **Issues** (**Problemas**) in the place of Report. A tap outside closes it.
+3. The four shortcuts are yours to choose: **Edit shortcuts** (**Editar accesos directos**) at the bottom of More changes them (see Change the shortcuts on your bottom bar). Each person keeps their own bar, and it follows you to any phone or computer you sign in on.
+4. A red number counts what is waiting: on **Chat** (**Mensajes**), your unread messages; on **Assigned** (**Asignadas**), the tasks assigned to you; on **More** (**Más**), what is waiting in the places under it. Past nine it reads 9+.
+5. At the top of every screen, your picture or initials open your profile, the bell opens your notifications, the gear opens **Settings** (**Ajustes**), and the last button signs you out. While a shift is open, **ON SITE** (**EN SITIO**) shows beside them.
+Words people use for this: bottom bar, menu, more button, where is supplies, where is pickup, i cannot find it, the red number, navigation, menú, más.
+Last checked: 2026-09-30
+
+## Pick a person on a form (staff portal)
+Who can do this: anyone filling a form with a question about a person
+1. A question about a person shows a **Search by name** (**Buscar por nombre**) box, which opens once the staff list has loaded.
+2. Type part of a name. The names that match show under the box; tap the one you mean.
+3. The name you picked shows in the place of the box. Tap it to take it off and pick again. A question holds one person. On some forms your own name is already picked; change it the same way.
+4. **Next** (**Siguiente**) saves the pick with the rest of the page.
+If it does not work: **No one matches that name.** (**Nadie tiene ese nombre.**) means nobody on the staff list has that name; check the spelling or type less of it. If the list does not come, the question says **The staff list did not load. Try again in a minute.** (**La lista del personal no cargó. Intente de nuevo en un minuto.**) with **Try again** (**Intentar de nuevo**).
+Words people use for this: pick a person, choose an employee, name on a form, who was involved, search for a name, buscar por nombre, elegir a una persona.
+Last checked: 2026-09-30
+
+## Leave a form before sending it (staff portal)
+Who can do this: anyone filling a form in the app
+1. Tap **Close** (**Cerrar**) at the top of the form.
+2. The app asks **Leave this report? Your saved answers stay, and you can continue from Forms or Help.** (**¿Salir de este reporte? Sus respuestas guardadas se quedan y puede continuar desde Formularios o Ayuda.**) Tap **Leave** (**Salir**) to go, or **Keep filling** (**Seguir llenando**) to stay.
+3. Leaving saves what is on the page first, then goes back to **Forms** (**Formularios**). The report is kept as a draft and is not sent.
+4. To finish it later, tap **Continue** (**Continuar**) on its card in **Forms** (**Formularios**), or find it under **Unfinished reports** (**Reportes sin terminar**) in **Help** (**Ayuda**) (see Continue a report started in Help).
+Answers save each time you tap **Next** (**Siguiente**) or **Back** (**Atrás**), and when you leave with **Close** (**Cerrar**). Going to another screen from the bottom bar keeps what the last **Next** (**Siguiente**) or **Back** (**Atrás**) saved, and nothing typed after it.
+If it does not work: to drop a draft you do not want, tap **Discard** (**Descartar**) on it under **Unfinished reports** (**Reportes sin terminar**) in **Help** (**Ayuda**).
+Words people use for this: close a form, leave a report, come back later, finish later, save a draft, did it save, salir del reporte, guardar borrador.
+Last checked: 2026-09-30
