@@ -714,9 +714,12 @@ const timeOffHours = (h) => {
 
 // --- Codes, put into words ---------------------------------------------
 const titleCase = (code) => String(code || "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+// The last three are roles the API holds that had no word here, and read
+// the same in English as they did.
 const ROLE_WORDS = {
   custodian: () => tr("Custodian"), custodial_lead: () => tr("Custodial Lead"), lead: () => tr("Lead"),
   supervisor: () => tr("Supervisor"), admin: () => tr("Admin"),
+  custodial_laborer: () => tr("Custodial Laborer"), day_porter: () => tr("Day Porter"), contractor: () => tr("Contractor"),
 };
 const roleWord = (code) => (ROLE_WORDS[code] ? ROLE_WORDS[code]() : titleCase(code));
 // A shift, a pickup, an inspection, an assigned task or a reported issue.
@@ -1958,6 +1961,10 @@ export default function OCSAStaffPortal() {
   }, [channels, user]);
   // A chat a person picks is the one Chat opens on next time, on this phone.
   const chooseChat = (id) => { setActiveChannel(id); if (user) saveLastChat(user.id, id); };
+  // A chat New message opened: put on the list when the list does not
+  // hold it yet, so it is drawn at once, then opened, and the list read
+  // again for the API's own name and count.
+  const openNewChat = (ch) => { setChannels(prev => (Array.isArray(prev) && !prev.some(c => c && c.id === ch.id) ? prev.concat([ch]) : prev)); chooseChat(ch.id); loadChannels(); };
   // Opens the place a notice names: a tab, Chat on one chat, or the
   // announcement sheet. A chat already open is read again.
   const openPlace = (place) => {
@@ -2330,7 +2337,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
-              {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} user={user} t={t} token={token} />}
+              {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
@@ -4129,6 +4136,23 @@ function privateChatsOf(list) {
   return all.filter(isOwnPrivate).concat(others);
 }
 
+// Office people (Step 212 in the API): an admin or a supervisor, the two
+// roles the API gives every site and every person's private chat. Step
+// 212's contract also names a manager, a role the API does not hold.
+// Everyone else is staff, and sees nothing of New message.
+const OFFICE_ROLES = ["admin", "supervisor"];
+const isOfficePerson = (u) => !!u && OFFICE_ROLES.indexOf(u.role) !== -1;
+// The people New message offers, from GET /api/chat/people: each with an
+// id and a name, office people and then staff, in the order the API sent
+// them. Anything else in the answer is left out.
+const chatPeopleOf = (d) => (d && Array.isArray(d.people) ? d.people : [])
+  .filter(p => p && p.userId !== undefined && p.userId !== null && typeof p.name === "string" && p.name.trim())
+  .map(p => ({ id: p.userId, name: p.name.trim(), role: typeof p.role === "string" ? p.role : "", kind: p.kind === "office" ? "office" : "staff" }));
+// A chat New message could not open is told in the API's own words when
+// the refusal carries a code, which come in the language the call asked
+// for: a chat's, or a person the API no longer finds.
+const openSaidOf = (err) => (err && err.message !== ERR_OFFLINE && typeof err.code === "string" && err.code && typeof err.message === "string" && err.message.trim() ? err.message.trim() : null);
+
 // A message in a chat's list as the screen reads it: sent by this person,
 // with these words, and not one of the messages the chat already held.
 const isSentAgain = (m, userId, words, known) => !!m && m.senderId === userId && typeof m.text === "string" && m.text.trim() === words && !(m.id && known.has(m.id));
@@ -4178,7 +4202,7 @@ const tagsPerson = (msg, userId) => !!userId && Array.isArray(msg && msg.mention
 // each once.
 const mentionIdsIn = (words, picked) => { const ids = []; picked.forEach(m => { if (words.indexOf("@" + m.name) !== -1 && ids.indexOf(m.id) === -1) ids.push(m.id); }); return ids; };
 
-function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMessages, activeChannel, setActiveChannel, sendMessage, user, t, token }) {
+function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMessages, activeChannel, setActiveChannel, sendMessage, onOpenChat, user, t, token }) {
   const [text, setText] = useState(""); const endRef = useRef(null);
   // A tap on Send with words in the box and no chat chosen.
   const [pickFirst, setPickFirst] = useState(false);
@@ -4197,6 +4221,49 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
   const [tagOpen, setTagOpen] = useState(null);
   const [tagQuery, setTagQuery] = useState("");
   const [members, setMembers] = useState(null);
+  // New message, for office people alone. The people it offers are asked
+  // for once Chat opens, and the button shows only once the API has
+  // answered with someone in the list, so an API without the route, or
+  // one that turns the person away, shows nothing new. Staff never ask.
+  // A pick opens the chat the API names; one that does not open keeps
+  // the sheet up and says why.
+  const office = isOfficePerson(user);
+  const [people, setPeople] = useState(null);
+  const [newOpen, setNewOpen] = useState(false);
+  const [newQuery, setNewQuery] = useState("");
+  const [opening, setOpening] = useState(null);
+  const [openFault, setOpenFault] = useState(null);
+  useEffect(() => {
+    if (!office || !token) { setPeople(null); return undefined; }
+    let alive = true;
+    (async () => {
+      try { const d = await api(chatPath("/api/chat/people"), { token }); if (alive) setPeople(chatPeopleOf(d)); } catch (e) { if (alive) setPeople(null); }
+    })();
+    return () => { alive = false; };
+  }, [office, token]);
+  const canStart = office && Array.isArray(people) && people.length > 0;
+  const closeNew = () => { if (opening) return; setNewOpen(false); setNewQuery(""); setOpenFault(null); };
+  // An office person opens the direct chat the two of them share, and a
+  // staff member their private chat with the office, each made by the
+  // API the first time. The chat drawn until the list is read again is
+  // named for the person picked.
+  const startChat = async (p) => {
+    if (opening) return;
+    const direct = p.kind === "office";
+    setOpening(p.id); setOpenFault(null);
+    try {
+      const d = await api(chatPath(direct ? "/api/chat/direct" : "/api/chat/staff-line"), { method: "POST", body: { userId: p.id }, token });
+      const ch = d && d.channel && typeof d.channel === "object" ? d.channel : null;
+      if (!ch || !ch.id) throw new Error(ERR_GENERIC);
+      setNewOpen(false); setNewQuery("");
+      onOpenChat(direct ? { id: ch.id, type: "direct", name: p.name, otherUserId: p.id, unreadCount: 0 } : { id: ch.id, type: "admin_dm", name: p.name, staffUserId: p.id, unreadCount: 0 });
+    } catch (err) {
+      setOpenFault({ said: openSaidOf(err), offline: !!err && err.message === ERR_OFFLINE });
+    } finally { setOpening(null); }
+  };
+  const newNeedle = newQuery.trim().toLowerCase();
+  const newRows = canStart ? people.filter(p => !newNeedle || p.name.toLowerCase().indexOf(newNeedle) !== -1) : [];
+  useBusy("new message", !!opening);
   // Words in the box, or a send on its way, hold off an update. The box
   // empties only once the API has taken the words and the answer is drawn,
   // so the key goes only once the message is on the screen.
@@ -4337,6 +4404,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
     // out 10 pixels wider than the screen and scrolled it sideways.
     <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", ...fillsTheWindow(), minHeight: 0, overflow: "hidden" }}>
       <div style={{ flex: "0 1 auto", maxHeight: "45%", overflowY: "auto", padding: "10px 12px 0", borderBottom: "1px solid " + t.borderSolid, paddingBottom: 10 }}>
+        {canStart && (<div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}><button type="button" onClick={() => { setOpenFault(null); setNewQuery(""); setNewOpen(true); }} aria-haspopup="dialog" style={{ display: "inline-flex", alignItems: "center", gap: 6, maxWidth: "100%", minHeight: TAP, padding: "0 14px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, textAlign: "left" }}><PlusIco sz={14} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("New message")}</span></button></div>)}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={activeChannel === ch.id} style={mkTapFrame({ maxWidth: "100%" })}><span style={{ display: "inline-flex", alignItems: "center", padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 600 : 500, fontFamily: FONT_HEAD, textAlign: "left", overflowWrap: "anywhere" }}>{ch.name || ch.siteName}{ch.unreadCount > 0 && <span style={{ marginLeft: 6, background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{badgeText(ch.unreadCount)}</span>}</span></button>))}</div>
         {privates.length > 0 && (<div>
           <div id="ocsa-private-chats" style={{ fontSize: 10, fontWeight: 600, color: t.textMut, textTransform: "uppercase", letterSpacing: "1px", margin: "2px 0 6px", fontFamily: FONT_HEAD }}>{tr("Private chats")}</div>
@@ -4403,6 +4471,37 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
             </div>
             <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
               <button type="button" onClick={closeTag} style={{ width: "100%", minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Close")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {newOpen && canStart && (
+        <div onClick={closeNew} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="ocsa-new-title" onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, maxHeight: "calc(var(--ocsa-dvh, 100dvh) * 0.8)", display: "flex", flexDirection: "column", borderRadius: R.lg + "px " + R.lg + "px 0 0", border: "1px solid " + t.borderSolid, borderBottom: "none" }}>
+            <div style={{ padding: "14px 16px 10px", flexShrink: 0 }}>
+              <div id="ocsa-new-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>{tr("New message")}</div>
+              <input value={newQuery} onChange={e => setNewQuery(e.target.value.slice(0, 80))} placeholder={tr("Search by name")} aria-label={tr("Search by name")} autoFocus style={mkInput(t)} />
+              {openFault && (<div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 10, padding: "8px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><AlertIco sz={16} c={RED} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0, overflowWrap: "anywhere" }}>{openFault.said || (openFault.offline ? tr(ERR_OFFLINE) : tr("That chat did not open. Try again."))}</div></div>)}
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 8px" }}>
+              {[["office", tr("Office")], ["staff", tr("Staff")]].map(([kind, title]) => {
+                const rows = newRows.filter(p => p.kind === kind);
+                if (rows.length === 0) return null;
+                return (<div key={kind} role="group" aria-labelledby={"ocsa-new-" + kind} style={{ marginBottom: 6 }}>
+                  <div id={"ocsa-new-" + kind} style={{ fontSize: 10, fontWeight: 600, color: t.textMut, textTransform: "uppercase", letterSpacing: "1px", margin: "4px 0 6px", fontFamily: FONT_HEAD }}>{title}</div>
+                  {rows.map(p => {
+                    const busy = opening === p.id;
+                    return (<button key={p.id} type="button" onClick={() => startChat(p)} aria-disabled={!!opening} aria-busy={busy} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", marginBottom: 4, borderRadius: R.md, border: "1px solid " + (busy ? t.goldBorder : t.borderSolid), background: busy ? t.goldBg : t.card, color: t.text, cursor: opening ? "default" : "pointer", opacity: opening && !busy ? 0.5 : 1, textAlign: "left" }}>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{p.name}</span>
+                      {p.role && <span style={{ fontSize: 11, color: t.textMut, flexShrink: 0 }}>{roleWord(p.role)}</span>}
+                    </button>);
+                  })}
+                </div>);
+              })}
+              {newRows.length === 0 && <div style={{ padding: "20px 4px", textAlign: "center", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("No one matches that name.")}</div>}
+            </div>
+            <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
+              <button type="button" onClick={closeNew} aria-disabled={!!opening} style={{ width: "100%", minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: opening ? "default" : "pointer", fontFamily: FONT_HEAD }}>{tr("Close")}</button>
             </div>
           </div>
         </div>
