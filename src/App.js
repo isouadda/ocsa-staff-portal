@@ -1,6 +1,6 @@
 import { Component, useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
 import clientConfig from './clientConfig';
-import { tr, dateLocale, setWordsLanguage, wordsLanguage } from "./words";
+import { tr, dateLocale, setWordsLanguage, wordsLanguage, LANGUAGE_NAMES, offeredLanguages, offeredFrom, setOfferedLanguages, isOffered, languageToSend } from "./words";
 import { BUILD_STAMP } from "./buildStamp";
 import { detectInstallMode } from "./homeScreenPromptRules";
 
@@ -30,7 +30,7 @@ async function reach(url, init) {
 // before signing in among them, ask exactly as they did.
 function inScreenLanguage(url) {
   if (/[?&]locale=/.test(url)) return url;
-  return url + (url.indexOf("?") === -1 ? "?" : "&") + "locale=" + (wordsLanguage() === "es" ? "es" : "en");
+  return url + (url.indexOf("?") === -1 ? "?" : "&") + "locale=" + languageToSend();
 }
 async function readJson(res) {
   try { return await res.json(); } catch (e) { const x = new Error(ERR_GENERIC); x.status = res.status; throw x; }
@@ -1128,15 +1128,18 @@ function firstTheme() { return storedTheme() || phoneTheme(); }
 // still arrives with signing in and applies the way it always has. The
 // small script at the top of public/index.html reads these same two
 // answers, so the page is marked with its language from the first frame.
+// Each answer counts only while its language is offered (src/words.js),
+// so a phone set to French, or a stored French, opens in French only
+// once the API lists it.
 const LANGUAGE_KEY = "ocsa-staff-language";
-const LANGUAGES = [{ id: "en", label: "English" }, { id: "es", label: "Espa\u00f1ol" }];
 function storedLanguage() {
-  try { var v = window.localStorage.getItem(LANGUAGE_KEY); return (v === "en" || v === "es") ? v : null; } catch (e) { return null; }
+  try { var v = window.localStorage.getItem(LANGUAGE_KEY); return isOffered(v) ? v : null; } catch (e) { return null; }
 }
 function phoneLanguage() {
   try {
-    var first = (navigator.languages && navigator.languages[0]) || navigator.language || "";
-    return /^es\b/i.test(String(first)) ? "es" : "en";
+    var first = String((navigator.languages && navigator.languages[0]) || navigator.language || "");
+    var found = offeredLanguages().find(function (code) { return new RegExp("^" + code + "\\b", "i").test(first); });
+    return found || "en";
   } catch (e) { return "en"; }
 }
 function firstLanguage() { return storedLanguage() || phoneLanguage(); }
@@ -1146,9 +1149,47 @@ function firstLanguage() { return storedLanguage() || phoneLanguage(); }
 // a phone set to Spanish would get Spanish refusals on a screen set to
 // English, and the other way round.
 function signedOut(path, language) {
-  return path + (path.indexOf("?") === -1 ? "?" : "&") + "locale=" + (language === "es" ? "es" : "en");
+  return path + (path.indexOf("?") === -1 ? "?" : "&") + "locale=" + languageToSend(language);
 }
 function saveLanguage(v) { try { window.localStorage.setItem(LANGUAGE_KEY, v); } catch (e) {} }
+
+// Which languages the API speaks, Step 209: GET /api/languages, asked
+// once at start, signed in or out, with no token, since the sign-in
+// screens and the public pages draw the pickers too. It answers
+// { languages: [...] } once the API has the route. Three answers:
+//   a list naming English and Spanish: that list;
+//   a 404, or an answer with no such list (the audit stub answers a
+//   route it does not know with { ok: true }): null, English and Spanish;
+//   no answer at all, no signal or a server fault: undefined, and the
+//   list this phone already holds stays, so a person reading French is
+//   not moved off it by a dropped signal.
+// The answer is handed to src/words.js before anything waiting on it
+// runs. Asked once per page load, however many times the root mounts.
+let languagesAsked = null;
+function askLanguages() {
+  if (languagesAsked) return languagesAsked;
+  languagesAsked = (async () => {
+    let res;
+    try { res = await reach(API + "/api/languages", {}); } catch (e) { return undefined; }
+    if (res.status !== 404 && !res.ok) return undefined;
+    let body = null;
+    if (res.ok) { try { body = await res.json(); } catch (e) { body = null; } }
+    const list = offeredFrom(body && body.languages);
+    setOfferedLanguages(list);
+    return list;
+  })();
+  return languagesAsked;
+}
+// A language the API names for the account before its list is back, the
+// preferredLanguage an emailed link carries: chosen at once when it is
+// offered, the way English and Spanish always have been, and once the
+// list is back when it is one the portal holds, so a French account's
+// link opens in French as soon as the API lists French.
+function chooseWhenOffered(lang, choose) {
+  if (isOffered(lang)) { choose(lang); return; }
+  if (!Object.prototype.hasOwnProperty.call(LANGUAGE_NAMES, String(lang))) return;
+  askLanguages().then(() => { if (isOffered(lang)) choose(lang); });
+}
 
 // Settings belong to the account once the API carries them. Until then each
 // device works on its own exactly as before, and nothing is sent anywhere.
@@ -1250,7 +1291,7 @@ const fillsTheWindow = () => ({
 // no screen has to thread it down.
 const TextSizeCtx = createContext({ textSize: "standard", setTextSize: () => {} });
 // The language, and the way to change it, reach them the same way.
-const LanguageCtx = createContext({ language: "en", setLanguage: () => {} });
+const LanguageCtx = createContext({ language: "en", setLanguage: () => {}, languages: ["en", "es"] });
 
 // The four choices, as buttons. Used on the sign-in screens and in Profile.
 function TextSizeChoices({ value, onChange, t }) {
@@ -1301,14 +1342,59 @@ function TextSizeButton({ t }) {
 // The screens before signing in offer the other language beside the text
 // size and the theme, named in its own language so a person who reads
 // only that one can find it. One tap turns every screen at once and is
-// kept on this phone, the same as a choice made in Settings.
+// kept on this phone, the same as a choice made in Settings. With two
+// languages offered the pill is the other one and toggles. With three
+// it names the other two and opens a small choice of every language
+// offered, the way the text size opens its own.
 function LanguageButton({ t }) {
-  const { language, setLanguage } = useContext(LanguageCtx);
-  const other = LANGUAGES.find(l => l.id !== language) || LANGUAGES[0];
+  const { language, setLanguage, languages } = useContext(LanguageCtx);
+  const [open, setOpen] = useState(false);
+  const others = languages.filter(id => id !== language);
+  if (languages.length <= 2) {
+    const other = others[0] || languages[0];
+    return (
+      <button type="button" onClick={() => setLanguage(other)} style={mkTapFrame()}>
+        <span lang={other} style={mkSmallPill(t)}><GlobeIco sz={14} c={t.textMut} />{LANGUAGE_NAMES[other]}</span>
+      </button>
+    );
+  }
   return (
-    <button type="button" onClick={() => setLanguage(other.id)} style={mkTapFrame()}>
-      <span lang={other.id} style={mkSmallPill(t)}><GlobeIco sz={14} c={t.textMut} />{other.label}</span>
-    </button>
+    <>
+      <button type="button" onClick={() => setOpen(true)} aria-haspopup="dialog" style={mkTapFrame()}>
+        <span style={mkSmallPill(t)}><GlobeIco sz={14} c={t.textMut} />{others.map((id, i) => <span key={id} style={{ display: "inline-flex", gap: 6 }}>{i > 0 && <span aria-hidden="true">/</span>}<span lang={id}>{LANGUAGE_NAMES[id]}</span></span>)}</span>
+      </button>
+      {open && (
+        <div onClick={() => setOpen(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 300, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div role="dialog" aria-label={tr("Language")} onClick={e => e.stopPropagation()} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 560, padding: "18px 18px 26px", boxShadow: t.popShadow, textAlign: "left" }}>
+            <div style={{ width: 40, height: 4, borderRadius: 2, background: t.textMut, margin: "0 auto 14px", opacity: 0.3 }} />
+            <div style={{ fontSize: 15, fontWeight: 600, color: t.text, marginBottom: 14, fontFamily: FONT_HEAD }}>{tr("Language")}</div>
+            <LanguageChoices value={language} onChange={(id) => { setLanguage(id); setOpen(false); }} languages={languages} t={t} />
+            <button type="button" onClick={() => setOpen(false)} style={{ width: "100%", minHeight: 44, marginTop: 14, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Done")}</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+// The languages offered as rows, each named in its own language, drawn
+// the way the text size choices are.
+function LanguageChoices({ value, onChange, languages, t }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {languages.map(id => {
+        const picked = value === id;
+        return (
+          <button key={id} type="button" onClick={() => onChange(id)} aria-pressed={picked} style={{
+            display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: 44, padding: "10px 14px",
+            borderRadius: R.md, cursor: "pointer", textAlign: "left",
+            background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text,
+          }}>
+            <div style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: picked ? GOLD : "transparent", border: picked ? "none" : "2px solid " + t.borderSolid }} />
+            <span lang={id} style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: picked ? 600 : 500, fontFamily: FONT_HEAD }}>{LANGUAGE_NAMES[id]}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1538,6 +1624,25 @@ export default function OCSAStaffPortal() {
   // path, so a choice made before signing in is sent up afterwards.
   const toggleTheme = () => setTheme(themeMode === "dark" ? "light" : "dark");
   const [language, setLanguageState] = useState(firstLanguage);
+  // The languages offered, drawn by every picker: the list this phone
+  // kept, and then the API's answer. A language chosen on this phone
+  // stays while the answer offers it. Otherwise the language is worked
+  // out again from the new list the way the first frame works it out:
+  // a phone set to French turns to French once French is offered, and
+  // a person reading French when the answer drops it moves to the
+  // phone's own language, English or Spanish. Nothing is saved for
+  // either, so a French choice kept on this phone comes back if French
+  // does.
+  const [languages, setLanguages] = useState(offeredLanguages);
+  useEffect(() => {
+    let alive = true;
+    askLanguages().then((list) => {
+      if (!alive || list === undefined) return;
+      setLanguages(offeredLanguages());
+      setLanguageState(prev => (isOffered(prev) && storedLanguage() !== null ? prev : firstLanguage()));
+    });
+    return () => { alive = false; };
+  }, []);
   const setLanguage = (v) => { setLanguageState(v); saveLanguage(v); queuePref({ language: v }); };
   // The page says which language it is in, so a screen reader reads it in
   // the right voice and the browser never offers to translate it, and the
@@ -1579,7 +1684,7 @@ export default function OCSAStaffPortal() {
   // the table, which already carries the English of every choice the
   // screens fall back to, and then the label as sent.
   const [lookupsLang, setLookupsLang] = useState(null);
-  const loadLookups = useCallback((tok, lang) => { api("/api/lookups?locale=" + (lang === "es" ? "es" : "en"), { token: tok }).then((list) => { setLookups(list); setLookupsLang(lang); }).catch(e => console.warn("Lookups:", e.message)); }, []);
+  const loadLookups = useCallback((tok, lang) => { api("/api/lookups?locale=" + languageToSend(lang), { token: tok }).then((list) => { setLookups(list); setLookupsLang(lang); }).catch(e => console.warn("Lookups:", e.message)); }, []);
   const getOpts = useCallback((slug, placeholder) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return placeholder ? [{ v: "", l: placeholder }] : []; const own = lookupsLang === language; const opts = (cat.values || []).filter(v => v.is_active).sort((a, b) => a.sort_order - b.sort_order).map(v => ({ v: v.value, l: own && v.displayLabel ? v.displayLabel : tr(v.label) })); return placeholder ? [{ v: "", l: placeholder }, ...opts] : opts; }, [lookups, lookupsLang, language]);
   const lkMap = useCallback((slug) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return {}; const m = {}; (cat.values || []).forEach(v => { m[v.value] = v.label; }); return m; }, [lookups]);
   const lkColorMap = useCallback((slug) => { const cat = lookups.find(c => c.slug === slug); if (!cat) return {}; const m = {}; (cat.values || []).forEach(v => { if (v.color) m[v.value] = v.color; }); return m; }, [lookups]);
@@ -1656,7 +1761,7 @@ export default function OCSAStaffPortal() {
     // A language picked on the way in is this device's language from
     // here, so a person who activated in Spanish lands in Spanish even
     // if the account has not caught up with the choice yet.
-    if (chosenLanguage === "en" || chosenLanguage === "es") { chosenOnEntryRef.current = "language"; setLanguage(chosenLanguage); }
+    if (isOffered(chosenLanguage)) { chosenOnEntryRef.current = "language"; setLanguage(chosenLanguage); }
     setToken(tok); saveAuth(tok);
     try { const me = await hydrateSession(tok); showToast(tr("Welcome, {name}", { name: me.firstName })); }
     catch (err) { clearAuth(); setToken(null); setUser(null); setScreen("login"); showToast(tr(err.message), "error"); }
@@ -1776,7 +1881,7 @@ export default function OCSAStaffPortal() {
     if (inUse && label === inUse) { setShiftAsk(null); setShiftFault(null); return; }
     setShiftBusy(true); setShiftFault(null);
     try {
-      const data = await api("/api/shift-sessions/" + id + "/shift?locale=" + (language === "es" ? "es" : "en"), { method: "PATCH", body: { shiftLabel: label }, token });
+      const data = await api("/api/shift-sessions/" + id + "/shift?locale=" + languageToSend(language), { method: "PATCH", body: { shiftLabel: label }, token });
       if (data && data.session) { const seq = nextStatusSeq(); takeStatus({ ...cs, session: data.session, tasks: data.tasks || cs.tasks }, seq); }
       else await refreshClockStatus();
       setShiftAsk(null);
@@ -1987,8 +2092,13 @@ export default function OCSAStaffPortal() {
       storedTheme(),
       (v) => { setThemeMode(v); saveTheme(v); });
 
-    mergePref("language",
-      (prefs.language === "en" || prefs.language === "es") ? prefs.language : null,
+    // A language the portal holds and does not offer yet, French before
+    // the API lists it, stays on the account as it is: it is not applied
+    // here, and this phone's language does not replace it unless this
+    // phone is still sending a choice of its own.
+    const hiddenOnAccount = Object.prototype.hasOwnProperty.call(LANGUAGE_NAMES, prefs.language) && !isOffered(prefs.language);
+    if (!hiddenOnAccount || waiting.indexOf("language") !== -1) mergePref("language",
+      isOffered(prefs.language) ? prefs.language : null,
       storedLanguage(),
       (v) => { setLanguageState(v); saveLanguage(v); });
 
@@ -2160,7 +2270,7 @@ export default function OCSAStaffPortal() {
 
   return (
     <TextSizeCtx.Provider value={{ textSize, setTextSize }}>
-    <LanguageCtx.Provider value={{ language, setLanguage }}>
+    <LanguageCtx.Provider value={{ language, setLanguage, languages }}>
     <div style={{ width: "100%", minHeight: "var(--ocsa-vh)", background: t.bg, fontFamily: FONT_BODY, color: t.text, position: "relative", display: "flex", flexDirection: "column", zoom: zoom, ...viewportVars(zoom), ...chromeVars(chrome.header, chrome.bar, zoom) }}>
 
       {/* Only while an update is waiting on someone to finish. It takes
@@ -2464,11 +2574,12 @@ function BootSplash({ t, themeMode }) {
   );
 }
 
+// The languages offered, side by side, each named in its own language.
 function LangPicker({ value, onChange, t }) {
-  const opts = [["en", "English"], ["es", "Espa\u00f1ol"]];
+  const { languages } = useContext(LanguageCtx);
   return (
     <div style={{ display: "flex", gap: 8 }}>
-      {opts.map(([v, l]) => <button key={v} type="button" onClick={() => onChange(v)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD, background: value === v ? t.goldBg : "transparent", color: value === v ? t.goldText : t.textMut, border: "1px solid " + (value === v ? t.goldBorder : t.borderSolid), cursor: "pointer" }}>{l}</button>)}
+      {languages.map(v => <button key={v} type="button" onClick={() => onChange(v)} style={{ flex: 1, minHeight: TAP, ...(languages.length > 2 ? { padding: "10px 4px", minWidth: 0 } : { padding: "10px" }), borderRadius: R.sm, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD, background: value === v ? t.goldBg : "transparent", color: value === v ? t.goldText : t.textMut, border: "1px solid " + (value === v ? t.goldBorder : t.borderSolid), cursor: "pointer" }}>{LANGUAGE_NAMES[v]}</button>)}
     </div>
   );
 }
@@ -2506,7 +2617,7 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
     let alive = true;
     setPhase("checking");
     api(signedOut("/api/auth/activate/" + encodeURIComponent(token), localeRef.current), { noAuthEvent: true })
-      .then(d => { if (!alive) return; setInfo(d); if (d && (d.preferredLanguage === "en" || d.preferredLanguage === "es")) chooseRef.current(d.preferredLanguage); setPhase("form"); })
+      .then(d => { if (!alive) return; setInfo(d); if (d) chooseWhenOffered(d.preferredLanguage, (v) => { if (alive) chooseRef.current(v); }); setPhase("form"); })
       .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(wentNowhere(e) ? ERR_OFFLINE : ERR_GENERIC) }); setPhase("error"); } });
     return () => { alive = false; };
   }, [token, attempt]);
@@ -2622,7 +2733,7 @@ function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
     let alive = true;
     setPhase("checking");
     api(signedOut("/api/auth/reset/" + encodeURIComponent(token), languageRef.current), { noAuthEvent: true })
-      .then(d => { if (!alive) return; setInfo(d); if (d && (d.preferredLanguage === "en" || d.preferredLanguage === "es")) chooseRef.current(d.preferredLanguage); setPhase("form"); })
+      .then(d => { if (!alive) return; setInfo(d); if (d) chooseWhenOffered(d.preferredLanguage, (v) => { if (alive) chooseRef.current(v); }); setPhase("form"); })
       .catch(e => { if (!alive) return; if (e.code === "TOKEN_INVALID") { setPhase("invalid"); } else { setFail({ from: "get", msg: tr(wentNowhere(e) ? ERR_OFFLINE : ERR_GENERIC) }); setPhase("error"); } });
     return () => { alive = false; };
   }, [token, attempt]);
@@ -3567,7 +3678,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
 
 // The status, asked for in the language on screen, since every session
 // answer names the site's shifts in the language the request asks for.
-const statusPath = () => "/api/clock/status?locale=" + (wordsLanguage() === "es" ? "es" : "en");
+const statusPath = () => "/api/clock/status?locale=" + languageToSend();
 // An open session's shifts: none at a site with fewer than two, and
 // otherwise one per shift, each with its name, its hours and whether the
 // session's start time suggests it.
@@ -3601,7 +3712,7 @@ function checklistRequest(cs, userId, lang) {
   if (!cs || !cs.clockedIn || !cs.shift || !cs.shift.siteId) return null;
   const own = checklistIsOwn(cs);
   if (own && !userId) return null;
-  return "/api/sites/" + cs.shift.siteId + "/tasks?" + (own ? "user_id=" + userId + "&" : "") + "day=today&locale=" + (lang === "es" ? "es" : "en");
+  return "/api/sites/" + cs.shift.siteId + "/tasks?" + (own ? "user_id=" + userId + "&" : "") + "day=today&locale=" + languageToSend(lang);
 }
 // The rows the list answers, and the checklist day it carries (Step 198),
 // YYYY-MM-DD or null. The route answers a bare list today, which has no
@@ -4036,7 +4147,7 @@ const sendLanded = (rows, f, userId) => (f.clientId && chatKnowsClientId(rows)
 // Every call Chat makes says the language on the screen, the way the
 // portal's other calls do. Without it the API answers in the account's
 // language, which a preference not yet saved can leave behind.
-const chatPath = (path) => path + "?locale=" + (wordsLanguage() === "es" ? "es" : "en");
+const chatPath = (path) => path + "?locale=" + languageToSend();
 // The most a message holds. The API turns away more than this, so the box
 // stops here and only a screen older than this build ever meets that.
 const CHAT_TEXT_MAX = 2000;
@@ -4517,7 +4628,7 @@ function RateAnswer({ messageId, feedback, onRated, onUnavailable, token, t }) {
 function AgentView({ token, showToast, t, language, onFillForm, conversationId, onConversation }) {
   // The same shape the Forms screen uses, so a Spanish screen never
   // lists English form names.
-  const locale = language === "es" ? "es" : "en";
+  const locale = languageToSend(language);
   const [drafts, setDrafts] = useState([]);
   // Held at the root, the way the forms draft is, so switching tabs and
   // coming back continues the same conversation. The thread below stays
@@ -4706,7 +4817,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
       // locale and otherwise falls back to the language on the account,
       // which nothing in the portal can set until the preference routes are
       // live. With it, the choice in Settings works on the next message.
-      if (language === "en" || language === "es") body.locale = language;
+      if (isOffered(language)) body.locale = language;
       if (paths && paths.length > 0) body.photoPaths = paths;
       if (conversationId) body.conversationId = conversationId;
       // The question's own id, the same on every Retry of it, so a question
@@ -5444,7 +5555,7 @@ function NotificationsSheet({ token, t, locale, unread, onClose, onOpen, onUnrea
   const [busy, setBusy] = useState(false);
   const [allBusy, setAllBusy] = useState(false);
   const nowMs = Date.now();
-  const lang = locale === "es" ? "es" : "en";
+  const lang = languageToSend(locale);
   const readSeq = useRef(0);
 
   const load = useCallback(async (before) => {
@@ -5669,6 +5780,7 @@ function ChangePinCard({ token, user, showToast, t, cardSt }) {
 // the app behaves for them. Every card here follows the account once the
 // API carries preferences.
 function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize, setTextSize, language, setLanguage, onEditShortcuts, onPhoneAlerts }) {
+  const { languages } = useContext(LanguageCtx);
   const cardSt = { background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 16, marginBottom: 12 };
   // The Phone alerts row shows once the API has answered its settings
   // route with anything but 404, which hides it until the API has it.
@@ -5718,9 +5830,9 @@ function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize
         <div style={{ ...labelSt, marginBottom: 6 }}>{tr("Language")}</div>
         <div style={lineSt}>{tr("The app, Help and report forms use this language.")}</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-          {LANGUAGES.map(l => {
-            const picked = language === l.id;
-            return <button key={l.id} onClick={() => setLanguage(l.id)} aria-label={l.label} style={pickBtn(picked)}><span style={dot(picked)} />{l.label}</button>;
+          {languages.map(id => {
+            const picked = language === id;
+            return <button key={id} onClick={() => setLanguage(id)} aria-label={LANGUAGE_NAMES[id]} style={pickBtn(picked)}><span style={dot(picked)} />{LANGUAGE_NAMES[id]}</button>;
           })}
         </div>
       </div>
@@ -5955,7 +6067,7 @@ function formSectionTitle(form, key, language) {
   const s = list.find(x => x && String(x.key) === String(key));
   if (!s) return "";
   const pick = (v) => (typeof v === "string" ? v : v && typeof v === "object" ? (v[language] || v.en || "") : "");
-  return String(pick(s.title) || pick({ en: s.en, es: s.es }) || "").trim();
+  return String(pick(s.title) || pick({ en: s.en, es: s.es, fr: s.fr }) || "").trim();
 }
 // A section's help line, the line a paper form prints above a whole
 // block of questions, sent beside the title in the language the form
@@ -6258,7 +6370,7 @@ function PublicHead({ logo, companyName, siteName, withPicker, locale, setLangua
 // ever calls a route behind the token.
 function CustomerFormScreen({ token, t, themeMode }) {
   const { language, setLanguage } = useContext(LanguageCtx);
-  const locale = language === "es" ? "es" : "en";
+  const locale = languageToSend(language);
   const [got, setGot] = useState({ loading: true, data: null, said: null, offline: false });
   const [asked, setAsked] = useState(0);
   useEffect(() => {
@@ -6337,7 +6449,7 @@ function ackGroups(data, language) {
   const keys = list.map(s => String(s.key));
   const groups = list.map(s => ({
     key: String(s.key),
-    title: formInLanguage(s.title !== undefined ? s.title : { en: s.en, es: s.es }, language),
+    title: formInLanguage(s.title !== undefined ? s.title : { en: s.en, es: s.es, fr: s.fr }, language),
     fields: Array.isArray(s.fields) ? s.fields.filter(f => f && typeof f === "object") : fields.filter(f => formSectionOf(f) === String(s.key)),
   }));
   const rest = fields.filter(f => keys.indexOf(formSectionOf(f)) === -1);
@@ -6362,7 +6474,7 @@ const ackRead = (f) => {
 // the phone, and the token is never stored.
 function AcknowledgeScreen({ token, t, themeMode }) {
   const { language, setLanguage } = useContext(LanguageCtx);
-  const locale = language === "es" ? "es" : "en";
+  const locale = languageToSend(language);
   const [got, setGot] = useState({ loading: true, data: null, said: null, offline: false });
   const [asked, setAsked] = useState(0);
   const [name, setName] = useState("");
@@ -6547,7 +6659,7 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
   const [asking, setAsking] = useState(null);
   const [siteFault, setSiteFault] = useState(null);
 
-  const locale = language === "es" ? "es" : "en";
+  const locale = languageToSend(language);
 
   // Once per visit. The catalog decides the screen, so a failure
   // here is the whole screen's failure; the draft list only
@@ -6610,11 +6722,14 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
 
   // With no shift open, a report is started for a site the person names,
   // Step 206, from the sites GET /api/forms/my-sites answers. It is read
-  // once a visit, as the list loads, and a tap waits on that one read. An
-  // API without the route, or one that answers no sites, starts the
-  // report the way it always has, with no site, and a read that did not
-  // come is asked again on the next tap. With a shift open the shift's
-  // site is the report's, so nothing is asked.
+  // once a visit, on the first Start report that needs it, and every
+  // later tap uses that one read. An API without the route, or one that
+  // answers no sites, starts the report the way it always has, with no
+  // site, and a read that did not come is asked again on the next tap.
+  // With a shift open the shift's site is the report's, so nothing is
+  // asked. Until Step 209 it was read as the list loaded, and the portal
+  // reloading itself for a new version, five seconds into a visit, came
+  // back to Forms and read it a second time.
   const sitesRead = useRef(null);
   const mySites = useCallback(() => {
     if (!sitesRead.current) {
@@ -6625,7 +6740,6 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
     }
     return sitesRead.current;
   }, [token]);
-  useEffect(() => { if (!shiftOpen) mySites(); }, [shiftOpen, mySites]);
 
   // A report already started is handed back by the API whatever site is
   // named, so Continue never asks. One site is picked for the person and

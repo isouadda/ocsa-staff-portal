@@ -20,14 +20,27 @@
     // The language is decided the same way, the choice stored on this phone
     // or else the phone's own language, and the page is marked with it
     // before anything is drawn, so a Spanish screen is never declared an
-    // English one. src/App.js keeps it right from there.
+    // English one. src/App.js keeps it right from there. A language
+    // counts, stored or from the phone, only while it is offered: English
+    // and Spanish always, and French, or any language added later, only
+    // while the list this phone last read from the API names it
+    // (ocsa-staff-languages, kept by src/words.js).
     (function () {
       var lang = "en";
       try {
         var chosen = null;
+        var offered = ["en", "es"];
         try { chosen = window.localStorage.getItem("ocsa-staff-language"); } catch (e) {}
+        try {
+          var list = JSON.parse(window.localStorage.getItem("ocsa-staff-languages"));
+          if (Array.isArray(list) && list.indexOf("en") !== -1 && list.indexOf("es") !== -1) offered = list;
+        } catch (e) {}
         var phone = String((navigator.languages && navigator.languages[0]) || navigator.language || "");
-        lang = (chosen === "en" || chosen === "es") ? chosen : (/^es\b/i.test(phone) ? "es" : "en");
+        var fromPhone = "en";
+        for (var i = 0; i < offered.length; i++) {
+          if (typeof offered[i] === "string" && /^[a-z]{2}$/.test(offered[i]) && new RegExp("^" + offered[i] + "\\b", "i").test(phone)) { fromPhone = offered[i]; break; }
+        }
+        lang = (typeof chosen === "string" && offered.indexOf(chosen) !== -1) ? chosen : fromPhone;
       } catch (e) {}
       document.documentElement.lang = lang;
     })();

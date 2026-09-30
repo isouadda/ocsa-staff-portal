@@ -8,7 +8,7 @@ Build and validate (run before every commit)
 * Guide check: npm run guide-check must pass.
 * Report the build result after any change.
 Architecture
-* Single file: src/App.js, about 8,700 lines.
+* Single file: src/App.js, about 8,800 lines. The portal's own words live in src/words.js in three languages: English, Spanish and French. French shows only once GET /api/languages lists it.
 * Design vocabulary matches the admin app: FONT_HEAD and FONT_BODY (both the phone's own system stack), the R radius scale, a full theme token set, gold glow on primary buttons, and the shared mkLabel, mkInput, mkQtyBtn helpers.
 * Auth fetch helper returns parsed JSON and throws on error.
 Conventions (hard rules)
