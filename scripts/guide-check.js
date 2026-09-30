@@ -12,6 +12,8 @@
 //     unless guide/check-allow.txt lists it
 //   the file holds an email address or a phone number
 //
+// It warns, and does not fail, when a row in the CSV has no French.
+//
 // Each failure is printed with its line. When the pull request changes
 // src/ and not guide/, it writes a warning that the guide may need an
 // entry, and does not fail for it. GUIDE_BASE names the branch to compare
@@ -59,14 +61,25 @@ function readCsv(text) {
 const pairKey = (en, es) => en + "\u0000" + es;
 
 // Every English and Spanish pair the portal draws. The English is the
-// part of the key before "|", where a key carries one.
+// part of the key before "|", where a key carries one. Each column is
+// found by its name on the first row, so a column added between them
+// moves nothing. The guide writes English and Spanish only, so French
+// is read for one thing: a row with none is counted and named in a
+// warning, since a key with no French shows its English on a French
+// screen. It does not fail the check.
 function wordPairs() {
   const rows = readCsv(fs.readFileSync(WORDS_FILE, "utf8"));
+  const head = rows[0] || [];
+  const col = (name, fallback) => (head.indexOf(name) === -1 ? fallback : head.indexOf(name));
+  const EN = col("English", 0), ES = col("Spanish", 1), FR = col("French", -1);
   const set = new Set();
+  const noFrench = [];
   rows.slice(1).forEach((r) => {
     if (r.length < 2) return;
-    set.add(pairKey(r[0].split("|")[0], r[1]));
+    set.add(pairKey(r[EN].split("|")[0], r[ES]));
+    if (FR !== -1 && !String(r[FR] || "").trim()) noFrench.push(r[EN]);
   });
+  set.noFrench = FR === -1 ? null : noFrench;
   return set;
 }
 
@@ -141,6 +154,12 @@ function main() {
     for (const m of line.matchAll(EMAIL_RE)) failures.push({ file: GUIDE_FILE, line: i + 1, text: "An email address is in the guide: " + m[0] + ". This repository is public." });
     for (const m of line.matchAll(PHONE_RE)) failures.push({ file: GUIDE_FILE, line: i + 1, text: "A phone number is in the guide: " + m[0].trim() + ". This repository is public." });
   });
+
+  if (words.noFrench === null) process.stdout.write("warning: " + rel(WORDS_FILE) + " has no French column.\n");
+  else if (words.noFrench.length > 0) {
+    process.stdout.write("warning: " + words.noFrench.length + " rows in " + rel(WORDS_FILE) + " have no French, and show their English on a French screen: " +
+      words.noFrench.slice(0, 5).map((w) => JSON.stringify(w)).join(", ") + (words.noFrench.length > 5 ? " and more" : "") + "\n");
+  }
 
   allowed.forEach((v, key) => {
     if (!v.used) process.stdout.write(rel(ALLOW_FILE) + ":" + v.line + ": no longer in the guide, and can come off: " + key.replace("\u0000", " / ") + "\n");
