@@ -937,6 +937,10 @@ function readEntryFromUrl() {
     // mail that carries it: /a/<token>, read the same way.
     var ack = /^\/a\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
     if (ack) return { screen: "acknowledge", token: ack[1] };
+    // The safety data sheets, opened from the QR poster in a janitor
+    // closet: /sds, or /sds/<code> for one sheet. No token, no sign-in.
+    var sds = /^\/sds(?:\/([A-Za-z0-9_.-]+))?$/i.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+    if (sds) return { screen: "sds", token: null, code: sds[1] || null };
     return null;
   } catch (e) { return null; }
 }
@@ -2311,6 +2315,7 @@ export default function OCSAStaffPortal() {
       {screen === "forgot" && <ForgotScreen onGoLogin={goLogin} showToast={showToast} t={t} />}
       {screen === "customer" && <CustomerFormScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
       {screen === "acknowledge" && <AcknowledgeScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
+      {screen === "sds" && <SdsPublicScreen code={ENTRY ? ENTRY.code : null} t={t} themeMode={themeMode} />}
       {screen === "setpin" && <SetPinScreen token={token} user={user} onDone={handlePinSet} onSignOut={handleLogout} showToast={showToast} t={t} />}
       {!booting && screen === "main" && (
         <>
@@ -6688,6 +6693,38 @@ function PublicHead({ logo, companyName, siteName, withPicker, locale, setLangua
         </div>
       </div>
       {withPicker && <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10, flex: "1 1 220px", maxWidth: 360 }}><div style={{ flex: 1, minWidth: 140 }}><LangPicker value={locale} onChange={setLanguage} t={t} /></div><TextSizeButton t={t} /></div>}
+    </div>
+  );
+}
+
+// The page the QR poster in each janitor closet opens, at /sds and
+// /sds/<code>, with no sign-in and nothing of the app around it: the head
+// the other public pages draw, with the language choice and the text
+// size, then the same list, search, sheet and kept copies the screen
+// under More draws. The address follows the sheet open, so a poster can
+// name one sheet, a reload stays on it, and the phone's back goes from a
+// sheet to the list.
+const sdsCodeInPath = () => { const m = /^\/sds\/([A-Za-z0-9_.-]+)\/?$/i.exec(String(window.location.pathname || "")); return m ? m[1] : null; };
+function SdsPublicScreen({ code: first, t, themeMode }) {
+  const { language, setLanguage } = useContext(LanguageCtx);
+  const [code, setCode] = useState(first || null);
+  useEffect(() => {
+    const onPop = () => setCode(sdsCodeInPath());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const move = (next) => {
+    setCode(next);
+    try {
+      if (next) window.history.pushState({ sds: next }, "", "/sds/" + next);
+      else if (window.history.state && window.history.state.sds) window.history.back();
+      else window.history.replaceState({}, "", "/sds");
+    } catch (e) {}
+  };
+  return (
+    <div style={{ padding: 16 }}>
+      <PublicHead logo={null} companyName="" siteName="" withPicker={true} locale={languageToSend(language)} setLanguage={setLanguage} t={t} themeMode={themeMode} />
+      <SdsBrowser initial={null} onList={null} code={code} onCode={move} t={t} />
     </div>
   );
 }
