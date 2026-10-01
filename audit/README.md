@@ -1,5 +1,31 @@
 # The audit suite
 
+## The smoke check
+
+```
+npm run build && npm run smoke
+```
+
+`audit/smoke.js` (Step 237) is the check every build runs, beside the
+build and the guide check. It builds nothing: it serves the `build/` that
+`npm run build` left, and stops with a failing line when a source file is
+newer than that build. It drives the portal at 390 wide against the stub,
+in English and Spanish: a cleaner signs in, every bar tab and every More
+item opens with no page error and no sideways scroll, Start Shift's
+screen draws, a form opens, Help answers; `/sds` draws with no sign-in;
+the sign-in code screen appears when the stub answers `secondStep`; a
+cleaner never asks for `/api/workspace` and a supervisor sees Workspace;
+French offered by the stub turns the screen French with no English the
+portal drew; and Home at the Largest size, 360 wide, has no control cut
+off. Each check prints one line, PASS or FAIL, and the command exits
+non-zero on any failure or when the run takes three minutes or more.
+
+The stub routes it needs sit behind switches in `makeState`
+(`languages`, `sds`, `secondStep`, `workspace`), off for every other
+case. The full suite below is separate and is not run by it.
+
+## The full suite
+
 One command walks every screen the portal can show, in English and in
 Spanish, at all four text sizes, on a 375 pixel screen.
 
@@ -10,8 +36,8 @@ npm run audit
 It builds the app, serves the build, drives it in a headless browser, and
 prints one table. It exits non-zero when anything failed.
 
-**Every portal build from now on runs this and pastes the table in its
-pull request.**
+The owner paused this suite in late September. Until it is brought back,
+every build runs the smoke check above instead.
 
 ## What it checks
 

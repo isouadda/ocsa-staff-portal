@@ -2,10 +2,12 @@ OCSA Staff Portal - Claude Code Project Guide
 What this is
 React single-page staff-facing portal for the OCSA operations platform. Create React App (react-scripts 5, React 18). Deployed on Vercel. Talks to the OCSA API.
 Build and validate (run before every commit)
+* Every build runs npm run build, npm run guide-check and npm run smoke, and all three pass before a pull request opens.
 * Install: npm install
 * Build, the real check: npm run build must pass with no errors.
 * Dev server: npm start
 * Guide check: npm run guide-check must pass.
+* Smoke check: npm run smoke must pass. It serves the build/ that npm run build left, so build first; it takes about a minute and a half. See audit/README.md.
 * Report the build result after any change.
 Architecture
 * Single file: src/App.js, about 10,200 lines. The portal's own words live in src/words.js in three languages: English, Spanish and French. French shows only once GET /api/languages lists it.
