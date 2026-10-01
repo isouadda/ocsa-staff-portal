@@ -786,6 +786,7 @@ const GearIco = (p) => <Ico d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 
 const BellIco = (p) => <Ico d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0" {...p} />;
 const DocIco = (p) => <Ico d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h4" {...p} />;
 const DropIco = (p) => <Ico d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" {...p} />;
+const FolderIco = (p) => <Ico d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
 // Every destination the portal has, in one list, so the bottom bar and the
@@ -810,6 +811,9 @@ const DESTINATIONS = [
   // Under More alone, never on the bar, and only once the API has a list
   // of safety data sheets to give, or this phone kept one (Step 215).
   { id: "sds", label: () => "Safety data sheets", icon: DropIco, moreOnly: true, role: (ctx) => !!ctx.sds },
+  // Under More alone, for an office person, and only once the API's team
+  // workspace has answered for them (Step 234).
+  { id: "workspace", label: () => "Workspace", icon: FolderIco, moreOnly: true, role: (ctx) => !!ctx.workspace },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
 
@@ -2153,7 +2157,21 @@ export default function OCSAStaffPortal() {
   const [sdsList, setSdsList] = useState(null);
   useEffect(() => { if (token && screen === "main") readSdsList().then(setSdsList); }, [token, screen]);
   const [sdsCode, setSdsCode] = useState(null);
-  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0 };
+  // The team workspace's projects, asked for once the portal is up, by an
+  // office person alone. Until the API answers with a list, and for
+  // everyone else, More offers nothing new and nothing is asked.
+  const [wsProjects, setWsProjects] = useState(null);
+  // The project open in Workspace and its tool, kept while the project's
+  // chat is open in Chat, so Workspace opens where the person left it.
+  const [wsAt, setWsAt] = useState(null);
+  const wsAsks = !!token && screen === "main" && isOfficePerson(user);
+  useEffect(() => {
+    if (!wsAsks) { setWsProjects(null); setWsAt(null); return undefined; }
+    let live = true;
+    readWorkspaceProjects(token).then(list => { if (live) setWsProjects(list); });
+    return () => { live = false; };
+  }, [wsAsks, token, user && user.id]);
+  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects) };
   const shortcutChoices = shortcutChoicesFor(destCtx);
   const allowedShortcutIds = shortcutChoices.map(d => d.id);
   const uid = user && user.id ? user.id : null;
@@ -2481,6 +2499,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
               {activeTab === "sds" && <div style={{ padding: 16 }}><SdsBrowser initial={sdsList} onList={setSdsList} code={sdsCode} onCode={setSdsCode} t={t} /></div>}
+              {activeTab === "workspace" && destCtx.workspace && <WorkspaceView token={token} user={user} projects={wsProjects} onProjects={setWsProjects} at={wsAt} onAt={setWsAt} channels={channels} onOpenChat={(id) => { chooseChat(id); setActiveTab("chat"); setShowMore(false); }} showToast={showToast} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
               {activeTab === "phonealerts" && <PhoneAlertsView token={token} t={t} onBack={() => setActiveTab("settings")} />}
@@ -4334,6 +4353,10 @@ function privateChatsOf(list) {
 // each named for the other person, newest first. Nobody else's list
 // carries one.
 const directChatsOf = (list) => newestFirst((Array.isArray(list) ? list : []).filter(ch => ch && ch.id && ch.type === "direct"));
+// The chats of the team workspace's projects an office person is on (Step
+// 234), each named for its project, newest first. Nobody else's list
+// carries one.
+const projectChatsOf = (list) => newestFirst((Array.isArray(list) ? list : []).filter(ch => ch && ch.id && ch.type === "project"));
 
 // Office people (Step 212 in the API): an admin or a supervisor, the two
 // roles the API gives every site and every person's private chat. Step
@@ -4487,6 +4510,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
   // do, which always keep a few lines between the chats and the box.
   const siteChannels = list.filter(c => c.type === "site" || c.type === "general");
   const directs = directChatsOf(list);
+  const projectChats = projectChatsOf(list);
   const privates = privateChatsOf(list);
   const active = list.find(c => c.id === activeChannel) || null;
   const isDm = !!active && active.type === "admin_dm";
@@ -4584,6 +4608,18 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
   const tagFull = mentionIdsIn(text, picked).length >= CHAT_MENTIONS_MAX;
   const q = tagQuery.trim().toLowerCase();
   const tagRows = membersHere && membersHere.state === "ok" ? membersHere.list.filter(m => !q || m.name.toLowerCase().indexOf(q) !== -1) : [];
+  // A group of chats under a heading of its own, each a button that wraps
+  // onto as many lines as it needs: an office person's direct chats, and
+  // the chats of their workspace projects.
+  const chatGroup = (rows, id, title, Icon) => (<div style={{ marginBottom: 8 }}>
+    <div id={id} style={{ fontSize: 10, fontWeight: 600, color: t.textMut, textTransform: "uppercase", letterSpacing: "1px", margin: "2px 0 6px", fontFamily: FONT_HEAD }}>{title}</div>
+    <div role="group" aria-labelledby={id} style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      {rows.map((ch) => {
+        const on = activeChannel === ch.id;
+        return (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={on} style={{ flex: "1 1 140px", maxWidth: "100%", minWidth: 0, display: "flex", alignItems: "center", gap: 8, minHeight: TAP, padding: "8px 12px", borderRadius: R.md, background: on ? t.goldBg : t.hover, border: on ? "1.5px solid " + t.goldBorder : "1px solid " + t.borderSolid, boxShadow: on ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><Icon sz={12} c={on ? t.goldText : t.textMut} style={{ flexShrink: 0 }} /><div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: on ? 600 : 500, color: on ? t.goldText : t.textSec, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{ch.name}</div>{ch.unreadCount > 0 && <div style={{ background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{badgeText(ch.unreadCount)}</div>}</button>);
+      })}
+    </div>
+  </div>);
   // No list yet, a list that did not load, and a list with nothing in it.
   const listLine = (icon, line, retryIt) => (
     <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", ...fillsTheWindow(), minHeight: 0, overflowY: "auto" }}>
@@ -4609,15 +4645,8 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
       <div style={{ flex: "0 1 auto", maxHeight: "45%", overflowY: "auto", padding: "10px 12px 0", borderBottom: "1px solid " + t.borderSolid, paddingBottom: 10 }}>
         {canStart && (<div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}><button type="button" onClick={() => { setOpenFault(null); setNewQuery(""); setNewOpen(true); }} aria-haspopup="dialog" style={{ display: "inline-flex", alignItems: "center", gap: 6, maxWidth: "100%", minHeight: TAP, padding: "0 14px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, textAlign: "left" }}><PlusIco sz={14} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("New message")}</span></button></div>)}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={activeChannel === ch.id} style={mkTapFrame({ maxWidth: "100%" })}><span style={{ display: "inline-flex", alignItems: "center", padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 600 : 500, fontFamily: FONT_HEAD, textAlign: "left", overflowWrap: "anywhere" }}>{ch.name || ch.siteName}{ch.unreadCount > 0 && <span style={{ marginLeft: 6, background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{badgeText(ch.unreadCount)}</span>}</span></button>))}</div>
-        {directs.length > 0 && (<div style={{ marginBottom: 8 }}>
-          <div id="ocsa-direct-chats" style={{ fontSize: 10, fontWeight: 600, color: t.textMut, textTransform: "uppercase", letterSpacing: "1px", margin: "2px 0 6px", fontFamily: FONT_HEAD }}>{tr("Direct messages")}</div>
-          <div role="group" aria-labelledby="ocsa-direct-chats" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {directs.map((ch) => {
-              const on = activeChannel === ch.id;
-              return (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={on} style={{ flex: "1 1 140px", maxWidth: "100%", minWidth: 0, display: "flex", alignItems: "center", gap: 8, minHeight: TAP, padding: "8px 12px", borderRadius: R.md, background: on ? t.goldBg : t.hover, border: on ? "1.5px solid " + t.goldBorder : "1px solid " + t.borderSolid, boxShadow: on ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><PersonIco sz={12} c={on ? t.goldText : t.textMut} style={{ flexShrink: 0 }} /><div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: on ? 600 : 500, color: on ? t.goldText : t.textSec, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{ch.name}</div>{ch.unreadCount > 0 && <div style={{ background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{badgeText(ch.unreadCount)}</div>}</button>);
-            })}
-          </div>
-        </div>)}
+        {directs.length > 0 && chatGroup(directs, "ocsa-direct-chats", tr("Direct messages"), PersonIco)}
+        {projectChats.length > 0 && chatGroup(projectChats, "ocsa-project-chats", tr("Projects"), FolderIco)}
         {privates.length > 0 && (<div>
           <div id="ocsa-private-chats" style={{ fontSize: 10, fontWeight: 600, color: t.textMut, textTransform: "uppercase", letterSpacing: "1px", margin: "2px 0 6px", fontFamily: FONT_HEAD }}>{tr("Private chats")}</div>
           <div role="group" aria-labelledby="ocsa-private-chats" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
@@ -8519,6 +8548,634 @@ function EmptyState({ icon: Icon, text, t }) {
 // a later read of it fails.
 function ListFault({ icon: Icon, text, onRetry, t }) {
   return (<div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><Icon sz={40} c={t.borderSolid} /><div role="alert" style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{text}</div><button type="button" onClick={onRetry} style={{ minHeight: TAP, marginTop: 16, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button></div>);
+}
+
+// ------------------------------------------------------------
+// The team workspace (Step 234), for office people on their phones
+//
+// Each office project's message board, to-dos, chat and files, and the
+// to-dos assigned to the person across every project. The API decides
+// who may see it: nothing of it shows until GET /api/workspace/projects
+// answers for the person signed in, and a phone signed in as anyone but
+// an office person never asks. Every call says the language on the
+// screen, so a refusal comes back in its words.
+// ------------------------------------------------------------
+const wsPath = (path) => "/api/workspace" + path + "?locale=" + languageToSend();
+const wsText = (o, keys) => { const v = agentField(o, keys, ""); return typeof v === "string" ? v.trim() : ""; };
+// The rows of an answer: the answer itself when it is a list, or the list
+// under its key; null for anything else.
+const wsRows = (d, key) => (Array.isArray(d) ? d : d && typeof d === "object" && Array.isArray(d[key]) ? d[key] : null);
+// A project as the screens read it, with an id and a name, or nothing. A
+// color the API sends that is not a hex color is left out.
+function wsProjectOf(p) {
+  if (!p || typeof p !== "object") return null;
+  const id = agentField(p, ["id"], null);
+  const name = wsText(p, ["name"]);
+  if (id === null || !name) return null;
+  const color = wsText(p, ["color"]);
+  return { id: id, name: name, description: wsText(p, ["description"]), color: /^#[0-9a-f]{6}$/i.test(color) ? color : null };
+}
+const wsProjectsOf = (d) => { const rows = wsRows(d, "projects"); return rows ? rows.map(wsProjectOf).filter(Boolean) : null; };
+// The projects list, or null for a refusal, an API without the route, or
+// an answer that is not a list.
+async function readWorkspaceProjects(token) {
+  try { return wsProjectsOf(await api(wsPath("/projects"), { token })); } catch (e) { return null; }
+}
+// A person on a project: an id and a name, from a name or the two halves.
+function wsPersonOf(m) {
+  if (!m || typeof m !== "object") return null;
+  const id = agentField(m, ["userId", "user_id", "id"], null);
+  const name = wsText(m, ["name"]) || [wsText(m, ["firstName", "first_name"]), wsText(m, ["lastName", "last_name"])].filter(Boolean).join(" ");
+  return id === null || !name ? null : { id: id, name: name };
+}
+// A to-do as the screens read it. A due date is a calendar day, read on
+// the phone's own calendar; one that does not read is no due date.
+function wsTodoOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = agentField(x, ["id"], null);
+  const title = wsText(x, ["title"]);
+  if (id === null || !title) return null;
+  const due = wsText(x, ["dueOn", "due_on"]).slice(0, 10);
+  const ids = agentField(x, ["assigneeIds", "assignee_ids"], []);
+  return {
+    id: id, title: title,
+    dueOn: localDay(due) ? due : null,
+    done: !!agentField(x, ["completedAt", "completed_at"], null) || x.done === true,
+    assignees: (Array.isArray(x.assignees) ? x.assignees : []).map(wsPersonOf).filter(Boolean),
+    assigneeIds: Array.isArray(ids) ? ids : [],
+    projectId: agentField(x, ["projectId", "project_id"], null),
+    projectName: wsText(x, ["projectName", "project_name"]),
+  };
+}
+// Soonest due first, a to-do with no due date last, and otherwise in the
+// order the API sent.
+const wsByDue = (list) => list.map((x, i) => [x, i]).sort((a, b) => {
+  const da = a[0].dueOn || "9999-99-99", db = b[0].dueOn || "9999-99-99";
+  return da < db ? -1 : da > db ? 1 : a[1] - b[1];
+}).map(p => p[0]);
+const wsOverdue = (todo) => !todo.done && !!todo.dueOn && localDay(todo.dueOn) < todayLocal();
+// Overdue is said in red: light mode's darker red, and dark mode's lifted
+// red, since red itself reads at 4.13 to 1 on the dark card.
+const wsLateInk = (t) => (t === LIGHT ? ink(t, RED) : RED_ON_WASH);
+const wsDueText = (ymd) => dueDayText(ymd, { weekday: "short", month: "short", day: "numeric" });
+// A refusal that carries one of the workspace's codes is told in the API's
+// own words; no signal and anything else in the screen's own.
+const wsSaidOf = (err) => (err && err.message !== ERR_OFFLINE && typeof err.code === "string" && err.code.indexOf("workspace.") === 0 && typeof err.message === "string" && err.message.trim() ? err.message.trim() : null);
+const wsFaultWords = (err, fallback) => wsSaidOf(err) || (err && err.message === ERR_OFFLINE ? tr(ERR_OFFLINE) : tr(fallback));
+// The most a title, a message and a comment hold here. The contract names
+// no limits, so the API's own refusal, in its words, has the last say.
+const WS_TITLE_MAX = 200;
+const WS_BODY_MAX = 10000;
+const WS_COMMENT_MAX = 5000;
+const wsWhen = (v) => { const d = v ? new Date(v) : null; return d && !isNaN(d.getTime()) ? d.toLocaleString(dateLocale(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""; };
+const wsSize = (n) => {
+  const b = Number(n);
+  if (!(b >= 0) || n === null || n === "") return "";
+  return b >= 1048576 ? tr("{n} MB", { n: (b / 1048576).toLocaleString(dateLocale(), { maximumFractionDigits: 1 }) }) : tr("{n} KB", { n: Math.max(1, Math.round(b / 1024)) });
+};
+// A post on the message board, its comment count when the API sends one.
+function wsPostOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = agentField(x, ["id"], null);
+  const title = wsText(x, ["title"]);
+  if (id === null || !title) return null;
+  const count = agentField(x, ["commentCount", "comment_count"], null);
+  return { id: id, title: title, body: typeof x.body === "string" ? x.body : "", pinned: x.pinned === true, author: wsText(x, ["authorName", "author_name"]), at: agentField(x, ["createdAt", "created_at"], null), comments: count !== null && Number(count) >= 0 ? Number(count) : null };
+}
+// A comment. Its tags are drawn as names: the people the API names, or
+// the ids it sends read against the project's members.
+function wsCommentOf(x, members) {
+  if (!x || typeof x !== "object" || agentField(x, ["removedAt", "removed_at"], null)) return null;
+  const id = agentField(x, ["id"], null);
+  const body = typeof x.body === "string" ? x.body : "";
+  if (id === null || !body.trim()) return null;
+  const mentions = (Array.isArray(x.mentions) ? x.mentions : []).map(m => (m && typeof m === "object" ? wsPersonOf(m) : members.find(p => String(p.id) === String(m)) || null)).filter(Boolean);
+  return { id: id, body: body, author: wsText(x, ["authorName", "author_name"]), at: agentField(x, ["createdAt", "created_at"], null), mentions: mentions };
+}
+// A file of the project's, as its list reads it.
+function wsFileOf(x) {
+  if (!x || typeof x !== "object" || agentField(x, ["removedAt", "removed_at"], null)) return null;
+  const id = agentField(x, ["id"], null);
+  const name = wsText(x, ["fileName", "file_name", "name"]);
+  return id === null || !name ? null : { id: id, name: name, size: agentField(x, ["sizeBytes", "size_bytes"], null), by: wsText(x, ["uploadedByName", "uploaded_by_name"]), at: agentField(x, ["createdAt", "created_at"], null), note: wsText(x, ["note"]) };
+}
+// The project's chat on the list Chat draws: the chat of the project kind
+// that names this project.
+const wsChatOf = (channels, projectId) => (Array.isArray(channels) ? channels : []).find(ch => ch && ch.id && ch.type === "project" && String(agentField(ch, ["projectId", "project_id"], "")) === String(projectId)) || null;
+// A file the API streams behind the token, or answers with a short-lived
+// link to. A streamed file is saved under its own name; a link opens in a
+// new tab. Nothing is kept on the phone beyond the download itself.
+async function wsOpenFile(token, file) {
+  const res = await reach(API + wsPath("/files/" + encodeURIComponent(file.id)), { headers: { Authorization: "Bearer " + token } });
+  await refuseUnlessOk(res, {});
+  let href = null, own = false;
+  if (/application\/json/i.test(res.headers.get("Content-Type") || "")) {
+    const d = await res.json().catch(() => null);
+    href = wsText(d, ["url", "signedUrl", "signed_url"]);
+    if (!/^https:\/\//i.test(href)) throw new Error(ERR_GENERIC);
+  } else {
+    href = URL.createObjectURL(await res.blob());
+    own = true;
+  }
+  const a = document.createElement("a");
+  a.href = href;
+  a.rel = "noopener";
+  if (own) a.download = file.name; else a.target = "_blank";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  if (own) setTimeout(() => URL.revokeObjectURL(href), 60000);
+}
+// The buttons the workspace draws: the gold one that does the thing, a
+// plain one beside it, and the lighter gold one that opens a sheet.
+const wsMainBtn = (t, off) => ({ flex: "1 1 120px", minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "none", background: off ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: off ? t.textSec : NAVY, fontSize: 14, fontWeight: 600, cursor: off ? "default" : "pointer", fontFamily: FONT_HEAD, boxShadow: off ? "none" : "0 6px 18px rgba(231,176,23,0.30)" });
+const wsPlainBtn = (t) => ({ flex: "1 1 120px", minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD });
+const wsOpenBtn = (t) => ({ display: "inline-flex", alignItems: "center", gap: 6, maxWidth: "100%", minHeight: TAP, padding: "0 14px", marginBottom: 12, borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, textAlign: "left" });
+
+// One to-do: a box to tick, its title, where it belongs or who has it,
+// and when it is due, in red once that day has gone by.
+function WsTodoRow({ todo, busy, onTick, showProject, t }) {
+  const late = wsOverdue(todo);
+  const who = todo.assignees.map(a => a.name).join(", ");
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 2, padding: "2px 12px 2px 2px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + (late ? t.redBorder : t.borderSolid), boxShadow: t.shadow }}>
+      <button type="button" role="checkbox" aria-checked={todo.done} aria-label={todo.title} aria-disabled={busy} onClick={() => { if (!busy) onTick(todo); }} style={mkTapFrame({ flexShrink: 0, cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1 })}>
+        <span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (todo.done ? GREEN : late ? wsLateInk(t) : t.textMut), background: todo.done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{todo.done && <CheckIco sz={14} c={NAVY} />}</span>
+      </button>
+      <div style={{ flex: 1, minWidth: 0, padding: "11px 0 10px" }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: todo.done ? t.textMut : t.text, textDecoration: todo.done ? "line-through" : "none", fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{todo.title}</div>
+        {showProject && todo.projectName && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{todo.projectName}</div>}
+        {!showProject && who && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{who}</div>}
+        {todo.dueOn && <div style={{ fontSize: 12, marginTop: 2, color: late ? wsLateInk(t) : t.textMut, fontWeight: late ? 600 : 400 }}>{late ? tr("Overdue. Due {date}", { date: wsDueText(todo.dueOn) }) : tr("Due {date}", { date: wsDueText(todo.dueOn) })}</div>}
+      </div>
+    </div>
+  );
+}
+
+// Workspace under More: the person's open to-dos across every project,
+// soonest due first, then the projects. A tick asks first, since it marks
+// the to-do done for everyone on the project.
+function WorkspaceView({ token, user, projects, onProjects, at, onAt, channels, onOpenChat, showToast, t }) {
+  if (at && at.project) return <WsProject token={token} user={user} projectId={at.project} tool={at.tool || "board"} onTool={(tool) => onAt({ project: at.project, tool: tool })} onBack={() => onAt(null)} channels={channels} onOpenChat={onOpenChat} showToast={showToast} t={t} />;
+  return <WsHome token={token} projects={projects} onProjects={onProjects} onOpen={(id) => onAt({ project: id, tool: "board" })} showToast={showToast} t={t} />;
+}
+
+function WsHome({ token, projects, onProjects, onOpen, showToast, t }) {
+  const [mine, setMine] = useState(null);
+  const [asked, setAsked] = useState(0);
+  const [ticking, setTicking] = useState(null);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const rows = wsRows(await api(wsPath("/me"), { token }), "todos");
+        if (!rows) throw new Error(ERR_GENERIC);
+        if (live) setMine({ state: "ok", todos: wsByDue(rows.map(wsTodoOf).filter(x => x && !x.done)) });
+      } catch (err) {
+        // A list already on the screen stays when a later read fails.
+        if (live) setMine(prev => (prev && prev.state === "ok" ? prev : { state: "failed", todos: [] }));
+      }
+      const list = await readWorkspaceProjects(token);
+      if (live && list) onProjects(list);
+    })();
+    return () => { live = false; };
+  }, [asked]);
+  const tick = async (todo) => {
+    if (ticking) return;
+    if (!window.confirm(tr("Mark this to-do done?"))) return;
+    setTicking(todo.id);
+    try {
+      await api(wsPath("/todos/" + encodeURIComponent(todo.id)), { method: "PATCH", body: { done: true }, token });
+      setMine(prev => (prev ? { ...prev, todos: prev.todos.filter(x => x.id !== todo.id) } : prev));
+      showToast(tr("Marked done."));
+    } catch (err) {
+      showToast(wsFaultWords(err, "That to-do was not marked done. Try again."), "error");
+    } finally { setTicking(null); }
+  };
+  const list = Array.isArray(projects) ? projects : [];
+  const titleSt = { fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 12 };
+  const headSt = { ...mkLabel(t), marginTop: 4, marginBottom: 8 };
+  const quietSt = { padding: "16px 12px", marginBottom: 12, textAlign: "center", fontSize: 13, color: t.textMut, background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontFamily: FONT_HEAD };
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      <div role="heading" aria-level={1} style={titleSt}>{tr("Workspace")}</div>
+      <div role="heading" aria-level={2} style={headSt}>{tr("My assignments")}</div>
+      {!mine && <div style={{ fontSize: 13, color: t.textMut, marginBottom: 12 }}>{tr("Loading...")}</div>}
+      {mine && mine.state === "failed" && <div style={{ marginBottom: 12 }}><ListFault icon={CheckIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} /></div>}
+      {mine && mine.state === "ok" && mine.todos.length === 0 && <div style={quietSt}>{tr("Nothing is assigned to you right now.")}</div>}
+      {mine && mine.state === "ok" && mine.todos.map(todo => <WsTodoRow key={todo.id} todo={todo} busy={ticking === todo.id} onTick={tick} showProject t={t} />)}
+      <div role="heading" aria-level={2} style={{ ...headSt, marginTop: 16 }}>{tr("Projects")}</div>
+      {list.length === 0 && <div style={quietSt}>{tr("You are not in any project yet.")}</div>}
+      {list.map(p => (
+        <button key={p.id} type="button" onClick={() => onOpen(p.id)} style={{ width: "100%", display: "flex", alignItems: "flex-start", gap: 10, minHeight: TAP, padding: "12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
+          <span aria-hidden="true" style={{ width: 10, height: 10, marginTop: 5, borderRadius: "50%", background: p.color || GOLD, flexShrink: 0 }} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{p.name}</span>
+            {p.description && <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{p.description}</span>}
+          </span>
+          <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 2 }} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// A sheet that rises from the bottom, the way New message and Tag someone
+// do: a title, what it holds, and its buttons along the bottom.
+function WsSheet({ id, title, onClose, footer, children, t }) {
+  return (
+    <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div role="dialog" aria-modal="true" aria-labelledby={id} onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, maxHeight: "calc(var(--ocsa-dvh, 100dvh) * 0.85)", display: "flex", flexDirection: "column", borderRadius: R.lg + "px " + R.lg + "px 0 0", border: "1px solid " + t.borderSolid, borderBottom: "none" }}>
+        <div id={id} style={{ padding: "14px 16px 10px", fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, flexShrink: 0, overflowWrap: "anywhere" }}>{title}</div>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 8px" }}>{children}</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>{footer}</div>
+      </div>
+    </div>
+  );
+}
+// What went wrong, under the thing it went wrong with.
+function WsFault({ text, t }) {
+  return (<div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 10, padding: "8px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><AlertIco sz={16} c={ink(t, RED)} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0, overflowWrap: "anywhere" }}>{text}</div></div>);
+}
+// Back to where the person came from, the way All sheets is drawn.
+function WsBack({ label, onBack, t }) {
+  return (<button type="button" onClick={onBack} style={{ ...mkTapFrame({ justifyContent: "flex-start", gap: 6, marginBottom: 6, color: t.goldText, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, textAlign: "left" }) }}><ChevIco sz={16} c={t.goldText} style={{ transform: "rotate(180deg)", flexShrink: 0 }} />{label}</button>);
+}
+// A list that is loading, did not load, or holds nothing.
+const wsQuiet = (t) => ({ padding: "16px 12px", marginBottom: 12, textAlign: "center", fontSize: 13, color: t.textMut, background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontFamily: FONT_HEAD });
+
+// One project: its name, its four tools, and the tool open. Chat opens
+// the project's own chat in Chat.
+const WS_TOOLS = [["board", "Message Board"], ["todos", "To-dos"], ["chat", "Chat"], ["files", "Files"]];
+function WsProject({ token, user, projectId, tool, onTool, onBack, channels, onOpenChat, showToast, t }) {
+  const [project, setProject] = useState(null);
+  const [asked, setAsked] = useState(0);
+  const [noChat, setNoChat] = useState(false);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const d = await api(wsPath("/projects/" + encodeURIComponent(projectId)), { token });
+        const raw = d && typeof d === "object" && d.project && typeof d.project === "object" ? d.project : d;
+        const p = wsProjectOf(raw);
+        if (!p) throw new Error(ERR_GENERIC);
+        const members = (wsRows(raw, "members") || wsRows(d, "members") || []).map(wsPersonOf).filter(Boolean);
+        if (live) setProject({ id: projectId, state: "ok", project: p, members: members });
+      } catch (err) {
+        if (live) setProject(prev => (prev && prev.id === projectId && prev.state === "ok" ? prev : { id: projectId, state: "failed", said: wsFaultWords(err, "This project did not open. Try again.") }));
+      }
+    })();
+    return () => { live = false; };
+  }, [projectId, asked]);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [projectId, tool]);
+  useEffect(() => { setNoChat(false); }, [projectId, tool]);
+  const back = <WsBack label={tr("Workspace")} onBack={onBack} t={t} />;
+  const here = project && project.id === projectId ? project : null;
+  if (!here) return <div style={{ padding: "16px 16px 0" }}>{back}<div style={{ fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div></div>;
+  if (here.state === "failed") return <div style={{ padding: "16px 16px 0" }}>{back}<div style={{ padding: "24px 18px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><FolderIco sz={32} c={t.borderSolid} /><div role="alert" style={{ fontSize: 14, color: t.textSec, marginTop: 12, lineHeight: 1.5, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{here.said}</div><button type="button" onClick={() => setAsked(n => n + 1)} style={{ minHeight: TAP, marginTop: 14, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button></div></div>;
+  const p = here.project;
+  const pick = (id) => {
+    if (id !== "chat") { onTool(id); return; }
+    const ch = wsChatOf(channels, projectId);
+    if (ch) onOpenChat(ch.id); else setNoChat(true);
+  };
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      {back}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 4 }}>
+        <span aria-hidden="true" style={{ width: 12, height: 12, marginTop: 6, borderRadius: "50%", background: p.color || GOLD, flexShrink: 0 }} />
+        <div role="heading" aria-level={1} style={{ flex: 1, minWidth: 0, fontSize: 18, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{p.name}</div>
+      </div>
+      {p.description && <div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.45, marginBottom: 4, overflowWrap: "anywhere" }}>{p.description}</div>}
+      {/* Two by two where each has room for its longest word, one under
+          another where it does not, as at 360 wide at the Largest size. */}
+      <div role="group" aria-label={p.name} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 120px), 1fr))", gap: 6, margin: "12px 0 14px" }}>
+        {WS_TOOLS.map(([id, label]) => {
+          const on = id === tool;
+          return (<button key={id} type="button" onClick={() => pick(id)} aria-pressed={id === "chat" ? undefined : on} style={{ minHeight: TAP, minWidth: 0, padding: "6px 10px", borderRadius: R.sm, border: on ? "1px solid " + t.goldBorder : "1px solid " + t.borderSolid, background: on ? t.goldBg : t.card, color: on ? t.goldText : t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{tr(label)}</button>);
+        })}
+      </div>
+      {noChat && <div role="status" style={{ ...wsQuiet(t), textAlign: "left" }}>{tr("This project's chat is not on your chat list yet. Try again in a minute.")}</div>}
+      {tool === "board" && <WsBoard key={projectId} token={token} user={user} projectId={projectId} members={here.members} showToast={showToast} t={t} />}
+      {tool === "todos" && <WsTodos key={projectId} token={token} projectId={projectId} members={here.members} showToast={showToast} t={t} />}
+      {tool === "files" && <WsFiles key={projectId} token={token} projectId={projectId} showToast={showToast} t={t} />}
+    </div>
+  );
+}
+
+// The message board: Post a message, then the posts, pinned first and then
+// newest first, the order the API sends. A post opens with its comments.
+function WsBoard({ token, user, projectId, members, showToast, t }) {
+  const [posts, setPosts] = useState(null);
+  const [asked, setAsked] = useState(0);
+  const [openId, setOpenId] = useState(null);
+  const [draft, setDraft] = useState(null);
+  useBusy("workspace post", !!draft && (draft.title.trim() !== "" || draft.body.trim() !== "" || draft.saving));
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const rows = wsRows(await api(wsPath("/projects/" + encodeURIComponent(projectId) + "/posts"), { token }), "posts");
+        if (!rows) throw new Error(ERR_GENERIC);
+        if (live) setPosts({ state: "ok", rows: rows.map(wsPostOf).filter(Boolean) });
+      } catch (err) {
+        if (live) setPosts(prev => (prev && prev.state === "ok" ? prev : { state: "failed", rows: [] }));
+      }
+    })();
+    return () => { live = false; };
+  }, [projectId, asked]);
+  const close = () => { if (draft && !draft.saving) setDraft(null); };
+  const post = async () => {
+    if (!draft || draft.saving) return;
+    const title = draft.title.trim(), body = draft.body.trim();
+    if (!title) { setDraft({ ...draft, fault: tr("Give the message a title.") }); return; }
+    if (!body) { setDraft({ ...draft, fault: tr("Write the message first.") }); return; }
+    setDraft({ ...draft, saving: true, fault: null });
+    try {
+      await api(wsPath("/projects/" + encodeURIComponent(projectId) + "/posts"), { method: "POST", body: { title: title, body: body, pinned: false }, token });
+      setDraft(null);
+      showToast(tr("Message posted."));
+      setAsked(n => n + 1);
+    } catch (err) {
+      setDraft(d => (d ? { ...d, saving: false, fault: wsFaultWords(err, "Your message was not posted. Try again.") } : d));
+    }
+  };
+  if (openId) return <WsPost token={token} user={user} postId={openId} members={members} onBack={() => { setOpenId(null); setAsked(n => n + 1); }} t={t} />;
+  return (
+    <div>
+      <button type="button" onClick={() => setDraft({ title: "", body: "", saving: false, fault: null })} aria-haspopup="dialog" style={wsOpenBtn(t)}><PlusIco sz={14} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("Post a message")}</span></button>
+      {!posts && <div style={{ fontSize: 13, color: t.textMut, marginBottom: 12 }}>{tr("Loading...")}</div>}
+      {posts && posts.state === "failed" && <ListFault icon={DocIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />}
+      {posts && posts.state === "ok" && posts.rows.length === 0 && <div style={wsQuiet(t)}>{tr("No messages on the board yet.")}</div>}
+      {posts && posts.state === "ok" && posts.rows.map(x => (
+        <button key={x.id} type="button" onClick={() => setOpenId(x.id)} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + (x.pinned ? t.goldBorder : t.borderSolid), boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            {x.pinned && <span style={{ display: "inline-block", fontSize: 10, fontWeight: 600, padding: "2px 7px", marginBottom: 4, borderRadius: R.sm, background: t.goldBg, color: t.goldText, fontFamily: FONT_HEAD }}>{tr("Pinned")}</span>}
+            <span style={{ display: "block", fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{x.title}</span>
+            <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{[x.author, wsWhen(x.at)].filter(Boolean).join(", ")}</span>
+            {x.comments !== null && x.comments > 0 && <span style={{ display: "block", fontSize: 12, color: t.textMut, marginTop: 2 }}>{x.comments === 1 ? tr("1 comment") : tr("{n} comments", { n: x.comments })}</span>}
+          </span>
+          <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 2 }} />
+        </button>
+      ))}
+      {draft && (
+        <WsSheet id="ocsa-ws-post" title={tr("Post a message")} onClose={close} t={t} footer={<>
+          <button type="button" onClick={close} disabled={draft.saving} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+          <button type="button" onClick={post} aria-disabled={draft.saving} style={wsMainBtn(t, draft.saving)}>{draft.saving ? tr("Posting...") : tr("Post")}</button>
+        </>}>
+          <label htmlFor="ocsa-ws-post-title" style={mkLabel(t)}>{tr("Title")}</label>
+          <input id="ocsa-ws-post-title" type="text" value={draft.title} maxLength={WS_TITLE_MAX} onChange={e => setDraft({ ...draft, title: e.target.value.slice(0, WS_TITLE_MAX), fault: null })} style={{ ...mkInput(t), marginBottom: 12 }} />
+          <label htmlFor="ocsa-ws-post-body" style={mkLabel(t)}>{tr("Message")}</label>
+          <textarea id="ocsa-ws-post-body" value={draft.body} maxLength={WS_BODY_MAX} rows={6} onChange={e => setDraft({ ...draft, body: e.target.value.slice(0, WS_BODY_MAX), fault: null })} style={{ ...mkInput(t), minHeight: 140, resize: "vertical", lineHeight: 1.45 }} />
+          {draft.fault && <WsFault text={draft.fault} t={t} />}
+        </WsSheet>
+      )}
+    </div>
+  );
+}
+
+// One post, whole, with its comments and a box to add one. Typing @ at
+// the start of a word, or the @ button, tags a member of the project.
+function WsPost({ token, user, postId, members, onBack, t }) {
+  const [post, setPost] = useState(null);
+  const [asked, setAsked] = useState(0);
+  const [text, setText] = useState("");
+  const [picked, setPicked] = useState([]);
+  const [tagOpen, setTagOpen] = useState(null);
+  const [sending, setSending] = useState(false);
+  const [fault, setFault] = useState(null);
+  useBusy("workspace comment", text.trim().length > 0 || sending);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const d = await api(wsPath("/posts/" + encodeURIComponent(postId)), { token });
+        const raw = d && typeof d === "object" && d.post && typeof d.post === "object" ? d.post : d;
+        const x = wsPostOf(raw);
+        if (!x) throw new Error(ERR_GENERIC);
+        const comments = (wsRows(d, "comments") || wsRows(raw, "comments") || []).map(c => wsCommentOf(c, members)).filter(Boolean);
+        if (live) setPost({ state: "ok", post: x, comments: comments });
+      } catch (err) {
+        if (live) setPost(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: wsFaultWords(err, "This message did not open. Try again.") }));
+      }
+    })();
+    return () => { live = false; };
+  }, [postId, asked]);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [postId]);
+  const others = members.filter(m => !user || String(m.id) !== String(user.id));
+  const onType = (next) => {
+    const v = next.slice(0, WS_COMMENT_MAX);
+    const was = text;
+    setText(v);
+    setFault(null);
+    setPicked(prev => (prev.length === 0 ? prev : prev.filter(m => v.indexOf("@" + m.name) !== -1)));
+    if (others.length > 0 && !tagOpen && v.length === was.length + 1 && v.slice(0, -1) === was && v.slice(-1) === "@" && (was === "" || /\s$/.test(was))) setTagOpen("typed");
+  };
+  const pickTag = (m) => {
+    const how = tagOpen;
+    setPicked(prev => (prev.some(x => x.id === m.id) ? prev : prev.concat([{ id: m.id, name: m.name }])));
+    setText(prev => {
+      let base = how === "typed" && prev.slice(-1) === "@" ? prev.slice(0, -1) : prev;
+      if (base && !/\s$/.test(base)) base += " ";
+      return (base + "@" + m.name + " ").slice(0, WS_COMMENT_MAX);
+    });
+    setTagOpen(null);
+  };
+  const send = async () => {
+    const words = text.trim();
+    if (!words || sending) return;
+    setSending(true); setFault(null);
+    const body = { subjectType: "post", subjectId: postId, body: words };
+    const tags = mentionIdsIn(words, picked);
+    if (tags.length > 0) body.mentions = tags;
+    try {
+      const d = await api(wsPath("/comments"), { method: "POST", body: body, token });
+      const c = d && typeof d === "object" ? wsCommentOf(d.comment && typeof d.comment === "object" ? d.comment : d, members) : null;
+      setText(prev => (prev.trim() === words ? "" : prev));
+      setPicked([]);
+      if (c) setPost(prev => (prev && prev.state === "ok" ? { ...prev, comments: prev.comments.concat([c]) } : prev));
+      else setAsked(n => n + 1);
+    } catch (err) {
+      setFault(wsFaultWords(err, "Your comment was not added. Try again."));
+    } finally { setSending(false); }
+  };
+  const back = <WsBack label={tr("All messages")} onBack={onBack} t={t} />;
+  if (!post) return <div>{back}<div style={{ fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div></div>;
+  if (post.state === "failed") return <div>{back}<ListFault icon={DocIco} text={post.said} onRetry={() => setAsked(n => n + 1)} t={t} /></div>;
+  const x = post.post;
+  const ready = text.trim().length > 0 && !sending;
+  return (
+    <div>
+      {back}
+      {x.pinned && <div style={{ display: "inline-block", fontSize: 10, fontWeight: 600, padding: "2px 7px", marginBottom: 6, borderRadius: R.sm, background: t.goldBg, color: t.goldText, fontFamily: FONT_HEAD }}>{tr("Pinned")}</div>}
+      <div role="heading" aria-level={2} style={{ fontSize: 17, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{x.title}</div>
+      <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{[x.author, wsWhen(x.at)].filter(Boolean).join(", ")}</div>
+      <div style={{ marginTop: 12, padding: "12px", borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, fontSize: 14, color: t.text, lineHeight: 1.55, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{x.body}</div>
+      <div role="heading" aria-level={3} style={{ ...mkLabel(t), marginTop: 16, marginBottom: 8 }}>{tr("Comments")}</div>
+      {post.comments.length === 0 && <div style={wsQuiet(t)}>{tr("No comments yet.")}</div>}
+      {post.comments.map(c => {
+        const forMe = tagsPerson(c, user && user.id);
+        const parts = mentionParts(c.body, c.mentions);
+        return (
+          <div key={c.id} style={{ padding: "10px 12px", marginBottom: 8, borderRadius: R.md, background: forMe ? t.goldBg : t.card, border: "1px solid " + (forMe ? t.goldBorder : t.borderSolid) }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{[c.author, wsWhen(c.at)].filter(Boolean).join(", ")}</div>
+            <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5, marginTop: 3, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{parts.map((s, i) => (i % 2 === 1 ? <span key={i} style={{ fontWeight: 600, color: t.goldText }}>{s}</span> : s))}</div>
+          </div>
+        );
+      })}
+      <label htmlFor="ocsa-ws-comment" style={{ ...mkLabel(t), marginTop: 12 }}>{tr("Add a comment")}</label>
+      <textarea id="ocsa-ws-comment" value={text} maxLength={WS_COMMENT_MAX} rows={3} onChange={e => onType(e.target.value)} style={{ ...mkInput(t), minHeight: 88, resize: "vertical", lineHeight: 1.45 }} />
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+        {others.length > 0 && <button type="button" onClick={() => setTagOpen("button")} aria-label={tr("Tag someone")} aria-haspopup="dialog" style={{ minWidth: TAP, minHeight: TAP, padding: "0 14px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.card, color: t.goldText, fontSize: 18, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>@</button>}
+        <button type="button" onClick={send} aria-disabled={!ready} style={wsMainBtn(t, !ready)}>{sending ? tr("Sending...") : tr("Send")}</button>
+      </div>
+      {fault && <WsFault text={fault} t={t} />}
+      {tagOpen && (
+        <WsSheet id="ocsa-ws-tag" title={tr("Tag someone")} onClose={() => setTagOpen(null)} t={t} footer={<button type="button" onClick={() => setTagOpen(null)} style={wsPlainBtn(t)}>{tr("Close")}</button>}>
+          {others.map(m => {
+            const already = picked.some(p => p.id === m.id) && text.indexOf("@" + m.name) !== -1;
+            return (<button key={m.id} type="button" onClick={() => pickTag(m)} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", padding: "6px 10px", marginBottom: 4, borderRadius: R.md, border: "1px solid " + (already ? t.goldBorder : t.borderSolid), background: already ? t.goldBg : t.card, color: t.text, cursor: "pointer", textAlign: "left", fontSize: 14, fontWeight: already ? 600 : 500, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{m.name}</button>);
+          })}
+        </WsSheet>
+      )}
+    </div>
+  );
+}
+
+// The project's to-dos, list by list, open ones first and done ones last,
+// the order the API sends. A tick that marks one done asks first; a tick
+// that opens one again does not. Add a to-do puts one on that list.
+function WsTodos({ token, projectId, members, showToast, t }) {
+  const [lists, setLists] = useState(null);
+  const [asked, setAsked] = useState(0);
+  const [ticking, setTicking] = useState(null);
+  const [draft, setDraft] = useState(null);
+  useBusy("workspace to-do", !!draft && (draft.title.trim() !== "" || draft.saving));
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const rows = wsRows(await api(wsPath("/projects/" + encodeURIComponent(projectId) + "/todos"), { token }), "lists");
+        if (!rows) throw new Error(ERR_GENERIC);
+        const read = rows.filter(l => l && typeof l === "object" && agentField(l, ["id"], null) !== null).map(l => ({ id: l.id, name: wsText(l, ["name"]), todos: (wsRows(l, "todos") || []).map(wsTodoOf).filter(Boolean) }));
+        if (live) setLists({ state: "ok", rows: read });
+      } catch (err) {
+        if (live) setLists(prev => (prev && prev.state === "ok" ? prev : { state: "failed", rows: [] }));
+      }
+    })();
+    return () => { live = false; };
+  }, [projectId, asked]);
+  // Who has a to-do: the people the API names, or its ids read against the
+  // project's members.
+  const named = (todo) => (todo.assignees.length > 0 ? todo : { ...todo, assignees: todo.assigneeIds.map(id => members.find(m => String(m.id) === String(id))).filter(Boolean) });
+  const tick = async (todo) => {
+    if (ticking) return;
+    if (!todo.done && !window.confirm(tr("Mark this to-do done?"))) return;
+    setTicking(todo.id);
+    try {
+      await api(wsPath("/todos/" + encodeURIComponent(todo.id)), { method: "PATCH", body: { done: !todo.done }, token });
+      showToast(todo.done ? tr("Opened again.") : tr("Marked done."));
+      setAsked(n => n + 1);
+    } catch (err) {
+      showToast(wsFaultWords(err, todo.done ? "That to-do was not opened again. Try again." : "That to-do was not marked done. Try again."), "error");
+    } finally { setTicking(null); }
+  };
+  const close = () => { if (draft && !draft.saving) setDraft(null); };
+  const add = async () => {
+    if (!draft || draft.saving) return;
+    const title = draft.title.trim();
+    if (!title) { setDraft({ ...draft, fault: tr("Give the to-do a title.") }); return; }
+    setDraft({ ...draft, saving: true, fault: null });
+    try {
+      await api(wsPath("/todo-lists/" + encodeURIComponent(draft.listId) + "/todos"), { method: "POST", body: { title: title, notes: "", assigneeIds: draft.who ? [draft.who] : [], dueOn: localDay(draft.due) ? draft.due : null }, token });
+      setDraft(null);
+      showToast(tr("To-do added."));
+      setAsked(n => n + 1);
+    } catch (err) {
+      setDraft(d => (d ? { ...d, saving: false, fault: wsFaultWords(err, "That to-do was not added. Try again.") } : d));
+    }
+  };
+  if (!lists) return <div style={{ fontSize: 13, color: t.textMut, marginBottom: 12 }}>{tr("Loading...")}</div>;
+  if (lists.state === "failed") return <ListFault icon={CheckIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />;
+  if (lists.rows.length === 0) return <div style={wsQuiet(t)}>{tr("This project has no to-do lists yet.")}</div>;
+  return (
+    <div>
+      {lists.rows.map(l => (
+        <div key={l.id} style={{ marginBottom: 16 }}>
+          {l.name && <div role="heading" aria-level={2} style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 8, overflowWrap: "anywhere" }}>{l.name}</div>}
+          {l.todos.length === 0 && <div style={wsQuiet(t)}>{tr("Nothing on this list yet.")}</div>}
+          {l.todos.map(todo => <WsTodoRow key={todo.id} todo={named(todo)} busy={ticking === todo.id} onTick={tick} t={t} />)}
+          <button type="button" onClick={() => setDraft({ listId: l.id, listName: l.name, title: "", who: "", due: "", saving: false, fault: null })} aria-haspopup="dialog" style={{ ...wsOpenBtn(t), marginBottom: 0 }}><PlusIco sz={14} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("Add a to-do")}</span></button>
+        </div>
+      ))}
+      {draft && (
+        <WsSheet id="ocsa-ws-todo" title={tr("Add a to-do")} onClose={close} t={t} footer={<>
+          <button type="button" onClick={close} disabled={draft.saving} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+          <button type="button" onClick={add} aria-disabled={draft.saving} style={wsMainBtn(t, draft.saving)}>{draft.saving ? tr("Saving...") : tr("Save")}</button>
+        </>}>
+          {draft.listName && <div style={{ fontSize: 12, color: t.textSec, marginBottom: 12, overflowWrap: "anywhere" }}>{draft.listName}</div>}
+          <label htmlFor="ocsa-ws-todo-title" style={mkLabel(t)}>{tr("Title")}</label>
+          <input id="ocsa-ws-todo-title" type="text" value={draft.title} maxLength={WS_TITLE_MAX} onChange={e => setDraft({ ...draft, title: e.target.value.slice(0, WS_TITLE_MAX), fault: null })} style={{ ...mkInput(t), marginBottom: 12 }} />
+          <label htmlFor="ocsa-ws-todo-who" style={mkLabel(t)}>{tr("Assigned to")}</label>
+          <select id="ocsa-ws-todo-who" value={draft.who} onChange={e => setDraft({ ...draft, who: e.target.value, fault: null })} style={{ ...mkInput(t), marginBottom: 12 }}>
+            <option value="">{tr("Nobody yet")}</option>
+            {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+          <label htmlFor="ocsa-ws-todo-due" style={mkLabel(t)}>{tr("Due date")}</label>
+          <input id="ocsa-ws-todo-due" type="date" value={draft.due} onChange={e => setDraft({ ...draft, due: e.target.value, fault: null })} style={mkInput(t)} />
+          {draft.fault && <WsFault text={draft.fault} t={t} />}
+        </WsSheet>
+      )}
+    </div>
+  );
+}
+
+// The project's files, to open or save. Adding one stays on the dashboard.
+function WsFiles({ token, projectId, showToast, t }) {
+  const [files, setFiles] = useState(null);
+  const [asked, setAsked] = useState(0);
+  const [opening, setOpening] = useState(null);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const rows = wsRows(await api(wsPath("/projects/" + encodeURIComponent(projectId) + "/files"), { token }), "files");
+        if (!rows) throw new Error(ERR_GENERIC);
+        if (live) setFiles({ state: "ok", rows: rows.map(wsFileOf).filter(Boolean) });
+      } catch (err) {
+        if (live) setFiles(prev => (prev && prev.state === "ok" ? prev : { state: "failed", rows: [] }));
+      }
+    })();
+    return () => { live = false; };
+  }, [projectId, asked]);
+  const open = async (file) => {
+    if (opening) return;
+    setOpening(file.id);
+    try { await wsOpenFile(token, file); } catch (err) { showToast(wsFaultWords(err, "That file did not open. Try again."), "error"); } finally { setOpening(null); }
+  };
+  const noteSt = { fontSize: 12, color: t.textMut, lineHeight: 1.5, marginTop: 4 };
+  if (!files) return <div style={{ fontSize: 13, color: t.textMut, marginBottom: 12 }}>{tr("Loading...")}</div>;
+  if (files.state === "failed") return <ListFault icon={DocIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />;
+  return (
+    <div>
+      {files.rows.length === 0 && <div style={wsQuiet(t)}>{tr("No files in this project yet.")}</div>}
+      {files.rows.map(f => {
+        const busy = opening === f.id;
+        return (
+          <button key={f.id} type="button" onClick={() => open(f)} aria-busy={busy} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow, cursor: busy ? "default" : "pointer", color: t.text, textAlign: "left", opacity: busy ? 0.6 : 1 }}>
+            <DocIco sz={18} c={t.goldText} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "block", fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{f.name}</span>
+              <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{[wsSize(f.size), f.by, wsWhen(f.at)].filter(Boolean).join(", ")}</span>
+              {f.note && <span style={{ display: "block", fontSize: 12, color: t.textMut, marginTop: 2, overflowWrap: "anywhere" }}>{f.note}</span>}
+              <span style={{ display: "block", fontSize: 12, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, marginTop: 4 }}>{busy ? tr("Opening...") : tr("Open file")}</span>
+            </span>
+          </button>
+        );
+      })}
+      <div style={noteSt}>{tr("Files are added on the dashboard.")}</div>
+    </div>
+  );
 }
 
 function PickupView({ token, user, showToast, t }) {

@@ -240,10 +240,10 @@ Last checked: 2026-09-30
 Who can do this: anyone signed in
 1. Tap **Chat** (**Mensajes**).
 2. The group chats sit at the top, one for each of your sites and the general chat, and wrap onto as many lines as they need.
-3. Admins and supervisors also see **Direct messages** (**Mensajes directos**) under the group chats: one chat with each office person they have written to, named for that person, unread first. **New message** (**Nuevo mensaje**) above the chats starts one (see Start a message to someone in the office or on staff).
+3. Admins and supervisors also see **Direct messages** (**Mensajes directos**) under the group chats: one chat with each office person they have written to, named for that person, unread first. **New message** (**Nuevo mensaje**) above the chats starts one (see Start a message to someone in the office or on staff). An admin or supervisor on a workspace project also sees **Projects** (**Proyectos**) under them: one chat for each project, named for it (see Use the team workspace on your phone).
 4. Private chats sit under **Private chats** (**Chats privados**) in a row you scroll sideways. Yours comes first, **Admin (Private)** (**Administración (privado)**), where only you and management read the messages.
 5. At the larger text sizes the chats scroll inside the top of the screen and leave room for the messages and the box.
-Words people use for this: where is my site chat, i cannot find the chat, private chat, chat with the office, all my chats, more chats, direct messages, where is my dm.
+Words people use for this: where is my site chat, i cannot find the chat, private chat, chat with the office, all my chats, more chats, direct messages, where is my dm, project chat.
 Last checked: 2026-10-01
 
 ## Answer a staff member privately in Chat (staff portal)
@@ -892,4 +892,18 @@ Who can do this: admins and supervisors
 4. No mail? Check the spam folder, then tap **Send a new code** (**Enviar un código nuevo**). It waits 30 seconds between sends and counts them down. The newest code is the one that works. **Back** (**Atrás**) returns to the PIN.
 If it does not work: a wrong code says so, with **{n} tries left** (**Le quedan {n} intentos**). After the last try, or 10 minutes after the code was sent, it stops working and the app goes back to the PIN with the reason; sign in again for a new code. Nobody from OCSA will ever ask you for the code. Cleaners, leads and porters never see this screen.
 Words people use for this: code, verification, verification code, new phone, new computer, two step, two-step, email code, sign-in code, the code did not come, código, verificación, teléfono nuevo.
+Last checked: 2026-10-01
+
+## Use the team workspace on your phone (staff portal)
+Who can do this: admins and supervisors
+1. Tap **More** (**Más**), then **Workspace** (**Espacio de trabajo**). It shows for admins and supervisors once OCSA's workspace answers for your account. Cleaners, leads and porters never see it.
+2. **My assignments** (**Mis asignaciones**) comes first: the to-dos assigned to you in every project, soonest due first. One past its due day says so in red. Tap the box beside a to-do to mark it done; the app asks first, since everyone on the project sees it done.
+3. Under **Projects** (**Proyectos**), tap a project to open it. Its four tools sit at the top: **Message Board** (**Tablero de mensajes**), **To-dos** (**Pendientes**), **Chat** (**Mensajes**) and **Files** (**Archivos**).
+4. **Message Board** (**Tablero de mensajes**) lists the posts, pinned ones first and marked **Pinned** (**Fijado**), then the newest. Tap a post to read it and its comments. To answer, write in **Add a comment** (**Agregar un comentario**) and tap **Send** (**Enviar**). Type @ at the start of a word, or tap the @ button, to tag someone on the project, who gets a notice. **All messages** (**Todos los mensajes**) goes back to the list.
+5. To start a new post, tap **Post a message** (**Publicar un mensaje**), give it a **Title** (**Título**) and a **Message** (**Mensaje**), and tap **Post** (**Publicar**). Everyone on the project gets a notice, and those with email copies on get it by email too.
+6. **To-dos** (**Pendientes**) shows each list, open to-dos first and done ones last. Tap a box to mark one done, or tap a done one to open it again. **Add a to-do** (**Agregar un pendiente**) under a list takes a **Title** (**Título**), who it is **Assigned to** (**Asignado a**) and a **Due date** (**Fecha de vencimiento**); then tap **Save** (**Guardar**).
+7. **Chat** (**Mensajes**) opens the project's own chat in Chat, where it sits under **Projects** (**Proyectos**). Tagging works there the way it does in a site chat. Going back to **Workspace** (**Espacio de trabajo**) opens the same project again.
+8. **Files** (**Archivos**) lists the project's files with their size, who added them and when. Tap one to open or save it on the phone. **Files are added on the dashboard.** (**Los archivos se agregan en el panel.**)
+If it does not work: no **Workspace** (**Espacio de trabajo**) under **More** (**Más**) means the workspace is not on for your account yet. When something does not go, a line in red says why, in OCSA's words, for example a project that is archived, and your words stay where you typed them. If a project's chat does not open yet, wait a minute and tap **Chat** (**Mensajes**) again.
+Words people use for this: workspace, project, projects, message board, post a message, to-do, todo, to do list, my assignments, assigned to me, overdue, comment, tag, mention, files, project chat, basecamp, espacio de trabajo, proyecto, pendientes, tablero de mensajes.
 Last checked: 2026-10-01
