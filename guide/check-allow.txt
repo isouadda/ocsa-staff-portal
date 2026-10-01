@@ -69,7 +69,6 @@
 **Did anyone stop work because equipment was missing?** (**\u00bfAlguien dej\u00f3 de trabajar porque faltaba equipo?**)
 **Does anything this month mean the site's hazard assessment should be looked at again?** (**\u00bfAlgo de este mes indica que se debe revisar de nuevo la evaluaci\u00f3n de riesgos del sitio?**)
 **Field Lead, reviewed** (**Encargado de campo, revisado**)
-**Photos** (**Fotos**)
 **Restrooms** (**Ba\u00f1os**)
 
 # Served by the API: the words of the form Customer Complaint Log, drawn as the
