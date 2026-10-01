@@ -385,6 +385,11 @@ async function uploadAgentPhoto(blob, token) {
 }
 
 const GOLD = clientConfig.brand.gold, GOLD_LIGHT = "#FCEA4A", GREEN = "#2ECC71", RED = "#E74C3C", ORANGE = "#F39C12", BLUE = "#24A4F4";
+// The red every filled control and badge with light words on it is drawn
+// in, in both themes: white on it reads 6.54 to 1 and the dark theme's off
+// white 6.10, where the brand's red carries the off white at 3.57. Words
+// and icons drawn in red keep RED, and light mode's darker ink for it.
+const RED_FILL = "#B3261E";
 const NAVY = clientConfig.brand.navy;
 const BLUE_DEEP = clientConfig.brand.blueDeep;
 const BLUE_BRIGHT = clientConfig.brand.blueBright;
@@ -440,8 +445,8 @@ const DARK = {
   btnGhost: "#1B3058", redSubtle: "rgba(231,76,60,0.06)", redBorder: "rgba(231,76,60,0.2)",
   orangeSubtle: "rgba(243,156,18,0.08)", orangeBorder: "rgba(243,156,18,0.2)",
   goldSubtle: "rgba(231,176,23,0.06)", goldText: GOLD,
-  // The unread count. Dark draws the red it has always drawn.
-  badgeBg: RED,
+  // The unread count, on the red every filled red control is drawn in.
+  badgeBg: RED_FILL,
 };
 const LIGHT = {
   bg: "#F4F7FB", card: "#FFFFFF", cardAlt: "#EEF3F9", border: "#E4EAF2", borderSolid: "#D2DBE6",
@@ -455,14 +460,13 @@ const LIGHT = {
   btnGhost: "#E7EDF5", redSubtle: "rgba(231,76,60,0.06)", redBorder: "rgba(231,76,60,0.15)",
   orangeSubtle: "rgba(243,156,18,0.06)", orangeBorder: "rgba(243,156,18,0.15)",
   goldSubtle: "rgba(231,176,23,0.06)", goldText: "#8A5F10",
-  // A deeper red, so a white numeral on it reads at 5.62 to 1 where the
-  // red above it and an off white numeral read at 3.57.
-  badgeBg: "#C62828",
+  // The unread count, on the same red as the dark theme's.
+  badgeBg: RED_FILL,
 };
 
-// The numeral on a badge: white on light mode's deeper red, and the off
-// white the dark theme draws everywhere else.
-const badgeInk = (th) => (th.badgeBg === LIGHT.badgeBg ? "#FFFFFF" : "#F8F7F4");
+// The numeral on a badge: white in light mode, and the off white the dark
+// theme draws everywhere else.
+const badgeInk = (th) => (th === LIGHT ? "#FFFFFF" : "#F8F7F4");
 // Words on a wash of their own color. Dark draws them in that color,
 // except red, which it lifts to a lighter red: red itself reads at 3.83
 // to 1 on its own wash over the dark card, and the lifted red at 4.85.
@@ -1478,10 +1482,9 @@ function LanguageChoices({ value, onChange, languages, t }) {
 // one of the three has gone.
 const TOAST_MS = 3000;
 const TOAST_MAX = 3;
-// An error toast's red. The brand's own red carries white at 3.57 to 1,
-// under the 4.5 to 1 small words need; this one, the badge red light
-// mode already draws, carries it at 5.62 to 1.
-const TOAST_RED = "#C62828";
+// An error toast's red, the red every filled red control is drawn in:
+// white on it reads 6.54 to 1.
+const TOAST_RED = RED_FILL;
 function toastQueue(onChange) {
   const q = { shown: [], waiting: [], timers: new Map(), seq: 0 };
   const pump = () => {
@@ -2613,7 +2616,7 @@ export default function OCSAStaffPortal() {
           taps: a tap on a row under a toast reaches the row. A toast that
           carries a button of its own gives that button pointerEvents
           "auto" and nothing else. Success is navy on green and a notice
-          navy on orange; an error is white on the deeper red, 5.6 to 1. */}
+          navy on orange; an error is white on the filled red, 6.54 to 1. */}
       <div role="status" aria-live="polite" style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", zIndex: 1000, maxWidth: "90%", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, pointerEvents: "none" }}>{toasts.map(x => (<div key={x.id} style={{ background: x.type === "error" ? TOAST_RED : x.type === "notice" ? ORANGE : GREEN, color: x.type === "error" ? "#FFFFFF" : NAVY, padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", textAlign: "center" }}>{x.msg}</div>))}</div>
 
       <style>{`
@@ -3788,7 +3791,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                       showToast(tr("Drop request sent. Your supervisor will review it."));
                       loadSchedule();
                     } catch (e) { showToast(tr(e.message) || tr("Drop request failed"), "error"); }
-                  }} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD }}>{tr("Submit Request")}</button>
+                  }} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: RED_FILL, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD }}>{tr("Submit Request")}</button>
                 </div>
               </div>
             )}
@@ -5601,7 +5604,7 @@ function AssignedTasksView({ assignedTasks, failed, onRetry, resolveTask, showTo
           {isCantResolve && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.redSubtle }}>
             <div style={{ fontSize: 10, color: ink(t, RED), fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Explain why this cannot be completed *")}</div>
             <textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the issue preventing completion...")} rows={3} style={{ ...inputSt, resize: "vertical", marginBottom: 8 }} />
-            <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleCantResolve(detail.task_id)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Submit")}</button></div>
+            <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleCantResolve(detail.task_id)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: RED_FILL, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Submit")}</button></div>
           </div>)}
         </div>
       </div>

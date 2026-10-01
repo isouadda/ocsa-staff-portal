@@ -41,45 +41,10 @@
   "failures": [
     {
       "where": "Assigned",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Assigned",
       "theme": "light",
       "check": "contrast",
       "what": "\"#F39C12 on #FEF6E9\"",
       "why": "Orange on light mode's orange wash. 2.04 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Chat",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Forms",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Help",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Home",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
     },
     {
       "where": "Home",
@@ -94,13 +59,6 @@
       "check": "contrast",
       "what": "\"#2ECC71 on #E3EEDF\"",
       "why": "Green on light mode's green wash, on today's gold column in the week strip, which reads the day on the phone's own clock since pull request 52. 1.76 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Inspect",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
     },
     {
       "where": "Inspect, an inspection open",
@@ -124,13 +82,6 @@
       "why": "A card's score numeral and the running total, green from 80 percent up, on light mode's white card. 2.10 to 1 against the 4.5 to 1 small text needs, and under the 3 to 1 the running total's larger numeral needs."
     },
     {
-      "where": "More",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
       "where": "One time off request",
       "theme": "dark",
       "check": "contrast",
@@ -138,39 +89,11 @@
       "why": "Red on the dark theme's card, on the control that withdraws or removes. 4.13 to 1 against the 4.5 to 1 this text needs."
     },
     {
-      "where": "Phone alerts",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Pickup",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Profile",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
       "where": "Report",
       "theme": "dark",
       "check": "contrast",
       "what": "\"#E74C3C on #132240\"",
       "why": "Red on the dark theme's card, on the control that withdraws or removes. 4.13 to 1 against the 4.5 to 1 this text needs."
-    },
-    {
-      "where": "Report",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
     },
     {
       "where": "Report",
@@ -195,13 +118,6 @@
     },
     {
       "where": "Schedule",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Schedule",
       "theme": "light",
       "check": "contrast",
       "what": "\"#24A4F4 on #F4F7FB\"",
@@ -220,13 +136,6 @@
       "check": "contrast",
       "what": "\"#F39C12 on #FFFFFF\"",
       "why": "Orange on a white card in light mode. 2.19 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Settings",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
     },
     {
       "where": "Shortcuts",
@@ -250,13 +159,6 @@
       "why": "Red on the dark theme's card, on the control that withdraws or removes. 4.13 to 1 against the 4.5 to 1 this text needs."
     },
     {
-      "where": "Speak Up",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
       "where": "Supplies",
       "theme": "dark",
       "check": "contrast",
@@ -265,24 +167,10 @@
     },
     {
       "where": "Supplies",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Supplies",
       "theme": "light",
       "check": "contrast",
       "what": "\"#F39C12 on #F0F5FC\"",
       "why": "Orange on a tinted row in light mode. 2.00 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Tasks",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
     },
     {
       "where": "Tasks",
@@ -299,13 +187,6 @@
     },
     {
       "where": "The portal itself",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "The portal itself",
       "theme": "light",
       "check": "contrast",
       "what": "\"#24A4F4 on #F4F7FB\"",
@@ -317,41 +198,6 @@
       "check": "contrast",
       "what": "\"#2ECC71 on #E3EEDF\"",
       "why": "Green on light mode's green wash, on today's gold column in the week strip, which reads the day on the phone's own clock since pull request 52. 1.76 to 1 against the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Site walk, the walk",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
-    },
-    {
-      "where": "Site walk, every area",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
-    },
-    {
-      "where": "Site walk, the rooms",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
-    },
-    {
-      "where": "Site walk, sign it",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
-    },
-    {
-      "where": "Site walk, review",
-      "theme": "dark",
-      "check": "contrast",
-      "what": "\"#F8F7F4 on #E74C3C\"",
-      "why": "The count on a badge, an off white numeral on red. 3.57 to 1 against the 4.5 to 1 small text needs. Dark keeps the red Step 103 left it."
     },
     {
       "where": "*",
