@@ -867,3 +867,16 @@ Staff do not have **New message** (**Nuevo mensaje**); they write to the office 
 If it does not work: **No one matches that name.** (**Nadie tiene ese nombre.**) means nobody on the list has that name; check the spelling or type less of it. If a chat does not open, the list stays up with a line saying why, in OCSA's words or **That chat did not open. Try again.** (**Ese chat no se abrió. Intente de nuevo.**); tap the name again. **Close** (**Cerrar**) leaves the list. If **New message** (**Nuevo mensaje**) is not there, open another tab and come back to Chat; it shows once the list of people loads.
 Words people use for this: message another admin, message a supervisor, direct message, dm, new message, start a chat, write to a staff member first, find someone by name, message the office, nuevo mensaje, mensaje nuevo, mensaje directo.
 Last checked: 2026-10-01
+
+## Find a safety data sheet (staff portal)
+Who can do this: anyone, signed in or not
+1. In the app, tap **More** (**Más**), then **Safety data sheets** (**Hojas de datos de seguridad**). It shows once OCSA has the sheets loaded.
+2. From the QR poster in the janitor closet, scan it with the phone's camera. It opens the same sheets with no sign-in, with the language choice and **Text size** (**Tamaño del texto**) at the top.
+3. Type part of the product's name in **Search by product** (**Buscar por producto**), or scroll the list. Each sheet shows its maker and the date it was revised.
+4. Tap the product to open its sheet. The first two parts are open; tap any heading to open or close it. **All sheets** (**Todas las hojas**) goes back to the list.
+5. The sheet is in English, as the manufacturer wrote it. Ask **Help** (**Ayuda**) about any part of it, for example what to do if it gets in your eyes, and Help explains it in your language.
+6. With weak or no signal, the list and any sheet you opened before on this phone still open from the copy kept, and say **Saved on this phone. Last read {when}.** (**Guardada en este teléfono. Leída por última vez: {when}.**)
+**Every sheet is also in the printed binder at the site.** (**Todas las hojas también están en la carpeta impresa del sitio.**)
+If it does not work: **Safety data sheets are not available here yet. The printed binder at the site holds every sheet.** (**Las hojas de datos de seguridad todavía no están disponibles aquí. La carpeta impresa del sitio tiene todas las hojas.**) means OCSA has no sheets to give yet; use the binder. **This sheet did not open. Check your signal, or use the printed binder at the site.** (**Esta hoja no se abrió. Revise su señal o use la carpeta impresa del sitio.**) means this phone has no copy of that sheet; use the binder, or open it again where there is signal. With no signal at all, the page itself may not open; use the binder.
+Words people use for this: sds, msds, safety data sheet, chemical sheet, what is in this product, hazards of a product, first aid for a chemical, the binder, the closet poster, qr code, hoja de datos de seguridad, hoja de seguridad, fiche de données de sécurité.
+Last checked: 2026-10-01
