@@ -516,6 +516,8 @@ async function api(path, opts = {}) {
 async function apiUpload(path, name, files, opts = {}) {
   const form = new FormData();
   files.forEach((file) => form.append(name, file, file.name));
+  // Text fields a route takes beside the files, such as a file's note.
+  Object.keys(opts.fields || {}).forEach((k) => form.append(k, opts.fields[k]));
   const headers = {};
   if (opts.token) headers["Authorization"] = "Bearer " + opts.token;
   flightUp();
@@ -8629,6 +8631,13 @@ const wsFaultWords = (err, fallback) => wsSaidOf(err) || (err && err.message ===
 const WS_TITLE_MAX = 200;
 const WS_BODY_MAX = 10000;
 const WS_COMMENT_MAX = 5000;
+// A file the API takes, and a list's name. The contract gives a list's
+// name no length; a project's name is 120, and a list's is held to the same.
+const WS_FILE_MAX = 25 * 1024 * 1024;
+const WS_LIST_MAX = 120;
+const WS_NOTE_MAX = 500;
+// A photo, by what the phone says or its name, HEIC included.
+const wsIsPhoto = (file) => /^image\//i.test(file.type || "") || /\.(jpe?g|png|gif|webp|hei[cf])$/i.test(file.name || "");
 const wsWhen = (v) => { const d = v ? new Date(v) : null; return d && !isNaN(d.getTime()) ? d.toLocaleString(dateLocale(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""; };
 const wsSize = (n) => {
   const b = Number(n);
@@ -8659,7 +8668,7 @@ function wsFileOf(x) {
   if (!x || typeof x !== "object" || agentField(x, ["removedAt", "removed_at"], null)) return null;
   const id = agentField(x, ["id"], null);
   const name = wsText(x, ["fileName", "file_name", "name"]);
-  return id === null || !name ? null : { id: id, name: name, size: agentField(x, ["sizeBytes", "size_bytes"], null), by: wsText(x, ["uploadedByName", "uploaded_by_name"]), at: agentField(x, ["createdAt", "created_at"], null), note: wsText(x, ["note"]) };
+  return id === null || !name ? null : { id: id, name: name, size: agentField(x, ["sizeBytes", "size_bytes"], null), by: wsText(x, ["uploadedByName", "uploaderName", "uploaded_by_name"]), at: agentField(x, ["createdAt", "created_at"], null), note: wsText(x, ["note"]) };
 }
 // The project's chat on the list Chat draws: the chat of the project kind
 // that names this project.
@@ -9131,7 +9140,9 @@ function WsTodos({ token, user, projectId, members, openId, onOpenId, showToast,
   const [asked, setAsked] = useState(0);
   const [ticking, setTicking] = useState(null);
   const [draft, setDraft] = useState(null);
+  const [newList, setNewList] = useState(null);
   useBusy("workspace to-do", !!draft && (draft.title.trim() !== "" || draft.saving));
+  useBusy("workspace list", !!newList && (newList.name.trim() !== "" || newList.saving));
   useEffect(() => {
     let live = true;
     (async () => {
@@ -9176,6 +9187,37 @@ function WsTodos({ token, user, projectId, members, openId, onOpenId, showToast,
       setDraft(d => (d ? { ...d, saving: false, fault: wsFaultWords(err, "That to-do was not added. Try again.") } : d));
     }
   };
+  // New list: a name, POST /projects/:id/todo-lists, and the list shows at
+  // once, ready for Add a to-do.
+  const closeList = () => { if (newList && !newList.saving) setNewList(null); };
+  const addList = async () => {
+    if (!newList || newList.saving) return;
+    const name = newList.name.trim();
+    if (!name) { setNewList({ ...newList, fault: tr("Give the list a name.") }); return; }
+    setNewList({ ...newList, saving: true, fault: null });
+    try {
+      const d = await api(wsPath("/projects/" + encodeURIComponent(projectId) + "/todo-lists"), { method: "POST", body: { name: name }, token });
+      const raw = d && typeof d === "object" && d.list && typeof d.list === "object" ? d.list : d;
+      const id = agentField(raw, ["id"], null);
+      if (id !== null) setLists(prev => (prev && prev.state === "ok" && !prev.rows.some(l => String(l.id) === String(id)) ? { ...prev, rows: prev.rows.concat([{ id: id, name: wsText(raw, ["name"]) || name, todos: [] }]) } : prev));
+      setNewList(null);
+      showToast(tr("List added."));
+      setAsked(n => n + 1);
+    } catch (err) {
+      setNewList(d => (d ? { ...d, saving: false, fault: wsFaultWords(err, "That list was not added. Try again.") } : d));
+    }
+  };
+  const newListBtn = <button type="button" onClick={() => setNewList({ name: "", saving: false, fault: null })} aria-haspopup="dialog" style={wsOpenBtn(t)}><PlusIco sz={14} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("New list")}</span></button>;
+  const newListSheet = newList && (
+    <WsSheet id="ocsa-ws-list" title={tr("New list")} onClose={closeList} t={t} footer={<>
+      <button type="button" onClick={closeList} disabled={newList.saving} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+      <button type="button" onClick={addList} aria-disabled={newList.saving} style={wsMainBtn(t, newList.saving)}>{newList.saving ? tr("Saving...") : tr("Save")}</button>
+    </>}>
+      <label htmlFor="ocsa-ws-list-name" style={mkLabel(t)}>{tr("Name")}</label>
+      <input id="ocsa-ws-list-name" type="text" value={newList.name} maxLength={WS_LIST_MAX} onChange={e => setNewList({ ...newList, name: e.target.value.slice(0, WS_LIST_MAX), fault: null })} style={mkInput(t)} />
+      {newList.fault && <WsFault text={newList.fault} t={t} />}
+    </WsSheet>
+  );
   if (openId) {
     // The to-do as its list has it, while the lists are on the screen.
     let listed = null, listName = "";
@@ -9184,9 +9226,10 @@ function WsTodos({ token, user, projectId, members, openId, onOpenId, showToast,
   }
   if (!lists) return <div style={{ fontSize: 13, color: t.textMut, marginBottom: 12 }}>{tr("Loading...")}</div>;
   if (lists.state === "failed") return <ListFault icon={CheckIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />;
-  if (lists.rows.length === 0) return <div style={wsQuiet(t)}>{tr("This project has no to-do lists yet.")}</div>;
+  if (lists.rows.length === 0) return <div><div style={wsQuiet(t)}>{tr("This project has no to-do lists yet.")}</div>{newListBtn}{newListSheet}</div>;
   return (
     <div>
+      {newListBtn}
       {lists.rows.map(l => (
         <div key={l.id} style={{ marginBottom: 16 }}>
           {l.name && <div role="heading" aria-level={2} style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 8, overflowWrap: "anywhere" }}>{l.name}</div>}
@@ -9213,15 +9256,21 @@ function WsTodos({ token, user, projectId, members, openId, onOpenId, showToast,
           {draft.fault && <WsFault text={draft.fault} t={t} />}
         </WsSheet>
       )}
+      {newListSheet}
     </div>
   );
 }
 
-// The project's files, to open or save. Adding one stays on the dashboard.
+// The project's files, to open or save, and Add a file.
 function WsFiles({ token, projectId, showToast, t }) {
   const [files, setFiles] = useState(null);
   const [asked, setAsked] = useState(0);
   const [opening, setOpening] = useState(null);
+  // Add a file: the file chosen (a photo already made ready), its note,
+  // and what is happening to it.
+  const [adding, setAdding] = useState(null);
+  const photoRef = useRef(null), docRef = useRef(null);
+  useBusy("workspace file", !!adding && (!!adding.file || adding.note.trim() !== "" || adding.state !== "idle"));
   useEffect(() => {
     let live = true;
     (async () => {
@@ -9240,11 +9289,71 @@ function WsFiles({ token, projectId, showToast, t }) {
     setOpening(file.id);
     try { await wsOpenFile(token, file); } catch (err) { showToast(wsFaultWords(err, "That file did not open. Try again."), "error"); } finally { setOpening(null); }
   };
-  const noteSt = { fontSize: 12, color: t.textMut, lineHeight: 1.5, marginTop: 4 };
+  // A photo passes through prepareFormPhoto (HEIC made a JPEG, made
+  // smaller, its location data gone, since the canvas carries none), from
+  // either button. A file over 25 MB is stopped here, before it is sent.
+  const choose = async (picked) => {
+    if (!picked || !adding || adding.state === "sending") return;
+    setAdding(a => ({ ...a, file: null, state: "preparing", fault: null }));
+    let file = picked;
+    if (wsIsPhoto(picked) || await isHeicFile(picked)) {
+      try { file = await prepareFormPhoto(picked); } catch (e) { setAdding(a => (a ? { ...a, state: "idle", fault: tr(FORMS_PHOTO_UNREADABLE) } : a)); return; }
+    }
+    if (file.size > WS_FILE_MAX) { setAdding(a => (a ? { ...a, state: "idle", fault: tr("{0} is over 25 MB. Files up to 25 MB can be added.", { 0: picked.name || "" }) } : a)); return; }
+    setAdding(a => (a ? { ...a, file: file, state: "idle", fault: null } : a));
+  };
+  const closeAdd = () => { if (adding && adding.state !== "sending") setAdding(null); };
+  const send = async () => {
+    if (!adding || adding.state !== "idle") return;
+    if (!adding.file) { setAdding({ ...adding, fault: tr("Choose a file first.") }); return; }
+    const note = adding.note.trim();
+    setAdding({ ...adding, state: "sending", fault: null });
+    try {
+      const d = await apiUpload(wsPath("/projects/" + encodeURIComponent(projectId) + "/files"), "file", [adding.file], { token, fields: note ? { note: note } : {} });
+      const row = wsFileOf(d && typeof d === "object" && d.file && typeof d.file === "object" ? d.file : d);
+      if (row) setFiles(prev => (prev && prev.state === "ok" ? { ...prev, rows: [row].concat(prev.rows.filter(x => String(x.id) !== String(row.id))) } : { state: "ok", rows: [row] }));
+      else setAsked(n => n + 1);
+      setAdding(null);
+      showToast(tr("File added."));
+    } catch (err) {
+      setAdding(a => (a ? { ...a, state: "idle", fault: wsFaultWords(err, "That file was not added. Try again.") } : a));
+    }
+  };
+  const pickBtn = (ref, words, Icon) => <button type="button" onClick={() => { if (ref.current && adding && adding.state === "idle") ref.current.click(); }} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", marginBottom: 8, borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, textAlign: "left" }}><Icon sz={18} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{words}</span></button>;
+  const addBtn = <button type="button" onClick={() => setAdding({ file: null, note: "", state: "idle", fault: null })} aria-haspopup="dialog" style={wsOpenBtn(t)}><PlusIco sz={14} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("Add a file")}</span></button>;
+  const addSheet = adding && (
+    <WsSheet id="ocsa-ws-file" title={tr("Add a file")} onClose={closeAdd} t={t} footer={<>
+      <button type="button" onClick={closeAdd} disabled={adding.state === "sending"} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+      <button type="button" onClick={send} aria-disabled={adding.state !== "idle" || !adding.file} style={wsMainBtn(t, adding.state !== "idle" || !adding.file)}>{adding.state === "sending" ? tr("Uploading...") : tr("Add file")}</button>
+    </>}>
+      {/* No capture attribute, so the phone offers the camera and the
+          gallery both. The second takes any document; the API says which
+          kinds it keeps. */}
+      <input ref={photoRef} type="file" accept="image/*" data-ws-photo="" style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; choose(f); }} />
+      <input ref={docRef} type="file" data-ws-document="" style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; choose(f); }} />
+      {pickBtn(photoRef, tr("Take photo or choose from gallery"), CamIco)}
+      {pickBtn(docRef, tr("Choose a document"), DocIco)}
+      <div style={{ fontSize: 12, color: t.textMut, lineHeight: 1.5, marginBottom: 12 }}>{tr("Documents, images and PDFs, up to 25 MB each.")}</div>
+      {adding.state === "preparing" && <div role="status" style={{ fontSize: 13, color: t.textMut, marginBottom: 12 }}>{tr("Loading...")}</div>}
+      {adding.file && (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}>
+          <DocIco sz={18} c={t.goldText} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{adding.file.name}</span>
+            <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2 }}>{wsSize(adding.file.size)}</span>
+          </span>
+        </div>
+      )}
+      <label htmlFor="ocsa-ws-file-note" style={mkLabel(t)}>{tr("Note (optional)")}</label>
+      <textarea id="ocsa-ws-file-note" value={adding.note} maxLength={WS_NOTE_MAX} rows={2} onChange={e => setAdding({ ...adding, note: e.target.value.slice(0, WS_NOTE_MAX), fault: null })} style={{ ...mkInput(t), minHeight: 64, resize: "vertical", lineHeight: 1.45 }} />
+      {adding.fault && <WsFault text={adding.fault} t={t} />}
+    </WsSheet>
+  );
   if (!files) return <div style={{ fontSize: 13, color: t.textMut, marginBottom: 12 }}>{tr("Loading...")}</div>;
   if (files.state === "failed") return <ListFault icon={DocIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />;
   return (
     <div>
+      {addBtn}
       {files.rows.length === 0 && <div style={wsQuiet(t)}>{tr("No files in this project yet.")}</div>}
       {files.rows.map(f => {
         const busy = opening === f.id;
@@ -9260,7 +9369,7 @@ function WsFiles({ token, projectId, showToast, t }) {
           </button>
         );
       })}
-      <div style={noteSt}>{tr("Files are added on the dashboard.")}</div>
+      {addSheet}
     </div>
   );
 }
