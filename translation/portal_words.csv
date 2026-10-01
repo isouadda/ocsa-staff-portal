@@ -339,7 +339,7 @@ Discard this report? It will not be sent.,¿Descartar este reporte? No se enviar
 Fill in form,Llenar formulario,Remplir le formulaire,Help
 general cleaning guidance,una guía general de limpieza,un guide général de nettoyage,Help
 Not sent.,No se envió.,Non envoyé.,Help
-Remove photo,Quitar foto,Retirer la photo,Help
+Remove photo,Quitar foto,Retirer la photo,"Help, Forms, Inspect"
 Report discarded.,Reporte descartado.,Rapport abandonné.,Help
 Report in progress,Reporte en proceso,Rapport en cours,Help
 Report submitted.,Reporte enviado.,Rapport envoyé.,Help
@@ -410,7 +410,7 @@ Details,Detalles,Détails,"Report, Supplies"
 Enter issue title,Escriba un título para el problema,Entrez un titre pour le problème,Report
 High,Alta,Haute,"Report, Supplies"
 Issues,Problemas,Problèmes,"Report, Bar and More"
-"JPG, PNG up to 10MB",JPG o PNG hasta 10 MB,"JPG ou PNG, 10 Mo maximum",Report
+"JPG, PNG up to 10MB",JPG o PNG hasta 10 MB,"JPG ou PNG, 10 Mo maximum","Report, Forms, Inspect"
 Low,Baja,Basse,"Report, Supplies"
 Med,Media,Moy.,Report
 No issues reported yet.,Todavía no se ha reportado ningún problema.,Aucun problème signalé pour le moment.,Report
@@ -509,6 +509,11 @@ Sections,Secciones,Sections,Inspect
 {scored} of {total} scored,{scored} de {total} calificados,{scored} sur {total} notés,Inspect
 Site *,Sitio *,Site *,Inspect
 Submit Inspection,Enviar inspección,Envoyer l'inspection,Inspect
+Photos,Fotos,Photos,"Inspect, under each card"
+Photos of the whole inspection,Fotos de toda la inspección,Photos de l'ensemble de l'inspection,"Inspect, under the last card"
+Below 70 percent: add a photo of it.,Menos del 70 por ciento: agregue una foto.,Moins de 70 pour cent : ajoutez une photo.,"Inspect, a card scored under 70 percent with no photo"
+"Signed as {name}, {date}","Firmado como {name}, {date}","Signé par {name}, {date}","Inspect, under the signature"
+Sign before you send.,Firme antes de enviar.,Signez avant d'envoyer.,"Inspect, Submit with no signature"
 Tap an inspection to begin scoring.,Toque una inspección para empezar a calificar.,Appuyez sur une inspection pour commencer à noter.,Inspect
 Tap to start scoring,Toque para empezar a calificar,Appuyez pour commencer à noter,Inspect
 Template *,Plantilla *,Modèle *,Inspect
@@ -538,7 +543,7 @@ Your report was not sent.,Su reporte no se envió.,Votre signalement n'a pas ét
 Add row,Agregar fila,Ajouter une ligne,Forms
 Answered,Respondida,Répondu,Forms
 Back,Atrás,Retour,"Forms, Profile"
-Clear,Borrar,Effacer,Forms
+Clear,Borrar,Effacer,"Forms, Inspect"
 Continue,Continuar,Continuer,Forms
 Done,Listo,Terminé,"Forms, Shortcuts, Settings"
 Edit,Editar,Modifier,"Forms, Profile"
@@ -573,15 +578,15 @@ Send it,Enviarlo,L'envoyer,Forms
 Send this report? You cannot change it after it is sent.,¿Enviar este reporte? No lo podrá cambiar después de enviarlo.,Envoyer ce rapport ? Vous ne pourrez plus le modifier après l'envoi.,Forms
 Sending,Enviando,Envoi,Forms
 Sign,Firmar,Signer,Forms
-Sign with your finger,Firme con el dedo,Signez avec le doigt,Forms
+Sign with your finger,Firme con el dedo,Signez avec le doigt,"Forms, Inspect"
 Signed by {name} on {date} at {time},Firmado por {name} el {date} a las {time},Signé par {name} le {date} à {time},Forms
 Start report,Comenzar reporte,Commencer le rapport,Forms
 Which site is this for?,¿Para qué sitio es este reporte?,Pour quel site est ce rapport ?,"Forms, starting a report with no shift open"
-Take photo or choose from gallery,Tomar foto o elegir de la galería,Prendre une photo ou choisir dans la galerie,Forms
+Take photo or choose from gallery,Tomar foto o elegir de la galería,Prendre une photo ou choisir dans la galerie,"Forms, Inspect"
 These still need an answer,Estas todavía necesitan respuesta,Ces questions attendent encore une réponse,Forms
 This question cannot be answered here yet. Your supervisor will finish it.,Esta pregunta todavía no se puede responder aquí. Su supervisor la completará.,Cette question ne peut pas encore être remplie ici. Votre superviseur la complétera.,Forms
 This photo could not be read. Try another one.,No se pudo leer esta foto. Intente con otra.,Cette photo n'a pas pu être lue. Essayez-en une autre.,Forms
-This question is full.,Esta pregunta está llena.,Cette question a atteint sa limite.,Forms
+This question is full.,Esta pregunta está llena.,Cette question a atteint sa limite.,"Forms, Inspect"
 This report was already sent.,Este reporte ya se había enviado.,Ce rapport a déjà été envoyé.,Forms
 Name,Nombre,Nom,Customer form
 Role,Puesto,Fonction,Customer form
@@ -596,7 +601,7 @@ Acknowledge this report,Confirmar recibo de este reporte,Confirmer la réception
 Comments,Comentarios,Commentaires,Acknowledgement page
 Not sent yet. Check your signal and tap Acknowledge this report again.,Todavía no se envió. Revise su señal y toque Confirmar recibo de este reporte otra vez.,Pas encore envoyé. Vérifiez votre réseau et appuyez de nouveau sur « Confirmer la réception de ce rapport ».,Acknowledgement page
 Rate this month,Calificar este mes,Notez ce mois-ci,Acknowledgement page
-Signature,Firma,Signature,Acknowledgement page
+Signature,Firma,Signature,"Acknowledgement page, Inspect"
 Thank you. Your acknowledgement is recorded.,Gracias. Su confirmación quedó registrada.,Merci. Votre confirmation est enregistrée.,Acknowledgement page
 This report could not load. Check your signal and try again.,Este reporte no cargó. Revise su señal e intente de nuevo.,Ce rapport ne s'est pas chargé. Vérifiez votre réseau et réessayez.,Acknowledgement page
 Add to bar,Agregar a la barra,Ajouter à la barre,Shortcuts
