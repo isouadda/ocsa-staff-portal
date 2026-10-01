@@ -66,6 +66,12 @@ Set Your PIN,Elija su PIN,Choisissez votre code PIN,Sign in
 Sign In,Iniciar sesión,Se connecter,Sign in
 Signing in will work once your account is active.,Podrá iniciar sesión cuando su cuenta esté activa.,Vous pourrez vous connecter quand votre compte sera actif.,Sign in
 Signing in...,Iniciando sesión...,Connexion...,Sign in
+Enter the code we emailed to {0},Escriba el código que enviamos a {0},Saisissez le code que nous avons envoyé à {0},"Sign in, the code an office account is asked for on a new device"
+Verify,Verificar,Vérifier,"Sign in, the code"
+Send a new code,Enviar un código nuevo,Envoyer un nouveau code,"Sign in, the code"
+Remember this device for 30 days,Recordar este dispositivo por 30 días,Se souvenir de cet appareil pendant 30 jours,"Sign in, the code"
+{n} tries left,Le quedan {n} intentos,Il vous reste {n} essais,"Sign in, the code, after a wrong code"
+1 try left,Le queda 1 intento,Il vous reste 1 essai,"Sign in, the code, after a wrong code"
 Something went wrong on our end. Try again in a minute.,Hubo un problema de nuestro lado. Intente de nuevo en un minuto.,Un problème est survenu de notre côté. Réessayez dans une minute.,Sign in
 Staff Operations Portal,Portal del Personal,Portail du personnel,Sign in
 The number on the email we sent you.,El número que aparece en el correo que le enviamos.,Le numéro indiqué dans le courriel que nous vous avons envoyé.,Sign in

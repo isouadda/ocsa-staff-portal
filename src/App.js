@@ -470,6 +470,14 @@ const badgeInk = (th) => (th.badgeBg === LIGHT.badgeBg ? "#FFFFFF" : "#F8F7F4");
 // so light mode draws them in its own text color over the same wash.
 const RED_ON_WASH = "#F2695E";
 const washInk = (th, color) => (th === LIGHT ? th.text : (color === RED ? RED_ON_WASH : color));
+// Words and icons drawn in a status color. Light mode draws each in a
+// darker ink of its own, which reads at 4.5 to 1 or better on white, on
+// the page and on the color's own pale wash (Scout 144 measured the
+// colors themselves at 1.76 to 3.82 there). Dark mode draws every color
+// as it always has, and so does light mode for any color not here, such
+// as one a lookup list sends. Washes, fills and dots keep their colors.
+const LIGHT_INK = { "#24A4F4": "#0A5C9E", "#2ECC71": "#186534", "#F39C12": "#8A4706", "#E74C3C": "#B3261E", "#8E6FD8": "#6E3B8F" };
+const ink = (th, color) => (th === LIGHT && typeof color === "string" && LIGHT_INK[color.toUpperCase()]) || color;
 
 // What every request to OCSA carries, and what every refusal becomes.
 // api() and apiStream() both go through these, so Help's streaming route
@@ -674,9 +682,9 @@ const TIME_OFF_PAGE = 50;
 // or Pickup, and readable on both themes.
 const TIME_OFF_COLOR = "#8E6FD8";
 const timeOffStatusColor = (status, t) => (
-  status === "approved" ? GREEN :
-  status === "denied" ? RED :
-  status === "cancelled" ? t.textMut : ORANGE
+  status === "approved" ? ink(t, GREEN) :
+  status === "denied" ? ink(t, RED) :
+  status === "cancelled" ? t.textMut : ink(t, ORANGE)
 );
 const timeOffStatusWord = (status) => (
   status === "approved" ? tr("Approved") :
@@ -914,7 +922,7 @@ const SUPPORT_LINE = "Contact your supervisor to have a new link sent.";
 const PIN_RE = /^[0-9]{4}$/;
 const PIN_INPUT_PROPS = { type: "password", inputMode: "numeric", pattern: "[0-9]*", maxLength: 4, autoComplete: "off" };
 const mkPinInput = (t) => ({ ...mkInput(t), letterSpacing: "8px", textAlign: "center", fontSize: 20 });
-const mkFieldErr = (t) => ({ fontSize: 11, color: RED, marginTop: 6, lineHeight: 1.4 });
+const mkFieldErr = (t) => ({ fontSize: 11, color: ink(t, RED), marginTop: 6, lineHeight: 1.4 });
 const mkHelp = (t) => ({ fontSize: 11, color: t.textMut, marginTop: 6, lineHeight: 1.4 });
 const mkPrimaryBtn = (t, busy) => ({ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", opacity: busy ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD });
 const mkGhostBtn = (t) => ({ width: "100%", minHeight: TAP, padding: "12px", marginTop: 12, borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, cursor: "pointer" });
@@ -996,6 +1004,29 @@ function leaveEntryPath() {
 // the PIN, the identifier, or anything from the user record.
 const AUTH_KEY = "ocsa_auth";
 const AUTH_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+
+// One random id for this device, made once and kept, sent with every
+// sign-in so the API can tell a device it has seen in the last 30 days
+// (Step 225). A phone that refuses storage makes a new one each time and
+// is simply asked for the code each time. It names nothing about the
+// person and is never shown.
+const DEVICE_KEY = "ocsa-device-id";
+function newDeviceId() {
+  try { if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID(); } catch (e) {}
+  const b = new Uint8Array(16);
+  try { window.crypto.getRandomValues(b); } catch (e) { for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256); }
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, x => x.toString(16).padStart(2, "0")).join("");
+  return h.slice(0, 8) + "-" + h.slice(8, 12) + "-" + h.slice(12, 16) + "-" + h.slice(16, 20) + "-" + h.slice(20);
+}
+function deviceId() {
+  try { const kept = window.localStorage.getItem(DEVICE_KEY); if (kept) return kept; } catch (e) {}
+  const made = newDeviceId();
+  try { window.localStorage.setItem(DEVICE_KEY, made); } catch (e) {}
+  return made;
+}
+// How long Send a new code waits after each send, the API's own spacing.
+const CODE_RESEND_MS = 30000;
 
 function saveAuth(tok) {
   try { window.localStorage.setItem(AUTH_KEY, JSON.stringify({ token: tok, savedAt: Date.now() })); } catch (e) {}
@@ -1611,6 +1642,12 @@ export default function OCSAStaffPortal() {
   // reload, starts the count over. No number is ever shown.
   const [loginFault, setLoginFault] = useState(null);
   const wrongTries = useRef(0);
+  // Step 225: when the sign-in answer carries secondStep, the code screen
+  // in place of the PIN, with the challenge it answers, the address hint
+  // and when the last code went, and what was said under the box. The
+  // PIN and the code are never kept anywhere.
+  const [secondStep, setSecondStep] = useState(null);
+  const [codeFault, setCodeFault] = useState(null);
   const [lookups, setLookups] = useState([]);
   const queuePrefRef = useRef(null);
   const queuePref = (changed) => { if (queuePrefRef.current) queuePrefRef.current(changed); };
@@ -1773,8 +1810,16 @@ export default function OCSAStaffPortal() {
     try {
       // noAuthEvent, so a refused PIN is not read as an expired session.
       // Nothing is signed in yet, so there is no session to end.
-      const data = await api(signedOut("/api/auth/login", language), { method: "POST", body: { phone, pin }, noAuthEvent: true });
+      const data = await api(signedOut("/api/auth/login", language), { method: "POST", body: { phone, pin, deviceId: deviceId() }, noAuthEvent: true });
       wrongTries.current = 0;
+      // An office account on a device the API has not seen: no token yet,
+      // and the code screen. Every other answer goes on as it always has.
+      if (data && data.secondStep === true && data.challengeId) {
+        setCodeFault(null);
+        setSecondStep({ challengeId: String(data.challengeId), emailHint: typeof data.emailHint === "string" ? data.emailHint : "", sentAt: Date.now() });
+        setLoading(false);
+        return;
+      }
       setToken(data.token); saveAuth(data.token);
       const me = await hydrateSession(data.token);
       showToast(tr("Welcome, {name}", { name: me.firstName }));
@@ -1789,6 +1834,44 @@ export default function OCSAStaffPortal() {
     }
     setLoading(false);
   };
+
+  // The code screen. A code the API takes answers what sign-in answers, and
+  // goes on exactly as a sign-in does. A refusal is told in the API's own
+  // words, by its code: a wrong code under the box with the tries left; an
+  // expired or used-up challenge back at the PIN; a code that did not go
+  // or a new one asked for too soon under the box.
+  const codeRefused = (err) => {
+    const said = err && err.body && typeof err.body.error === "string" ? err.body.error.trim() : "";
+    const code = err && err.code ? String(err.code) : "";
+    if (code === "auth.codeExpired" || code === "auth.codeTooMany") {
+      setSecondStep(null); setCodeFault(null);
+      setLoginFault({ text: said || tr(ERR_GENERIC), lock: false });
+      return;
+    }
+    const left = code === "auth.codeWrong" && err.body ? Number(err.body.attemptsLeft) : NaN;
+    setCodeFault({ text: !said && wentNowhere(err) ? tr(ERR_OFFLINE) : said || tr(ERR_GENERIC), left: Number.isFinite(left) ? left : null });
+  };
+  const handleCode = async (code, remember) => {
+    if (!secondStep || loading) return;
+    setLoading(true); setCodeFault(null);
+    try {
+      const data = await api(signedOut("/api/auth/second-step", language), { method: "POST", body: { challengeId: secondStep.challengeId, code: code, deviceId: deviceId(), rememberDevice: remember !== false }, noAuthEvent: true });
+      setSecondStep(null);
+      setToken(data.token); saveAuth(data.token);
+      const me = await hydrateSession(data.token);
+      showToast(tr("Welcome, {name}", { name: me.firstName }));
+    } catch (err) { codeRefused(err); }
+    setLoading(false);
+  };
+  const handleResend = async () => {
+    if (!secondStep || loading) return;
+    setCodeFault(null);
+    try {
+      await api(signedOut("/api/auth/second-step/resend", language), { method: "POST", body: { challengeId: secondStep.challengeId }, noAuthEvent: true });
+      setSecondStep(prev => (prev ? { ...prev, sentAt: Date.now() } : prev));
+    } catch (err) { codeRefused(err); }
+  };
+  const backToPin = () => { setSecondStep(null); setCodeFault(null); };
 
   // A successful activation or reset returns the same twelve-hour JWT a
   // login does. Store it the same way and take the same path in.
@@ -1986,12 +2069,26 @@ export default function OCSAStaffPortal() {
   // Chat opens on a chat: the one last chosen on this phone while it is
   // still on the list, or the only one when the list holds one. Never a
   // guess among several. A chat that leaves the list is let go.
+  // The first time Chat is opened by someone who has never chosen a chat
+  // on this phone, it opens on their site's chat: the site of the shift
+  // they have open, else their first active assignment's site, in the
+  // order the API sends them. That counts as their choice, so from then
+  // on Chat opens the way it always has. With neither, it opens as it
+  // always has. It waits until Chat is showing, so no chat is marked read
+  // before the person sees it.
   useEffect(() => {
     if (!user || !Array.isArray(channels)) return;
     if (activeChannel && channels.some(ch => ch && ch.id === activeChannel)) return;
-    const next = chatToOpen(channels, readLastChat(user.id));
+    const last = readLastChat(user.id);
+    let next = chatToOpen(channels, last);
+    if (!next && !last && activeTab === "chat") {
+      const shiftSite = clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null;
+      const assigned = Array.isArray(sites) && sites[0] ? sites[0].siteId : null;
+      next = siteChatOf(channels, [shiftSite, assigned]);
+      if (next) saveLastChat(user.id, next);
+    }
     if (next !== activeChannel) setActiveChannel(next);
-  }, [channels, user]);
+  }, [channels, user, activeTab]);
   // A chat a person picks is the one Chat opens on next time, on this phone.
   const chooseChat = (id) => { setActiveChannel(id); if (user) saveLastChat(user.id, id); };
   // A chat New message opened: put on the list when the list does not
@@ -2330,7 +2427,7 @@ export default function OCSAStaffPortal() {
       )}
 
       {booting && <BootSplash t={t} themeMode={themeMode} />}
-      {!booting && screen === "login" && <LoginScreen onLogin={handleLogin} onGoRegister={() => setScreen("register")} onGoForgot={() => setScreen("forgot")} loading={loading} fault={loginFault} onTyped={() => { if (loginFault) setLoginFault(null); }} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
+      {!booting && screen === "login" && <LoginScreen onLogin={handleLogin} onGoRegister={() => { backToPin(); setScreen("register"); }} onGoForgot={() => { backToPin(); setScreen("forgot"); }} loading={loading} fault={loginFault} onTyped={() => { if (loginFault) setLoginFault(null); }} step={secondStep} codeFault={codeFault} onCode={handleCode} onResend={handleResend} onBackToPin={backToPin} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
       {screen === "register" && <RegisterScreen onRegister={handleRegister} onBack={() => setScreen("login")} loading={loading} t={t} />}
       {screen === "activate" && <ActivateScreen token={ENTRY ? ENTRY.token : null} onActivated={handleAuthSuccess} onGoLogin={goLogin} showToast={showToast} t={t} />}
       {screen === "reset" && <ResetScreen token={ENTRY ? ENTRY.token : null} onReset={handleAuthSuccess} onGoLogin={goLogin} onGoForgot={() => setScreen("forgot")} showToast={showToast} t={t} />}
@@ -2521,12 +2618,56 @@ export default function OCSAStaffPortal() {
   );
 }
 
-function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onTyped, showToast, t, toggleTheme, themeMode }) {
+function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onTyped, step, codeFault, onCode, onResend, onBackToPin, showToast, t, toggleTheme, themeMode }) {
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
   const labelSt = mkLabel(t);
   const inputSt = mkInput(t);
   const errSt = mkFieldErr(t);
+  // The code screen: the six digits, sent on their own once six are typed;
+  // whether to remember this device, on by default; and the seconds until
+  // a new code can be asked for. The PIN leaves memory once the code
+  // screen opens, and the code once it has gone.
+  const [code, setCode] = useState("");
+  const [remember, setRemember] = useState(true);
+  const [nowMs, setNowMs] = useState(Date.now());
+  const stepId = step ? step.challengeId : null;
+  useEffect(() => { if (stepId) { setPin(""); setCode(""); setRemember(true); } }, [stepId]);
+  useEffect(() => { if (codeFault) setCode(""); }, [codeFault]);
+  const wait = step ? Math.max(0, Math.ceil((step.sentAt + CODE_RESEND_MS - nowMs) / 1000)) : 0;
+  useEffect(() => {
+    if (!step) return undefined;
+    setNowMs(Date.now());
+    const iv = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(iv);
+  }, [step ? step.sentAt : null]);
+  const verify = (v) => { const c = String(v || "").replace(/\D/g, "").slice(0, 6); if (c.length === 6 && !loading) onCode(c, remember); };
+  const logo = (
+    <div style={{ textAlign: "center", marginBottom: step ? 24 : 40 }}>
+      <div style={{ display: "inline-block", maxWidth: "100%", boxSizing: "border-box", padding: themeMode === "dark" ? "12px 20px" : "0", background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: 12 }}><img src={LOGO_LG} alt={clientConfig.company.shortName} style={{ height: 70, maxWidth: "100%", objectFit: "contain" }} /></div>
+      <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 600 }}>{tr("Staff Operations Portal")}</div>
+    </div>
+  );
+  if (step) return (
+    <div style={{ width: "100%", minHeight: "var(--ocsa-vh, 100vh)", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
+      <div style={{ width: "100%", maxWidth: 420, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: "28px 24px", boxShadow: t.popShadow }}>
+        {logo}
+        <div style={{ marginBottom: 8 }}>
+          <label htmlFor="ocsa-code" style={{ ...mkCardText(t), display: "block", overflowWrap: "anywhere" }}>{tr("Enter the code we emailed to {0}", { 0: step.emailHint })}</label>
+          <input id="ocsa-code" value={code} onChange={e => { const v = e.target.value.replace(/\D/g, "").slice(0, 6); setCode(v); if (v.length === 6) verify(v); }} inputMode="numeric" pattern="[0-9]*" autoComplete="one-time-code" maxLength={6} autoFocus aria-invalid={!!codeFault} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && verify(code)} />
+          {codeFault && <div role="alert" style={errSt}>{codeFault.text}</div>}
+          {codeFault && codeFault.left !== null && <div style={errSt}>{codeFault.left === 1 ? tr("1 try left") : tr("{n} tries left", { n: codeFault.left })}</div>}
+        </div>
+        <button type="button" role="checkbox" aria-checked={remember} onClick={() => setRemember(v => !v)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, marginBottom: 16, padding: "0 2px", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: t.text, lineHeight: 1.4, textAlign: "left", fontFamily: FONT_BODY }}>
+          <span aria-hidden="true" style={{ width: 20, height: 20, flexShrink: 0, borderRadius: R.sm, border: "2px solid " + (remember ? GOLD : t.textMut), background: remember ? GOLD : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{remember && <CheckIco sz={12} c={NAVY} />}</span>
+          <span style={{ minWidth: 0 }}>{tr("Remember this device for 30 days")}</span>
+        </button>
+        <button onClick={() => verify(code)} disabled={loading || code.length !== 6} style={{ width: "100%", minHeight: TAP, padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading || code.length !== 6 ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Signing in...") : tr("Verify")}</button>
+        <button onClick={onResend} disabled={wait > 0 || loading} style={{ ...mkGhostBtn(t), opacity: wait > 0 ? 0.6 : 1, cursor: wait > 0 ? "default" : "pointer", fontVariantNumeric: "tabular-nums" }}>{tr("Send a new code")}{wait > 0 ? " (" + wait + ")" : ""}</button>
+        <button onClick={onBackToPin} disabled={loading} style={mkGhostBtn(t)}>{tr("Back")}</button>
+      </div>
+    </div>
+  );
   return (
     <div style={{ width: "100%", minHeight: "var(--ocsa-vh, 100vh)", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
       <div style={{ width: "100%", maxWidth: 420, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: "28px 24px", boxShadow: t.popShadow }}>
@@ -3081,7 +3222,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   // stays the size it was; the button around it carries the tap area.
   const viewChip = (on) => ({ display: "inline-flex", alignItems: "center", padding: "5px 12px", borderRadius: R.sm, fontSize: 10, fontWeight: on ? 600 : 500, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px", background: on ? t.goldBg : "transparent", color: on ? t.goldText : t.textMut, border: on ? "1px solid " + t.goldBorder : "1px solid transparent" });
   const stepChip = { display: "inline-flex", alignItems: "center", background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.sm, padding: "6px 12px", color: t.textMut, fontSize: 14 };
-  const todayChip = { display: "inline-flex", alignItems: "center", fontSize: 9, padding: "3px 9px", borderRadius: R.sm, border: "1px solid " + BLUE, background: "transparent", color: BLUE, fontWeight: 600, fontFamily: FONT_HEAD };
+  const todayChip = { display: "inline-flex", alignItems: "center", fontSize: 9, padding: "3px 9px", borderRadius: R.sm, border: "1px solid " + BLUE, background: "transparent", color: ink(t, BLUE), fontWeight: 600, fontFamily: FONT_HEAD };
 
   // A chip on the week strip names a shift, a day worked, a pickup or
   // time off. The day around it is the control, so the chip is drawn
@@ -3091,9 +3232,9 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   const chipSt = { display: "flex", flexDirection: "column", justifyContent: "center", width: "100%", minHeight: TAP, padding: "3px 4px", marginBottom: 2, borderRadius: 4, fontSize: 9, fontWeight: 600, textAlign: "left", fontFamily: FONT_HEAD, lineHeight: "normal" };
   // Each kind's colors, shared by its chip and its row on the day's sheet.
   const schedLook = { background: GOLD + "18", color: t.goldText, border: "1px solid " + GOLD + "30" };
-  const workedLook = { background: GREEN + "15", color: GREEN, border: "1px solid " + GREEN + "30" };
-  const pickupLook = (p) => { const pc = p.status === "approved" ? GREEN : BLUE; return { background: pc + "15", color: pc, border: "1px solid " + pc + "30" }; };
-  const offLook = (r) => { const waiting = r.status !== "approved"; return { background: TIME_OFF_COLOR + (waiting ? "14" : "22"), color: TIME_OFF_COLOR, border: waiting ? "1px dashed " + TIME_OFF_COLOR : "1px solid " + TIME_OFF_COLOR }; };
+  const workedLook = { background: GREEN + "15", color: ink(t, GREEN), border: "1px solid " + GREEN + "30" };
+  const pickupLook = (p) => { const pc = p.status === "approved" ? GREEN : BLUE; return { background: pc + "15", color: ink(t, pc), border: "1px solid " + pc + "30" }; };
+  const offLook = (r) => { const waiting = r.status !== "approved"; return { background: TIME_OFF_COLOR + (waiting ? "14" : "22"), color: ink(t, TIME_OFF_COLOR), border: waiting ? "1px dashed " + TIME_OFF_COLOR : "1px solid " + TIME_OFF_COLOR }; };
   const offLabel = { fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3, fontFamily: FONT_HEAD };
   const offValue = { fontSize: 13, color: t.text, fontWeight: 500, overflowWrap: "anywhere" };
   // Both limits are local calendar days, so the pickers agree with
@@ -3500,14 +3641,14 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
             )}
 
             {offDetail.status === "requested" && !confirmCancel && (
-              <button onClick={() => setConfirmCancel(true)} disabled={offBusy} style={{ width: "100%", minHeight: 44, marginBottom: 10, borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel request")}</button>
+              <button onClick={() => setConfirmCancel(true)} disabled={offBusy} style={{ width: "100%", minHeight: 44, marginBottom: 10, borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: ink(t, RED), fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel request")}</button>
             )}
             {confirmCancel && (
               <div style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5, marginBottom: 10 }}>{tr("Cancel this time off request?")}</div>
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <button onClick={() => setConfirmCancel(false)} disabled={offBusy} style={{ flex: "1 1 120px", minHeight: 44, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Keep it")}</button>
-                  <button onClick={cancelRequest} disabled={offBusy} style={{ flex: "1 1 120px", minHeight: 44, borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: offBusy ? 0.6 : 1, fontFamily: FONT_HEAD }}>{offBusy ? tr("Sending...") : tr("Cancel request")}</button>
+                  <button onClick={cancelRequest} disabled={offBusy} style={{ flex: "1 1 120px", minHeight: 44, borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: ink(t, RED), fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: offBusy ? 0.6 : 1, fontFamily: FONT_HEAD }}>{offBusy ? tr("Sending...") : tr("Cancel request")}</button>
                 </div>
               </div>
             )}
@@ -3532,7 +3673,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
               </div>
               <div>
                 <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3, fontFamily: FONT_HEAD }}>{tr("Status")}</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: detail.type === "actual" ? GREEN : detail.type === "pickup" ? (detail.status === "approved" ? GREEN : ORANGE) : t.goldText }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: ink(t, detail.type === "actual" ? GREEN : detail.type === "pickup" ? (detail.status === "approved" ? GREEN : ORANGE) : t.goldText) }}>
                   {detail.type === "actual" ? (detail.shift_status === "active" ? tr("On Site") : tr("Completed")) : detail.type === "pickup" ? statusWord(detail.status || "") : statusWord(detail.status || "scheduled")}
                 </div>
               </div>
@@ -3545,7 +3686,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                 </div>
                 <div>
                   <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3, fontFamily: FONT_HEAD }}>{tr("Shift End")}</div>
-                  <div style={{ fontSize: 13, color: detail.clock_out_time ? t.text : ORANGE }}>{detail.clock_out_time ? fmtClockTm(detail.clock_out_time) : tr("Still on site")}</div>
+                  <div style={{ fontSize: 13, color: ink(t, detail.clock_out_time ? t.text : ORANGE) }}>{detail.clock_out_time ? fmtClockTm(detail.clock_out_time) : tr("Still on site")}</div>
                 </div>
               </>) : (<>
                 <div>
@@ -3592,11 +3733,11 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
               <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.5, marginBottom: 8 }}>{tr("You asked to drop this shift. Waiting for a decision.")}</div>
             )}
             {detail.type === "scheduled" && detail.status !== "cancelled" && !isDropRequested(detail.id) && !detail.dropForm && (
-              <button onClick={() => setDetail({ ...detail, dropForm: { reason: "sick", notes: "" } })} style={{ width: "100%", minHeight: TAP, padding: "11px", borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>{tr("Request to Drop This Shift")}</button>
+              <button onClick={() => setDetail({ ...detail, dropForm: { reason: "sick", notes: "" } })} style={{ width: "100%", minHeight: TAP, padding: "11px", borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: ink(t, RED), fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>{tr("Request to Drop This Shift")}</button>
             )}
             {detail.dropForm && (
               <div style={{ padding: 12, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: RED, marginBottom: 8 }}>{tr("Drop Request")}</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: ink(t, RED), marginBottom: 8 }}>{tr("Drop Request")}</div>
                 <div style={{ fontSize: 10, color: t.textSec, marginBottom: 10 }}>{tr("Your supervisor will review this request. If approved, the shift will be opened for pickup or reassigned.")}</div>
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("Reason")}</div>
@@ -3708,7 +3849,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
           <button onClick={onEndSession} disabled={loading} style={{ ...mkPrimaryBtn(t, loading), marginTop: 16 }}>{loading ? tr("Ending...") : tr("End Shift")}</button>
         </div>
       )}
-      {startBlock && <div style={{ padding: "12px 14px", marginBottom: 16, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>{startBlock}</div>}
+      {startBlock && <div style={{ padding: "12px 14px", marginBottom: 16, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow, fontSize: 12, color: ink(t, ORANGE), lineHeight: 1.5 }}>{startBlock}</div>}
       <div style={{ marginBottom: 16 }}>
         <label style={{ ...labelSt, display: "block", marginBottom: 10 }}>{ci && clockStatus.shift ? tr("Shift Open at {site}", { site: clockStatus.shift.siteName }) : tr("Choose a Site to Start")}</label>
         {!siteChoices && siteChoicesFailed && <ListFault icon={MapIco} text={tr("Your sites did not load.")} onRetry={onRetrySites} t={t} />}
@@ -3939,7 +4080,7 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
             );
           })}
         </div>
-        {fault && (<div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 12, padding: "10px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><AlertIco sz={16} c={RED} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0 }}>{fault.text}</div></div>)}
+        {fault && (<div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 12, padding: "10px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><AlertIco sz={16} c={ink(t, RED)} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0 }}>{fault.text}</div></div>)}
         {fault && fault.offline
           ? <button type="button" onClick={() => onUse(chosen)} disabled={busy} style={{ width: "100%", minHeight: TAP, marginTop: 12, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1, fontFamily: FONT_HEAD }}>{tr("Try again")}</button>
           : <button type="button" onClick={() => onUse(chosen)} disabled={busy || !chosen} style={{ ...mkPrimaryBtn(t, busy || !chosen), minHeight: TAP, marginTop: 14, cursor: busy || !chosen ? "default" : "pointer" }}>{tr("Use this shift")}</button>}
@@ -3962,7 +4103,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   // Everything under a card sits in from it.
   const drawSections = (sections, row) => sections.map((sec, si) => (<div key={si}>{sec.head && (<div style={{ ...floorHeadSt, marginTop: si > 0 ? 10 : 0 }}>{sec.head}</div>)}{sec.groups.map((g, gi) => { const inset = sec.head ? 8 : 0; return (<div key={gi} style={{ marginBottom: 16 }}>{g.title && <div style={{ ...(g.block ? blockSt : zoneSt), paddingLeft: inset }}>{g.time ? <><span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{clockTime(g.time)}</span>{" "}</> : null}<span>{g.title}</span></div>}{g.rows.reduce((out, r) => { if (r.place) out.push(<div key={"at-" + r.task.id} style={{ ...zoneSt, paddingLeft: inset }}>{r.place}</div>); out.push(row(r.task, inset)); return out; }, [])}</div>); })}</div>));
   const rowBase = { display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 11, padding: "11px 13px", marginBottom: 6, borderRadius: R.md, boxShadow: t.shadow };
-  const chipPriority = { fontSize: 9, color: ORANGE, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600, letterSpacing: "0.5px" };
+  const chipPriority = { fontSize: 9, color: ink(t, ORANGE), background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600, letterSpacing: "0.5px" };
   const detailSecLabel = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD };
   // A section's title, Today or a period, with its count at the other end.
   const periodHeadSt = { display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: "2px 10px", marginBottom: 10 };
@@ -4012,7 +4153,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   if (!clockStatus?.clockedIn && detail) return drawDetail(detail, null, null);
   if (!clockStatus?.clockedIn) return (
     <div style={{ padding: "16px" }}>
-      <div style={{ padding: "12px 14px", marginBottom: 14, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow }}><div style={{ fontSize: 12, color: ORANGE }}>{tr("Start your shift to see and check off your tasks.")}</div></div>
+      <div style={{ padding: "12px 14px", marginBottom: 14, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow }}><div style={{ fontSize: 12, color: ink(t, ORANGE) }}>{tr("Start your shift to see and check off your tasks.")}</div></div>
       {standardTasks.length === 0 ? <EmptyState icon={CheckIco} text={tr("No tasks loaded. Start your shift at a site to see your checklist.")} t={t} /> : (() => {
         // A row with a detail is one button, the whole row, which opens
         // it, so a keyboard reaches it the way a finger does. A row with
@@ -4100,7 +4241,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   return (
     <div style={{ padding: "16px" }}>
       <div style={{ padding: "14px 16px", marginBottom: 16, background: t.goldBg, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Your Assignment")}</div><div style={{ fontSize: 15, fontWeight: 600, marginTop: 3, color: t.text, fontFamily: FONT_HEAD }}>{clockStatus.shift.siteName}</div>{(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.textSec, marginTop: 2 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>}</div><div style={{ background: pct === 100 ? t.greenSubtle : t.card, padding: "6px 14px", borderRadius: R.pill, border: "1px solid " + (pct === 100 ? t.greenBorder : t.borderSolid) }}><div style={{ fontSize: 18, fontWeight: 600, color: pct === 100 ? GREEN : t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</div></div></div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Your Assignment")}</div><div style={{ fontSize: 15, fontWeight: 600, marginTop: 3, color: t.text, fontFamily: FONT_HEAD }}>{clockStatus.shift.siteName}</div>{(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.textSec, marginTop: 2 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>}</div><div style={{ background: pct === 100 ? t.greenSubtle : t.card, padding: "6px 14px", borderRadius: R.pill, border: "1px solid " + (pct === 100 ? t.greenBorder : t.borderSolid) }}><div style={{ fontSize: 18, fontWeight: 600, color: ink(t, pct === 100 ? GREEN : t.goldText), fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</div></div></div>
         <div style={{ height: 5, borderRadius: R.pill, background: t.cardAlt, marginTop: 12, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.4s ease" }} /></div>
       </div>
       {shiftRow}
@@ -4159,6 +4300,17 @@ function chatToOpen(list, last) {
   const all = (Array.isArray(list) ? list : []).filter(ch => ch && ch.id);
   if (last && all.some(ch => ch.id === last)) return last;
   return all.length === 1 ? all[0].id : null;
+}
+// The site chat Chat opens on the first time, for a person who has never
+// chosen a chat on this phone: the first of the sites given that has a
+// site chat on the list, or null.
+function siteChatOf(list, siteIds) {
+  const all = (Array.isArray(list) ? list : []).filter(ch => ch && ch.id && ch.type === "site" && ch.siteId);
+  for (const id of siteIds) {
+    const hit = id ? all.find(ch => String(ch.siteId) === String(id)) : null;
+    if (hit) return hit.id;
+  }
+  return null;
 }
 // A person's own private chat, which the API names the literal
 // "Admin (Private)" and gives no staffUserId. An admin has none; every
@@ -4473,12 +4625,12 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
               const on = activeChannel === ch.id;
               const own = isOwnPrivate(ch);
               const alone = privates.length === 1;
-              return (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={on} style={{ flex: alone ? "1 1 auto" : "0 0 auto", maxWidth: alone ? "none" : "80%", display: "flex", alignItems: "center", gap: 8, minHeight: TAP, padding: "8px 12px", borderRadius: R.md, background: on ? t.blueSubtle : t.hover, border: on ? "1.5px solid " + t.blueBorder : "1px solid " + t.borderSolid, boxShadow: on ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><LockIco c={on ? BLUE : t.textMut} /><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: on ? 600 : 500, color: on ? BLUE : t.textSec, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{own ? tr("Admin (Private)") : ch.name}</div>{own && <div style={{ fontSize: 9, color: t.textMut }}>{tr("Only you and management can see these messages")}</div>}</div>{ch.unreadCount > 0 && <div style={{ background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{ch.unreadCount}</div>}</button>);
+              return (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={on} style={{ flex: alone ? "1 1 auto" : "0 0 auto", maxWidth: alone ? "none" : "80%", display: "flex", alignItems: "center", gap: 8, minHeight: TAP, padding: "8px 12px", borderRadius: R.md, background: on ? t.blueSubtle : t.hover, border: on ? "1.5px solid " + t.blueBorder : "1px solid " + t.borderSolid, boxShadow: on ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><LockIco c={ink(t, on ? BLUE : t.textMut)} /><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: on ? 600 : 500, color: ink(t, on ? BLUE : t.textSec), fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{own ? tr("Admin (Private)") : ch.name}</div>{own && <div style={{ fontSize: 9, color: t.textMut }}>{tr("Only you and management can see these messages")}</div>}</div>{ch.unreadCount > 0 && <div style={{ background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{ch.unreadCount}</div>}</button>);
             })}
           </div>
         </div>)}
       </div>
-      {isOwnDm && (<div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: t.blueSubtle, borderBottom: "1px solid " + t.blueBorder, fontSize: 10, color: BLUE }}><LockIco /> {tr("Private conversation with admin.")}</div>)}
+      {isOwnDm && (<div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: t.blueSubtle, borderBottom: "1px solid " + t.blueBorder, fontSize: 10, color: ink(t, BLUE) }}><LockIco c={ink(t, BLUE)} /> {tr("Private conversation with admin.")}</div>)}
       <div style={{ flex: 1, minHeight: "20%", overflowY: "auto", padding: "12px 12px 0" }}>
         {!activeChannel && <div style={{ textAlign: "center", padding: "40px 20px" }}><ChatIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>{tr("Pick a chat to start.")}</div></div>}
         {activeChannel && Array.isArray(messages) && shown.length === 0 && <div style={{ textAlign: "center", padding: "40px 20px", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("No messages yet.")}</div>}
@@ -4496,7 +4648,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
           const bubbleBg = isMe ? (isDm ? BLUE : GOLD) : forMe ? t.goldBg : (isDm && isAdm ? t.blueSubtle : t.card);
           const bubbleBorder = isMe ? "none" : "1px solid " + (forMe ? t.goldBorder : (isDm && isAdm ? t.blueBorder : t.borderSolid));
           const drawn = parts.map((p, i) => (i % 2 === 1 ? <span key={i} style={{ fontWeight: 600, color: isMe ? "inherit" : t.goldText }}>{p}</span> : p));
-          return (<div key={msg.id || "row-" + idx} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 8, marginBottom: showName ? 12 : 4, alignItems: "flex-end" }}>{!isMe && showName && (<div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdm ? (isDm ? "rgba(36,164,244,0.15)" : t.goldBg) : t.cardAlt, border: "1px solid " + (isAdm ? (isDm ? BLUE : GOLD) : t.borderSolid), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 600, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, flexShrink: 0, fontFamily: FONT_HEAD }}>{initials}</div>)}{!isMe && !showName && <div style={{ width: 28, flexShrink: 0 }} />}<div style={{ maxWidth: "75%", minWidth: 0 }}>{!isMe && showName && name && <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 3, color: isAdm ? (isDm ? BLUE : t.goldText) : t.textSec, fontFamily: FONT_HEAD }}>{name}</div>}{words && <div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: bubbleBg, border: bubbleBorder, color: isMe ? (isDm ? "#F8F7F4" : NAVY) : t.text, fontSize: 13, lineHeight: 1.45, overflowWrap: "anywhere" }}>{drawn}</div>}{when && <div style={{ fontSize: 9, color: t.textMut, marginTop: 2, textAlign: isMe ? "right" : "left", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{when}</div>}</div></div>);
+          return (<div key={msg.id || "row-" + idx} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 8, marginBottom: showName ? 12 : 4, alignItems: "flex-end" }}>{!isMe && showName && (<div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdm ? (isDm ? "rgba(36,164,244,0.15)" : t.goldBg) : t.cardAlt, border: "1px solid " + (isAdm ? (isDm ? BLUE : GOLD) : t.borderSolid), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 600, color: ink(t, isAdm ? (isDm ? BLUE : t.goldText) : t.textSec), flexShrink: 0, fontFamily: FONT_HEAD }}>{initials}</div>)}{!isMe && !showName && <div style={{ width: 28, flexShrink: 0 }} />}<div style={{ maxWidth: "75%", minWidth: 0 }}>{!isMe && showName && name && <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 3, color: ink(t, isAdm ? (isDm ? BLUE : t.goldText) : t.textSec), fontFamily: FONT_HEAD }}>{name}</div>}{words && <div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: bubbleBg, border: bubbleBorder, color: isMe ? (isDm ? "#F8F7F4" : NAVY) : t.text, fontSize: 13, lineHeight: 1.45, overflowWrap: "anywhere" }}>{drawn}</div>}{when && <div style={{ fontSize: 9, color: t.textMut, marginTop: 2, textAlign: isMe ? "right" : "left", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{when}</div>}</div></div>);
         })}
         <div ref={endRef} />
       </div>
@@ -4507,7 +4659,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
           {tagOn && <button type="button" onClick={() => { setTagQuery(""); setTagOpen("button"); }} aria-label={tr("Tag someone")} aria-expanded={!!tagOpen} style={mkTapFrame({ flexShrink: 0 })}><span style={{ width: 38, height: 38, borderRadius: "50%", border: "1px solid " + t.borderSolid, background: t.card, color: t.goldText, fontSize: 18, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_HEAD }}>@</span></button>}
           <button onClick={handleSend} aria-label={tr("Send")} aria-disabled={!ready} style={mkTapFrame({ flexShrink: 0, cursor: ready ? "pointer" : "default" })}><span style={{ width: 38, height: 38, borderRadius: "50%", background: ready ? (isDm ? BLUE : GOLD) : t.cardAlt, boxShadow: ready && !isDm ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={ready ? (isDm ? "#F8F7F4" : NAVY) : t.textMut} /></span></button>
         </div>
-        {showFault && (<div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 8, padding: "8px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, flex: "1 1 160px", minWidth: 0 }}><AlertIco sz={16} c={RED} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0 }}>{fault.kind === "said" ? fault.said : fault.kind === "offline" ? tr(ERR_OFFLINE) : fault.kind === "denied" ? tr("You cannot send messages in this chat.") : tr("Your message was not sent.")}</div></div><button type="button" onClick={retry} disabled={sending} style={{ minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: sending ? "default" : "pointer", opacity: sending ? 0.6 : 1, flexShrink: 0, fontFamily: FONT_HEAD }}>{tr("Try again")}</button></div>)}
+        {showFault && (<div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 8, padding: "8px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, flex: "1 1 160px", minWidth: 0 }}><AlertIco sz={16} c={ink(t, RED)} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0 }}>{fault.kind === "said" ? fault.said : fault.kind === "offline" ? tr(ERR_OFFLINE) : fault.kind === "denied" ? tr("You cannot send messages in this chat.") : tr("Your message was not sent.")}</div></div><button type="button" onClick={retry} disabled={sending} style={{ minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: sending ? "default" : "pointer", opacity: sending ? 0.6 : 1, flexShrink: 0, fontFamily: FONT_HEAD }}>{tr("Try again")}</button></div>)}
       </div>
       {tagOpen && tagOn && (
         <div onClick={closeTag} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
@@ -4541,7 +4693,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
             <div style={{ padding: "14px 16px 10px", flexShrink: 0 }}>
               <div id="ocsa-new-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>{tr("New message")}</div>
               <input value={newQuery} onChange={e => setNewQuery(e.target.value.slice(0, 80))} placeholder={tr("Search by name")} aria-label={tr("Search by name")} autoFocus style={mkInput(t)} />
-              {openFault && (<div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 10, padding: "8px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><AlertIco sz={16} c={RED} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0, overflowWrap: "anywhere" }}>{openFault.said || (openFault.offline ? tr(ERR_OFFLINE) : tr("That chat did not open. Try again."))}</div></div>)}
+              {openFault && (<div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 10, padding: "8px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><AlertIco sz={16} c={ink(t, RED)} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0, overflowWrap: "anywhere" }}>{openFault.said || (openFault.offline ? tr(ERR_OFFLINE) : tr("That chat did not open. Try again."))}</div></div>)}
             </div>
             <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 8px" }}>
               {[["office", tr("Office")], ["staff", tr("Staff")]].map(([kind, title]) => {
@@ -4978,7 +5130,7 @@ function RateAnswer({ messageId, feedback, onRated, onUnavailable, token, t }) {
         </div>
       )}
       {feedback && !noteOpen && <div style={{ fontSize: 11, color: t.textMut, marginTop: 6, lineHeight: 1.4 }}>{tr("Thanks. This helps Help get better.")}</div>}
-      {error && <div role="alert" style={{ fontSize: 11, color: RED, marginTop: 6, lineHeight: 1.4 }}>{error}</div>}
+      {error && <div role="alert" style={{ fontSize: 11, color: ink(t, RED), marginTop: 6, lineHeight: 1.4 }}>{error}</div>}
     </div>
   );
 }
@@ -5334,7 +5486,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
         </div></div>); })}
         <div ref={endRef} />
       </div>
-      {submitted && <div style={{ padding: "8px 12px", fontSize: 12, color: GREEN, fontWeight: 600, textAlign: "center", fontFamily: FONT_HEAD }}>{tr("Report submitted.")}</div>}
+      {submitted && <div style={{ padding: "8px 12px", fontSize: 12, color: ink(t, GREEN), fontWeight: 600, textAlign: "center", fontFamily: FONT_HEAD }}>{tr("Report submitted.")}</div>}
       {formResponse && (<div style={{ margin: "0 12px 8px", padding: "10px 12px", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.md, boxShadow: t.shadow, flexShrink: 1, minHeight: 0, overflowY: "auto" }}>
         <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}><div style={{ flex: 1 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Report in progress")}</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2 }}>{agentName(formResponse) || tr(FORMS_UNTITLED)}</div>{agentCount(formResponse) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(formResponse)}</div>}</div>
         {!discardOff && formResponse.id && <button onClick={() => discard(formResponse.id)} disabled={discarding !== null || submitBusy} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, opacity: discarding !== null || submitBusy ? 0.6 : 1 }}>{tr("Discard")}</button>}
@@ -5356,7 +5508,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
               {p.status !== "done" && p.status !== "failed" && <div style={{ fontSize: 10, color: t.textMut, marginTop: 4 }}>{tr("Uploading...")}</div>}
               {p.status === "failed" && (
                 <div style={{ marginTop: 4 }}>
-                  <div style={{ fontSize: 10, color: RED, lineHeight: 1.35 }}>{p.error}</div>
+                  <div style={{ fontSize: 10, color: ink(t, RED), lineHeight: 1.35 }}>{p.error}</div>
                   <button onClick={() => retryPhoto(p.id)} style={{ ...smallBtn, padding: "6px 10px", fontSize: 11, marginTop: 4 }}>{tr("Try again")}</button>
                 </div>
               )}
@@ -5370,7 +5522,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
         <textarea ref={taRef} value={text} onChange={e => setText(e.target.value)} onPaste={e => { const items = e.clipboardData && e.clipboardData.items ? Array.from(e.clipboardData.items) : []; const files = items.filter(i => i.kind === "file" && i.type.indexOf("image/") === 0).map(i => i.getAsFile()).filter(Boolean); if (files.length > 0) { e.preventDefault(); addPhotoFiles(files); } }} disabled={sending} rows={1} placeholder={tr("Describe what happened")} aria-label={tr("Describe what happened")} style={{ ...inputSt, flex: 1, width: "auto", minWidth: 0, minHeight: 44, maxHeight: 120, overflowY: "auto", resize: "none", borderRadius: R.lg, lineHeight: 1.45, opacity: sending ? 0.6 : 1 }} />
         <button onClick={handleSend} disabled={!canSend} aria-label={tr("Send")} style={{ width: 44, height: 44, flexShrink: 0, borderRadius: "50%", background: canSend ? GOLD : t.cardAlt, border: "none", cursor: canSend ? "pointer" : "default", boxShadow: canSend ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={canSend ? NAVY : t.textMut} /></button>
       </div>
-      {photoProblem && <div style={{ padding: "0 12px 10px", fontSize: 11, color: RED, lineHeight: 1.4, flexShrink: 0 }}>{photoProblem}</div>}
+      {photoProblem && <div style={{ padding: "0 12px 10px", fontSize: 11, color: ink(t, RED), lineHeight: 1.4, flexShrink: 0 }}>{photoProblem}</div>}
       <div role="status" aria-live="polite" aria-atomic="true" style={HEARD_ONLY}>{heard.text ? <span key={heard.n}>{heard.text}</span> : null}</div>
     </div>
   );
@@ -5401,22 +5553,22 @@ function AssignedTasksView({ assignedTasks, failed, onRetry, resolveTask, showTo
         <button onClick={() => { setDetail(null); clearForm(); }} style={{ display: "flex", alignItems: "center", gap: 6, minHeight: TAP, padding: "8px 12px", marginBottom: 14, background: "none", border: "1px solid " + t.borderSolid, borderRadius: R.sm, color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}><Ico d="M15 18l-6-6 6-6" sz={14} c={t.textSec} /> {tr("Back to assigned tasks")}</button>
         <div style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", boxShadow: t.popShadow }}>
           <div style={{ padding: "16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div><div style={{ display: "flex", gap: 4, flexShrink: 0 }}>{info.isIssueLinked && detail.severity && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (sevC[detail.severity] || ORANGE) + "18", color: sevC[detail.severity] || ORANGE, fontFamily: FONT_HEAD }}>{levelWord(detail.severity)}</span>}{!info.isIssueLinked && detail.priority && detail.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[detail.priority] || GOLD) + "18", color: priC[detail.priority] || t.goldText, fontFamily: FONT_HEAD }}>{levelWord(detail.priority)}</span>}{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>{tr("ISSUE")}</span>}</div></div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div><div style={{ display: "flex", gap: 4, flexShrink: 0 }}>{info.isIssueLinked && detail.severity && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (sevC[detail.severity] || ORANGE) + "18", color: ink(t, sevC[detail.severity] || ORANGE), fontFamily: FONT_HEAD }}>{levelWord(detail.severity)}</span>}{!info.isIssueLinked && detail.priority && detail.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[detail.priority] || GOLD) + "18", color: ink(t, priC[detail.priority] || t.goldText), fontFamily: FONT_HEAD }}>{levelWord(detail.priority)}</span>}{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: ink(t, RED), fontFamily: FONT_HEAD }}>{tr("ISSUE")}</span>}</div></div>
             <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontFamily: FONT_HEAD, fontWeight: 600 }}>{info.locationStr}</div>
-            {detail.resolution_status && (<div style={{ marginBottom: 12 }}><span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "3px 8px", borderRadius: R.sm, background: detail.resolution_status === "in_progress" ? ORANGE + "18" : GOLD + "18", color: detail.resolution_status === "in_progress" ? ORANGE : t.goldText, fontFamily: FONT_HEAD }}>{statusWord(detail.resolution_status)}</span></div>)}
+            {detail.resolution_status && (<div style={{ marginBottom: 12 }}><span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "3px 8px", borderRadius: R.sm, background: detail.resolution_status === "in_progress" ? ORANGE + "18" : GOLD + "18", color: ink(t, detail.resolution_status === "in_progress" ? ORANGE : t.goldText), fontFamily: FONT_HEAD }}>{statusWord(detail.resolution_status)}</span></div>)}
             {info.desc && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Description")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{info.desc}</div></div>)}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{info.assignedByLabel}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{info.assignedBy}</div></div><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Site")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{detail.site_name}</div></div>{detail.due_date && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Due Date")}</div><div style={{ fontSize: 13, color: ORANGE, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{dueDayText(detail.due_date, { month: "short", day: "numeric", year: "numeric" })}{detail.due_time ? " " + tr("at {time}", { time: clockTime(detail.due_time) }) : ""}</div></div>}{detail.task_created_at && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Assigned")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.task_created_at).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })}</div></div>}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{info.assignedByLabel}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{info.assignedBy}</div></div><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Site")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{detail.site_name}</div></div>{detail.due_date && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Due Date")}</div><div style={{ fontSize: 13, color: ink(t, ORANGE), fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{dueDayText(detail.due_date, { month: "short", day: "numeric", year: "numeric" })}{detail.due_time ? " " + tr("at {time}", { time: clockTime(detail.due_time) }) : ""}</div></div>}{detail.task_created_at && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Assigned")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.task_created_at).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })}</div></div>}</div>
             {info.photoUrl && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{info.mediaType === "video" ? tr("Attached Video") : tr("Attached Photo")}</div>{info.mediaType === "video" ? (<video src={info.photoUrl} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} />) : (<img src={info.photoUrl} alt={tr("Task")} style={{ width: "100%", borderRadius: R.md, maxHeight: 200, objectFit: "cover", border: "1px solid " + t.borderSolid }} />)}</div>)}
-            {!isResolving && !isCantResolve && (<div style={{ display: "flex", gap: 6, marginTop: 10 }}>{detail.resolution_status !== "in_progress" && (<button onClick={() => { resolveTask(detail.task_id, "in_progress", null, null); setDetail(null); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + ORANGE, background: "transparent", color: ORANGE, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("In Progress")}</button>)}<button onClick={() => { clearForm(); setActivePanel("resolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + GREEN, background: "transparent", color: GREEN, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Resolved")}</button><button onClick={() => { clearForm(); setActivePanel("cantresolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cannot Resolve")}</button></div>)}
+            {!isResolving && !isCantResolve && (<div style={{ display: "flex", gap: 6, marginTop: 10 }}>{detail.resolution_status !== "in_progress" && (<button onClick={() => { resolveTask(detail.task_id, "in_progress", null, null); setDetail(null); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + ORANGE, background: "transparent", color: ink(t, ORANGE), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("In Progress")}</button>)}<button onClick={() => { clearForm(); setActivePanel("resolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + GREEN, background: "transparent", color: ink(t, GREEN), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Resolved")}</button><button onClick={() => { clearForm(); setActivePanel("cantresolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: ink(t, RED), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cannot Resolve")}</button></div>)}
           </div>
           {isResolving && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.greenSubtle }}>
-            <div style={{ fontSize: 10, color: GREEN, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Mark as Resolved")}</div>
+            <div style={{ fontSize: 10, color: ink(t, GREEN), fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Mark as Resolved")}</div>
             <div style={{ marginBottom: 8 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("What did you do to complete this? *")}</div><textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the steps you took...")} rows={3} style={{ ...inputSt, resize: "vertical" }} /></div>
-            <div style={{ marginBottom: 10 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("Photo of completed task *")}</div>{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GREEN, borderRadius: R.md, cursor: "pointer", color: GREEN, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={GREEN} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo of Completed Task")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("Required to verify completion")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: R.md, border: "1px solid " + t.borderSolid }} /><button onClick={() => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; }} aria-label={tr("Remove photo")} style={mkTapFrame({ position: "absolute", top: -2, right: -2 })}><span style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", color: "#F8F7F4", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</span></button></div>)}</div>
+            <div style={{ marginBottom: 10 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("Photo of completed task *")}</div>{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GREEN, borderRadius: R.md, cursor: "pointer", color: ink(t, GREEN), fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={ink(t, GREEN)} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo of Completed Task")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("Required to verify completion")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: R.md, border: "1px solid " + t.borderSolid }} /><button onClick={() => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; }} aria-label={tr("Remove photo")} style={mkTapFrame({ position: "absolute", top: -2, right: -2 })}><span style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", color: "#F8F7F4", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</span></button></div>)}</div>
             <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleResolve(detail.task_id)} disabled={uploading} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: GREEN, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Resolution")}</button></div>
           </div>)}
           {isCantResolve && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.redSubtle }}>
-            <div style={{ fontSize: 10, color: RED, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Explain why this cannot be completed *")}</div>
+            <div style={{ fontSize: 10, color: ink(t, RED), fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Explain why this cannot be completed *")}</div>
             <textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the issue preventing completion...")} rows={3} style={{ ...inputSt, resize: "vertical", marginBottom: 8 }} />
             <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleCantResolve(detail.task_id)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Submit")}</button></div>
           </div>)}
@@ -5429,7 +5581,7 @@ function AssignedTasksView({ assignedTasks, failed, onRetry, resolveTask, showTo
     <div style={{ padding: "16px" }}>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />
       <div style={{ marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Assigned Tasks")}</div><div style={{ fontSize: 11, color: t.textSec }}>{assignedTasks.length === 1 ? tr("{n} task assigned to you", { n: assignedTasks.length }) : tr("{n} tasks assigned to you", { n: assignedTasks.length })}</div></div>
-      {assignedTasks.map(task => { const info = getTaskInfo(task); return (<button type="button" key={task.task_id} onClick={() => setDetail(task)} style={{ display: "block", width: "100%", minHeight: TAP, padding: 0, textAlign: "left", color: t.text, fontFamily: FONT_BODY, marginBottom: 10, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", cursor: "pointer", boxShadow: t.shadow }}><div style={{ padding: "12px 14px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div>{info.desc && <div style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{info.desc}</div>}</div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8, alignItems: "center" }}>{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: RED, fontFamily: FONT_HEAD }}>{tr("ISSUE")}</span>}{!info.isIssueLinked && task.priority && task.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[task.priority] || GOLD) + "18", color: priC[task.priority] || t.goldText, fontFamily: FONT_HEAD }}>{levelWord(task.priority)}</span>}<Ico d="M9 18l6-6-6-6" sz={14} c={t.textMut} /></div></div><div style={{ display: "flex", gap: 8, marginTop: 8, fontSize: 10, color: t.textMut, flexWrap: "wrap", alignItems: "center" }}><span>{info.locationStr}</span><span>{info.assignedByLabel} {info.assignedBy}</span>{task.resolution_status === "in_progress" && <span style={{ fontSize: 9, fontWeight: 600, color: ORANGE, textTransform: "uppercase" }}>{tr("In Progress")}</span>}</div>{task.due_date && (<div style={{ marginTop: 6, fontSize: 10, color: ORANGE, fontVariantNumeric: "tabular-nums" }}>{tr("Due:")} {dueDayText(task.due_date, { month: "short", day: "numeric" })}{task.due_time ? " " + tr("at {time}", { time: clockTime(task.due_time) }) : ""}</div>)}</div></button>); })}
+      {assignedTasks.map(task => { const info = getTaskInfo(task); return (<button type="button" key={task.task_id} onClick={() => setDetail(task)} style={{ display: "block", width: "100%", minHeight: TAP, padding: 0, textAlign: "left", color: t.text, fontFamily: FONT_BODY, marginBottom: 10, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", cursor: "pointer", boxShadow: t.shadow }}><div style={{ padding: "12px 14px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div>{info.desc && <div style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{info.desc}</div>}</div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8, alignItems: "center" }}>{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: ink(t, RED), fontFamily: FONT_HEAD }}>{tr("ISSUE")}</span>}{!info.isIssueLinked && task.priority && task.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[task.priority] || GOLD) + "18", color: ink(t, priC[task.priority] || t.goldText), fontFamily: FONT_HEAD }}>{levelWord(task.priority)}</span>}<Ico d="M9 18l6-6-6-6" sz={14} c={t.textMut} /></div></div><div style={{ display: "flex", gap: 8, marginTop: 8, fontSize: 10, color: t.textMut, flexWrap: "wrap", alignItems: "center" }}><span>{info.locationStr}</span><span>{info.assignedByLabel} {info.assignedBy}</span>{task.resolution_status === "in_progress" && <span style={{ fontSize: 9, fontWeight: 600, color: ink(t, ORANGE), textTransform: "uppercase" }}>{tr("In Progress")}</span>}</div>{task.due_date && (<div style={{ marginTop: 6, fontSize: 10, color: ink(t, ORANGE), fontVariantNumeric: "tabular-nums" }}>{tr("Due:")} {dueDayText(task.due_date, { month: "short", day: "numeric" })}{task.due_time ? " " + tr("at {time}", { time: clockTime(task.due_time) }) : ""}</div>)}</div></button>); })}
     </div>
   );
 }
@@ -5458,13 +5610,13 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToa
         <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Title")}</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder={tr("Brief description")} style={inputSt} /></div>
         <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Details")}</label><textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder={tr("Additional details...")} rows={3} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
         <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Zone")}</label><input value={zone} onChange={e => setZone(e.target.value)} placeholder={tr("e.g. Restroom, Lobby")} style={inputSt} /></div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Severity")}</label><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{sevs.map(s => (<button key={s.v} onClick={() => setSev(s.v)} style={{ flex: 1, minHeight: TAP, padding: "9px", borderRadius: R.sm, border: sev === s.v ? "2px solid " + s.c : "1px solid " + t.borderSolid, background: sev === s.v ? s.c + "1A" : "transparent", cursor: "pointer", color: s.c, fontSize: 12, fontWeight: 600, textAlign: "center", fontFamily: FONT_HEAD, letterSpacing: "0.3px" }}>{s.l}</button>))}</div></div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Photo")}</label><input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GOLD, borderRadius: R.sm, cursor: "pointer", color: t.goldText, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={t.goldText} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo or Choose from Gallery")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("JPG, PNG up to 10MB")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} /><button onClick={removePhoto} aria-label={tr("Remove photo")} style={mkTapFrame({ position: "absolute", top: -2, right: -2 })}><span style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", color: "#F8F7F4", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</span></button><div style={{ fontSize: 10, color: GREEN, marginTop: 4 }}>{tr("Photo attached:")} {photo?.name}</div></div>)}</div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Severity")}</label><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{sevs.map(s => (<button key={s.v} onClick={() => setSev(s.v)} style={{ flex: 1, minHeight: TAP, padding: "9px", borderRadius: R.sm, border: sev === s.v ? "2px solid " + s.c : "1px solid " + t.borderSolid, background: sev === s.v ? s.c + "1A" : "transparent", cursor: "pointer", color: ink(t, s.c), fontSize: 12, fontWeight: 600, textAlign: "center", fontFamily: FONT_HEAD, letterSpacing: "0.3px" }}>{s.l}</button>))}</div></div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Photo")}</label><input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GOLD, borderRadius: R.sm, cursor: "pointer", color: t.goldText, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={t.goldText} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo or Choose from Gallery")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("JPG, PNG up to 10MB")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} /><button onClick={removePhoto} aria-label={tr("Remove photo")} style={mkTapFrame({ position: "absolute", top: -2, right: -2 })}><span style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", color: "#F8F7F4", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</span></button><div style={{ fontSize: 10, color: ink(t, GREEN), marginTop: 4 }}>{tr("Photo attached:")} {photo?.name}</div></div>)}</div>
         <button onClick={handleSubmit} disabled={uploading} style={{ width: "100%", minHeight: TAP, padding: "13px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Issue")}</button>
       </div>)}
       {isAdmin && failed && visibleIssues.length === 0 && !showForm && <ListFault icon={AlertIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} />}
       {isAdmin && !failed && visibleIssues.length === 0 && !showForm && <div style={{ padding: "32px 20px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontSize: 13, color: t.textMut, boxShadow: t.shadow }}>{tr("No issues reported yet.")}</div>}
-      {isAdmin && visibleIssues.map(issue => { const sc = sevC[issue.severity] || ORANGE; return (<div key={issue.id} style={{ padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + sc, boxShadow: t.shadow }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><div style={{ fontSize: 13, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{issue.title}</div><span style={{ fontSize: 9, color: sc, background: sc + "20", padding: "3px 7px", borderRadius: R.sm, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{levelWord(issue.severity)}</span></div><div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 9, color: t.textMut }}><span>{issue.zone}</span><span>{issue.site_name}</span><span style={{ color: issue.status === "open" ? ORANGE : GREEN, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{statusWord(issue.status)}</span></div></div>); })}
+      {isAdmin && visibleIssues.map(issue => { const sc = sevC[issue.severity] || ORANGE; return (<div key={issue.id} style={{ padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + sc, boxShadow: t.shadow }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><div style={{ fontSize: 13, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{issue.title}</div><span style={{ fontSize: 9, color: ink(t, sc), background: sc + "20", padding: "3px 7px", borderRadius: R.sm, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{levelWord(issue.severity)}</span></div><div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 9, color: t.textMut }}><span>{issue.zone}</span><span>{issue.site_name}</span><span style={{ color: ink(t, issue.status === "open" ? ORANGE : GREEN), fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{statusWord(issue.status)}</span></div></div>); })}
     </div>
   );
 }
@@ -5482,7 +5634,7 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
       {(reqForm.type === "refill" || reqForm.type === "damage_report") && supplies.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Supply Item")}</label><select value={reqForm.supplyId || ""} onChange={e => setReqForm({ ...reqForm, supplyId: e.target.value || null, itemName: supplies.find(s => s.id === e.target.value)?.name || "" })} style={inputSt}><option value="">{tr("Select supply...")}</option>{supplies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>)}
       {(reqForm.type === "new_gear" || reqForm.type === "new_supply") && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Item Name")}</label><input value={reqForm.itemName} onChange={e => setReqForm({ ...reqForm, itemName: e.target.value })} placeholder={tr("What do you need?")} style={inputSt} /></div>)}
       <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Details")}</label><textarea value={reqForm.description} onChange={e => setReqForm({ ...reqForm, description: e.target.value })} placeholder={tr("Describe the request...")} rows={2} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
-      <div style={{ marginBottom: 12 }}><label style={labelSt}>{tr("Urgency")}</label><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{(() => { const urgOpts = getOpts("urgency_levels"); const urgColors = lkColorMap("urgency_levels"); const items = urgOpts.length > 0 ? urgOpts.map(o => ({ v: o.v, l: o.l, c: urgColors[o.v] || t.textSec })) : [{ v: "low", l: tr("Low"), c: GREEN }, { v: "normal", l: tr("Normal"), c: t.textSec }, { v: "high", l: tr("High"), c: ORANGE }, { v: "urgent", l: tr("Urgent"), c: RED }]; return items.map(u => (<button key={u.v} onClick={() => setReqForm({ ...reqForm, urgency: u.v })} style={{ flex: 1, minHeight: TAP, padding: "7px", borderRadius: R.sm, border: reqForm.urgency === u.v ? "2px solid " + u.c : "1px solid " + t.borderSolid, background: reqForm.urgency === u.v ? u.c + "1A" : "transparent", color: u.c, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{u.l}</button>)); })()}</div></div>
+      <div style={{ marginBottom: 12 }}><label style={labelSt}>{tr("Urgency")}</label><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{(() => { const urgOpts = getOpts("urgency_levels"); const urgColors = lkColorMap("urgency_levels"); const items = urgOpts.length > 0 ? urgOpts.map(o => ({ v: o.v, l: o.l, c: urgColors[o.v] || t.textSec })) : [{ v: "low", l: tr("Low"), c: GREEN }, { v: "normal", l: tr("Normal"), c: t.textSec }, { v: "high", l: tr("High"), c: ORANGE }, { v: "urgent", l: tr("Urgent"), c: RED }]; return items.map(u => (<button key={u.v} onClick={() => setReqForm({ ...reqForm, urgency: u.v })} style={{ flex: 1, minHeight: TAP, padding: "7px", borderRadius: R.sm, border: reqForm.urgency === u.v ? "2px solid " + u.c : "1px solid " + t.borderSolid, background: reqForm.urgency === u.v ? u.c + "1A" : "transparent", color: ink(t, u.c), fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{u.l}</button>)); })()}</div></div>
       <div style={{ display: "flex", gap: 8 }}><button onClick={() => setReqForm(null)} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={handleSubmitReq} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.sm, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Submit Request")}</button></div>
     </div>
   );
@@ -5500,7 +5652,7 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
       {reqFormUI}
       {failed && supplies.length === 0 && <ListFault icon={BoxIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} />}
       {loaded && !failed && supplies.length === 0 && <EmptyState icon={BoxIco} text={tr("No supplies are set up for this site.")} t={t} />}
-      {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 600, color: t.textMut, fontFamily: "monospace" }}>{tr("QR")}</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div>{isLow && <div style={{ marginTop: 2, fontSize: 10, color: ORANGE, fontWeight: 600 }}>{tr("LOW")}</div>}</div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} aria-label={tr("One less")} style={mkTapFrame()}><span style={qtyBtn}><MinusIco sz={14} /></span></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} aria-label={tr("One more")} style={mkTapFrame()}><span style={qtyBtn}><PlusIco sz={14} /></span></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Log Usage")}</button></div>)}</div>); })}
+      {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 600, color: t.textMut, fontFamily: "monospace" }}>{tr("QR")}</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div>{isLow && <div style={{ marginTop: 2, fontSize: 10, color: ink(t, ORANGE), fontWeight: 600 }}>{tr("LOW")}</div>}</div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} aria-label={tr("One less")} style={mkTapFrame()}><span style={qtyBtn}><MinusIco sz={14} /></span></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} aria-label={tr("One more")} style={mkTapFrame()}><span style={qtyBtn}><PlusIco sz={14} /></span></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Log Usage")}</button></div>)}</div>); })}
       {supplyLogs.length > 0 && (<div style={{ marginTop: 18 }}><label style={{ ...labelSt, display: "block", marginBottom: 8 }}>{tr("This Shift's Log")}</label>{supplyLogs.map((log, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", marginBottom: 3, background: t.hover, borderRadius: R.sm, fontSize: 11 }}><span style={{ fontWeight: 600, color: t.text }}>{log.supply_name || tr("Item")} <span style={{ color: t.textMut, fontWeight: 400 }}>{log.quantity} {log.unit}</span></span><span style={{ color: t.textMut, fontSize: 9 }}>{formatTime(log.loggedAt || log.scanned_at)}</span></div>))}</div>)}
     </div>
   );
@@ -5608,7 +5760,7 @@ function SpeakUpView({ token, t }) {
   if (sent) return (
     <div style={{ padding: "16px" }}>
       <div style={{ padding: "28px 20px", textAlign: "center", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.lg, boxShadow: t.popShadow }}>
-        <CheckIco sz={40} c={GREEN} />
+        <CheckIco sz={40} c={ink(t, GREEN)} />
         <div style={{ fontSize: 16, fontWeight: 600, color: t.text, marginTop: 14, fontFamily: FONT_HEAD }}>{tr("We got your report.")}</div>
         <div style={{ fontSize: 13, color: t.textSec, marginTop: 8, lineHeight: 1.6 }}>{tr("Someone will be in touch with you within 72 hours.")}</div>
         {sent.id && (<div style={{ marginTop: 20 }}><div style={labelSt}>{tr("Your reference")}</div><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, wordBreak: "break-all" }}>{sent.id}</div><div style={helpSt}>{tr("Quote this if you follow up.")}</div></div>)}
@@ -5625,7 +5777,7 @@ function SpeakUpView({ token, t }) {
         <div style={{ marginBottom: 14 }}>
           <label style={labelSt}>{tr("What happened")}</label>
           <textarea value={text} onChange={e => setText(e.target.value.slice(0, CASE_MAX))} maxLength={CASE_MAX} disabled={sending} placeholder={tr("Write what happened in your own words. One sentence is enough.")} rows={6} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }} />
-          <div style={{ ...helpSt, color: nearLimit ? ORANGE : t.textMut }}>{nearLimit ? tr("{used} of {max} characters used.", { used: text.length.toLocaleString(dateLocale()), max: caseMaxText() }) : tr("You can write up to {max} characters.", { max: caseMaxText() })}</div>
+          <div style={{ ...helpSt, color: ink(t, nearLimit ? ORANGE : t.textMut) }}>{nearLimit ? tr("{used} of {max} characters used.", { used: text.length.toLocaleString(dateLocale()), max: caseMaxText() }) : tr("You can write up to {max} characters.", { max: caseMaxText() })}</div>
         </div>
         <div style={{ marginBottom: 14 }}>
           <div style={askSt}>{tr("Is this about someone in management?")}</div>
@@ -5643,7 +5795,7 @@ function SpeakUpView({ token, t }) {
           </div>
           {listFailed ? (
             <>
-              <div style={{ marginTop: 8, padding: "10px 12px", background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, borderRadius: R.sm, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>{tr("The staff list did not load. Try again in a minute.")}</div>
+              <div style={{ marginTop: 8, padding: "10px 12px", background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, borderRadius: R.sm, fontSize: 12, color: ink(t, ORANGE), lineHeight: 1.5 }}>{tr("The staff list did not load. Try again in a minute.")}</div>
               <button onClick={() => setAttempt(a => a + 1)} disabled={sending} style={{ ...mkGhostBtn(t), marginTop: 8 }}>{tr("Try again")}</button>
             </>
           ) : (
@@ -5674,7 +5826,7 @@ function SpeakUpView({ token, t }) {
             </>
           )}
         </div>
-        {problem && <div style={{ padding: "10px 12px", marginBottom: 12, background: t.redSubtle, border: "1px solid " + t.redBorder, borderRadius: R.sm, fontSize: 12, color: RED, lineHeight: 1.5 }}>{problem}</div>}
+        {problem && <div style={{ padding: "10px 12px", marginBottom: 12, background: t.redSubtle, border: "1px solid " + t.redBorder, borderRadius: R.sm, fontSize: 12, color: ink(t, RED), lineHeight: 1.5 }}>{problem}</div>}
         <button onClick={send} disabled={!canSend} style={{ ...mkPrimaryBtn(t, !canSend), cursor: canSend ? "pointer" : "default" }}>{sending ? tr("Sending...") : tr("Send")}</button>
       </div>
     </div>
@@ -5771,7 +5923,7 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
               return (
                 <div key={"empty" + i} style={{ ...rowSt, border: "1px dashed " + ORANGE }}>
                   <div style={{ width: 18, height: 18, borderRadius: 4, border: "1px dashed " + ORANGE, flexShrink: 0 }} />
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: ORANGE }}>{tr(SHORTCUTS_EMPTY_SLOT)}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: ink(t, ORANGE) }}>{tr(SHORTCUTS_EMPTY_SLOT)}</span>
                 </div>
               );
             }
@@ -5786,7 +5938,7 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                   <button onClick={() => move(i, -1)} disabled={i === 0} aria-label={tr("Move up {name}", { name })} style={{ ...rowBtn, flex: 1, opacity: i === 0 ? 0.4 : 1 }}>{tr("Move up")}</button>
                   <button onClick={() => move(i, 1)} disabled={i === SHORTCUT_SLOTS - 1} aria-label={tr("Move down {name}", { name })} style={{ ...rowBtn, flex: 1, opacity: i === SHORTCUT_SLOTS - 1 ? 0.4 : 1 }}>{tr("Move down")}</button>
-                  <button onClick={() => removeAt(i)} aria-label={tr("Remove {name} from the bar", { name })} style={{ ...rowBtn, flex: 1, color: RED, borderColor: RED }}>{tr("Remove")}</button>
+                  <button onClick={() => removeAt(i)} aria-label={tr("Remove {name} from the bar", { name })} style={{ ...rowBtn, flex: 1, color: ink(t, RED), borderColor: RED }}>{tr("Remove")}</button>
                 </div>
               </div>
             );
@@ -5838,7 +5990,7 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
               <div style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 14 }}>{tr("Put the bar back the way it came?")}</div>
               <div style={{ display: "flex", gap: 10 }}>
                 <button onClick={() => setConfirmReset(false)} style={{ ...wideBtn, flex: 1 }}>{tr("Cancel")}</button>
-                <button onClick={() => { setDraft(DEFAULT_SHORTCUTS.slice()); setConfirmReset(false); }} style={{ flex: 1, minHeight: 44, borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Reset")}</button>
+                <button onClick={() => { setDraft(DEFAULT_SHORTCUTS.slice()); setConfirmReset(false); }} style={{ flex: 1, minHeight: 44, borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: ink(t, RED), fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Reset")}</button>
               </div>
             </div>
           </div>
@@ -5999,7 +6151,7 @@ function NotificationsSheet({ token, t, locale, unread, onClose, onOpen, onUnrea
                 </button>
                 {showDashboard && (
                   <div style={{ padding: "0 12px 12px" }}>
-                    <button onClick={() => { try { window.open(row.link, "_blank", "noopener,noreferrer"); } catch (e) {} }} style={{ ...wideBtn, width: "100%", fontSize: 12, borderColor: t.blueBorder, color: BLUE }}>{tr("Open in the dashboard")}</button>
+                    <button onClick={() => { try { window.open(row.link, "_blank", "noopener,noreferrer"); } catch (e) {} }} style={{ ...wideBtn, width: "100%", fontSize: 12, borderColor: t.blueBorder, color: ink(t, BLUE) }}>{tr("Open in the dashboard")}</button>
                   </div>
                 )}
               </div>
@@ -7196,7 +7348,7 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
               );
             })}
           </div>
-          {siteFault && (<div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 12, padding: "10px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><AlertIco sz={16} c={RED} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0, overflowWrap: "anywhere" }}>{siteFault}</div></div>)}
+          {siteFault && (<div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 12, padding: "10px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><AlertIco sz={16} c={ink(t, RED)} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0, overflowWrap: "anywhere" }}>{siteFault}</div></div>)}
           <button type="button" onClick={() => startOn(asking.code, asking.siteId)} disabled={off} style={{ ...mkPrimaryBtn(t, off), minHeight: TAP, marginTop: 14, cursor: off ? "default" : "pointer" }}>{busy ? tr("Opening") : tr("Start report")}</button>
           <button type="button" onClick={() => { setAsking(null); setSiteFault(null); }} disabled={busy} style={{ width: "100%", minHeight: TAP, marginTop: 10, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>{tr("Back")}</button>
         </div>
@@ -8130,7 +8282,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
     }
     const fault = (retry) => (
       <>
-        <div style={{ marginTop: 8, padding: "10px 12px", background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, borderRadius: R.sm, fontSize: 12, color: ORANGE, lineHeight: 1.5 }}>{tr("The staff list did not load. Try again in a minute.")}</div>
+        <div style={{ marginTop: 8, padding: "10px 12px", background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, borderRadius: R.sm, fontSize: 12, color: ink(t, ORANGE), lineHeight: 1.5 }}>{tr("The staff list did not load. Try again in a minute.")}</div>
         <button type="button" onClick={retry} style={{ ...mkGhostBtn(t), marginTop: 8 }}>{tr("Try again")}</button>
       </>
     );
@@ -8525,7 +8677,7 @@ function PickupView({ token, user, showToast, t }) {
                     <div style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{s.site_name}</div>
                     <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{fmtDate(s.scheduled_date)}</div>
                   </div>
-                  <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 7px", borderRadius: R.sm, background: sColor + "18", color: sColor, textTransform: "uppercase", fontFamily: FONT_HEAD }}>{statusWord(s.status)}</span>
+                  <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 7px", borderRadius: R.sm, background: sColor + "18", color: ink(t, sColor), textTransform: "uppercase", fontFamily: FONT_HEAD }}>{statusWord(s.status)}</span>
                 </div>
 
                 <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, padding: "8px 10px", borderRadius: R.md, background: t.cardAlt }}>
@@ -8540,13 +8692,13 @@ function PickupView({ token, user, showToast, t }) {
 
                 {s.status === "claimed" && (
                   <div>
-                    <div style={{ padding: "6px 10px", borderRadius: R.sm, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, fontSize: 10, color: ORANGE, marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Waiting for manager approval")}</div>
-                    <button onClick={() => releaseShift(s.id)} style={{ width: "100%", minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: RED, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Release Shift")}</button>
+                    <div style={{ padding: "6px 10px", borderRadius: R.sm, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, fontSize: 10, color: ink(t, ORANGE), marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Waiting for manager approval")}</div>
+                    <button onClick={() => releaseShift(s.id)} style={{ width: "100%", minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: ink(t, RED), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Release Shift")}</button>
                   </div>
                 )}
                 {s.status === "approved" && (
                   <div style={{ padding: "8px 12px", borderRadius: R.md, background: t.greenSubtle, border: "1px solid " + t.greenBorder }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: GREEN, fontFamily: FONT_HEAD }}>{tr("Approved. You are scheduled for this shift.")}</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: ink(t, GREEN), fontFamily: FONT_HEAD }}>{tr("Approved. You are scheduled for this shift.")}</div>
                     <div style={{ fontSize: 10, color: t.textMut, marginTop: 2 }}>{tr("Start your shift at the normal time and your daily tasks will load automatically.")}</div>
                   </div>
                 )}
@@ -8999,7 +9151,7 @@ function InspectView({ token, user, showToast, t }) {
               <div style={{ fontSize: 13, fontWeight: 600, color: t.text, lineHeight: 1.3, fontFamily: FONT_HEAD }}>{item.label}</div>
               <div style={{ fontSize: 10, color: t.textMut }}>{item.zone}</div>
             </div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: iColor, minWidth: 36, textAlign: "right", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{sc}<span style={{ fontSize: 10, color: t.textMut, fontWeight: 400 }}>/{item.max_score}</span></div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: ink(t, iColor), minWidth: 36, textAlign: "right", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{sc}<span style={{ fontSize: 10, color: t.textMut, fontWeight: 400 }}>/{item.max_score}</span></div>
           </div>
           <div style={{ marginBottom: 8 }}>
             <input type="range" min={0} max={item.max_score} value={sc} onChange={e => { const v = parseInt(e.target.value); setScores(prev => ({ ...prev, [item.id]: v })); touch(item.id); }} style={{ width: "100%", height: TAP, margin: 0, accentColor: iColor }} />
@@ -9021,7 +9173,7 @@ function InspectView({ token, user, showToast, t }) {
               <div style={{ fontSize: 11, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("Photos")}</div>
               {shotRow(inspectShotKey(item.id), capture.perItem)}
               {scoredIds[item.id] && sc * 100 < INSPECT_PHOTO_UNDER_PCT * item.max_score && (shots[inspectShotKey(item.id)] || []).length === 0 && (
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 8, fontSize: 11, color: t.text, lineHeight: 1.4 }}><AlertIco sz={14} c={ORANGE} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ minWidth: 0 }}>{tr("Below 70 percent: add a photo of it.")}</span></div>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 8, fontSize: 11, color: t.text, lineHeight: 1.4 }}><AlertIco sz={14} c={ink(t, ORANGE)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ minWidth: 0 }}>{tr("Below 70 percent: add a photo of it.")}</span></div>
               )}
             </div>
           ) : (
@@ -9030,7 +9182,7 @@ function InspectView({ token, user, showToast, t }) {
               <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files[0] && handlePhotoUpload(item.id, e.target.files[0])} />
               {uploadingId === item.id ? tr("Uploading...") : tr("Attach Photo")}
             </label>
-            {uploaded[item.id] && <span style={{ fontSize: 10, color: GREEN, fontWeight: 600 }}>{tr("Photo attached")}</span>}
+            {uploaded[item.id] && <span style={{ fontSize: 10, color: ink(t, GREEN), fontWeight: 600 }}>{tr("Photo attached")}</span>}
           </div>
           )}
         </div>
@@ -9054,7 +9206,7 @@ function InspectView({ token, user, showToast, t }) {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderRadius: R.lg, background: t.card, marginBottom: 16, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
           <div style={{ fontSize: 11, color: t.textSec, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px" }}>{tr("Running total")}</div>
           <div style={{ textAlign: "right" }}>
-            <span style={{ fontSize: 22, fontWeight: 600, color: scoreColor, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</span>
+            <span style={{ fontSize: 22, fontWeight: 600, color: ink(t, scoreColor), fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</span>
             <span style={{ fontSize: 11, color: t.textMut, marginLeft: 6, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{totalScored}/{totalMax} {tr("pts")}</span>
           </div>
         </div>
@@ -9163,7 +9315,7 @@ function InspectView({ token, user, showToast, t }) {
           <button key={si.id} onClick={() => openInspection(si.id)} style={{ width: "100%", display: "block", padding: "14px", borderRadius: R.md, border: "1.5px solid " + t.borderSolid, background: t.card, cursor: "pointer", textAlign: "left", boxShadow: t.shadow }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: t.text, flex: 1, marginRight: 8, fontFamily: FONT_HEAD }}>{si.template_name}</div>
-              <span style={{ fontSize: 9, fontWeight: 600, padding: "3px 8px", borderRadius: R.sm, background: (STATUS_C[si.status] || BLUE) + "18", color: STATUS_C[si.status] || BLUE, textTransform: "uppercase", flexShrink: 0, fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{statusWord(si.status)}</span>
+              <span style={{ fontSize: 9, fontWeight: 600, padding: "3px 8px", borderRadius: R.sm, background: (STATUS_C[si.status] || BLUE) + "18", color: ink(t, STATUS_C[si.status] || BLUE), textTransform: "uppercase", flexShrink: 0, fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{statusWord(si.status)}</span>
             </div>
             <div style={{ fontSize: 12, color: t.textSec }}>{si.site_name}</div>
             <div style={{ fontSize: 11, color: t.textMut, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{tr("Scheduled")} {fmtDate(si.scheduled_date)}</div>
