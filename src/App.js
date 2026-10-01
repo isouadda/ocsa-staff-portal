@@ -786,6 +786,7 @@ const GearIco = (p) => <Ico d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 
 const BellIco = (p) => <Ico d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0" {...p} />;
 const DocIco = (p) => <Ico d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h4" {...p} />;
 const DropIco = (p) => <Ico d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" {...p} />;
+const FolderIco = (p) => <Ico d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
 // Every destination the portal has, in one list, so the bottom bar and the
@@ -810,6 +811,9 @@ const DESTINATIONS = [
   // Under More alone, never on the bar, and only once the API has a list
   // of safety data sheets to give, or this phone kept one (Step 215).
   { id: "sds", label: () => "Safety data sheets", icon: DropIco, moreOnly: true, role: (ctx) => !!ctx.sds },
+  // Under More alone, for an office person, and only once the API's team
+  // workspace has answered for them (Step 234).
+  { id: "workspace", label: () => "Workspace", icon: FolderIco, moreOnly: true, role: (ctx) => !!ctx.workspace },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
 
@@ -2153,7 +2157,18 @@ export default function OCSAStaffPortal() {
   const [sdsList, setSdsList] = useState(null);
   useEffect(() => { if (token && screen === "main") readSdsList().then(setSdsList); }, [token, screen]);
   const [sdsCode, setSdsCode] = useState(null);
-  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0 };
+  // The team workspace's projects, asked for once the portal is up, by an
+  // office person alone. Until the API answers with a list, and for
+  // everyone else, More offers nothing new and nothing is asked.
+  const [wsProjects, setWsProjects] = useState(null);
+  const wsAsks = !!token && screen === "main" && isOfficePerson(user);
+  useEffect(() => {
+    if (!wsAsks) { setWsProjects(null); return undefined; }
+    let live = true;
+    readWorkspaceProjects(token).then(list => { if (live) setWsProjects(list); });
+    return () => { live = false; };
+  }, [wsAsks, token, user && user.id]);
+  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects) };
   const shortcutChoices = shortcutChoicesFor(destCtx);
   const allowedShortcutIds = shortcutChoices.map(d => d.id);
   const uid = user && user.id ? user.id : null;
@@ -2481,6 +2496,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
               {activeTab === "sds" && <div style={{ padding: 16 }}><SdsBrowser initial={sdsList} onList={setSdsList} code={sdsCode} onCode={setSdsCode} t={t} /></div>}
+              {activeTab === "workspace" && destCtx.workspace && <WorkspaceView token={token} projects={wsProjects} onProjects={setWsProjects} showToast={showToast} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
               {activeTab === "phonealerts" && <PhoneAlertsView token={token} t={t} onBack={() => setActiveTab("settings")} />}
@@ -8519,6 +8535,158 @@ function EmptyState({ icon: Icon, text, t }) {
 // a later read of it fails.
 function ListFault({ icon: Icon, text, onRetry, t }) {
   return (<div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><Icon sz={40} c={t.borderSolid} /><div role="alert" style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{text}</div><button type="button" onClick={onRetry} style={{ minHeight: TAP, marginTop: 16, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button></div>);
+}
+
+// ------------------------------------------------------------
+// The team workspace (Step 234), for office people on their phones
+//
+// Each office project's message board, to-dos, chat and files, and the
+// to-dos assigned to the person across every project. The API decides
+// who may see it: nothing of it shows until GET /api/workspace/projects
+// answers for the person signed in, and a phone signed in as anyone but
+// an office person never asks. Every call says the language on the
+// screen, so a refusal comes back in its words.
+// ------------------------------------------------------------
+const wsPath = (path) => "/api/workspace" + path + "?locale=" + languageToSend();
+const wsText = (o, keys) => { const v = agentField(o, keys, ""); return typeof v === "string" ? v.trim() : ""; };
+// The rows of an answer: the answer itself when it is a list, or the list
+// under its key; null for anything else.
+const wsRows = (d, key) => (Array.isArray(d) ? d : d && typeof d === "object" && Array.isArray(d[key]) ? d[key] : null);
+// A project as the screens read it, with an id and a name, or nothing. A
+// color the API sends that is not a hex color is left out.
+function wsProjectOf(p) {
+  if (!p || typeof p !== "object") return null;
+  const id = agentField(p, ["id"], null);
+  const name = wsText(p, ["name"]);
+  if (id === null || !name) return null;
+  const color = wsText(p, ["color"]);
+  return { id: id, name: name, description: wsText(p, ["description"]), color: /^#[0-9a-f]{6}$/i.test(color) ? color : null };
+}
+const wsProjectsOf = (d) => { const rows = wsRows(d, "projects"); return rows ? rows.map(wsProjectOf).filter(Boolean) : null; };
+// The projects list, or null for a refusal, an API without the route, or
+// an answer that is not a list.
+async function readWorkspaceProjects(token) {
+  try { return wsProjectsOf(await api(wsPath("/projects"), { token })); } catch (e) { return null; }
+}
+// A person on a project: an id and a name, from a name or the two halves.
+function wsPersonOf(m) {
+  if (!m || typeof m !== "object") return null;
+  const id = agentField(m, ["userId", "user_id", "id"], null);
+  const name = wsText(m, ["name"]) || [wsText(m, ["firstName", "first_name"]), wsText(m, ["lastName", "last_name"])].filter(Boolean).join(" ");
+  return id === null || !name ? null : { id: id, name: name };
+}
+// A to-do as the screens read it. A due date is a calendar day, read on
+// the phone's own calendar; one that does not read is no due date.
+function wsTodoOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = agentField(x, ["id"], null);
+  const title = wsText(x, ["title"]);
+  if (id === null || !title) return null;
+  const due = wsText(x, ["dueOn", "due_on"]).slice(0, 10);
+  const ids = agentField(x, ["assigneeIds", "assignee_ids"], []);
+  return {
+    id: id, title: title,
+    dueOn: localDay(due) ? due : null,
+    done: !!agentField(x, ["completedAt", "completed_at"], null) || x.done === true,
+    assignees: (Array.isArray(x.assignees) ? x.assignees : []).map(wsPersonOf).filter(Boolean),
+    assigneeIds: Array.isArray(ids) ? ids : [],
+    projectId: agentField(x, ["projectId", "project_id"], null),
+    projectName: wsText(x, ["projectName", "project_name"]),
+  };
+}
+// Soonest due first, a to-do with no due date last, and otherwise in the
+// order the API sent.
+const wsByDue = (list) => list.map((x, i) => [x, i]).sort((a, b) => {
+  const da = a[0].dueOn || "9999-99-99", db = b[0].dueOn || "9999-99-99";
+  return da < db ? -1 : da > db ? 1 : a[1] - b[1];
+}).map(p => p[0]);
+const wsOverdue = (todo) => !todo.done && !!todo.dueOn && localDay(todo.dueOn) < todayLocal();
+const wsDueText = (ymd) => dueDayText(ymd, { weekday: "short", month: "short", day: "numeric" });
+// A refusal that carries one of the workspace's codes is told in the API's
+// own words; no signal and anything else in the screen's own.
+const wsSaidOf = (err) => (err && err.message !== ERR_OFFLINE && typeof err.code === "string" && err.code.indexOf("workspace.") === 0 && typeof err.message === "string" && err.message.trim() ? err.message.trim() : null);
+const wsFaultWords = (err, fallback) => wsSaidOf(err) || (err && err.message === ERR_OFFLINE ? tr(ERR_OFFLINE) : tr(fallback));
+
+// One to-do: a box to tick, its title, where it belongs or who has it,
+// and when it is due, in red once that day has gone by.
+function WsTodoRow({ todo, busy, onTick, showProject, t }) {
+  const late = wsOverdue(todo);
+  const who = todo.assignees.map(a => a.name).join(", ");
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 2, padding: "2px 12px 2px 2px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + (late ? t.redBorder : t.borderSolid), boxShadow: t.shadow }}>
+      <button type="button" role="checkbox" aria-checked={todo.done} aria-label={todo.title} aria-disabled={busy} onClick={() => { if (!busy) onTick(todo); }} style={mkTapFrame({ flexShrink: 0, cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1 })}>
+        <span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (todo.done ? GREEN : late ? ink(t, RED) : t.textMut), background: todo.done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{todo.done && <CheckIco sz={14} c={NAVY} />}</span>
+      </button>
+      <div style={{ flex: 1, minWidth: 0, padding: "11px 0 10px" }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: todo.done ? t.textMut : t.text, textDecoration: todo.done ? "line-through" : "none", fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{todo.title}</div>
+        {showProject && todo.projectName && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{todo.projectName}</div>}
+        {!showProject && who && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{who}</div>}
+        {todo.dueOn && <div style={{ fontSize: 12, marginTop: 2, color: late ? ink(t, RED) : t.textMut, fontWeight: late ? 600 : 400 }}>{late ? tr("Overdue. Due {date}", { date: wsDueText(todo.dueOn) }) : tr("Due {date}", { date: wsDueText(todo.dueOn) })}</div>}
+      </div>
+    </div>
+  );
+}
+
+// Workspace under More: the person's open to-dos across every project,
+// soonest due first, then the projects. A tick asks first, since it marks
+// the to-do done for everyone on the project.
+function WorkspaceView({ token, projects, onProjects, showToast, t }) {
+  const [mine, setMine] = useState(null);
+  const [asked, setAsked] = useState(0);
+  const [ticking, setTicking] = useState(null);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const rows = wsRows(await api(wsPath("/me"), { token }), "todos");
+        if (!rows) throw new Error(ERR_GENERIC);
+        if (live) setMine({ state: "ok", todos: wsByDue(rows.map(wsTodoOf).filter(x => x && !x.done)) });
+      } catch (err) {
+        // A list already on the screen stays when a later read fails.
+        if (live) setMine(prev => (prev && prev.state === "ok" ? prev : { state: "failed", todos: [] }));
+      }
+      const list = await readWorkspaceProjects(token);
+      if (live && list) onProjects(list);
+    })();
+    return () => { live = false; };
+  }, [asked]);
+  const tick = async (todo) => {
+    if (ticking) return;
+    if (!window.confirm(tr("Mark this to-do done?"))) return;
+    setTicking(todo.id);
+    try {
+      await api(wsPath("/todos/" + encodeURIComponent(todo.id)), { method: "PATCH", body: { done: true }, token });
+      setMine(prev => (prev ? { ...prev, todos: prev.todos.filter(x => x.id !== todo.id) } : prev));
+      showToast(tr("Marked done."));
+    } catch (err) {
+      showToast(wsFaultWords(err, "That to-do was not marked done. Try again."), "error");
+    } finally { setTicking(null); }
+  };
+  const list = Array.isArray(projects) ? projects : [];
+  const titleSt = { fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 12 };
+  const headSt = { ...mkLabel(t), marginTop: 4, marginBottom: 8 };
+  const quietSt = { padding: "16px 12px", marginBottom: 12, textAlign: "center", fontSize: 13, color: t.textMut, background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontFamily: FONT_HEAD };
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      <div role="heading" aria-level={1} style={titleSt}>{tr("Workspace")}</div>
+      <div role="heading" aria-level={2} style={headSt}>{tr("My assignments")}</div>
+      {!mine && <div style={{ fontSize: 13, color: t.textMut, marginBottom: 12 }}>{tr("Loading...")}</div>}
+      {mine && mine.state === "failed" && <div style={{ marginBottom: 12 }}><ListFault icon={CheckIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} /></div>}
+      {mine && mine.state === "ok" && mine.todos.length === 0 && <div style={quietSt}>{tr("Nothing is assigned to you right now.")}</div>}
+      {mine && mine.state === "ok" && mine.todos.map(todo => <WsTodoRow key={todo.id} todo={todo} busy={ticking === todo.id} onTick={tick} showProject t={t} />)}
+      <div role="heading" aria-level={2} style={{ ...headSt, marginTop: 16 }}>{tr("Projects")}</div>
+      {list.length === 0 && <div style={quietSt}>{tr("You are not in any project yet.")}</div>}
+      {list.map(p => (
+        <div key={p.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, minHeight: TAP, padding: "12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow }}>
+          <span aria-hidden="true" style={{ width: 10, height: 10, marginTop: 5, borderRadius: "50%", background: p.color || GOLD, flexShrink: 0 }} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{p.name}</span>
+            {p.description && <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{p.description}</span>}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function PickupView({ token, user, showToast, t }) {
