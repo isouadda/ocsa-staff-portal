@@ -892,6 +892,10 @@ const inspectShotKey = (itemId) => "item:" + itemId;
 // Under this share of its maximum, a card asks for a photo, the way the
 // approved records do. It never stops a send.
 const INSPECT_PHOTO_UNDER_PCT = 70;
+// The refusals the complete route gives about a signature or a photo, each
+// told in the API's own words under the box or the row it is about.
+const INSPECT_SIGN_CODES = ["inspections.signatureRequired", "inspections.badSignature"];
+const INSPECT_PHOTO_CODES = ["inspections.tooManyPhotos", "inspections.badPhoto"];
 // A control whose drawing is meant to stay smaller than that. The button
 // becomes a see-through frame of at least 44 by 44 and the look moves to
 // the span inside it, so the tap area grows and the drawing does not.
@@ -8582,6 +8586,12 @@ function InspectView({ token, user, showToast, t }) {
   const openId = useRef(null);
   openId.current = active ? active.id : null;
   const shotsGoing = Object.keys(shotBusy).some(k => (shotBusy[k] || []).length > 0);
+  // With capture: the inspector's signature, as strokes and as the PNG the
+  // complete call carries, and what is said under the box: that it is
+  // missing, or the API's own words.
+  const [sigStrokes, setSigStrokes] = useState([]);
+  const [sigPng, setSigPng] = useState(null);
+  const [sigFault, setSigFault] = useState(null);
   // Step 145. Which cards the inspector marked Needs a fix, which of those
   // were sent with no note, and what each card scored before Not due yet
   // set it to its maximum, so a second tap can put it back.
@@ -8679,6 +8689,7 @@ function InspectView({ token, user, showToast, t }) {
       setOverallNotes("");
       setUploaded({});
       setShots({}); setShotBusy({}); setShotErr({});
+      setSigStrokes([]); setSigPng(null); setSigFault(null);
       setNeedsFix({});
       setMissingNote({});
       notDueBefore.current = {};
@@ -8813,8 +8824,14 @@ function InspectView({ token, user, showToast, t }) {
       }, 0);
       return;
     }
-    // A photo still going up holds the send until it is in.
+    // A photo still going up holds the send until it is in. With no
+    // drawing, the box turns red, says so, and comes into view.
     if (capture && shotsGoing) return;
+    if (capture && capture.sign && !sigPng) {
+      setSigFault({ missing: true });
+      scrollToMark("[data-inspect-signature]");
+      return;
+    }
     setSubmitting(true);
     try {
       // With capture, each card sends its photos and, as photo_url, the
@@ -8833,6 +8850,7 @@ function InspectView({ token, user, showToast, t }) {
       });
       const body = { scores: payload, overall_notes: overallNotes || null };
       if (capture) body.photo_urls = shotUrls(INSPECT_WHOLE);
+      if (capture && sigPng) body.signature = sigPng;
       await api("/api/inspections/scheduled/" + active.id + "/complete" + (capture ? "?locale=" + languageToSend() : ""), {
         method: "POST", token,
         body: body,
@@ -8848,8 +8866,32 @@ function InspectView({ token, user, showToast, t }) {
       }
       setActive(null);
       loadList();
-    } catch (e) { showToast(tr(e.message), "error"); }
+    } catch (e) { if (!(capture && placeRefusal(e))) showToast(tr(e.message), "error"); }
     setSubmitting(false);
+  };
+  // The page scrolls to a mark once it is drawn.
+  const scrollToMark = (sel) => setTimeout(() => { const el = document.querySelector(sel); if (el && el.scrollIntoView) el.scrollIntoView({ block: "center" }); }, 0);
+  // A refusal about the signature goes under the box, and one about photos
+  // under each row its keys name: a card by its template_item_id, or
+  // photo_urls for the whole inspection. The API's words, as sent. Any
+  // other refusal is told the way it always was.
+  const placeRefusal = (e) => {
+    const code = e && typeof e.code === "string" ? e.code : "";
+    const said = e && e.message !== ERR_OFFLINE && typeof e.message === "string" ? e.message.trim() : "";
+    if (!said) return false;
+    if (INSPECT_SIGN_CODES.indexOf(code) !== -1) { setSigFault({ said: said }); scrollToMark("[data-inspect-signature]"); return true; }
+    if (INSPECT_PHOTO_CODES.indexOf(code) === -1) return false;
+    const keys = e.body && Array.isArray(e.body.keys) ? e.body.keys.map(String) : [];
+    const rows = [];
+    keys.forEach(k => {
+      if (k === "photo_urls") rows.push(INSPECT_WHOLE);
+      else if ((active.items || []).some(item => String(item.id) === k)) rows.push(inspectShotKey(k));
+    });
+    if (rows.length === 0) return false;
+    setShotErr(prev => { const next = { ...prev }; rows.forEach(r => { next[r] = said; }); return next; });
+    if (rows.some(r => r !== INSPECT_WHOLE)) setShowScored(true);
+    scrollToMark('[data-inspect-photos="' + rows[0] + '"]');
+    return true;
   };
 
   const labelSt = mkLabel(t);
@@ -9039,6 +9081,19 @@ function InspectView({ token, user, showToast, t }) {
           <label style={labelSt}>{tr("Overall Notes")}</label>
           <textarea value={overallNotes} onChange={e => setOverallNotes(e.target.value)} placeholder={tr("General observations, follow-ups needed, etc.")} rows={3} style={{ ...inputSt, resize: "vertical" }} />
         </div>
+
+        {capture && (
+          <div data-inspect-signature="1" style={{ marginBottom: 16 }}>
+            <div style={labelSt}>{tr("Signature")}</div>
+            <div style={{ marginTop: 6, borderRadius: R.md, border: sigFault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+              <SignatureBox strokes={sigStrokes} onStroke={(stroke, size) => { const all = sigStrokes.concat([stroke]); setSigStrokes(all); setSigPng(signaturePng(all, size.w, size.h)); setSigFault(null); }} height={SIGN_BOX_HEIGHT} />
+            </div>
+            {sigFault && <div role="alert" style={mkFieldErr(t)}>{sigFault.missing ? tr("Sign before you send.") : sigFault.said}</div>}
+            <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+            <button type="button" onClick={() => { setSigStrokes([]); setSigPng(null); }} disabled={sigStrokes.length === 0 || submitting} style={{ ...shotBtn, opacity: sigStrokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+            <div style={{ fontSize: 12, color: t.textSec, marginTop: 10, lineHeight: 1.4, overflowWrap: "anywhere" }}>{tr("Signed as {name}, {date}", { name: [user && user.firstName, user && user.lastName].filter(Boolean).join(" "), date: now().toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" }) })}</div>
+          </div>
+        )}
 
         <button onClick={submit} disabled={submitting || (!!capture && shotsGoing)} style={{ width: "100%", padding: "14px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: submitting || (capture && shotsGoing) ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>
           {submitting ? tr("Submitting...") : capture && shotsGoing ? tr("Uploading...") : tr("Submit Inspection")}
