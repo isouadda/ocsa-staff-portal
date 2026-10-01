@@ -874,6 +874,24 @@ const NOT_DUE = "Not due";
 // An inspection with more cards than this offers Sections, an index of
 // its cards by the zone each names. One has 118.
 const INSPECT_INDEX_OVER = 20;
+// What an inspection's answer says the API takes beyond what it always
+// has (Step 217): photos on each card and of the whole inspection, and
+// the inspector's signature at the end. null when the answer carries no
+// capture, and then the screen, its call and its words are what they
+// were before.
+const inspectCaptureOf = (d) => {
+  const c = d && d.capture;
+  if (!c || typeof c !== "object") return null;
+  const n = (v, dflt) => (Number.isInteger(v) && v > 0 ? v : dflt);
+  return { perItem: n(c.photosPerItem, 6), overall: n(c.photosOverall, 10), sign: c.signatureRequired !== false };
+};
+// Where a row of photos is kept: a card's under its id, and the whole
+// inspection's under a key of its own.
+const INSPECT_WHOLE = "whole";
+const inspectShotKey = (itemId) => "item:" + itemId;
+// Under this share of its maximum, a card asks for a photo, the way the
+// approved records do. It never stops a send.
+const INSPECT_PHOTO_UNDER_PCT = 70;
 // A control whose drawing is meant to stay smaller than that. The button
 // becomes a see-through frame of at least 44 by 44 and the look moves to
 // the span inside it, so the tap area grows and the drawing does not.
@@ -8552,6 +8570,18 @@ function InspectView({ token, user, showToast, t }) {
   const [submitting, setSubmitting] = useState(false);
   const [uploaded, setUploaded] = useState({});
   const [uploadingId, setUploadingId] = useState(null);
+  // With capture: each row's photos as the upload gave them, the ones on
+  // their way up, and a line under a row that could not take one. The
+  // inspection open is kept by its id, so a photo still going up when the
+  // person leaves never lands on the next one.
+  const capture = inspectCaptureOf(active);
+  const [shots, setShots] = useState({});
+  const [shotBusy, setShotBusy] = useState({});
+  const [shotErr, setShotErr] = useState({});
+  const shotInputs = useRef({});
+  const openId = useRef(null);
+  openId.current = active ? active.id : null;
+  const shotsGoing = Object.keys(shotBusy).some(k => (shotBusy[k] || []).length > 0);
   // Step 145. Which cards the inspector marked Needs a fix, which of those
   // were sent with no note, and what each card scored before Not due yet
   // set it to its maximum, so a second tap can put it back.
@@ -8648,6 +8678,7 @@ function InspectView({ token, user, showToast, t }) {
       setNotes(initNotes);
       setOverallNotes("");
       setUploaded({});
+      setShots({}); setShotBusy({}); setShotErr({});
       setNeedsFix({});
       setMissingNote({});
       notDueBefore.current = {};
@@ -8689,6 +8720,39 @@ function InspectView({ token, user, showToast, t }) {
     setUploadingId(null);
   };
 
+  // Photos for one row, the way a form's photo question takes them: each
+  // prepared on the phone (an iPhone's HEIC turned to JPEG, made smaller,
+  // its location data dropped), then sent through the upload every card's
+  // photo has always used, one at a time, up to what the row holds.
+  const addShots = async (key, fileList, max) => {
+    const picked = Array.from(fileList || []).filter(Boolean);
+    const room = Math.max(0, max - (shots[key] || []).length - (shotBusy[key] || []).length);
+    const take = picked.slice(0, room);
+    if (take.length === 0) return;
+    const forId = openId.current;
+    const stamp = Date.now();
+    const marks = take.map((file, i) => ({ id: key + ":" + stamp + ":" + i, name: file.name || "photo" }));
+    setShotErr(prev => ({ ...prev, [key]: null }));
+    setShotBusy(prev => ({ ...prev, [key]: (prev[key] || []).concat(marks) }));
+    for (let i = 0; i < take.length; i++) {
+      let said = null, url = null;
+      try {
+        const r = await uploadTaskMedia(await prepareFormPhoto(take[i]), token);
+        url = r && typeof r.url === "string" && r.url ? r.url : null;
+        if (!url) said = tr(UPLOAD_FAILED);
+      } catch (e) { said = tr(e && e.message ? e.message : UPLOAD_FAILED); }
+      if (openId.current !== forId) return;
+      if (url) setShots(prev => ({ ...prev, [key]: (prev[key] || []).concat([{ id: marks[i].id, url: url, name: marks[i].name }]) }));
+      setShotBusy(prev => ({ ...prev, [key]: (prev[key] || []).filter(m => m.id !== marks[i].id) }));
+      if (said) setShotErr(prev => ({ ...prev, [key]: said }));
+    }
+  };
+  const removeShot = (key, id) => {
+    setShots(prev => ({ ...prev, [key]: (prev[key] || []).filter(p => p.id !== id) }));
+    setShotErr(prev => ({ ...prev, [key]: null }));
+  };
+  const shotUrls = (key) => (shots[key] || []).map(p => p.url);
+
   // One problem report per card marked Needs a fix, the way Report files
   // one: the inspection's site, the finding's zone in the title, the note,
   // the card and the inspection in the description, severity medium, then
@@ -8703,7 +8767,7 @@ function InspectView({ token, user, showToast, t }) {
       zone: item.zone || null,
       severity: "medium",
     },
-    photoUrl: uploaded[item.id] || null, issueId: null, error: null,
+    photoUrl: (capture ? shotUrls(inspectShotKey(item.id))[0] : uploaded[item.id]) || null, issueId: null, error: null,
   });
   // Files one report. A report whose problem was filed but whose photo was
   // not keeps the problem's id, so Try again sends only the photo.
@@ -8749,17 +8813,29 @@ function InspectView({ token, user, showToast, t }) {
       }, 0);
       return;
     }
+    // A photo still going up holds the send until it is in.
+    if (capture && shotsGoing) return;
     setSubmitting(true);
     try {
-      const payload = (active.items || []).map(item => ({
-        template_item_id: item.id,
-        score: parseInt(scores[item.id]) || 0,
-        notes: notes[item.id] || null,
-        photo_url: uploaded[item.id] || null,
-      }));
-      await api("/api/inspections/scheduled/" + active.id + "/complete", {
+      // With capture, each card sends its photos and, as photo_url, the
+      // first of them, and the whole inspection's photos go beside the
+      // scores; the call names the screen's language, so a refusal comes
+      // in it. Without capture the call is the one it always was.
+      const payload = (active.items || []).map(item => {
+        const row = {
+          template_item_id: item.id,
+          score: parseInt(scores[item.id]) || 0,
+          notes: notes[item.id] || null,
+          photo_url: uploaded[item.id] || null,
+        };
+        if (capture) { const urls = shotUrls(inspectShotKey(item.id)); row.photo_urls = urls; row.photo_url = urls[0] || null; }
+        return row;
+      });
+      const body = { scores: payload, overall_notes: overallNotes || null };
+      if (capture) body.photo_urls = shotUrls(INSPECT_WHOLE);
+      await api("/api/inspections/scheduled/" + active.id + "/complete" + (capture ? "?locale=" + languageToSend() : ""), {
         method: "POST", token,
-        body: { scores: payload, overall_notes: overallNotes || null },
+        body: body,
       });
       // Only once the inspection is in: the reports, one after another.
       const reports = (active.items || []).filter(item => needsFix[item.id]).map(reportFor);
@@ -8818,6 +8894,55 @@ function InspectView({ token, user, showToast, t }) {
         if (first && first.focus) first.focus({ preventScroll: true });
       }, 0);
     };
+    // A row of photos, drawn the way a form's photos question draws them:
+    // each picture a 72 pixel square from the address the upload gave,
+    // its file name and Remove photo under it; the ones on their way up;
+    // then the one button the camera and the gallery both answer, until
+    // the row holds as many as it takes.
+    const thumbSt = { width: 72, height: 72, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt };
+    const photoNameSt = { fontSize: 10, color: t.textMut, marginTop: 4, lineHeight: 1.35, overflowWrap: "anywhere" };
+    const shotBtn = { width: "100%", minHeight: TAP, marginTop: 10, padding: "10px 12px", borderRadius: R.md, cursor: "pointer", border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, textAlign: "center" };
+    const shotRow = (key, max) => {
+      const list = shots[key] || [];
+      const busy = shotBusy[key] || [];
+      const full = list.length + busy.length >= max;
+      return (
+        <>
+          {(list.length > 0 || busy.length > 0) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 8 }}>
+              {list.map(p => (
+                <div key={p.id} style={{ width: 104 }}>
+                  <img src={p.url} alt="" style={thumbSt} />
+                  <div style={photoNameSt}>{p.name}</div>
+                  <button type="button" onClick={() => removeShot(key, p.id)} disabled={submitting} style={{ ...shotBtn, marginTop: 6, padding: "8px 6px", fontSize: 11 }}>{tr("Remove photo")}</button>
+                </div>
+              ))}
+              {busy.map(m => (
+                <div key={m.id} style={{ width: 104 }}>
+                  <div style={thumbSt} />
+                  <div style={photoNameSt}>{m.name}</div>
+                  <div style={photoNameSt}>{tr("Uploading...")}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {full && <div style={{ ...mkHelp(t), marginTop: 10 }}>{tr(FORMS_PHOTOS_FULL)}</div>}
+          {!full && (
+            <>
+              <input ref={el => { shotInputs.current[key] = el; }} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { addShots(key, e.target.files, max); e.target.value = ""; }} />
+              <button type="button" onClick={() => shotInputs.current[key] && shotInputs.current[key].click()} disabled={submitting} style={{ ...shotBtn, display: "flex", alignItems: "center", gap: 10, textAlign: "left", border: "1px dashed " + GOLD, color: t.goldText }}>
+                <CamIco sz={18} c={t.goldText} />
+                <div style={{ minWidth: 0 }}>
+                  <div>{tr(FORMS_TAKE_PHOTO)}</div>
+                  <div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("JPG, PNG up to 10MB")}</div>
+                </div>
+              </button>
+            </>
+          )}
+          {shotErr[key] && <div role="alert" style={{ ...mkFieldErr(t), marginTop: 8 }}>{shotErr[key]}</div>}
+        </>
+      );
+    };
     // One card, drawn the same way in the open list and in the fold.
     const itemCard = (item) => {
       const sc = parseInt(scores[item.id]) || 0;
@@ -8849,6 +8974,15 @@ function InspectView({ token, user, showToast, t }) {
           </div>
           <input value={notes[item.id] || ""} onChange={e => { const v = e.target.value; setNotes(prev => ({ ...prev, [item.id]: v })); if (missingNote[item.id] && v.trim()) setMissingNote(prev => ({ ...prev, [item.id]: false })); }} placeholder={fix ? tr("Say what needs fixing") : tr("Notes for this item (optional)")} aria-invalid={!!missingNote[item.id]} style={{ ...inputSt, fontSize: 12, marginBottom: 8, ...(missingNote[item.id] ? { border: "1px solid " + RED } : {}) }} />
           {missingNote[item.id] && <div style={{ ...mkFieldErr(t), marginTop: -2, marginBottom: 8 }}>{tr("Say what needs fixing")}</div>}
+          {capture ? (
+            <div data-inspect-photos={inspectShotKey(item.id)}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("Photos")}</div>
+              {shotRow(inspectShotKey(item.id), capture.perItem)}
+              {scoredIds[item.id] && sc * 100 < INSPECT_PHOTO_UNDER_PCT * item.max_score && (shots[inspectShotKey(item.id)] || []).length === 0 && (
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 8, fontSize: 11, color: t.text, lineHeight: 1.4 }}><AlertIco sz={14} c={ORANGE} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ minWidth: 0 }}>{tr("Below 70 percent: add a photo of it.")}</span></div>
+              )}
+            </div>
+          ) : (
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 6, minHeight: TAP, padding: "5px 10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", cursor: "pointer", fontSize: 11, color: t.textSec }}>
               <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files[0] && handlePhotoUpload(item.id, e.target.files[0])} />
@@ -8856,6 +8990,7 @@ function InspectView({ token, user, showToast, t }) {
             </label>
             {uploaded[item.id] && <span style={{ fontSize: 10, color: GREEN, fontWeight: 600 }}>{tr("Photo attached")}</span>}
           </div>
+          )}
         </div>
       );
     };
@@ -8893,13 +9028,20 @@ function InspectView({ token, user, showToast, t }) {
           )}
         </div>
 
+        {capture && (
+          <div data-inspect-photos={INSPECT_WHOLE} style={{ marginBottom: 16 }}>
+            <div style={labelSt}>{tr("Photos of the whole inspection")}</div>
+            {shotRow(INSPECT_WHOLE, capture.overall)}
+          </div>
+        )}
+
         <div style={{ marginBottom: 16 }}>
           <label style={labelSt}>{tr("Overall Notes")}</label>
           <textarea value={overallNotes} onChange={e => setOverallNotes(e.target.value)} placeholder={tr("General observations, follow-ups needed, etc.")} rows={3} style={{ ...inputSt, resize: "vertical" }} />
         </div>
 
-        <button onClick={submit} disabled={submitting} style={{ width: "100%", padding: "14px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: submitting ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>
-          {submitting ? tr("Submitting...") : tr("Submit Inspection")}
+        <button onClick={submit} disabled={submitting || (!!capture && shotsGoing)} style={{ width: "100%", padding: "14px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: submitting || (capture && shotsGoing) ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>
+          {submitting ? tr("Submitting...") : capture && shotsGoing ? tr("Uploading...") : tr("Submit Inspection")}
         </button>
 
         {indexed && sectionsOpen && <InspectSectionsSheet sections={sections} scoredIds={scoredIds} onPick={goToSection} onClose={() => setSectionsOpen(false)} t={t} />}
