@@ -444,7 +444,7 @@ export const WORDS = {
   "You cannot send messages in this chat.": "No puede enviar mensajes en este chat.",
   "Your chats did not load. Try again in a minute.": "Sus chats no cargaron. Intente de nuevo en un minuto.",
   "Your message was not sent.": "Su mensaje no fue enviado.",
-  "New message": "Mensaje nuevo",
+  "New message": "Nuevo mensaje",
   "Office": "Oficina",
   "That chat did not open. Try again.": "Ese chat no se abri\u00f3. Intente de nuevo.",
   "Direct messages": "Mensajes directos",

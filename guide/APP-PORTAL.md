@@ -218,12 +218,12 @@ Last checked: 2026-09-30
 Who can do this: anyone signed in
 1. Tap **Chat** (**Mensajes**) on the bottom bar. Chat opens on the chat you last picked on this phone, or on your only chat if you have one. Otherwise the middle of the screen says **Pick a chat to start.** (**Elija un chat para empezar.**)
 2. Tap a chat at the top: your site's chat, the general chat, or **Admin (Private)** (**Administración (privado)**) under **Private chats** (**Chats privados**) to write privately to management. Only you and management see those messages, and that chat says **Private conversation with admin.** (**Conversación privada con la administración.**) at the top. A chat with nothing in it yet says **No messages yet.** (**Todavía no hay mensajes.**)
-3. Type your message in the box, which says **Type a message...** (**Escriba un mensaje...**), and tap the arrow beside it. The arrow lights up once the box has words and a chat is picked. In a site chat, the general chat or a direct message, the @ button beside the box tags someone (see Tag someone in a chat).
+3. Type your message in the box, which says **Type a message...** (**Escriba un mensaje...**), and tap the arrow beside it. The arrow lights up once the box has words and a chat is picked. In a site chat or the general chat, the @ button beside the box tags someone (see Tag someone in a chat).
 4. While the message is on its way, the arrow is off and your words stay in the box. They leave the box once the message shows in the chat as yours, with its time. Everyone else who can read that chat gets an alert.
 A number on **Chat** (**Mensajes**) counts the messages you have not read; each chat shows its own number, and opening it clears it.
 If it does not work: if the arrow stays dim and a tap says **Pick a chat at the top first.** (**Primero elija un chat arriba.**), pick a chat and tap the arrow again. Your words stay in the box. If the message does not go, a line under the box says why, with **Try again** (**Intentar de nuevo**).
 Words people use for this: message my supervisor, text the office, send a message, group chat, site chat, private message, the send button is grey, unread messages, chat, mensajes.
-Last checked: 2026-09-30
+Last checked: 2026-10-01
 
 ## When a message in Chat does not go (staff portal)
 Who can do this: anyone signed in
@@ -238,19 +238,20 @@ Last checked: 2026-09-30
 Who can do this: anyone signed in
 1. Tap **Chat** (**Mensajes**).
 2. The group chats sit at the top, one for each of your sites and the general chat, and wrap onto as many lines as they need.
-3. Admins and supervisors also see **Direct messages** (**Mensajes directos**) under the group chats: one chat with each office person they have written to, named for that person, unread first. **New message** (**Mensaje nuevo**) above the chats starts one (see Start a message to someone in the office or on staff).
+3. Admins and supervisors also see **Direct messages** (**Mensajes directos**) under the group chats: one chat with each office person they have written to, named for that person, unread first. **New message** (**Nuevo mensaje**) above the chats starts one (see Start a message to someone in the office or on staff).
 4. Private chats sit under **Private chats** (**Chats privados**) in a row you scroll sideways. Yours comes first, **Admin (Private)** (**Administración (privado)**), where only you and management read the messages.
 5. At the larger text sizes the chats scroll inside the top of the screen and leave room for the messages and the box.
 Words people use for this: where is my site chat, i cannot find the chat, private chat, chat with the office, all my chats, more chats, direct messages, where is my dm.
-Last checked: 2026-09-30
+Last checked: 2026-10-01
 
 ## Answer a staff member privately in Chat (staff portal)
-Who can do this: admins, and supervisors for the staff at their sites
+Who can do this: every admin and every supervisor, for every staff member
 1. Tap **Chat** (**Mensajes**).
 2. Under **Private chats** (**Chats privados**), scroll sideways to the person's name. Chats with unread messages come first, then the most recent.
 3. Tap the name, type your reply in the box and tap the arrow beside it.
+To write to a staff member whose chat is not on the list yet, tap **New message** (**Nuevo mensaje**) (see Start a message to someone in the office or on staff).
 Words people use for this: reply to a staff member, answer a private message, message from a cleaner, staff messages, dm.
-Last checked: 2026-09-24
+Last checked: 2026-10-01
 
 ## When Chat shows no chats (staff portal)
 Who can do this: anyone signed in
@@ -769,13 +770,13 @@ Words people use for this: update, new version, refresh the app, the app looks d
 Last checked: 2026-09-30
 
 ## Tag someone in a chat (staff portal)
-Who can do this: anyone signed in, in a site chat or the general chat, and admins and supervisors in a direct message
-1. Open **Chat** (**Mensajes**) and pick the site chat, the general chat, or a chat under **Direct messages** (**Mensajes directos**).
+Who can do this: anyone signed in, in a site chat or the general chat
+1. Open **Chat** (**Mensajes**) and pick the site chat or the general chat.
 2. Type @ at the start of a word, or tap the @ button beside the message box. **Tag someone** (**Etiquetar a alguien**) lists the people who can read that chat; type part of a name to narrow it and tap the person.
 3. Their name goes into your message. Send it; they get an alert that the message is for them, and their name shows highlighted.
-To untag someone, delete their name from the message before sending. A private chat has no tag button.
+To untag someone, delete their name from the message before sending. A private chat and a direct message have no tag button.
 Words people use for this: tag someone, mention someone, @ someone, let someone know, etiquetar a alguien.
-Last checked: 2026-09-30
+Last checked: 2026-10-01
 
 ## Turn on alerts on this phone (staff portal)
 Who can do this: anyone signed in
@@ -857,12 +858,12 @@ Last checked: 2026-09-30
 
 ## Start a message to someone in the office or on staff (staff portal)
 Who can do this: admins and supervisors
-1. Tap **Chat** (**Mensajes**), then **New message** (**Mensaje nuevo**) above the chats.
+1. Tap **Chat** (**Mensajes**), then **New message** (**Nuevo mensaje**) above the chats.
 2. The list shows the office under **Office** (**Oficina**) and everyone else under **Staff** (**Personal**), each with their role. Type part of a name in **Search by name** (**Buscar por nombre**) to narrow it.
 3. Tap an office person to open the direct message the two of you share. It shows under **Direct messages** (**Mensajes directos**), named for that person, and opening it again later takes you back to the same chat.
 4. Tap a staff member to open their private chat with the office, under **Private chats** (**Chats privados**). They read it as **Admin (Private)** (**Administración (privado)**), and every admin and supervisor can read and answer it.
-5. Type your message and tap the arrow beside the box. The other person gets an alert the way every chat alerts, and in a direct message the @ button tags them.
-Staff do not have **New message** (**Mensaje nuevo**); they write to the office in **Admin (Private)** (**Administración (privado)**).
-If it does not work: **No one matches that name.** (**Nadie tiene ese nombre.**) means nobody on the list has that name; check the spelling or type less of it. If a chat does not open, the list stays up with a line saying why, in OCSA's words or **That chat did not open. Try again.** (**Ese chat no se abrió. Intente de nuevo.**); tap the name again. **Close** (**Cerrar**) leaves the list. If **New message** (**Mensaje nuevo**) is not there, open another tab and come back to Chat; it shows once the list of people loads.
-Words people use for this: message another admin, message a supervisor, direct message, dm, new message, start a chat, write to a staff member first, find someone by name, message the office, mensaje nuevo, mensaje directo.
-Last checked: 2026-09-30
+5. Type your message and tap the arrow beside the box. The other person gets an alert the way every chat alerts. A direct message has no @ button, since every message in it already alerts the other person.
+Staff do not have **New message** (**Nuevo mensaje**); they write to the office in **Admin (Private)** (**Administración (privado)**).
+If it does not work: **No one matches that name.** (**Nadie tiene ese nombre.**) means nobody on the list has that name; check the spelling or type less of it. If a chat does not open, the list stays up with a line saying why, in OCSA's words or **That chat did not open. Try again.** (**Ese chat no se abrió. Intente de nuevo.**); tap the name again. **Close** (**Cerrar**) leaves the list. If **New message** (**Nuevo mensaje**) is not there, open another tab and come back to Chat; it shows once the list of people loads.
+Words people use for this: message another admin, message a supervisor, direct message, dm, new message, start a chat, write to a staff member first, find someone by name, message the office, nuevo mensaje, mensaje nuevo, mensaje directo.
+Last checked: 2026-10-01

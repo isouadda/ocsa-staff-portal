@@ -4345,9 +4345,10 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
     if (showFault) { retry(); return; }
     send(activeChannel, words, knownIds(), newSendId());
   };
-  // A site chat, the general chat and a direct chat can tag; a private
-  // chat cannot.
-  const canTag = !!active && !isDm;
+  // A site chat and the general chat can tag. A private chat and a direct
+  // chat cannot: in a direct chat a tag would only alert the one person
+  // every message there already alerts, and the dashboard has none.
+  const canTag = !!active && !isDm && active.type !== "direct";
   const loadMembers = async (id) => {
     setMembers({ of: id, state: "loading", list: [] });
     try {
