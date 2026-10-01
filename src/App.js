@@ -8605,6 +8605,8 @@ function wsTodoOf(x) {
     assigneeIds: Array.isArray(ids) ? ids : [],
     projectId: agentField(x, ["projectId", "project_id"], null),
     projectName: wsText(x, ["projectName", "project_name"]),
+    listId: agentField(x, ["listId", "list_id"], null),
+    notes: typeof x.notes === "string" ? x.notes.trim() : "",
   };
 }
 // Soonest due first, a to-do with no due date last, and otherwise in the
@@ -8694,20 +8696,23 @@ const wsOpenBtn = (t) => ({ display: "inline-flex", alignItems: "center", gap: 6
 
 // One to-do: a box to tick, its title, where it belongs or who has it,
 // and when it is due, in red once that day has gone by.
-function WsTodoRow({ todo, busy, onTick, showProject, t }) {
+function WsTodoRow({ todo, busy, onTick, onOpen, showProject, t }) {
   const late = wsOverdue(todo);
   const who = todo.assignees.map(a => a.name).join(", ");
+  // The words beside the box open the to-do's page, where there is one.
+  const Words = onOpen ? "button" : "div";
+  const open = onOpen ? { type: "button", onClick: () => onOpen(todo), style: { flex: 1, minWidth: 0, minHeight: TAP, display: "flex", alignItems: "flex-start", gap: 8, padding: "11px 0 10px", background: "none", border: "none", cursor: "pointer", color: t.text, textAlign: "left" } } : { style: { flex: 1, minWidth: 0, padding: "11px 0 10px" } };
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 2, padding: "2px 12px 2px 2px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + (late ? t.redBorder : t.borderSolid), boxShadow: t.shadow }}>
       <button type="button" role="checkbox" aria-checked={todo.done} aria-label={todo.title} aria-disabled={busy} onClick={() => { if (!busy) onTick(todo); }} style={mkTapFrame({ flexShrink: 0, cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1 })}>
         <span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (todo.done ? GREEN : late ? wsLateInk(t) : t.textMut), background: todo.done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{todo.done && <CheckIco sz={14} c={NAVY} />}</span>
       </button>
-      <div style={{ flex: 1, minWidth: 0, padding: "11px 0 10px" }}>
+      <Words {...open}><span style={{ display: "block", flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: todo.done ? t.textMut : t.text, textDecoration: todo.done ? "line-through" : "none", fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{todo.title}</div>
         {showProject && todo.projectName && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{todo.projectName}</div>}
         {!showProject && who && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{who}</div>}
         {todo.dueOn && <div style={{ fontSize: 12, marginTop: 2, color: late ? wsLateInk(t) : t.textMut, fontWeight: late ? 600 : 400 }}>{late ? tr("Overdue. Due {date}", { date: wsDueText(todo.dueOn) }) : tr("Due {date}", { date: wsDueText(todo.dueOn) })}</div>}
-      </div>
+      </span>{onOpen && <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 2 }} />}</Words>
     </div>
   );
 }
@@ -8716,11 +8721,12 @@ function WsTodoRow({ todo, busy, onTick, showProject, t }) {
 // soonest due first, then the projects. A tick asks first, since it marks
 // the to-do done for everyone on the project.
 function WorkspaceView({ token, user, projects, onProjects, at, onAt, channels, onOpenChat, showToast, t }) {
-  if (at && at.project) return <WsProject token={token} user={user} projectId={at.project} tool={at.tool || "board"} onTool={(tool) => onAt({ project: at.project, tool: tool })} onBack={() => onAt(null)} channels={channels} onOpenChat={onOpenChat} showToast={showToast} t={t} />;
-  return <WsHome token={token} projects={projects} onProjects={onProjects} onOpen={(id) => onAt({ project: id, tool: "board" })} showToast={showToast} t={t} />;
+  if (at && at.project) return <WsProject token={token} user={user} projectId={at.project} tool={at.tool || "board"} onTool={(tool) => onAt({ project: at.project, tool: tool })} todoId={at.tool === "todos" ? at.todo : null} onTodo={(id) => onAt({ project: at.project, tool: "todos", todo: id })} onBack={() => onAt(null)} channels={channels} onOpenChat={onOpenChat} showToast={showToast} t={t} />;
+  // A to-do in My assignments opens on its project's To-dos, at its page.
+  return <WsHome token={token} projects={projects} onProjects={onProjects} onOpen={(id) => onAt({ project: id, tool: "board" })} onOpenTodo={(x) => onAt({ project: x.projectId, tool: "todos", todo: x.id })} showToast={showToast} t={t} />;
 }
 
-function WsHome({ token, projects, onProjects, onOpen, showToast, t }) {
+function WsHome({ token, projects, onProjects, onOpen, onOpenTodo, showToast, t }) {
   const [mine, setMine] = useState(null);
   const [asked, setAsked] = useState(0);
   const [ticking, setTicking] = useState(null);
@@ -8763,7 +8769,7 @@ function WsHome({ token, projects, onProjects, onOpen, showToast, t }) {
       {!mine && <div style={{ fontSize: 13, color: t.textMut, marginBottom: 12 }}>{tr("Loading...")}</div>}
       {mine && mine.state === "failed" && <div style={{ marginBottom: 12 }}><ListFault icon={CheckIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} /></div>}
       {mine && mine.state === "ok" && mine.todos.length === 0 && <div style={quietSt}>{tr("Nothing is assigned to you right now.")}</div>}
-      {mine && mine.state === "ok" && mine.todos.map(todo => <WsTodoRow key={todo.id} todo={todo} busy={ticking === todo.id} onTick={tick} showProject t={t} />)}
+      {mine && mine.state === "ok" && mine.todos.map(todo => <WsTodoRow key={todo.id} todo={todo} busy={ticking === todo.id} onTick={tick} onOpen={todo.projectId !== null && todo.projectId !== undefined ? onOpenTodo : null} showProject t={t} />)}
       <div role="heading" aria-level={2} style={{ ...headSt, marginTop: 16 }}>{tr("Projects")}</div>
       {list.length === 0 && <div style={quietSt}>{tr("You are not in any project yet.")}</div>}
       {list.map(p => (
@@ -8807,7 +8813,7 @@ const wsQuiet = (t) => ({ padding: "16px 12px", marginBottom: 12, textAlign: "ce
 // One project: its name, its four tools, and the tool open. Chat opens
 // the project's own chat in Chat.
 const WS_TOOLS = [["board", "Message Board"], ["todos", "To-dos"], ["chat", "Chat"], ["files", "Files"]];
-function WsProject({ token, user, projectId, tool, onTool, onBack, channels, onOpenChat, showToast, t }) {
+function WsProject({ token, user, projectId, tool, onTool, todoId, onTodo, onBack, channels, onOpenChat, showToast, t }) {
   const [project, setProject] = useState(null);
   const [asked, setAsked] = useState(0);
   const [noChat, setNoChat] = useState(false);
@@ -8827,7 +8833,7 @@ function WsProject({ token, user, projectId, tool, onTool, onBack, channels, onO
     })();
     return () => { live = false; };
   }, [projectId, asked]);
-  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [projectId, tool]);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [projectId, tool, todoId]);
   useEffect(() => { setNoChat(false); }, [projectId, tool]);
   const back = <WsBack label={tr("Workspace")} onBack={onBack} t={t} />;
   const here = project && project.id === projectId ? project : null;
@@ -8857,7 +8863,7 @@ function WsProject({ token, user, projectId, tool, onTool, onBack, channels, onO
       </div>
       {noChat && <div role="status" style={{ ...wsQuiet(t), textAlign: "left" }}>{tr("This project's chat is not on your chat list yet. Try again in a minute.")}</div>}
       {tool === "board" && <WsBoard key={projectId} token={token} user={user} projectId={projectId} members={here.members} showToast={showToast} t={t} />}
-      {tool === "todos" && <WsTodos key={projectId} token={token} projectId={projectId} members={here.members} showToast={showToast} t={t} />}
+      {tool === "todos" && <WsTodos key={projectId} token={token} user={user} projectId={projectId} members={here.members} openId={todoId || null} onOpenId={onTodo} showToast={showToast} t={t} />}
       {tool === "files" && <WsFiles key={projectId} token={token} projectId={projectId} showToast={showToast} t={t} />}
     </div>
   );
@@ -8936,32 +8942,16 @@ function WsBoard({ token, user, projectId, members, showToast, t }) {
 
 // One post, whole, with its comments and a box to add one. Typing @ at
 // the start of a word, or the @ button, tags a member of the project.
-function WsPost({ token, user, postId, members, onBack, t }) {
-  const [post, setPost] = useState(null);
-  const [asked, setAsked] = useState(0);
+// The comments on a post or a to-do, and a box to add one. Typing @ at
+// the start of a word, or the @ button, tags a member of the project, and
+// the ids of the people still tagged go with the comment.
+function WsComments({ token, user, subjectType, subjectId, members, comments, onAdded, t }) {
   const [text, setText] = useState("");
   const [picked, setPicked] = useState([]);
   const [tagOpen, setTagOpen] = useState(null);
   const [sending, setSending] = useState(false);
   const [fault, setFault] = useState(null);
   useBusy("workspace comment", text.trim().length > 0 || sending);
-  useEffect(() => {
-    let live = true;
-    (async () => {
-      try {
-        const d = await api(wsPath("/posts/" + encodeURIComponent(postId)), { token });
-        const raw = d && typeof d === "object" && d.post && typeof d.post === "object" ? d.post : d;
-        const x = wsPostOf(raw);
-        if (!x) throw new Error(ERR_GENERIC);
-        const comments = (wsRows(d, "comments") || wsRows(raw, "comments") || []).map(c => wsCommentOf(c, members)).filter(Boolean);
-        if (live) setPost({ state: "ok", post: x, comments: comments });
-      } catch (err) {
-        if (live) setPost(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: wsFaultWords(err, "This message did not open. Try again.") }));
-      }
-    })();
-    return () => { live = false; };
-  }, [postId, asked]);
-  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [postId]);
   const others = members.filter(m => !user || String(m.id) !== String(user.id));
   const onType = (next) => {
     const v = next.slice(0, WS_COMMENT_MAX);
@@ -8985,7 +8975,7 @@ function WsPost({ token, user, postId, members, onBack, t }) {
     const words = text.trim();
     if (!words || sending) return;
     setSending(true); setFault(null);
-    const body = { subjectType: "post", subjectId: postId, body: words };
+    const body = { subjectType: subjectType, subjectId: subjectId, body: words };
     const tags = mentionIdsIn(words, picked);
     if (tags.length > 0) body.mentions = tags;
     try {
@@ -8993,33 +8983,23 @@ function WsPost({ token, user, postId, members, onBack, t }) {
       const c = d && typeof d === "object" ? wsCommentOf(d.comment && typeof d.comment === "object" ? d.comment : d, members) : null;
       setText(prev => (prev.trim() === words ? "" : prev));
       setPicked([]);
-      if (c) setPost(prev => (prev && prev.state === "ok" ? { ...prev, comments: prev.comments.concat([c]) } : prev));
-      else setAsked(n => n + 1);
+      onAdded(c);
     } catch (err) {
       setFault(wsFaultWords(err, "Your comment was not added. Try again."));
     } finally { setSending(false); }
   };
-  const back = <WsBack label={tr("All messages")} onBack={onBack} t={t} />;
-  if (!post) return <div>{back}<div style={{ fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div></div>;
-  if (post.state === "failed") return <div>{back}<ListFault icon={DocIco} text={post.said} onRetry={() => setAsked(n => n + 1)} t={t} /></div>;
-  const x = post.post;
   const ready = text.trim().length > 0 && !sending;
   return (
     <div>
-      {back}
-      {x.pinned && <div style={{ display: "inline-block", fontSize: 10, fontWeight: 600, padding: "2px 7px", marginBottom: 6, borderRadius: R.sm, background: t.goldBg, color: t.goldText, fontFamily: FONT_HEAD }}>{tr("Pinned")}</div>}
-      <div role="heading" aria-level={2} style={{ fontSize: 17, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{x.title}</div>
-      <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{[x.author, wsWhen(x.at)].filter(Boolean).join(", ")}</div>
-      <div style={{ marginTop: 12, padding: "12px", borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, fontSize: 14, color: t.text, lineHeight: 1.55, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{x.body}</div>
       <div role="heading" aria-level={3} style={{ ...mkLabel(t), marginTop: 16, marginBottom: 8 }}>{tr("Comments")}</div>
-      {post.comments.length === 0 && <div style={wsQuiet(t)}>{tr("No comments yet.")}</div>}
-      {post.comments.map(c => {
+      {comments.length === 0 && <div style={wsQuiet(t)}>{tr("No comments yet.")}</div>}
+      {comments.map(c => {
         const forMe = tagsPerson(c, user && user.id);
         const parts = mentionParts(c.body, c.mentions);
         return (
           <div key={c.id} style={{ padding: "10px 12px", marginBottom: 8, borderRadius: R.md, background: forMe ? t.goldBg : t.card, border: "1px solid " + (forMe ? t.goldBorder : t.borderSolid) }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{[c.author, wsWhen(c.at)].filter(Boolean).join(", ")}</div>
-            <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5, marginTop: 3, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{parts.map((s, i) => (i % 2 === 1 ? <span key={i} style={{ fontWeight: 600, color: t.goldText }}>{s}</span> : s))}</div>
+            <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5, marginTop: 3, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{parts.map((x, i) => (i % 2 === 1 ? <span key={i} style={{ fontWeight: 600, color: t.goldText }}>{x}</span> : x))}</div>
           </div>
         );
       })}
@@ -9042,10 +9022,111 @@ function WsPost({ token, user, postId, members, onBack, t }) {
   );
 }
 
+// One post, whole, with its comments and a box to add one.
+function WsPost({ token, user, postId, members, onBack, t }) {
+  const [post, setPost] = useState(null);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const d = await api(wsPath("/posts/" + encodeURIComponent(postId)), { token });
+        const raw = d && typeof d === "object" && d.post && typeof d.post === "object" ? d.post : d;
+        const x = wsPostOf(raw);
+        if (!x) throw new Error(ERR_GENERIC);
+        const comments = (wsRows(d, "comments") || wsRows(raw, "comments") || []).map(c => wsCommentOf(c, members)).filter(Boolean);
+        if (live) setPost({ state: "ok", post: x, comments: comments });
+      } catch (err) {
+        if (live) setPost(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: wsFaultWords(err, "This message did not open. Try again.") }));
+      }
+    })();
+    return () => { live = false; };
+  }, [postId, asked]);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [postId]);
+  const back = <WsBack label={tr("All messages")} onBack={onBack} t={t} />;
+  if (!post) return <div>{back}<div style={{ fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div></div>;
+  if (post.state === "failed") return <div>{back}<ListFault icon={DocIco} text={post.said} onRetry={() => setAsked(n => n + 1)} t={t} /></div>;
+  const x = post.post;
+  const added = (c) => { if (c) setPost(prev => (prev && prev.state === "ok" ? { ...prev, comments: prev.comments.concat([c]) } : prev)); else setAsked(n => n + 1); };
+  return (
+    <div>
+      {back}
+      {x.pinned && <div style={{ display: "inline-block", fontSize: 10, fontWeight: 600, padding: "2px 7px", marginBottom: 6, borderRadius: R.sm, background: t.goldBg, color: t.goldText, fontFamily: FONT_HEAD }}>{tr("Pinned")}</div>}
+      <div role="heading" aria-level={2} style={{ fontSize: 17, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{x.title}</div>
+      <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{[x.author, wsWhen(x.at)].filter(Boolean).join(", ")}</div>
+      <div style={{ marginTop: 12, padding: "12px", borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, fontSize: 14, color: t.text, lineHeight: 1.55, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{x.body}</div>
+      <WsComments token={token} user={user} subjectType="post" subjectId={postId} members={members} comments={post.comments} onAdded={added} t={t} />
+    </div>
+  );
+}
+
+// One to-do's page: its title, notes, who has it, when it is due and
+// whether it is done, ticked the way its row is, and its comments from
+// GET /todos/:todoId with a box to add one. An API without that route
+// answers 404, and the page then shows the to-do as its list has it, with
+// no comments.
+function WsTodo({ token, user, todoId, listed, listName, members, busy, onTick, onBack, t }) {
+  const [detail, setDetail] = useState(null);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const d = await api(wsPath("/todos/" + encodeURIComponent(todoId)), { token });
+        const raw = d && typeof d === "object" && d.todo && typeof d.todo === "object" ? d.todo : d;
+        const x = wsTodoOf(raw);
+        if (!x) throw new Error(ERR_GENERIC);
+        const comments = (wsRows(raw, "comments") || wsRows(d, "comments") || []).map(c => wsCommentOf(c, members)).filter(Boolean);
+        if (live) setDetail({ state: "ok", todo: x, comments: comments });
+      } catch (err) {
+        if (!live) return;
+        if (err && err.status === 404) setDetail({ state: "none" });
+        else setDetail(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: wsFaultWords(err, "This list did not load.") }));
+      }
+    })();
+    return () => { live = false; };
+  }, [todoId, asked]);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [todoId]);
+  const back = <WsBack label={tr("All to-dos")} onBack={onBack} t={t} />;
+  const fresh = detail && detail.state === "ok" ? detail.todo : null;
+  // What the page shows: the to-do the route sent, ticked as its list has
+  // it now, or the list's own while the route has not answered.
+  const base = fresh ? { ...fresh, done: listed ? listed.done : fresh.done } : listed;
+  if (!base) {
+    if (!detail) return <div>{back}<div style={{ fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div></div>;
+    return <div>{back}<ListFault icon={CheckIco} text={tr("This to-do did not open. Try again.")} onRetry={() => setAsked(n => n + 1)} t={t} /></div>;
+  }
+  const todo = base.assignees.length > 0 ? base : { ...base, assignees: base.assigneeIds.map(id => members.find(m => String(m.id) === String(id))).filter(Boolean) };
+  const late = wsOverdue(todo);
+  const who = todo.assignees.map(a => a.name).join(", ");
+  const rowSt = { padding: "10px 12px", borderTop: "1px solid " + t.borderSolid };
+  const keySt = { ...mkLabel(t), marginBottom: 2 };
+  const added = (c) => { if (c) setDetail(prev => (prev && prev.state === "ok" ? { ...prev, comments: prev.comments.concat([c]) } : prev)); else setAsked(n => n + 1); };
+  return (
+    <div>
+      {back}
+      {listName && <div style={{ fontSize: 12, color: t.textSec, marginBottom: 4, overflowWrap: "anywhere" }}>{listName}</div>}
+      <div role="heading" aria-level={2} style={{ fontSize: 17, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{todo.title}</div>
+      <div style={{ marginTop: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, overflow: "hidden" }}>
+        <button type="button" role="checkbox" aria-checked={todo.done} aria-disabled={busy} onClick={() => { if (!busy) onTick(todo); }} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "none", border: "none", cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1, color: t.text, textAlign: "left" }}>
+          <span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (todo.done ? GREEN : late ? wsLateInk(t) : t.textMut), background: todo.done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{todo.done && <CheckIco sz={14} c={NAVY} />}</span>
+          <span style={{ fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD }}>{todo.done ? tr("Done") : tr("Not done yet")}</span>
+        </button>
+        <div style={rowSt}><div style={keySt}>{tr("Assigned to")}</div><div style={{ fontSize: 14, color: who ? t.text : t.textMut, overflowWrap: "anywhere" }}>{who || tr("Nobody yet")}</div></div>
+        <div style={rowSt}><div style={keySt}>{tr("Due date")}</div><div style={{ fontSize: 14, color: late ? wsLateInk(t) : todo.dueOn ? t.text : t.textMut, fontWeight: late ? 600 : 400 }}>{todo.dueOn ? (late ? tr("Overdue. Due {date}", { date: wsDueText(todo.dueOn) }) : wsDueText(todo.dueOn)) : tr("No due date")}</div></div>
+        {todo.notes && <div style={rowSt}><div style={keySt}>{tr("Notes")}</div><div style={{ fontSize: 14, color: t.text, lineHeight: 1.5, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{todo.notes}</div></div>}
+      </div>
+      {!detail && <div style={{ fontSize: 13, color: t.textMut, marginTop: 16 }}>{tr("Loading...")}</div>}
+      {detail && detail.state === "failed" && <div style={{ marginTop: 16 }}><ListFault icon={ChatIco} text={detail.said} onRetry={() => setAsked(n => n + 1)} t={t} /></div>}
+      {fresh && <WsComments token={token} user={user} subjectType="todo" subjectId={todoId} members={members} comments={detail.comments} onAdded={added} t={t} />}
+    </div>
+  );
+}
+
 // The project's to-dos, list by list, open ones first and done ones last,
 // the order the API sends. A tick that marks one done asks first; a tick
 // that opens one again does not. Add a to-do puts one on that list.
-function WsTodos({ token, projectId, members, showToast, t }) {
+function WsTodos({ token, user, projectId, members, openId, onOpenId, showToast, t }) {
   const [lists, setLists] = useState(null);
   const [asked, setAsked] = useState(0);
   const [ticking, setTicking] = useState(null);
@@ -9095,6 +9176,12 @@ function WsTodos({ token, projectId, members, showToast, t }) {
       setDraft(d => (d ? { ...d, saving: false, fault: wsFaultWords(err, "That to-do was not added. Try again.") } : d));
     }
   };
+  if (openId) {
+    // The to-do as its list has it, while the lists are on the screen.
+    let listed = null, listName = "";
+    (lists && lists.state === "ok" ? lists.rows : []).forEach(l => { const hit = l.todos.find(x => String(x.id) === String(openId)); if (hit) { listed = hit; listName = l.name; } });
+    return <WsTodo token={token} user={user} todoId={openId} listed={listed} listName={listName} members={members} busy={ticking === openId} onTick={tick} onBack={() => { onOpenId(null); setAsked(n => n + 1); }} t={t} />;
+  }
   if (!lists) return <div style={{ fontSize: 13, color: t.textMut, marginBottom: 12 }}>{tr("Loading...")}</div>;
   if (lists.state === "failed") return <ListFault icon={CheckIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />;
   if (lists.rows.length === 0) return <div style={wsQuiet(t)}>{tr("This project has no to-do lists yet.")}</div>;
@@ -9104,7 +9191,7 @@ function WsTodos({ token, projectId, members, showToast, t }) {
         <div key={l.id} style={{ marginBottom: 16 }}>
           {l.name && <div role="heading" aria-level={2} style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 8, overflowWrap: "anywhere" }}>{l.name}</div>}
           {l.todos.length === 0 && <div style={wsQuiet(t)}>{tr("Nothing on this list yet.")}</div>}
-          {l.todos.map(todo => <WsTodoRow key={todo.id} todo={named(todo)} busy={ticking === todo.id} onTick={tick} t={t} />)}
+          {l.todos.map(todo => <WsTodoRow key={todo.id} todo={named(todo)} busy={ticking === todo.id} onTick={tick} onOpen={(x) => onOpenId(x.id)} t={t} />)}
           <button type="button" onClick={() => setDraft({ listId: l.id, listName: l.name, title: "", who: "", due: "", saving: false, fault: null })} aria-haspopup="dialog" style={{ ...wsOpenBtn(t), marginBottom: 0 }}><PlusIco sz={14} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("Add a to-do")}</span></button>
         </div>
       ))}
