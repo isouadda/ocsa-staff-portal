@@ -758,3 +758,13 @@ Tasks,Tareas,Tâches,Bar and More
 {n}d,{n} d,{n} j,notifAgo
 {n}h,{n} h,{n} h,notifAgo
 {n}m,{n} min,{n} min,notifAgo
+Safety data sheets,Hojas de datos de seguridad,Fiches de données de sécurité,"Bar and More, Safety data sheets"
+Search by product,Buscar por producto,Rechercher par produit,Safety data sheets
+Revised {date},Revisada el {date},Révisée le {date},"Safety data sheets, the list and a sheet"
+No sheet matches that product.,Ninguna hoja coincide con ese producto.,Aucune fiche ne correspond à ce produit.,"Safety data sheets, a search with no match"
+Every sheet is also in the printed binder at the site.,Todas las hojas también están en la carpeta impresa del sitio.,Chaque fiche se trouve aussi dans le classeur imprimé du site.,"Safety data sheets, under the list and a sheet"
+Saved on this phone. Last read {when}.,Guardada en este teléfono. Leída por última vez: {when}.,Enregistrée sur ce téléphone. Dernière lecture : {when}.,"Safety data sheets, a copy kept on the phone, shown with no signal"
+All sheets,Todas las hojas,Toutes les fiches,"Safety data sheets, back from a sheet"
+"This sheet is in English, as the manufacturer wrote it. Help in the app can explain any part of it in your language.","Esta hoja está en inglés, como la escribió el fabricante. Ayuda, en la aplicación, puede explicarle cualquier parte en su idioma.","Cette fiche est en anglais, telle que le fabricant l'a rédigée. L'Aide de l'application peut vous en expliquer chaque partie dans votre langue.","Safety data sheets, under a sheet's title"
+Safety data sheets are not available here yet. The printed binder at the site holds every sheet.,Las hojas de datos de seguridad todavía no están disponibles aquí. La carpeta impresa del sitio tiene todas las hojas.,Les fiches de données de sécurité ne sont pas encore disponibles ici. Le classeur imprimé du site contient toutes les fiches.,"Safety data sheets, when OCSA has none to give"
+"This sheet did not open. Check your signal, or use the printed binder at the site.",Esta hoja no se abrió. Revise su señal o use la carpeta impresa del sitio.,Cette fiche ne s'est pas ouverte. Vérifiez votre réseau ou utilisez le classeur imprimé du site.,"Safety data sheets, a sheet with no signal and no copy kept"

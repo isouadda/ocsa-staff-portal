@@ -777,6 +777,7 @@ const PersonIco = (p) => <Ico d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a
 const GearIco = (p) => <Ico d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" {...p} />;
 const BellIco = (p) => <Ico d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0" {...p} />;
 const DocIco = (p) => <Ico d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h4" {...p} />;
+const DropIco = (p) => <Ico d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
 // Every destination the portal has, in one list, so the bottom bar and the
@@ -798,6 +799,9 @@ const DESTINATIONS = [
   { id: "speakup", label: () => "Speak Up", icon: PersonIco },
   { id: "settings", label: () => "Settings", icon: GearIco },
   { id: "forms", label: () => "Forms", icon: DocIco },
+  // Under More alone, never on the bar, and only once the API has a list
+  // of safety data sheets to give, or this phone kept one (Step 215).
+  { id: "sds", label: () => "Safety data sheets", icon: DropIco, moreOnly: true, role: (ctx) => !!ctx.sds },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
 
@@ -810,10 +814,13 @@ const SHORTCUTS_KEY_PREFIX = "ocsa-staff-shortcuts:";
 const shortcutsKey = (userId) => SHORTCUTS_KEY_PREFIX + String(userId || "");
 
 // Which destinations this person may put on the bar. Home is not one of
-// them, and a destination their role cannot open is not either.
+// them, a destination their role cannot open is not either, and nor is
+// one that lives under More alone.
 function shortcutChoicesFor(ctx) {
-  return DESTINATIONS.filter(d => !d.home && (!d.role || d.role(ctx)));
+  return DESTINATIONS.filter(d => !d.home && !d.moreOnly && (!d.role || d.role(ctx)));
 }
+// The places only More offers, that this person can open now.
+const moreOnlyFor = (ctx) => DESTINATIONS.filter(d => d.moreOnly && (!d.role || d.role(ctx)));
 
 // A stored layout is trusted only if it is exactly four known, distinct ids
 // this person can open. Anything else reads as null, and the caller falls
@@ -2018,7 +2025,12 @@ export default function OCSAStaffPortal() {
   // The person's own four places between Home and More. Read on the first
   // render after they are known, so the bar never shows the default and
   // then swaps to theirs.
-  const destCtx = { isAdmin };
+  // The safety data sheets list, read once the portal is up. More offers
+  // them once it holds sheets, from the API or kept on this phone.
+  const [sdsList, setSdsList] = useState(null);
+  useEffect(() => { if (token && screen === "main") readSdsList().then(setSdsList); }, [token, screen]);
+  const [sdsCode, setSdsCode] = useState(null);
+  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0 };
   const shortcutChoices = shortcutChoicesFor(destCtx);
   const allowedShortcutIds = shortcutChoices.map(d => d.id);
   const uid = user && user.id ? user.id : null;
@@ -2252,7 +2264,7 @@ export default function OCSAStaffPortal() {
   // Home first, then the four, then More. Whatever is not on the bar is
   // under More, so nothing can be hidden from a person entirely.
   const primaryTabs = [DESTINATIONS.find(d => d.home)].concat(shortcuts.map(destById)).filter(Boolean).map(tabOf);
-  const moreTabs = shortcutChoices.filter(d => shortcuts.indexOf(d.id) === -1).map(tabOf);
+  const moreTabs = shortcutChoices.filter(d => shortcuts.indexOf(d.id) === -1).concat(moreOnlyFor(destCtx)).map(tabOf);
   const moreTabIds = moreTabs.map(t => t.id);
   const isMoreActive = moreTabIds.includes(activeTab);
   // The count on More is what is waiting under More. With Assigned on the
@@ -2344,6 +2356,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
+              {activeTab === "sds" && <div style={{ padding: 16 }}><SdsBrowser initial={sdsList} onList={setSdsList} code={sdsCode} onCode={setSdsCode} t={t} /></div>}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
               {activeTab === "phonealerts" && <PhoneAlertsView token={token} t={t} onBack={() => setActiveTab("settings")} />}
@@ -4526,6 +4539,205 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// --- Safety data sheets -------------------------------------------------
+// The manufacturer's sheet for each product OCSA cleans with, from the
+// API's public routes (Step 215): GET /api/sds lists them and
+// GET /api/sds/:code reads one. No token goes with either, so the screen
+// under More and the page the closet QR opens read the same thing. A
+// sheet's own words are the manufacturer's English in every language.
+//
+// The list and every sheet opened are kept on this phone, one key each,
+// written only from a good answer, so a sheet opened once opens again
+// with no signal. A kept copy is drawn only when the API cannot be
+// reached. An answer that holds no list (a 404, or the audit stub's
+// { ok: true }) forgets every copy, since the API has none to offer.
+const SDS_LIST_KEY = "ocsa-sds-list";
+const SDS_SHEET_PREFIX = "ocsa-sds-sheet:";
+const sdsText = (v) => (typeof v === "string" ? v.trim() : "");
+// The list, or null for an answer that holds none.
+const sdsListOf = (d) => (d && Array.isArray(d.sheets)
+  ? d.sheets.filter(s => s && sdsText(s.code)).map(s => ({ code: sdsText(s.code), product: sdsText(s.product) || sdsText(s.code), maker: sdsText(s.maker), revised: sdsText(s.revised) }))
+  : null);
+// One sheet, or null for an answer that is not one. The library starts
+// each section's title with the product and its maker, so a section read
+// on its own is still named; the sheet's heading already says both, so
+// that lead is left off each section here.
+function sdsSheetOf(d, code) {
+  if (!d || typeof d !== "object" || !Array.isArray(d.sections)) return null;
+  const product = sdsText(d.product), maker = sdsText(d.maker);
+  const leads = product ? [product + ", " + maker + ":", product + ":"] : [];
+  const sections = d.sections.filter(x => x && typeof x === "object").map((x, i) => {
+    let title = sdsText(x.title);
+    for (const lead of leads) {
+      if (title.length > lead.length && title.toLowerCase().indexOf(lead.toLowerCase()) === 0) { title = title.slice(lead.length).trim(); break; }
+    }
+    return { ref: x.ref === undefined || x.ref === null ? String(i) : String(x.ref), title: title, content: typeof x.content === "string" ? x.content : "" };
+  });
+  return { code: sdsText(d.code) || code, product: product || sdsText(d.code) || code, maker: maker, revised: sdsText(d.revised), sections: sections };
+}
+// A kept copy: what the API last answered and when. Every read and write
+// in try and catch; a storage that throws keeps nothing.
+function readKeptSds(key) {
+  try { const v = JSON.parse(window.localStorage.getItem(key) || "null"); return v && typeof v.at === "number" && v.data ? v : null; } catch (e) { return null; }
+}
+function keepSds(key, data) {
+  try { window.localStorage.setItem(key, JSON.stringify({ at: Date.now(), data: data })); } catch (e) {}
+}
+function forgetSds(code) {
+  try {
+    const ls = window.localStorage;
+    if (code) { ls.removeItem(SDS_SHEET_PREFIX + code); return; }
+    const gone = [];
+    for (let i = 0; i < ls.length; i++) { const k = ls.key(i); if (k === SDS_LIST_KEY || (k && k.indexOf(SDS_SHEET_PREFIX) === 0)) gone.push(k); }
+    gone.forEach(k => ls.removeItem(k));
+  } catch (e) {}
+}
+// A 404 that carries no code is a route the API does not have yet.
+const sdsRouteMissing = (err) => !!err && err.status === 404 && err.code !== "sds.notFound";
+// The list as it can be drawn: "ok" with the API's own; "kept" with this
+// phone's copy when the API could not be reached, with when it was read;
+// "none" when the API holds no list, or could not be reached and nothing
+// is kept.
+async function readSdsList() {
+  try {
+    const list = sdsListOf(await api("/api/sds?locale=" + languageToSend(), { noAuthEvent: true }));
+    if (list) { keepSds(SDS_LIST_KEY, list); return { state: "ok", sheets: list, at: null }; }
+    forgetSds();
+  } catch (err) {
+    if (sdsRouteMissing(err)) forgetSds();
+    else {
+      const kept = readKeptSds(SDS_LIST_KEY);
+      const list = kept ? sdsListOf({ sheets: kept.data }) : null;
+      if (list) return { state: "kept", sheets: list, at: kept.at };
+    }
+  }
+  return { state: "none", sheets: [], at: null };
+}
+// One sheet the same way, and "gone" with the API's own words for a code
+// it does not know, or "failed" for a sheet that could not be reached and
+// was never kept.
+async function readSdsSheet(code) {
+  try {
+    const d = await api("/api/sds/" + encodeURIComponent(code) + "?locale=" + languageToSend(), { noAuthEvent: true });
+    const sheet = sdsSheetOf(d, code);
+    if (sheet) { keepSds(SDS_SHEET_PREFIX + code, d); return { state: "ok", sheet: sheet, at: null }; }
+    forgetSds();
+    return { state: "none" };
+  } catch (err) {
+    if (sdsRouteMissing(err)) { forgetSds(); return { state: "none" }; }
+    if (err && err.status === 404) { forgetSds(code); return { state: "gone", said: sdsText(err.message) || tr(ERR_GENERIC) }; }
+    const kept = readKeptSds(SDS_SHEET_PREFIX + code);
+    const sheet = kept ? sdsSheetOf(kept.data, code) : null;
+    return sheet ? { state: "kept", sheet: sheet, at: kept.at } : { state: "failed" };
+  }
+}
+const SDS_NONE = "Safety data sheets are not available here yet. The printed binder at the site holds every sheet.";
+// When a kept copy was read, the day and the time.
+const sdsReadAt = (ms) => new Date(ms).toLocaleString(dateLocale(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+// The list, a search by product, and a sheet opened from it with each
+// section a heading that opens and closes, the first two open. Drawn the
+// same under More and on the page the closet QR opens. initial is a list
+// already read, drawn while this one reads its own; onList hears every
+// read, so More can follow it. code is the sheet open, and onCode moves
+// it.
+function SdsBrowser({ initial, onList, code, onCode, t }) {
+  const [list, setList] = useState(initial || null);
+  const [listAsked, setListAsked] = useState(0);
+  const [query, setQuery] = useState("");
+  const [sheet, setSheet] = useState(null);
+  const [sheetAsked, setSheetAsked] = useState(0);
+  // The sections open on the sheet drawn, the first two when it comes.
+  const [opened, setOpened] = useState({ code: null, refs: {} });
+  useEffect(() => {
+    let live = true;
+    (async () => { const r = await readSdsList(); if (!live) return; setList(r); if (onList) onList(r); })();
+    return () => { live = false; };
+  }, [listAsked]);
+  useEffect(() => {
+    if (!code) { setSheet(null); return undefined; }
+    let live = true;
+    setSheet(prev => (prev && prev.code === code && prev.sheet ? prev : { code: code, state: "loading" }));
+    (async () => {
+      const r = await readSdsSheet(code);
+      if (!live) return;
+      setSheet(Object.assign({ code: code }, r));
+      if (r.sheet) setOpened(prev => (prev.code === code ? prev : { code: code, refs: r.sheet.sections.slice(0, 2).reduce((o, x) => { o[x.ref] = true; return o; }, {}) }));
+    })();
+    return () => { live = false; };
+  }, [code, sheetAsked]);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [code]);
+
+  const titleSt = { fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 12 };
+  const noteSt = { fontSize: 12, color: t.textSec, lineHeight: 1.5 };
+  const boxSt = { display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid };
+  const retryBtn = (go) => <button type="button" onClick={go} style={{ minHeight: TAP, marginTop: 14, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button>;
+  const keptLine = (at) => <div role="status" style={boxSt}><ClockIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ ...noteSt, minWidth: 0 }}>{tr("Saved on this phone. Last read {when}.", { when: sdsReadAt(at) })}</div></div>;
+  const lineCard = (words, go) => (<div style={{ padding: "24px 18px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><DropIco sz={32} c={t.borderSolid} /><div role="alert" style={{ fontSize: 14, color: t.textSec, marginTop: 12, lineHeight: 1.5, fontFamily: FONT_HEAD }}>{words}</div>{go && retryBtn(go)}</div>);
+  const revisedOf = (s) => (s.revised ? tr("Revised {date}", { date: ackDay(s.revised) || s.revised }) : "");
+
+  if (code) {
+    const back = <button type="button" onClick={() => onCode(null)} style={{ ...mkTapFrame({ justifyContent: "flex-start", gap: 6, marginBottom: 6, color: t.goldText, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD }) }}><ChevIco sz={16} c={t.goldText} style={{ transform: "rotate(180deg)", flexShrink: 0 }} />{tr("All sheets")}</button>;
+    if (!sheet || sheet.state === "loading") return <div>{back}<div style={{ fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div></div>;
+    if (sheet.state === "none") return <div>{back}{lineCard(tr(SDS_NONE), () => setSheetAsked(n => n + 1))}</div>;
+    if (sheet.state === "gone") return <div>{back}{lineCard(sheet.said, null)}</div>;
+    if (sheet.state === "failed") return <div>{back}{lineCard(tr("This sheet did not open. Check your signal, or use the printed binder at the site."), () => setSheetAsked(n => n + 1))}</div>;
+    const s = sheet.sheet;
+    return (
+      <div>
+        {back}
+        <div lang="en" role="heading" aria-level={1} style={{ fontSize: 18, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{s.product}</div>
+        {s.maker && <div lang="en" style={{ fontSize: 13, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{s.maker}</div>}
+        {s.revised && <div style={{ fontSize: 12, color: t.textMut, marginTop: 2 }}>{revisedOf(s)}</div>}
+        <div style={{ height: 12 }} />
+        {sheet.state === "kept" && keptLine(sheet.at)}
+        <div style={{ ...boxSt, background: t.goldSubtle, border: "1px solid " + t.goldBorder }}><HelpIco sz={16} c={t.goldText} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ ...noteSt, color: t.text, minWidth: 0 }}>{tr("This sheet is in English, as the manufacturer wrote it. Help in the app can explain any part of it in your language.")}</div></div>
+        {s.sections.map((x, i) => {
+          const open = opened.code === code && !!opened.refs[x.ref];
+          const id = "ocsa-sds-section-" + i;
+          return (
+            <div key={x.ref + "-" + i} style={{ marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + (open ? t.goldBorder : t.borderSolid) }}>
+              <div role="heading" aria-level={2}>
+                <button type="button" onClick={() => setOpened(prev => ({ code: code, refs: Object.assign({}, prev.code === code ? prev.refs : {}, { [x.ref]: !open }) }))} aria-expanded={open} aria-controls={id} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "transparent", border: "none", cursor: "pointer", color: t.text, textAlign: "left" }}>
+                  <span lang="en" style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{x.title || tr("Section {n}", { n: i + 1 })}</span>
+                  <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s ease" }} />
+                </button>
+              </div>
+              {open && <div id={id} lang="en" style={{ padding: "0 12px 12px", fontSize: 13, color: t.text, lineHeight: 1.55, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{x.content}</div>}
+            </div>
+          );
+        })}
+        <div style={{ ...noteSt, color: t.textMut, marginTop: 8 }}>{tr("Every sheet is also in the printed binder at the site.")}</div>
+      </div>
+    );
+  }
+
+  if (!list) return <div><div role="heading" aria-level={1} style={titleSt}>{tr("Safety data sheets")}</div><div style={{ fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div></div>;
+  if (list.state === "none" || list.sheets.length === 0) return <div><div role="heading" aria-level={1} style={titleSt}>{tr("Safety data sheets")}</div>{lineCard(tr(SDS_NONE), () => { setList(null); setListAsked(n => n + 1); })}</div>;
+  const needle = query.trim().toLowerCase();
+  const rows = list.sheets.filter(s => !needle || s.product.toLowerCase().indexOf(needle) !== -1 || s.maker.toLowerCase().indexOf(needle) !== -1);
+  return (
+    <div>
+      <div role="heading" aria-level={1} style={titleSt}>{tr("Safety data sheets")}</div>
+      {list.state === "kept" && keptLine(list.at)}
+      <input type="text" value={query} onChange={e => setQuery(e.target.value.slice(0, 80))} placeholder={tr("Search by product")} aria-label={tr("Search by product")} style={{ ...mkInput(t), marginBottom: 10 }} />
+      {rows.map(s => (
+        <button key={s.code} type="button" onClick={() => onCode(s.code)} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
+          <DropIco sz={18} c={t.goldText} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span lang="en" style={{ display: "block", fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{s.product}</span>
+            {s.maker && <span lang="en" style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{s.maker}</span>}
+            {s.revised && <span style={{ display: "block", fontSize: 11, color: t.textMut, marginTop: 2 }}>{revisedOf(s)}</span>}
+          </span>
+          <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0 }} />
+        </button>
+      ))}
+      {rows.length === 0 && <div style={{ padding: "16px 4px", textAlign: "center", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("No sheet matches that product.")}</div>}
+      <div style={{ ...noteSt, color: t.textMut, marginTop: 8 }}>{tr("Every sheet is also in the printed binder at the site.")}</div>
     </div>
   );
 }
