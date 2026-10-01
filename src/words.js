@@ -444,7 +444,7 @@ export const WORDS = {
   "You cannot send messages in this chat.": "No puede enviar mensajes en este chat.",
   "Your chats did not load. Try again in a minute.": "Sus chats no cargaron. Intente de nuevo en un minuto.",
   "Your message was not sent.": "Su mensaje no fue enviado.",
-  "New message": "Mensaje nuevo",
+  "New message": "Nuevo mensaje",
   "Office": "Oficina",
   "That chat did not open. Try again.": "Ese chat no se abri\u00f3. Intente de nuevo.",
   "Direct messages": "Mensajes directos",
@@ -913,6 +913,17 @@ export const WORDS = {
   "{n}d": "{n} d",
   "{n}h": "{n} h",
   "{n}m": "{n} min",
+  // Safety data sheets
+  "Safety data sheets": "Hojas de datos de seguridad",
+  "Search by product": "Buscar por producto",
+  "Revised {date}": "Revisada el {date}",
+  "No sheet matches that product.": "Ninguna hoja coincide con ese producto.",
+  "Every sheet is also in the printed binder at the site.": "Todas las hojas tambi\u00e9n est\u00e1n en la carpeta impresa del sitio.",
+  "Saved on this phone. Last read {when}.": "Guardada en este tel\u00e9fono. Le\u00edda por \u00faltima vez: {when}.",
+  "All sheets": "Todas las hojas",
+  "This sheet is in English, as the manufacturer wrote it. Help in the app can explain any part of it in your language.": "Esta hoja est\u00e1 en ingl\u00e9s, como la escribi\u00f3 el fabricante. Ayuda, en la aplicaci\u00f3n, puede explicarle cualquier parte en su idioma.",
+  "Safety data sheets are not available here yet. The printed binder at the site holds every sheet.": "Las hojas de datos de seguridad todav\u00eda no est\u00e1n disponibles aqu\u00ed. La carpeta impresa del sitio tiene todas las hojas.",
+  "This sheet did not open. Check your signal, or use the printed binder at the site.": "Esta hoja no se abri\u00f3. Revise su se\u00f1al o use la carpeta impresa del sitio.",
   },
 };
 
@@ -1707,6 +1718,17 @@ WORDS.fr = {
   "{n}d": "{n} j",
   "{n}h": "{n} h",
   "{n}m": "{n} min",
+  // Safety data sheets
+  "Safety data sheets": "Fiches de donn\u00e9es de s\u00e9curit\u00e9",
+  "Search by product": "Rechercher par produit",
+  "Revised {date}": "R\u00e9vis\u00e9e le {date}",
+  "No sheet matches that product.": "Aucune fiche ne correspond \u00e0 ce produit.",
+  "Every sheet is also in the printed binder at the site.": "Chaque fiche se trouve aussi dans le classeur imprim\u00e9 du site.",
+  "Saved on this phone. Last read {when}.": "Enregistr\u00e9e sur ce t\u00e9l\u00e9phone. Derni\u00e8re lecture\u00a0: {when}.",
+  "All sheets": "Toutes les fiches",
+  "This sheet is in English, as the manufacturer wrote it. Help in the app can explain any part of it in your language.": "Cette fiche est en anglais, telle que le fabricant l'a r\u00e9dig\u00e9e. L'Aide de l'application peut vous en expliquer chaque partie dans votre langue.",
+  "Safety data sheets are not available here yet. The printed binder at the site holds every sheet.": "Les fiches de donn\u00e9es de s\u00e9curit\u00e9 ne sont pas encore disponibles ici. Le classeur imprim\u00e9 du site contient toutes les fiches.",
+  "This sheet did not open. Check your signal, or use the printed binder at the site.": "Cette fiche ne s'est pas ouverte. V\u00e9rifiez votre r\u00e9seau ou utilisez le classeur imprim\u00e9 du site.",
 };
 
 // {name} is replaced after the language is chosen, so the
