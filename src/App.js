@@ -1994,12 +1994,26 @@ export default function OCSAStaffPortal() {
   // Chat opens on a chat: the one last chosen on this phone while it is
   // still on the list, or the only one when the list holds one. Never a
   // guess among several. A chat that leaves the list is let go.
+  // The first time Chat is opened by someone who has never chosen a chat
+  // on this phone, it opens on their site's chat: the site of the shift
+  // they have open, else their first active assignment's site, in the
+  // order the API sends them. That counts as their choice, so from then
+  // on Chat opens the way it always has. With neither, it opens as it
+  // always has. It waits until Chat is showing, so no chat is marked read
+  // before the person sees it.
   useEffect(() => {
     if (!user || !Array.isArray(channels)) return;
     if (activeChannel && channels.some(ch => ch && ch.id === activeChannel)) return;
-    const next = chatToOpen(channels, readLastChat(user.id));
+    const last = readLastChat(user.id);
+    let next = chatToOpen(channels, last);
+    if (!next && !last && activeTab === "chat") {
+      const shiftSite = clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null;
+      const assigned = Array.isArray(sites) && sites[0] ? sites[0].siteId : null;
+      next = siteChatOf(channels, [shiftSite, assigned]);
+      if (next) saveLastChat(user.id, next);
+    }
     if (next !== activeChannel) setActiveChannel(next);
-  }, [channels, user]);
+  }, [channels, user, activeTab]);
   // A chat a person picks is the one Chat opens on next time, on this phone.
   const chooseChat = (id) => { setActiveChannel(id); if (user) saveLastChat(user.id, id); };
   // A chat New message opened: put on the list when the list does not
@@ -4167,6 +4181,17 @@ function chatToOpen(list, last) {
   const all = (Array.isArray(list) ? list : []).filter(ch => ch && ch.id);
   if (last && all.some(ch => ch.id === last)) return last;
   return all.length === 1 ? all[0].id : null;
+}
+// The site chat Chat opens on the first time, for a person who has never
+// chosen a chat on this phone: the first of the sites given that has a
+// site chat on the list, or null.
+function siteChatOf(list, siteIds) {
+  const all = (Array.isArray(list) ? list : []).filter(ch => ch && ch.id && ch.type === "site" && ch.siteId);
+  for (const id of siteIds) {
+    const hit = id ? all.find(ch => String(ch.siteId) === String(id)) : null;
+    if (hit) return hit.id;
+  }
+  return null;
 }
 // A person's own private chat, which the API names the literal
 // "Admin (Private)" and gives no staffUserId. An admin has none; every
