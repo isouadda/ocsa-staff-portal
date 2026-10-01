@@ -147,6 +147,9 @@ Custodial Lead,Líder de conserjes,Chef d'équipe d'entretien,"App wide, header,
 Lead,Líder,Chef d'équipe,"App wide, header, Profile"
 Supervisor,Supervisor,Superviseur,"App wide, header, Profile"
 Admin,Administrador,Administrateur,"App wide, header, Profile"
+Custodial Laborer,Conserje,Agent d'entretien,"App wide, header, Profile, Chat"
+Day Porter,Conserje de día,Agent d'entretien de jour,"App wide, header, Profile, Chat"
+Contractor,Contratista,Sous-traitant,"App wide, header, Profile, Chat"
 in progress,en proceso,en cours,"App wide, Assigned"
 resolved,resuelta,résolue,"App wide, Assigned"
 unable to resolve,sin resolver,non résolue,"App wide, Assigned"
@@ -324,6 +327,10 @@ Type a message...,Escriba un mensaje...,Écrivez un message...,Chat
 You cannot send messages in this chat.,No puede enviar mensajes en este chat.,Vous ne pouvez pas envoyer de messages dans cette discussion.,Chat
 Your chats did not load. Try again in a minute.,Sus chats no cargaron. Intente de nuevo en un minuto.,Vos discussions ne se sont pas chargées. Réessayez dans une minute.,Chat
 Your message was not sent.,Su mensaje no fue enviado.,Votre message n'a pas été envoyé.,Chat
+New message,Mensaje nuevo,Nouveau message,"Chat, office people only"
+Office,Oficina,Bureau,"Chat, New message"
+That chat did not open. Try again.,Ese chat no se abrió. Intente de nuevo.,Cette discussion ne s'est pas ouverte. Réessayez.,"Chat, New message"
+Direct messages,Mensajes directos,Messages directs,"Chat, office people only"
 Add a photo,Agregar una foto,Ajouter une photo,Help
 Based on,Según,D'après,Help
 Describe what happened,Describa lo que pasó,Décrivez ce qui s'est passé,Help
@@ -683,7 +690,7 @@ Photo updated,Foto actualizada,Photo mise à jour,Profile
 Profile updated,Perfil actualizado,Profil mis à jour,Profile
 Save,Guardar,Enregistrer,Profile
 Site Assignments,Sitios asignados,Sites attribués,Profile
-Staff,Personal,Personnel,Profile
+Staff,Personal,Personnel,"Profile, Chat's New message"
 State,Estado,État,Profile
 Street address,Calle y número,Numéro et rue,Profile
 Your profile did not load.,Su perfil no se cargó.,Votre profil ne s'est pas chargé.,"Profile, when it fails"
