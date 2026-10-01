@@ -1005,6 +1005,29 @@ function leaveEntryPath() {
 const AUTH_KEY = "ocsa_auth";
 const AUTH_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
+// One random id for this device, made once and kept, sent with every
+// sign-in so the API can tell a device it has seen in the last 30 days
+// (Step 225). A phone that refuses storage makes a new one each time and
+// is simply asked for the code each time. It names nothing about the
+// person and is never shown.
+const DEVICE_KEY = "ocsa-device-id";
+function newDeviceId() {
+  try { if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID(); } catch (e) {}
+  const b = new Uint8Array(16);
+  try { window.crypto.getRandomValues(b); } catch (e) { for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256); }
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, x => x.toString(16).padStart(2, "0")).join("");
+  return h.slice(0, 8) + "-" + h.slice(8, 12) + "-" + h.slice(12, 16) + "-" + h.slice(16, 20) + "-" + h.slice(20);
+}
+function deviceId() {
+  try { const kept = window.localStorage.getItem(DEVICE_KEY); if (kept) return kept; } catch (e) {}
+  const made = newDeviceId();
+  try { window.localStorage.setItem(DEVICE_KEY, made); } catch (e) {}
+  return made;
+}
+// How long Send a new code waits after each send, the API's own spacing.
+const CODE_RESEND_MS = 30000;
+
 function saveAuth(tok) {
   try { window.localStorage.setItem(AUTH_KEY, JSON.stringify({ token: tok, savedAt: Date.now() })); } catch (e) {}
 }
@@ -1619,6 +1642,12 @@ export default function OCSAStaffPortal() {
   // reload, starts the count over. No number is ever shown.
   const [loginFault, setLoginFault] = useState(null);
   const wrongTries = useRef(0);
+  // Step 225: when the sign-in answer carries secondStep, the code screen
+  // in place of the PIN, with the challenge it answers, the address hint
+  // and when the last code went, and what was said under the box. The
+  // PIN and the code are never kept anywhere.
+  const [secondStep, setSecondStep] = useState(null);
+  const [codeFault, setCodeFault] = useState(null);
   const [lookups, setLookups] = useState([]);
   const queuePrefRef = useRef(null);
   const queuePref = (changed) => { if (queuePrefRef.current) queuePrefRef.current(changed); };
@@ -1781,8 +1810,16 @@ export default function OCSAStaffPortal() {
     try {
       // noAuthEvent, so a refused PIN is not read as an expired session.
       // Nothing is signed in yet, so there is no session to end.
-      const data = await api(signedOut("/api/auth/login", language), { method: "POST", body: { phone, pin }, noAuthEvent: true });
+      const data = await api(signedOut("/api/auth/login", language), { method: "POST", body: { phone, pin, deviceId: deviceId() }, noAuthEvent: true });
       wrongTries.current = 0;
+      // An office account on a device the API has not seen: no token yet,
+      // and the code screen. Every other answer goes on as it always has.
+      if (data && data.secondStep === true && data.challengeId) {
+        setCodeFault(null);
+        setSecondStep({ challengeId: String(data.challengeId), emailHint: typeof data.emailHint === "string" ? data.emailHint : "", sentAt: Date.now() });
+        setLoading(false);
+        return;
+      }
       setToken(data.token); saveAuth(data.token);
       const me = await hydrateSession(data.token);
       showToast(tr("Welcome, {name}", { name: me.firstName }));
@@ -1797,6 +1834,44 @@ export default function OCSAStaffPortal() {
     }
     setLoading(false);
   };
+
+  // The code screen. A code the API takes answers what sign-in answers, and
+  // goes on exactly as a sign-in does. A refusal is told in the API's own
+  // words, by its code: a wrong code under the box with the tries left; an
+  // expired or used-up challenge back at the PIN; a code that did not go
+  // or a new one asked for too soon under the box.
+  const codeRefused = (err) => {
+    const said = err && err.body && typeof err.body.error === "string" ? err.body.error.trim() : "";
+    const code = err && err.code ? String(err.code) : "";
+    if (code === "auth.codeExpired" || code === "auth.codeTooMany") {
+      setSecondStep(null); setCodeFault(null);
+      setLoginFault({ text: said || tr(ERR_GENERIC), lock: false });
+      return;
+    }
+    const left = code === "auth.codeWrong" && err.body ? Number(err.body.attemptsLeft) : NaN;
+    setCodeFault({ text: !said && wentNowhere(err) ? tr(ERR_OFFLINE) : said || tr(ERR_GENERIC), left: Number.isFinite(left) ? left : null });
+  };
+  const handleCode = async (code, remember) => {
+    if (!secondStep || loading) return;
+    setLoading(true); setCodeFault(null);
+    try {
+      const data = await api(signedOut("/api/auth/second-step", language), { method: "POST", body: { challengeId: secondStep.challengeId, code: code, deviceId: deviceId(), rememberDevice: remember !== false }, noAuthEvent: true });
+      setSecondStep(null);
+      setToken(data.token); saveAuth(data.token);
+      const me = await hydrateSession(data.token);
+      showToast(tr("Welcome, {name}", { name: me.firstName }));
+    } catch (err) { codeRefused(err); }
+    setLoading(false);
+  };
+  const handleResend = async () => {
+    if (!secondStep || loading) return;
+    setCodeFault(null);
+    try {
+      await api(signedOut("/api/auth/second-step/resend", language), { method: "POST", body: { challengeId: secondStep.challengeId }, noAuthEvent: true });
+      setSecondStep(prev => (prev ? { ...prev, sentAt: Date.now() } : prev));
+    } catch (err) { codeRefused(err); }
+  };
+  const backToPin = () => { setSecondStep(null); setCodeFault(null); };
 
   // A successful activation or reset returns the same twelve-hour JWT a
   // login does. Store it the same way and take the same path in.
@@ -2352,7 +2427,7 @@ export default function OCSAStaffPortal() {
       )}
 
       {booting && <BootSplash t={t} themeMode={themeMode} />}
-      {!booting && screen === "login" && <LoginScreen onLogin={handleLogin} onGoRegister={() => setScreen("register")} onGoForgot={() => setScreen("forgot")} loading={loading} fault={loginFault} onTyped={() => { if (loginFault) setLoginFault(null); }} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
+      {!booting && screen === "login" && <LoginScreen onLogin={handleLogin} onGoRegister={() => { backToPin(); setScreen("register"); }} onGoForgot={() => { backToPin(); setScreen("forgot"); }} loading={loading} fault={loginFault} onTyped={() => { if (loginFault) setLoginFault(null); }} step={secondStep} codeFault={codeFault} onCode={handleCode} onResend={handleResend} onBackToPin={backToPin} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
       {screen === "register" && <RegisterScreen onRegister={handleRegister} onBack={() => setScreen("login")} loading={loading} t={t} />}
       {screen === "activate" && <ActivateScreen token={ENTRY ? ENTRY.token : null} onActivated={handleAuthSuccess} onGoLogin={goLogin} showToast={showToast} t={t} />}
       {screen === "reset" && <ResetScreen token={ENTRY ? ENTRY.token : null} onReset={handleAuthSuccess} onGoLogin={goLogin} onGoForgot={() => setScreen("forgot")} showToast={showToast} t={t} />}
@@ -2543,12 +2618,56 @@ export default function OCSAStaffPortal() {
   );
 }
 
-function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onTyped, showToast, t, toggleTheme, themeMode }) {
+function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onTyped, step, codeFault, onCode, onResend, onBackToPin, showToast, t, toggleTheme, themeMode }) {
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
   const labelSt = mkLabel(t);
   const inputSt = mkInput(t);
   const errSt = mkFieldErr(t);
+  // The code screen: the six digits, sent on their own once six are typed;
+  // whether to remember this device, on by default; and the seconds until
+  // a new code can be asked for. The PIN leaves memory once the code
+  // screen opens, and the code once it has gone.
+  const [code, setCode] = useState("");
+  const [remember, setRemember] = useState(true);
+  const [nowMs, setNowMs] = useState(Date.now());
+  const stepId = step ? step.challengeId : null;
+  useEffect(() => { if (stepId) { setPin(""); setCode(""); setRemember(true); } }, [stepId]);
+  useEffect(() => { if (codeFault) setCode(""); }, [codeFault]);
+  const wait = step ? Math.max(0, Math.ceil((step.sentAt + CODE_RESEND_MS - nowMs) / 1000)) : 0;
+  useEffect(() => {
+    if (!step) return undefined;
+    setNowMs(Date.now());
+    const iv = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(iv);
+  }, [step ? step.sentAt : null]);
+  const verify = (v) => { const c = String(v || "").replace(/\D/g, "").slice(0, 6); if (c.length === 6 && !loading) onCode(c, remember); };
+  const logo = (
+    <div style={{ textAlign: "center", marginBottom: step ? 24 : 40 }}>
+      <div style={{ display: "inline-block", maxWidth: "100%", boxSizing: "border-box", padding: themeMode === "dark" ? "12px 20px" : "0", background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: 12 }}><img src={LOGO_LG} alt={clientConfig.company.shortName} style={{ height: 70, maxWidth: "100%", objectFit: "contain" }} /></div>
+      <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 600 }}>{tr("Staff Operations Portal")}</div>
+    </div>
+  );
+  if (step) return (
+    <div style={{ width: "100%", minHeight: "var(--ocsa-vh, 100vh)", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
+      <div style={{ width: "100%", maxWidth: 420, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: "28px 24px", boxShadow: t.popShadow }}>
+        {logo}
+        <div style={{ marginBottom: 8 }}>
+          <label htmlFor="ocsa-code" style={{ ...mkCardText(t), display: "block", overflowWrap: "anywhere" }}>{tr("Enter the code we emailed to {0}", { 0: step.emailHint })}</label>
+          <input id="ocsa-code" value={code} onChange={e => { const v = e.target.value.replace(/\D/g, "").slice(0, 6); setCode(v); if (v.length === 6) verify(v); }} inputMode="numeric" pattern="[0-9]*" autoComplete="one-time-code" maxLength={6} autoFocus aria-invalid={!!codeFault} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && verify(code)} />
+          {codeFault && <div role="alert" style={errSt}>{codeFault.text}</div>}
+          {codeFault && codeFault.left !== null && <div style={errSt}>{codeFault.left === 1 ? tr("1 try left") : tr("{n} tries left", { n: codeFault.left })}</div>}
+        </div>
+        <button type="button" role="checkbox" aria-checked={remember} onClick={() => setRemember(v => !v)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, marginBottom: 16, padding: "0 2px", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: t.text, lineHeight: 1.4, textAlign: "left", fontFamily: FONT_BODY }}>
+          <span aria-hidden="true" style={{ width: 20, height: 20, flexShrink: 0, borderRadius: R.sm, border: "2px solid " + (remember ? GOLD : t.textMut), background: remember ? GOLD : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{remember && <CheckIco sz={12} c={NAVY} />}</span>
+          <span style={{ minWidth: 0 }}>{tr("Remember this device for 30 days")}</span>
+        </button>
+        <button onClick={() => verify(code)} disabled={loading || code.length !== 6} style={{ width: "100%", minHeight: TAP, padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading || code.length !== 6 ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Signing in...") : tr("Verify")}</button>
+        <button onClick={onResend} disabled={wait > 0 || loading} style={{ ...mkGhostBtn(t), opacity: wait > 0 ? 0.6 : 1, cursor: wait > 0 ? "default" : "pointer", fontVariantNumeric: "tabular-nums" }}>{tr("Send a new code")}{wait > 0 ? " (" + wait + ")" : ""}</button>
+        <button onClick={onBackToPin} disabled={loading} style={mkGhostBtn(t)}>{tr("Back")}</button>
+      </div>
+    </div>
+  );
   return (
     <div style={{ width: "100%", minHeight: "var(--ocsa-vh, 100vh)", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
       <div style={{ width: "100%", maxWidth: 420, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: "28px 24px", boxShadow: t.popShadow }}>
