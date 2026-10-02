@@ -7,9 +7,12 @@
 //   the first line does not read as "# APP-PORTAL | <Title>"
 //   two entries share a title
 //   an entry has no title or nothing under it
-//   a bold pair **English** (**Spanish**) has no row in
-//     translation/portal_words.csv with that English and that Spanish,
-//     unless guide/check-allow.txt lists it
+//   a bold name is not written **English** (**Spanish**) (**French**)
+//     (Step 244: Help reads the third as the French screen's, Step 241)
+//   a bold name has no row in translation/portal_words.csv with that
+//     English and that Spanish, unless guide/check-allow.txt lists it
+//   its French is not that row's French, or the French the allow list
+//     gives it
 //   the file holds an email address or a phone number
 //
 // It warns, and does not fail, when a row in the CSV has no French.
@@ -32,7 +35,8 @@ const ALLOW_FILE = path.join(root, "guide", "check-allow.txt");
 const rel = (f) => path.relative(root, f).split(path.sep).join("/");
 const inActions = process.env.GITHUB_ACTIONS === "true";
 
-const PAIR_RE = /\*\*([^*]+?)\*\* \(\*\*([^*]+?)\*\*\)/g;
+// A bold name, its Spanish, and its French when it has one.
+const PAIR_RE = /\*\*([^*]+?)\*\* \(\*\*([^*]+?)\*\*\)(?: \(\*\*([^*]+?)\*\*\))?/g;
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
 const PHONE_RE = /(?<![\d-])(?:\+?1[\s.-]?)?(?:\(\d{3}\)\s?|\d{3}[\s.-]?)\d{3}[\s.-]?\d{4}(?![\d-])/g;
 
@@ -60,33 +64,36 @@ function readCsv(text) {
 
 const pairKey = (en, es) => en + "\u0000" + es;
 
-// Every English and Spanish pair the portal draws. The English is the
-// part of the key before "|", where a key carries one. Each column is
-// found by its name on the first row, so a column added between them
-// moves nothing. The guide writes English and Spanish only, so French
-// is read for one thing: a row with none is counted and named in a
-// warning, since a key with no French shows its English on a French
-// screen. It does not fail the check.
+// Every English and Spanish pair the portal draws, each with the French
+// its rows give it. The English is the part of the key before "|", where
+// a key carries one. Each column is found by its name on the first row,
+// so a column added between them moves nothing. A row with no French is
+// counted and named in a warning, since a key with no French shows its
+// English on a French screen.
 function wordPairs() {
   const rows = readCsv(fs.readFileSync(WORDS_FILE, "utf8"));
   const head = rows[0] || [];
   const col = (name, fallback) => (head.indexOf(name) === -1 ? fallback : head.indexOf(name));
   const EN = col("English", 0), ES = col("Spanish", 1), FR = col("French", -1);
-  const set = new Set();
+  const map = new Map();
   const noFrench = [];
   rows.slice(1).forEach((r) => {
     if (r.length < 2) return;
-    set.add(pairKey(r[EN].split("|")[0], r[ES]));
-    if (FR !== -1 && !String(r[FR] || "").trim()) noFrench.push(r[EN]);
+    const key = pairKey(r[EN].split("|")[0], r[ES]);
+    if (!map.has(key)) map.set(key, new Set());
+    const fr = FR === -1 ? "" : String(r[FR] || "").trim();
+    if (fr) map.get(key).add(fr);
+    if (FR !== -1 && !fr) noFrench.push(r[EN]);
   });
-  set.noFrench = FR === -1 ? null : noFrench;
-  return set;
+  map.noFrench = FR === -1 ? null : noFrench;
+  return map;
 }
 
-// The pairs the check lets through, one per line, written as the guide
-// writes them. Each sits under a comment line that says why, and a blank
-// line ends what a comment covers; a pair with no comment above it, or a
-// line that is not a pair, fails the check. Spanish letters may be
+// The names the check lets through, one per line, written as the guide
+// writes them, **English** (**Spanish**) (**French**). Each sits under a
+// comment line that says why, and a blank line ends what a comment
+// covers; a name with no comment above it, or a line that is not a name
+// written that way, fails the check. Spanish and French letters may be
 // written as \u escapes, the way src/words.js writes them, so the file
 // can stay ASCII.
 const unescape = (s) => s.replace(/\\u([0-9a-fA-F]{4})/g, (m, hex) => String.fromCharCode(parseInt(hex, 16)));
@@ -98,10 +105,10 @@ function allowList(failures) {
     const line = unescape(raw.trim());
     if (!line) { why = false; return; }
     if (line[0] === "#") { why = true; return; }
-    const m = /^\*\*([^*]+?)\*\* \(\*\*([^*]+?)\*\*\)$/.exec(line);
-    if (!m) { failures.push({ file: ALLOW_FILE, line: i + 1, text: "This line is not a pair written **English** (**Spanish**)." }); return; }
-    if (!why) failures.push({ file: ALLOW_FILE, line: i + 1, text: "This pair has no comment line above it saying why it is allowed." });
-    allowed.set(pairKey(m[1], m[2]), { line: i + 1, used: false });
+    const m = /^\*\*([^*]+?)\*\* \(\*\*([^*]+?)\*\*\) \(\*\*([^*]+?)\*\*\)$/.exec(line);
+    if (!m) { failures.push({ file: ALLOW_FILE, line: i + 1, text: "This line is not a name written **English** (**Spanish**) (**French**)." }); return; }
+    if (!why) failures.push({ file: ALLOW_FILE, line: i + 1, text: "This name has no comment line above it saying why it is allowed." });
+    allowed.set(pairKey(m[1], m[2]), { line: i + 1, used: false, french: m[3] });
   });
   return allowed;
 }
@@ -142,14 +149,28 @@ function main() {
 
   const words = wordPairs();
   const allowed = allowList(failures);
-  let pairCount = 0;
+  let pairCount = 0, frenchCount = 0;
   guide.lines.forEach((line, i) => {
     for (const m of line.matchAll(PAIR_RE)) {
       pairCount += 1;
       const key = pairKey(m[1], m[2]);
-      if (words.has(key)) continue;
-      if (allowed.has(key)) { allowed.get(key).used = true; continue; }
-      failures.push({ file: GUIDE_FILE, line: i + 1, text: m[0] + " has no row in " + rel(WORDS_FILE) + " with that English and that Spanish." });
+      const french = m[3];
+      let fromCsv = null;
+      if (words.has(key)) fromCsv = Array.from(words.get(key));
+      else if (allowed.has(key)) { allowed.get(key).used = true; fromCsv = [allowed.get(key).french]; }
+      else {
+        failures.push({ file: GUIDE_FILE, line: i + 1, text: m[0] + " has no row in " + rel(WORDS_FILE) + " with that English and that Spanish." });
+        continue;
+      }
+      if (french === undefined) {
+        failures.push({ file: GUIDE_FILE, line: i + 1, text: m[0] + " has no French name. Write it **" + m[1] + "** (**" + m[2] + "**) (**" + (fromCsv[0] || "?") + "**)." });
+        continue;
+      }
+      if (fromCsv.indexOf(french) === -1) {
+        failures.push({ file: GUIDE_FILE, line: i + 1, text: m[0] + ": the French is not " + (words.has(key) ? rel(WORDS_FILE) + "'s" : "the allow list's") + " for that English and Spanish, " + fromCsv.map((f) => JSON.stringify(f)).join(" or ") + "." });
+        continue;
+      }
+      frenchCount += 1;
     }
     for (const m of line.matchAll(EMAIL_RE)) failures.push({ file: GUIDE_FILE, line: i + 1, text: "An email address is in the guide: " + m[0] + ". This repository is public." });
     for (const m of line.matchAll(PHONE_RE)) failures.push({ file: GUIDE_FILE, line: i + 1, text: "A phone number is in the guide: " + m[0].trim() + ". This repository is public." });
@@ -178,7 +199,7 @@ function main() {
     process.stdout.write(where + ": " + f.text + "\n");
     if (inActions) process.stdout.write("::error file=" + rel(f.file) + ",line=" + f.line + "::" + f.text + "\n");
   });
-  process.stdout.write("guide-check: " + guide.entries.length + " entries, " + pairCount + " bold pairs, " +
+  process.stdout.write("guide-check: " + guide.entries.length + " entries, " + pairCount + " bold names, " + frenchCount + " with English, Spanish and French, " +
     allowed.size + " allowed, fingerprint " + fingerprint(guide.entries) + ", " +
     (failures.length === 0 ? "passed" : failures.length + " failed") + "\n");
   process.exit(failures.length === 0 ? 0 : 1);

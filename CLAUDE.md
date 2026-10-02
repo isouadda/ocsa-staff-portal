@@ -20,7 +20,7 @@ Conventions (hard rules)
 * ASCII only. Straight quotes. Hyphens, never dashes. Plain, direct language. No contrastive antithesis phrasing.
 Help guide (standing rule)
 * Every change to a screen updates guide/APP-PORTAL.md in the same pull request.
-* Bold names are read from translation/portal_words.csv and written **English** (**Spanish**), exactly as the CSV pairs them.
+* Bold names are read from translation/portal_words.csv and written **English** (**Spanish**) (**French**), exactly as the CSV row gives them. npm run guide-check checks all three.
 * Last checked: on every entry touched is set to the day of the change.
 * The pull request lists the entries it changed.
 * A new entry goes at the end of the file. The file loads itself into Help on merge to main. See guide/README.md.
