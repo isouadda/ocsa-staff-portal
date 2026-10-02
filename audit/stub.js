@@ -479,6 +479,8 @@ function makeState(opts) {
     equipmentEvents: [],
     fieldKit: !!o.fieldKit,
     ppeIssues: FK_PPE_ISSUES.map(x => Object.assign({}, x)),
+    // Each review's signatures by result id, the inspector's line first.
+    reviewSigs: Object.fromEntries(FK_REVIEWS.map(r => [r.resultId, [{ line: "inspector", signer_id: r.inspector.id, signer_name: r.inspector.first_name + " " + r.inspector.last_name, signed_at: r.scheduled_date + "T21:00:00.000Z" }]])),
     // Flip these from a case to make a route answer differently.
     refuse: o.refuse || {},          // "POST /api/time-off": { status, body }, { chat: code } or { api: key }
     offline: false,                  // every call fails at the network
@@ -1466,6 +1468,12 @@ const TWIN_PAIRS = [
   // Supplies.
   ["Paper towels", "Toallas de papel"],
   ["rolls", "rollos"],
+  // The field kit's inspections waiting for review (Step 246).
+  ["Invented monthly walk", "Recorrido mensual inventado"],
+  ["Invented quarterly audit", "Auditor\u00eda trimestral inventada"],
+  ["Floors are clean and dry", "Los pisos est\u00e1n limpios y secos"],
+  ["Mirrors are spotless", "Los espejos est\u00e1n impecables"],
+  ["Trash is emptied", "La basura est\u00e1 vac\u00eda"],
   // The field kit's PPE stock (Step 246).
   ["Invented nitrile gloves", "Guantes de nitrilo inventados"],
   ["Invented safety glasses", "Lentes de seguridad inventados"],
@@ -1608,7 +1616,7 @@ const ROUTE_WORDS = [
   // The customer's form, the same view; the site's and the company's names
   // are names.
   [/^[A-Z]+ \/api\/public\/forms/, { title: "form text", label: "form text", rows: "form text", name: "name" }],
-  [/^GET \/api\/inspections\//, { name: "inspection item", label: "inspection item", zone: "inspection item" }],
+  [/^GET \/api\/inspections\//, { name: "inspection item", label: "inspection item", zone: "inspection item", kind: "code", formCode: "code", line: "code" }],
   // A piece of Help's answer, as the streaming route sends it.
   [/^POST \/api\/agent\/message\/stream$/, { text: "Help reply" }],
   // The smoke check's routes: a sheet as its maker wrote it, and what
@@ -1621,6 +1629,9 @@ const ROUTE_WORDS = [
   // Periodic work's items are the checklist's, in the request's language
   // under display; how often and its state are codes.
   [/^GET \/api\/periodic-work$/, { label: "to-do item", zone: "to-do zone", frequency: "code", state: "code" }],
+  // A signed review line answers the lines again; each label is in every
+  // language the API speaks, so its strings are names; the line is a code.
+  [/^POST \/api\/inspections\/results\//, { line: "code", label: "name" }],
 ];
 const kindsFor = (method, pathname) => {
   const hit = ROUTE_WORDS.find(r => r[0].test(method + " " + pathname));
@@ -1785,6 +1796,49 @@ const FK_EQUIPMENT = [
   { id: "eq-fk-2", name: "Invented wet vacuum", category: "Vacuum", status: "out_of_service", nextServiceOn: "2026-10-05", serviceDue: false, qrCode: "fkLabel2" },
   { id: "eq-fk-3", name: "Invented carpet extractor", category: "Carpet", status: "in_service", nextServiceOn: "2026-09-25", serviceDue: true, qrCode: "fkLabel3" },
 ];
+// Two completed inspections waiting for review, as GET
+// /api/inspections/scheduled?awaiting=review lists them and GET
+// /api/inspections/scheduled/:id opens them: a supervisor's walk with
+// its reviewer line, and an audit under 80 percent with findings
+// received and the executive's line, which only an admin signs. The
+// photos are invented addresses a run can answer itself.
+const FK_PHOTO = "https://storage.example.invalid/storage/v1/object/public/task-media/task-1759100000-a1.jpg";
+const FK_PHOTO_WHOLE = "https://storage.example.invalid/storage/v1/object/public/task-media/task-1759100001-b2.jpg";
+const FK_LINES = {
+  reviewer: { kind: "supervisor", roles: ["admin", "supervisor"], label: { en: "Reviewed", es: "Revisado", fr: "V\u00e9rifi\u00e9" } },
+  received: { kind: "audit", roles: ["admin", "supervisor"], label: { en: "Findings received", es: "Hallazgos recibidos", fr: "Constats re\u00e7us" } },
+  executive: { kind: "audit", roles: ["admin"], belowOnly: true, label: { en: "Executive review (score below 80)", es: "Revisi\u00f3n ejecutiva (puntaje menor de 80)", fr: "Examen par la direction (note inf\u00e9rieure \u00e0 80)" } },
+};
+const FK_REVIEWS = [
+  {
+    id: "fk-insp-1", resultId: "fk-res-1", kind: "supervisor", template_name: "Invented monthly walk", scheduled_date: "2026-09-29", inspector: FK_STAFF[0], total: 17, max: 20,
+    items: [
+      { id: "fk-it-1", label: "Floors are clean and dry", zone: "Lobby", cims_category: "SD", max_score: 10 },
+      { id: "fk-it-2", label: "Mirrors are spotless", zone: "Restroom", cims_category: "SD", max_score: 10 },
+    ],
+    scores: [
+      { template_item_id: "fk-it-1", score: 9, notes: "Invented note: one wet patch by the door.", photo_urls: [FK_PHOTO] },
+      { template_item_id: "fk-it-2", score: 8, notes: null, photo_urls: [] },
+    ],
+    overall_notes: "Invented overall note for the walk.", photo_urls: [FK_PHOTO_WHOLE],
+  },
+  {
+    id: "fk-insp-2", resultId: "fk-res-2", kind: "audit", template_name: "Invented quarterly audit", scheduled_date: "2026-09-26", inspector: FK_STAFF[2], total: 14, max: 20,
+    items: [
+      { id: "fk-it-3", label: "Trash is emptied", zone: "Office", cims_category: "SD", max_score: 10 },
+      { id: "fk-it-4", label: "Floors are clean and dry", zone: "Office", cims_category: "SD", max_score: 10 },
+    ],
+    scores: [
+      { template_item_id: "fk-it-3", score: 6, notes: "Invented note: two bins were full.", photo_urls: [] },
+      { template_item_id: "fk-it-4", score: 8, notes: null, photo_urls: [] },
+    ],
+    overall_notes: null, photo_urls: [],
+  },
+];
+const FK_LINE_NOT_OPEN = { status: 409, en: "That line is not open for signing on this inspection.", es: "Esa l\u00ednea no est\u00e1 abierta para firmar en esta inspecci\u00f3n." };
+const FK_SIGNED_ALREADY = { status: 409, en: "That line is already signed.", es: "Esa l\u00ednea ya est\u00e1 firmada." };
+const FK_INSPECTION_GONE = { status: 404, en: "Not found", es: "No se encontr\u00f3 la inspecci\u00f3n" };
+const FK_BAD_SIGNATURE = { status: 400, en: "That signature could not be read. Clear it and sign again.", es: "No se pudo leer esa firma. B\u00f3rrela y vuelva a firmar." };
 const FK_PPE_BAD = { status: 400, en: "Some details of the issue are missing or not valid", es: "Faltan algunos datos de la entrega o no son v\u00e1lidos" };
 const FK_PPE_SIGN = { status: 400, en: "The employee must sign for the equipment", es: "El empleado debe firmar que recibi\u00f3 el equipo" };
 
@@ -2035,6 +2089,14 @@ function createStub(opts) {
     // The register's two other labels open the way the smoke check's does.
     const label = FK_EQUIPMENT.find(x => key === "GET /api/equipment/by-qr/" + x.qrCode);
     if (label) return json(200, { equipment: Object.assign({ siteId: "site-north", siteName: "North Building" }, label), events: [] });
+    // The review list answers anyone; nobody but management is assigned
+    // these, so anyone else gets none.
+    if (key === "GET /api/inspections/scheduled" && q.get("awaiting") === "review") {
+      if (!management) return json(200, []);
+      return json(200, FK_REVIEWS.filter(r => reviewOpen(r) && (!q.get("site_id") || q.get("site_id") === "site-north")).map(r => reviewRow(r)));
+    }
+    const review = FK_REVIEWS.find(r => key === "GET /api/inspections/scheduled/" + r.id);
+    if (review) return management ? json(200, reviewDetail(review)) : json(FK_INSPECTION_GONE.status, { error: refusalIn(FK_INSPECTION_GONE, lang), code: "inspections.notFound" });
     // Anyone may read a site's supplies; the kit asks for its PPE.
     if (key === "GET /api/supplies" && q.get("category") === "ppe") return json(200, q.get("site_id") ? FK_PPE_STOCK : []);
     if (!FK_ROUTES.some(re => re.test(key))) return null;
@@ -2050,6 +2112,8 @@ function createStub(opts) {
       return json(200, { issues: state.ppeIssues.filter(x => !siteId || x.siteId === siteId) });
     }
     if (key === "POST /api/ppe-issues") return ppeIssue(body, lang);
+    const signing = /^POST \/api\/inspections\/results\/([^/]+)\/signatures\/([^/]+)$/.exec(key);
+    if (signing) return signLine(decodeURIComponent(signing[1]), decodeURIComponent(signing[2]), body, lang);
     if (key === "GET /api/periodic-work") {
       const site = SITES.find(x => x.siteId === q.get("siteId")) || SITES[0];
       return json(200, { items: FK_PERIODIC.map(x => Object.assign({ siteId: site.siteId, siteName: site.siteName }, x, {
@@ -2063,6 +2127,43 @@ function createStub(opts) {
     }
     return null;
   }
+  // A review's lines, as the reading route answers them for this person.
+  function reviewLines(r) {
+    const sigs = state.reviewSigs[r.resultId];
+    return Object.keys(FK_LINES).filter(l => FK_LINES[l].kind === r.kind && (!FK_LINES[l].belowOnly || r.total * 100 < 80 * r.max)).map(l => {
+      const signed = sigs.some(x => x.line === l);
+      return { line: l, label: FK_LINES[l].label, required: true, signed: signed, canSign: !signed && FK_LINES[l].roles.indexOf(state.person.role) !== -1 && state.person.id !== r.inspector.id };
+    });
+  }
+  const reviewOpen = (r) => reviewLines(r).some(l => !l.signed);
+  const reviewSignatures = (r) => state.reviewSigs[r.resultId].map(x => ({ line: x.line, signerName: x.signer_name, signedAt: x.signed_at, path: "/api/inspections/results/" + r.resultId + "/signatures/" + x.line }));
+  const reviewRow = (r) => ({ id: r.id, template_id: "tpl-" + r.id, site_id: "site-north", template_name: r.template_name, site_name: "North Building", scheduled_date: r.scheduled_date, status: "completed", assigned_to: r.inspector.id,
+    assigned_name: r.inspector.first_name + " " + r.inspector.last_name, result_id: r.resultId, total_score: r.total, max_possible_score: r.max, kind: r.kind, formCode: r.kind === "audit" ? "OCSA-FRM-004" : "OCSA-FRM-003" });
+  const reviewDetail = (r) => Object.assign(reviewRow(r), {
+    items: r.items,
+    result: { id: r.resultId, total_score: r.total, max_possible_score: r.max, overall_notes: r.overall_notes, photo_urls: r.photo_urls, completed_by_name: r.inspector.first_name + " " + r.inspector.last_name, completed_at: r.scheduled_date + "T21:00:00.000Z" },
+    scores: r.scores, capture: { photosPerItem: 3, photosOverall: 10, signatureRequired: true }, signatures: reviewSignatures(r), lines: reviewLines(r),
+  });
+  // POST /api/inspections/results/:resultId/signatures/:line, in the API's
+  // order: not there, the line not open, a role that does not sign it, the
+  // inspector, already signed, then the drawing's own refusals.
+  function signLine(resultId, line, body, lang) {
+    const r = FK_REVIEWS.find(x => x.resultId === resultId);
+    const refuse = (w, code) => json(w.status, { error: refusalIn(w, lang), code: code });
+    if (!r) return refuse(FK_INSPECTION_GONE, "inspections.notFound");
+    const open = reviewLines(r).find(l => l.line === line);
+    if (!open) return refuse(FK_LINE_NOT_OPEN, "inspections.lineNotOpen");
+    if (FK_LINES[line].roles.indexOf(state.person.role) === -1) return refuse(FK_NOT_MANAGEMENT, "access.insufficientPermissions");
+    if (open.signed) return refuse(FK_SIGNED_ALREADY, "inspections.alreadySigned");
+    const raw = body && typeof body.signature === "string" ? body.signature.trim() : "";
+    const drawn = raw ? /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw) : null;
+    const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
+    if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") return refuse(FK_BAD_SIGNATURE, raw ? "inspections.badSignature" : "inspections.signatureRequired");
+    state.calls[state.calls.length - 1].signature = { bytes: bytes.length, size: imageSize(bytes) };
+    state.reviewSigs[resultId].push({ line: line, signer_id: state.person.id, signer_name: state.person.firstName + " " + state.person.lastName, signed_at: iso(clockNow()) });
+    return json(201, { signatures: reviewSignatures(r), lines: reviewLines(r) });
+  }
+
   // POST /api/ppe-issues, in the API's order: what is wrong with the body,
   // 400 ppe.badDetails with keys; then a signature missing, 400
   // ppe.signatureRequired; then a person, a site or a supply that is not

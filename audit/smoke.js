@@ -22,8 +22,9 @@
 //     its routes, even where the stub would answer; a supervisor sees
 //     Field kit, its site and its four tiles; issues PPE with a signature
 //     drawn, which lists the issue first; reads periodic work by state;
-//     and opens an item's own page from Equipment, checks it, and comes
-//     back to the list
+//     opens an item's own page from Equipment, checks it, and comes back
+//     to the list; and signs a review line, with a refusal said in the
+//     API's words
 //   - a customer's form that asks the name and role itself draws neither
 //     of the page's own and sends its own answers as customerName and
 //     customerRole; a form that does not ask still draws them
@@ -351,6 +352,48 @@ async function fieldKit(app, language) {
   if (opened) await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Back"));
   const back = opened && await waitFor(page, (code) => !!document.querySelector('[data-fk-equipment="' + code + '"]'), EQ_CODE);
   check("Equipment opens an item's own page from the list, Checked, all good sends { kind: \"check\" } there, and Back comes to the list (" + language + ")", listed && opened && recorded && back && checks.length === 1 && JSON.stringify(checks[0].body) === '{"kind":"check"}' && app.errors.length === 0, !listed ? "the item is not listed" : !opened ? "its page did not open" : !recorded ? "no " + JSON.stringify(say(language, "Check recorded.")) : !back ? "Back did not come to the list" : checks.length !== 1 ? checks.length + " events sent" : app.errors[0]);
+  await backToKit(page, language);
+
+  // Awaiting review: a review line signed, and the inspection off the
+  // list; then a line someone else signed first, refused in the API's
+  // words in the sheet.
+  await openTile(page, tiles[3]);
+  const reviews = await waitFor(page, () => !!document.querySelector('[data-fk-review="fk-insp-1"]'));
+  let lineSigned = false, offList = false, refusedSaid = false;
+  const lineButton = '[data-fk-line="reviewer"] button, [data-fk-line="received"] button';
+  const signIn = async () => {
+    await page.click(lineButton);
+    await waitFor(page, () => !!document.querySelector('[role="dialog"] canvas'));
+    await sign(page, '[role="dialog"] canvas');
+    await page.evaluate((w) => { const b = Array.from(document.querySelectorAll('[role="dialog"] button')).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Sign"));
+  };
+  if (reviews) {
+    await page.click('[data-fk-review="fk-insp-1"]');
+    if (await waitFor(page, (sel) => !!document.querySelector(sel), lineButton)) {
+      await signIn();
+      lineSigned = await waitFor(page, (who) => { const l = document.querySelector('[data-fk-line="reviewer"]'); return !!l && !l.querySelector("button") && l.innerText.indexOf(who) !== -1 && !document.querySelector('[role="dialog"]'); }, "Riley Example");
+    }
+    await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Awaiting review"));
+    offList = await waitFor(page, () => !!document.querySelector('[data-fk-review="fk-insp-2"]') && !document.querySelector('[data-fk-review="fk-insp-1"]'));
+    if (offList) {
+      await page.click('[data-fk-review="fk-insp-2"]');
+      if (await waitFor(page, (sel) => !!document.querySelector(sel), lineButton)) {
+        // Someone else signs it while this phone has it open.
+        app.stub.state.reviewSigs["fk-res-2"].push({ line: "received", signer_id: "u-admin", signer_name: "Jordan Office", signed_at: "2026-10-02T01:00:00.000Z" });
+        await signIn();
+        const said = language === "es" ? "Esa l\u00ednea ya est\u00e1 firmada." : "That line is already signed.";
+        refusedSaid = await waitFor(page, (w) => { const a = document.querySelector('[role="dialog"] [role="alert"]'); return !!a && a.innerText.trim() === w; }, said);
+        await page.evaluate((w) => { const b = Array.from(document.querySelectorAll('[role="dialog"] button')).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Cancel"));
+        await pause(page, 300);
+      }
+    }
+  }
+  const lineCalls = app.stub.state.calls.filter(c => c.method === "POST" && /^\/api\/inspections\/results\//.test(c.path));
+  check("Awaiting review signs a review line with a signature drawn, takes the inspection off the list, and says a refusal in the API's words (" + language + ")",
+    reviews && lineSigned && offList && refusedSaid && lineCalls.length === 2 && !!lineCalls[0].signature && app.errors.length === 0,
+    !reviews ? "the list did not show" : !lineSigned ? "the line did not read signed" : !offList ? "the signed inspection stayed on the list" : !refusedSaid ? "the refusal was not said in the sheet" : lineCalls.length !== 2 ? lineCalls.length + " signatures sent" : app.errors[0]);
+  await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Awaiting review"));
+  await pause(page, 300);
   await backToKit(page, language);
 }
 // A tile on the field kit, and Back from one.

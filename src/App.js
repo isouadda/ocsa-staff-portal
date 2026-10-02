@@ -9936,8 +9936,16 @@ function FieldKitView({ token, at, onAt, shiftSiteId, assignedSites, onOpenEquip
   const siteId = fkSiteFor(list, at && at.siteId, shiftSiteId, assignedSites);
   const site = list.find(s => s.id === siteId) || null;
   const tile = site && at && at.tile ? FK_TILES.find(x => x.id === at.tile) || null : null;
-  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [tile ? tile.id : null]);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [tile ? tile.id : null, at && at.inspection]);
   const titleSt = { fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 12, overflowWrap: "anywhere" };
+  // An inspection open from Awaiting review, with Back to that list.
+  if (tile && tile.id === "review" && at.inspection) {
+    return (
+      <div style={{ padding: "16px 16px 0" }}>
+        <FkInspection key={at.inspection} token={token} id={String(at.inspection)} onBack={() => onAt({ siteId: site.id, tile: "review" })} showToast={showToast} t={t} />
+      </div>
+    );
+  }
   if (tile) {
     return (
       <div style={{ padding: "16px 16px 0" }}>
@@ -9947,6 +9955,7 @@ function FieldKitView({ token, at, onAt, shiftSiteId, assignedSites, onOpenEquip
         {tile.id === "ppe" && <FkPpe key={site.id} token={token} site={site} showToast={showToast} t={t} />}
         {tile.id === "periodic" && <FkPeriodic key={site.id} token={token} site={site} t={t} />}
         {tile.id === "equipment" && <FkEquipment key={site.id} token={token} site={site} onOpen={onOpenEquipment} t={t} />}
+        {tile.id === "review" && <FkReview key={site.id} token={token} site={site} onOpen={(id) => onAt({ siteId: site.id, tile: "review", inspection: id })} t={t} />}
       </div>
     );
   }
@@ -10333,6 +10342,188 @@ function FkEquipment({ token, site, onOpen, t }) {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Awaiting review (Step 246): GET /api/inspections/scheduled?awaiting=review
+//
+// The site's completed inspections with a review line not yet signed.
+// One opens read only (GET /api/inspections/scheduled/:id): its score,
+// each item's score, notes and photos, the inspector's signature, and
+// each review line, signed or not. A line the API marks canSign takes
+// a signature drawn here (POST /api/inspections/results/:resultId/
+// signatures/:line); a refusal is said in the API's words.
+// ------------------------------------------------------------
+const fkScoreText = (total, max) => {
+  const a = Number(total), b = Number(max);
+  if (!isFinite(a) || !isFinite(b) || b <= 0) return "";
+  return tr("{score} of {max}, {pct}%", { score: a, max: b, pct: Math.round(a * 100 / b) });
+};
+const fkPhotos = (v) => (Array.isArray(v) ? v : []).filter(u => typeof u === "string" && /^https?:\/\//i.test(u));
+const fkLineLabel = (l) => { const lab = l && l.label; if (lab && typeof lab === "object") return fkText(lab, [wordsLanguage(), "en"]); return typeof lab === "string" ? lab.trim() : ""; };
+function fkReviewRowOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = fkText(x, ["id"]);
+  return id ? { id: id, name: fkText(x, ["template_name", "templateName"]) || tr("Inspection"), day: fkText(x, ["scheduled_date", "scheduledDate"]).slice(0, 10), by: fkText(x, ["assigned_name", "assignedName"]), score: fkScoreText(agentField(x, ["total_score"], null), agentField(x, ["max_possible_score"], null)) } : null;
+}
+
+function FkReview({ token, site, onOpen, t }) {
+  const [rows, setRows] = useState(null);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const list = wsRows(await api("/api/inspections/scheduled?awaiting=review&site_id=" + encodeURIComponent(site.id), { token }), "inspections");
+        if (!list) throw new Error(ERR_GENERIC);
+        if (live) setRows({ state: "ok", list: list.map(fkReviewRowOf).filter(Boolean) });
+      } catch (err) {
+        if (live) setRows(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: fkFaultWords(err, "This list did not load.") }));
+      }
+    })();
+    return () => { live = false; };
+  }, [site.id, asked]);
+  if (!rows) return <div style={wsQuiet(t)}>{tr("Loading...")}</div>;
+  if (rows.state === "failed") return <ListFault icon={ClipIco} text={rows.said} onRetry={() => setAsked(n => n + 1)} t={t} />;
+  if (rows.list.length === 0) return <div style={wsQuiet(t)}>{tr("No inspection at this site is waiting for review.")}</div>;
+  return (
+    <div>
+      {rows.list.map(x => (
+        <button key={x.id} type="button" data-fk-review={x.id} onClick={() => onOpen(x.id)} style={{ ...fkRowSt(t), width: "100%", display: "flex", alignItems: "flex-start", gap: 10, minHeight: TAP, cursor: "pointer", color: t.text, textAlign: "left" }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{x.name}</span>
+            <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{[x.day ? wsDueText(x.day) : "", x.by].filter(Boolean).join(", ")}</span>
+            {x.score && <span style={{ display: "block", fontSize: 12, color: t.textMut, marginTop: 2, lineHeight: 1.4 }}>{x.score}</span>}
+          </span>
+          <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 2 }} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function FkInspection({ token, id, onBack, showToast, t }) {
+  const [one, setOne] = useState(null);
+  const [asked, setAsked] = useState(0);
+  // The line being signed: its strokes, the PNG, and what is said.
+  const [signing, setSigning] = useState(null);
+  useBusy("inspection review", !!signing && (signing.strokes.length > 0 || signing.busy));
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const d = await api("/api/inspections/scheduled/" + encodeURIComponent(id), { token });
+        if (!d || typeof d !== "object" || Array.isArray(d)) throw new Error(ERR_GENERIC);
+        if (live) setOne({ state: "ok", d: d });
+      } catch (err) {
+        if (live) setOne(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: fkFaultWords(err, "This inspection did not open. Try again.") }));
+      }
+    })();
+    return () => { live = false; };
+  }, [id, asked]);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [id]);
+  const back = <WsBack label={tr("Awaiting review")} onBack={onBack} t={t} />;
+  if (!one) return <div>{back}<div style={wsQuiet(t)}>{tr("Loading...")}</div></div>;
+  if (one.state === "failed") return <div>{back}<ListFault icon={ClipIco} text={one.said} onRetry={() => setAsked(n => n + 1)} t={t} /></div>;
+  const d = one.d;
+  const result = d.result && typeof d.result === "object" ? d.result : null;
+  const resultId = result ? fkText(result, ["id"]) : "";
+  const scores = Array.isArray(d.scores) ? d.scores : [];
+  const items = Array.isArray(d.items) ? d.items : [];
+  const signatures = Array.isArray(d.signatures) ? d.signatures : [];
+  const lines = Array.isArray(d.lines) ? d.lines.filter(l => l && typeof l === "object" && fkText(l, ["line"])) : [];
+  const signedOn = (line) => signatures.find(s => s && s.line === line) || null;
+  const stamp = (s) => tr("Signed by {name}, {when}", { name: fkText(s, ["signerName"]), when: wsWhen(s.signedAt) });
+  const inspector = signedOn("inspector");
+  const photoRow = (urls, tag) => (urls.length === 0 ? null : (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+      {urls.map((u, i) => (
+        <a key={u + i} href={u} target="_blank" rel="noopener noreferrer" aria-label={tr("Photo {n} of {count}", { n: i + 1, count: urls.length })} data-fk-photo={tag} style={{ display: "block", width: 72, height: 72, borderRadius: R.sm, overflow: "hidden", border: "1px solid " + t.borderSolid, background: t.cardAlt }}>
+          <img src={u} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        </a>
+      ))}
+    </div>
+  ));
+  const sign = async () => {
+    if (!signing || signing.busy) return;
+    if (!signing.png) { setSigning({ ...signing, fault: tr("Sign before you send.") }); return; }
+    setSigning({ ...signing, busy: true, fault: null });
+    try {
+      const r = await api("/api/inspections/results/" + encodeURIComponent(resultId) + "/signatures/" + encodeURIComponent(signing.line), { method: "POST", body: { signature: signing.png }, token });
+      setOne(prev => (prev && prev.state === "ok" ? { ...prev, d: { ...prev.d, signatures: Array.isArray(r && r.signatures) ? r.signatures : prev.d.signatures, lines: Array.isArray(r && r.lines) ? r.lines : prev.d.lines } } : prev));
+      setSigning(null);
+      showToast(tr("Signed."));
+    } catch (err) {
+      setSigning(s => (s ? { ...s, busy: false, fault: fkFaultWords(err, "This was not signed. Try again.") } : s));
+    }
+  };
+  const open = signing ? lines.find(l => l.line === signing.line) : null;
+  return (
+    <div data-fk-inspection={id}>
+      {back}
+      <div role="heading" aria-level={2} style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 2, overflowWrap: "anywhere" }}>{fkText(d, ["template_name"]) || tr("Inspection")}</div>
+      <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.4, overflowWrap: "anywhere" }}>{[fkText(d, ["scheduled_date"]).slice(0, 10) ? wsDueText(fkText(d, ["scheduled_date"]).slice(0, 10)) : "", result ? fkText(result, ["completed_by_name"]) || fkText(d, ["assigned_name"]) : fkText(d, ["assigned_name"])].filter(Boolean).join(", ")}</div>
+      {result && fkScoreText(result.total_score, result.max_possible_score) && <div style={{ fontSize: 13, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, marginTop: 6 }}>{fkScoreText(result.total_score, result.max_possible_score)}</div>}
+      <div style={{ fontSize: 12, color: t.textMut, marginTop: 6, lineHeight: 1.4 }}>{tr("Read only. Only the review lines can be signed here.")}</div>
+
+      <div role="heading" aria-level={3} style={fkHeadSt(t)}>{tr("Scores")}</div>
+      {items.map(item => {
+        const sc = scores.find(s => s && String(s.template_item_id) === String(item.id)) || null;
+        const label = fkText(item, ["label", "name"]);
+        const zone = fkText(item, ["zone"]);
+        return (
+          <div key={item.id} data-fk-item={item.id} style={fkRowSt(t)}>
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{label}{zone && zone !== label ? <span style={{ display: "block", fontSize: 12, fontWeight: 400, color: t.textSec, fontFamily: FONT_BODY }}>{zone}</span> : null}</div>
+              <div style={{ flexShrink: 0, fontSize: 13, fontWeight: 600, color: t.text, fontVariantNumeric: "tabular-nums" }}>{sc && sc.score !== null && sc.score !== undefined ? tr("{score} of {max}", { score: sc.score, max: item.max_score }) : tr("Not scored")}</div>
+            </div>
+            {sc && fkText(sc, ["notes"]) && <div style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>{fkText(sc, ["notes"])}</div>}
+            {sc && photoRow(fkPhotos(sc.photo_urls), "item")}
+          </div>
+        );
+      })}
+      {result && fkText(result, ["overall_notes"]) && (
+        <div>
+          <div role="heading" aria-level={3} style={fkHeadSt(t)}>{tr("Overall Notes")}</div>
+          <div style={{ fontSize: 13, color: t.text, lineHeight: 1.45, overflowWrap: "anywhere" }}>{fkText(result, ["overall_notes"])}</div>
+        </div>
+      )}
+      {result && fkPhotos(result.photo_urls).length > 0 && (
+        <div>
+          <div role="heading" aria-level={3} style={fkHeadSt(t)}>{tr("Photos of the whole inspection")}</div>
+          {photoRow(fkPhotos(result.photo_urls), "whole")}
+        </div>
+      )}
+
+      <div role="heading" aria-level={3} style={fkHeadSt(t)}>{tr("Signatures")}</div>
+      {inspector && <div style={fkRowSt(t)}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Inspector")}</div><div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{stamp(inspector)}</div></div>}
+      {lines.map(l => {
+        const s = signedOn(l.line);
+        return (
+          <div key={l.line} data-fk-line={l.line} style={fkRowSt(t)}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{fkLineLabel(l)}</div>
+            {l.signed && s && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{stamp(s)}</div>}
+            {l.signed && !s && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2 }}>{tr("Signed")}</div>}
+            {!l.signed && !l.canSign && <div style={{ fontSize: 12, color: t.textMut, marginTop: 2 }}>{tr("Waiting for the person who signs this line.")}</div>}
+            {!l.signed && l.canSign && resultId && <div style={{ display: "flex", marginTop: 8 }}><button type="button" onClick={() => setSigning({ line: l.line, strokes: [], png: null, busy: false, fault: null })} style={wsMainBtn(t, false)}>{tr("Sign this line")}</button></div>}
+          </div>
+        );
+      })}
+      {signing && (
+        <WsSheet id="ocsa-fk-sign" title={open ? fkLineLabel(open) : tr("Sign")} onClose={() => { if (!signing.busy) setSigning(null); }} t={t} footer={<>
+          <button type="button" onClick={() => setSigning(null)} disabled={signing.busy} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+          <button type="button" onClick={sign} disabled={signing.busy} style={wsMainBtn(t, signing.busy)}>{signing.busy ? tr("Sending...") : tr("Sign")}</button>
+        </>}>
+          <div style={{ borderRadius: R.md, border: signing.fault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+            <SignatureBox strokes={signing.strokes} onStroke={(stroke, size) => setSigning(s => { if (!s) return s; const all = s.strokes.concat([stroke]); return { ...s, strokes: all, png: signaturePng(all, size.w, size.h), fault: null }; })} height={SIGN_BOX_HEIGHT} />
+          </div>
+          <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+          <button type="button" onClick={() => setSigning(s => (s ? { ...s, strokes: [], png: null } : s))} disabled={signing.strokes.length === 0 || signing.busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: signing.strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+          {signing.fault && <WsFault text={signing.fault} t={t} />}
+        </WsSheet>
+      )}
     </div>
   );
 }
