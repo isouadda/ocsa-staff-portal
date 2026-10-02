@@ -850,7 +850,8 @@ const FORM_C_CODE = "TEST-FORM-C";
 const FORM_V_CODE = "TEST-FORM-V";
 // The concern link (Step 242): the client's part of OCSA-FRM-009 on
 // link-concern, answered only when its switch is on, with its own photo
-// route and a receipt that carries a reference. Invented words under the
+// route, a receipt that carries a reference, and customerTitle (v3), the
+// title the client sees in place of the form's own. Invented words under the
 // code the contract names; the keys are the stub's own, since the API has
 // not built the form yet.
 const FORM_N_CODE = "OCSA-FRM-009";
@@ -957,17 +958,17 @@ function formA(lang) {
   };
 }
 const FORM_N_WORDS = {
-  en: { title: "Report a concern", first: "About you", second: "What happened", ocsa: "For the OCSA office", name: "Your name", orgRole: "Your organization or role", email: "Email", phone: "Phone",
+  en: { title: "Report a concern", officeTitle: "Customer Complaint Log", first: "About you", second: "What happened", ocsa: "For the OCSA office", name: "Your name", orgRole: "Your organization or role", email: "Email", phone: "Phone",
     contactBy: "How would you like us to contact you", byEmail: "By email", byPhone: "By phone", where: "Where in the building", what: "What happened", noticed: "When did you notice it",
     photos: "Photos, if any", staff: "Is this about how a member of our staff treated you?", yes: "Yes", no: "No" },
-  es: { title: "Informar un problema", first: "Sobre usted", second: "Lo que pas\u00f3", ocsa: "Para la oficina de OCSA", name: "Su nombre", orgRole: "Su organizaci\u00f3n o puesto", email: "Correo electr\u00f3nico", phone: "Tel\u00e9fono",
+  es: { title: "Informar un problema", officeTitle: "Registro de quejas de clientes", first: "Sobre usted", second: "Lo que pas\u00f3", ocsa: "Para la oficina de OCSA", name: "Su nombre", orgRole: "Su organizaci\u00f3n o puesto", email: "Correo electr\u00f3nico", phone: "Tel\u00e9fono",
     contactBy: "C\u00f3mo prefiere que lo contactemos", byEmail: "Por correo electr\u00f3nico", byPhone: "Por tel\u00e9fono", where: "D\u00f3nde en el edificio", what: "Qu\u00e9 pas\u00f3", noticed: "Cu\u00e1ndo lo not\u00f3",
     photos: "Fotos, si las hay", staff: "\u00bfSe trata de c\u00f3mo lo trat\u00f3 un miembro de nuestro personal?", yes: "S\u00ed", no: "No" },
 };
 function formN(lang) {
   const w = FORM_N_WORDS[lang === "es" ? "es" : "en"];
   return {
-    code: FORM_N_CODE, title: w.title, version: 2,
+    code: FORM_N_CODE, title: w.officeTitle, version: 2,
     sections: [{ key: "1", title: w.first }, { key: "2", title: w.second }, { key: "3", title: w.ocsa }],
     fields: [
       customerField("your_name", w.name, "text", "1", true),
@@ -2343,7 +2344,7 @@ function createStub(opts) {
       if (link.closed) return publicRefusal("customer.linkClosed");
       const form = customerFormOf(link.form, publicLang);
       if (method === "GET") {
-        return json(200, Object.assign({ form: form, site: { name: PUBLIC_SITE }, company: { name: PUBLIC_COMPANY, logoUrl: null }, customerNameRequired: customerNameRequired(link.form) }, link.form === FORM_N_CODE ? { customerFields: CONCERN_FIELDS } : {}));
+        return json(200, Object.assign({ form: form, site: { name: PUBLIC_SITE }, company: { name: PUBLIC_COMPANY, logoUrl: null }, customerNameRequired: customerNameRequired(link.form) }, link.form === FORM_N_CODE ? { customerFields: CONCERN_FIELDS, customerTitle: FORM_N_WORDS[publicLang === "es" ? "es" : "en"].title } : {}));
       }
       const b = body && typeof body === "object" ? body : {};
       // The honeypot: a filing that fills it is answered as if it went.

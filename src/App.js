@@ -6838,6 +6838,12 @@ const CUSTOMER_PHOTO_ROUTE_CODES = ["OCSA-FRM-009"];
 const CUSTOMER_REF_THANKS = "Thank you. Your reference is {ref}.";
 const CUSTOMER_REPLY_LINE = "We will reply within five working days.";
 const CUSTOMER_COPY_LINE = "A copy is on its way to your email.";
+// The title the client sees (Step 242 v3): customerTitle, when the public
+// form answer carries one, heads the page and its thank-you, in place of
+// the form's own title, which may be the office's name for it. Without
+// one the page reads the form's title, and the thank-you no title, as
+// they always have.
+const customerTitleOf = (answer) => (answer && typeof answer.customerTitle === "string" && answer.customerTitle.trim() ? answer.customerTitle.trim() : null);
 const customerRefOf = (r) => { const v = r && typeof r === "object" ? (r.reference !== undefined ? r.reference : r.reportNumber !== undefined ? r.reportNumber : r.ref) : null; return (typeof v === "string" || typeof v === "number") && String(v).trim() ? String(v).trim() : null; };
 // The photos a photo route answered with, each with its id: { photos: [...] },
 // { photo }, or the photo itself.
@@ -7269,8 +7275,9 @@ function CustomerFormScreen({ token, t, themeMode }) {
     );
   }
   const form = got.data.form;
-  const draft = { id: null, formCode: form.code, formName: form.title, answers: {}, status: "draft", answered: 0, remaining: 0, missing: [] };
-  return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, asks: customerFieldsOf(got.data, form), photoRoute: CUSTOMER_PHOTO_ROUTE_CODES.indexOf(form.code) !== -1, head: head, thanksHead: headOf(false) }} />;
+  const title = customerTitleOf(got.data);
+  const draft = { id: null, formCode: form.code, formName: title || form.title, answers: {}, status: "draft", answered: 0, remaining: 0, missing: [] };
+  return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, asks: customerFieldsOf(got.data, form), photoRoute: CUSTOMER_PHOTO_ROUTE_CODES.indexOf(form.code) !== -1, title: title, head: head, thanksHead: headOf(false) }} />;
 }
 
 // The client's acknowledgement of a monthly report, the page the mail
@@ -8683,6 +8690,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
     return (
       <div style={{ padding: 16 }}>
         {customer.thanksHead}
+        {customer.title && <div role="heading" aria-level={1} style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere", marginBottom: 12 }}>{customer.title}</div>}
         <div role="status" style={{ background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 18 }}>
           <div style={{ fontSize: 15, color: t.text, lineHeight: 1.55, fontFamily: FONT_HEAD, fontWeight: 600, overflowWrap: "anywhere" }}>{receipt && receipt.ref ? tr(CUSTOMER_REF_THANKS, { ref: receipt.ref }) : tr(CUSTOMER_THANKS)}</div>
           {receipt && receipt.ref && <div style={{ fontSize: 14, color: t.textSec, lineHeight: 1.55, marginTop: 8 }}>{tr(CUSTOMER_REPLY_LINE)}</div>}
@@ -8712,7 +8720,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
         {isCustomer && customer.head}
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 0", minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{(isCustomer ? form && form.title : current.formName || (form && form.title)) || tr(FORMS_UNTITLED)}</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{(isCustomer ? customer.title || (form && form.title) : current.formName || (form && form.title)) || tr(FORMS_UNTITLED)}</div>
             {sections.length > 0 && <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{review ? tr("Review") : tr("Section {n} of {total}", { n: at + 1, total: sections.length })}</div>}
           </div>
           {!isCustomer && <button onClick={() => setConfirmLeave(true)} style={{ minHeight: 44, padding: "0 14px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Close")}</button>}
