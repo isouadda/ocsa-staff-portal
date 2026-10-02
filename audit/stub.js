@@ -460,11 +460,17 @@ function makeState(opts) {
     // stub having no French twins). sds: invented safety data sheets.
     // secondStep: the right PIN is answered with the second sign-in step,
     // and SECOND_STEP_CODE signs in. workspace: an office person's
-    // projects and to-dos; anyone else is turned away.
+    // projects and to-dos; anyone else is turned away. customerAsks
+    // (Step 240): link-asks answers a form that asks the person's name
+    // and role itself. equipment (Step 240): one item on the register,
+    // opened by EQ_CODE, and the events recorded on it.
     languages: Array.isArray(o.languages) ? o.languages.slice() : null,
     sds: !!o.sds,
     secondStep: !!o.secondStep,
     workspace: !!o.workspace,
+    customerAsks: !!o.customerAsks,
+    equipment: !!o.equipment,
+    equipmentEvents: [],
     // Flip these from a case to make a route answer differently.
     refuse: o.refuse || {},          // "POST /api/time-off": { status, body }, { chat: code } or { api: key }
     offline: false,                  // every call fails at the network
@@ -838,10 +844,16 @@ function draftS(state, lang) {
 // too, and one link is closed.
 const FORM_C_CODE = "TEST-FORM-C";
 const FORM_V_CODE = "TEST-FORM-V";
+// The smoke check's form that asks the person's name and role itself, on
+// link-asks, answered only when its switch is on (Step 240). It carries
+// the code and the keys of OCSA-FRM-007, the real form that asks them,
+// and invented words.
+const FORM_A_CODE = "OCSA-FRM-007";
 const CUSTOMER_LINKS = {
   "link-checklist": { form: FORM_C_CODE, closed: false },
   "link-survey": { form: FORM_V_CODE, closed: false },
   "link-closed": { form: FORM_V_CODE, closed: true },
+  "link-asks": { form: FORM_A_CODE, closed: false, only: "customerAsks" },
 };
 const PUBLIC_MAX_PHOTOS = 3;
 const PUBLIC_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
@@ -912,7 +924,26 @@ function formV(lang) {
     ],
   };
 }
-const customerFormOf = (code, lang) => (code === FORM_C_CODE ? formC(lang) : formV(lang));
+const FORM_A_WORDS = {
+  en: { title: "Quarterly check in", first: "About you", second: "Your ratings", ocsa: "For the OCSA office", org: "Organization", name: "Your name", role: "Your role", overall: "Overall quality", notes: "Anything else" },
+  es: { title: "Revision trimestral", first: "Sobre usted", second: "Sus calificaciones", ocsa: "Para la oficina de OCSA", org: "Organizacion", name: "Su nombre", role: "Su puesto", overall: "Calidad general", notes: "Algo mas" },
+};
+function formA(lang) {
+  const w = FORM_A_WORDS[lang === "es" ? "es" : "en"];
+  const stars = [1, 2, 3, 4, 5].map(n => ({ value: String(n), label: String(n) }));
+  return {
+    code: FORM_A_CODE, title: w.title, version: 1,
+    sections: [{ key: "1", title: w.first }, { key: "2", title: w.second }, { key: "3", title: w.ocsa }],
+    fields: [
+      customerField("organization", w.org, "text", "1", true),
+      customerField("your_name", w.name, "text", "1", false),
+      customerField("your_role", w.role, "text", "1", false),
+      customerField("overall", w.overall, "select", "2", false, { options: stars }),
+      customerField("notes", w.notes, "textarea", "2", false),
+    ],
+  };
+}
+const customerFormOf = (code, lang) => (code === FORM_C_CODE ? formC(lang) : code === FORM_A_CODE ? formA(lang) : formV(lang));
 const customerNameRequired = (code) => code === FORM_C_CODE;
 
 // Everyone the Speak Up picker can offer, invented, each one a first and
@@ -1653,6 +1684,10 @@ const WS_NOT_OFFICE = { status: 403, en: "The workspace is for office accounts."
 const WS_PROJECT = { id: "p-smoke", company: "ocsa", name: "Invented project", description: "Invented to test the workspace.", color: "#24A4F4", status: "active" };
 const WS_TODO = { id: "t-smoke", projectId: "p-smoke", projectName: "Invented project", listId: "l-smoke", title: "Invented to-do for the smoke check", notes: "", dueOn: null, completedAt: null };
 const WS_OFFICE = ["admin", "supervisor"];
+// Step 240: one invented item on the equipment register, opened from its
+// label's code, and the events recorded on it.
+const EQ_CODE = "smokeLabel7";
+const EQ_ITEM = { id: "eq-smoke", name: "Invented floor scrubber", category: "Floor machine", siteId: "site-north", siteName: "North Building", status: "in_service", nextServiceOn: "2026-10-20", qrCode: EQ_CODE };
 
 function createStub(opts) {
   const state = makeState(opts);
@@ -1939,6 +1974,17 @@ function createStub(opts) {
       if (WS_OFFICE.indexOf(state.person.role) === -1) return json(WS_NOT_OFFICE.status, { error: refusalIn(WS_NOT_OFFICE, lang), code: "workspace.notOffice" });
       if (key === "GET /api/workspace/projects") return json(200, { projects: [WS_PROJECT] });
       if (key === "GET /api/workspace/me") return json(200, { todos: [Object.assign({}, WS_TODO, { assigneeIds: [state.person.id] })], changes: [] });
+    }
+    if (state.equipment && pathname.indexOf("/api/equipment/") === 0) {
+      if (key === "GET /api/equipment/by-qr/" + EQ_CODE) return json(200, { equipment: EQ_ITEM, events: state.equipmentEvents.slice(0, 10) });
+      if (key === "POST /api/equipment/" + EQ_ITEM.id + "/events") {
+        const b = body && typeof body === "object" ? body : {};
+        if (b.kind !== "check" && b.kind !== "tagged_out") return json(400, { error: "Bad details", code: "equipment.badDetails" });
+        const e = { id: "ev-smoke-" + (state.equipmentEvents.length + 1), kind: b.kind, note: String(b.note || ""), by: { name: state.person.firstName + " " + state.person.lastName }, at: new Date(clockNow()).toISOString() };
+        state.equipmentEvents.unshift(e);
+        return json(201, { event: e });
+      }
+      return json(404, { error: "That equipment was not found.", code: "equipment.notFound" });
     }
     if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: SITES, preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
     if (key === "POST /api/auth/register") return json(200, { ok: true });
@@ -2230,7 +2276,7 @@ function createStub(opts) {
     if ((method === "GET" && publicGet) || (method === "POST" && publicPost)) {
       const token = (publicGet || publicPost)[1];
       const link = CUSTOMER_LINKS[token];
-      if (!link) return publicRefusal("customer.linkUnknown");
+      if (!link || (link.only && !state[link.only])) return publicRefusal("customer.linkUnknown");
       if (link.closed) return publicRefusal("customer.linkClosed");
       const form = customerFormOf(link.form, publicLang);
       if (method === "GET") {
@@ -2732,7 +2778,7 @@ function draftOf(state) {
 
 module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
-  SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO,
+  SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, EQ_CODE, EQ_ITEM,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES, localeFault, localeRows,
   CUSTOMER_LINKS, FORM_C_CODE, FORM_V_CODE, formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, PUBLIC_MAX_PHOTOS, PUBLIC_FILINGS_MAX, customerSignatureLine,

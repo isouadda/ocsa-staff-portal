@@ -14,8 +14,9 @@ const root = ReactDOM.createRoot(document.getElementById('root'));
 // draws one line and Reload in place of a blank page when a render throws.
 root.render(<React.StrictMode><LastResort><App /><HomeScreenPrompt /></LastResort></React.StrictMode>);
 
-// Production only. The worker keeps the public /sds page for a phone with
-// no signal, and nothing else; see public/sw.js.
+// Production only. The worker keeps the app's own page, for the checklist,
+// and the public /sds page, for a phone with no signal, and nothing else;
+// see public/sw.js.
 if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register(process.env.PUBLIC_URL + '/sw.js').catch(() => {});

@@ -390,6 +390,12 @@ const GOLD = clientConfig.brand.gold, GOLD_LIGHT = "#FCEA4A", GREEN = "#2ECC71",
 // white 6.10, where the brand's red carries the off white at 3.57. Words
 // and icons drawn in red keep RED, and light mode's darker ink for it.
 const RED_FILL = "#B3261E";
+// The green and the blue a filled control with light words or a light
+// icon is drawn in, in both themes, each light mode's own ink for its
+// color: the off white reads 6.64 to 1 on the green and 6.45 on the blue,
+// where the brand's green carries it at 1.96 and its blue at 2.55. A
+// fill with dark words, a dot, a bar or a ticked box keeps GREEN and BLUE.
+const GREEN_FILL = "#186534", BLUE_FILL = "#0A5C9E";
 const NAVY = clientConfig.brand.navy;
 const BLUE_DEEP = clientConfig.brand.blueDeep;
 const BLUE_BRIGHT = clientConfig.brand.blueBright;
@@ -998,6 +1004,17 @@ function readOpenFromUrl() {
   } catch (e) { return null; }
 }
 const OPEN_AT_START = readOpenFromUrl();
+// An equipment label's QR (Step 238): /eq/<code>. Read once at start. It
+// is no entry screen: the app signs in or boots the stored session as it
+// always does, and the item opens once the portal is up. The code is read
+// off the path as written, since its case matters.
+function readEquipmentFromUrl() {
+  try {
+    var m = /^\/eq\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+    return m ? m[1] : null;
+  } catch (e) { return null; }
+}
+const EQUIPMENT_AT_START = readEquipmentFromUrl();
 const ENTRY = readEntryFromUrl();
 if (ENTRY && ENTRY.token) {
   try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
@@ -1035,6 +1052,72 @@ function deviceId() {
   try { window.localStorage.setItem(DEVICE_KEY, made); } catch (e) {}
   return made;
 }
+
+// --- Check-offs with no signal (Step 240) ------------------------------
+// A check or an uncheck the API could not be reached for is kept on this
+// phone until it can be: the task, its site, whose tap it was, the tap's
+// own clientId and time, and whether it checked or unchecked. Nothing
+// else. The API takes clientId and completedAt beside what a check-off
+// takes today (Step 238), answers the same clientId twice once, and puts
+// a tap on the checklist day it was made.
+const PENDING_KEY = "ocsa-pending-checkoffs";
+const PENDING_EVERY_MS = 60000;
+// One per tap: Step 233's randomUUID, else its v4 from random bytes.
+const newClientId = newDeviceId;
+function readPending() {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(PENDING_KEY) || "[]");
+    return Array.isArray(v) ? v.filter(x => x && x.taskId && x.clientId && typeof x.done === "boolean") : [];
+  } catch (e) { return []; }
+}
+function writePending(list) {
+  try { if (list.length) window.localStorage.setItem(PENDING_KEY, JSON.stringify(list)); else window.localStorage.removeItem(PENDING_KEY); } catch (e) {}
+}
+// The taps still waiting for one site, as each task's last tap: checked
+// or unchecked, the way the person left it.
+function pendingTicksFor(list, siteId, userId) {
+  const m = new Map();
+  (list || []).forEach(x => { if ((!siteId || String(x.siteId) === String(siteId)) && (!userId || !x.userId || String(x.userId) === String(userId))) m.set(x.taskId, x.done); });
+  return m;
+}
+// The checklist's last answer for each site, with the status it was read
+// under, so the checklist opens with no signal at all and takes taps into
+// the queue. Names are left out, coworkers' first names among them; a
+// kept list says who has a tick only once it is read again with signal.
+// A day old, it is no longer opened. A sign-out clears it.
+const KEPT_KEY = "ocsa-checklist-kept";
+const KEPT_MAX_MS = 24 * 60 * 60 * 1000;
+const KEPT_SITES = 3;
+function withoutNames(v) {
+  if (Array.isArray(v)) return v.map(withoutNames);
+  if (v && typeof v === "object") { const o = {}; Object.keys(v).forEach(k => { if (k !== "firstName" && k !== "lastName") o[k] = withoutNames(v[k]); }); return o; }
+  return v;
+}
+function readKept() {
+  try { const v = JSON.parse(window.localStorage.getItem(KEPT_KEY) || "null"); return v && typeof v === "object" && v.lists ? v : null; } catch (e) { return null; }
+}
+function keepChecklist(userId, role, clock, answer, lang) {
+  try {
+    const siteId = clock && clock.shift ? clock.shift.siteId : null;
+    if (!userId || !siteId) return;
+    const was = readKept();
+    const lists = was && String(was.userId) === String(userId) ? was.lists : {};
+    lists[siteId] = { answer: withoutNames(answer), lang: lang, savedAt: Date.now() };
+    Object.keys(lists).sort((a, b) => lists[b].savedAt - lists[a].savedAt).slice(KEPT_SITES).forEach(k => { delete lists[k]; });
+    window.localStorage.setItem(KEPT_KEY, JSON.stringify({ userId: userId, role: role || null, clock: withoutNames(clock), lists: lists }));
+  } catch (e) {}
+}
+function forgetKept() {
+  try { window.localStorage.removeItem(KEPT_KEY); } catch (e) {}
+}
+// The kept list for the shift the kept status names, while it is fresh.
+function keptToOpen() {
+  const kept = readKept();
+  const siteId = kept && kept.clock && kept.clock.clockedIn && kept.clock.shift ? kept.clock.shift.siteId : null;
+  const list = siteId ? kept.lists[siteId] : null;
+  return list && Date.now() - Number(list.savedAt) < KEPT_MAX_MS ? { kept: kept, list: list } : null;
+}
+const checkoffPath = (taskId) => "/api/clock/tasks/" + encodeURIComponent(taskId) + "/complete";
 // How long Send a new code waits after each send, the API's own spacing.
 const CODE_RESEND_MS = 30000;
 
@@ -1613,6 +1696,18 @@ export default function OCSAStaffPortal() {
   // hold only today's due items, so a status read would otherwise take the
   // tick straight back off.
   const [tickOverrides, setTickOverrides] = useState(new Map());
+  // Taps waiting for signal, oldest first, as kept on this phone. The ref
+  // is what a send reads, so two sends never take the same tap.
+  const [pending, setPending] = useState(() => readPending());
+  const pendingRef = useRef(pending);
+  const putPending = (list) => { pendingRef.current = list; writePending(list); setPending(list); };
+  // The session now, for work that finishes after a sign-out: what it
+  // started under is no longer anyone's, and it keeps nothing.
+  const liveToken = useRef(token);
+  liveToken.current = token;
+  // Opened from the kept checklist with no signal: the session is kept and
+  // read again as soon as there is signal.
+  const [offlineOpen, setOfflineOpen] = useState(false);
   // One line said under one row for a few seconds: why a coworker's check
   // cannot be unchecked here, or the API's own sentence when it turned an
   // uncheck away. null clears it.
@@ -1811,8 +1906,33 @@ export default function OCSAStaffPortal() {
     // get past the splash.
     hydrateSession(tok)
       .then(() => setBooting(false))
-      .catch(() => { clearAuth(); setToken(null); setUser(null); setScreen("login"); setBooting(false); });
+      .catch((err) => {
+        // No signal at all, and a checklist this phone kept: it opens, and
+        // a tap goes into the queue. Everything else waits for signal.
+        const open = err && err.message === ERR_OFFLINE ? keptToOpen() : null;
+        if (open) { openKept(open); setBooting(false); return; }
+        clearAuth(); setToken(null); setUser(null); setScreen("login"); setBooting(false);
+      });
   }, [hydrateSession]);
+  // The kept status and list, drawn the way an answer is.
+  const openKept = ({ kept, list }) => {
+    setUser({ id: kept.userId, role: kept.role || undefined });
+    takeStatus(kept.clock, nextStatusSeq());
+    if (kept.clock.shift) setSelectedSite(kept.clock.shift.siteId);
+    const got = checklistAnswer(list.answer);
+    setTasks(got.rows); setTasksDay(got.day); setTasksLang(list.lang || null);
+    setOfflineOpen(true);
+    setScreen("main");
+  };
+  // Opened from the kept list: the session is read again once there is
+  // signal, when the phone says it is back and every minute until then.
+  useEffect(() => {
+    if (!offlineOpen || !token) return undefined;
+    const again = () => { hydrateSession(token).then(() => setOfflineOpen(false)).catch(() => {}); };
+    window.addEventListener("online", again);
+    const every = setInterval(again, PENDING_EVERY_MS);
+    return () => { window.removeEventListener("online", again); clearInterval(every); };
+  }, [offlineOpen, token, hydrateSession]);
 
   const handleLogin = async (phone, pin) => {
     setLoading(true); setLoginFault(null);
@@ -1910,6 +2030,8 @@ export default function OCSAStaffPortal() {
   // holds signing out.
   const handleLogout = async () => {
     const tok = token;
+    // Taps still waiting go now if they can, and are dropped after.
+    if (tok && pendingRef.current.length > 0) { try { await Promise.race([sendPending(), new Promise(resolve => setTimeout(resolve, SIGN_OUT_PUSH_MS))]); } catch (e) {} }
     if (tok) { try { await Promise.race([turnOffPhoneAlerts(tok), new Promise(resolve => setTimeout(resolve, SIGN_OUT_PUSH_MS))]); } catch (e) {} }
     forgetPerson();
   };
@@ -1987,13 +2109,82 @@ export default function OCSAStaffPortal() {
   // flight, which a check or an uncheck needs: the list then carries what
   // the API says was done. Only the newest request's answer is taken.
   const tasksSeq = useRef(0);
-  const loadTasks = async (again) => { const path = checklistAsk; const key = checklistKey; const lang = language; if (!path || (again !== true && tasksReqAsked.current === key)) return; const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (mine !== tasksSeq.current) return; const got = checklistAnswer(tt); setTasks(got.rows); setTasksDay(got.day); setTasksLang(lang); tasksAsked.current = key; setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; }); const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); takeStatus(cs, seq); } catch (err) { console.error(err); if (mine === tasksSeq.current) setTasksFailed(true); } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; } };
+  const loadTasks = async (again) => { const path = checklistAsk; const key = checklistKey; const lang = language; if (!path || (again !== true && tasksReqAsked.current === key)) return; const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (mine !== tasksSeq.current) return; const got = checklistAnswer(tt); setTasks(got.rows); setTasksDay(got.day); setTasksLang(lang); tasksAsked.current = key; setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; }); const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); if (takeStatus(cs, seq) && user && mine === tasksSeq.current && liveToken.current === token) keepChecklist(user.id, user.role, cs, tt, lang); } catch (err) { console.error(err); if (mine === tasksSeq.current) setTasksFailed(true); } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; } };
   // A check or an uncheck, sent the way it always has been, for the row as
   // the screen draws it. A row outside the id lists is drawn from this
   // phone's own tap until the list comes back. Then the list and the
   // status are both read again, since a periodic row's tick lives on the
   // row and not in the status.
-  const toggleTask = async (task, done) => { const taskId = task.id; if (inFlightTaskIds.current.has(taskId)) return; inFlightTaskIds.current.add(taskId); const counted = isDueToday(task); const mark = (on) => setTickOverrides(prev => { const n = new Map(prev); n.set(taskId, { done: on, doneThisPeriod: on ? { completedAt: new Date().toISOString(), firstName: user && user.firstName } : null, checkedToday: on ? { byCaller: true, firstName: user && user.firstName, completedAt: new Date().toISOString() } : null, at: Date.now() }); return n; }); try { if (done) { await api("/api/clock/tasks/" + taskId + "/complete", { method: "DELETE", token }); showRowNote(taskId, null); if (counted) setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); else mark(false); showToast(tr("Task unchecked")); } else { await api("/api/clock/tasks/" + taskId + "/complete", { method: "POST", body: {}, token }); if (counted) setCompletedTaskIds(prev => new Set(prev).add(taskId)); else mark(true); showToast(tr("Task completed")); } loadTasks(true); } catch (err) { if (done && err.code === "NOT_YOUR_CHECK") { showRowNote(taskId, tr(err.message)); loadTasks(true); } else showToast(tr(err.message), "error"); } finally { inFlightTaskIds.current.delete(taskId); } };
+  const toggleTask = async (task, done) => {
+    const taskId = task.id;
+    if (inFlightTaskIds.current.has(taskId)) return;
+    const counted = isDueToday(task);
+    const mark = (on) => setTickOverrides(prev => { const n = new Map(prev); n.set(taskId, { done: on, doneThisPeriod: on ? { completedAt: new Date().toISOString(), firstName: user && user.firstName } : null, checkedToday: on ? { byCaller: true, firstName: user && user.firstName, completedAt: new Date().toISOString() } : null, at: Date.now() }); return n; });
+    // The box as the person set it.
+    const shown = () => {
+      if (done) { showRowNote(taskId, null); if (counted) setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); else mark(false); }
+      else if (counted) setCompletedTaskIds(prev => new Set(prev).add(taskId)); else mark(true);
+    };
+    // Every tap carries its own clientId and the time it was made, so a
+    // tap sent twice is kept once and a tap sent late lands on its day.
+    const tap = { taskId: taskId, siteId: clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, userId: user ? user.id : null, clientId: newClientId(), completedAt: new Date().toISOString(), done: !done };
+    // While taps wait, a new one waits behind them, so they reach the API
+    // in the order they were made.
+    if (pendingRef.current.length > 0) { putPending(pendingRef.current.concat([tap])); shown(); sendPending(); return; }
+    inFlightTaskIds.current.add(taskId);
+    try {
+      await api(checkoffPath(taskId), { method: done ? "DELETE" : "POST", body: { clientId: tap.clientId, completedAt: tap.completedAt }, token });
+      shown();
+      showToast(tr(done ? "Task unchecked" : "Task completed"));
+      loadTasks(true);
+    } catch (err) {
+      // No signal: the tap is kept on this phone and the box stays as set.
+      if (err && err.message === ERR_OFFLINE) { putPending(pendingRef.current.concat([tap])); shown(); }
+      else if (done && err.code === "NOT_YOUR_CHECK") { showRowNote(taskId, tr(err.message)); loadTasks(true); }
+      else showToast(tr(err.message), "error");
+    } finally { inFlightTaskIds.current.delete(taskId); }
+  };
+  // The taps waiting, sent oldest first. A tap leaves the queue on any
+  // answer but no signal; no signal stops the send, and the rest wait for
+  // the next. A refusal is said once, in the API's words.
+  const sendingPending = useRef(false);
+  const sendPending = async () => {
+    if (sendingPending.current || !token || pendingRef.current.length === 0) return;
+    sendingPending.current = true;
+    let sent = 0;
+    try {
+      while (pendingRef.current.length > 0) {
+        const tap = pendingRef.current[0];
+        // A tap made under another person's session never goes under this one.
+        if (!user || !tap.userId || String(tap.userId) === String(user.id)) {
+          try {
+            await api(checkoffPath(tap.taskId), { method: tap.done ? "POST" : "DELETE", body: { clientId: tap.clientId, completedAt: tap.completedAt }, token });
+            sent += 1;
+          } catch (err) {
+            if (err && err.message === ERR_OFFLINE) break;
+            if (err && err.message !== "Session expired") showToast(tr(err.message), "error");
+          }
+        }
+        putPending(pendingRef.current.filter(x => x.clientId !== tap.clientId));
+      }
+    } finally { sendingPending.current = false; }
+    if (sent > 0 && token && liveToken.current === token) loadTasks(true);
+  };
+  const sendPendingRef = useRef(sendPending);
+  sendPendingRef.current = sendPending;
+  // The queue goes when the phone says it is back, when the checklist
+  // opens, and every minute while it is open.
+  useEffect(() => {
+    const go = () => { sendPendingRef.current(); };
+    window.addEventListener("online", go);
+    return () => window.removeEventListener("online", go);
+  }, []);
+  useEffect(() => {
+    if (activeTab !== "tasks" || screen !== "main") return undefined;
+    sendPendingRef.current();
+    const every = setInterval(() => { sendPendingRef.current(); }, PENDING_EVERY_MS);
+    return () => clearInterval(every);
+  }, [activeTab, screen]);
   // The shift a session carries, sent as the person chose it on the sheet.
   // Keeping the shift in use sends nothing. The answer is the session and
   // its counts, which replace what the screen holds, and the list is read
@@ -2120,6 +2311,16 @@ export default function OCSAStaffPortal() {
   // before the first screen was drawn and the portal showed only the
   // last resort.
   const [openAsk, setOpenAsk] = useState(OPEN_AT_START);
+  // The equipment label this phone was opened from, waiting until the
+  // portal is up, and then the one on the screen.
+  const [equipmentCode, setEquipmentCode] = useState(EQUIPMENT_AT_START);
+  const [equipmentShown, setEquipmentShown] = useState(null);
+  useEffect(() => {
+    if (!equipmentCode || screen !== "main" || offlineOpen) return;
+    setEquipmentShown(equipmentCode); setEquipmentCode(null);
+    setActiveTab("equipment"); setShowMore(false);
+    try { window.history.replaceState({}, "", "/"); } catch (e) {}
+  }, [equipmentCode, screen, offlineOpen]);
   // The worker tells an open window where a tapped alert points.
   useEffect(() => {
     const sw = navigator.serviceWorker;
@@ -2309,6 +2510,10 @@ export default function OCSAStaffPortal() {
     setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null);
     setSessionSitesFailed(false); setAssignedFailed(false); setIssuesFailed(false); setSuppliesFailed(false); setSuppliesLoaded(false);
     setShiftAsk(null); setShiftBusy(false); setShiftFault(null); setTickOverrides(new Map()); setRowNote(null);
+    // A checklist read still on its way is dropped, so it cannot keep the
+    // list again after this.
+    tasksSeq.current += 1;
+    pendingRef.current = []; writePending([]); setPending([]); forgetKept(); setOfflineOpen(false);
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
     setChannels(null); setChannelsFailed(false); setMessages([]); setMessagesOf(null); setActiveChannel(null);
@@ -2424,7 +2629,10 @@ export default function OCSAStaffPortal() {
   // siteCompletedTaskIds of siteTotal, whenever a person's checks are among
   // their own items; completed also counts a check of an item outside them,
   // which total does not, and would read more than the whole.
-  const homeCounts = Array.isArray(tasks) ? todayCount(tasks, completedTaskIds) : null;
+  // The ticks drawn: the API's, with this phone's waiting taps over them.
+  const pendingTicks = pendingTicksFor(pending, clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, user && user.id);
+  const shownCompleted = pendingTicks.size === 0 ? completedTaskIds : (() => { const n = new Set(completedTaskIds); pendingTicks.forEach((on, id) => { if (on) n.add(id); else n.delete(id); }); return n; })();
+  const homeCounts = Array.isArray(tasks) ? todayCount(tasks, shownCompleted) : null;
   // The sheet that asks which shift, while it is needed: after Start Shift
   // or Change shift, and whenever the session at a site with shifts
   // carries none.
@@ -2494,7 +2702,7 @@ export default function OCSAStaffPortal() {
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
               {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
-              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
+              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
@@ -2508,6 +2716,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
               {activeTab === "phonealerts" && <PhoneAlertsView token={token} t={t} onBack={() => setActiveTab("settings")} />}
+              {activeTab === "equipment" && equipmentShown && <EquipmentView token={token} code={equipmentShown} showToast={showToast} t={t} onBack={() => { setEquipmentShown(null); setActiveTab("clock"); }} />}
               {activeTab === "profile" && <MyProfileView token={token} user={user} showToast={showToast} t={t} setUser={setUser} setActiveTab={setActiveTab} />}
             </div>
           </div>
@@ -3944,14 +4153,16 @@ function checklistAnswer(tt) {
 // weeks, a month, a quarter or a season has a section of its own, in
 // that order, and as needed work comes last and is never counted. A row
 // that names no period is the day's own work, the way every row was.
+// Each periodic row also says how often it comes, beside its name.
 const PERIOD_SECTIONS = [
-  { id: "week", title: () => tr("This week") },
-  { id: "biweekly", title: () => tr("Every two weeks") },
-  { id: "month", title: () => tr("This month") },
-  { id: "quarter", title: () => tr("This quarter") },
-  { id: "season", title: () => tr("This season") },
+  { id: "week", title: () => tr("This week"), often: "Weekly" },
+  { id: "biweekly", title: () => tr("Every two weeks"), often: "Every two weeks" },
+  { id: "month", title: () => tr("This month"), often: "Monthly" },
+  { id: "quarter", title: () => tr("This quarter"), often: "Quarterly" },
+  { id: "season", title: () => tr("This season"), often: "Seasonal" },
 ];
 const isPeriodic = (tk) => PERIOD_SECTIONS.some(p => p.id === tk.period);
+const howOften = (tk) => { const p = PERIOD_SECTIONS.find(x => x.id === tk.period); return p ? tr(p.often) : null; };
 const sectionOf = (tk) => (isPeriodic(tk) ? tk.period : tk.period === "as_needed" ? "as_needed" : "today");
 const isDueToday = (tk) => sectionOf(tk) === "today" && tk.dueToday !== false;
 // When and by whom work was done, the way a person says it: today,
@@ -4113,7 +4324,7 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
   );
 }
 
-function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, t }) {
+function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, t }) {
   const [detail, setDetail] = useState(null);
   const loaded = Array.isArray(tasks);
   const standardTasks = standardTasksOf(tasks);
@@ -4128,6 +4339,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   const drawSections = (sections, row) => sections.map((sec, si) => (<div key={si}>{sec.head && (<div style={{ ...floorHeadSt, marginTop: si > 0 ? 10 : 0 }}>{sec.head}</div>)}{sec.groups.map((g, gi) => { const inset = sec.head ? 8 : 0; return (<div key={gi} style={{ marginBottom: 16 }}>{g.title && <div style={{ ...(g.block ? blockSt : zoneSt), paddingLeft: inset }}>{g.time ? <><span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{clockTime(g.time)}</span>{" "}</> : null}<span>{g.title}</span></div>}{g.rows.reduce((out, r) => { if (r.place) out.push(<div key={"at-" + r.task.id} style={{ ...zoneSt, paddingLeft: inset }}>{r.place}</div>); out.push(row(r.task, inset)); return out; }, [])}</div>); })}</div>));
   const rowBase = { display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 11, padding: "11px 13px", marginBottom: 6, borderRadius: R.md, boxShadow: t.shadow };
   const chipPriority = { fontSize: 9, color: ink(t, ORANGE), background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600, letterSpacing: "0.5px" };
+  const chipOften = { fontSize: 10, color: t.textSec, background: t.cardAlt, border: "1px solid " + t.borderSolid, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600, fontFamily: FONT_HEAD };
   const detailSecLabel = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD };
   // A section's title, Today or a period, with its count at the other end.
   const periodHeadSt = { display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: "2px 10px", marginBottom: 10 };
@@ -4211,7 +4423,9 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   // checked or unchecked it and the list has not come back since; the id
   // lists never hold them.
   const rowNow = (tk) => { const o = tickOverrides.get(tk.id); return o && !isDueToday(tk) ? { ...tk, doneThisPeriod: o.done ? o.doneThisPeriod : null, checkedToday: o.checkedToday, tapped: true } : tk; };
-  const isDone = (tk) => (isDueToday(tk) ? completedTaskIds.has(tk.id) : !!tk.doneThisPeriod);
+  // A tap still waiting for signal is drawn the way the person left it.
+  const waiting = pendingTicks || new Map();
+  const isDone = (tk) => (waiting.has(tk.id) ? waiting.get(tk.id) : isDueToday(tk) ? completedTaskIds.has(tk.id) : !!tk.doneThisPeriod);
   // Who checked a row today, the person's own check first: this phone's
   // own tap, then the status, which is read after every check, then the
   // row as the list sent it.
@@ -4222,8 +4436,11 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   // Work done in its period on an earlier day is not offered at all: the
   // API would answer the uncheck and remove nothing. A due row whose
   // checker nothing names is the person's own, the way every tick was.
+  // A coworker's check, by their first name. The list kept for no signal
+  // keeps no names, so a check opened from it names nobody.
+  const checkedBy = (tk) => { const c = checkedOf(tk); return c && c.firstName ? tr("Checked by {firstName}", { firstName: c.firstName }) : null; };
   const lockOf = (tk, done) => {
-    if (!done) return null;
+    if (!done || waiting.has(tk.id)) return null;
     const c = checkedOf(tk);
     if (c && c.byCaller === true) return null;
     if (c && c.byCaller === false) return "other";
@@ -4258,12 +4475,14 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
     const current = rows.find(tk => tk.id === detail.id) || rowNow(detail);
     const done = isDone(current);
     const lock = lockOf(current, done);
-    const byWho = done ? whenOf(current) || (lock === "other" ? tr("Checked by {firstName}", { firstName: checkedOf(current).firstName }) : null) : null;
+    const byWho = done ? whenOf(current) || (lock === "other" ? checkedBy(current) : null) : null;
     return drawDetail(detail, byWho, lock !== "earlier" && <button onClick={() => { tap(current, done, lock); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? tr("Uncheck Task") : tr("Mark Complete")}</button>);
   }
 
   return (
     <div style={{ padding: "16px" }}>
+      {/* One quiet line while a tap waits for signal. */}
+      {waiting.size > 0 && <div role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}><ClockIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.5, minWidth: 0 }}>{tr("Saved on this phone. It sends when you have signal.")}</div></div>}
       <div style={{ padding: "14px 16px", marginBottom: 16, background: t.goldBg, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Your Assignment")}</div><div style={{ fontSize: 15, fontWeight: 600, marginTop: 3, color: t.text, fontFamily: FONT_HEAD }}>{clockStatus.shift.siteName}</div>{(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.textSec, marginTop: 2 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>}</div><div style={{ background: pct === 100 ? t.greenSubtle : t.card, padding: "6px 14px", borderRadius: R.pill, border: "1px solid " + (pct === 100 ? t.greenBorder : t.borderSolid) }}><div style={{ fontSize: 18, fontWeight: 600, color: ink(t, pct === 100 ? GREEN : t.goldText), fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</div></div></div>
         <div style={{ height: 5, borderRadius: R.pill, background: t.cardAlt, marginTop: 12, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.4s ease" }} /></div>
@@ -4278,9 +4497,10 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
             const lock = lockOf(task, done);
             // Who did it and when for periodic work and a day's work done
             // before today; for a coworker's check today, who made it.
-            const when = done ? whenOf(task) || (lock === "other" ? tr("Checked by {firstName}", { firstName: checkedOf(task).firstName }) : null) : null;
+            const when = done ? whenOf(task) || (lock === "other" ? checkedBy(task) : null) : null;
             const note = rowNote && rowNote.id === task.id ? rowNote.text : null;
             const hasInfo = task.has_details || w.description || task.media_url;
+            const often = howOften(task);
             return (
               <div key={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: inset }}>
                 <button onClick={() => tap(task, done, lock)} disabled={lock === "earlier"} aria-label={tr(done ? "Mark {name} not done" : "Mark {name} done", { name: w.label })} style={mkTapFrame({ flexShrink: 0, marginTop: 1, cursor: lock === "earlier" ? "default" : "pointer" })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></button>
@@ -4295,7 +4515,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
                   </button>
                   {note && <div role="alert" style={{ ...rowLineSt, color: t.text, fontWeight: 600 }}>{note}</div>}
                 </div>
-                {task.priority === "high" && <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}><span style={chipPriority}>{tr("PRIORITY")}</span></div>}
+                {(often || task.priority === "high") && <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>{often && <span style={chipOften}>{often}</span>}{task.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}</div>}
               </div>
             );
           })}
@@ -4679,7 +4899,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
           // person reading it carries a light accent on its bubble.
           const forMe = !isMe && tagsPerson(msg, user && user.id);
           const parts = mentionParts(words, msg.mentions);
-          const bubbleBg = isMe ? (isDm ? BLUE : GOLD) : forMe ? t.goldBg : (isDm && isAdm ? t.blueSubtle : t.card);
+          const bubbleBg = isMe ? (isDm ? BLUE_FILL : GOLD) : forMe ? t.goldBg : (isDm && isAdm ? t.blueSubtle : t.card);
           const bubbleBorder = isMe ? "none" : "1px solid " + (forMe ? t.goldBorder : (isDm && isAdm ? t.blueBorder : t.borderSolid));
           const drawn = parts.map((p, i) => (i % 2 === 1 ? <span key={i} style={{ fontWeight: 600, color: isMe ? "inherit" : t.goldText }}>{p}</span> : p));
           return (<div key={msg.id || "row-" + idx} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 8, marginBottom: showName ? 12 : 4, alignItems: "flex-end" }}>{!isMe && showName && (<div style={{ width: 28, height: 28, borderRadius: "50%", background: isAdm ? (isDm ? "rgba(36,164,244,0.15)" : t.goldBg) : t.cardAlt, border: "1px solid " + (isAdm ? (isDm ? BLUE : GOLD) : t.borderSolid), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 600, color: ink(t, isAdm ? (isDm ? BLUE : t.goldText) : t.textSec), flexShrink: 0, fontFamily: FONT_HEAD }}>{initials}</div>)}{!isMe && !showName && <div style={{ width: 28, flexShrink: 0 }} />}<div style={{ maxWidth: "75%", minWidth: 0 }}>{!isMe && showName && name && <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 3, color: ink(t, isAdm ? (isDm ? BLUE : t.goldText) : t.textSec), fontFamily: FONT_HEAD }}>{name}</div>}{words && <div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: bubbleBg, border: bubbleBorder, color: isMe ? (isDm ? "#F8F7F4" : NAVY) : t.text, fontSize: 13, lineHeight: 1.45, overflowWrap: "anywhere" }}>{drawn}</div>}{when && <div style={{ fontSize: 9, color: t.textMut, marginTop: 2, textAlign: isMe ? "right" : "left", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{when}</div>}</div></div>);
@@ -4691,7 +4911,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <input value={text} onChange={e => onType(e.target.value)} maxLength={CHAT_TEXT_MAX} placeholder={isOwnDm ? tr("Private message to admin...") : tr("Type a message...")} style={{ flex: 1, minWidth: 0, minHeight: TAP, padding: "10px 14px", borderRadius: R.pill, border: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.card, color: t.text, fontSize: 13, outline: "none", fontFamily: FONT_BODY }} onKeyDown={e => e.key === "Enter" && handleSend()} />
           {tagOn && <button type="button" onClick={() => { setTagQuery(""); setTagOpen("button"); }} aria-label={tr("Tag someone")} aria-expanded={!!tagOpen} style={mkTapFrame({ flexShrink: 0 })}><span style={{ width: 38, height: 38, borderRadius: "50%", border: "1px solid " + t.borderSolid, background: t.card, color: t.goldText, fontSize: 18, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_HEAD }}>@</span></button>}
-          <button onClick={handleSend} aria-label={tr("Send")} aria-disabled={!ready} style={mkTapFrame({ flexShrink: 0, cursor: ready ? "pointer" : "default" })}><span style={{ width: 38, height: 38, borderRadius: "50%", background: ready ? (isDm ? BLUE : GOLD) : t.cardAlt, boxShadow: ready && !isDm ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={ready ? (isDm ? "#F8F7F4" : NAVY) : t.textMut} /></span></button>
+          <button onClick={handleSend} aria-label={tr("Send")} aria-disabled={!ready} style={mkTapFrame({ flexShrink: 0, cursor: ready ? "pointer" : "default" })}><span style={{ width: 38, height: 38, borderRadius: "50%", background: ready ? (isDm ? BLUE_FILL : GOLD) : t.cardAlt, boxShadow: ready && !isDm ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={ready ? (isDm ? "#F8F7F4" : NAVY) : t.textMut} /></span></button>
         </div>
         {showFault && (<div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 8, padding: "8px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, flex: "1 1 160px", minWidth: 0 }}><AlertIco sz={16} c={ink(t, RED)} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0 }}>{fault.kind === "said" ? fault.said : fault.kind === "offline" ? tr(ERR_OFFLINE) : fault.kind === "denied" ? tr("You cannot send messages in this chat.") : tr("Your message was not sent.")}</div></div><button type="button" onClick={retry} disabled={sending} style={{ minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: sending ? "default" : "pointer", opacity: sending ? 0.6 : 1, flexShrink: 0, fontFamily: FONT_HEAD }}>{tr("Try again")}</button></div>)}
       </div>
@@ -5599,7 +5819,7 @@ function AssignedTasksView({ assignedTasks, failed, onRetry, resolveTask, showTo
             <div style={{ fontSize: 10, color: ink(t, GREEN), fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Mark as Resolved")}</div>
             <div style={{ marginBottom: 8 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("What did you do to complete this? *")}</div><textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the steps you took...")} rows={3} style={{ ...inputSt, resize: "vertical" }} /></div>
             <div style={{ marginBottom: 10 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("Photo of completed task *")}</div>{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GREEN, borderRadius: R.md, cursor: "pointer", color: ink(t, GREEN), fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={ink(t, GREEN)} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo of Completed Task")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("Required to verify completion")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: R.md, border: "1px solid " + t.borderSolid }} /><button onClick={() => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; }} aria-label={tr("Remove photo")} style={mkTapFrame({ position: "absolute", top: -2, right: -2 })}><span style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", color: "#F8F7F4", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</span></button></div>)}</div>
-            <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleResolve(detail.task_id)} disabled={uploading} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: GREEN, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Resolution")}</button></div>
+            <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleResolve(detail.task_id)} disabled={uploading} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: GREEN_FILL, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Resolution")}</button></div>
           </div>)}
           {isCantResolve && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.redSubtle }}>
             <div style={{ fontSize: 10, color: ink(t, RED), fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Explain why this cannot be completed *")}</div>
@@ -6563,6 +6783,22 @@ const FORMS_LEAVE_LINE = "Leave this report? Your saved answers stay, and you ca
 const CUSTOMER_THANKS = "Thank you. OCSA has your form.";
 const CUSTOMER_MAX_PHOTOS = 3;
 const CUSTOMER_NAME_MAX = 120;
+// A customer's form that asks the person's name and role itself (Step
+// 240), so the page asks neither again and sends the form's own answers
+// as customerName and customerRole. The public form answer names the two
+// questions in customerFields, { name, role }; until it does, the two
+// forms known to ask are named here by code. A key the form does not
+// have is not taken, and a form with neither keeps the page's own.
+const CUSTOMER_FIELDS_BY_CODE = {
+  "OCSA-FRM-007": { name: "your_name", role: "your_role" },
+  "OCSA-FRM-006": { name: "completed_by", role: null },
+};
+function customerFieldsOf(sent, form) {
+  const keys = new Set((form && Array.isArray(form.fields) ? form.fields : []).map(f => f && f.key));
+  const take = (o) => (o && typeof o === "object" && typeof o.name === "string" && keys.has(o.name)
+    ? { name: o.name, role: typeof o.role === "string" && keys.has(o.role) ? o.role : null } : null);
+  return take(sent) || take(CUSTOMER_FIELDS_BY_CODE[form && form.code]);
+}
 
 // The data twin of the rule the API evaluates, read exactly the
 // way the API reads it. A shape this cannot recognize counts as
@@ -6988,7 +7224,7 @@ function CustomerFormScreen({ token, t, themeMode }) {
   }
   const form = got.data.form;
   const draft = { id: null, formCode: form.code, formName: form.title, answers: {}, status: "draft", answered: 0, remaining: 0, missing: [] };
-  return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, head: head, thanksHead: headOf(false) }} />;
+  return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, asks: customerFieldsOf(got.data.customerFields, form), head: head, thanksHead: headOf(false) }} />;
 }
 
 // The client's acknowledgement of a monthly report, the page the mail
@@ -7449,7 +7685,8 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
   // failed.
   const [staffCut, setStaffCut] = useState(false);
   const [staffFound, setStaffFound] = useState({});
-  // The customer's own name and role, asked on the first section.
+  // The customer's own name and role, asked on the first section unless
+  // the form asks them itself (customer.asks).
   const [customerName, setCustomerName] = useState("");
   const [customerRole, setCustomerRole] = useState("");
   // The API's words under the question a refusal named, by key.
@@ -7571,8 +7808,16 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
   // A customer's signature, as this page holds it before it is sent: the
   // drawing, and the name and role typed in its card when they were, else
   // the ones typed at the top of the form.
-  const sigNameOf = (v) => (v && typeof v === "object" && v.name !== undefined ? String(v.name) : customerName);
-  const sigRoleOf = (v) => (v && typeof v === "object" && v.role !== undefined ? String(v.role) : customerRole);
+  // Where the form asks the name and role itself, its own answers are
+  // the ones sent and the ones a signature starts from, and a name the
+  // link requires is required of its question.
+  const asks = isCustomer && customer.asks ? customer.asks : null;
+  const askedText = (k) => (k && typeof values[k] === "string" ? values[k] : "");
+  const nameNow = asks ? askedText(asks.name) : customerName;
+  const roleNow = asks ? askedText(asks.role) : customerRole;
+  const requiredHere = (f) => !!f.required || (!!asks && customer.nameRequired && f.key === asks.name);
+  const sigNameOf = (v) => (v && typeof v === "object" && v.name !== undefined ? String(v.name) : nameNow);
+  const sigRoleOf = (v) => (v && typeof v === "object" && v.role !== undefined ? String(v.role) : roleNow);
   const customerSigned = (v) => !!v && typeof v === "object" && !!v.signature && sigNameOf(v).trim() !== "";
   const fieldAnswered = (f) => (formTypeOf(f) === "customer_signature" ? customerSigned(values[f.key]) : formHasAnswer(values[f.key]));
   // What is still unanswered is the server's judgement, never this
@@ -7580,7 +7825,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
   // customer's page has no draft to read it from, so it reads the same
   // rule itself until the API has named what is missing.
   const apiMissing = Array.isArray(current.missing) ? current.missing : [];
-  const localMissing = isCustomer ? shown.filter(f => f.required && !fieldAnswered(f)).map(f => f.key) : [];
+  const localMissing = isCustomer ? shown.filter(f => requiredHere(f) && !fieldAnswered(f)).map(f => f.key) : [];
   const missing = isCustomer && apiMissing.length === 0 ? localMissing : apiMissing;
   const fieldByKey = (k) => (form && Array.isArray(form.fields) ? form.fields : []).find(f => f.key === k) || null;
   // What is still short an answer, in the words the API uses: the
@@ -7888,7 +8133,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
       if (formTypeOf(f) === "customer_signature") { if (customerSigned(v)) answers[f.key] = { name: sigNameOf(v).trim(), role: sigRoleOf(v).trim(), signature: v.signature }; return; }
       if (formHasAnswer(v)) answers[f.key] = v;
     });
-    return { answers: answers, customerName: customerName.trim(), customerRole: customerRole.trim(), locale: locale, website: "" };
+    return { answers: answers, customerName: nameNow.trim(), customerRole: roleNow.trim(), locale: locale, website: "" };
   };
   const sendCustomer = async () => {
     if (sending) return;
@@ -8427,7 +8672,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
               <button onClick={() => editSection(sk)} style={{ minHeight: 44, padding: "0 16px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Edit")}</button>
             </div>
             {titled && formSectionTitle(form, sk, locale) && <div role="heading" aria-level={2} style={{ ...titleSt, marginBottom: 10 }}>{formSectionTitle(form, sk, locale)}</div>}
-            {isCustomer && i === 0 && [[tr("Your name"), customerName.trim()], [tr("Your role"), customerRole.trim()]].map(([label, value]) => (
+            {isCustomer && !asks && i === 0 && [[tr("Your name"), customerName.trim()], [tr("Your role"), customerRole.trim()]].map(([label, value]) => (
               <div key={label} style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{label}</div>
                 <div style={{ fontSize: 14, color: value ? t.text : t.textMut, fontWeight: value ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{value || tr("Not answered")}</div>
@@ -8469,14 +8714,14 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
         )}
         {!review && isCustomer && at === 0 && (
           <>
-            <div style={qSt}>
+            {!asks && <div style={qSt}>
               <div style={labelSt}>{tr("Your name")}{customer.nameRequired && <span style={reqSt}>{tr("Required")}</span>}</div>
               <input type="text" autoComplete="name" maxLength={CUSTOMER_NAME_MAX} value={customerName} onChange={e => setCustomerName(e.target.value)} style={inputSt} />
-            </div>
-            <div style={qSt}>
+            </div>}
+            {!asks && <div style={qSt}>
               <div style={labelSt}>{tr("Your role")}</div>
               <input type="text" autoComplete="organization-title" maxLength={CUSTOMER_NAME_MAX} value={customerRole} onChange={e => setCustomerRole(e.target.value)} style={inputSt} />
-            </div>
+            </div>}
             {/* The field a person never sees and never fills. A filing
                 that fills it is taken by the API and written nowhere. */}
             <input type="text" name="website" value="" readOnly tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: "absolute", opacity: 0, width: 0, height: 0, border: 0, padding: 0, margin: 0, pointerEvents: "none" }} />
@@ -8484,7 +8729,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
         )}
         {!review && pageFields.map(f => (
           <div key={f.key} style={qSt}>
-            <div style={labelSt}>{f.label}{f.required && <span style={reqSt}>{tr("Required")}</span>}</div>
+            <div style={labelSt}>{f.label}{requiredHere(f) && <span style={reqSt}>{tr("Required")}</span>}</div>
             {f.help && <div style={mkHelp(t)}>{f.help}</div>}
             {renderInput(f)}
             {keyErr[f.key] && <div style={mkFieldErr(t)}>{keyErr[f.key]}</div>}
@@ -9373,6 +9618,171 @@ function WsFiles({ token, projectId, showToast, t }) {
         );
       })}
       {addSheet}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// An equipment label (Step 238), opened from its QR: /eq/<code>
+//
+// The item from GET /api/equipment/by-qr/:code, for anyone signed in who
+// may read its site: its name, site, status, next service and its latest
+// events, with Checked, all good and Tag out, each asked first. A tag out
+// takes a note and, if the person adds one, a photo, made ready the way a
+// form's is and sent through the upload route. A retired item says so and
+// offers neither, and so does one already tagged out, which only the
+// office puts back in service. The portal has no QR scanner of its own: the phone's
+// camera reads the label and opens this page.
+// ------------------------------------------------------------
+const eqPath = (path) => "/api/equipment" + path + "?locale=" + languageToSend();
+const EQ_STATUS = { in_service: "In service", out_of_service: "Out of service", retired: "Retired" };
+const EQ_KIND = { check: "Checked, all good", service: "Serviced", repair: "Repaired", tagged_out: "Tagged out", returned: "Back in service", moved: "Moved", retired: "Retired" };
+const EQ_NOTE_MAX = 1000;
+const eqText = (o, keys) => { const v = agentField(o, keys, ""); return typeof v === "string" ? v.trim() : ""; };
+function eqItemOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = agentField(x, ["id"], null);
+  const name = eqText(x, ["name"]);
+  if (id === null || !name) return null;
+  const site = x.site && typeof x.site === "object" ? x.site : {};
+  const next = eqText(x, ["nextServiceOn", "next_service_on"]).slice(0, 10);
+  return { id: id, name: name, siteName: eqText(x, ["siteName", "site_name"]) || eqText(site, ["name"]), status: eqText(x, ["status"]), nextServiceOn: localDay(next) ? next : null, category: eqText(x, ["category"]) };
+}
+function eqEventOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const kind = eqText(x, ["kind"]);
+  if (!kind) return null;
+  const by = x.by && typeof x.by === "object" ? eqText(x.by, ["name"]) : eqText(x, ["byName", "by_name", "actorName"]);
+  return { id: agentField(x, ["id"], kind + agentField(x, ["at", "createdAt"], "")), kind: kind, note: eqText(x, ["note"]), by: by, at: agentField(x, ["at", "createdAt", "created_at"], null) };
+}
+const eqSaidOf = (err) => (err && err.message !== ERR_OFFLINE && typeof err.code === "string" && err.code.indexOf("equipment.") === 0 && typeof err.message === "string" && err.message.trim() ? err.message.trim() : null);
+
+function EquipmentView({ token, code, showToast, t, onBack }) {
+  const [item, setItem] = useState(null);
+  const [asked, setAsked] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [tagOut, setTagOut] = useState(null);
+  const photoRef = useRef(null);
+  useBusy("equipment tag out", !!tagOut && (tagOut.note.trim() !== "" || !!tagOut.photo || tagOut.state !== "idle"));
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const d = await api(eqPath("/by-qr/" + encodeURIComponent(code)), { token });
+        const x = eqItemOf(d && typeof d === "object" && d.equipment && typeof d.equipment === "object" ? d.equipment : d);
+        if (!x) throw new Error(ERR_GENERIC);
+        const events = (wsRows(d, "events") || []).map(eqEventOf).filter(Boolean);
+        if (live) setItem({ state: "ok", item: x, events: events });
+      } catch (err) {
+        if (live) setItem(prev => (prev && prev.state === "ok" ? prev : { state: err && err.status === 404 ? "gone" : "failed", said: eqSaidOf(err) || (err && err.message === ERR_OFFLINE ? tr(ERR_OFFLINE) : err && err.status === 404 ? tr("This label does not match any equipment.") : tr("This item did not open. Try again.")) }));
+      }
+    })();
+    return () => { live = false; };
+  }, [code, asked]);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [code]);
+  const back = <WsBack label={tr("Back")} onBack={onBack} t={t} />;
+  const record = async (body, done) => {
+    setBusy(true);
+    try {
+      await api(eqPath("/" + encodeURIComponent(item.item.id) + "/events"), { method: "POST", body: body, token });
+      showToast(done);
+      setAsked(n => n + 1);
+      return true;
+    } catch (err) {
+      showToast(eqSaidOf(err) || (err && err.message === ERR_OFFLINE ? tr(ERR_OFFLINE) : tr("That was not recorded. Try again.")), "error");
+      return false;
+    } finally { setBusy(false); }
+  };
+  const checked = async () => {
+    if (busy || !window.confirm(tr("Record that this item was checked and is in good order?"))) return;
+    await record({ kind: "check" }, tr("Check recorded."));
+  };
+  const choosePhoto = async (picked) => {
+    if (!picked || !tagOut) return;
+    setTagOut(o => ({ ...o, state: "preparing", fault: null }));
+    try { const photo = await prepareFormPhoto(picked); setTagOut(o => (o ? { ...o, photo: photo, state: "idle" } : o)); }
+    catch (e) { setTagOut(o => (o ? { ...o, photo: null, state: "idle", fault: tr(FORMS_PHOTO_UNREADABLE) } : o)); }
+  };
+  const sendTagOut = async () => {
+    if (!tagOut || tagOut.state !== "idle") return;
+    const note = tagOut.note.trim();
+    if (!note) { setTagOut({ ...tagOut, fault: tr("Say what is wrong before you tag it out.") }); return; }
+    if (!window.confirm(tr("Tag this item out of service? The office is told."))) return;
+    setTagOut({ ...tagOut, state: "sending", fault: null });
+    let photoUrl = null;
+    if (tagOut.photo) {
+      try { const up = await uploadTaskMedia(tagOut.photo, token); photoUrl = up && up.url ? up.url : null; }
+      catch (err) { setTagOut(o => (o ? { ...o, state: "idle", fault: tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : "The photo did not upload. Try again, or tag it out without it.") } : o)); return; }
+    }
+    const body = { kind: "tagged_out", note: note };
+    if (photoUrl) body.photoUrl = photoUrl;
+    setBusy(true);
+    try {
+      await api(eqPath("/" + encodeURIComponent(item.item.id) + "/events"), { method: "POST", body: body, token });
+      setTagOut(null);
+      showToast(tr("Tagged out. The office has been told."));
+      setAsked(n => n + 1);
+    } catch (err) {
+      setTagOut(o => (o ? { ...o, state: "idle", fault: eqSaidOf(err) || (err && err.message === ERR_OFFLINE ? tr(ERR_OFFLINE) : tr("That was not recorded. Try again.")) } : o));
+    } finally { setBusy(false); }
+  };
+  const closeTagOut = () => { if (tagOut && tagOut.state !== "sending") setTagOut(null); };
+  if (!item) return <div style={{ padding: "16px 16px 0" }}>{back}<div style={{ fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div></div>;
+  if (item.state !== "ok") return <div style={{ padding: "16px 16px 0" }}>{back}<div style={{ padding: "24px 18px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><BoxIco sz={32} c={t.borderSolid} /><div role="alert" style={{ fontSize: 14, color: t.textSec, marginTop: 12, lineHeight: 1.5, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{item.said}</div>{item.state === "failed" && <button type="button" onClick={() => setAsked(n => n + 1)} style={{ minHeight: TAP, marginTop: 14, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button>}</div></div>;
+  const x = item.item;
+  const retired = x.status === "retired";
+  const out = x.status === "out_of_service";
+  const statusInk = retired ? t.textMut : out ? wsLateInk(t) : ink(t, GREEN);
+  const rowSt = { padding: "10px 12px", borderTop: "1px solid " + t.borderSolid };
+  const keySt = { ...mkLabel(t), marginBottom: 2 };
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      {back}
+      <div style={mkLabel(t)}>{tr("Equipment")}</div>
+      <div role="heading" aria-level={1} style={{ fontSize: 18, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{x.name}</div>
+      {x.category && <div style={{ fontSize: 13, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{x.category}</div>}
+      <div style={{ marginTop: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, overflow: "hidden" }}>
+        <div style={{ ...rowSt, borderTop: "none" }}><div style={keySt}>{tr("Status")}</div><div style={{ fontSize: 14, fontWeight: 600, color: statusInk, fontFamily: FONT_HEAD }}>{tr(EQ_STATUS[x.status] || "In service")}</div></div>
+        {x.siteName && <div style={rowSt}><div style={keySt}>{tr("Site")}</div><div style={{ fontSize: 14, color: t.text, overflowWrap: "anywhere" }}>{x.siteName}</div></div>}
+        {!retired && <div style={rowSt}><div style={keySt}>{tr("Next service")}</div><div style={{ fontSize: 14, color: x.nextServiceOn ? t.text : t.textMut }}>{x.nextServiceOn ? wsDueText(x.nextServiceOn) : tr("None set")}</div></div>}
+      </div>
+      {retired && <div role="status" style={{ ...wsQuiet(t), textAlign: "left", marginTop: 12 }}>{tr("This item is retired. Nothing can be recorded on it.")}</div>}
+      {out && <div role="status" style={{ ...wsQuiet(t), textAlign: "left", marginTop: 12, color: t.text }}>{tr("This item is tagged out. Do not use it until the office puts it back in service.")}</div>}
+      {!retired && !out && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+          <button type="button" onClick={checked} aria-disabled={busy} style={wsMainBtn(t, busy)}>{tr("Checked, all good")}</button>
+          <button type="button" onClick={() => setTagOut({ note: "", photo: null, state: "idle", fault: null })} aria-haspopup="dialog" style={{ ...wsPlainBtn(t), border: "1px solid " + RED, color: ink(t, RED) }}>{tr("Tag out")}</button>
+        </div>
+      )}
+      <div role="heading" aria-level={2} style={{ ...mkLabel(t), marginTop: 18, marginBottom: 8 }}>{tr("Recent")}</div>
+      {item.events.length === 0 && <div style={wsQuiet(t)}>{tr("Nothing recorded yet.")}</div>}
+      {item.events.map(e => (
+        <div key={e.id} style={{ padding: "10px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr(EQ_KIND[e.kind] || e.kind)}</div>
+          {e.note && <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5, marginTop: 2, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{e.note}</div>}
+          <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{[e.by, wsWhen(e.at)].filter(Boolean).join(", ")}</div>
+        </div>
+      ))}
+      {tagOut && (
+        <WsSheet id="ocsa-eq-tagout" title={tr("Tag out")} onClose={closeTagOut} t={t} footer={<>
+          <button type="button" onClick={closeTagOut} disabled={tagOut.state === "sending"} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+          <button type="button" onClick={sendTagOut} aria-disabled={tagOut.state !== "idle"} style={wsMainBtn(t, tagOut.state !== "idle")}>{tagOut.state === "sending" ? tr("Sending...") : tr("Tag out")}</button>
+        </>}>
+          <div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.5, marginBottom: 12, overflowWrap: "anywhere" }}>{x.name}</div>
+          <label htmlFor="ocsa-eq-note" style={mkLabel(t)}>{tr("What is wrong")}</label>
+          <textarea id="ocsa-eq-note" value={tagOut.note} maxLength={EQ_NOTE_MAX} rows={3} onChange={e => setTagOut({ ...tagOut, note: e.target.value.slice(0, EQ_NOTE_MAX), fault: null })} style={{ ...mkInput(t), minHeight: 88, resize: "vertical", lineHeight: 1.45, marginBottom: 12 }} />
+          <input ref={photoRef} type="file" accept="image/*" data-eq-photo="" style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; choosePhoto(f); }} />
+          {!tagOut.photo && <button type="button" onClick={() => { if (photoRef.current && tagOut.state === "idle") photoRef.current.click(); }} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, textAlign: "left" }}><CamIco sz={18} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tagOut.state === "preparing" ? tr("Loading...") : tr("Take photo or choose from gallery")}</span></button>}
+          {tagOut.photo && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 4px 4px 12px", borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}>
+              <CamIco sz={18} c={t.goldText} style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: t.text, overflowWrap: "anywhere" }}>{tagOut.photo.name}</span>
+              <button type="button" onClick={() => setTagOut({ ...tagOut, photo: null })} aria-label={tr("Remove photo")} style={mkTapFrame({ flexShrink: 0, color: t.textSec, fontSize: 18 })}>&times;</button>
+            </div>
+          )}
+          {tagOut.fault && <WsFault text={tagOut.fault} t={t} />}
+        </WsSheet>
+      )}
     </div>
   );
 }
