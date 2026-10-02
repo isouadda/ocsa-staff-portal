@@ -4436,6 +4436,9 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   // Work done in its period on an earlier day is not offered at all: the
   // API would answer the uncheck and remove nothing. A due row whose
   // checker nothing names is the person's own, the way every tick was.
+  // A coworker's check, by their first name. The list kept for no signal
+  // keeps no names, so a check opened from it names nobody.
+  const checkedBy = (tk) => { const c = checkedOf(tk); return c && c.firstName ? tr("Checked by {firstName}", { firstName: c.firstName }) : null; };
   const lockOf = (tk, done) => {
     if (!done || waiting.has(tk.id)) return null;
     const c = checkedOf(tk);
@@ -4472,7 +4475,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
     const current = rows.find(tk => tk.id === detail.id) || rowNow(detail);
     const done = isDone(current);
     const lock = lockOf(current, done);
-    const byWho = done ? whenOf(current) || (lock === "other" ? tr("Checked by {firstName}", { firstName: checkedOf(current).firstName }) : null) : null;
+    const byWho = done ? whenOf(current) || (lock === "other" ? checkedBy(current) : null) : null;
     return drawDetail(detail, byWho, lock !== "earlier" && <button onClick={() => { tap(current, done, lock); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? tr("Uncheck Task") : tr("Mark Complete")}</button>);
   }
 
@@ -4494,7 +4497,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
             const lock = lockOf(task, done);
             // Who did it and when for periodic work and a day's work done
             // before today; for a coworker's check today, who made it.
-            const when = done ? whenOf(task) || (lock === "other" ? tr("Checked by {firstName}", { firstName: checkedOf(task).firstName }) : null) : null;
+            const when = done ? whenOf(task) || (lock === "other" ? checkedBy(task) : null) : null;
             const note = rowNote && rowNote.id === task.id ? rowNote.text : null;
             const hasInfo = task.has_details || w.description || task.media_url;
             const often = howOften(task);
