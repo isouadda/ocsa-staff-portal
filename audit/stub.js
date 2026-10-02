@@ -460,11 +460,14 @@ function makeState(opts) {
     // stub having no French twins). sds: invented safety data sheets.
     // secondStep: the right PIN is answered with the second sign-in step,
     // and SECOND_STEP_CODE signs in. workspace: an office person's
-    // projects and to-dos; anyone else is turned away.
+    // projects and to-dos; anyone else is turned away. customerAsks
+    // (Step 240): link-asks answers a form that asks the person's name
+    // and role itself.
     languages: Array.isArray(o.languages) ? o.languages.slice() : null,
     sds: !!o.sds,
     secondStep: !!o.secondStep,
     workspace: !!o.workspace,
+    customerAsks: !!o.customerAsks,
     // Flip these from a case to make a route answer differently.
     refuse: o.refuse || {},          // "POST /api/time-off": { status, body }, { chat: code } or { api: key }
     offline: false,                  // every call fails at the network
@@ -838,10 +841,16 @@ function draftS(state, lang) {
 // too, and one link is closed.
 const FORM_C_CODE = "TEST-FORM-C";
 const FORM_V_CODE = "TEST-FORM-V";
+// The smoke check's form that asks the person's name and role itself, on
+// link-asks, answered only when its switch is on (Step 240). It carries
+// the code and the keys of OCSA-FRM-007, the real form that asks them,
+// and invented words.
+const FORM_A_CODE = "OCSA-FRM-007";
 const CUSTOMER_LINKS = {
   "link-checklist": { form: FORM_C_CODE, closed: false },
   "link-survey": { form: FORM_V_CODE, closed: false },
   "link-closed": { form: FORM_V_CODE, closed: true },
+  "link-asks": { form: FORM_A_CODE, closed: false, only: "customerAsks" },
 };
 const PUBLIC_MAX_PHOTOS = 3;
 const PUBLIC_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
@@ -912,7 +921,26 @@ function formV(lang) {
     ],
   };
 }
-const customerFormOf = (code, lang) => (code === FORM_C_CODE ? formC(lang) : formV(lang));
+const FORM_A_WORDS = {
+  en: { title: "Quarterly check in", first: "About you", second: "Your ratings", ocsa: "For the OCSA office", org: "Organization", name: "Your name", role: "Your role", overall: "Overall quality", notes: "Anything else" },
+  es: { title: "Revision trimestral", first: "Sobre usted", second: "Sus calificaciones", ocsa: "Para la oficina de OCSA", org: "Organizacion", name: "Su nombre", role: "Su puesto", overall: "Calidad general", notes: "Algo mas" },
+};
+function formA(lang) {
+  const w = FORM_A_WORDS[lang === "es" ? "es" : "en"];
+  const stars = [1, 2, 3, 4, 5].map(n => ({ value: String(n), label: String(n) }));
+  return {
+    code: FORM_A_CODE, title: w.title, version: 1,
+    sections: [{ key: "1", title: w.first }, { key: "2", title: w.second }, { key: "3", title: w.ocsa }],
+    fields: [
+      customerField("organization", w.org, "text", "1", true),
+      customerField("your_name", w.name, "text", "1", false),
+      customerField("your_role", w.role, "text", "1", false),
+      customerField("overall", w.overall, "select", "2", false, { options: stars }),
+      customerField("notes", w.notes, "textarea", "2", false),
+    ],
+  };
+}
+const customerFormOf = (code, lang) => (code === FORM_C_CODE ? formC(lang) : code === FORM_A_CODE ? formA(lang) : formV(lang));
 const customerNameRequired = (code) => code === FORM_C_CODE;
 
 // Everyone the Speak Up picker can offer, invented, each one a first and
@@ -2230,7 +2258,7 @@ function createStub(opts) {
     if ((method === "GET" && publicGet) || (method === "POST" && publicPost)) {
       const token = (publicGet || publicPost)[1];
       const link = CUSTOMER_LINKS[token];
-      if (!link) return publicRefusal("customer.linkUnknown");
+      if (!link || (link.only && !state[link.only])) return publicRefusal("customer.linkUnknown");
       if (link.closed) return publicRefusal("customer.linkClosed");
       const form = customerFormOf(link.form, publicLang);
       if (method === "GET") {
@@ -2732,7 +2760,7 @@ function draftOf(state) {
 
 module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
-  SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO,
+  SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES, localeFault, localeRows,
   CUSTOMER_LINKS, FORM_C_CODE, FORM_V_CODE, formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, PUBLIC_MAX_PHOTOS, PUBLIC_FILINGS_MAX, customerSignatureLine,

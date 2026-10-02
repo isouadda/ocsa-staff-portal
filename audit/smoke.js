@@ -18,6 +18,9 @@
 //     and the right code signs in; without it, sign-in goes straight in
 //   - a cleaner never asks for /api/workspace, even where the API would
 //     answer; a supervisor sees Workspace and My assignments
+//   - a customer's form that asks the name and role itself draws neither
+//     of the page's own and sends its own answers as customerName and
+//     customerRole; a form that does not ask still draws them
 //   - French offered by the stub turns the screen French, and a French
 //     screen shows no English the portal drew (French alone)
 //   - one page at the Largest text size, 360 wide, with no control cut
@@ -31,7 +34,7 @@ const fs = require("fs");
 const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
-const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT } = require("./stub");
+const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -272,6 +275,41 @@ async function supervisor(browser, language) {
   await app.context.close();
 }
 
+// A customer's form that asks the name and role itself (Step 240), and
+// one that does not.
+async function customerAsks(browser, language) {
+  const w = FORM_A_WORDS[language];
+  const app = await open({ customerAsks: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, path: "/c/link-asks" });
+  const page = app.page;
+  const up = await waitFor(page, (title) => document.body.innerText.indexOf(title) !== -1 && document.querySelectorAll('input[type="text"]').length > 0, w.title);
+  const looks = await page.evaluate((nameLabel) => ({
+    own: !!document.querySelector('input[autocomplete="name"]') || !!document.querySelector('input[autocomplete="organization-title"]'),
+    honeypot: !!document.querySelector('input[name="website"]'),
+    named: Array.from(document.querySelectorAll("div")).filter(d => d.firstChild && d.firstChild.nodeType === 3 && d.firstChild.textContent.trim() === nameLabel).length,
+  }), w.name);
+  const boxes = page.locator('input[type="text"]:not([name="website"])');
+  await boxes.nth(0).fill("Invented Org");
+  await boxes.nth(1).fill("An invented customer");
+  await boxes.nth(2).fill("Facilities");
+  for (let i = 0; i < 4 && !(await page.evaluate((s) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.trim() === s), say(language, "Send"))); i += 1) {
+    await page.evaluate((n) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.trim() === n); if (b) b.click(); }, say(language, "Next"));
+    await pause(page, 500);
+  }
+  await page.evaluate((s) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.trim() === s); if (b) b.click(); }, say(language, "Send"));
+  for (let i = 0; i < 15 && app.stub.state.customerFiled.length === 0; i += 1) await pause(page, 200);
+  const got = app.stub.state.customerFiled[0];
+  await app.context.close();
+  // Another form keeps the page's own.
+  const other = await open({ accountPreferences: { language: language, textSize: "standard" } }, { browser, language, path: "/c/link-survey" });
+  await waitFor(other.page, () => document.querySelectorAll('input[type="text"]').length > 0);
+  const kept = await other.page.evaluate(() => !!document.querySelector('input[autocomplete="name"]') && !!document.querySelector('input[autocomplete="organization-title"]') && !!document.querySelector('input[name="website"]'));
+  await other.context.close();
+  const sent = !!got && got.customerName === "An invented customer" && got.customerRole === "Facilities" && got.answers.your_name === "An invented customer" && got.answers.your_role === "Facilities";
+  check("a customer's form that asks the name and role itself draws neither of the page's own and sends its answers as customerName and customerRole; another form still draws them (" + language + ")",
+    up && !looks.own && looks.honeypot && looks.named === 1 && sent && kept && app.errors.length === 0 && other.errors.length === 0,
+    !up ? "the form did not open" : looks.own ? "the page's own Your name or Your role showed" : !looks.honeypot ? "no hidden website field" : looks.named !== 1 ? looks.named + " questions read " + JSON.stringify(w.name) : !sent ? "sent " + JSON.stringify(got || null) : !kept ? "the other form lost the page's own Your name and Your role" : (app.errors[0] || other.errors[0]));
+}
+
 // French, offered by the stub.
 async function french(browser) {
   const app = await open({ languages: ["en", "es", "fr"], accountPreferences: { language: "fr", textSize: "standard" } }, { browser, language: "fr", signedIn: true });
@@ -326,6 +364,7 @@ async function largest(browser) {
     for (const language of ["en", "es"]) await guard("/sds (" + language + ")", () => sds(browser, language));
     for (const language of ["en", "es"]) await guard("the second sign-in step (" + language + ")", () => secondStep(browser, language));
     for (const language of ["en", "es"]) await guard("the workspace (" + language + ")", () => supervisor(browser, language));
+    for (const language of ["en", "es"]) await guard("a customer's own name and role (" + language + ")", () => customerAsks(browser, language));
     await guard("French", () => french(browser));
     await guard("the Largest text size", () => largest(browser));
   } finally {

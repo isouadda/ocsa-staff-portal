@@ -15,13 +15,15 @@ item opens with no page error and no sideways scroll, Start Shift's
 screen draws, a form opens, Help answers; `/sds` draws with no sign-in;
 the sign-in code screen appears when the stub answers `secondStep`; a
 cleaner never asks for `/api/workspace` and a supervisor sees Workspace;
-French offered by the stub turns the screen French with no English the
+a customer's form that asks the name and role itself draws neither of
+the page's own and sends its own answers, while another form still draws
+them; French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
 non-zero on any failure or when the run takes three minutes or more.
 
 The stub routes it needs sit behind switches in `makeState`
-(`languages`, `sds`, `secondStep`, `workspace`), off for every other
+(`languages`, `sds`, `secondStep`, `workspace`, `customerAsks`), off for every other
 case. The full suite below is separate and is not run by it.
 
 ## The full suite

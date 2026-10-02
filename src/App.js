@@ -6780,6 +6780,22 @@ const FORMS_LEAVE_LINE = "Leave this report? Your saved answers stay, and you ca
 const CUSTOMER_THANKS = "Thank you. OCSA has your form.";
 const CUSTOMER_MAX_PHOTOS = 3;
 const CUSTOMER_NAME_MAX = 120;
+// A customer's form that asks the person's name and role itself (Step
+// 240), so the page asks neither again and sends the form's own answers
+// as customerName and customerRole. The public form answer names the two
+// questions in customerFields, { name, role }; until it does, the two
+// forms known to ask are named here by code. A key the form does not
+// have is not taken, and a form with neither keeps the page's own.
+const CUSTOMER_FIELDS_BY_CODE = {
+  "OCSA-FRM-007": { name: "your_name", role: "your_role" },
+  "OCSA-FRM-006": { name: "completed_by", role: null },
+};
+function customerFieldsOf(sent, form) {
+  const keys = new Set((form && Array.isArray(form.fields) ? form.fields : []).map(f => f && f.key));
+  const take = (o) => (o && typeof o === "object" && typeof o.name === "string" && keys.has(o.name)
+    ? { name: o.name, role: typeof o.role === "string" && keys.has(o.role) ? o.role : null } : null);
+  return take(sent) || take(CUSTOMER_FIELDS_BY_CODE[form && form.code]);
+}
 
 // The data twin of the rule the API evaluates, read exactly the
 // way the API reads it. A shape this cannot recognize counts as
@@ -7205,7 +7221,7 @@ function CustomerFormScreen({ token, t, themeMode }) {
   }
   const form = got.data.form;
   const draft = { id: null, formCode: form.code, formName: form.title, answers: {}, status: "draft", answered: 0, remaining: 0, missing: [] };
-  return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, head: head, thanksHead: headOf(false) }} />;
+  return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, asks: customerFieldsOf(got.data.customerFields, form), head: head, thanksHead: headOf(false) }} />;
 }
 
 // The client's acknowledgement of a monthly report, the page the mail
@@ -7666,7 +7682,8 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
   // failed.
   const [staffCut, setStaffCut] = useState(false);
   const [staffFound, setStaffFound] = useState({});
-  // The customer's own name and role, asked on the first section.
+  // The customer's own name and role, asked on the first section unless
+  // the form asks them itself (customer.asks).
   const [customerName, setCustomerName] = useState("");
   const [customerRole, setCustomerRole] = useState("");
   // The API's words under the question a refusal named, by key.
@@ -7788,8 +7805,16 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
   // A customer's signature, as this page holds it before it is sent: the
   // drawing, and the name and role typed in its card when they were, else
   // the ones typed at the top of the form.
-  const sigNameOf = (v) => (v && typeof v === "object" && v.name !== undefined ? String(v.name) : customerName);
-  const sigRoleOf = (v) => (v && typeof v === "object" && v.role !== undefined ? String(v.role) : customerRole);
+  // Where the form asks the name and role itself, its own answers are
+  // the ones sent and the ones a signature starts from, and a name the
+  // link requires is required of its question.
+  const asks = isCustomer && customer.asks ? customer.asks : null;
+  const askedText = (k) => (k && typeof values[k] === "string" ? values[k] : "");
+  const nameNow = asks ? askedText(asks.name) : customerName;
+  const roleNow = asks ? askedText(asks.role) : customerRole;
+  const requiredHere = (f) => !!f.required || (!!asks && customer.nameRequired && f.key === asks.name);
+  const sigNameOf = (v) => (v && typeof v === "object" && v.name !== undefined ? String(v.name) : nameNow);
+  const sigRoleOf = (v) => (v && typeof v === "object" && v.role !== undefined ? String(v.role) : roleNow);
   const customerSigned = (v) => !!v && typeof v === "object" && !!v.signature && sigNameOf(v).trim() !== "";
   const fieldAnswered = (f) => (formTypeOf(f) === "customer_signature" ? customerSigned(values[f.key]) : formHasAnswer(values[f.key]));
   // What is still unanswered is the server's judgement, never this
@@ -7797,7 +7822,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
   // customer's page has no draft to read it from, so it reads the same
   // rule itself until the API has named what is missing.
   const apiMissing = Array.isArray(current.missing) ? current.missing : [];
-  const localMissing = isCustomer ? shown.filter(f => f.required && !fieldAnswered(f)).map(f => f.key) : [];
+  const localMissing = isCustomer ? shown.filter(f => requiredHere(f) && !fieldAnswered(f)).map(f => f.key) : [];
   const missing = isCustomer && apiMissing.length === 0 ? localMissing : apiMissing;
   const fieldByKey = (k) => (form && Array.isArray(form.fields) ? form.fields : []).find(f => f.key === k) || null;
   // What is still short an answer, in the words the API uses: the
@@ -8105,7 +8130,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
       if (formTypeOf(f) === "customer_signature") { if (customerSigned(v)) answers[f.key] = { name: sigNameOf(v).trim(), role: sigRoleOf(v).trim(), signature: v.signature }; return; }
       if (formHasAnswer(v)) answers[f.key] = v;
     });
-    return { answers: answers, customerName: customerName.trim(), customerRole: customerRole.trim(), locale: locale, website: "" };
+    return { answers: answers, customerName: nameNow.trim(), customerRole: roleNow.trim(), locale: locale, website: "" };
   };
   const sendCustomer = async () => {
     if (sending) return;
@@ -8644,7 +8669,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
               <button onClick={() => editSection(sk)} style={{ minHeight: 44, padding: "0 16px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Edit")}</button>
             </div>
             {titled && formSectionTitle(form, sk, locale) && <div role="heading" aria-level={2} style={{ ...titleSt, marginBottom: 10 }}>{formSectionTitle(form, sk, locale)}</div>}
-            {isCustomer && i === 0 && [[tr("Your name"), customerName.trim()], [tr("Your role"), customerRole.trim()]].map(([label, value]) => (
+            {isCustomer && !asks && i === 0 && [[tr("Your name"), customerName.trim()], [tr("Your role"), customerRole.trim()]].map(([label, value]) => (
               <div key={label} style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{label}</div>
                 <div style={{ fontSize: 14, color: value ? t.text : t.textMut, fontWeight: value ? 600 : 400, marginTop: 4, lineHeight: 1.5, overflowWrap: "anywhere" }}>{value || tr("Not answered")}</div>
@@ -8686,14 +8711,14 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
         )}
         {!review && isCustomer && at === 0 && (
           <>
-            <div style={qSt}>
+            {!asks && <div style={qSt}>
               <div style={labelSt}>{tr("Your name")}{customer.nameRequired && <span style={reqSt}>{tr("Required")}</span>}</div>
               <input type="text" autoComplete="name" maxLength={CUSTOMER_NAME_MAX} value={customerName} onChange={e => setCustomerName(e.target.value)} style={inputSt} />
-            </div>
-            <div style={qSt}>
+            </div>}
+            {!asks && <div style={qSt}>
               <div style={labelSt}>{tr("Your role")}</div>
               <input type="text" autoComplete="organization-title" maxLength={CUSTOMER_NAME_MAX} value={customerRole} onChange={e => setCustomerRole(e.target.value)} style={inputSt} />
-            </div>
+            </div>}
             {/* The field a person never sees and never fills. A filing
                 that fills it is taken by the API and written nowhere. */}
             <input type="text" name="website" value="" readOnly tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: "absolute", opacity: 0, width: 0, height: 0, border: 0, padding: 0, margin: 0, pointerEvents: "none" }} />
@@ -8701,7 +8726,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
         )}
         {!review && pageFields.map(f => (
           <div key={f.key} style={qSt}>
-            <div style={labelSt}>{f.label}{f.required && <span style={reqSt}>{tr("Required")}</span>}</div>
+            <div style={labelSt}>{f.label}{requiredHere(f) && <span style={reqSt}>{tr("Required")}</span>}</div>
             {f.help && <div style={mkHelp(t)}>{f.help}</div>}
             {renderInput(f)}
             {keyErr[f.key] && <div style={mkFieldErr(t)}>{keyErr[f.key]}</div>}
