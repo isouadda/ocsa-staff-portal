@@ -385,6 +385,11 @@ async function uploadAgentPhoto(blob, token) {
 }
 
 const GOLD = clientConfig.brand.gold, GOLD_LIGHT = "#FCEA4A", GREEN = "#2ECC71", RED = "#E74C3C", ORANGE = "#F39C12", BLUE = "#24A4F4";
+// The red every filled control and badge with light words on it is drawn
+// in, in both themes: white on it reads 6.54 to 1 and the dark theme's off
+// white 6.10, where the brand's red carries the off white at 3.57. Words
+// and icons drawn in red keep RED, and light mode's darker ink for it.
+const RED_FILL = "#B3261E";
 const NAVY = clientConfig.brand.navy;
 const BLUE_DEEP = clientConfig.brand.blueDeep;
 const BLUE_BRIGHT = clientConfig.brand.blueBright;
@@ -440,8 +445,8 @@ const DARK = {
   btnGhost: "#1B3058", redSubtle: "rgba(231,76,60,0.06)", redBorder: "rgba(231,76,60,0.2)",
   orangeSubtle: "rgba(243,156,18,0.08)", orangeBorder: "rgba(243,156,18,0.2)",
   goldSubtle: "rgba(231,176,23,0.06)", goldText: GOLD,
-  // The unread count. Dark draws the red it has always drawn.
-  badgeBg: RED,
+  // The unread count, on the red every filled red control is drawn in.
+  badgeBg: RED_FILL,
 };
 const LIGHT = {
   bg: "#F4F7FB", card: "#FFFFFF", cardAlt: "#EEF3F9", border: "#E4EAF2", borderSolid: "#D2DBE6",
@@ -455,14 +460,13 @@ const LIGHT = {
   btnGhost: "#E7EDF5", redSubtle: "rgba(231,76,60,0.06)", redBorder: "rgba(231,76,60,0.15)",
   orangeSubtle: "rgba(243,156,18,0.06)", orangeBorder: "rgba(243,156,18,0.15)",
   goldSubtle: "rgba(231,176,23,0.06)", goldText: "#8A5F10",
-  // A deeper red, so a white numeral on it reads at 5.62 to 1 where the
-  // red above it and an off white numeral read at 3.57.
-  badgeBg: "#C62828",
+  // The unread count, on the same red as the dark theme's.
+  badgeBg: RED_FILL,
 };
 
-// The numeral on a badge: white on light mode's deeper red, and the off
-// white the dark theme draws everywhere else.
-const badgeInk = (th) => (th.badgeBg === LIGHT.badgeBg ? "#FFFFFF" : "#F8F7F4");
+// The numeral on a badge: white in light mode, and the off white the dark
+// theme draws everywhere else.
+const badgeInk = (th) => (th === LIGHT ? "#FFFFFF" : "#F8F7F4");
 // Words on a wash of their own color. Dark draws them in that color,
 // except red, which it lifts to a lighter red: red itself reads at 3.83
 // to 1 on its own wash over the dark card, and the lifted red at 4.85.
@@ -516,6 +520,8 @@ async function api(path, opts = {}) {
 async function apiUpload(path, name, files, opts = {}) {
   const form = new FormData();
   files.forEach((file) => form.append(name, file, file.name));
+  // Text fields a route takes beside the files, such as a file's note.
+  Object.keys(opts.fields || {}).forEach((k) => form.append(k, opts.fields[k]));
   const headers = {};
   if (opts.token) headers["Authorization"] = "Bearer " + opts.token;
   flightUp();
@@ -1476,10 +1482,9 @@ function LanguageChoices({ value, onChange, languages, t }) {
 // one of the three has gone.
 const TOAST_MS = 3000;
 const TOAST_MAX = 3;
-// An error toast's red. The brand's own red carries white at 3.57 to 1,
-// under the 4.5 to 1 small words need; this one, the badge red light
-// mode already draws, carries it at 5.62 to 1.
-const TOAST_RED = "#C62828";
+// An error toast's red, the red every filled red control is drawn in:
+// white on it reads 6.54 to 1.
+const TOAST_RED = RED_FILL;
 function toastQueue(onChange) {
   const q = { shown: [], waiting: [], timers: new Map(), seq: 0 };
   const pump = () => {
@@ -2611,7 +2616,7 @@ export default function OCSAStaffPortal() {
           taps: a tap on a row under a toast reaches the row. A toast that
           carries a button of its own gives that button pointerEvents
           "auto" and nothing else. Success is navy on green and a notice
-          navy on orange; an error is white on the deeper red, 5.6 to 1. */}
+          navy on orange; an error is white on the filled red, 6.54 to 1. */}
       <div role="status" aria-live="polite" style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", zIndex: 1000, maxWidth: "90%", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, pointerEvents: "none" }}>{toasts.map(x => (<div key={x.id} style={{ background: x.type === "error" ? TOAST_RED : x.type === "notice" ? ORANGE : GREEN, color: x.type === "error" ? "#FFFFFF" : NAVY, padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", textAlign: "center" }}>{x.msg}</div>))}</div>
 
       <style>{`
@@ -3786,7 +3791,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                       showToast(tr("Drop request sent. Your supervisor will review it."));
                       loadSchedule();
                     } catch (e) { showToast(tr(e.message) || tr("Drop request failed"), "error"); }
-                  }} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD }}>{tr("Submit Request")}</button>
+                  }} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: RED_FILL, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD }}>{tr("Submit Request")}</button>
                 </div>
               </div>
             )}
@@ -5599,7 +5604,7 @@ function AssignedTasksView({ assignedTasks, failed, onRetry, resolveTask, showTo
           {isCantResolve && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.redSubtle }}>
             <div style={{ fontSize: 10, color: ink(t, RED), fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Explain why this cannot be completed *")}</div>
             <textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the issue preventing completion...")} rows={3} style={{ ...inputSt, resize: "vertical", marginBottom: 8 }} />
-            <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleCantResolve(detail.task_id)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: RED, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Submit")}</button></div>
+            <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleCantResolve(detail.task_id)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: RED_FILL, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Submit")}</button></div>
           </div>)}
         </div>
       </div>
@@ -8605,6 +8610,8 @@ function wsTodoOf(x) {
     assigneeIds: Array.isArray(ids) ? ids : [],
     projectId: agentField(x, ["projectId", "project_id"], null),
     projectName: wsText(x, ["projectName", "project_name"]),
+    listId: agentField(x, ["listId", "list_id"], null),
+    notes: typeof x.notes === "string" ? x.notes.trim() : "",
   };
 }
 // Soonest due first, a to-do with no due date last, and otherwise in the
@@ -8627,6 +8634,13 @@ const wsFaultWords = (err, fallback) => wsSaidOf(err) || (err && err.message ===
 const WS_TITLE_MAX = 200;
 const WS_BODY_MAX = 10000;
 const WS_COMMENT_MAX = 5000;
+// A file the API takes, and a list's name. The contract gives a list's
+// name no length; a project's name is 120, and a list's is held to the same.
+const WS_FILE_MAX = 25 * 1024 * 1024;
+const WS_LIST_MAX = 120;
+const WS_NOTE_MAX = 500;
+// A photo, by what the phone says or its name, HEIC included.
+const wsIsPhoto = (file) => /^image\//i.test(file.type || "") || /\.(jpe?g|png|gif|webp|hei[cf])$/i.test(file.name || "");
 const wsWhen = (v) => { const d = v ? new Date(v) : null; return d && !isNaN(d.getTime()) ? d.toLocaleString(dateLocale(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""; };
 const wsSize = (n) => {
   const b = Number(n);
@@ -8657,7 +8671,7 @@ function wsFileOf(x) {
   if (!x || typeof x !== "object" || agentField(x, ["removedAt", "removed_at"], null)) return null;
   const id = agentField(x, ["id"], null);
   const name = wsText(x, ["fileName", "file_name", "name"]);
-  return id === null || !name ? null : { id: id, name: name, size: agentField(x, ["sizeBytes", "size_bytes"], null), by: wsText(x, ["uploadedByName", "uploaded_by_name"]), at: agentField(x, ["createdAt", "created_at"], null), note: wsText(x, ["note"]) };
+  return id === null || !name ? null : { id: id, name: name, size: agentField(x, ["sizeBytes", "size_bytes"], null), by: wsText(x, ["uploadedByName", "uploaderName", "uploaded_by_name"]), at: agentField(x, ["createdAt", "created_at"], null), note: wsText(x, ["note"]) };
 }
 // The project's chat on the list Chat draws: the chat of the project kind
 // that names this project.
@@ -8694,20 +8708,23 @@ const wsOpenBtn = (t) => ({ display: "inline-flex", alignItems: "center", gap: 6
 
 // One to-do: a box to tick, its title, where it belongs or who has it,
 // and when it is due, in red once that day has gone by.
-function WsTodoRow({ todo, busy, onTick, showProject, t }) {
+function WsTodoRow({ todo, busy, onTick, onOpen, showProject, t }) {
   const late = wsOverdue(todo);
   const who = todo.assignees.map(a => a.name).join(", ");
+  // The words beside the box open the to-do's page, where there is one.
+  const Words = onOpen ? "button" : "div";
+  const open = onOpen ? { type: "button", onClick: () => onOpen(todo), style: { flex: 1, minWidth: 0, minHeight: TAP, display: "flex", alignItems: "flex-start", gap: 8, padding: "11px 0 10px", background: "none", border: "none", cursor: "pointer", color: t.text, textAlign: "left" } } : { style: { flex: 1, minWidth: 0, padding: "11px 0 10px" } };
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 2, padding: "2px 12px 2px 2px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + (late ? t.redBorder : t.borderSolid), boxShadow: t.shadow }}>
       <button type="button" role="checkbox" aria-checked={todo.done} aria-label={todo.title} aria-disabled={busy} onClick={() => { if (!busy) onTick(todo); }} style={mkTapFrame({ flexShrink: 0, cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1 })}>
         <span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (todo.done ? GREEN : late ? wsLateInk(t) : t.textMut), background: todo.done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{todo.done && <CheckIco sz={14} c={NAVY} />}</span>
       </button>
-      <div style={{ flex: 1, minWidth: 0, padding: "11px 0 10px" }}>
+      <Words {...open}><span style={{ display: "block", flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: todo.done ? t.textMut : t.text, textDecoration: todo.done ? "line-through" : "none", fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{todo.title}</div>
         {showProject && todo.projectName && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{todo.projectName}</div>}
         {!showProject && who && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{who}</div>}
         {todo.dueOn && <div style={{ fontSize: 12, marginTop: 2, color: late ? wsLateInk(t) : t.textMut, fontWeight: late ? 600 : 400 }}>{late ? tr("Overdue. Due {date}", { date: wsDueText(todo.dueOn) }) : tr("Due {date}", { date: wsDueText(todo.dueOn) })}</div>}
-      </div>
+      </span>{onOpen && <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 2 }} />}</Words>
     </div>
   );
 }
@@ -8716,11 +8733,12 @@ function WsTodoRow({ todo, busy, onTick, showProject, t }) {
 // soonest due first, then the projects. A tick asks first, since it marks
 // the to-do done for everyone on the project.
 function WorkspaceView({ token, user, projects, onProjects, at, onAt, channels, onOpenChat, showToast, t }) {
-  if (at && at.project) return <WsProject token={token} user={user} projectId={at.project} tool={at.tool || "board"} onTool={(tool) => onAt({ project: at.project, tool: tool })} onBack={() => onAt(null)} channels={channels} onOpenChat={onOpenChat} showToast={showToast} t={t} />;
-  return <WsHome token={token} projects={projects} onProjects={onProjects} onOpen={(id) => onAt({ project: id, tool: "board" })} showToast={showToast} t={t} />;
+  if (at && at.project) return <WsProject token={token} user={user} projectId={at.project} tool={at.tool || "board"} onTool={(tool) => onAt({ project: at.project, tool: tool })} todoId={at.tool === "todos" ? at.todo : null} onTodo={(id) => onAt({ project: at.project, tool: "todos", todo: id })} onBack={() => onAt(null)} channels={channels} onOpenChat={onOpenChat} showToast={showToast} t={t} />;
+  // A to-do in My assignments opens on its project's To-dos, at its page.
+  return <WsHome token={token} projects={projects} onProjects={onProjects} onOpen={(id) => onAt({ project: id, tool: "board" })} onOpenTodo={(x) => onAt({ project: x.projectId, tool: "todos", todo: x.id })} showToast={showToast} t={t} />;
 }
 
-function WsHome({ token, projects, onProjects, onOpen, showToast, t }) {
+function WsHome({ token, projects, onProjects, onOpen, onOpenTodo, showToast, t }) {
   const [mine, setMine] = useState(null);
   const [asked, setAsked] = useState(0);
   const [ticking, setTicking] = useState(null);
@@ -8763,7 +8781,7 @@ function WsHome({ token, projects, onProjects, onOpen, showToast, t }) {
       {!mine && <div style={{ fontSize: 13, color: t.textMut, marginBottom: 12 }}>{tr("Loading...")}</div>}
       {mine && mine.state === "failed" && <div style={{ marginBottom: 12 }}><ListFault icon={CheckIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} /></div>}
       {mine && mine.state === "ok" && mine.todos.length === 0 && <div style={quietSt}>{tr("Nothing is assigned to you right now.")}</div>}
-      {mine && mine.state === "ok" && mine.todos.map(todo => <WsTodoRow key={todo.id} todo={todo} busy={ticking === todo.id} onTick={tick} showProject t={t} />)}
+      {mine && mine.state === "ok" && mine.todos.map(todo => <WsTodoRow key={todo.id} todo={todo} busy={ticking === todo.id} onTick={tick} onOpen={todo.projectId !== null && todo.projectId !== undefined ? onOpenTodo : null} showProject t={t} />)}
       <div role="heading" aria-level={2} style={{ ...headSt, marginTop: 16 }}>{tr("Projects")}</div>
       {list.length === 0 && <div style={quietSt}>{tr("You are not in any project yet.")}</div>}
       {list.map(p => (
@@ -8807,7 +8825,7 @@ const wsQuiet = (t) => ({ padding: "16px 12px", marginBottom: 12, textAlign: "ce
 // One project: its name, its four tools, and the tool open. Chat opens
 // the project's own chat in Chat.
 const WS_TOOLS = [["board", "Message Board"], ["todos", "To-dos"], ["chat", "Chat"], ["files", "Files"]];
-function WsProject({ token, user, projectId, tool, onTool, onBack, channels, onOpenChat, showToast, t }) {
+function WsProject({ token, user, projectId, tool, onTool, todoId, onTodo, onBack, channels, onOpenChat, showToast, t }) {
   const [project, setProject] = useState(null);
   const [asked, setAsked] = useState(0);
   const [noChat, setNoChat] = useState(false);
@@ -8827,7 +8845,7 @@ function WsProject({ token, user, projectId, tool, onTool, onBack, channels, onO
     })();
     return () => { live = false; };
   }, [projectId, asked]);
-  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [projectId, tool]);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [projectId, tool, todoId]);
   useEffect(() => { setNoChat(false); }, [projectId, tool]);
   const back = <WsBack label={tr("Workspace")} onBack={onBack} t={t} />;
   const here = project && project.id === projectId ? project : null;
@@ -8857,7 +8875,7 @@ function WsProject({ token, user, projectId, tool, onTool, onBack, channels, onO
       </div>
       {noChat && <div role="status" style={{ ...wsQuiet(t), textAlign: "left" }}>{tr("This project's chat is not on your chat list yet. Try again in a minute.")}</div>}
       {tool === "board" && <WsBoard key={projectId} token={token} user={user} projectId={projectId} members={here.members} showToast={showToast} t={t} />}
-      {tool === "todos" && <WsTodos key={projectId} token={token} projectId={projectId} members={here.members} showToast={showToast} t={t} />}
+      {tool === "todos" && <WsTodos key={projectId} token={token} user={user} projectId={projectId} members={here.members} openId={todoId || null} onOpenId={onTodo} showToast={showToast} t={t} />}
       {tool === "files" && <WsFiles key={projectId} token={token} projectId={projectId} showToast={showToast} t={t} />}
     </div>
   );
@@ -8936,32 +8954,16 @@ function WsBoard({ token, user, projectId, members, showToast, t }) {
 
 // One post, whole, with its comments and a box to add one. Typing @ at
 // the start of a word, or the @ button, tags a member of the project.
-function WsPost({ token, user, postId, members, onBack, t }) {
-  const [post, setPost] = useState(null);
-  const [asked, setAsked] = useState(0);
+// The comments on a post or a to-do, and a box to add one. Typing @ at
+// the start of a word, or the @ button, tags a member of the project, and
+// the ids of the people still tagged go with the comment.
+function WsComments({ token, user, subjectType, subjectId, members, comments, onAdded, t }) {
   const [text, setText] = useState("");
   const [picked, setPicked] = useState([]);
   const [tagOpen, setTagOpen] = useState(null);
   const [sending, setSending] = useState(false);
   const [fault, setFault] = useState(null);
   useBusy("workspace comment", text.trim().length > 0 || sending);
-  useEffect(() => {
-    let live = true;
-    (async () => {
-      try {
-        const d = await api(wsPath("/posts/" + encodeURIComponent(postId)), { token });
-        const raw = d && typeof d === "object" && d.post && typeof d.post === "object" ? d.post : d;
-        const x = wsPostOf(raw);
-        if (!x) throw new Error(ERR_GENERIC);
-        const comments = (wsRows(d, "comments") || wsRows(raw, "comments") || []).map(c => wsCommentOf(c, members)).filter(Boolean);
-        if (live) setPost({ state: "ok", post: x, comments: comments });
-      } catch (err) {
-        if (live) setPost(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: wsFaultWords(err, "This message did not open. Try again.") }));
-      }
-    })();
-    return () => { live = false; };
-  }, [postId, asked]);
-  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [postId]);
   const others = members.filter(m => !user || String(m.id) !== String(user.id));
   const onType = (next) => {
     const v = next.slice(0, WS_COMMENT_MAX);
@@ -8985,7 +8987,7 @@ function WsPost({ token, user, postId, members, onBack, t }) {
     const words = text.trim();
     if (!words || sending) return;
     setSending(true); setFault(null);
-    const body = { subjectType: "post", subjectId: postId, body: words };
+    const body = { subjectType: subjectType, subjectId: subjectId, body: words };
     const tags = mentionIdsIn(words, picked);
     if (tags.length > 0) body.mentions = tags;
     try {
@@ -8993,33 +8995,23 @@ function WsPost({ token, user, postId, members, onBack, t }) {
       const c = d && typeof d === "object" ? wsCommentOf(d.comment && typeof d.comment === "object" ? d.comment : d, members) : null;
       setText(prev => (prev.trim() === words ? "" : prev));
       setPicked([]);
-      if (c) setPost(prev => (prev && prev.state === "ok" ? { ...prev, comments: prev.comments.concat([c]) } : prev));
-      else setAsked(n => n + 1);
+      onAdded(c);
     } catch (err) {
       setFault(wsFaultWords(err, "Your comment was not added. Try again."));
     } finally { setSending(false); }
   };
-  const back = <WsBack label={tr("All messages")} onBack={onBack} t={t} />;
-  if (!post) return <div>{back}<div style={{ fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div></div>;
-  if (post.state === "failed") return <div>{back}<ListFault icon={DocIco} text={post.said} onRetry={() => setAsked(n => n + 1)} t={t} /></div>;
-  const x = post.post;
   const ready = text.trim().length > 0 && !sending;
   return (
     <div>
-      {back}
-      {x.pinned && <div style={{ display: "inline-block", fontSize: 10, fontWeight: 600, padding: "2px 7px", marginBottom: 6, borderRadius: R.sm, background: t.goldBg, color: t.goldText, fontFamily: FONT_HEAD }}>{tr("Pinned")}</div>}
-      <div role="heading" aria-level={2} style={{ fontSize: 17, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{x.title}</div>
-      <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{[x.author, wsWhen(x.at)].filter(Boolean).join(", ")}</div>
-      <div style={{ marginTop: 12, padding: "12px", borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, fontSize: 14, color: t.text, lineHeight: 1.55, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{x.body}</div>
       <div role="heading" aria-level={3} style={{ ...mkLabel(t), marginTop: 16, marginBottom: 8 }}>{tr("Comments")}</div>
-      {post.comments.length === 0 && <div style={wsQuiet(t)}>{tr("No comments yet.")}</div>}
-      {post.comments.map(c => {
+      {comments.length === 0 && <div style={wsQuiet(t)}>{tr("No comments yet.")}</div>}
+      {comments.map(c => {
         const forMe = tagsPerson(c, user && user.id);
         const parts = mentionParts(c.body, c.mentions);
         return (
           <div key={c.id} style={{ padding: "10px 12px", marginBottom: 8, borderRadius: R.md, background: forMe ? t.goldBg : t.card, border: "1px solid " + (forMe ? t.goldBorder : t.borderSolid) }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{[c.author, wsWhen(c.at)].filter(Boolean).join(", ")}</div>
-            <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5, marginTop: 3, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{parts.map((s, i) => (i % 2 === 1 ? <span key={i} style={{ fontWeight: 600, color: t.goldText }}>{s}</span> : s))}</div>
+            <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5, marginTop: 3, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{parts.map((x, i) => (i % 2 === 1 ? <span key={i} style={{ fontWeight: 600, color: t.goldText }}>{x}</span> : x))}</div>
           </div>
         );
       })}
@@ -9042,15 +9034,118 @@ function WsPost({ token, user, postId, members, onBack, t }) {
   );
 }
 
+// One post, whole, with its comments and a box to add one.
+function WsPost({ token, user, postId, members, onBack, t }) {
+  const [post, setPost] = useState(null);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const d = await api(wsPath("/posts/" + encodeURIComponent(postId)), { token });
+        const raw = d && typeof d === "object" && d.post && typeof d.post === "object" ? d.post : d;
+        const x = wsPostOf(raw);
+        if (!x) throw new Error(ERR_GENERIC);
+        const comments = (wsRows(d, "comments") || wsRows(raw, "comments") || []).map(c => wsCommentOf(c, members)).filter(Boolean);
+        if (live) setPost({ state: "ok", post: x, comments: comments });
+      } catch (err) {
+        if (live) setPost(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: wsFaultWords(err, "This message did not open. Try again.") }));
+      }
+    })();
+    return () => { live = false; };
+  }, [postId, asked]);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [postId]);
+  const back = <WsBack label={tr("All messages")} onBack={onBack} t={t} />;
+  if (!post) return <div>{back}<div style={{ fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div></div>;
+  if (post.state === "failed") return <div>{back}<ListFault icon={DocIco} text={post.said} onRetry={() => setAsked(n => n + 1)} t={t} /></div>;
+  const x = post.post;
+  const added = (c) => { if (c) setPost(prev => (prev && prev.state === "ok" ? { ...prev, comments: prev.comments.concat([c]) } : prev)); else setAsked(n => n + 1); };
+  return (
+    <div>
+      {back}
+      {x.pinned && <div style={{ display: "inline-block", fontSize: 10, fontWeight: 600, padding: "2px 7px", marginBottom: 6, borderRadius: R.sm, background: t.goldBg, color: t.goldText, fontFamily: FONT_HEAD }}>{tr("Pinned")}</div>}
+      <div role="heading" aria-level={2} style={{ fontSize: 17, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{x.title}</div>
+      <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{[x.author, wsWhen(x.at)].filter(Boolean).join(", ")}</div>
+      <div style={{ marginTop: 12, padding: "12px", borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, fontSize: 14, color: t.text, lineHeight: 1.55, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{x.body}</div>
+      <WsComments token={token} user={user} subjectType="post" subjectId={postId} members={members} comments={post.comments} onAdded={added} t={t} />
+    </div>
+  );
+}
+
+// One to-do's page: its title, notes, who has it, when it is due and
+// whether it is done, ticked the way its row is, and its comments from
+// GET /todos/:todoId with a box to add one. An API without that route
+// answers 404, and the page then shows the to-do as its list has it, with
+// no comments.
+function WsTodo({ token, user, todoId, listed, listName, members, busy, onTick, onBack, t }) {
+  const [detail, setDetail] = useState(null);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const d = await api(wsPath("/todos/" + encodeURIComponent(todoId)), { token });
+        const raw = d && typeof d === "object" && d.todo && typeof d.todo === "object" ? d.todo : d;
+        const x = wsTodoOf(raw);
+        if (!x) throw new Error(ERR_GENERIC);
+        const comments = (wsRows(raw, "comments") || wsRows(d, "comments") || []).map(c => wsCommentOf(c, members)).filter(Boolean);
+        if (live) setDetail({ state: "ok", todo: x, comments: comments });
+      } catch (err) {
+        if (!live) return;
+        if (err && err.status === 404) setDetail({ state: "none" });
+        else setDetail(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: wsFaultWords(err, "This list did not load.") }));
+      }
+    })();
+    return () => { live = false; };
+  }, [todoId, asked]);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [todoId]);
+  const back = <WsBack label={tr("All to-dos")} onBack={onBack} t={t} />;
+  const fresh = detail && detail.state === "ok" ? detail.todo : null;
+  // What the page shows: the to-do the route sent, ticked as its list has
+  // it now, or the list's own while the route has not answered.
+  const base = fresh ? { ...fresh, done: listed ? listed.done : fresh.done } : listed;
+  if (!base) {
+    if (!detail) return <div>{back}<div style={{ fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div></div>;
+    return <div>{back}<ListFault icon={CheckIco} text={tr("This to-do did not open. Try again.")} onRetry={() => setAsked(n => n + 1)} t={t} /></div>;
+  }
+  const todo = base.assignees.length > 0 ? base : { ...base, assignees: base.assigneeIds.map(id => members.find(m => String(m.id) === String(id))).filter(Boolean) };
+  const late = wsOverdue(todo);
+  const who = todo.assignees.map(a => a.name).join(", ");
+  const rowSt = { padding: "10px 12px", borderTop: "1px solid " + t.borderSolid };
+  const keySt = { ...mkLabel(t), marginBottom: 2 };
+  const added = (c) => { if (c) setDetail(prev => (prev && prev.state === "ok" ? { ...prev, comments: prev.comments.concat([c]) } : prev)); else setAsked(n => n + 1); };
+  return (
+    <div>
+      {back}
+      {listName && <div style={{ fontSize: 12, color: t.textSec, marginBottom: 4, overflowWrap: "anywhere" }}>{listName}</div>}
+      <div role="heading" aria-level={2} style={{ fontSize: 17, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{todo.title}</div>
+      <div style={{ marginTop: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, overflow: "hidden" }}>
+        <button type="button" role="checkbox" aria-checked={todo.done} aria-disabled={busy} onClick={() => { if (!busy) onTick(todo); }} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "none", border: "none", cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1, color: t.text, textAlign: "left" }}>
+          <span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (todo.done ? GREEN : late ? wsLateInk(t) : t.textMut), background: todo.done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{todo.done && <CheckIco sz={14} c={NAVY} />}</span>
+          <span style={{ fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD }}>{todo.done ? tr("Done") : tr("Not done yet")}</span>
+        </button>
+        <div style={rowSt}><div style={keySt}>{tr("Assigned to")}</div><div style={{ fontSize: 14, color: who ? t.text : t.textMut, overflowWrap: "anywhere" }}>{who || tr("Nobody yet")}</div></div>
+        <div style={rowSt}><div style={keySt}>{tr("Due date")}</div><div style={{ fontSize: 14, color: late ? wsLateInk(t) : todo.dueOn ? t.text : t.textMut, fontWeight: late ? 600 : 400 }}>{todo.dueOn ? (late ? tr("Overdue. Due {date}", { date: wsDueText(todo.dueOn) }) : wsDueText(todo.dueOn)) : tr("No due date")}</div></div>
+        {todo.notes && <div style={rowSt}><div style={keySt}>{tr("Notes")}</div><div style={{ fontSize: 14, color: t.text, lineHeight: 1.5, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{todo.notes}</div></div>}
+      </div>
+      {!detail && <div style={{ fontSize: 13, color: t.textMut, marginTop: 16 }}>{tr("Loading...")}</div>}
+      {detail && detail.state === "failed" && <div style={{ marginTop: 16 }}><ListFault icon={ChatIco} text={detail.said} onRetry={() => setAsked(n => n + 1)} t={t} /></div>}
+      {fresh && <WsComments token={token} user={user} subjectType="todo" subjectId={todoId} members={members} comments={detail.comments} onAdded={added} t={t} />}
+    </div>
+  );
+}
+
 // The project's to-dos, list by list, open ones first and done ones last,
 // the order the API sends. A tick that marks one done asks first; a tick
 // that opens one again does not. Add a to-do puts one on that list.
-function WsTodos({ token, projectId, members, showToast, t }) {
+function WsTodos({ token, user, projectId, members, openId, onOpenId, showToast, t }) {
   const [lists, setLists] = useState(null);
   const [asked, setAsked] = useState(0);
   const [ticking, setTicking] = useState(null);
   const [draft, setDraft] = useState(null);
+  const [newList, setNewList] = useState(null);
   useBusy("workspace to-do", !!draft && (draft.title.trim() !== "" || draft.saving));
+  useBusy("workspace list", !!newList && (newList.name.trim() !== "" || newList.saving));
   useEffect(() => {
     let live = true;
     (async () => {
@@ -9095,16 +9190,54 @@ function WsTodos({ token, projectId, members, showToast, t }) {
       setDraft(d => (d ? { ...d, saving: false, fault: wsFaultWords(err, "That to-do was not added. Try again.") } : d));
     }
   };
+  // New list: a name, POST /projects/:id/todo-lists, and the list shows at
+  // once, ready for Add a to-do.
+  const closeList = () => { if (newList && !newList.saving) setNewList(null); };
+  const addList = async () => {
+    if (!newList || newList.saving) return;
+    const name = newList.name.trim();
+    if (!name) { setNewList({ ...newList, fault: tr("Give the list a name.") }); return; }
+    setNewList({ ...newList, saving: true, fault: null });
+    try {
+      const d = await api(wsPath("/projects/" + encodeURIComponent(projectId) + "/todo-lists"), { method: "POST", body: { name: name }, token });
+      const raw = d && typeof d === "object" && d.list && typeof d.list === "object" ? d.list : d;
+      const id = agentField(raw, ["id"], null);
+      if (id !== null) setLists(prev => (prev && prev.state === "ok" && !prev.rows.some(l => String(l.id) === String(id)) ? { ...prev, rows: prev.rows.concat([{ id: id, name: wsText(raw, ["name"]) || name, todos: [] }]) } : prev));
+      setNewList(null);
+      showToast(tr("List added."));
+      setAsked(n => n + 1);
+    } catch (err) {
+      setNewList(d => (d ? { ...d, saving: false, fault: wsFaultWords(err, "That list was not added. Try again.") } : d));
+    }
+  };
+  const newListBtn = <button type="button" onClick={() => setNewList({ name: "", saving: false, fault: null })} aria-haspopup="dialog" style={wsOpenBtn(t)}><PlusIco sz={14} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("New list")}</span></button>;
+  const newListSheet = newList && (
+    <WsSheet id="ocsa-ws-list" title={tr("New list")} onClose={closeList} t={t} footer={<>
+      <button type="button" onClick={closeList} disabled={newList.saving} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+      <button type="button" onClick={addList} aria-disabled={newList.saving} style={wsMainBtn(t, newList.saving)}>{newList.saving ? tr("Saving...") : tr("Save")}</button>
+    </>}>
+      <label htmlFor="ocsa-ws-list-name" style={mkLabel(t)}>{tr("Name")}</label>
+      <input id="ocsa-ws-list-name" type="text" value={newList.name} maxLength={WS_LIST_MAX} onChange={e => setNewList({ ...newList, name: e.target.value.slice(0, WS_LIST_MAX), fault: null })} style={mkInput(t)} />
+      {newList.fault && <WsFault text={newList.fault} t={t} />}
+    </WsSheet>
+  );
+  if (openId) {
+    // The to-do as its list has it, while the lists are on the screen.
+    let listed = null, listName = "";
+    (lists && lists.state === "ok" ? lists.rows : []).forEach(l => { const hit = l.todos.find(x => String(x.id) === String(openId)); if (hit) { listed = hit; listName = l.name; } });
+    return <WsTodo token={token} user={user} todoId={openId} listed={listed} listName={listName} members={members} busy={ticking === openId} onTick={tick} onBack={() => { onOpenId(null); setAsked(n => n + 1); }} t={t} />;
+  }
   if (!lists) return <div style={{ fontSize: 13, color: t.textMut, marginBottom: 12 }}>{tr("Loading...")}</div>;
   if (lists.state === "failed") return <ListFault icon={CheckIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />;
-  if (lists.rows.length === 0) return <div style={wsQuiet(t)}>{tr("This project has no to-do lists yet.")}</div>;
+  if (lists.rows.length === 0) return <div><div style={wsQuiet(t)}>{tr("This project has no to-do lists yet.")}</div>{newListBtn}{newListSheet}</div>;
   return (
     <div>
+      {newListBtn}
       {lists.rows.map(l => (
         <div key={l.id} style={{ marginBottom: 16 }}>
           {l.name && <div role="heading" aria-level={2} style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 8, overflowWrap: "anywhere" }}>{l.name}</div>}
           {l.todos.length === 0 && <div style={wsQuiet(t)}>{tr("Nothing on this list yet.")}</div>}
-          {l.todos.map(todo => <WsTodoRow key={todo.id} todo={named(todo)} busy={ticking === todo.id} onTick={tick} t={t} />)}
+          {l.todos.map(todo => <WsTodoRow key={todo.id} todo={named(todo)} busy={ticking === todo.id} onTick={tick} onOpen={(x) => onOpenId(x.id)} t={t} />)}
           <button type="button" onClick={() => setDraft({ listId: l.id, listName: l.name, title: "", who: "", due: "", saving: false, fault: null })} aria-haspopup="dialog" style={{ ...wsOpenBtn(t), marginBottom: 0 }}><PlusIco sz={14} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("Add a to-do")}</span></button>
         </div>
       ))}
@@ -9126,15 +9259,21 @@ function WsTodos({ token, projectId, members, showToast, t }) {
           {draft.fault && <WsFault text={draft.fault} t={t} />}
         </WsSheet>
       )}
+      {newListSheet}
     </div>
   );
 }
 
-// The project's files, to open or save. Adding one stays on the dashboard.
+// The project's files, to open or save, and Add a file.
 function WsFiles({ token, projectId, showToast, t }) {
   const [files, setFiles] = useState(null);
   const [asked, setAsked] = useState(0);
   const [opening, setOpening] = useState(null);
+  // Add a file: the file chosen (a photo already made ready), its note,
+  // and what is happening to it.
+  const [adding, setAdding] = useState(null);
+  const photoRef = useRef(null), docRef = useRef(null);
+  useBusy("workspace file", !!adding && (!!adding.file || adding.note.trim() !== "" || adding.state !== "idle"));
   useEffect(() => {
     let live = true;
     (async () => {
@@ -9153,11 +9292,71 @@ function WsFiles({ token, projectId, showToast, t }) {
     setOpening(file.id);
     try { await wsOpenFile(token, file); } catch (err) { showToast(wsFaultWords(err, "That file did not open. Try again."), "error"); } finally { setOpening(null); }
   };
-  const noteSt = { fontSize: 12, color: t.textMut, lineHeight: 1.5, marginTop: 4 };
+  // A photo passes through prepareFormPhoto (HEIC made a JPEG, made
+  // smaller, its location data gone, since the canvas carries none), from
+  // either button. A file over 25 MB is stopped here, before it is sent.
+  const choose = async (picked) => {
+    if (!picked || !adding || adding.state === "sending") return;
+    setAdding(a => ({ ...a, file: null, state: "preparing", fault: null }));
+    let file = picked;
+    if (wsIsPhoto(picked) || await isHeicFile(picked)) {
+      try { file = await prepareFormPhoto(picked); } catch (e) { setAdding(a => (a ? { ...a, state: "idle", fault: tr(FORMS_PHOTO_UNREADABLE) } : a)); return; }
+    }
+    if (file.size > WS_FILE_MAX) { setAdding(a => (a ? { ...a, state: "idle", fault: tr("{0} is over 25 MB. Files up to 25 MB can be added.", { 0: picked.name || "" }) } : a)); return; }
+    setAdding(a => (a ? { ...a, file: file, state: "idle", fault: null } : a));
+  };
+  const closeAdd = () => { if (adding && adding.state !== "sending") setAdding(null); };
+  const send = async () => {
+    if (!adding || adding.state !== "idle") return;
+    if (!adding.file) { setAdding({ ...adding, fault: tr("Choose a file first.") }); return; }
+    const note = adding.note.trim();
+    setAdding({ ...adding, state: "sending", fault: null });
+    try {
+      const d = await apiUpload(wsPath("/projects/" + encodeURIComponent(projectId) + "/files"), "file", [adding.file], { token, fields: note ? { note: note } : {} });
+      const row = wsFileOf(d && typeof d === "object" && d.file && typeof d.file === "object" ? d.file : d);
+      if (row) setFiles(prev => (prev && prev.state === "ok" ? { ...prev, rows: [row].concat(prev.rows.filter(x => String(x.id) !== String(row.id))) } : { state: "ok", rows: [row] }));
+      else setAsked(n => n + 1);
+      setAdding(null);
+      showToast(tr("File added."));
+    } catch (err) {
+      setAdding(a => (a ? { ...a, state: "idle", fault: wsFaultWords(err, "That file was not added. Try again.") } : a));
+    }
+  };
+  const pickBtn = (ref, words, Icon) => <button type="button" onClick={() => { if (ref.current && adding && adding.state === "idle") ref.current.click(); }} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", marginBottom: 8, borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, textAlign: "left" }}><Icon sz={18} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{words}</span></button>;
+  const addBtn = <button type="button" onClick={() => setAdding({ file: null, note: "", state: "idle", fault: null })} aria-haspopup="dialog" style={wsOpenBtn(t)}><PlusIco sz={14} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("Add a file")}</span></button>;
+  const addSheet = adding && (
+    <WsSheet id="ocsa-ws-file" title={tr("Add a file")} onClose={closeAdd} t={t} footer={<>
+      <button type="button" onClick={closeAdd} disabled={adding.state === "sending"} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+      <button type="button" onClick={send} aria-disabled={adding.state !== "idle" || !adding.file} style={wsMainBtn(t, adding.state !== "idle" || !adding.file)}>{adding.state === "sending" ? tr("Uploading...") : tr("Add file")}</button>
+    </>}>
+      {/* No capture attribute, so the phone offers the camera and the
+          gallery both. The second takes any document; the API says which
+          kinds it keeps. */}
+      <input ref={photoRef} type="file" accept="image/*" data-ws-photo="" style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; choose(f); }} />
+      <input ref={docRef} type="file" data-ws-document="" style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; choose(f); }} />
+      {pickBtn(photoRef, tr("Take photo or choose from gallery"), CamIco)}
+      {pickBtn(docRef, tr("Choose a document"), DocIco)}
+      <div style={{ fontSize: 12, color: t.textMut, lineHeight: 1.5, marginBottom: 12 }}>{tr("Documents, images and PDFs, up to 25 MB each.")}</div>
+      {adding.state === "preparing" && <div role="status" style={{ fontSize: 13, color: t.textMut, marginBottom: 12 }}>{tr("Loading...")}</div>}
+      {adding.file && (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}>
+          <DocIco sz={18} c={t.goldText} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{adding.file.name}</span>
+            <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2 }}>{wsSize(adding.file.size)}</span>
+          </span>
+        </div>
+      )}
+      <label htmlFor="ocsa-ws-file-note" style={mkLabel(t)}>{tr("Note (optional)")}</label>
+      <textarea id="ocsa-ws-file-note" value={adding.note} maxLength={WS_NOTE_MAX} rows={2} onChange={e => setAdding({ ...adding, note: e.target.value.slice(0, WS_NOTE_MAX), fault: null })} style={{ ...mkInput(t), minHeight: 64, resize: "vertical", lineHeight: 1.45 }} />
+      {adding.fault && <WsFault text={adding.fault} t={t} />}
+    </WsSheet>
+  );
   if (!files) return <div style={{ fontSize: 13, color: t.textMut, marginBottom: 12 }}>{tr("Loading...")}</div>;
   if (files.state === "failed") return <ListFault icon={DocIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />;
   return (
     <div>
+      {addBtn}
       {files.rows.length === 0 && <div style={wsQuiet(t)}>{tr("No files in this project yet.")}</div>}
       {files.rows.map(f => {
         const busy = opening === f.id;
@@ -9173,7 +9372,7 @@ function WsFiles({ token, projectId, showToast, t }) {
           </button>
         );
       })}
-      <div style={noteSt}>{tr("Files are added on the dashboard.")}</div>
+      {addSheet}
     </div>
   );
 }

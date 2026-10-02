@@ -453,6 +453,18 @@ function makeState(opts) {
     // activation link whose row carries a badge number.
     mustSetPin: !!o.mustSetPin,
     activationBadge: !!o.activationBadge,
+    // The smoke check's switches (Step 237, audit/smoke.js), each off
+    // unless a case turns it on, so every other case is answered as
+    // before. languages: the list GET /api/languages answers, and a call
+    // that says one of them is answered (French in English words, the
+    // stub having no French twins). sds: invented safety data sheets.
+    // secondStep: the right PIN is answered with the second sign-in step,
+    // and SECOND_STEP_CODE signs in. workspace: an office person's
+    // projects and to-dos; anyone else is turned away.
+    languages: Array.isArray(o.languages) ? o.languages.slice() : null,
+    sds: !!o.sds,
+    secondStep: !!o.secondStep,
+    workspace: !!o.workspace,
     // Flip these from a case to make a route answer differently.
     refuse: o.refuse || {},          // "POST /api/time-off": { status, body }, { chat: code } or { api: key }
     offline: false,                  // every call fails at the network
@@ -1510,6 +1522,10 @@ const ROUTE_WORDS = [
   [/^GET \/api\/inspections\//, { name: "inspection item", label: "inspection item", zone: "inspection item" }],
   // A piece of Help's answer, as the streaming route sends it.
   [/^POST \/api\/agent\/message\/stream$/, { text: "Help reply" }],
+  // The smoke check's routes: a sheet as its maker wrote it, and what
+  // office people wrote in the workspace, are names.
+  [/^GET \/api\/sds/, { title: "name", content: "name" }],
+  [/^[A-Z]+ \/api\/workspace\//, { name: "name", title: "name", description: "name", projectName: "name", notes: "name" }],
 ];
 const kindsFor = (method, pathname) => {
   const hit = ROUTE_WORDS.find(r => r[0].test(method + " " + pathname));
@@ -1547,11 +1563,13 @@ const languageOf = (search, state) => {
 // the account's language whatever the screen shows, and one that says it
 // twice reaches the API as a list, which names no language, and is
 // answered the same way. What is wrong with one request, or null.
-const localeFault = (search) => {
+// A stub that offers more languages (the smoke check's French) knows them
+// too.
+const localeFault = (search, known) => {
   const said = new URLSearchParams(String(search || "")).getAll("locale");
   if (said.length === 0) return "says no language";
   if (said.length > 1) return "says its language " + said.length + " times: " + said.join(", ");
-  if (said[0] !== "en" && said[0] !== "es") return "says a language the API does not know: " + said[0];
+  if ((known || ["en", "es"]).indexOf(said[0]) === -1) return "says a language the API does not know: " + said[0];
   return null;
 };
 // The first fault on each route, from every stub in the run, so the run
@@ -1618,6 +1636,23 @@ function makeGate(name) {
   setTimeout(() => open(), 20000).unref();
   return gate;
 }
+
+// --- the smoke check's routes (Step 237) ---------------------------------
+//
+// Invented answers for routes the full suite does not ask for, each behind
+// its switch in makeState.
+const SECOND_STEP_CODE = "246810";
+const SECOND_STEP_HINT = "o***@example.invalid";
+const CODE_WRONG = { status: 400, en: "That code is not right.", es: "Ese c\u00f3digo no es correcto." };
+const SDS_SHEETS = [
+  { code: "SDS-INVENTED-ONE", product: "Invented Glass Cleaner", maker: "Example Chemical Co.", revised: "2026-03-04" },
+  { code: "SDS-INVENTED-TWO", product: "Invented Neutral Rinse", maker: "Example Rinse Co.", revised: "2025-01-02" },
+];
+const sdsSheet = (s) => Object.assign({}, s, { sections: ["Identification and hazards", "First aid", "Fire, spills and leaks"].map((n, i) => ({ ref: String(i + 1), title: n, content: "Invented text for " + n.toLowerCase() + "." })) });
+const WS_NOT_OFFICE = { status: 403, en: "The workspace is for office accounts.", es: "El espacio de trabajo es para cuentas de oficina." };
+const WS_PROJECT = { id: "p-smoke", company: "ocsa", name: "Invented project", description: "Invented to test the workspace.", color: "#24A4F4", status: "active" };
+const WS_TODO = { id: "t-smoke", projectId: "p-smoke", projectName: "Invented project", listId: "l-smoke", title: "Invented to-do for the smoke check", notes: "", dueOn: null, completedAt: null };
+const WS_OFFICE = ["admin", "supervisor"];
 
 function createStub(opts) {
   const state = makeState(opts);
@@ -1859,7 +1894,7 @@ function createStub(opts) {
     // signed-in one is turned away before anything else answers it. The
     // seven calls made before signing in are answered as before, in the
     // phone's language, which is what the case for them catches.
-    const fault = localeFault(search);
+    const fault = localeFault(search, state.languages);
     if (fault) {
       state.localeFaults.push(key + (search || "") + " " + fault);
       noteLocaleFault(key, search, fault);
@@ -1886,7 +1921,24 @@ function createStub(opts) {
       // errorBody sends every refusal; the portal counts the ones in a
       // row by it.
       if (body && body.pin !== "4907") return json(401, { error: LOGIN_REFUSAL[0], code: "auth.invalidCredentials" });
+      if (state.secondStep) return json(200, { secondStep: true, challengeId: "challenge-smoke", emailHint: SECOND_STEP_HINT });
       return json(200, { token: "token-one" });
+    }
+    // The smoke check's routes, each behind its switch.
+    if (state.secondStep && key === "POST /api/auth/second-step") {
+      if (body && body.code === SECOND_STEP_CODE) return json(200, { token: "token-one" });
+      return json(CODE_WRONG.status, { error: refusalIn(CODE_WRONG, lang), code: "auth.codeWrong", attemptsLeft: 4 });
+    }
+    if (state.languages && key === "GET /api/languages") return json(200, { languages: state.languages });
+    if (state.sds && key === "GET /api/sds") return json(200, { sheets: SDS_SHEETS });
+    if (state.sds && method === "GET" && /^\/api\/sds\/[^/]+$/.test(pathname)) {
+      const one = SDS_SHEETS.find(x => x.code === decodeURIComponent(pathname.slice("/api/sds/".length)));
+      return one ? json(200, sdsSheet(one)) : json(404, { error: "That safety data sheet was not found", code: "sds.notFound" });
+    }
+    if (state.workspace && pathname.indexOf("/api/workspace/") === 0) {
+      if (WS_OFFICE.indexOf(state.person.role) === -1) return json(WS_NOT_OFFICE.status, { error: refusalIn(WS_NOT_OFFICE, lang), code: "workspace.notOffice" });
+      if (key === "GET /api/workspace/projects") return json(200, { projects: [WS_PROJECT] });
+      if (key === "GET /api/workspace/me") return json(200, { todos: [Object.assign({}, WS_TODO, { assigneeIds: [state.person.id] })], changes: [] });
     }
     if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: SITES, preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
     if (key === "POST /api/auth/register") return json(200, { ok: true });
@@ -2680,6 +2732,7 @@ function draftOf(state) {
 
 module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
+  SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES, localeFault, localeRows,
   CUSTOMER_LINKS, FORM_C_CODE, FORM_V_CODE, formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, PUBLIC_MAX_PHOTOS, PUBLIC_FILINGS_MAX, customerSignatureLine,
