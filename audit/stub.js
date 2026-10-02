@@ -1561,7 +1561,9 @@ const TWIN_PAIRS = [
   // The incident report's second version.
   .concat([["Which room was it in", "En qu\u00e9 cuarto fue"]])
   // The form about one person.
-  .concat(Object.keys(FORM_E_WORDS.en).map(k => [FORM_E_WORDS.en[k], FORM_E_WORDS.es[k]]));
+  .concat(Object.keys(FORM_E_WORDS.en).map(k => [FORM_E_WORDS.en[k], FORM_E_WORDS.es[k]]))
+  // The concern link's form (Step 244).
+  .concat(Object.keys(FORM_N_WORDS.en).map(k => [FORM_N_WORDS.en[k], FORM_N_WORDS.es[k]]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
