@@ -26,18 +26,23 @@ Words people use for this: <the words someone might ask with>
 Last checked: YYYY-MM-DD
 ```
 
-A name the screen shows is written in bold, in English and then in
-Spanish in brackets, exactly as `translation/portal_words.csv` has the
-pair:
+A name the screen shows is written in bold, in English, then in Spanish
+in brackets, then in French in brackets, exactly as
+`translation/portal_words.csv` has the row (Step 244; Help reads the
+third name as what a French screen shows):
 
 ```
-**Submit report** (**Enviar reporte**)
+**Submit report** (**Enviar reporte**) (**Envoyer le rapport**)
 ```
 
 The CSV is the word table the portal draws from, so the guide names each
-button and heading the way the screen says it, in both languages. The
-guide file itself carries Spanish accents on purpose; it is the one file
-here, with the CSVs, written in real Spanish characters.
+button and heading the way the screen says it, in all three languages.
+A name the API serves, which has no row in the CSV, is listed in
+`guide/check-allow.txt` with its French; the API has no French, so a
+French screen shows that name in English, and the French written is the
+English. The guide file itself carries Spanish and French accents on
+purpose; it is the one file here, with the CSVs, written in real
+accented letters.
 
 ## How it reaches Help
 

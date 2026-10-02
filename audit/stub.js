@@ -463,12 +463,16 @@ function makeState(opts) {
     // projects and to-dos; anyone else is turned away. customerAsks
     // (Step 240): link-asks answers a form that asks the person's name
     // and role itself. equipment (Step 240): one item on the register,
-    // opened by EQ_CODE, and the events recorded on it.
+    // opened by EQ_CODE, and the events recorded on it. concern (Step
+    // 244): link-concern answers OCSA-FRM-009's client part, its photo
+    // route and a receipt with a reference.
     languages: Array.isArray(o.languages) ? o.languages.slice() : null,
     sds: !!o.sds,
     secondStep: !!o.secondStep,
     workspace: !!o.workspace,
     customerAsks: !!o.customerAsks,
+    concern: !!o.concern,
+    concernPhotos: [],
     equipment: !!o.equipment,
     equipmentEvents: [],
     // Flip these from a case to make a route answer differently.
@@ -844,6 +848,15 @@ function draftS(state, lang) {
 // too, and one link is closed.
 const FORM_C_CODE = "TEST-FORM-C";
 const FORM_V_CODE = "TEST-FORM-V";
+// The concern link (Step 242): the client's part of OCSA-FRM-009 on
+// link-concern, answered only when its switch is on, with its own photo
+// route, a receipt that carries a reference, and customerTitle (v3), the
+// title the client sees in place of the form's own. Invented words under the
+// code the contract names; the keys are the stub's own, since the API has
+// not built the form yet.
+const FORM_N_CODE = "OCSA-FRM-009";
+const CONCERN_REF = "C-0042-INVENTED";
+const CONCERN_FIELDS = { name: "your_name", role: "org_role" };
 // The smoke check's form that asks the person's name and role itself, on
 // link-asks, answered only when its switch is on (Step 240). It carries
 // the code and the keys of OCSA-FRM-007, the real form that asks them,
@@ -854,6 +867,7 @@ const CUSTOMER_LINKS = {
   "link-survey": { form: FORM_V_CODE, closed: false },
   "link-closed": { form: FORM_V_CODE, closed: true },
   "link-asks": { form: FORM_A_CODE, closed: false, only: "customerAsks" },
+  "link-concern": { form: FORM_N_CODE, closed: false, only: "concern" },
 };
 const PUBLIC_MAX_PHOTOS = 3;
 const PUBLIC_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
@@ -943,8 +957,35 @@ function formA(lang) {
     ],
   };
 }
-const customerFormOf = (code, lang) => (code === FORM_C_CODE ? formC(lang) : code === FORM_A_CODE ? formA(lang) : formV(lang));
-const customerNameRequired = (code) => code === FORM_C_CODE;
+const FORM_N_WORDS = {
+  en: { title: "Report a concern", officeTitle: "Customer Complaint Log", first: "About you", second: "What happened", ocsa: "For the OCSA office", name: "Your name", orgRole: "Your organization or role", email: "Email", phone: "Phone",
+    contactBy: "How would you like us to contact you", byEmail: "By email", byPhone: "By phone", where: "Where in the building", what: "What happened", noticed: "When did you notice it",
+    photos: "Photos, if any", staff: "Is this about how a member of our staff treated you?", yes: "Yes", no: "No" },
+  es: { title: "Informar un problema", officeTitle: "Registro de quejas de clientes", first: "Sobre usted", second: "Lo que pas\u00f3", ocsa: "Para la oficina de OCSA", name: "Su nombre", orgRole: "Su organizaci\u00f3n o puesto", email: "Correo electr\u00f3nico", phone: "Tel\u00e9fono",
+    contactBy: "C\u00f3mo prefiere que lo contactemos", byEmail: "Por correo electr\u00f3nico", byPhone: "Por tel\u00e9fono", where: "D\u00f3nde en el edificio", what: "Qu\u00e9 pas\u00f3", noticed: "Cu\u00e1ndo lo not\u00f3",
+    photos: "Fotos, si las hay", staff: "\u00bfSe trata de c\u00f3mo lo trat\u00f3 un miembro de nuestro personal?", yes: "S\u00ed", no: "No" },
+};
+function formN(lang) {
+  const w = FORM_N_WORDS[lang === "es" ? "es" : "en"];
+  return {
+    code: FORM_N_CODE, title: w.officeTitle, version: 2,
+    sections: [{ key: "1", title: w.first }, { key: "2", title: w.second }, { key: "3", title: w.ocsa }],
+    fields: [
+      customerField("your_name", w.name, "text", "1", true),
+      customerField("org_role", w.orgRole, "text", "1", false),
+      customerField("email", w.email, "text", "1", false),
+      customerField("phone", w.phone, "text", "1", false),
+      customerField("contact_by", w.contactBy, "select", "1", false, { options: [{ value: "email", label: w.byEmail }, { value: "phone", label: w.byPhone }] }),
+      customerField("where", w.where, "text", "2", false),
+      customerField("what_happened", w.what, "textarea", "2", true),
+      customerField("noticed", w.noticed, "text", "2", false),
+      customerField("photos", w.photos, "photos", "2", false, { maxPhotos: 5 }),
+      customerField("about_staff", w.staff, "select", "2", true, { options: [{ value: "no", label: w.no }, { value: "yes", label: w.yes }] }),
+    ],
+  };
+}
+const customerFormOf = (code, lang) => (code === FORM_C_CODE ? formC(lang) : code === FORM_A_CODE ? formA(lang) : code === FORM_N_CODE ? formN(lang) : formV(lang));
+const customerNameRequired = (code) => code === FORM_C_CODE || code === FORM_N_CODE;
 
 // Everyone the Speak Up picker can offer, invented, each one a first and
 // a last name, sorted by last name then first name the way the route
@@ -1101,6 +1142,12 @@ const API_REFUSALS = {
   "customer.tooManyFilings": { status: 429, en: "This form was sent too many times from this device. Try again later.", es: "Este formulario se envi\u00f3 demasiadas veces desde este dispositivo. Intente m\u00e1s tarde." },
   "customer.bodyTooLarge": { status: 413, en: "The form is too large to send. Use fewer or smaller photos.", es: "El formulario es demasiado grande para enviarlo. Use menos fotos o fotos m\u00e1s peque\u00f1as." },
   "customer.nameRequired": { status: 400, en: "Give your name.", es: "Escriba su nombre." },
+  // The concern link's own, as the contract for the API's Step 242 names
+  // them; the words are the stub's.
+  "customer.contactRequired": { status: 400, en: "Give an email address or a phone number.", es: "Escriba un correo electr\u00f3nico o un n\u00famero de tel\u00e9fono." },
+  "customer.photoType": { status: 415, en: "Send a photo: JPG, PNG or WebP.", es: "Env\u00ede una foto: JPG, PNG o WebP." },
+  "customer.photoTooBig": { status: 413, en: "That photo is too large. Each can be up to 10 MB.", es: "Esa foto es demasiado grande. Cada una puede ser de hasta 10 MB." },
+  "customer.tooManyPhotos": { status: 400, en: "Up to 5 photos can be sent.", es: "Se pueden enviar hasta 5 fotos." },
 };
 // The photo and signature refusals the stub answers on its own, which no
 // screen should meet once the phone makes every photo small and draws
@@ -1514,7 +1561,9 @@ const TWIN_PAIRS = [
   // The incident report's second version.
   .concat([["Which room was it in", "En qu\u00e9 cuarto fue"]])
   // The form about one person.
-  .concat(Object.keys(FORM_E_WORDS.en).map(k => [FORM_E_WORDS.en[k], FORM_E_WORDS.es[k]]));
+  .concat(Object.keys(FORM_E_WORDS.en).map(k => [FORM_E_WORDS.en[k], FORM_E_WORDS.es[k]]))
+  // The concern link's form (Step 244).
+  .concat(Object.keys(FORM_N_WORDS.en).map(k => [FORM_N_WORDS.en[k], FORM_N_WORDS.es[k]]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -2273,6 +2322,23 @@ function createStub(opts) {
     };
     const publicGet = /^\/api\/public\/forms\/([^/]+)$/.exec(pathname);
     const publicPost = /^\/api\/public\/forms\/([^/]+)\/responses$/.exec(pathname);
+    // The concern link's photo route: each photo a multipart part named
+    // photos, images only, answered with an id the filing names.
+    const publicPhotos = /^\/api\/public\/forms\/([^/]+)\/photos$/.exec(pathname);
+    if (method === "POST" && publicPhotos && state.concern && CUSTOMER_LINKS[publicPhotos[1]] && CUSTOMER_LINKS[publicPhotos[1]].only === "concern") {
+      const bytes = Buffer.isBuffer(body) ? body : Buffer.alloc(0);
+      const parts = bytes.toString("latin1").split(/name="photos"/).slice(1);
+      if (parts.length === 0) return publicRefusal("customer.photoType");
+      if (parts.some(p => !/Content-Type: image\/(jpeg|png|webp)/i.test(p.slice(0, 400)))) return publicRefusal("customer.photoType");
+      if (state.concernPhotos.length + parts.length > 5) return publicRefusal("customer.tooManyPhotos");
+      const photos = parts.map((p, i) => {
+        const name = (/filename="([^"]*)"/.exec(p) || [])[1] || "photo";
+        const id = "cp-" + (state.concernPhotos.length + i + 1);
+        return { id: id, name: name, exif: p.indexOf("Exif") !== -1, gps: p.indexOf("GPS-INVENTED") !== -1, head: Buffer.from(p.slice(p.indexOf("\r\n\r\n") + 4, p.indexOf("\r\n\r\n") + 6), "latin1").toString("hex") };
+      });
+      photos.forEach(ph => state.concernPhotos.push(ph));
+      return json(201, { photos: photos.map(ph => ({ id: ph.id, name: ph.name })) });
+    }
     if ((method === "GET" && publicGet) || (method === "POST" && publicPost)) {
       const token = (publicGet || publicPost)[1];
       const link = CUSTOMER_LINKS[token];
@@ -2280,7 +2346,7 @@ function createStub(opts) {
       if (link.closed) return publicRefusal("customer.linkClosed");
       const form = customerFormOf(link.form, publicLang);
       if (method === "GET") {
-        return json(200, { form: form, site: { name: PUBLIC_SITE }, company: { name: PUBLIC_COMPANY, logoUrl: null }, customerNameRequired: customerNameRequired(link.form) });
+        return json(200, Object.assign({ form: form, site: { name: PUBLIC_SITE }, company: { name: PUBLIC_COMPANY, logoUrl: null }, customerNameRequired: customerNameRequired(link.form) }, link.form === FORM_N_CODE ? { customerFields: CONCERN_FIELDS, customerTitle: FORM_N_WORDS[publicLang === "es" ? "es" : "en"].title } : {}));
       }
       const b = body && typeof body === "object" ? body : {};
       // The honeypot: a filing that fills it is answered as if it went.
@@ -2305,6 +2371,15 @@ function createStub(opts) {
           if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") return publicRefusal("forms.signatureInvalid", { keys: [k] });
           if (bytes.length > SIGNATURE_MAX_BYTES) return publicRefusal("forms.signatureTooLarge", { keys: [k] });
           got[k] = { name: String(o.name).trim(), role: String(o.role || "").trim(), bytes: bytes.length, size: imageSize(bytes) };
+          continue;
+        }
+        if (field.type === "photos" && link.form === FORM_N_CODE) {
+          // Named by the ids the photo route answered, never sent again.
+          const list = Array.isArray(v) ? v : [v];
+          const ids = list.map(e => (e && typeof e === "object" ? e.id : null));
+          if (ids.some(id => !state.concernPhotos.some(ph => ph.id === id))) return publicRefusal("forms.photoType", { keys: [k] });
+          if (list.length > 5) return publicRefusal("customer.tooManyPhotos", { keys: [k] });
+          got[k] = ids;
           continue;
         }
         if (field.type === "photos") {
@@ -2334,8 +2409,12 @@ function createStub(opts) {
       }
       if (unanswerable.length > 0) return publicRefusal("forms.unanswerable", { keys: unanswerable });
       if (invalid.length > 0) return publicRefusal("forms.invalidAnswers", { keys: invalid });
-      const customerName = String(b.customerName || "").replace(/\s+/g, " ").trim();
-      if (customerNameRequired(link.form) && !customerName) return publicRefusal("customer.nameRequired");
+      // A form whose own questions ask for the person takes the name and
+      // role from them, and the body's are not read (Step 242).
+      const asked = link.form === FORM_N_CODE ? CONCERN_FIELDS : null;
+      const customerName = String((asked ? got[asked.name] : b.customerName) || "").replace(/\s+/g, " ").trim();
+      if (customerNameRequired(link.form) && !customerName) return publicRefusal("customer.nameRequired", asked ? { keys: [asked.name] } : undefined);
+      if (link.form === FORM_N_CODE && !got.email && !got.phone) return publicRefusal("customer.contactRequired", { keys: ["email", "phone"] });
       const missing = form.fields.filter(f => f.required && got[f.key] === undefined).map(f => f.key);
       if (missing.length > 0) {
         return publicRefusal("forms.requiredUnanswered", { missing: missing, missingFields: missing.map(k => ({ key: k, label: form.fields.find(f => f.key === k).label })) });
@@ -2343,7 +2422,8 @@ function createStub(opts) {
       // The call's record carries what the API read off the body, so a
       // case can judge the photos and the drawing by their bytes.
       state.calls[state.calls.length - 1].read = got;
-      state.customerFiled.push({ token: token, locale: publicLang, customerName: customerName, customerRole: String(b.customerRole || "").trim(), answers: got });
+      state.customerFiled.push({ token: token, locale: publicLang, customerName: customerName, customerRole: String((asked ? got[asked.role] : b.customerRole) || "").trim(), answers: got, body: b });
+      if (link.form === FORM_N_CODE) return json(200, { ok: true, reference: CONCERN_REF, emailed: !!got.email });
       return json(200, { ok: true });
     }
 
@@ -2778,7 +2858,7 @@ function draftOf(state) {
 
 module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
-  SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, EQ_CODE, EQ_ITEM,
+  SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES, localeFault, localeRows,
   CUSTOMER_LINKS, FORM_C_CODE, FORM_V_CODE, formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, PUBLIC_MAX_PHOTOS, PUBLIC_FILINGS_MAX, customerSignatureLine,

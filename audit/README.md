@@ -19,15 +19,17 @@ a customer's form that asks the name and role itself draws neither of the
 page's own and sends its own answers, while another form still draws
 them; a check-off with no signal is kept and said, and goes once with its
 clientId when the signal is back; an equipment label's page opens and
-records a check; a periodic task says how often it comes; French offered
-by the stub turns the screen French with no English the portal drew; and
-Home at the Largest size, 360 wide, has no control cut off. Each check
-prints one line, PASS or FAIL, and the command exits non-zero on any
-failure or when the run takes three minutes or more.
+records a check; a periodic task says how often it comes; a concern link
+takes a photo through its own route and shows the reference after filing;
+French offered by the stub turns the screen French with no English the
+portal drew; and Home at the Largest size, 360 wide, has no control cut
+off. Each check prints one line, PASS or FAIL, and the command exits
+non-zero on any failure or when the run takes three minutes or more.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
-`sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`), off for
-every other case. The full suite below is separate and is not run by it.
+`sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
+`concern`), off for every other case. The full suite below is separate
+and is not run by it.
 
 ## The full suite
 

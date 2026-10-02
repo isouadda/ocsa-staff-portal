@@ -877,3 +877,7 @@ This item did not open. Try again.,Este equipo no se abrió. Intente de nuevo.,C
 This label does not match any equipment.,Esta etiqueta no corresponde a ningún equipo.,Cette étiquette ne correspond à aucun équipement.,"An equipment label's page, a code not in the register"
 This item is retired. Nothing can be recorded on it.,Este equipo está dado de baja. No se puede registrar nada en él.,Cet équipement est retiré. Rien ne peut y être enregistré.,"An equipment label's page, a retired item"
 This item is tagged out. Do not use it until the office puts it back in service.,Este equipo está fuera de servicio. No lo use hasta que la oficina lo vuelva a poner en servicio.,Cet équipement est hors service. Ne l'utilisez pas avant que le bureau le remette en service.,"An equipment label's page, an item tagged out"
+Thank you. Your reference is {ref}.,Gracias. Su referencia es {ref}.,Merci. Votre référence est {ref}.,"Customer form, after a concern is sent"
+We will reply within five working days.,Le responderemos en un plazo de cinco días hábiles.,Nous vous répondrons sous cinq jours ouvrés.,"Customer form, after a concern is sent"
+A copy is on its way to your email.,Le enviamos una copia a su correo electrónico.,Une copie vous est envoyée par e-mail.,"Customer form, after a concern is sent with an email"
+Sent by {who}.,Enviado por {who}.,Envoyé par {who}.,"Customer form, after a form whose own questions ask who you are"

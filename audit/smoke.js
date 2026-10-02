@@ -27,6 +27,9 @@
 //   - an equipment label's page opens, signed in, and Checked, all good
 //     sends { kind: "check" }
 //   - a periodic task says how often it comes beside its name
+//   - a concern link heads itself with the API's customerTitle, takes a
+//     photo through its own route, files, and shows the reference, the
+//     reply line and the copy line
 //   - French offered by the stub turns the screen French, and a French
 //     screen shows no English the portal drew (French alone)
 //   - one page at the Largest text size, 360 wide, with no control cut
@@ -40,7 +43,7 @@ const fs = require("fs");
 const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
-const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, EQ_CODE, EQ_ITEM } = require("./stub");
+const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -370,6 +373,39 @@ async function periodic(browser, language) {
   await app.context.close();
 }
 
+// The concern link (Step 244): a photo through the link's own route, the
+// filing, and the receipt.
+async function concern(browser, language) {
+  const w = FORM_N_WORDS[language];
+  const app = await open({ concern: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, path: "/c/link-concern" });
+  const page = app.page;
+  const up = await waitFor(page, (title) => document.body.innerText.indexOf(title) !== -1 && document.querySelectorAll('input[type="text"]').length > 0, w.title);
+  const office = await page.evaluate((t) => document.body.innerText.indexOf(t) !== -1, w.officeTitle);
+  const own = await page.evaluate(() => !!document.querySelector('input[autocomplete="name"]') || !!document.querySelector('input[autocomplete="organization-title"]'));
+  const boxes = page.locator('input[type="text"]:not([name="website"])');
+  await boxes.nth(0).fill("An invented customer");
+  await boxes.nth(1).fill("Facilities");
+  await boxes.nth(2).fill("invented@example.invalid");
+  const click = (label) => page.evaluate((l) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.trim() === l); if (b) b.click(); return !!b; }, label);
+  await click(say(language, "Next"));
+  await pause(page, 500);
+  await page.locator("textarea").first().fill("The lobby floor was wet with no sign, invented.");
+  await click(w.no);
+  const jpg = await page.evaluate(async () => { const c = document.createElement("canvas"); c.width = 800; c.height = 600; const x = c.getContext("2d"); x.fillStyle = "#3a7"; x.fillRect(0, 0, 800, 600); const b = await new Promise(r => c.toBlob(r, "image/jpeg", 0.9)); const a = new Uint8Array(await b.arrayBuffer()); let s = ""; a.forEach(v => { s += String.fromCharCode(v); }); return btoa(s); });
+  await page.setInputFiles('input[type="file"][accept="image/*"]', { name: "lobby.jpg", mimeType: "image/jpeg", buffer: Buffer.from(jpg, "base64") });
+  const shown = await waitFor(page, () => !!document.querySelector(".sp-content img, img[alt=\"\"]") && Array.from(document.querySelectorAll("img")).some(i => /^data:image/.test(i.src)));
+  for (let i = 0; i < 3 && !(await page.evaluate((s) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.trim() === s), say(language, "Send"))); i += 1) { await click(say(language, "Next")); await pause(page, 400); }
+  await click(say(language, "Send"));
+  const lines = [w.title, say(language, "Thank you. Your reference is {ref}.", { ref: CONCERN_REF }), say(language, "We will reply within five working days."), say(language, "A copy is on its way to your email.")];
+  const thanked = await waitFor(page, (want) => want.every(x => document.body.innerText.indexOf(x) !== -1), lines);
+  const filed = app.stub.state.customerFiled[0];
+  const sent = !!filed && app.stub.state.concernPhotos.length === 1 && JSON.stringify(filed.answers.photos) === '["cp-1"]' && filed.customerName === "An invented customer" && filed.body.website === "";
+  check("a concern link heads itself and its thank-you with customerTitle, takes a photo through its own route, files it by id, and shows the reference, the reply line and the copy line (" + language + ")",
+    up && !office && !own && shown && thanked && sent && app.errors.length === 0,
+    !up ? "the form did not open" : office ? "the form's own title " + JSON.stringify(w.officeTitle) + " showed" : own ? "the page's own Your name or Your role showed" : !shown ? "no thumbnail for the photo" : !thanked ? "the thank-you did not read " + JSON.stringify(lines) : !sent ? "filed " + JSON.stringify(filed || null) + " photos " + app.stub.state.concernPhotos.length : app.errors[0]);
+  await app.context.close();
+}
+
 // French, offered by the stub.
 async function french(browser) {
   const app = await open({ languages: ["en", "es", "fr"], accountPreferences: { language: "fr", textSize: "standard" } }, { browser, language: "fr", signedIn: true });
@@ -428,6 +464,7 @@ async function largest(browser) {
     await guard("a check-off with no signal", () => noSignal(browser));
     for (const language of ["en", "es"]) await guard("an equipment label (" + language + ")", () => equipment(browser, language));
     for (const language of ["en", "es"]) await guard("periodic work (" + language + ")", () => periodic(browser, language));
+    for (const language of ["en", "es"]) await guard("a concern link (" + language + ")", () => concern(browser, language));
     await guard("French", () => french(browser));
     await guard("the Largest text size", () => largest(browser));
   } finally {
