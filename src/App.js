@@ -799,6 +799,9 @@ const BellIco = (p) => <Ico d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7
 const DocIco = (p) => <Ico d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h4" {...p} />;
 const DropIco = (p) => <Ico d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" {...p} />;
 const FolderIco = (p) => <Ico d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" {...p} />;
+// A briefcase, for the field kit, and a shield, for protective gear.
+const KitIco = (p) => <Ico d="M20 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zM16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" {...p} />;
+const ShieldIco = (p) => <Ico d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
 // Every destination the portal has, in one list, so the bottom bar and the
@@ -826,6 +829,9 @@ const DESTINATIONS = [
   // Under More alone, for an office person, and only once the API's team
   // workspace has answered for them (Step 234).
   { id: "workspace", label: () => "Workspace", icon: FolderIco, moreOnly: true, role: (ctx) => !!ctx.workspace },
+  // Under More alone, for an admin or a supervisor, the accounts its
+  // routes answer (Step 246).
+  { id: "fieldkit", label: () => "Field kit", icon: KitIco, moreOnly: true, role: (ctx) => !!ctx.isAdmin },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
 
@@ -2333,9 +2339,12 @@ export default function OCSAStaffPortal() {
   // portal is up, and then the one on the screen.
   const [equipmentCode, setEquipmentCode] = useState(EQUIPMENT_AT_START);
   const [equipmentShown, setEquipmentShown] = useState(null);
+  // Where Back on an item's page goes: Home from a label, and the field
+  // kit's Equipment from its list.
+  const [equipmentBack, setEquipmentBack] = useState(null);
   useEffect(() => {
     if (!equipmentCode || screen !== "main" || offlineOpen) return;
-    setEquipmentShown(equipmentCode); setEquipmentCode(null);
+    setEquipmentShown(equipmentCode); setEquipmentCode(null); setEquipmentBack(null);
     setActiveTab("equipment"); setShowMore(false);
     try { window.history.replaceState({}, "", "/"); } catch (e) {}
   }, [equipmentCode, screen, offlineOpen]);
@@ -2388,6 +2397,9 @@ export default function OCSAStaffPortal() {
   // The project open in Workspace and its tool, kept while the project's
   // chat is open in Chat, so Workspace opens where the person left it.
   const [wsAt, setWsAt] = useState(null);
+  // Where the field kit is (Step 246): the site chosen and the tile open,
+  // kept while the person goes elsewhere and back, and dropped at sign out.
+  const [fieldKitAt, setFieldKitAt] = useState(null);
   const wsAsks = !!token && screen === "main" && isOfficePerson(user);
   useEffect(() => {
     if (!wsAsks) { setWsProjects(null); setWsAt(null); return undefined; }
@@ -2537,7 +2549,7 @@ export default function OCSAStaffPortal() {
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
     setChannels(null); setChannelsFailed(false); setMessages([]); setMessagesOf(null); setActiveChannel(null);
-    setAgentConversation(null); setFormsDraft(null);
+    setAgentConversation(null); setFormsDraft(null); setFieldKitAt(null); setEquipmentShown(null); setEquipmentBack(null);
     setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
     setLookups([]); setLookupsLang(null); toastsRef.current.clear(); setLoading(false);
     setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false); setAnnouncementOpen(null); setOpenAsk(null); setAlertsCard(null); setAlertsCardBusy(false);
@@ -2736,10 +2748,11 @@ export default function OCSAStaffPortal() {
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
               {activeTab === "sds" && <div style={{ padding: 16 }}><SdsBrowser initial={sdsList} onList={setSdsList} code={sdsCode} onCode={setSdsCode} t={t} /></div>}
               {activeTab === "workspace" && destCtx.workspace && <WorkspaceView token={token} user={user} projects={wsProjects} onProjects={setWsProjects} at={wsAt} onAt={setWsAt} channels={channels} onOpenChat={(id) => { chooseChat(id); setActiveTab("chat"); setShowMore(false); }} showToast={showToast} t={t} />}
+              {activeTab === "fieldkit" && destCtx.isAdmin && <FieldKitView token={token} at={fieldKitAt} onAt={setFieldKitAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} assignedSites={sites} onOpenEquipment={(code) => { setEquipmentShown(code); setEquipmentBack("fieldkit"); setActiveTab("equipment"); }} showToast={showToast} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
               {activeTab === "phonealerts" && <PhoneAlertsView token={token} t={t} onBack={() => setActiveTab("settings")} />}
-              {activeTab === "equipment" && equipmentShown && <EquipmentView token={token} code={equipmentShown} showToast={showToast} t={t} onBack={() => { setEquipmentShown(null); setActiveTab("clock"); }} />}
+              {activeTab === "equipment" && equipmentShown && <EquipmentView token={token} code={equipmentShown} showToast={showToast} t={t} onBack={() => { const back = equipmentBack === "fieldkit" && destCtx.isAdmin ? "fieldkit" : "clock"; setEquipmentShown(null); setEquipmentBack(null); setActiveTab(back); }} />}
               {activeTab === "profile" && <MyProfileView token={token} user={user} showToast={showToast} t={t} setUser={setUser} setActiveTab={setActiveTab} />}
             </div>
           </div>
@@ -9863,6 +9876,653 @@ function EquipmentView({ token, code, showToast, t, onBack }) {
             </div>
           )}
           {tagOut.fault && <WsFault text={tagOut.fault} t={t} />}
+        </WsSheet>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// The supervisor's field kit (Step 246), under More
+//
+// For an admin or a supervisor, the accounts its routes answer: a site,
+// chosen from every site the person may name (GET /api/forms/my-sites),
+// and four tiles for it. It opens on the site of the shift open now, else
+// the first site the person is assigned to, else the first on the list.
+// Anyone else is never shown it and never asks for any of its routes.
+// ------------------------------------------------------------
+const FK_TILES = [
+  { id: "ppe", title: "Issue PPE", line: "Hand out protective gear. The person signs for it here.", icon: ShieldIco },
+  { id: "periodic", title: "Periodic work", line: "What is overdue, due and done at this site.", icon: CalIco },
+  { id: "equipment", title: "Equipment", line: "Each item's status and next service.", icon: WrkIco },
+  { id: "review", title: "Awaiting review", line: "Inspections waiting for a review signature.", icon: ClipIco },
+];
+const fkText = (o, keys) => { const v = agentField(o, keys, ""); return typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : ""; };
+function fkSiteOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = fkText(x, ["id", "siteId", "site_id"]);
+  const name = fkText(x, ["name", "siteName", "site_name"]);
+  return id && name ? { id: id, name: name } : null;
+}
+// The site the kit is on: the one chosen, else the open shift's, else
+// the first assigned, else the first. Only a site on the list counts.
+function fkSiteFor(list, chosen, shiftSiteId, assigned) {
+  const has = (id) => !!id && list.some(s => s.id === String(id));
+  if (has(chosen)) return String(chosen);
+  if (has(shiftSiteId)) return String(shiftSiteId);
+  const mine = (Array.isArray(assigned) ? assigned : []).map(a => fkText(a, ["siteId", "site_id", "id"])).find(has);
+  if (mine) return mine;
+  return list.length > 0 ? list[0].id : null;
+}
+
+function FieldKitView({ token, at, onAt, shiftSiteId, assignedSites, onOpenEquipment, showToast, t }) {
+  const [sites, setSites] = useState(null);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const rows = wsRows(await api("/api/forms/my-sites", { token }), "sites");
+        if (!rows) throw new Error(ERR_GENERIC);
+        if (live) setSites({ state: "ok", list: rows.map(fkSiteOf).filter(Boolean) });
+      } catch (err) {
+        // A list already on the screen stays when a later read fails.
+        if (live) setSites(prev => (prev && prev.state === "ok" ? prev : { state: "failed", list: [] }));
+      }
+    })();
+    return () => { live = false; };
+  }, [asked]);
+  const list = sites && sites.state === "ok" ? sites.list : [];
+  const siteId = fkSiteFor(list, at && at.siteId, shiftSiteId, assignedSites);
+  const site = list.find(s => s.id === siteId) || null;
+  const tile = site && at && at.tile ? FK_TILES.find(x => x.id === at.tile) || null : null;
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [tile ? tile.id : null, at && at.inspection]);
+  const titleSt = { fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 12, overflowWrap: "anywhere" };
+  // An inspection open from Awaiting review, with Back to that list.
+  if (tile && tile.id === "review" && at.inspection) {
+    return (
+      <div style={{ padding: "16px 16px 0" }}>
+        <FkInspection key={at.inspection} token={token} id={String(at.inspection)} onBack={() => onAt({ siteId: site.id, tile: "review" })} showToast={showToast} t={t} />
+      </div>
+    );
+  }
+  if (tile) {
+    return (
+      <div style={{ padding: "16px 16px 0" }}>
+        <WsBack label={tr("Field kit")} onBack={() => onAt({ siteId: site.id, tile: null })} t={t} />
+        <div role="heading" aria-level={1} style={{ ...titleSt, marginBottom: 2 }}>{tr(tile.title)}</div>
+        <div style={{ fontSize: 13, color: t.textSec, marginBottom: 12, overflowWrap: "anywhere" }}>{site.name}</div>
+        {tile.id === "ppe" && <FkPpe key={site.id} token={token} site={site} showToast={showToast} t={t} />}
+        {tile.id === "periodic" && <FkPeriodic key={site.id} token={token} site={site} t={t} />}
+        {tile.id === "equipment" && <FkEquipment key={site.id} token={token} site={site} onOpen={onOpenEquipment} t={t} />}
+        {tile.id === "review" && <FkReview key={site.id} token={token} site={site} onOpen={(id) => onAt({ siteId: site.id, tile: "review", inspection: id })} t={t} />}
+      </div>
+    );
+  }
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      <div role="heading" aria-level={1} style={titleSt}>{tr("Field kit")}</div>
+      {!sites && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {sites && sites.state === "failed" && <div style={{ marginBottom: 12 }}><ListFault icon={KitIco} text={tr("Your sites did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} /></div>}
+      {sites && sites.state === "ok" && list.length === 0 && <div style={wsQuiet(t)}>{tr("You have no sites to work on.")}</div>}
+      {site && (
+        <div style={{ marginBottom: 16 }}>
+          <label htmlFor="ocsa-fk-site" style={mkLabel(t)}>{tr("Site")}</label>
+          <select id="ocsa-fk-site" value={site.id} onChange={e => onAt({ siteId: e.target.value, tile: null })} style={mkInput(t)}>
+            {list.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+      )}
+      {site && FK_TILES.map(x => {
+        const Icon = x.icon;
+        return (
+          <button key={x.id} type="button" onClick={() => onAt({ siteId: site.id, tile: x.id })} style={{ width: "100%", display: "flex", alignItems: "flex-start", gap: 12, minHeight: TAP, padding: "14px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
+            <Icon sz={20} c={t.goldText} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{tr(x.title)}</span>
+              <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{tr(x.line)}</span>
+            </span>
+            <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 2 }} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// A refusal in the API's own words, whatever its code; no signal and
+// anything else in the screen's own.
+const fkSaidOf = (err) => (err && err.status && err.body && typeof err.body.error === "string" && err.body.error.trim() ? err.body.error.trim() : null);
+const fkFaultWords = (err, fallback) => fkSaidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : fallback);
+// The site's name and the tile's look, shared by the four tiles.
+const fkHeadSt = (t) => ({ ...mkLabel(t), marginTop: 20, marginBottom: 8 });
+const fkRowSt = (t) => ({ padding: "10px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow });
+
+// ------------------------------------------------------------
+// Issue PPE (Step 246): OCSA-FRM-019's issue record on the phone
+//
+// The person, from the site's people (GET /api/sites/:id); the item, from
+// the site's PPE stock (GET /api/supplies?site_id&category=ppe) or typed;
+// the size, how many, whether it fits, a note, and the person's own
+// signature drawn here, sent as POST /api/ppe-issues. The site's issues,
+// newest first, under it. A refusal is said in the API's words under each
+// field its keys name.
+// ------------------------------------------------------------
+const PPE_ITEM_MAX = 120;
+const PPE_SIZE_MAX = 40;
+const PPE_NOTE_MAX = 1000;
+const PPE_QTY_MAX = 1000;
+const PPE_TYPED = "typed";
+const PPE_LIST_STEP = 20;
+// The field each of the API's keys names. siteId has no field here, so
+// it is said above the button.
+const PPE_FIELD_OF = { userId: "person", supplyId: "item", item: "item", size: "size", quantity: "quantity", fitOk: "fit", note: "note", employeeSignature: "signature" };
+const PPE_BLANK = { person: "", item: "", typed: "", size: "", quantity: 1, fitOk: null, note: "" };
+function ppePersonOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = fkText(x, ["id", "userId", "user_id"]);
+  const name = [fkText(x, ["first_name", "firstName"]), fkText(x, ["last_name", "lastName"])].filter(Boolean).join(" ") || fkText(x, ["name"]);
+  return id && name ? { id: id, name: name } : null;
+}
+function ppeStockOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = fkText(x, ["id"]);
+  const name = fkText(x, ["name"]);
+  const n = Number(agentField(x, ["site_stock", "siteStock"], NaN));
+  return id && name ? { id: id, name: name, stock: isFinite(n) ? n : null } : null;
+}
+function ppeIssueOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = fkText(x, ["id"]);
+  const what = fkText(x, ["item"]) || fkText(x, ["supplyName", "supply_name"]);
+  if (!id || !what) return null;
+  const q = Number(agentField(x, ["quantity"], 1));
+  const fit = agentField(x, ["fitOk", "fit_ok"], null);
+  return { id: id, what: what, size: fkText(x, ["size"]), quantity: isFinite(q) && q > 0 ? q : 1, fitOk: fit === true ? true : fit === false ? false : null, note: fkText(x, ["note"]), who: fkText(x, ["userName", "user_name"]), by: fkText(x, ["issuedByName", "issued_by_name"]), at: agentField(x, ["issuedAt", "issued_at"], null), signed: agentField(x, ["signed"], false) === true };
+}
+
+function FkPpe({ token, site, showToast, t }) {
+  const [form, setForm] = useState(null);
+  const [formAsked, setFormAsked] = useState(0);
+  const [issues, setIssues] = useState(null);
+  const [listAsked, setListAsked] = useState(0);
+  const [shown, setShown] = useState(PPE_LIST_STEP);
+  const [draft, setDraft] = useState(PPE_BLANK);
+  const [strokes, setStrokes] = useState([]);
+  const [png, setPng] = useState(null);
+  // What is said under each field, by field, and above the button.
+  const [faults, setFaults] = useState({});
+  const [sending, setSending] = useState(false);
+  const dirty = draft.person !== "" || draft.item !== "" || draft.size.trim() !== "" || draft.note.trim() !== "" || draft.quantity !== 1 || draft.fitOk !== null || strokes.length > 0;
+  useBusy("ppe issue", dirty || sending);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const [one, stock] = await Promise.all([
+          api("/api/sites/" + encodeURIComponent(site.id), { token }),
+          api("/api/supplies?site_id=" + encodeURIComponent(site.id) + "&category=ppe", { token }),
+        ]);
+        const staff = wsRows(one, "staff");
+        const rows = wsRows(stock, "supplies");
+        if (!staff || !rows) throw new Error(ERR_GENERIC);
+        const people = [];
+        staff.map(ppePersonOf).filter(Boolean).forEach(p => { if (!people.some(x => x.id === p.id)) people.push(p); });
+        people.sort((a, b) => a.name.localeCompare(b.name));
+        if (live) setForm({ state: "ok", people: people, stock: rows.map(ppeStockOf).filter(Boolean) });
+      } catch (err) {
+        if (live) setForm(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: fkFaultWords(err, "This form did not load.") }));
+      }
+    })();
+    return () => { live = false; };
+  }, [site.id, formAsked]);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const rows = wsRows(await api("/api/ppe-issues?siteId=" + encodeURIComponent(site.id), { token }), "issues");
+        if (!rows) throw new Error(ERR_GENERIC);
+        if (live) setIssues({ state: "ok", list: rows.map(ppeIssueOf).filter(Boolean) });
+      } catch (err) {
+        if (live) setIssues(prev => (prev && prev.state === "ok" ? prev : { state: "failed" }));
+      }
+    })();
+    return () => { live = false; };
+  }, [site.id, listAsked]);
+  const edit = (k, v, field) => { setDraft(d => ({ ...d, [k]: v })); setFaults(f => ({ ...f, [field || k]: null, form: null })); };
+  const send = async () => {
+    if (sending) return;
+    const typed = draft.typed.trim();
+    const local = {};
+    if (!draft.person) local.person = tr("Choose the person you are handing it to.");
+    if (!draft.item || (draft.item === PPE_TYPED && !typed)) local.item = tr("Choose an item, or type what you are handing out.");
+    if (!png) local.signature = tr("The person signs before you send.");
+    if (Object.keys(local).length > 0) { setFaults(local); return; }
+    const body = { userId: draft.person, siteId: site.id, quantity: draft.quantity, fitOk: draft.fitOk, employeeSignature: png };
+    if (draft.item === PPE_TYPED) body.item = typed; else body.supplyId = draft.item;
+    if (draft.size.trim()) body.size = draft.size.trim();
+    if (draft.note.trim()) body.note = draft.note.trim();
+    setSending(true); setFaults({});
+    try {
+      const d = await api("/api/ppe-issues", { method: "POST", body: body, token });
+      const made = ppeIssueOf(d && d.issue);
+      setDraft(PPE_BLANK); setStrokes([]); setPng(null);
+      if (made) setIssues(prev => ({ state: "ok", list: [made].concat(prev && prev.state === "ok" ? prev.list.filter(x => x.id !== made.id) : []) }));
+      else setListAsked(n => n + 1);
+      showToast(tr("PPE issued. The signature is kept with it."));
+    } catch (err) {
+      const said = fkFaultWords(err, "This was not sent. Try again.");
+      const keys = Array.isArray(err && err.body && err.body.keys) ? err.body.keys.map(String) : [];
+      const next = {};
+      keys.forEach(k => { next[PPE_FIELD_OF[k] || "form"] = said; });
+      if (keys.length === 0) next[err && err.code === "ppe.signatureRequired" ? "signature" : "form"] = said;
+      setFaults(next);
+    } finally { setSending(false); }
+  };
+  const labelSt = mkLabel(t);
+  const fieldSt = { marginBottom: 14 };
+  const errOf = (field) => (faults[field] ? <div role="alert" style={mkFieldErr(t)}>{faults[field]}</div> : null);
+  const ring = (field) => (faults[field] ? { border: "2px solid " + RED } : {});
+  const list = issues && issues.state === "ok" ? issues.list : [];
+  const fitBtn = (on) => ({ ...wsPlainBtn(t), flex: "1 1 0", minWidth: 0, background: on ? t.goldBg : "transparent", border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: on ? t.goldText : t.text });
+  return (
+    <div>
+      {!form && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {form && form.state === "failed" && <div style={{ marginBottom: 12 }}><ListFault icon={ShieldIco} text={form.said} onRetry={() => setFormAsked(n => n + 1)} t={t} /></div>}
+      {form && form.state === "ok" && (
+        <div data-fk-ppe="form">
+          <div style={fieldSt}>
+            <label htmlFor="ocsa-ppe-person" style={labelSt}>{tr("Person")}</label>
+            <select id="ocsa-ppe-person" value={draft.person} onChange={e => edit("person", e.target.value)} style={{ ...mkInput(t), ...ring("person") }}>
+              <option value="">{tr("Choose a person")}</option>
+              {form.people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            {form.people.length === 0 && <div style={{ fontSize: 12, color: t.textMut, marginTop: 6 }}>{tr("No one is assigned to this site.")}</div>}
+            {errOf("person")}
+          </div>
+          <div style={fieldSt}>
+            <label htmlFor="ocsa-ppe-item" style={labelSt}>{tr("Item")}</label>
+            <select id="ocsa-ppe-item" value={draft.item} onChange={e => edit("item", e.target.value)} style={{ ...mkInput(t), ...ring("item") }}>
+              <option value="">{tr("Choose an item")}</option>
+              {form.stock.map(s => <option key={s.id} value={s.id}>{s.stock === null ? s.name : tr("{item}, {n} in stock", { item: s.name, n: s.stock })}</option>)}
+              <option value={PPE_TYPED}>{tr("Something else (type it)")}</option>
+            </select>
+            {draft.item === PPE_TYPED && <input id="ocsa-ppe-typed" aria-label={tr("What you are handing out")} placeholder={tr("What you are handing out")} value={draft.typed} maxLength={PPE_ITEM_MAX} onChange={e => edit("typed", e.target.value, "item")} style={{ ...mkInput(t), marginTop: 8, ...ring("item") }} />}
+            {form.stock.length === 0 && <div style={{ fontSize: 12, color: t.textMut, marginTop: 6 }}>{tr("This site has no PPE in stock. Type what you are handing out.")}</div>}
+            {errOf("item")}
+          </div>
+          <div style={fieldSt}>
+            <label htmlFor="ocsa-ppe-size" style={labelSt}>{tr("Size")}</label>
+            <input id="ocsa-ppe-size" value={draft.size} maxLength={PPE_SIZE_MAX} placeholder={tr("Optional")} onChange={e => edit("size", e.target.value)} style={{ ...mkInput(t), ...ring("size") }} />
+            {errOf("size")}
+          </div>
+          <div style={fieldSt}>
+            <div id="ocsa-ppe-qty" style={labelSt}>{tr("Quantity")}</div>
+            <div role="group" aria-labelledby="ocsa-ppe-qty" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button type="button" onClick={() => edit("quantity", Math.max(1, draft.quantity - 1))} disabled={draft.quantity <= 1} aria-label={tr("One less")} style={{ ...mkTapFrame(), opacity: draft.quantity <= 1 ? 0.5 : 1 }}><span style={mkQtyBtn(t)}><MinusIco sz={14} /></span></button>
+              <div aria-live="polite" style={{ minWidth: 44, textAlign: "center", fontSize: 22, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{draft.quantity}</div>
+              <button type="button" onClick={() => edit("quantity", Math.min(PPE_QTY_MAX, draft.quantity + 1))} disabled={draft.quantity >= PPE_QTY_MAX} aria-label={tr("One more")} style={mkTapFrame()}><span style={mkQtyBtn(t)}><PlusIco sz={14} /></span></button>
+            </div>
+            {errOf("quantity")}
+          </div>
+          <div style={fieldSt}>
+            <div id="ocsa-ppe-fit" style={labelSt}>{tr("Fits well?")}</div>
+            <div role="group" aria-labelledby="ocsa-ppe-fit" style={{ display: "flex", gap: 8 }}>
+              <button type="button" aria-pressed={draft.fitOk === true} onClick={() => edit("fitOk", draft.fitOk === true ? null : true, "fit")} style={fitBtn(draft.fitOk === true)}>{tr("Yes")}</button>
+              <button type="button" aria-pressed={draft.fitOk === false} onClick={() => edit("fitOk", draft.fitOk === false ? null : false, "fit")} style={fitBtn(draft.fitOk === false)}>{tr("No")}</button>
+            </div>
+            {errOf("fit")}
+          </div>
+          <div style={fieldSt}>
+            <label htmlFor="ocsa-ppe-note" style={labelSt}>{tr("Note")}</label>
+            <textarea id="ocsa-ppe-note" value={draft.note} maxLength={PPE_NOTE_MAX} rows={2} placeholder={tr("Optional")} onChange={e => edit("note", e.target.value)} style={{ ...mkInput(t), resize: "vertical", ...ring("note") }} />
+            {errOf("note")}
+          </div>
+          <div data-fk-ppe="signature" style={fieldSt}>
+            <div style={labelSt}>{tr("Signature of the person receiving it")}</div>
+            <div style={{ borderRadius: R.md, border: faults.signature ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+              <SignatureBox strokes={strokes} onStroke={(stroke, size) => { const all = strokes.concat([stroke]); setStrokes(all); setPng(signaturePng(all, size.w, size.h)); setFaults(f => ({ ...f, signature: null, form: null })); }} height={SIGN_BOX_HEIGHT} />
+            </div>
+            {errOf("signature")}
+            <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr("Hand the phone to the person. They sign with a finger.")}</div>
+            <button type="button" onClick={() => { setStrokes([]); setPng(null); }} disabled={strokes.length === 0 || sending} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+          </div>
+          {faults.form && <WsFault text={faults.form} t={t} />}
+          <div style={{ display: "flex", marginTop: 12 }}>
+            <button type="button" onClick={send} disabled={sending} style={wsMainBtn(t, sending)}>{sending ? tr("Sending...") : tr("Issue PPE")}</button>
+          </div>
+        </div>
+      )}
+      <div role="heading" aria-level={2} style={fkHeadSt(t)}>{tr("Issued at this site")}</div>
+      {!issues && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {issues && issues.state === "failed" && <div style={{ marginBottom: 12 }}><ListFault icon={ShieldIco} text={tr("This list did not load.")} onRetry={() => setListAsked(n => n + 1)} t={t} /></div>}
+      {issues && issues.state === "ok" && list.length === 0 && <div style={wsQuiet(t)}>{tr("No PPE has been issued at this site yet.")}</div>}
+      {list.slice(0, shown).map(x => (
+        <div key={x.id} data-fk-ppe-issue={x.id} style={fkRowSt(t)}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{tr("{item} x{n}", { item: x.what, n: x.quantity })}</div>
+          <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{[x.who, x.size ? tr("Size {size}", { size: x.size }) : "", x.fitOk === true ? tr("Fits well") : x.fitOk === false ? tr("Does not fit") : "", x.signed ? tr("Signed") : ""].filter(Boolean).join(", ")}</div>
+          {x.note && <div style={{ fontSize: 12, color: t.textMut, marginTop: 2, overflowWrap: "anywhere" }}>{x.note}</div>}
+          <div style={{ fontSize: 12, color: t.textMut, marginTop: 2, overflowWrap: "anywhere" }}>{x.by ? tr("Issued by {name}, {when}", { name: x.by, when: wsWhen(x.at) }) : wsWhen(x.at)}</div>
+        </div>
+      ))}
+      {list.length > shown && <button type="button" onClick={() => setShown(n => n + PPE_LIST_STEP)} style={{ ...wsPlainBtn(t), width: "100%", marginBottom: 12 }}>{tr("Show more")}</button>}
+    </div>
+  );
+}
+
+// A day the API sends as a timestamp, on the company's calendar.
+const fkDayOf = (v) => { const d = v ? new Date(v) : null; return d && !isNaN(d.getTime()) ? d.toLocaleDateString(dateLocale(), { weekday: "short", month: "short", day: "numeric", timeZone: clientConfig.company.timeZone }) : ""; };
+
+// ------------------------------------------------------------
+// Periodic work (Step 246): GET /api/periodic-work?siteId
+//
+// Every weekly, every-two-weeks, monthly, quarterly and seasonal item of
+// the site, under Overdue, Due and Done, each with how often it comes,
+// where it sits on the checklist, when it was last done and by whom, and
+// the day it is due by. Read only: work is checked off on the checklist.
+// ------------------------------------------------------------
+const PERIODIC_STATES = [["overdue", "Overdue"], ["due", "Due"], ["done", "Done"]];
+const PERIOD_OF_FREQUENCY = { weekly: "week", biweekly: "biweekly", monthly: "month", quarterly: "quarter", seasonal: "season" };
+function periodicItemOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const display = x.display && typeof x.display === "object" ? x.display : {};
+  const label = fkText(display, ["label"]) || fkText(x, ["label"]);
+  const state = fkText(x, ["state"]);
+  if (!label || !PERIODIC_STATES.some(s => s[0] === state)) return null;
+  const by = x.lastDoneBy && typeof x.lastDoneBy === "object" ? fkText(x.lastDoneBy, ["name"]) : "";
+  return { id: fkText(x, ["taskId", "id"]) || label, label: label, zone: fkText(display, ["zone"]) || fkText(x, ["zone"]), period: PERIOD_OF_FREQUENCY[fkText(x, ["frequency"])] || null, lastAt: agentField(x, ["lastDoneAt"], null), by: by, dueBy: fkText(x, ["dueBy"]).slice(0, 10), state: state };
+}
+
+function FkPeriodic({ token, site, t }) {
+  const [items, setItems] = useState(null);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const rows = wsRows(await api("/api/periodic-work?siteId=" + encodeURIComponent(site.id), { token }), "items");
+        if (!rows) throw new Error(ERR_GENERIC);
+        if (live) setItems({ state: "ok", list: rows.map(periodicItemOf).filter(Boolean) });
+      } catch (err) {
+        if (live) setItems(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: fkFaultWords(err, "This list did not load.") }));
+      }
+    })();
+    return () => { live = false; };
+  }, [site.id, asked]);
+  if (!items) return <div style={wsQuiet(t)}>{tr("Loading...")}</div>;
+  if (items.state === "failed") return <ListFault icon={CalIco} text={items.said} onRetry={() => setAsked(n => n + 1)} t={t} />;
+  if (items.list.length === 0) return <div style={wsQuiet(t)}>{tr("This site has no periodic work.")}</div>;
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: t.textMut, marginBottom: 4, lineHeight: 1.4 }}>{tr("Read only. Work is checked off on the checklist.")}</div>
+      {PERIODIC_STATES.map(([state, title]) => {
+        const rows = items.list.filter(x => x.state === state);
+        if (rows.length === 0) return null;
+        const late = state === "overdue";
+        return (
+          <div key={state} data-fk-periodic={state}>
+            <div role="heading" aria-level={2} style={{ ...fkHeadSt(t), color: late ? wsLateInk(t) : t.goldText }}>{tr(title)} <span>{"(" + rows.length + ")"}</span></div>
+            {rows.map(x => {
+              const section = PERIOD_SECTIONS.find(p => p.id === x.period);
+              const due = x.dueBy ? wsDueText(x.dueBy) : "";
+              return (
+                <div key={x.id} style={fkRowSt(t)}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{x.label}</div>
+                  <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{[section ? tr(section.often) : "", x.zone].filter(Boolean).join(", ")}</div>
+                  {section && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{tr("On the checklist under {section}", { section: section.title() })}</div>}
+                  <div style={{ fontSize: 12, color: t.textMut, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{x.lastAt ? (x.by ? tr("Last done {date} by {name}", { date: fkDayOf(x.lastAt), name: x.by }) : tr("Last done {date}", { date: fkDayOf(x.lastAt) })) : tr("Not done yet")}</div>
+                  {due && <div style={{ fontSize: 12, fontWeight: 600, color: late ? wsLateInk(t) : t.text, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{tr(late ? "Was due by {date}" : state === "due" ? "Due by {date}" : "Next due by {date}", { date: due })}</div>}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// The site's equipment (Step 246): GET /api/equipment?siteId
+//
+// Each item with its status and next service. A row opens the item's own
+// page, the one its label opens (/eq, Step 240), so Checked, all good and
+// Tag out work exactly as they do from the label, and Back comes here.
+// ------------------------------------------------------------
+function fkEquipmentOf(x) {
+  const item = eqItemOf(x);
+  const code = item ? fkText(x, ["qrCode", "qr_code"]) : "";
+  if (!item) return null;
+  const latest = x.latestEvent && typeof x.latestEvent === "object" ? eqEventOf(x.latestEvent) : null;
+  return { ...item, code: code, serviceDue: agentField(x, ["serviceDue", "service_due"], false) === true, latest: latest };
+}
+
+function FkEquipment({ token, site, onOpen, t }) {
+  const [items, setItems] = useState(null);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const rows = wsRows(await api("/api/equipment?siteId=" + encodeURIComponent(site.id), { token }), "equipment");
+        if (!rows) throw new Error(ERR_GENERIC);
+        const list = rows.map(fkEquipmentOf).filter(Boolean);
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        if (live) setItems({ state: "ok", list: list });
+      } catch (err) {
+        if (live) setItems(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: eqSaidOf(err) || fkFaultWords(err, "This list did not load.") }));
+      }
+    })();
+    return () => { live = false; };
+  }, [site.id, asked]);
+  if (!items) return <div style={wsQuiet(t)}>{tr("Loading...")}</div>;
+  if (items.state === "failed") return <ListFault icon={WrkIco} text={items.said} onRetry={() => setAsked(n => n + 1)} t={t} />;
+  if (items.list.length === 0) return <div style={wsQuiet(t)}>{tr("This site has no equipment on the register.")}</div>;
+  return (
+    <div>
+      {items.list.map(x => {
+        const out = x.status === "out_of_service";
+        const status = EQ_STATUS[x.status] ? tr(EQ_STATUS[x.status]) : "";
+        const lines = (
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{x.name}</span>
+            <span style={{ display: "block", fontSize: 12, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>
+              {x.category && <span style={{ color: t.textSec }}>{x.category}</span>}
+              {x.category && status && <span style={{ color: t.textSec }}>{", "}</span>}
+              {status && <span style={{ color: out ? wsLateInk(t) : t.textSec, fontWeight: out ? 600 : 400 }}>{status}</span>}
+            </span>
+            {x.status !== "retired" && <span style={{ display: "block", fontSize: 12, marginTop: 2, lineHeight: 1.4, color: x.serviceDue ? wsLateInk(t) : t.textSec, fontWeight: x.serviceDue ? 600 : 400, overflowWrap: "anywhere" }}>{x.nextServiceOn ? tr(x.serviceDue ? "Service due {date}" : "Next service {date}", { date: wsDueText(x.nextServiceOn) }) : tr("No service date")}</span>}
+            {x.latest && <span style={{ display: "block", fontSize: 12, marginTop: 2, lineHeight: 1.4, color: t.textMut, overflowWrap: "anywhere" }}>{tr("Last: {what}, {when}", { what: EQ_KIND[x.latest.kind] ? tr(EQ_KIND[x.latest.kind]) : x.latest.kind, when: fkDayOf(x.latest.at) })}</span>}
+          </span>
+        );
+        if (!x.code) return <div key={x.id} style={{ ...fkRowSt(t), display: "flex", gap: 10 }}>{lines}</div>;
+        return (
+          <button key={x.id} type="button" data-fk-equipment={x.code} onClick={() => onOpen(x.code)} style={{ ...fkRowSt(t), width: "100%", display: "flex", alignItems: "flex-start", gap: 10, minHeight: TAP, cursor: "pointer", color: t.text, textAlign: "left" }}>
+            {lines}
+            <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 2 }} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Awaiting review (Step 246): GET /api/inspections/scheduled?awaiting=review
+//
+// The site's completed inspections with a review line not yet signed.
+// One opens read only (GET /api/inspections/scheduled/:id): its score,
+// each item's score, notes and photos, the inspector's signature, and
+// each review line, signed or not. A line the API marks canSign takes
+// a signature drawn here (POST /api/inspections/results/:resultId/
+// signatures/:line); a refusal is said in the API's words.
+// ------------------------------------------------------------
+const fkScoreText = (total, max) => {
+  const a = Number(total), b = Number(max);
+  if (!isFinite(a) || !isFinite(b) || b <= 0) return "";
+  return tr("{score} of {max}, {pct}%", { score: a, max: b, pct: Math.round(a * 100 / b) });
+};
+const fkPhotos = (v) => (Array.isArray(v) ? v : []).filter(u => typeof u === "string" && /^https?:\/\//i.test(u));
+const fkLineLabel = (l) => { const lab = l && l.label; if (lab && typeof lab === "object") return fkText(lab, [wordsLanguage(), "en"]); return typeof lab === "string" ? lab.trim() : ""; };
+function fkReviewRowOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = fkText(x, ["id"]);
+  return id ? { id: id, name: fkText(x, ["template_name", "templateName"]) || tr("Inspection"), day: fkText(x, ["scheduled_date", "scheduledDate"]).slice(0, 10), by: fkText(x, ["assigned_name", "assignedName"]), score: fkScoreText(agentField(x, ["total_score"], null), agentField(x, ["max_possible_score"], null)) } : null;
+}
+
+function FkReview({ token, site, onOpen, t }) {
+  const [rows, setRows] = useState(null);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const list = wsRows(await api("/api/inspections/scheduled?awaiting=review&site_id=" + encodeURIComponent(site.id), { token }), "inspections");
+        if (!list) throw new Error(ERR_GENERIC);
+        if (live) setRows({ state: "ok", list: list.map(fkReviewRowOf).filter(Boolean) });
+      } catch (err) {
+        if (live) setRows(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: fkFaultWords(err, "This list did not load.") }));
+      }
+    })();
+    return () => { live = false; };
+  }, [site.id, asked]);
+  if (!rows) return <div style={wsQuiet(t)}>{tr("Loading...")}</div>;
+  if (rows.state === "failed") return <ListFault icon={ClipIco} text={rows.said} onRetry={() => setAsked(n => n + 1)} t={t} />;
+  if (rows.list.length === 0) return <div style={wsQuiet(t)}>{tr("No inspection at this site is waiting for review.")}</div>;
+  return (
+    <div>
+      {rows.list.map(x => (
+        <button key={x.id} type="button" data-fk-review={x.id} onClick={() => onOpen(x.id)} style={{ ...fkRowSt(t), width: "100%", display: "flex", alignItems: "flex-start", gap: 10, minHeight: TAP, cursor: "pointer", color: t.text, textAlign: "left" }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{x.name}</span>
+            <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{[x.day ? wsDueText(x.day) : "", x.by].filter(Boolean).join(", ")}</span>
+            {x.score && <span style={{ display: "block", fontSize: 12, color: t.textMut, marginTop: 2, lineHeight: 1.4 }}>{x.score}</span>}
+          </span>
+          <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 2 }} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function FkInspection({ token, id, onBack, showToast, t }) {
+  const [one, setOne] = useState(null);
+  const [asked, setAsked] = useState(0);
+  // The line being signed: its strokes, the PNG, and what is said.
+  const [signing, setSigning] = useState(null);
+  useBusy("inspection review", !!signing && (signing.strokes.length > 0 || signing.busy));
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const d = await api("/api/inspections/scheduled/" + encodeURIComponent(id), { token });
+        if (!d || typeof d !== "object" || Array.isArray(d)) throw new Error(ERR_GENERIC);
+        if (live) setOne({ state: "ok", d: d });
+      } catch (err) {
+        if (live) setOne(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: fkFaultWords(err, "This inspection did not open. Try again.") }));
+      }
+    })();
+    return () => { live = false; };
+  }, [id, asked]);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [id]);
+  const back = <WsBack label={tr("Awaiting review")} onBack={onBack} t={t} />;
+  if (!one) return <div>{back}<div style={wsQuiet(t)}>{tr("Loading...")}</div></div>;
+  if (one.state === "failed") return <div>{back}<ListFault icon={ClipIco} text={one.said} onRetry={() => setAsked(n => n + 1)} t={t} /></div>;
+  const d = one.d;
+  const result = d.result && typeof d.result === "object" ? d.result : null;
+  const resultId = result ? fkText(result, ["id"]) : "";
+  const scores = Array.isArray(d.scores) ? d.scores : [];
+  const items = Array.isArray(d.items) ? d.items : [];
+  const signatures = Array.isArray(d.signatures) ? d.signatures : [];
+  const lines = Array.isArray(d.lines) ? d.lines.filter(l => l && typeof l === "object" && fkText(l, ["line"])) : [];
+  const signedOn = (line) => signatures.find(s => s && s.line === line) || null;
+  const stamp = (s) => tr("Signed by {name}, {when}", { name: fkText(s, ["signerName"]), when: wsWhen(s.signedAt) });
+  const inspector = signedOn("inspector");
+  const photoRow = (urls, tag) => (urls.length === 0 ? null : (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+      {urls.map((u, i) => (
+        <a key={u + i} href={u} target="_blank" rel="noopener noreferrer" aria-label={tr("Photo {n} of {count}", { n: i + 1, count: urls.length })} data-fk-photo={tag} style={{ display: "block", width: 72, height: 72, borderRadius: R.sm, overflow: "hidden", border: "1px solid " + t.borderSolid, background: t.cardAlt }}>
+          <img src={u} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        </a>
+      ))}
+    </div>
+  ));
+  const sign = async () => {
+    if (!signing || signing.busy) return;
+    if (!signing.png) { setSigning({ ...signing, fault: tr("Sign before you send.") }); return; }
+    setSigning({ ...signing, busy: true, fault: null });
+    try {
+      const r = await api("/api/inspections/results/" + encodeURIComponent(resultId) + "/signatures/" + encodeURIComponent(signing.line), { method: "POST", body: { signature: signing.png }, token });
+      setOne(prev => (prev && prev.state === "ok" ? { ...prev, d: { ...prev.d, signatures: Array.isArray(r && r.signatures) ? r.signatures : prev.d.signatures, lines: Array.isArray(r && r.lines) ? r.lines : prev.d.lines } } : prev));
+      setSigning(null);
+      showToast(tr("Signed."));
+    } catch (err) {
+      setSigning(s => (s ? { ...s, busy: false, fault: fkFaultWords(err, "This was not signed. Try again.") } : s));
+    }
+  };
+  const open = signing ? lines.find(l => l.line === signing.line) : null;
+  return (
+    <div data-fk-inspection={id}>
+      {back}
+      <div role="heading" aria-level={2} style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 2, overflowWrap: "anywhere" }}>{fkText(d, ["template_name"]) || tr("Inspection")}</div>
+      <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.4, overflowWrap: "anywhere" }}>{[fkText(d, ["scheduled_date"]).slice(0, 10) ? wsDueText(fkText(d, ["scheduled_date"]).slice(0, 10)) : "", result ? fkText(result, ["completed_by_name"]) || fkText(d, ["assigned_name"]) : fkText(d, ["assigned_name"])].filter(Boolean).join(", ")}</div>
+      {result && fkScoreText(result.total_score, result.max_possible_score) && <div style={{ fontSize: 13, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, marginTop: 6 }}>{fkScoreText(result.total_score, result.max_possible_score)}</div>}
+      <div style={{ fontSize: 12, color: t.textMut, marginTop: 6, lineHeight: 1.4 }}>{tr("Read only. Only the review lines can be signed here.")}</div>
+
+      <div role="heading" aria-level={3} style={fkHeadSt(t)}>{tr("Scores")}</div>
+      {items.map(item => {
+        const sc = scores.find(s => s && String(s.template_item_id) === String(item.id)) || null;
+        const label = fkText(item, ["label", "name"]);
+        const zone = fkText(item, ["zone"]);
+        return (
+          <div key={item.id} data-fk-item={item.id} style={fkRowSt(t)}>
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{label}{zone && zone !== label ? <span style={{ display: "block", fontSize: 12, fontWeight: 400, color: t.textSec, fontFamily: FONT_BODY }}>{zone}</span> : null}</div>
+              <div style={{ flexShrink: 0, fontSize: 13, fontWeight: 600, color: t.text, fontVariantNumeric: "tabular-nums" }}>{sc && sc.score !== null && sc.score !== undefined ? tr("{score} of {max}", { score: sc.score, max: item.max_score }) : tr("Not scored")}</div>
+            </div>
+            {sc && fkText(sc, ["notes"]) && <div style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>{fkText(sc, ["notes"])}</div>}
+            {sc && photoRow(fkPhotos(sc.photo_urls), "item")}
+          </div>
+        );
+      })}
+      {result && fkText(result, ["overall_notes"]) && (
+        <div>
+          <div role="heading" aria-level={3} style={fkHeadSt(t)}>{tr("Overall Notes")}</div>
+          <div style={{ fontSize: 13, color: t.text, lineHeight: 1.45, overflowWrap: "anywhere" }}>{fkText(result, ["overall_notes"])}</div>
+        </div>
+      )}
+      {result && fkPhotos(result.photo_urls).length > 0 && (
+        <div>
+          <div role="heading" aria-level={3} style={fkHeadSt(t)}>{tr("Photos of the whole inspection")}</div>
+          {photoRow(fkPhotos(result.photo_urls), "whole")}
+        </div>
+      )}
+
+      <div role="heading" aria-level={3} style={fkHeadSt(t)}>{tr("Signatures")}</div>
+      {inspector && <div style={fkRowSt(t)}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Inspector")}</div><div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{stamp(inspector)}</div></div>}
+      {lines.map(l => {
+        const s = signedOn(l.line);
+        return (
+          <div key={l.line} data-fk-line={l.line} style={fkRowSt(t)}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{fkLineLabel(l)}</div>
+            {l.signed && s && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{stamp(s)}</div>}
+            {l.signed && !s && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2 }}>{tr("Signed")}</div>}
+            {!l.signed && !l.canSign && <div style={{ fontSize: 12, color: t.textMut, marginTop: 2 }}>{tr("Waiting for the person who signs this line.")}</div>}
+            {!l.signed && l.canSign && resultId && <div style={{ display: "flex", marginTop: 8 }}><button type="button" onClick={() => setSigning({ line: l.line, strokes: [], png: null, busy: false, fault: null })} style={wsMainBtn(t, false)}>{tr("Sign this line")}</button></div>}
+          </div>
+        );
+      })}
+      {signing && (
+        <WsSheet id="ocsa-fk-sign" title={open ? fkLineLabel(open) : tr("Sign")} onClose={() => { if (!signing.busy) setSigning(null); }} t={t} footer={<>
+          <button type="button" onClick={() => setSigning(null)} disabled={signing.busy} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+          <button type="button" onClick={sign} disabled={signing.busy} style={wsMainBtn(t, signing.busy)}>{signing.busy ? tr("Sending...") : tr("Sign")}</button>
+        </>}>
+          <div style={{ borderRadius: R.md, border: signing.fault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+            <SignatureBox strokes={signing.strokes} onStroke={(stroke, size) => setSigning(s => { if (!s) return s; const all = s.strokes.concat([stroke]); return { ...s, strokes: all, png: signaturePng(all, size.w, size.h), fault: null }; })} height={SIGN_BOX_HEIGHT} />
+          </div>
+          <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+          <button type="button" onClick={() => setSigning(s => (s ? { ...s, strokes: [], png: null } : s))} disabled={signing.strokes.length === 0 || signing.busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: signing.strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+          {signing.fault && <WsFault text={signing.fault} t={t} />}
         </WsSheet>
       )}
     </div>

@@ -18,6 +18,13 @@
 //     and the right code signs in; without it, sign-in goes straight in
 //   - a cleaner never asks for /api/workspace, even where the API would
 //     answer; a supervisor sees Workspace and My assignments
+//   - a cleaner sees no Field kit under More and never asks for one of
+//     its routes, even where the stub would answer; a supervisor sees
+//     Field kit, its site and its four tiles; issues PPE with a signature
+//     drawn, which lists the issue first; reads periodic work by state;
+//     opens an item's own page from Equipment, checks it, and comes back
+//     to the list; and signs a review line, with a refusal said in the
+//     API's words
 //   - a customer's form that asks the name and role itself draws neither
 //     of the page's own and sends its own answers as customerName and
 //     customerRole; a form that does not ask still draws them
@@ -158,11 +165,18 @@ async function signIn(page, language) {
 
 // --- the checks
 
+// Every call the field kit makes (Step 246), and none that anything else
+// makes: GET /api/forms/my-sites is left out, since Forms reads it too.
+const FIELD_KIT_CALL = (c) => /^\/api\/(ppe-issues|periodic-work|equipment)$/.test(c.path) || /^\/api\/sites\/[^/]+$/.test(c.path)
+  || (c.path === "/api/supplies" && /[?&]category=ppe(&|$)/.test(c.search)) || (c.path === "/api/inspections/scheduled" && /[?&]awaiting=/.test(c.search))
+  || /^\/api\/inspections\/results\/[^/]+\/signatures\//.test(c.path);
+
 // A cleaner, through the whole portal, in one language. The stub would
-// answer the workspace here too, so a cleaner who asked would be seen.
+// answer the workspace and the field kit here too, so a cleaner who asked
+// would be seen.
 async function cleaner(browser, language) {
   const tag = " (" + language + ")";
-  const app = await open({ accountPreferences: { language: language, textSize: "standard" }, clockedIn: false, workspace: true }, { browser, language });
+  const app = await open({ accountPreferences: { language: language, textSize: "standard" }, clockedIn: false, workspace: true, fieldKit: true }, { browser, language });
   const page = app.page;
   await signIn(page, language);
   const inNow = await waitFor(page, BAR_JS + ".length >= 5");
@@ -238,6 +252,9 @@ async function cleaner(browser, language) {
   // The workspace, never asked for by a cleaner.
   const asked = app.stub.state.calls.filter(c => c.path.indexOf("/api/workspace") === 0).map(c => c.method + " " + c.path);
   check("a cleaner never asks for /api/workspace" + tag, asked.length === 0, asked.join(", "));
+  // The field kit, never offered to a cleaner and never asked for.
+  const kitAsked = app.stub.state.calls.filter(FIELD_KIT_CALL).map(c => c.method + " " + c.path + c.search);
+  check("a cleaner sees no Field kit under More and never asks for one of its routes" + tag, items.indexOf(say(language, "Field kit")) === -1 && kitAsked.length === 0, kitAsked.length ? kitAsked.join(", ") : "Field kit is under More");
   check("no page error anywhere on the way" + tag, app.errors.length === 0, app.errors.slice(0, 3).join("; "));
   await app.context.close();
 }
@@ -267,10 +284,10 @@ async function secondStep(browser, language) {
   await app.context.close();
 }
 
-// A supervisor, with the workspace answering.
+// A supervisor, with the workspace and the field kit answering.
 async function supervisor(browser, language) {
   const person = Object.assign({}, ADMIN_PERSON, { id: "u-smoke-sup", firstName: "Riley", lastName: "Example", role: "supervisor", badgeNumber: "4801", phone: "0000000008", email: "riley@example.invalid" });
-  const app = await open({ person: person, workspace: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
+  const app = await open({ person: person, workspace: true, fieldKit: true, equipment: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
   const page = app.page;
   const items = await openMore(page);
   await page.mouse.click(5, 5); await pause(page, 300);
@@ -281,7 +298,123 @@ async function supervisor(browser, language) {
     mine = await waitFor(page, (w) => { const t = document.querySelector(".sp-content").innerText; return w.every(x => t.toUpperCase().indexOf(x.toUpperCase()) !== -1); }, [say(language, "My assignments"), WS_TODO.title]);
   }
   check("a supervisor sees Workspace under More and My assignments in it (" + language + ")", offered && mine && app.errors.length === 0, !offered ? "no Workspace under More" : !mine ? "no My assignments with its to-do" : app.errors[0]);
+  await fieldKit(app, language);
   await app.context.close();
+}
+
+// The field kit (Step 246), on the supervisor's own run: under More, on
+// a site, with its four tiles.
+async function fieldKit(app, language) {
+  const page = app.page;
+  const tiles = ["Issue PPE", "Periodic work", "Equipment", "Awaiting review"].map(w => say(language, w));
+  const kit = await tapMore(page, say(language, "Field kit"));
+  const shown = kit && await waitFor(page, (w) => { const c = document.querySelector(".sp-content"); const sel = document.querySelector("#ocsa-fk-site"); return !!c && !!sel && sel.value !== "" && w.every(x => Array.from(c.querySelectorAll("button")).some(b => b.innerText.indexOf(x) !== -1)); }, tiles);
+  check("a supervisor sees Field kit under More, on a site, with Issue PPE, Periodic work, Equipment and Awaiting review (" + language + ")", shown && app.errors.length === 0, !kit ? "no Field kit under More" : !shown ? "no site or not every tile" : app.errors[0]);
+  if (!shown) return;
+
+  // Issue PPE: a person, an item from the stock, a signature drawn, sent,
+  // and the issue at the top of the site's list.
+  await openTile(page, tiles[0]);
+  const form = await waitFor(page, () => !!document.querySelector("#ocsa-ppe-person option[value]:not([value=''])") && !!document.querySelector('[data-fk-ppe="signature"] canvas'));
+  let issued = false;
+  if (form) {
+    await page.selectOption("#ocsa-ppe-person", { index: 1 });
+    await page.selectOption("#ocsa-ppe-item", { index: 1 });
+    await sign(page, '[data-fk-ppe="signature"] canvas');
+    await page.evaluate((w) => { const b = Array.from(document.querySelectorAll('[data-fk-ppe="form"] button')).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Issue PPE"));
+    issued = await waitFor(page, () => !!document.querySelector('[data-fk-ppe-issue^="ppe-made-"]'));
+  }
+  const sent = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/ppe-issues");
+  const signed = sent.length === 1 && sent[0].signature && sent[0].signature.bytes > 0 && sent[0].body.supplyId && sent[0].body.userId && sent[0].body.siteId;
+  check("Issue PPE sends a person, an item from the stock and the signature drawn, once, and lists the issue first (" + language + ")", form && issued && !!signed && app.errors.length === 0, !form ? "the form did not load" : !issued ? "the issue did not show" : !signed ? JSON.stringify(sent.map(c => c.body && Object.keys(c.body))) : app.errors[0]);
+  await backToKit(page, language);
+
+  // Periodic work, under Overdue, Due and Done in that order, each row
+  // saying where it sits on the checklist.
+  await openTile(page, tiles[1]);
+  const where = say(language, "On the checklist under {section}", { section: say(language, "This month") });
+  const states = await waitFor(page, () => document.querySelectorAll("[data-fk-periodic]").length > 0)
+    ? await page.evaluate(() => Array.from(document.querySelectorAll("[data-fk-periodic]")).map(el => el.getAttribute("data-fk-periodic") + ":" + el.querySelectorAll(":scope > div:not([role])").length + ":" + el.innerText))
+    : [];
+  const byState = states.map(x => x.split(":").slice(0, 2).join(":")).join(" ");
+  check("Periodic work lists Overdue, Due and Done in that order, each row saying where it sits on the checklist (" + language + ")", byState === "overdue:1 due:2 done:1" && states[0].indexOf(where) !== -1 && app.errors.length === 0, byState !== "overdue:1 due:2 done:1" ? "found " + JSON.stringify(byState) : states[0].indexOf(where) === -1 ? "no " + JSON.stringify(where) : app.errors[0]);
+  await backToKit(page, language);
+
+  // Equipment: the label's own page opened from the list, checked there,
+  // and Back comes to the list.
+  await openTile(page, tiles[2]);
+  const listed = await waitFor(page, (code) => !!document.querySelector('[data-fk-equipment="' + code + '"]'), EQ_CODE);
+  if (listed) await page.click('[data-fk-equipment="' + EQ_CODE + '"]');
+  const opened = listed && await waitFor(page, (w) => Array.from(document.querySelectorAll(".sp-content button")).some(x => x.innerText.trim() === w), say(language, "Checked, all good"));
+  if (opened) await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Checked, all good"));
+  const recorded = opened && await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Check recorded."));
+  const checks = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/equipment/" + EQ_ITEM.id + "/events");
+  if (opened) await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Back"));
+  const back = opened && await waitFor(page, (code) => !!document.querySelector('[data-fk-equipment="' + code + '"]'), EQ_CODE);
+  check("Equipment opens an item's own page from the list, Checked, all good sends { kind: \"check\" } there, and Back comes to the list (" + language + ")", listed && opened && recorded && back && checks.length === 1 && JSON.stringify(checks[0].body) === '{"kind":"check"}' && app.errors.length === 0, !listed ? "the item is not listed" : !opened ? "its page did not open" : !recorded ? "no " + JSON.stringify(say(language, "Check recorded.")) : !back ? "Back did not come to the list" : checks.length !== 1 ? checks.length + " events sent" : app.errors[0]);
+  await backToKit(page, language);
+
+  // Awaiting review: a review line signed, and the inspection off the
+  // list; then a line someone else signed first, refused in the API's
+  // words in the sheet.
+  await openTile(page, tiles[3]);
+  const reviews = await waitFor(page, () => !!document.querySelector('[data-fk-review="fk-insp-1"]'));
+  let lineSigned = false, offList = false, refusedSaid = false;
+  const lineButton = '[data-fk-line="reviewer"] button, [data-fk-line="received"] button';
+  const signIn = async () => {
+    await page.click(lineButton);
+    await waitFor(page, () => !!document.querySelector('[role="dialog"] canvas'));
+    await sign(page, '[role="dialog"] canvas');
+    await page.evaluate((w) => { const b = Array.from(document.querySelectorAll('[role="dialog"] button')).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Sign"));
+  };
+  if (reviews) {
+    await page.click('[data-fk-review="fk-insp-1"]');
+    if (await waitFor(page, (sel) => !!document.querySelector(sel), lineButton)) {
+      await signIn();
+      lineSigned = await waitFor(page, (who) => { const l = document.querySelector('[data-fk-line="reviewer"]'); return !!l && !l.querySelector("button") && l.innerText.indexOf(who) !== -1 && !document.querySelector('[role="dialog"]'); }, "Riley Example");
+    }
+    await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Awaiting review"));
+    offList = await waitFor(page, () => !!document.querySelector('[data-fk-review="fk-insp-2"]') && !document.querySelector('[data-fk-review="fk-insp-1"]'));
+    if (offList) {
+      await page.click('[data-fk-review="fk-insp-2"]');
+      if (await waitFor(page, (sel) => !!document.querySelector(sel), lineButton)) {
+        // Someone else signs it while this phone has it open.
+        app.stub.state.reviewSigs["fk-res-2"].push({ line: "received", signer_id: "u-admin", signer_name: "Jordan Office", signed_at: "2026-10-02T01:00:00.000Z" });
+        await signIn();
+        const said = language === "es" ? "Esa l\u00ednea ya est\u00e1 firmada." : "That line is already signed.";
+        refusedSaid = await waitFor(page, (w) => { const a = document.querySelector('[role="dialog"] [role="alert"]'); return !!a && a.innerText.trim() === w; }, said);
+        await page.evaluate((w) => { const b = Array.from(document.querySelectorAll('[role="dialog"] button')).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Cancel"));
+        await pause(page, 300);
+      }
+    }
+  }
+  const lineCalls = app.stub.state.calls.filter(c => c.method === "POST" && /^\/api\/inspections\/results\//.test(c.path));
+  check("Awaiting review signs a review line with a signature drawn, takes the inspection off the list, and says a refusal in the API's words (" + language + ")",
+    reviews && lineSigned && offList && refusedSaid && lineCalls.length === 2 && !!lineCalls[0].signature && app.errors.length === 0,
+    !reviews ? "the list did not show" : !lineSigned ? "the line did not read signed" : !offList ? "the signed inspection stayed on the list" : !refusedSaid ? "the refusal was not said in the sheet" : lineCalls.length !== 2 ? lineCalls.length + " signatures sent" : app.errors[0]);
+  await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Awaiting review"));
+  await pause(page, 300);
+  await backToKit(page, language);
+}
+// A tile on the field kit, and Back from one.
+async function openTile(page, name) {
+  await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.split("\n")[0].trim() === w); if (b) b.click(); }, name);
+  await pause(page, 700);
+}
+async function backToKit(page, language) {
+  await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Field kit"));
+  await waitFor(page, () => !!document.querySelector("#ocsa-fk-site"));
+}
+// A short stroke across a signature box, drawn the way a finger draws it.
+async function sign(page, selector) {
+  await page.$eval(selector, (el) => el.scrollIntoView({ block: "center" }));
+  await pause(page, 200);
+  const box = await (await page.$(selector)).boundingBox();
+  await page.mouse.move(box.x + 30, box.y + box.height * 0.6);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i += 1) await page.mouse.move(box.x + 30 + i * 20, box.y + box.height * (0.6 - (i % 2) * 0.2));
+  await page.mouse.up();
+  await pause(page, 200);
 }
 
 // A customer's form that asks the name and role itself (Step 240), and
