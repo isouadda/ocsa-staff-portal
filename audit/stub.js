@@ -1468,6 +1468,15 @@ const TWIN_PAIRS = [
   // Supplies.
   ["Paper towels", "Toallas de papel"],
   ["rolls", "rollos"],
+  // The field kit's refusals (Step 246), each in the API's own words.
+  ["Insufficient permissions", "No tiene permiso para hacer esto"],
+  ["Site not found", "No se encontr\u00f3 el sitio"],
+  ["Some details of the issue are missing or not valid", "Faltan algunos datos de la entrega o no son v\u00e1lidos"],
+  ["The employee must sign for the equipment", "El empleado debe firmar que recibi\u00f3 el equipo"],
+  ["That line is not open for signing on this inspection.", "Esa l\u00ednea no est\u00e1 abierta para firmar en esta inspecci\u00f3n."],
+  ["That line is already signed.", "Esa l\u00ednea ya est\u00e1 firmada."],
+  ["Not found", "No se encontr\u00f3 la inspecci\u00f3n"],
+  ["That signature could not be read. Clear it and sign again.", "No se pudo leer esa firma. B\u00f3rrela y vuelva a firmar."],
   // The field kit's inspections waiting for review (Step 246).
   ["Invented monthly walk", "Recorrido mensual inventado"],
   ["Invented quarterly audit", "Auditor\u00eda trimestral inventada"],

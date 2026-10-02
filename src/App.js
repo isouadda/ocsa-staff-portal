@@ -10261,7 +10261,7 @@ function FkPeriodic({ token, site, t }) {
         const late = state === "overdue";
         return (
           <div key={state} data-fk-periodic={state}>
-            <div role="heading" aria-level={2} style={{ ...fkHeadSt(t), color: late ? wsLateInk(t) : t.goldText }}>{tr(title) + " (" + rows.length + ")"}</div>
+            <div role="heading" aria-level={2} style={{ ...fkHeadSt(t), color: late ? wsLateInk(t) : t.goldText }}>{tr(title)} <span>{"(" + rows.length + ")"}</span></div>
             {rows.map(x => {
               const section = PERIOD_SECTIONS.find(p => p.id === x.period);
               const due = x.dueBy ? wsDueText(x.dueBy) : "";
@@ -10327,7 +10327,8 @@ function FkEquipment({ token, site, onOpen, t }) {
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{x.name}</span>
             <span style={{ display: "block", fontSize: 12, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>
-              {x.category && <span style={{ color: t.textSec }}>{x.category + (status ? ", " : "")}</span>}
+              {x.category && <span style={{ color: t.textSec }}>{x.category}</span>}
+              {x.category && status && <span style={{ color: t.textSec }}>{", "}</span>}
               {status && <span style={{ color: out ? wsLateInk(t) : t.textSec, fontWeight: out ? 600 : 400 }}>{status}</span>}
             </span>
             {x.status !== "retired" && <span style={{ display: "block", fontSize: 12, marginTop: 2, lineHeight: 1.4, color: x.serviceDue ? wsLateInk(t) : t.textSec, fontWeight: x.serviceDue ? 600 : 400, overflowWrap: "anywhere" }}>{x.nextServiceOn ? tr(x.serviceDue ? "Service due {date}" : "Next service {date}", { date: wsDueText(x.nextServiceOn) }) : tr("No service date")}</span>}
