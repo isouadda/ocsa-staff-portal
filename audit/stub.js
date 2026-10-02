@@ -478,6 +478,7 @@ function makeState(opts) {
     equipment: !!o.equipment,
     equipmentEvents: [],
     fieldKit: !!o.fieldKit,
+    ppeIssues: FK_PPE_ISSUES.map(x => Object.assign({}, x)),
     // Flip these from a case to make a route answer differently.
     refuse: o.refuse || {},          // "POST /api/time-off": { status, body }, { chat: code } or { api: key }
     offline: false,                  // every call fails at the network
@@ -1465,6 +1466,11 @@ const TWIN_PAIRS = [
   // Supplies.
   ["Paper towels", "Toallas de papel"],
   ["rolls", "rollos"],
+  // The field kit's PPE stock (Step 246).
+  ["Invented nitrile gloves", "Guantes de nitrilo inventados"],
+  ["Invented safety glasses", "Lentes de seguridad inventados"],
+  ["boxes", "cajas"],
+  ["pairs", "pares"],
   // Notices.
   ["Supply request approved", "Solicitud de suministros aprobada"],
   ["Two cases of paper towels.", "Dos cajas de toallas de papel."],
@@ -1609,6 +1615,9 @@ const ROUTE_WORDS = [
   // office people wrote in the workspace, are names.
   [/^GET \/api\/sds/, { title: "name", content: "name" }],
   [/^[A-Z]+ \/api\/workspace\//, { name: "name", title: "name", description: "name", projectName: "name", notes: "name" }],
+  // The field kit's (Step 246): a PPE issue names its supply; what was
+  // typed for it, its size and its note are names.
+  [/^[A-Z]+ \/api\/ppe-issues$/, { supplyName: "supply", item: "name", size: "name", note: "name" }],
 ];
 const kindsFor = (method, pathname) => {
   const hit = ROUTE_WORDS.find(r => r[0].test(method + " " + pathname));
@@ -1744,7 +1753,23 @@ const WS_OFFICE = ["admin", "supervisor"];
 // else is answered as before the switch.
 const FK_MANAGEMENT = ["admin", "supervisor"];
 const FK_ROUTES = [/^GET \/api\/ppe-issues$/, /^POST \/api\/ppe-issues$/, /^GET \/api\/periodic-work$/, /^GET \/api\/equipment$/, /^GET \/api\/sites\/[^/]+$/, /^POST \/api\/inspections\/results\/[^/]+\/signatures\/[^/]+$/];
-const FK_NOT_MANAGEMENT = { status: 403, en: "You do not have permission to do that.", es: "No tiene permiso para hacer eso." };
+const FK_NOT_MANAGEMENT = { status: 403, en: "Insufficient permissions", es: "No tiene permiso para hacer esto" };
+const FK_SITE_NOT_FOUND = { status: 404, en: "Site not found", es: "No se encontr\u00f3 el sitio" };
+// The site's people as GET /api/sites/:id lists them, its PPE stock as
+// GET /api/supplies?site_id&category=ppe answers, and one issue already
+// made, all invented.
+const FK_STAFF = STAFF.slice(0, 3).map(p => ({ id: p.id, first_name: p.firstName, last_name: p.lastName, role: "custodian", role_at_site: null, shift_name: null }));
+const FK_PPE_STOCK = [
+  { id: "sup-ppe-1", name: "Invented nitrile gloves", category: "ppe", unit: "boxes", site_stock: 12, site_threshold: 3, par_level: 20, is_low: false },
+  { id: "sup-ppe-2", name: "Invented safety glasses", category: "ppe", unit: "pairs", site_stock: 2, site_threshold: 4, par_level: 10, is_low: true },
+];
+const FK_PPE_ISSUES = [{
+  id: "ppe-seed-1", userId: FK_STAFF[1].id, userName: FK_STAFF[1].first_name + " " + FK_STAFF[1].last_name, siteId: "site-north", siteName: "North Building",
+  supplyId: "sup-ppe-1", supplyName: "Invented nitrile gloves", item: "Invented nitrile gloves", size: "M", quantity: 2, fitOk: true, note: null,
+  issuedBy: "u-admin", issuedByName: "Jordan Office", issuedAt: "2026-10-01T15:00:00.000Z", signed: true, signatureUrl: "/api/ppe-issues/ppe-seed-1/signature",
+}];
+const FK_PPE_BAD = { status: 400, en: "Some details of the issue are missing or not valid", es: "Faltan algunos datos de la entrega o no son v\u00e1lidos" };
+const FK_PPE_SIGN = { status: 400, en: "The employee must sign for the equipment", es: "El empleado debe firmar que recibi\u00f3 el equipo" };
 
 const EQ_CODE = "smokeLabel7";
 const EQ_ITEM = { id: "eq-smoke", name: "Invented floor scrubber", category: "Floor machine", siteId: "site-north", siteName: "North Building", status: "in_service", nextServiceOn: "2026-10-20", qrCode: EQ_CODE };
@@ -1988,10 +2013,69 @@ function createStub(opts) {
   // so the call goes on to be answered as before the switch.
   function fieldKitAnswer(method, pathname, search, body, key, lang) {
     const management = FK_MANAGEMENT.indexOf(state.person.role) !== -1;
+    const q = new URLSearchParams(search || "");
     if (key === "GET /api/forms/my-sites") return management ? json(200, { sites: SITES.map(x => ({ id: x.siteId, name: x.siteName })) }) : null;
+    // Anyone may read a site's supplies; the kit asks for its PPE.
+    if (key === "GET /api/supplies" && q.get("category") === "ppe") return json(200, q.get("site_id") ? FK_PPE_STOCK : []);
     if (!FK_ROUTES.some(re => re.test(key))) return null;
     if (!management) return json(FK_NOT_MANAGEMENT.status, { error: refusalIn(FK_NOT_MANAGEMENT, lang), code: "access.insufficientPermissions" });
+    const one = /^GET \/api\/sites\/([^/]+)$/.exec(key);
+    if (one) {
+      const site = SITES.find(x => x.siteId === decodeURIComponent(one[1]));
+      if (!site) return json(FK_SITE_NOT_FOUND.status, { error: refusalIn(FK_SITE_NOT_FOUND, lang), code: "sites.notFound" });
+      return json(200, { site: { id: site.siteId, name: site.siteName }, staff: FK_STAFF, zones: [], taskCount: 0 });
+    }
+    if (key === "GET /api/ppe-issues") {
+      const siteId = q.get("siteId");
+      return json(200, { issues: state.ppeIssues.filter(x => !siteId || x.siteId === siteId) });
+    }
+    if (key === "POST /api/ppe-issues") return ppeIssue(body, lang);
     return null;
+  }
+  // POST /api/ppe-issues, in the API's order: what is wrong with the body,
+  // 400 ppe.badDetails with keys; then a signature missing, 400
+  // ppe.signatureRequired; then a person, a site or a supply that is not
+  // there, ppe.badDetails again.
+  function ppeIssue(body, lang) {
+    const b = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+    const keys = [];
+    const textOf = (v, max, key) => { if (v === undefined || v === null) return ""; if (typeof v !== "string" || v.trim().length > max) { keys.push(key); return ""; } return v.trim(); };
+    if (typeof b.userId !== "string" || !b.userId) keys.push("userId");
+    if (typeof b.siteId !== "string" || !b.siteId) keys.push("siteId");
+    const supplyId = b.supplyId === undefined || b.supplyId === null || b.supplyId === "" ? null : b.supplyId;
+    if (supplyId !== null && typeof supplyId !== "string") keys.push("supplyId");
+    const item = textOf(b.item, 120, "item");
+    if (!item && supplyId === null && keys.indexOf("item") === -1) keys.push("item");
+    const size = textOf(b.size, 40, "size");
+    const quantity = b.quantity === undefined || b.quantity === null ? 1 : b.quantity;
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 1000) keys.push("quantity");
+    if (b.fitOk !== undefined && b.fitOk !== null && typeof b.fitOk !== "boolean") keys.push("fitOk");
+    const note = textOf(b.note, 1000, "note");
+    const raw = typeof b.employeeSignature === "string" ? b.employeeSignature.trim() : "";
+    const drawn = raw ? /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw) : null;
+    const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
+    const png = !!bytes && !!sniffImage(bytes) && sniffImage(bytes).ext === "png" && bytes.length <= SIGNATURE_MAX_BYTES;
+    if ((b.employeeSignature !== undefined && b.employeeSignature !== null && typeof b.employeeSignature !== "string") || (raw && !png)) keys.push("employeeSignature");
+    if (keys.length > 0) return json(FK_PPE_BAD.status, { error: refusalIn(FK_PPE_BAD, lang), code: "ppe.badDetails", keys: keys });
+    if (!raw) return json(FK_PPE_SIGN.status, { error: refusalIn(FK_PPE_SIGN, lang), code: "ppe.signatureRequired" });
+    const person = FK_STAFF.find(p => p.id === b.userId);
+    const site = SITES.find(x => x.siteId === b.siteId);
+    const supply = supplyId ? FK_PPE_STOCK.find(x => x.id === supplyId) : null;
+    const missing = [];
+    if (!person) missing.push("userId");
+    if (!site) missing.push("siteId");
+    if (supplyId && !supply) missing.push("supplyId");
+    if (missing.length > 0) return json(FK_PPE_BAD.status, { error: refusalIn(FK_PPE_BAD, lang), code: "ppe.badDetails", keys: missing });
+    state.calls[state.calls.length - 1].signature = { bytes: bytes.length, size: imageSize(bytes) };
+    const id = "ppe-made-" + (state.ppeIssues.length + 1);
+    const issue = {
+      id: id, userId: person.id, userName: person.first_name + " " + person.last_name, siteId: site.siteId, siteName: site.siteName,
+      supplyId: supply ? supply.id : null, supplyName: supply ? supply.name : null, item: item || supply.name, size: size || null, quantity: quantity,
+      fitOk: b.fitOk === true || b.fitOk === false ? b.fitOk : null, note: note || null, issuedBy: state.person.id,
+      issuedByName: state.person.firstName + " " + state.person.lastName, issuedAt: iso(clockNow()), signed: true, signatureUrl: "/api/ppe-issues/" + id + "/signature",
+    };
+    state.ppeIssues.unshift(issue);
+    return json(201, { issue: issue });
   }
 
   function handle(method, pathname, search, body, headers) {

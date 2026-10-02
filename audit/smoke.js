@@ -20,7 +20,8 @@
 //     answer; a supervisor sees Workspace and My assignments
 //   - a cleaner sees no Field kit under More and never asks for one of
 //     its routes, even where the stub would answer; a supervisor sees
-//     Field kit, its site and its four tiles
+//     Field kit, its site and its four tiles, and issues PPE with a
+//     signature drawn, which lists the issue first
 //   - a customer's form that asks the name and role itself draws neither
 //     of the page's own and sends its own answers as customerName and
 //     customerRole; a form that does not ask still draws them
@@ -306,6 +307,44 @@ async function fieldKit(app, language) {
   const kit = await tapMore(page, say(language, "Field kit"));
   const shown = kit && await waitFor(page, (w) => { const c = document.querySelector(".sp-content"); const sel = document.querySelector("#ocsa-fk-site"); return !!c && !!sel && sel.value !== "" && w.every(x => Array.from(c.querySelectorAll("button")).some(b => b.innerText.indexOf(x) !== -1)); }, tiles);
   check("a supervisor sees Field kit under More, on a site, with Issue PPE, Periodic work, Equipment and Awaiting review (" + language + ")", shown && app.errors.length === 0, !kit ? "no Field kit under More" : !shown ? "no site or not every tile" : app.errors[0]);
+  if (!shown) return;
+
+  // Issue PPE: a person, an item from the stock, a signature drawn, sent,
+  // and the issue at the top of the site's list.
+  await openTile(page, tiles[0]);
+  const form = await waitFor(page, () => !!document.querySelector("#ocsa-ppe-person option[value]:not([value=''])") && !!document.querySelector('[data-fk-ppe="signature"] canvas'));
+  let issued = false;
+  if (form) {
+    await page.selectOption("#ocsa-ppe-person", { index: 1 });
+    await page.selectOption("#ocsa-ppe-item", { index: 1 });
+    await sign(page, '[data-fk-ppe="signature"] canvas');
+    await page.evaluate((w) => { const b = Array.from(document.querySelectorAll('[data-fk-ppe="form"] button')).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Issue PPE"));
+    issued = await waitFor(page, () => !!document.querySelector('[data-fk-ppe-issue^="ppe-made-"]'));
+  }
+  const sent = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/ppe-issues");
+  const signed = sent.length === 1 && sent[0].signature && sent[0].signature.bytes > 0 && sent[0].body.supplyId && sent[0].body.userId && sent[0].body.siteId;
+  check("Issue PPE sends a person, an item from the stock and the signature drawn, once, and lists the issue first (" + language + ")", form && issued && !!signed && app.errors.length === 0, !form ? "the form did not load" : !issued ? "the issue did not show" : !signed ? JSON.stringify(sent.map(c => c.body && Object.keys(c.body))) : app.errors[0]);
+  await backToKit(page, language);
+}
+// A tile on the field kit, and Back from one.
+async function openTile(page, name) {
+  await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.split("\n")[0].trim() === w); if (b) b.click(); }, name);
+  await pause(page, 700);
+}
+async function backToKit(page, language) {
+  await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Field kit"));
+  await waitFor(page, () => !!document.querySelector("#ocsa-fk-site"));
+}
+// A short stroke across a signature box, drawn the way a finger draws it.
+async function sign(page, selector) {
+  await page.$eval(selector, (el) => el.scrollIntoView({ block: "center" }));
+  await pause(page, 200);
+  const box = await (await page.$(selector)).boundingBox();
+  await page.mouse.move(box.x + 30, box.y + box.height * 0.6);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i += 1) await page.mouse.move(box.x + 30 + i * 20, box.y + box.height * (0.6 - (i % 2) * 0.2));
+  await page.mouse.up();
+  await pause(page, 200);
 }
 
 // A customer's form that asks the name and role itself (Step 240), and

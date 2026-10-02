@@ -9941,6 +9941,7 @@ function FieldKitView({ token, at, onAt, shiftSiteId, assignedSites, showToast, 
         <WsBack label={tr("Field kit")} onBack={() => onAt({ siteId: site.id, tile: null })} t={t} />
         <div role="heading" aria-level={1} style={{ ...titleSt, marginBottom: 2 }}>{tr(tile.title)}</div>
         <div style={{ fontSize: 13, color: t.textSec, marginBottom: 12, overflowWrap: "anywhere" }}>{site.name}</div>
+        {tile.id === "ppe" && <FkPpe key={site.id} token={token} site={site} showToast={showToast} t={t} />}
       </div>
     );
   }
@@ -9971,6 +9972,226 @@ function FieldKitView({ token, at, onAt, shiftSiteId, assignedSites, showToast, 
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// A refusal in the API's own words, whatever its code; no signal and
+// anything else in the screen's own.
+const fkSaidOf = (err) => (err && err.status && err.body && typeof err.body.error === "string" && err.body.error.trim() ? err.body.error.trim() : null);
+const fkFaultWords = (err, fallback) => fkSaidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : fallback);
+// The site's name and the tile's look, shared by the four tiles.
+const fkHeadSt = (t) => ({ ...mkLabel(t), marginTop: 20, marginBottom: 8 });
+const fkRowSt = (t) => ({ padding: "10px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow });
+
+// ------------------------------------------------------------
+// Issue PPE (Step 246): OCSA-FRM-019's issue record on the phone
+//
+// The person, from the site's people (GET /api/sites/:id); the item, from
+// the site's PPE stock (GET /api/supplies?site_id&category=ppe) or typed;
+// the size, how many, whether it fits, a note, and the person's own
+// signature drawn here, sent as POST /api/ppe-issues. The site's issues,
+// newest first, under it. A refusal is said in the API's words under each
+// field its keys name.
+// ------------------------------------------------------------
+const PPE_ITEM_MAX = 120;
+const PPE_SIZE_MAX = 40;
+const PPE_NOTE_MAX = 1000;
+const PPE_QTY_MAX = 1000;
+const PPE_TYPED = "typed";
+const PPE_LIST_STEP = 20;
+// The field each of the API's keys names. siteId has no field here, so
+// it is said above the button.
+const PPE_FIELD_OF = { userId: "person", supplyId: "item", item: "item", size: "size", quantity: "quantity", fitOk: "fit", note: "note", employeeSignature: "signature" };
+const PPE_BLANK = { person: "", item: "", typed: "", size: "", quantity: 1, fitOk: null, note: "" };
+function ppePersonOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = fkText(x, ["id", "userId", "user_id"]);
+  const name = [fkText(x, ["first_name", "firstName"]), fkText(x, ["last_name", "lastName"])].filter(Boolean).join(" ") || fkText(x, ["name"]);
+  return id && name ? { id: id, name: name } : null;
+}
+function ppeStockOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = fkText(x, ["id"]);
+  const name = fkText(x, ["name"]);
+  const n = Number(agentField(x, ["site_stock", "siteStock"], NaN));
+  return id && name ? { id: id, name: name, stock: isFinite(n) ? n : null } : null;
+}
+function ppeIssueOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = fkText(x, ["id"]);
+  const what = fkText(x, ["item"]) || fkText(x, ["supplyName", "supply_name"]);
+  if (!id || !what) return null;
+  const q = Number(agentField(x, ["quantity"], 1));
+  const fit = agentField(x, ["fitOk", "fit_ok"], null);
+  return { id: id, what: what, size: fkText(x, ["size"]), quantity: isFinite(q) && q > 0 ? q : 1, fitOk: fit === true ? true : fit === false ? false : null, note: fkText(x, ["note"]), who: fkText(x, ["userName", "user_name"]), by: fkText(x, ["issuedByName", "issued_by_name"]), at: agentField(x, ["issuedAt", "issued_at"], null), signed: agentField(x, ["signed"], false) === true };
+}
+
+function FkPpe({ token, site, showToast, t }) {
+  const [form, setForm] = useState(null);
+  const [formAsked, setFormAsked] = useState(0);
+  const [issues, setIssues] = useState(null);
+  const [listAsked, setListAsked] = useState(0);
+  const [shown, setShown] = useState(PPE_LIST_STEP);
+  const [draft, setDraft] = useState(PPE_BLANK);
+  const [strokes, setStrokes] = useState([]);
+  const [png, setPng] = useState(null);
+  // What is said under each field, by field, and above the button.
+  const [faults, setFaults] = useState({});
+  const [sending, setSending] = useState(false);
+  const dirty = draft.person !== "" || draft.item !== "" || draft.size.trim() !== "" || draft.note.trim() !== "" || draft.quantity !== 1 || draft.fitOk !== null || strokes.length > 0;
+  useBusy("ppe issue", dirty || sending);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const [one, stock] = await Promise.all([
+          api("/api/sites/" + encodeURIComponent(site.id), { token }),
+          api("/api/supplies?site_id=" + encodeURIComponent(site.id) + "&category=ppe", { token }),
+        ]);
+        const staff = wsRows(one, "staff");
+        const rows = wsRows(stock, "supplies");
+        if (!staff || !rows) throw new Error(ERR_GENERIC);
+        const people = [];
+        staff.map(ppePersonOf).filter(Boolean).forEach(p => { if (!people.some(x => x.id === p.id)) people.push(p); });
+        people.sort((a, b) => a.name.localeCompare(b.name));
+        if (live) setForm({ state: "ok", people: people, stock: rows.map(ppeStockOf).filter(Boolean) });
+      } catch (err) {
+        if (live) setForm(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: fkFaultWords(err, "This form did not load.") }));
+      }
+    })();
+    return () => { live = false; };
+  }, [site.id, formAsked]);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const rows = wsRows(await api("/api/ppe-issues?siteId=" + encodeURIComponent(site.id), { token }), "issues");
+        if (!rows) throw new Error(ERR_GENERIC);
+        if (live) setIssues({ state: "ok", list: rows.map(ppeIssueOf).filter(Boolean) });
+      } catch (err) {
+        if (live) setIssues(prev => (prev && prev.state === "ok" ? prev : { state: "failed" }));
+      }
+    })();
+    return () => { live = false; };
+  }, [site.id, listAsked]);
+  const edit = (k, v, field) => { setDraft(d => ({ ...d, [k]: v })); setFaults(f => ({ ...f, [field || k]: null, form: null })); };
+  const send = async () => {
+    if (sending) return;
+    const typed = draft.typed.trim();
+    const local = {};
+    if (!draft.person) local.person = tr("Choose the person you are handing it to.");
+    if (!draft.item || (draft.item === PPE_TYPED && !typed)) local.item = tr("Choose an item, or type what you are handing out.");
+    if (!png) local.signature = tr("The person signs before you send.");
+    if (Object.keys(local).length > 0) { setFaults(local); return; }
+    const body = { userId: draft.person, siteId: site.id, quantity: draft.quantity, fitOk: draft.fitOk, employeeSignature: png };
+    if (draft.item === PPE_TYPED) body.item = typed; else body.supplyId = draft.item;
+    if (draft.size.trim()) body.size = draft.size.trim();
+    if (draft.note.trim()) body.note = draft.note.trim();
+    setSending(true); setFaults({});
+    try {
+      const d = await api("/api/ppe-issues", { method: "POST", body: body, token });
+      const made = ppeIssueOf(d && d.issue);
+      setDraft(PPE_BLANK); setStrokes([]); setPng(null);
+      if (made) setIssues(prev => ({ state: "ok", list: [made].concat(prev && prev.state === "ok" ? prev.list.filter(x => x.id !== made.id) : []) }));
+      else setListAsked(n => n + 1);
+      showToast(tr("PPE issued. The signature is kept with it."));
+    } catch (err) {
+      const said = fkFaultWords(err, "This was not sent. Try again.");
+      const keys = Array.isArray(err && err.body && err.body.keys) ? err.body.keys.map(String) : [];
+      const next = {};
+      keys.forEach(k => { next[PPE_FIELD_OF[k] || "form"] = said; });
+      if (keys.length === 0) next[err && err.code === "ppe.signatureRequired" ? "signature" : "form"] = said;
+      setFaults(next);
+    } finally { setSending(false); }
+  };
+  const labelSt = mkLabel(t);
+  const fieldSt = { marginBottom: 14 };
+  const errOf = (field) => (faults[field] ? <div role="alert" style={mkFieldErr(t)}>{faults[field]}</div> : null);
+  const ring = (field) => (faults[field] ? { border: "2px solid " + RED } : {});
+  const list = issues && issues.state === "ok" ? issues.list : [];
+  const fitBtn = (on) => ({ ...wsPlainBtn(t), flex: "1 1 0", minWidth: 0, background: on ? t.goldBg : "transparent", border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: on ? t.goldText : t.text });
+  return (
+    <div>
+      {!form && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {form && form.state === "failed" && <div style={{ marginBottom: 12 }}><ListFault icon={ShieldIco} text={form.said} onRetry={() => setFormAsked(n => n + 1)} t={t} /></div>}
+      {form && form.state === "ok" && (
+        <div data-fk-ppe="form">
+          <div style={fieldSt}>
+            <label htmlFor="ocsa-ppe-person" style={labelSt}>{tr("Person")}</label>
+            <select id="ocsa-ppe-person" value={draft.person} onChange={e => edit("person", e.target.value)} style={{ ...mkInput(t), ...ring("person") }}>
+              <option value="">{tr("Choose a person")}</option>
+              {form.people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            {form.people.length === 0 && <div style={{ fontSize: 12, color: t.textMut, marginTop: 6 }}>{tr("No one is assigned to this site.")}</div>}
+            {errOf("person")}
+          </div>
+          <div style={fieldSt}>
+            <label htmlFor="ocsa-ppe-item" style={labelSt}>{tr("Item")}</label>
+            <select id="ocsa-ppe-item" value={draft.item} onChange={e => edit("item", e.target.value)} style={{ ...mkInput(t), ...ring("item") }}>
+              <option value="">{tr("Choose an item")}</option>
+              {form.stock.map(s => <option key={s.id} value={s.id}>{s.stock === null ? s.name : tr("{item}, {n} in stock", { item: s.name, n: s.stock })}</option>)}
+              <option value={PPE_TYPED}>{tr("Something else (type it)")}</option>
+            </select>
+            {draft.item === PPE_TYPED && <input id="ocsa-ppe-typed" aria-label={tr("What you are handing out")} placeholder={tr("What you are handing out")} value={draft.typed} maxLength={PPE_ITEM_MAX} onChange={e => edit("typed", e.target.value, "item")} style={{ ...mkInput(t), marginTop: 8, ...ring("item") }} />}
+            {form.stock.length === 0 && <div style={{ fontSize: 12, color: t.textMut, marginTop: 6 }}>{tr("This site has no PPE in stock. Type what you are handing out.")}</div>}
+            {errOf("item")}
+          </div>
+          <div style={fieldSt}>
+            <label htmlFor="ocsa-ppe-size" style={labelSt}>{tr("Size")}</label>
+            <input id="ocsa-ppe-size" value={draft.size} maxLength={PPE_SIZE_MAX} placeholder={tr("Optional")} onChange={e => edit("size", e.target.value)} style={{ ...mkInput(t), ...ring("size") }} />
+            {errOf("size")}
+          </div>
+          <div style={fieldSt}>
+            <div id="ocsa-ppe-qty" style={labelSt}>{tr("Quantity")}</div>
+            <div role="group" aria-labelledby="ocsa-ppe-qty" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button type="button" onClick={() => edit("quantity", Math.max(1, draft.quantity - 1))} disabled={draft.quantity <= 1} aria-label={tr("One less")} style={{ ...mkTapFrame(), opacity: draft.quantity <= 1 ? 0.5 : 1 }}><span style={mkQtyBtn(t)}><MinusIco sz={14} /></span></button>
+              <div aria-live="polite" style={{ minWidth: 44, textAlign: "center", fontSize: 22, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{draft.quantity}</div>
+              <button type="button" onClick={() => edit("quantity", Math.min(PPE_QTY_MAX, draft.quantity + 1))} disabled={draft.quantity >= PPE_QTY_MAX} aria-label={tr("One more")} style={mkTapFrame()}><span style={mkQtyBtn(t)}><PlusIco sz={14} /></span></button>
+            </div>
+            {errOf("quantity")}
+          </div>
+          <div style={fieldSt}>
+            <div id="ocsa-ppe-fit" style={labelSt}>{tr("Fits well?")}</div>
+            <div role="group" aria-labelledby="ocsa-ppe-fit" style={{ display: "flex", gap: 8 }}>
+              <button type="button" aria-pressed={draft.fitOk === true} onClick={() => edit("fitOk", draft.fitOk === true ? null : true, "fit")} style={fitBtn(draft.fitOk === true)}>{tr("Yes")}</button>
+              <button type="button" aria-pressed={draft.fitOk === false} onClick={() => edit("fitOk", draft.fitOk === false ? null : false, "fit")} style={fitBtn(draft.fitOk === false)}>{tr("No")}</button>
+            </div>
+            {errOf("fit")}
+          </div>
+          <div style={fieldSt}>
+            <label htmlFor="ocsa-ppe-note" style={labelSt}>{tr("Note")}</label>
+            <textarea id="ocsa-ppe-note" value={draft.note} maxLength={PPE_NOTE_MAX} rows={2} placeholder={tr("Optional")} onChange={e => edit("note", e.target.value)} style={{ ...mkInput(t), resize: "vertical", ...ring("note") }} />
+            {errOf("note")}
+          </div>
+          <div data-fk-ppe="signature" style={fieldSt}>
+            <div style={labelSt}>{tr("Signature of the person receiving it")}</div>
+            <div style={{ borderRadius: R.md, border: faults.signature ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+              <SignatureBox strokes={strokes} onStroke={(stroke, size) => { const all = strokes.concat([stroke]); setStrokes(all); setPng(signaturePng(all, size.w, size.h)); setFaults(f => ({ ...f, signature: null, form: null })); }} height={SIGN_BOX_HEIGHT} />
+            </div>
+            {errOf("signature")}
+            <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr("Hand the phone to the person. They sign with a finger.")}</div>
+            <button type="button" onClick={() => { setStrokes([]); setPng(null); }} disabled={strokes.length === 0 || sending} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+          </div>
+          {faults.form && <WsFault text={faults.form} t={t} />}
+          <div style={{ display: "flex", marginTop: 12 }}>
+            <button type="button" onClick={send} disabled={sending} style={wsMainBtn(t, sending)}>{sending ? tr("Sending...") : tr("Issue PPE")}</button>
+          </div>
+        </div>
+      )}
+      <div role="heading" aria-level={2} style={fkHeadSt(t)}>{tr("Issued at this site")}</div>
+      {!issues && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {issues && issues.state === "failed" && <div style={{ marginBottom: 12 }}><ListFault icon={ShieldIco} text={tr("This list did not load.")} onRetry={() => setListAsked(n => n + 1)} t={t} /></div>}
+      {issues && issues.state === "ok" && list.length === 0 && <div style={wsQuiet(t)}>{tr("No PPE has been issued at this site yet.")}</div>}
+      {list.slice(0, shown).map(x => (
+        <div key={x.id} data-fk-ppe-issue={x.id} style={fkRowSt(t)}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{tr("{item} x{n}", { item: x.what, n: x.quantity })}</div>
+          <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{[x.who, x.size ? tr("Size {size}", { size: x.size }) : "", x.fitOk === true ? tr("Fits well") : x.fitOk === false ? tr("Does not fit") : "", x.signed ? tr("Signed") : ""].filter(Boolean).join(", ")}</div>
+          {x.note && <div style={{ fontSize: 12, color: t.textMut, marginTop: 2, overflowWrap: "anywhere" }}>{x.note}</div>}
+          <div style={{ fontSize: 12, color: t.textMut, marginTop: 2, overflowWrap: "anywhere" }}>{x.by ? tr("Issued by {name}, {when}", { name: x.by, when: wsWhen(x.at) }) : wsWhen(x.at)}</div>
+        </div>
+      ))}
+      {list.length > shown && <button type="button" onClick={() => setShown(n => n + PPE_LIST_STEP)} style={{ ...wsPlainBtn(t), width: "100%", marginBottom: 12 }}>{tr("Show more")}</button>}
     </div>
   );
 }
