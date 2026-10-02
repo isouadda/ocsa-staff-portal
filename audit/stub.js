@@ -1618,6 +1618,9 @@ const ROUTE_WORDS = [
   // The field kit's (Step 246): a PPE issue names its supply; what was
   // typed for it, its size and its note are names.
   [/^[A-Z]+ \/api\/ppe-issues$/, { supplyName: "supply", item: "name", size: "name", note: "name" }],
+  // Periodic work's items are the checklist's, in the request's language
+  // under display; how often and its state are codes.
+  [/^GET \/api\/periodic-work$/, { label: "to-do item", zone: "to-do zone", frequency: "code", state: "code" }],
 ];
 const kindsFor = (method, pathname) => {
   const hit = ROUTE_WORDS.find(r => r[0].test(method + " " + pathname));
@@ -1768,6 +1771,20 @@ const FK_PPE_ISSUES = [{
   supplyId: "sup-ppe-1", supplyName: "Invented nitrile gloves", item: "Invented nitrile gloves", size: "M", quantity: 2, fitOk: true, note: null,
   issuedBy: "u-admin", issuedByName: "Jordan Office", issuedAt: "2026-10-01T15:00:00.000Z", signed: true, signatureUrl: "/api/ppe-issues/ppe-seed-1/signature",
 }];
+// The site's periodic work as GET /api/periodic-work answers it, overdue
+// first, its words the checklist's own, so each has its Spanish twin.
+const FK_PERIODIC = [
+  { taskId: "pw-1", label: "Clean the light fixtures", zone: "Office", frequency: "monthly", lastDoneAt: "2026-08-12T23:10:00.000Z", lastDoneBy: { name: "Ana Alvarez", initials: "AA" }, nextDueOn: "2026-09-01", dueBy: "2026-09-30", state: "overdue" },
+  { taskId: "pw-2", label: "Scrub the grout in the restrooms", zone: "Restroom", frequency: "biweekly", lastDoneAt: "2026-09-16T23:40:00.000Z", lastDoneBy: { name: "Ben Brooks", initials: "BB" }, nextDueOn: "2026-09-30", dueBy: "2026-10-13", state: "due" },
+  { taskId: "pw-3", label: "Wash the outside windows", zone: "Outside", frequency: "seasonal", lastDoneAt: null, lastDoneBy: null, nextDueOn: "2026-09-01", dueBy: "2026-11-30", state: "due" },
+  { taskId: "pw-4", label: "Dust the picture frames", zone: "Lobby", frequency: "weekly", lastDoneAt: "2026-09-29T22:05:00.000Z", lastDoneBy: { name: "Carla Castro", initials: "CC" }, nextDueOn: "2026-10-05", dueBy: "2026-10-11", state: "done" },
+];
+// The site's register as GET /api/equipment answers it: the label the
+// smoke check opens, one tagged out and one whose service is due.
+const FK_EQUIPMENT = [
+  { id: "eq-fk-2", name: "Invented wet vacuum", category: "Vacuum", status: "out_of_service", nextServiceOn: "2026-10-05", serviceDue: false, qrCode: "fkLabel2" },
+  { id: "eq-fk-3", name: "Invented carpet extractor", category: "Carpet", status: "in_service", nextServiceOn: "2026-09-25", serviceDue: true, qrCode: "fkLabel3" },
+];
 const FK_PPE_BAD = { status: 400, en: "Some details of the issue are missing or not valid", es: "Faltan algunos datos de la entrega o no son v\u00e1lidos" };
 const FK_PPE_SIGN = { status: 400, en: "The employee must sign for the equipment", es: "El empleado debe firmar que recibi\u00f3 el equipo" };
 
@@ -2015,6 +2032,9 @@ function createStub(opts) {
     const management = FK_MANAGEMENT.indexOf(state.person.role) !== -1;
     const q = new URLSearchParams(search || "");
     if (key === "GET /api/forms/my-sites") return management ? json(200, { sites: SITES.map(x => ({ id: x.siteId, name: x.siteName })) }) : null;
+    // The register's two other labels open the way the smoke check's does.
+    const label = FK_EQUIPMENT.find(x => key === "GET /api/equipment/by-qr/" + x.qrCode);
+    if (label) return json(200, { equipment: Object.assign({ siteId: "site-north", siteName: "North Building" }, label), events: [] });
     // Anyone may read a site's supplies; the kit asks for its PPE.
     if (key === "GET /api/supplies" && q.get("category") === "ppe") return json(200, q.get("site_id") ? FK_PPE_STOCK : []);
     if (!FK_ROUTES.some(re => re.test(key))) return null;
@@ -2030,6 +2050,17 @@ function createStub(opts) {
       return json(200, { issues: state.ppeIssues.filter(x => !siteId || x.siteId === siteId) });
     }
     if (key === "POST /api/ppe-issues") return ppeIssue(body, lang);
+    if (key === "GET /api/periodic-work") {
+      const site = SITES.find(x => x.siteId === q.get("siteId")) || SITES[0];
+      return json(200, { items: FK_PERIODIC.map(x => Object.assign({ siteId: site.siteId, siteName: site.siteName }, x, {
+        display: { label: lang === "es" && TWIN_ES.has(x.label) ? TWIN_ES.get(x.label) : x.label, zone: lang === "es" && TWIN_ES.has(x.zone) ? TWIN_ES.get(x.zone) : x.zone },
+      })) });
+    }
+    if (key === "GET /api/equipment") {
+      const site = SITES.find(x => x.siteId === q.get("siteId")) || SITES[0];
+      const mine = Object.assign({}, EQ_ITEM, { serviceDue: false, latestEvent: state.equipmentEvents[0] || null });
+      return json(200, { equipment: [mine].concat(FK_EQUIPMENT.map(x => Object.assign({ siteId: site.siteId, siteName: site.siteName, latestEvent: null }, x))) });
+    }
     return null;
   }
   // POST /api/ppe-issues, in the API's order: what is wrong with the body,
@@ -2131,6 +2162,10 @@ function createStub(opts) {
       if (key === "GET /api/workspace/projects") return json(200, { projects: [WS_PROJECT] });
       if (key === "GET /api/workspace/me") return json(200, { todos: [Object.assign({}, WS_TODO, { assigneeIds: [state.person.id] })], changes: [] });
     }
+    if (state.fieldKit) {
+      const kit = fieldKitAnswer(method, pathname, search, body, key, lang);
+      if (kit) return kit;
+    }
     if (state.equipment && pathname.indexOf("/api/equipment/") === 0) {
       if (key === "GET /api/equipment/by-qr/" + EQ_CODE) return json(200, { equipment: EQ_ITEM, events: state.equipmentEvents.slice(0, 10) });
       if (key === "POST /api/equipment/" + EQ_ITEM.id + "/events") {
@@ -2141,10 +2176,6 @@ function createStub(opts) {
         return json(201, { event: e });
       }
       return json(404, { error: "That equipment was not found.", code: "equipment.notFound" });
-    }
-    if (state.fieldKit) {
-      const kit = fieldKitAnswer(method, pathname, search, body, key, lang);
-      if (kit) return kit;
     }
     if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: SITES, preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
     if (key === "POST /api/auth/register") return json(200, { ok: true });

@@ -2339,9 +2339,12 @@ export default function OCSAStaffPortal() {
   // portal is up, and then the one on the screen.
   const [equipmentCode, setEquipmentCode] = useState(EQUIPMENT_AT_START);
   const [equipmentShown, setEquipmentShown] = useState(null);
+  // Where Back on an item's page goes: Home from a label, and the field
+  // kit's Equipment from its list.
+  const [equipmentBack, setEquipmentBack] = useState(null);
   useEffect(() => {
     if (!equipmentCode || screen !== "main" || offlineOpen) return;
-    setEquipmentShown(equipmentCode); setEquipmentCode(null);
+    setEquipmentShown(equipmentCode); setEquipmentCode(null); setEquipmentBack(null);
     setActiveTab("equipment"); setShowMore(false);
     try { window.history.replaceState({}, "", "/"); } catch (e) {}
   }, [equipmentCode, screen, offlineOpen]);
@@ -2546,7 +2549,7 @@ export default function OCSAStaffPortal() {
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
     setChannels(null); setChannelsFailed(false); setMessages([]); setMessagesOf(null); setActiveChannel(null);
-    setAgentConversation(null); setFormsDraft(null); setFieldKitAt(null);
+    setAgentConversation(null); setFormsDraft(null); setFieldKitAt(null); setEquipmentShown(null); setEquipmentBack(null);
     setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
     setLookups([]); setLookupsLang(null); toastsRef.current.clear(); setLoading(false);
     setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false); setAnnouncementOpen(null); setOpenAsk(null); setAlertsCard(null); setAlertsCardBusy(false);
@@ -2745,11 +2748,11 @@ export default function OCSAStaffPortal() {
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
               {activeTab === "sds" && <div style={{ padding: 16 }}><SdsBrowser initial={sdsList} onList={setSdsList} code={sdsCode} onCode={setSdsCode} t={t} /></div>}
               {activeTab === "workspace" && destCtx.workspace && <WorkspaceView token={token} user={user} projects={wsProjects} onProjects={setWsProjects} at={wsAt} onAt={setWsAt} channels={channels} onOpenChat={(id) => { chooseChat(id); setActiveTab("chat"); setShowMore(false); }} showToast={showToast} t={t} />}
-              {activeTab === "fieldkit" && destCtx.isAdmin && <FieldKitView token={token} at={fieldKitAt} onAt={setFieldKitAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} assignedSites={sites} showToast={showToast} t={t} />}
+              {activeTab === "fieldkit" && destCtx.isAdmin && <FieldKitView token={token} at={fieldKitAt} onAt={setFieldKitAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} assignedSites={sites} onOpenEquipment={(code) => { setEquipmentShown(code); setEquipmentBack("fieldkit"); setActiveTab("equipment"); }} showToast={showToast} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
               {activeTab === "phonealerts" && <PhoneAlertsView token={token} t={t} onBack={() => setActiveTab("settings")} />}
-              {activeTab === "equipment" && equipmentShown && <EquipmentView token={token} code={equipmentShown} showToast={showToast} t={t} onBack={() => { setEquipmentShown(null); setActiveTab("clock"); }} />}
+              {activeTab === "equipment" && equipmentShown && <EquipmentView token={token} code={equipmentShown} showToast={showToast} t={t} onBack={() => { const back = equipmentBack === "fieldkit" && destCtx.isAdmin ? "fieldkit" : "clock"; setEquipmentShown(null); setEquipmentBack(null); setActiveTab(back); }} />}
               {activeTab === "profile" && <MyProfileView token={token} user={user} showToast={showToast} t={t} setUser={setUser} setActiveTab={setActiveTab} />}
             </div>
           </div>
@@ -9912,7 +9915,7 @@ function fkSiteFor(list, chosen, shiftSiteId, assigned) {
   return list.length > 0 ? list[0].id : null;
 }
 
-function FieldKitView({ token, at, onAt, shiftSiteId, assignedSites, showToast, t }) {
+function FieldKitView({ token, at, onAt, shiftSiteId, assignedSites, onOpenEquipment, showToast, t }) {
   const [sites, setSites] = useState(null);
   const [asked, setAsked] = useState(0);
   useEffect(() => {
@@ -9942,6 +9945,8 @@ function FieldKitView({ token, at, onAt, shiftSiteId, assignedSites, showToast, 
         <div role="heading" aria-level={1} style={{ ...titleSt, marginBottom: 2 }}>{tr(tile.title)}</div>
         <div style={{ fontSize: 13, color: t.textSec, marginBottom: 12, overflowWrap: "anywhere" }}>{site.name}</div>
         {tile.id === "ppe" && <FkPpe key={site.id} token={token} site={site} showToast={showToast} t={t} />}
+        {tile.id === "periodic" && <FkPeriodic key={site.id} token={token} site={site} t={t} />}
+        {tile.id === "equipment" && <FkEquipment key={site.id} token={token} site={site} onOpen={onOpenEquipment} t={t} />}
       </div>
     );
   }
@@ -10192,6 +10197,142 @@ function FkPpe({ token, site, showToast, t }) {
         </div>
       ))}
       {list.length > shown && <button type="button" onClick={() => setShown(n => n + PPE_LIST_STEP)} style={{ ...wsPlainBtn(t), width: "100%", marginBottom: 12 }}>{tr("Show more")}</button>}
+    </div>
+  );
+}
+
+// A day the API sends as a timestamp, on the company's calendar.
+const fkDayOf = (v) => { const d = v ? new Date(v) : null; return d && !isNaN(d.getTime()) ? d.toLocaleDateString(dateLocale(), { weekday: "short", month: "short", day: "numeric", timeZone: clientConfig.company.timeZone }) : ""; };
+
+// ------------------------------------------------------------
+// Periodic work (Step 246): GET /api/periodic-work?siteId
+//
+// Every weekly, every-two-weeks, monthly, quarterly and seasonal item of
+// the site, under Overdue, Due and Done, each with how often it comes,
+// where it sits on the checklist, when it was last done and by whom, and
+// the day it is due by. Read only: work is checked off on the checklist.
+// ------------------------------------------------------------
+const PERIODIC_STATES = [["overdue", "Overdue"], ["due", "Due"], ["done", "Done"]];
+const PERIOD_OF_FREQUENCY = { weekly: "week", biweekly: "biweekly", monthly: "month", quarterly: "quarter", seasonal: "season" };
+function periodicItemOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const display = x.display && typeof x.display === "object" ? x.display : {};
+  const label = fkText(display, ["label"]) || fkText(x, ["label"]);
+  const state = fkText(x, ["state"]);
+  if (!label || !PERIODIC_STATES.some(s => s[0] === state)) return null;
+  const by = x.lastDoneBy && typeof x.lastDoneBy === "object" ? fkText(x.lastDoneBy, ["name"]) : "";
+  return { id: fkText(x, ["taskId", "id"]) || label, label: label, zone: fkText(display, ["zone"]) || fkText(x, ["zone"]), period: PERIOD_OF_FREQUENCY[fkText(x, ["frequency"])] || null, lastAt: agentField(x, ["lastDoneAt"], null), by: by, dueBy: fkText(x, ["dueBy"]).slice(0, 10), state: state };
+}
+
+function FkPeriodic({ token, site, t }) {
+  const [items, setItems] = useState(null);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const rows = wsRows(await api("/api/periodic-work?siteId=" + encodeURIComponent(site.id), { token }), "items");
+        if (!rows) throw new Error(ERR_GENERIC);
+        if (live) setItems({ state: "ok", list: rows.map(periodicItemOf).filter(Boolean) });
+      } catch (err) {
+        if (live) setItems(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: fkFaultWords(err, "This list did not load.") }));
+      }
+    })();
+    return () => { live = false; };
+  }, [site.id, asked]);
+  if (!items) return <div style={wsQuiet(t)}>{tr("Loading...")}</div>;
+  if (items.state === "failed") return <ListFault icon={CalIco} text={items.said} onRetry={() => setAsked(n => n + 1)} t={t} />;
+  if (items.list.length === 0) return <div style={wsQuiet(t)}>{tr("This site has no periodic work.")}</div>;
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: t.textMut, marginBottom: 4, lineHeight: 1.4 }}>{tr("Read only. Work is checked off on the checklist.")}</div>
+      {PERIODIC_STATES.map(([state, title]) => {
+        const rows = items.list.filter(x => x.state === state);
+        if (rows.length === 0) return null;
+        const late = state === "overdue";
+        return (
+          <div key={state} data-fk-periodic={state}>
+            <div role="heading" aria-level={2} style={{ ...fkHeadSt(t), color: late ? wsLateInk(t) : t.goldText }}>{tr(title) + " (" + rows.length + ")"}</div>
+            {rows.map(x => {
+              const section = PERIOD_SECTIONS.find(p => p.id === x.period);
+              const due = x.dueBy ? wsDueText(x.dueBy) : "";
+              return (
+                <div key={x.id} style={fkRowSt(t)}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{x.label}</div>
+                  <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{[section ? tr(section.often) : "", x.zone].filter(Boolean).join(", ")}</div>
+                  {section && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{tr("On the checklist under {section}", { section: section.title() })}</div>}
+                  <div style={{ fontSize: 12, color: t.textMut, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{x.lastAt ? (x.by ? tr("Last done {date} by {name}", { date: fkDayOf(x.lastAt), name: x.by }) : tr("Last done {date}", { date: fkDayOf(x.lastAt) })) : tr("Not done yet")}</div>
+                  {due && <div style={{ fontSize: 12, fontWeight: 600, color: late ? wsLateInk(t) : t.text, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{tr(late ? "Was due by {date}" : state === "due" ? "Due by {date}" : "Next due by {date}", { date: due })}</div>}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// The site's equipment (Step 246): GET /api/equipment?siteId
+//
+// Each item with its status and next service. A row opens the item's own
+// page, the one its label opens (/eq, Step 240), so Checked, all good and
+// Tag out work exactly as they do from the label, and Back comes here.
+// ------------------------------------------------------------
+function fkEquipmentOf(x) {
+  const item = eqItemOf(x);
+  const code = item ? fkText(x, ["qrCode", "qr_code"]) : "";
+  if (!item) return null;
+  const latest = x.latestEvent && typeof x.latestEvent === "object" ? eqEventOf(x.latestEvent) : null;
+  return { ...item, code: code, serviceDue: agentField(x, ["serviceDue", "service_due"], false) === true, latest: latest };
+}
+
+function FkEquipment({ token, site, onOpen, t }) {
+  const [items, setItems] = useState(null);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const rows = wsRows(await api("/api/equipment?siteId=" + encodeURIComponent(site.id), { token }), "equipment");
+        if (!rows) throw new Error(ERR_GENERIC);
+        const list = rows.map(fkEquipmentOf).filter(Boolean);
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        if (live) setItems({ state: "ok", list: list });
+      } catch (err) {
+        if (live) setItems(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: eqSaidOf(err) || fkFaultWords(err, "This list did not load.") }));
+      }
+    })();
+    return () => { live = false; };
+  }, [site.id, asked]);
+  if (!items) return <div style={wsQuiet(t)}>{tr("Loading...")}</div>;
+  if (items.state === "failed") return <ListFault icon={WrkIco} text={items.said} onRetry={() => setAsked(n => n + 1)} t={t} />;
+  if (items.list.length === 0) return <div style={wsQuiet(t)}>{tr("This site has no equipment on the register.")}</div>;
+  return (
+    <div>
+      {items.list.map(x => {
+        const out = x.status === "out_of_service";
+        const status = EQ_STATUS[x.status] ? tr(EQ_STATUS[x.status]) : "";
+        const lines = (
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{x.name}</span>
+            <span style={{ display: "block", fontSize: 12, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>
+              {x.category && <span style={{ color: t.textSec }}>{x.category + (status ? ", " : "")}</span>}
+              {status && <span style={{ color: out ? wsLateInk(t) : t.textSec, fontWeight: out ? 600 : 400 }}>{status}</span>}
+            </span>
+            {x.status !== "retired" && <span style={{ display: "block", fontSize: 12, marginTop: 2, lineHeight: 1.4, color: x.serviceDue ? wsLateInk(t) : t.textSec, fontWeight: x.serviceDue ? 600 : 400, overflowWrap: "anywhere" }}>{x.nextServiceOn ? tr(x.serviceDue ? "Service due {date}" : "Next service {date}", { date: wsDueText(x.nextServiceOn) }) : tr("No service date")}</span>}
+            {x.latest && <span style={{ display: "block", fontSize: 12, marginTop: 2, lineHeight: 1.4, color: t.textMut, overflowWrap: "anywhere" }}>{tr("Last: {what}, {when}", { what: EQ_KIND[x.latest.kind] ? tr(EQ_KIND[x.latest.kind]) : x.latest.kind, when: fkDayOf(x.latest.at) })}</span>}
+          </span>
+        );
+        if (!x.code) return <div key={x.id} style={{ ...fkRowSt(t), display: "flex", gap: 10 }}>{lines}</div>;
+        return (
+          <button key={x.id} type="button" data-fk-equipment={x.code} onClick={() => onOpen(x.code)} style={{ ...fkRowSt(t), width: "100%", display: "flex", alignItems: "flex-start", gap: 10, minHeight: TAP, cursor: "pointer", color: t.text, textAlign: "left" }}>
+            {lines}
+            <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 2 }} />
+          </button>
+        );
+      })}
     </div>
   );
 }

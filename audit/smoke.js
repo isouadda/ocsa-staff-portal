@@ -20,8 +20,10 @@
 //     answer; a supervisor sees Workspace and My assignments
 //   - a cleaner sees no Field kit under More and never asks for one of
 //     its routes, even where the stub would answer; a supervisor sees
-//     Field kit, its site and its four tiles, and issues PPE with a
-//     signature drawn, which lists the issue first
+//     Field kit, its site and its four tiles; issues PPE with a signature
+//     drawn, which lists the issue first; reads periodic work by state;
+//     and opens an item's own page from Equipment, checks it, and comes
+//     back to the list
 //   - a customer's form that asks the name and role itself draws neither
 //     of the page's own and sends its own answers as customerName and
 //     customerRole; a form that does not ask still draws them
@@ -284,7 +286,7 @@ async function secondStep(browser, language) {
 // A supervisor, with the workspace and the field kit answering.
 async function supervisor(browser, language) {
   const person = Object.assign({}, ADMIN_PERSON, { id: "u-smoke-sup", firstName: "Riley", lastName: "Example", role: "supervisor", badgeNumber: "4801", phone: "0000000008", email: "riley@example.invalid" });
-  const app = await open({ person: person, workspace: true, fieldKit: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
+  const app = await open({ person: person, workspace: true, fieldKit: true, equipment: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
   const page = app.page;
   const items = await openMore(page);
   await page.mouse.click(5, 5); await pause(page, 300);
@@ -324,6 +326,31 @@ async function fieldKit(app, language) {
   const sent = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/ppe-issues");
   const signed = sent.length === 1 && sent[0].signature && sent[0].signature.bytes > 0 && sent[0].body.supplyId && sent[0].body.userId && sent[0].body.siteId;
   check("Issue PPE sends a person, an item from the stock and the signature drawn, once, and lists the issue first (" + language + ")", form && issued && !!signed && app.errors.length === 0, !form ? "the form did not load" : !issued ? "the issue did not show" : !signed ? JSON.stringify(sent.map(c => c.body && Object.keys(c.body))) : app.errors[0]);
+  await backToKit(page, language);
+
+  // Periodic work, under Overdue, Due and Done in that order, each row
+  // saying where it sits on the checklist.
+  await openTile(page, tiles[1]);
+  const where = say(language, "On the checklist under {section}", { section: say(language, "This month") });
+  const states = await waitFor(page, () => document.querySelectorAll("[data-fk-periodic]").length > 0)
+    ? await page.evaluate(() => Array.from(document.querySelectorAll("[data-fk-periodic]")).map(el => el.getAttribute("data-fk-periodic") + ":" + el.querySelectorAll(":scope > div:not([role])").length + ":" + el.innerText))
+    : [];
+  const byState = states.map(x => x.split(":").slice(0, 2).join(":")).join(" ");
+  check("Periodic work lists Overdue, Due and Done in that order, each row saying where it sits on the checklist (" + language + ")", byState === "overdue:1 due:2 done:1" && states[0].indexOf(where) !== -1 && app.errors.length === 0, byState !== "overdue:1 due:2 done:1" ? "found " + JSON.stringify(byState) : states[0].indexOf(where) === -1 ? "no " + JSON.stringify(where) : app.errors[0]);
+  await backToKit(page, language);
+
+  // Equipment: the label's own page opened from the list, checked there,
+  // and Back comes to the list.
+  await openTile(page, tiles[2]);
+  const listed = await waitFor(page, (code) => !!document.querySelector('[data-fk-equipment="' + code + '"]'), EQ_CODE);
+  if (listed) await page.click('[data-fk-equipment="' + EQ_CODE + '"]');
+  const opened = listed && await waitFor(page, (w) => Array.from(document.querySelectorAll(".sp-content button")).some(x => x.innerText.trim() === w), say(language, "Checked, all good"));
+  if (opened) await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Checked, all good"));
+  const recorded = opened && await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Check recorded."));
+  const checks = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/equipment/" + EQ_ITEM.id + "/events");
+  if (opened) await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Back"));
+  const back = opened && await waitFor(page, (code) => !!document.querySelector('[data-fk-equipment="' + code + '"]'), EQ_CODE);
+  check("Equipment opens an item's own page from the list, Checked, all good sends { kind: \"check\" } there, and Back comes to the list (" + language + ")", listed && opened && recorded && back && checks.length === 1 && JSON.stringify(checks[0].body) === '{"kind":"check"}' && app.errors.length === 0, !listed ? "the item is not listed" : !opened ? "its page did not open" : !recorded ? "no " + JSON.stringify(say(language, "Check recorded.")) : !back ? "Back did not come to the list" : checks.length !== 1 ? checks.length + " events sent" : app.errors[0]);
   await backToKit(page, language);
 }
 // A tile on the field kit, and Back from one.
