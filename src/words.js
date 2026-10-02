@@ -1035,6 +1035,10 @@ export const WORDS = {
   "This label does not match any equipment.": "Esta etiqueta no corresponde a ning\u00fan equipo.",
   "This item is retired. Nothing can be recorded on it.": "Este equipo est\u00e1 dado de baja. No se puede registrar nada en \u00e9l.",
   "This item is tagged out. Do not use it until the office puts it back in service.": "Este equipo est\u00e1 fuera de servicio. No lo use hasta que la oficina lo vuelva a poner en servicio.",
+  "Thank you. Your reference is {ref}.": "Gracias. Su referencia es {ref}.",
+  "We will reply within five working days.": "Le responderemos en un plazo de cinco d\u00edas h\u00e1biles.",
+  "A copy is on its way to your email.": "Le enviamos una copia a su correo electr\u00f3nico.",
+  "Sent by {who}.": "Enviado por {who}.",
   },
 };
 
@@ -1951,6 +1955,10 @@ WORDS.fr = {
   "This label does not match any equipment.": "Cette \u00e9tiquette ne correspond \u00e0 aucun \u00e9quipement.",
   "This item is retired. Nothing can be recorded on it.": "Cet \u00e9quipement est retir\u00e9. Rien ne peut y \u00eatre enregistr\u00e9.",
   "This item is tagged out. Do not use it until the office puts it back in service.": "Cet \u00e9quipement est hors service. Ne l'utilisez pas avant que le bureau le remette en service.",
+  "Thank you. Your reference is {ref}.": "Merci. Votre r\u00e9f\u00e9rence est {ref}.",
+  "We will reply within five working days.": "Nous vous r\u00e9pondrons sous cinq jours ouvr\u00e9s.",
+  "A copy is on its way to your email.": "Une copie vous est envoy\u00e9e par e-mail.",
+  "Sent by {who}.": "Envoy\u00e9 par {who}.",
 };
 
 // {name} is replaced after the language is chosen, so the
