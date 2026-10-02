@@ -1035,6 +1035,72 @@ function deviceId() {
   try { window.localStorage.setItem(DEVICE_KEY, made); } catch (e) {}
   return made;
 }
+
+// --- Check-offs with no signal (Step 240) ------------------------------
+// A check or an uncheck the API could not be reached for is kept on this
+// phone until it can be: the task, its site, whose tap it was, the tap's
+// own clientId and time, and whether it checked or unchecked. Nothing
+// else. The API takes clientId and completedAt beside what a check-off
+// takes today (Step 238), answers the same clientId twice once, and puts
+// a tap on the checklist day it was made.
+const PENDING_KEY = "ocsa-pending-checkoffs";
+const PENDING_EVERY_MS = 60000;
+// One per tap: Step 233's randomUUID, else its v4 from random bytes.
+const newClientId = newDeviceId;
+function readPending() {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(PENDING_KEY) || "[]");
+    return Array.isArray(v) ? v.filter(x => x && x.taskId && x.clientId && typeof x.done === "boolean") : [];
+  } catch (e) { return []; }
+}
+function writePending(list) {
+  try { if (list.length) window.localStorage.setItem(PENDING_KEY, JSON.stringify(list)); else window.localStorage.removeItem(PENDING_KEY); } catch (e) {}
+}
+// The taps still waiting for one site, as each task's last tap: checked
+// or unchecked, the way the person left it.
+function pendingTicksFor(list, siteId, userId) {
+  const m = new Map();
+  (list || []).forEach(x => { if ((!siteId || String(x.siteId) === String(siteId)) && (!userId || !x.userId || String(x.userId) === String(userId))) m.set(x.taskId, x.done); });
+  return m;
+}
+// The checklist's last answer for each site, with the status it was read
+// under, so the checklist opens with no signal at all and takes taps into
+// the queue. Names are left out, coworkers' first names among them; a
+// kept list says who has a tick only once it is read again with signal.
+// A day old, it is no longer opened. A sign-out clears it.
+const KEPT_KEY = "ocsa-checklist-kept";
+const KEPT_MAX_MS = 24 * 60 * 60 * 1000;
+const KEPT_SITES = 3;
+function withoutNames(v) {
+  if (Array.isArray(v)) return v.map(withoutNames);
+  if (v && typeof v === "object") { const o = {}; Object.keys(v).forEach(k => { if (k !== "firstName" && k !== "lastName") o[k] = withoutNames(v[k]); }); return o; }
+  return v;
+}
+function readKept() {
+  try { const v = JSON.parse(window.localStorage.getItem(KEPT_KEY) || "null"); return v && typeof v === "object" && v.lists ? v : null; } catch (e) { return null; }
+}
+function keepChecklist(userId, role, clock, answer, lang) {
+  try {
+    const siteId = clock && clock.shift ? clock.shift.siteId : null;
+    if (!userId || !siteId) return;
+    const was = readKept();
+    const lists = was && String(was.userId) === String(userId) ? was.lists : {};
+    lists[siteId] = { answer: withoutNames(answer), lang: lang, savedAt: Date.now() };
+    Object.keys(lists).sort((a, b) => lists[b].savedAt - lists[a].savedAt).slice(KEPT_SITES).forEach(k => { delete lists[k]; });
+    window.localStorage.setItem(KEPT_KEY, JSON.stringify({ userId: userId, role: role || null, clock: withoutNames(clock), lists: lists }));
+  } catch (e) {}
+}
+function forgetKept() {
+  try { window.localStorage.removeItem(KEPT_KEY); } catch (e) {}
+}
+// The kept list for the shift the kept status names, while it is fresh.
+function keptToOpen() {
+  const kept = readKept();
+  const siteId = kept && kept.clock && kept.clock.clockedIn && kept.clock.shift ? kept.clock.shift.siteId : null;
+  const list = siteId ? kept.lists[siteId] : null;
+  return list && Date.now() - Number(list.savedAt) < KEPT_MAX_MS ? { kept: kept, list: list } : null;
+}
+const checkoffPath = (taskId) => "/api/clock/tasks/" + encodeURIComponent(taskId) + "/complete";
 // How long Send a new code waits after each send, the API's own spacing.
 const CODE_RESEND_MS = 30000;
 
@@ -1613,6 +1679,18 @@ export default function OCSAStaffPortal() {
   // hold only today's due items, so a status read would otherwise take the
   // tick straight back off.
   const [tickOverrides, setTickOverrides] = useState(new Map());
+  // Taps waiting for signal, oldest first, as kept on this phone. The ref
+  // is what a send reads, so two sends never take the same tap.
+  const [pending, setPending] = useState(() => readPending());
+  const pendingRef = useRef(pending);
+  const putPending = (list) => { pendingRef.current = list; writePending(list); setPending(list); };
+  // The session now, for work that finishes after a sign-out: what it
+  // started under is no longer anyone's, and it keeps nothing.
+  const liveToken = useRef(token);
+  liveToken.current = token;
+  // Opened from the kept checklist with no signal: the session is kept and
+  // read again as soon as there is signal.
+  const [offlineOpen, setOfflineOpen] = useState(false);
   // One line said under one row for a few seconds: why a coworker's check
   // cannot be unchecked here, or the API's own sentence when it turned an
   // uncheck away. null clears it.
@@ -1811,8 +1889,33 @@ export default function OCSAStaffPortal() {
     // get past the splash.
     hydrateSession(tok)
       .then(() => setBooting(false))
-      .catch(() => { clearAuth(); setToken(null); setUser(null); setScreen("login"); setBooting(false); });
+      .catch((err) => {
+        // No signal at all, and a checklist this phone kept: it opens, and
+        // a tap goes into the queue. Everything else waits for signal.
+        const open = err && err.message === ERR_OFFLINE ? keptToOpen() : null;
+        if (open) { openKept(open); setBooting(false); return; }
+        clearAuth(); setToken(null); setUser(null); setScreen("login"); setBooting(false);
+      });
   }, [hydrateSession]);
+  // The kept status and list, drawn the way an answer is.
+  const openKept = ({ kept, list }) => {
+    setUser({ id: kept.userId, role: kept.role || undefined });
+    takeStatus(kept.clock, nextStatusSeq());
+    if (kept.clock.shift) setSelectedSite(kept.clock.shift.siteId);
+    const got = checklistAnswer(list.answer);
+    setTasks(got.rows); setTasksDay(got.day); setTasksLang(list.lang || null);
+    setOfflineOpen(true);
+    setScreen("main");
+  };
+  // Opened from the kept list: the session is read again once there is
+  // signal, when the phone says it is back and every minute until then.
+  useEffect(() => {
+    if (!offlineOpen || !token) return undefined;
+    const again = () => { hydrateSession(token).then(() => setOfflineOpen(false)).catch(() => {}); };
+    window.addEventListener("online", again);
+    const every = setInterval(again, PENDING_EVERY_MS);
+    return () => { window.removeEventListener("online", again); clearInterval(every); };
+  }, [offlineOpen, token, hydrateSession]);
 
   const handleLogin = async (phone, pin) => {
     setLoading(true); setLoginFault(null);
@@ -1910,6 +2013,8 @@ export default function OCSAStaffPortal() {
   // holds signing out.
   const handleLogout = async () => {
     const tok = token;
+    // Taps still waiting go now if they can, and are dropped after.
+    if (tok && pendingRef.current.length > 0) { try { await Promise.race([sendPending(), new Promise(resolve => setTimeout(resolve, SIGN_OUT_PUSH_MS))]); } catch (e) {} }
     if (tok) { try { await Promise.race([turnOffPhoneAlerts(tok), new Promise(resolve => setTimeout(resolve, SIGN_OUT_PUSH_MS))]); } catch (e) {} }
     forgetPerson();
   };
@@ -1987,13 +2092,82 @@ export default function OCSAStaffPortal() {
   // flight, which a check or an uncheck needs: the list then carries what
   // the API says was done. Only the newest request's answer is taken.
   const tasksSeq = useRef(0);
-  const loadTasks = async (again) => { const path = checklistAsk; const key = checklistKey; const lang = language; if (!path || (again !== true && tasksReqAsked.current === key)) return; const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (mine !== tasksSeq.current) return; const got = checklistAnswer(tt); setTasks(got.rows); setTasksDay(got.day); setTasksLang(lang); tasksAsked.current = key; setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; }); const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); takeStatus(cs, seq); } catch (err) { console.error(err); if (mine === tasksSeq.current) setTasksFailed(true); } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; } };
+  const loadTasks = async (again) => { const path = checklistAsk; const key = checklistKey; const lang = language; if (!path || (again !== true && tasksReqAsked.current === key)) return; const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (mine !== tasksSeq.current) return; const got = checklistAnswer(tt); setTasks(got.rows); setTasksDay(got.day); setTasksLang(lang); tasksAsked.current = key; setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; }); const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); if (takeStatus(cs, seq) && user && mine === tasksSeq.current && liveToken.current === token) keepChecklist(user.id, user.role, cs, tt, lang); } catch (err) { console.error(err); if (mine === tasksSeq.current) setTasksFailed(true); } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; } };
   // A check or an uncheck, sent the way it always has been, for the row as
   // the screen draws it. A row outside the id lists is drawn from this
   // phone's own tap until the list comes back. Then the list and the
   // status are both read again, since a periodic row's tick lives on the
   // row and not in the status.
-  const toggleTask = async (task, done) => { const taskId = task.id; if (inFlightTaskIds.current.has(taskId)) return; inFlightTaskIds.current.add(taskId); const counted = isDueToday(task); const mark = (on) => setTickOverrides(prev => { const n = new Map(prev); n.set(taskId, { done: on, doneThisPeriod: on ? { completedAt: new Date().toISOString(), firstName: user && user.firstName } : null, checkedToday: on ? { byCaller: true, firstName: user && user.firstName, completedAt: new Date().toISOString() } : null, at: Date.now() }); return n; }); try { if (done) { await api("/api/clock/tasks/" + taskId + "/complete", { method: "DELETE", token }); showRowNote(taskId, null); if (counted) setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); else mark(false); showToast(tr("Task unchecked")); } else { await api("/api/clock/tasks/" + taskId + "/complete", { method: "POST", body: {}, token }); if (counted) setCompletedTaskIds(prev => new Set(prev).add(taskId)); else mark(true); showToast(tr("Task completed")); } loadTasks(true); } catch (err) { if (done && err.code === "NOT_YOUR_CHECK") { showRowNote(taskId, tr(err.message)); loadTasks(true); } else showToast(tr(err.message), "error"); } finally { inFlightTaskIds.current.delete(taskId); } };
+  const toggleTask = async (task, done) => {
+    const taskId = task.id;
+    if (inFlightTaskIds.current.has(taskId)) return;
+    const counted = isDueToday(task);
+    const mark = (on) => setTickOverrides(prev => { const n = new Map(prev); n.set(taskId, { done: on, doneThisPeriod: on ? { completedAt: new Date().toISOString(), firstName: user && user.firstName } : null, checkedToday: on ? { byCaller: true, firstName: user && user.firstName, completedAt: new Date().toISOString() } : null, at: Date.now() }); return n; });
+    // The box as the person set it.
+    const shown = () => {
+      if (done) { showRowNote(taskId, null); if (counted) setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); else mark(false); }
+      else if (counted) setCompletedTaskIds(prev => new Set(prev).add(taskId)); else mark(true);
+    };
+    // Every tap carries its own clientId and the time it was made, so a
+    // tap sent twice is kept once and a tap sent late lands on its day.
+    const tap = { taskId: taskId, siteId: clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, userId: user ? user.id : null, clientId: newClientId(), completedAt: new Date().toISOString(), done: !done };
+    // While taps wait, a new one waits behind them, so they reach the API
+    // in the order they were made.
+    if (pendingRef.current.length > 0) { putPending(pendingRef.current.concat([tap])); shown(); sendPending(); return; }
+    inFlightTaskIds.current.add(taskId);
+    try {
+      await api(checkoffPath(taskId), { method: done ? "DELETE" : "POST", body: { clientId: tap.clientId, completedAt: tap.completedAt }, token });
+      shown();
+      showToast(tr(done ? "Task unchecked" : "Task completed"));
+      loadTasks(true);
+    } catch (err) {
+      // No signal: the tap is kept on this phone and the box stays as set.
+      if (err && err.message === ERR_OFFLINE) { putPending(pendingRef.current.concat([tap])); shown(); }
+      else if (done && err.code === "NOT_YOUR_CHECK") { showRowNote(taskId, tr(err.message)); loadTasks(true); }
+      else showToast(tr(err.message), "error");
+    } finally { inFlightTaskIds.current.delete(taskId); }
+  };
+  // The taps waiting, sent oldest first. A tap leaves the queue on any
+  // answer but no signal; no signal stops the send, and the rest wait for
+  // the next. A refusal is said once, in the API's words.
+  const sendingPending = useRef(false);
+  const sendPending = async () => {
+    if (sendingPending.current || !token || pendingRef.current.length === 0) return;
+    sendingPending.current = true;
+    let sent = 0;
+    try {
+      while (pendingRef.current.length > 0) {
+        const tap = pendingRef.current[0];
+        // A tap made under another person's session never goes under this one.
+        if (!user || !tap.userId || String(tap.userId) === String(user.id)) {
+          try {
+            await api(checkoffPath(tap.taskId), { method: tap.done ? "POST" : "DELETE", body: { clientId: tap.clientId, completedAt: tap.completedAt }, token });
+            sent += 1;
+          } catch (err) {
+            if (err && err.message === ERR_OFFLINE) break;
+            if (err && err.message !== "Session expired") showToast(tr(err.message), "error");
+          }
+        }
+        putPending(pendingRef.current.filter(x => x.clientId !== tap.clientId));
+      }
+    } finally { sendingPending.current = false; }
+    if (sent > 0 && token && liveToken.current === token) loadTasks(true);
+  };
+  const sendPendingRef = useRef(sendPending);
+  sendPendingRef.current = sendPending;
+  // The queue goes when the phone says it is back, when the checklist
+  // opens, and every minute while it is open.
+  useEffect(() => {
+    const go = () => { sendPendingRef.current(); };
+    window.addEventListener("online", go);
+    return () => window.removeEventListener("online", go);
+  }, []);
+  useEffect(() => {
+    if (activeTab !== "tasks" || screen !== "main") return undefined;
+    sendPendingRef.current();
+    const every = setInterval(() => { sendPendingRef.current(); }, PENDING_EVERY_MS);
+    return () => clearInterval(every);
+  }, [activeTab, screen]);
   // The shift a session carries, sent as the person chose it on the sheet.
   // Keeping the shift in use sends nothing. The answer is the session and
   // its counts, which replace what the screen holds, and the list is read
@@ -2309,6 +2483,10 @@ export default function OCSAStaffPortal() {
     setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null);
     setSessionSitesFailed(false); setAssignedFailed(false); setIssuesFailed(false); setSuppliesFailed(false); setSuppliesLoaded(false);
     setShiftAsk(null); setShiftBusy(false); setShiftFault(null); setTickOverrides(new Map()); setRowNote(null);
+    // A checklist read still on its way is dropped, so it cannot keep the
+    // list again after this.
+    tasksSeq.current += 1;
+    pendingRef.current = []; writePending([]); setPending([]); forgetKept(); setOfflineOpen(false);
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
     setChannels(null); setChannelsFailed(false); setMessages([]); setMessagesOf(null); setActiveChannel(null);
@@ -2424,7 +2602,10 @@ export default function OCSAStaffPortal() {
   // siteCompletedTaskIds of siteTotal, whenever a person's checks are among
   // their own items; completed also counts a check of an item outside them,
   // which total does not, and would read more than the whole.
-  const homeCounts = Array.isArray(tasks) ? todayCount(tasks, completedTaskIds) : null;
+  // The ticks drawn: the API's, with this phone's waiting taps over them.
+  const pendingTicks = pendingTicksFor(pending, clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, user && user.id);
+  const shownCompleted = pendingTicks.size === 0 ? completedTaskIds : (() => { const n = new Set(completedTaskIds); pendingTicks.forEach((on, id) => { if (on) n.add(id); else n.delete(id); }); return n; })();
+  const homeCounts = Array.isArray(tasks) ? todayCount(tasks, shownCompleted) : null;
   // The sheet that asks which shift, while it is needed: after Start Shift
   // or Change shift, and whenever the session at a site with shifts
   // carries none.
@@ -2494,7 +2675,7 @@ export default function OCSAStaffPortal() {
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
               {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
-              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={completedTaskIds} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
+              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
@@ -4113,7 +4294,7 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
   );
 }
 
-function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, t }) {
+function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, t }) {
   const [detail, setDetail] = useState(null);
   const loaded = Array.isArray(tasks);
   const standardTasks = standardTasksOf(tasks);
@@ -4211,7 +4392,9 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   // checked or unchecked it and the list has not come back since; the id
   // lists never hold them.
   const rowNow = (tk) => { const o = tickOverrides.get(tk.id); return o && !isDueToday(tk) ? { ...tk, doneThisPeriod: o.done ? o.doneThisPeriod : null, checkedToday: o.checkedToday, tapped: true } : tk; };
-  const isDone = (tk) => (isDueToday(tk) ? completedTaskIds.has(tk.id) : !!tk.doneThisPeriod);
+  // A tap still waiting for signal is drawn the way the person left it.
+  const waiting = pendingTicks || new Map();
+  const isDone = (tk) => (waiting.has(tk.id) ? waiting.get(tk.id) : isDueToday(tk) ? completedTaskIds.has(tk.id) : !!tk.doneThisPeriod);
   // Who checked a row today, the person's own check first: this phone's
   // own tap, then the status, which is read after every check, then the
   // row as the list sent it.
@@ -4223,7 +4406,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   // API would answer the uncheck and remove nothing. A due row whose
   // checker nothing names is the person's own, the way every tick was.
   const lockOf = (tk, done) => {
-    if (!done) return null;
+    if (!done || waiting.has(tk.id)) return null;
     const c = checkedOf(tk);
     if (c && c.byCaller === true) return null;
     if (c && c.byCaller === false) return "other";
@@ -4264,6 +4447,8 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
 
   return (
     <div style={{ padding: "16px" }}>
+      {/* One quiet line while a tap waits for signal. */}
+      {waiting.size > 0 && <div role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}><ClockIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.5, minWidth: 0 }}>{tr("Saved on this phone. It sends when you have signal.")}</div></div>}
       <div style={{ padding: "14px 16px", marginBottom: 16, background: t.goldBg, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Your Assignment")}</div><div style={{ fontSize: 15, fontWeight: 600, marginTop: 3, color: t.text, fontFamily: FONT_HEAD }}>{clockStatus.shift.siteName}</div>{(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.textSec, marginTop: 2 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>}</div><div style={{ background: pct === 100 ? t.greenSubtle : t.card, padding: "6px 14px", borderRadius: R.pill, border: "1px solid " + (pct === 100 ? t.greenBorder : t.borderSolid) }}><div style={{ fontSize: 18, fontWeight: 600, color: ink(t, pct === 100 ? GREEN : t.goldText), fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</div></div></div>
         <div style={{ height: 5, borderRadius: R.pill, background: t.cardAlt, marginTop: 12, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.4s ease" }} /></div>

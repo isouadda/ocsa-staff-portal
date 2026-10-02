@@ -1,29 +1,34 @@
 // Minimal service worker. It exists so browsers that require one before
 // offering "Install app" will offer it, to show phone alerts, and to keep
-// one public page for a phone with no signal: the safety data sheet page
-// at /sds, which the QR poster in each janitor closet opens, often in a
-// basement. What it keeps is that page and the files it loads (the app's
-// scripts and styles, the manifest, the icons and the logo), in one cache,
-// ocsa-sds-shell-v1. Nothing personal is ever kept: no other page, no API
-// answer, nothing signed in. The sheets themselves are kept by the page
-// in localStorage.
+// two pages for a phone with no signal: the app itself, so a cleaner in a
+// janitor closet or a basement still opens the checklist and checks work
+// off (Step 240), and the safety data sheet page at /sds, which the QR
+// poster in each closet opens (Step 233). Both are the same page, the
+// app's own, with the files it loads (its scripts and styles, the
+// manifest, the icons and the logo), kept in one cache, ocsa-shell-v2.
+// No API answer is kept here: the checklist's last answer and the taps
+// waiting for signal are kept by the app in localStorage, and nothing
+// else is kept at all.
 //
 // Every request is still asked of the network first, so a deploy is never
 // hidden behind an old copy: a good answer to the page replaces what is
 // kept, and the cache answers only when the network cannot. Every other
 // request goes to the network as if no service worker were installed.
-var SDS_CACHE = "ocsa-sds-shell-v1";
+var SHELL_CACHE = "ocsa-shell-v2";
+var APP_PAGE = "/";
 var SDS_PAGE = "/sds";
-// /sds and /sds/<code>, the way src/App.js reads them. Both are the same
-// page, kept once.
+// The pages kept: the app at its root, and /sds and /sds/<code> the way
+// src/App.js reads them. Every one of them is the same page, kept under
+// both names.
 var SDS_PATH = /^\/sds(?:\/[A-Za-z0-9_.-]+)?\/?$/i;
+function isKeptPage(path) { return path === APP_PAGE || SDS_PATH.test(path); }
 // A file the page loads.
 function isShellFile(path) {
   return /^\/static\/(js|css)\//.test(path) || /^\/icons\//.test(path) || path === "/manifest.json" || path === "/ocsa-logo-sm.png";
 }
-// Asked for by the /sds page itself, told by the page's own address.
-function fromSdsPage(request) {
-  try { var r = new URL(request.referrer); return r.origin === self.location.origin && SDS_PATH.test(r.pathname); } catch (e) { return false; }
+// Asked for by a kept page itself, told by the page's own address.
+function fromKeptPage(request) {
+  try { var r = new URL(request.referrer); return r.origin === self.location.origin && isKeptPage(r.pathname); } catch (e) { return false; }
 }
 // The files a page names in its HTML, and the logo it draws.
 function filesIn(html) {
@@ -55,30 +60,32 @@ function keepShell(page) {
       return fetch(f).then(function (r) { return r && r.ok ? r : null; }).catch(function () { return null; });
     })).then(function (got) {
       if (got.some(function (r) { return !r; })) return null;
-      return caches.delete(SDS_CACHE).then(function () { return caches.open(SDS_CACHE); }).then(function (cache) {
-        return Promise.all([cache.put(SDS_PAGE, stored)].concat(got.map(function (r, i) { return cache.put(files[i], r); })));
+      return caches.delete(SHELL_CACHE).then(function () { return caches.open(SHELL_CACHE); }).then(function (cache) {
+        var again = stored.clone();
+        return Promise.all([cache.put(APP_PAGE, stored), cache.put(SDS_PAGE, again)].concat(got.map(function (r, i) { return cache.put(files[i], r); })));
       });
     });
   })).catch(function () {});
 }
 function kept(path) {
-  return caches.open(SDS_CACHE).then(function (c) { return c.match(path); }).then(function (hit) { return hit || Response.error(); });
+  return caches.open(SHELL_CACHE).then(function (c) { return c.match(path); }).then(function (hit) { return hit || Response.error(); });
 }
 
 self.addEventListener("install", function () {
   self.skipWaiting();
 });
-// Any cache under another name is left from something older and goes.
-// Once the worker is in charge it keeps the page, so a phone that has
-// opened the app with signal has it the first time it has none. That runs
-// apart from installing and activating, so phone alerts never wait on it.
+// Any cache under another name is left from something older and goes,
+// Step 233's ocsa-sds-shell-v1 among them. Once the worker is in charge it
+// keeps the page, so a phone that has opened the app with signal has it
+// the first time it has none. That runs apart from installing and
+// activating, so phone alerts never wait on it.
 self.addEventListener("activate", function (event) {
   event.waitUntil(caches.keys().then(function (names) {
-    return Promise.all(names.filter(function (n) { return n !== SDS_CACHE; }).map(function (n) { return caches.delete(n); }));
+    return Promise.all(names.filter(function (n) { return n !== SHELL_CACHE; }).map(function (n) { return caches.delete(n); }));
   }).then(function () { return self.clients.claim(); }));
-  fetch(SDS_PAGE, { cache: "no-cache" }).then(function (res) { return res && res.ok ? keepShell(res) : null; }).catch(function () {});
+  fetch(APP_PAGE, { cache: "no-cache" }).then(function (res) { return res && res.ok ? keepShell(res) : null; }).catch(function () {});
 });
-// The /sds page, and the files it loads, network first and kept. Every
+// The kept pages, and the files they load, network first and kept. Every
 // other request is left alone: no respondWith, so the browser handles it
 // itself, straight from the network.
 self.addEventListener("fetch", function (event) {
@@ -88,14 +95,14 @@ self.addEventListener("fetch", function (event) {
   try { url = new URL(req.url); } catch (e) { return; }
   if (url.origin !== self.location.origin) return;
   if (req.mode === "navigate") {
-    if (!SDS_PATH.test(url.pathname)) return;
+    if (!isKeptPage(url.pathname)) return;
     event.respondWith(fetch(req).then(function (res) {
       if (res && res.ok) event.waitUntil(keepShell(res.clone()));
       return res;
-    }).catch(function () { return kept(SDS_PAGE); }));
+    }).catch(function () { return kept(url.pathname === APP_PAGE ? APP_PAGE : SDS_PAGE); }));
     return;
   }
-  if (!isShellFile(url.pathname) || !fromSdsPage(req)) return;
+  if (!isShellFile(url.pathname) || !fromKeptPage(req)) return;
   event.respondWith(fetch(req).catch(function () { return kept(url.pathname); }));
 });
 
