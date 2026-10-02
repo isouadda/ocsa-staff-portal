@@ -4147,14 +4147,16 @@ function checklistAnswer(tt) {
 // weeks, a month, a quarter or a season has a section of its own, in
 // that order, and as needed work comes last and is never counted. A row
 // that names no period is the day's own work, the way every row was.
+// Each periodic row also says how often it comes, beside its name.
 const PERIOD_SECTIONS = [
-  { id: "week", title: () => tr("This week") },
-  { id: "biweekly", title: () => tr("Every two weeks") },
-  { id: "month", title: () => tr("This month") },
-  { id: "quarter", title: () => tr("This quarter") },
-  { id: "season", title: () => tr("This season") },
+  { id: "week", title: () => tr("This week"), often: "Weekly" },
+  { id: "biweekly", title: () => tr("Every two weeks"), often: "Every two weeks" },
+  { id: "month", title: () => tr("This month"), often: "Monthly" },
+  { id: "quarter", title: () => tr("This quarter"), often: "Quarterly" },
+  { id: "season", title: () => tr("This season"), often: "Seasonal" },
 ];
 const isPeriodic = (tk) => PERIOD_SECTIONS.some(p => p.id === tk.period);
+const howOften = (tk) => { const p = PERIOD_SECTIONS.find(x => x.id === tk.period); return p ? tr(p.often) : null; };
 const sectionOf = (tk) => (isPeriodic(tk) ? tk.period : tk.period === "as_needed" ? "as_needed" : "today");
 const isDueToday = (tk) => sectionOf(tk) === "today" && tk.dueToday !== false;
 // When and by whom work was done, the way a person says it: today,
@@ -4331,6 +4333,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   const drawSections = (sections, row) => sections.map((sec, si) => (<div key={si}>{sec.head && (<div style={{ ...floorHeadSt, marginTop: si > 0 ? 10 : 0 }}>{sec.head}</div>)}{sec.groups.map((g, gi) => { const inset = sec.head ? 8 : 0; return (<div key={gi} style={{ marginBottom: 16 }}>{g.title && <div style={{ ...(g.block ? blockSt : zoneSt), paddingLeft: inset }}>{g.time ? <><span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{clockTime(g.time)}</span>{" "}</> : null}<span>{g.title}</span></div>}{g.rows.reduce((out, r) => { if (r.place) out.push(<div key={"at-" + r.task.id} style={{ ...zoneSt, paddingLeft: inset }}>{r.place}</div>); out.push(row(r.task, inset)); return out; }, [])}</div>); })}</div>));
   const rowBase = { display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 11, padding: "11px 13px", marginBottom: 6, borderRadius: R.md, boxShadow: t.shadow };
   const chipPriority = { fontSize: 9, color: ink(t, ORANGE), background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600, letterSpacing: "0.5px" };
+  const chipOften = { fontSize: 10, color: t.textSec, background: t.cardAlt, border: "1px solid " + t.borderSolid, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600, fontFamily: FONT_HEAD };
   const detailSecLabel = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD };
   // A section's title, Today or a period, with its count at the other end.
   const periodHeadSt = { display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: "2px 10px", marginBottom: 10 };
@@ -4488,6 +4491,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
             const when = done ? whenOf(task) || (lock === "other" ? tr("Checked by {firstName}", { firstName: checkedOf(task).firstName }) : null) : null;
             const note = rowNote && rowNote.id === task.id ? rowNote.text : null;
             const hasInfo = task.has_details || w.description || task.media_url;
+            const often = howOften(task);
             return (
               <div key={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: inset }}>
                 <button onClick={() => tap(task, done, lock)} disabled={lock === "earlier"} aria-label={tr(done ? "Mark {name} not done" : "Mark {name} done", { name: w.label })} style={mkTapFrame({ flexShrink: 0, marginTop: 1, cursor: lock === "earlier" ? "default" : "pointer" })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></button>
@@ -4502,7 +4506,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
                   </button>
                   {note && <div role="alert" style={{ ...rowLineSt, color: t.text, fontWeight: 600 }}>{note}</div>}
                 </div>
-                {task.priority === "high" && <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}><span style={chipPriority}>{tr("PRIORITY")}</span></div>}
+                {(often || task.priority === "high") && <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>{often && <span style={chipOften}>{often}</span>}{task.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}</div>}
               </div>
             );
           })}
