@@ -21,6 +21,12 @@
 //   - a customer's form that asks the name and role itself draws neither
 //     of the page's own and sends its own answers as customerName and
 //     customerRole; a form that does not ask still draws them
+//   - a check-off with no signal is kept on the phone and says so, and
+//     goes once, with its clientId, when the signal is back (English
+//     alone)
+//   - an equipment label's page opens, signed in, and Checked, all good
+//     sends { kind: "check" }
+//   - a periodic task says how often it comes beside its name
 //   - French offered by the stub turns the screen French, and a French
 //     screen shows no English the portal drew (French alone)
 //   - one page at the Largest text size, 360 wide, with no control cut
@@ -34,7 +40,7 @@ const fs = require("fs");
 const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
-const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS } = require("./stub");
+const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, EQ_CODE, EQ_ITEM } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -310,6 +316,60 @@ async function customerAsks(browser, language) {
     !up ? "the form did not open" : looks.own ? "the page's own Your name or Your role showed" : !looks.honeypot ? "no hidden website field" : looks.named !== 1 ? looks.named + " questions read " + JSON.stringify(w.name) : !sent ? "sent " + JSON.stringify(got || null) : !kept ? "the other form lost the page's own Your name and Your role" : (app.errors[0] || other.errors[0]));
 }
 
+// A check-off with no signal (Step 240): kept, said, and sent once later.
+async function noSignal(browser) {
+  const app = await open({ accountPreferences: { language: "en", textSize: "standard" } }, { browser, language: "en", signedIn: true });
+  const page = app.page;
+  await tapBar(page, 2);
+  const open1 = await waitFor(page, () => !!document.querySelector('.sp-content button[aria-label^="Mark "][aria-label$=" done"]:not([aria-label$=" not done"])'));
+  app.stub.state.offline = true;
+  const tapped = await page.evaluate(() => { const b = document.querySelector('.sp-content button[aria-label^="Mark "][aria-label$=" done"]:not([aria-label$=" not done"])'); if (b) b.click(); return b ? b.getAttribute("aria-label") : null; });
+  const line = say("en", "Saved on this phone. It sends when you have signal.");
+  const said = await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, line);
+  const kept = await page.evaluate(() => { try { return JSON.parse(localStorage.getItem("ocsa-pending-checkoffs") || "[]"); } catch (e) { return []; } });
+  const from = app.stub.state.calls.length;
+  app.stub.state.offline = false;
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  const gone = await waitFor(page, (w) => document.body.innerText.indexOf(w) === -1 && !localStorage.getItem("ocsa-pending-checkoffs"), line);
+  await pause(page, 600);
+  const sent = app.stub.state.calls.slice(from).filter(c => c.method === "POST" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(c.path));
+  const once = kept.length === 1 && sent.length === 1 && sent[0].body && sent[0].body.clientId === kept[0].clientId && typeof sent[0].body.completedAt === "string";
+  check("a check-off with no signal is kept on the phone and says so, and goes once with its clientId when the signal is back", open1 && !!tapped && said && gone && once && app.errors.length === 0,
+    !open1 ? "no unchecked task" : !said ? "no line saying it was saved" : kept.length !== 1 ? kept.length + " kept" : !gone ? "the line or the queue stayed" : !once ? sent.length + " sent: " + JSON.stringify(sent.map(c => c.body)) : app.errors[0]);
+  await app.context.close();
+}
+
+// An equipment label's page (Step 240).
+async function equipment(browser, language) {
+  const app = await open({ equipment: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, path: "/eq/" + EQ_CODE });
+  const page = app.page;
+  // open() reloads after the first load has put the address back to /,
+  // so the label is opened again, the way a second scan would.
+  await page.goto(BASE + "/eq/" + EQ_CODE, { waitUntil: "domcontentloaded" });
+  const up = await waitFor(page, (w) => { const c = document.querySelector(".sp-content"); return !!c && c.innerText.indexOf(w.name) !== -1 && w.buttons.every(b => Array.from(c.querySelectorAll("button")).some(x => x.innerText.trim() === b)); }, { name: EQ_ITEM.name, buttons: [say(language, "Checked, all good"), say(language, "Tag out")] });
+  const home = await page.evaluate(() => window.location.pathname === "/");
+  const from = app.stub.state.calls.length;
+  await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Checked, all good"));
+  const recorded = await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Check recorded."));
+  const posts = app.stub.state.calls.slice(from).filter(c => c.method === "POST" && c.path === "/api/equipment/" + EQ_ITEM.id + "/events");
+  const asked = app.stub.state.calls.some(c => c.method === "GET" && c.path === "/api/equipment/by-qr/" + EQ_CODE && new RegExp("locale=" + language).test(c.search));
+  check("an equipment label's page opens with its name, Checked, all good and Tag out, and Checked, all good sends { kind: \"check\" } (" + language + ")",
+    up && home && asked && recorded && posts.length === 1 && JSON.stringify(posts[0].body) === '{"kind":"check"}' && app.errors.length === 0,
+    !up ? "the item or its buttons did not show" : !home ? "the address stayed on /eq" : !asked ? "no GET /api/equipment/by-qr with ?locale=" + language : !recorded ? "no " + JSON.stringify(say(language, "Check recorded.")) : posts.length !== 1 ? posts.length + " events sent" : JSON.stringify(posts[0].body) !== '{"kind":"check"}' ? "sent " + JSON.stringify(posts[0].body) : app.errors[0]);
+  await app.context.close();
+}
+
+// Periodic work says how often it comes (Step 240).
+async function periodic(browser, language) {
+  const app = await open({ site: "site-west", shiftLabel: "Night shift", accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
+  const page = app.page;
+  await tapBar(page, 2);
+  const words = ["Weekly", "Every two weeks", "Monthly", "Quarterly", "Seasonal"].map(w => say(language, w));
+  const shown = await waitFor(page, (want) => { const chips = Array.from(document.querySelectorAll(".sp-content span")).map(x => x.innerText.trim()); return want.every(w => chips.indexOf(w) !== -1); }, words);
+  check("a periodic task says how often it comes beside its name: " + words.join(", ") + " (" + language + ")", shown && app.errors.length === 0, shown ? app.errors[0] : "not every word showed");
+  await app.context.close();
+}
+
 // French, offered by the stub.
 async function french(browser) {
   const app = await open({ languages: ["en", "es", "fr"], accountPreferences: { language: "fr", textSize: "standard" } }, { browser, language: "fr", signedIn: true });
@@ -365,6 +425,9 @@ async function largest(browser) {
     for (const language of ["en", "es"]) await guard("the second sign-in step (" + language + ")", () => secondStep(browser, language));
     for (const language of ["en", "es"]) await guard("the workspace (" + language + ")", () => supervisor(browser, language));
     for (const language of ["en", "es"]) await guard("a customer's own name and role (" + language + ")", () => customerAsks(browser, language));
+    await guard("a check-off with no signal", () => noSignal(browser));
+    for (const language of ["en", "es"]) await guard("an equipment label (" + language + ")", () => equipment(browser, language));
+    for (const language of ["en", "es"]) await guard("periodic work (" + language + ")", () => periodic(browser, language));
     await guard("French", () => french(browser));
     await guard("the Largest text size", () => largest(browser));
   } finally {
