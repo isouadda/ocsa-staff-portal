@@ -18,6 +18,9 @@
 //     and the right code signs in; without it, sign-in goes straight in
 //   - a cleaner never asks for /api/workspace, even where the API would
 //     answer; a supervisor sees Workspace and My assignments
+//   - a cleaner sees no Field kit under More and never asks for one of
+//     its routes, even where the stub would answer; a supervisor sees
+//     Field kit, its site and its four tiles
 //   - a customer's form that asks the name and role itself draws neither
 //     of the page's own and sends its own answers as customerName and
 //     customerRole; a form that does not ask still draws them
@@ -158,11 +161,18 @@ async function signIn(page, language) {
 
 // --- the checks
 
+// Every call the field kit makes (Step 246), and none that anything else
+// makes: GET /api/forms/my-sites is left out, since Forms reads it too.
+const FIELD_KIT_CALL = (c) => /^\/api\/(ppe-issues|periodic-work|equipment)$/.test(c.path) || /^\/api\/sites\/[^/]+$/.test(c.path)
+  || (c.path === "/api/supplies" && /[?&]category=ppe(&|$)/.test(c.search)) || (c.path === "/api/inspections/scheduled" && /[?&]awaiting=/.test(c.search))
+  || /^\/api\/inspections\/results\/[^/]+\/signatures\//.test(c.path);
+
 // A cleaner, through the whole portal, in one language. The stub would
-// answer the workspace here too, so a cleaner who asked would be seen.
+// answer the workspace and the field kit here too, so a cleaner who asked
+// would be seen.
 async function cleaner(browser, language) {
   const tag = " (" + language + ")";
-  const app = await open({ accountPreferences: { language: language, textSize: "standard" }, clockedIn: false, workspace: true }, { browser, language });
+  const app = await open({ accountPreferences: { language: language, textSize: "standard" }, clockedIn: false, workspace: true, fieldKit: true }, { browser, language });
   const page = app.page;
   await signIn(page, language);
   const inNow = await waitFor(page, BAR_JS + ".length >= 5");
@@ -238,6 +248,9 @@ async function cleaner(browser, language) {
   // The workspace, never asked for by a cleaner.
   const asked = app.stub.state.calls.filter(c => c.path.indexOf("/api/workspace") === 0).map(c => c.method + " " + c.path);
   check("a cleaner never asks for /api/workspace" + tag, asked.length === 0, asked.join(", "));
+  // The field kit, never offered to a cleaner and never asked for.
+  const kitAsked = app.stub.state.calls.filter(FIELD_KIT_CALL).map(c => c.method + " " + c.path + c.search);
+  check("a cleaner sees no Field kit under More and never asks for one of its routes" + tag, items.indexOf(say(language, "Field kit")) === -1 && kitAsked.length === 0, kitAsked.length ? kitAsked.join(", ") : "Field kit is under More");
   check("no page error anywhere on the way" + tag, app.errors.length === 0, app.errors.slice(0, 3).join("; "));
   await app.context.close();
 }
@@ -267,10 +280,10 @@ async function secondStep(browser, language) {
   await app.context.close();
 }
 
-// A supervisor, with the workspace answering.
+// A supervisor, with the workspace and the field kit answering.
 async function supervisor(browser, language) {
   const person = Object.assign({}, ADMIN_PERSON, { id: "u-smoke-sup", firstName: "Riley", lastName: "Example", role: "supervisor", badgeNumber: "4801", phone: "0000000008", email: "riley@example.invalid" });
-  const app = await open({ person: person, workspace: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
+  const app = await open({ person: person, workspace: true, fieldKit: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
   const page = app.page;
   const items = await openMore(page);
   await page.mouse.click(5, 5); await pause(page, 300);
@@ -281,7 +294,18 @@ async function supervisor(browser, language) {
     mine = await waitFor(page, (w) => { const t = document.querySelector(".sp-content").innerText; return w.every(x => t.toUpperCase().indexOf(x.toUpperCase()) !== -1); }, [say(language, "My assignments"), WS_TODO.title]);
   }
   check("a supervisor sees Workspace under More and My assignments in it (" + language + ")", offered && mine && app.errors.length === 0, !offered ? "no Workspace under More" : !mine ? "no My assignments with its to-do" : app.errors[0]);
+  await fieldKit(app, language);
   await app.context.close();
+}
+
+// The field kit (Step 246), on the supervisor's own run: under More, on
+// a site, with its four tiles.
+async function fieldKit(app, language) {
+  const page = app.page;
+  const tiles = ["Issue PPE", "Periodic work", "Equipment", "Awaiting review"].map(w => say(language, w));
+  const kit = await tapMore(page, say(language, "Field kit"));
+  const shown = kit && await waitFor(page, (w) => { const c = document.querySelector(".sp-content"); const sel = document.querySelector("#ocsa-fk-site"); return !!c && !!sel && sel.value !== "" && w.every(x => Array.from(c.querySelectorAll("button")).some(b => b.innerText.indexOf(x) !== -1)); }, tiles);
+  check("a supervisor sees Field kit under More, on a site, with Issue PPE, Periodic work, Equipment and Awaiting review (" + language + ")", shown && app.errors.length === 0, !kit ? "no Field kit under More" : !shown ? "no site or not every tile" : app.errors[0]);
 }
 
 // A customer's form that asks the name and role itself (Step 240), and

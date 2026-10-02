@@ -465,7 +465,9 @@ function makeState(opts) {
     // and role itself. equipment (Step 240): one item on the register,
     // opened by EQ_CODE, and the events recorded on it. concern (Step
     // 244): link-concern answers OCSA-FRM-009's client part, its photo
-    // route and a receipt with a reference.
+    // route and a receipt with a reference. fieldKit (Step 246): the
+    // supervisor's field kit, its sites and what each tile reads, for an
+    // admin or a supervisor; anyone else is turned away from its routes.
     languages: Array.isArray(o.languages) ? o.languages.slice() : null,
     sds: !!o.sds,
     secondStep: !!o.secondStep,
@@ -475,6 +477,7 @@ function makeState(opts) {
     concernPhotos: [],
     equipment: !!o.equipment,
     equipmentEvents: [],
+    fieldKit: !!o.fieldKit,
     // Flip these from a case to make a route answer differently.
     refuse: o.refuse || {},          // "POST /api/time-off": { status, body }, { chat: code } or { api: key }
     offline: false,                  // every call fails at the network
@@ -1735,6 +1738,14 @@ const WS_TODO = { id: "t-smoke", projectId: "p-smoke", projectName: "Invented pr
 const WS_OFFICE = ["admin", "supervisor"];
 // Step 240: one invented item on the equipment register, opened from its
 // label's code, and the events recorded on it.
+// The supervisor's field kit (Step 246). Its routes answer an admin or a
+// supervisor, the way the API's management routes do, and turn anyone
+// else away; GET /api/forms/my-sites answers them every site, and anyone
+// else is answered as before the switch.
+const FK_MANAGEMENT = ["admin", "supervisor"];
+const FK_ROUTES = [/^GET \/api\/ppe-issues$/, /^POST \/api\/ppe-issues$/, /^GET \/api\/periodic-work$/, /^GET \/api\/equipment$/, /^GET \/api\/sites\/[^/]+$/, /^POST \/api\/inspections\/results\/[^/]+\/signatures\/[^/]+$/];
+const FK_NOT_MANAGEMENT = { status: 403, en: "You do not have permission to do that.", es: "No tiene permiso para hacer eso." };
+
 const EQ_CODE = "smokeLabel7";
 const EQ_ITEM = { id: "eq-smoke", name: "Invented floor scrubber", category: "Floor machine", siteId: "site-north", siteName: "North Building", status: "in_service", nextServiceOn: "2026-10-20", qrCode: EQ_CODE };
 
@@ -1971,6 +1982,18 @@ function createStub(opts) {
     return json(r.status || 400, r.body || { error: r.error || "Request failed" });
   }
 
+  // --- The supervisor's field kit (Step 246), behind state.fieldKit
+  //
+  // Answers its routes in the shapes the API answers them, or nothing,
+  // so the call goes on to be answered as before the switch.
+  function fieldKitAnswer(method, pathname, search, body, key, lang) {
+    const management = FK_MANAGEMENT.indexOf(state.person.role) !== -1;
+    if (key === "GET /api/forms/my-sites") return management ? json(200, { sites: SITES.map(x => ({ id: x.siteId, name: x.siteName })) }) : null;
+    if (!FK_ROUTES.some(re => re.test(key))) return null;
+    if (!management) return json(FK_NOT_MANAGEMENT.status, { error: refusalIn(FK_NOT_MANAGEMENT, lang), code: "access.insufficientPermissions" });
+    return null;
+  }
+
   function handle(method, pathname, search, body, headers) {
     const key = method + " " + pathname;
     state.calls.push({ method: method, path: pathname, search: search || "", body: body || null, headers: headers || {} });
@@ -2034,6 +2057,10 @@ function createStub(opts) {
         return json(201, { event: e });
       }
       return json(404, { error: "That equipment was not found.", code: "equipment.notFound" });
+    }
+    if (state.fieldKit) {
+      const kit = fieldKitAnswer(method, pathname, search, body, key, lang);
+      if (kit) return kit;
     }
     if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: SITES, preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
     if (key === "POST /api/auth/register") return json(200, { ok: true });

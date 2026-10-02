@@ -799,6 +799,9 @@ const BellIco = (p) => <Ico d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7
 const DocIco = (p) => <Ico d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h4" {...p} />;
 const DropIco = (p) => <Ico d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" {...p} />;
 const FolderIco = (p) => <Ico d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" {...p} />;
+// A briefcase, for the field kit, and a shield, for protective gear.
+const KitIco = (p) => <Ico d="M20 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zM16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" {...p} />;
+const ShieldIco = (p) => <Ico d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
 // Every destination the portal has, in one list, so the bottom bar and the
@@ -826,6 +829,9 @@ const DESTINATIONS = [
   // Under More alone, for an office person, and only once the API's team
   // workspace has answered for them (Step 234).
   { id: "workspace", label: () => "Workspace", icon: FolderIco, moreOnly: true, role: (ctx) => !!ctx.workspace },
+  // Under More alone, for an admin or a supervisor, the accounts its
+  // routes answer (Step 246).
+  { id: "fieldkit", label: () => "Field kit", icon: KitIco, moreOnly: true, role: (ctx) => !!ctx.isAdmin },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
 
@@ -2388,6 +2394,9 @@ export default function OCSAStaffPortal() {
   // The project open in Workspace and its tool, kept while the project's
   // chat is open in Chat, so Workspace opens where the person left it.
   const [wsAt, setWsAt] = useState(null);
+  // Where the field kit is (Step 246): the site chosen and the tile open,
+  // kept while the person goes elsewhere and back, and dropped at sign out.
+  const [fieldKitAt, setFieldKitAt] = useState(null);
   const wsAsks = !!token && screen === "main" && isOfficePerson(user);
   useEffect(() => {
     if (!wsAsks) { setWsProjects(null); setWsAt(null); return undefined; }
@@ -2537,7 +2546,7 @@ export default function OCSAStaffPortal() {
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
     setChannels(null); setChannelsFailed(false); setMessages([]); setMessagesOf(null); setActiveChannel(null);
-    setAgentConversation(null); setFormsDraft(null);
+    setAgentConversation(null); setFormsDraft(null); setFieldKitAt(null);
     setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
     setLookups([]); setLookupsLang(null); toastsRef.current.clear(); setLoading(false);
     setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false); setAnnouncementOpen(null); setOpenAsk(null); setAlertsCard(null); setAlertsCardBusy(false);
@@ -2736,6 +2745,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
               {activeTab === "sds" && <div style={{ padding: 16 }}><SdsBrowser initial={sdsList} onList={setSdsList} code={sdsCode} onCode={setSdsCode} t={t} /></div>}
               {activeTab === "workspace" && destCtx.workspace && <WorkspaceView token={token} user={user} projects={wsProjects} onProjects={setWsProjects} at={wsAt} onAt={setWsAt} channels={channels} onOpenChat={(id) => { chooseChat(id); setActiveTab("chat"); setShowMore(false); }} showToast={showToast} t={t} />}
+              {activeTab === "fieldkit" && destCtx.isAdmin && <FieldKitView token={token} at={fieldKitAt} onAt={setFieldKitAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} assignedSites={sites} showToast={showToast} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
               {activeTab === "phonealerts" && <PhoneAlertsView token={token} t={t} onBack={() => setActiveTab("settings")} />}
@@ -9865,6 +9875,102 @@ function EquipmentView({ token, code, showToast, t, onBack }) {
           {tagOut.fault && <WsFault text={tagOut.fault} t={t} />}
         </WsSheet>
       )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// The supervisor's field kit (Step 246), under More
+//
+// For an admin or a supervisor, the accounts its routes answer: a site,
+// chosen from every site the person may name (GET /api/forms/my-sites),
+// and four tiles for it. It opens on the site of the shift open now, else
+// the first site the person is assigned to, else the first on the list.
+// Anyone else is never shown it and never asks for any of its routes.
+// ------------------------------------------------------------
+const FK_TILES = [
+  { id: "ppe", title: "Issue PPE", line: "Hand out protective gear. The person signs for it here.", icon: ShieldIco },
+  { id: "periodic", title: "Periodic work", line: "What is overdue, due and done at this site.", icon: CalIco },
+  { id: "equipment", title: "Equipment", line: "Each item's status and next service.", icon: WrkIco },
+  { id: "review", title: "Awaiting review", line: "Inspections waiting for a review signature.", icon: ClipIco },
+];
+const fkText = (o, keys) => { const v = agentField(o, keys, ""); return typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : ""; };
+function fkSiteOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = fkText(x, ["id", "siteId", "site_id"]);
+  const name = fkText(x, ["name", "siteName", "site_name"]);
+  return id && name ? { id: id, name: name } : null;
+}
+// The site the kit is on: the one chosen, else the open shift's, else
+// the first assigned, else the first. Only a site on the list counts.
+function fkSiteFor(list, chosen, shiftSiteId, assigned) {
+  const has = (id) => !!id && list.some(s => s.id === String(id));
+  if (has(chosen)) return String(chosen);
+  if (has(shiftSiteId)) return String(shiftSiteId);
+  const mine = (Array.isArray(assigned) ? assigned : []).map(a => fkText(a, ["siteId", "site_id", "id"])).find(has);
+  if (mine) return mine;
+  return list.length > 0 ? list[0].id : null;
+}
+
+function FieldKitView({ token, at, onAt, shiftSiteId, assignedSites, showToast, t }) {
+  const [sites, setSites] = useState(null);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const rows = wsRows(await api("/api/forms/my-sites", { token }), "sites");
+        if (!rows) throw new Error(ERR_GENERIC);
+        if (live) setSites({ state: "ok", list: rows.map(fkSiteOf).filter(Boolean) });
+      } catch (err) {
+        // A list already on the screen stays when a later read fails.
+        if (live) setSites(prev => (prev && prev.state === "ok" ? prev : { state: "failed", list: [] }));
+      }
+    })();
+    return () => { live = false; };
+  }, [asked]);
+  const list = sites && sites.state === "ok" ? sites.list : [];
+  const siteId = fkSiteFor(list, at && at.siteId, shiftSiteId, assignedSites);
+  const site = list.find(s => s.id === siteId) || null;
+  const tile = site && at && at.tile ? FK_TILES.find(x => x.id === at.tile) || null : null;
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [tile ? tile.id : null]);
+  const titleSt = { fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 12, overflowWrap: "anywhere" };
+  if (tile) {
+    return (
+      <div style={{ padding: "16px 16px 0" }}>
+        <WsBack label={tr("Field kit")} onBack={() => onAt({ siteId: site.id, tile: null })} t={t} />
+        <div role="heading" aria-level={1} style={{ ...titleSt, marginBottom: 2 }}>{tr(tile.title)}</div>
+        <div style={{ fontSize: 13, color: t.textSec, marginBottom: 12, overflowWrap: "anywhere" }}>{site.name}</div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      <div role="heading" aria-level={1} style={titleSt}>{tr("Field kit")}</div>
+      {!sites && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {sites && sites.state === "failed" && <div style={{ marginBottom: 12 }}><ListFault icon={KitIco} text={tr("Your sites did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} /></div>}
+      {sites && sites.state === "ok" && list.length === 0 && <div style={wsQuiet(t)}>{tr("You have no sites to work on.")}</div>}
+      {site && (
+        <div style={{ marginBottom: 16 }}>
+          <label htmlFor="ocsa-fk-site" style={mkLabel(t)}>{tr("Site")}</label>
+          <select id="ocsa-fk-site" value={site.id} onChange={e => onAt({ siteId: e.target.value, tile: null })} style={mkInput(t)}>
+            {list.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+      )}
+      {site && FK_TILES.map(x => {
+        const Icon = x.icon;
+        return (
+          <button key={x.id} type="button" onClick={() => onAt({ siteId: site.id, tile: x.id })} style={{ width: "100%", display: "flex", alignItems: "flex-start", gap: 12, minHeight: TAP, padding: "14px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
+            <Icon sz={20} c={t.goldText} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{tr(x.title)}</span>
+              <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{tr(x.line)}</span>
+            </span>
+            <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 2 }} />
+          </button>
+        );
+      })}
     </div>
   );
 }
