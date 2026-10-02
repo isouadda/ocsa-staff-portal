@@ -1084,7 +1084,10 @@ function pendingTicksFor(list, siteId, userId) {
 // under, so the checklist opens with no signal at all and takes taps into
 // the queue. Names are left out, coworkers' first names among them; a
 // kept list says who has a tick only once it is read again with signal.
-// A day old, it is no longer opened. A sign-out clears it.
+// A day old, it is no longer opened. A sign-out clears it. A session that
+// expires keeps it, and the queue, for the person they belong to: theirs
+// go once that person signs in again, and anyone else's sign-in clears
+// both.
 const KEPT_KEY = "ocsa-checklist-kept";
 const KEPT_MAX_MS = 24 * 60 * 60 * 1000;
 const KEPT_SITES = 3;
@@ -1873,6 +1876,14 @@ export default function OCSAStaffPortal() {
   const hydrateSession = useCallback(async (tok) => {
     const me = await api("/api/auth/me", { token: tok });
     setUser(me.user); setSites(me.sites);
+    // Taps kept through an expired session wait for the person who made
+    // them, and go once they are back. Anyone else signing in clears
+    // them, and the list kept for no signal with them.
+    const waiting = readPending();
+    const kept = readKept();
+    const theirs = (id) => !id || !me.user || String(id) === String(me.user.id);
+    if (!waiting.every(x => theirs(x.userId)) || (kept && !theirs(kept.userId))) { writePending([]); forgetKept(); pendingRef.current = []; setPending([]); }
+    else if (waiting.length > 0) { pendingRef.current = waiting; setPending(waiting); }
     // The phone follows whoever signed in. Not awaited: sign-in never
     // waits on the push service.
     repostPhoneAlerts(tok);
@@ -2161,8 +2172,10 @@ export default function OCSAStaffPortal() {
             await api(checkoffPath(tap.taskId), { method: tap.done ? "POST" : "DELETE", body: { clientId: tap.clientId, completedAt: tap.completedAt }, token });
             sent += 1;
           } catch (err) {
-            if (err && err.message === ERR_OFFLINE) break;
-            if (err && err.message !== "Session expired") showToast(tr(err.message), "error");
+            // No signal, or a session that expired: the tap stays, for
+            // later or for this person's next sign-in.
+            if (err && (err.message === ERR_OFFLINE || err.message === "Session expired")) break;
+            showToast(tr(err.message), "error");
           }
         }
         putPending(pendingRef.current.filter(x => x.clientId !== tap.clientId));
@@ -2179,6 +2192,11 @@ export default function OCSAStaffPortal() {
     window.addEventListener("online", go);
     return () => window.removeEventListener("online", go);
   }, []);
+  // And once the person they belong to is signed in again.
+  const signedInId = user && user.id ? String(user.id) : null;
+  useEffect(() => {
+    if (screen === "main" && token && signedInId && pendingRef.current.length > 0) sendPendingRef.current();
+  }, [screen, token, signedInId]);
   useEffect(() => {
     if (activeTab !== "tasks" || screen !== "main") return undefined;
     sendPendingRef.current();
@@ -2504,7 +2522,8 @@ export default function OCSAStaffPortal() {
   // path, so the next person on the same phone starts clean however the
   // last one left. What this phone is set to, the language, the theme
   // and the text size, belongs to the phone and stays.
-  const forgetPerson = useCallback(() => {
+  const forgetPerson = useCallback((opts) => {
+    const keepQueue = !!(opts && opts.keepQueue === true);
     clearAuth();
     setToken(null); setUser(null); setSites([]); setScreen("login"); setLoginFault(null);
     setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null);
@@ -2513,7 +2532,8 @@ export default function OCSAStaffPortal() {
     // A checklist read still on its way is dropped, so it cannot keep the
     // list again after this.
     tasksSeq.current += 1;
-    pendingRef.current = []; writePending([]); setPending([]); forgetKept(); setOfflineOpen(false);
+    pendingRef.current = []; setPending([]); setOfflineOpen(false);
+    if (!keepQueue) { writePending([]); forgetKept(); }
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
     setChannels(null); setChannelsFailed(false); setMessages([]); setMessagesOf(null); setActiveChannel(null);
@@ -2525,9 +2545,12 @@ export default function OCSAStaffPortal() {
     unreadWarned.current = false; prefsLive.current = false; chosenOnEntryRef.current = null;
     tasksAsked.current = null; tasksReqAsked.current = null; inFlightTaskIds.current = new Set();
   }, []);
+  // An expired session signs the person out and keeps what is waiting,
+  // which is theirs, for when they sign in again.
   useEffect(() => {
-    window.addEventListener("ocsa-session-expired", forgetPerson);
-    return () => window.removeEventListener("ocsa-session-expired", forgetPerson);
+    const expired = () => forgetPerson({ keepQueue: true });
+    window.addEventListener("ocsa-session-expired", expired);
+    return () => window.removeEventListener("ocsa-session-expired", expired);
   }, [forgetPerson]);
   // The install sheet is mounted beside the app, not inside it, and
   // offers itself only to a signed-in person past Set your PIN. The app
@@ -6783,22 +6806,45 @@ const FORMS_LEAVE_LINE = "Leave this report? Your saved answers stay, and you ca
 const CUSTOMER_THANKS = "Thank you. OCSA has your form.";
 const CUSTOMER_MAX_PHOTOS = 3;
 const CUSTOMER_NAME_MAX = 120;
-// A customer's form that asks the person's name and role itself (Step
-// 240), so the page asks neither again and sends the form's own answers
-// as customerName and customerRole. The public form answer names the two
-// questions in customerFields, { name, role }; until it does, the two
-// forms known to ask are named here by code. A key the form does not
-// have is not taken, and a form with neither keeps the page's own.
+// A customer's form that asks the person's name and role itself, so the
+// page asks neither again and sends the form's own answers as
+// customerName and customerRole. The public form answer names the two
+// questions in customerFields, { name, role } (Step 242); an answer that
+// carries the key decides, null meaning the page asks its own. An answer
+// without the key falls back to the two forms known to ask, named here by
+// code (Step 240), and only those. A key the form does not have is not
+// taken, and a form with neither keeps the page's own. served says the
+// API named them, which is when the thank-you says who sent it.
 const CUSTOMER_FIELDS_BY_CODE = {
   "OCSA-FRM-007": { name: "your_name", role: "your_role" },
   "OCSA-FRM-006": { name: "completed_by", role: null },
 };
-function customerFieldsOf(sent, form) {
+function customerFieldsOf(answer, form) {
   const keys = new Set((form && Array.isArray(form.fields) ? form.fields : []).map(f => f && f.key));
-  const take = (o) => (o && typeof o === "object" && typeof o.name === "string" && keys.has(o.name)
-    ? { name: o.name, role: typeof o.role === "string" && keys.has(o.role) ? o.role : null } : null);
-  return take(sent) || take(CUSTOMER_FIELDS_BY_CODE[form && form.code]);
+  const take = (o, served) => (o && typeof o === "object" && typeof o.name === "string" && keys.has(o.name)
+    ? { name: o.name, role: typeof o.role === "string" && keys.has(o.role) ? o.role : null, served: served } : null);
+  if (answer && typeof answer === "object" && Object.prototype.hasOwnProperty.call(answer, "customerFields")) return take(answer.customerFields, true);
+  return take(CUSTOMER_FIELDS_BY_CODE[form && form.code], false);
 }
+// The forms whose photos go up one at a time through the link's own photo
+// route, POST /api/public/forms/:token/photos (Step 242), before the
+// filing names them by id. Every other customer form keeps its photos on
+// the phone and sends them inside the filing, as it always has. The
+// contract names no signal for this, so the one form it names is named
+// here by code.
+const CUSTOMER_PHOTO_ROUTE_CODES = ["OCSA-FRM-009"];
+// The receipt a filing answers with (Step 242): the report's reference,
+// and whether a copy went to the email the person gave.
+const CUSTOMER_REF_THANKS = "Thank you. Your reference is {ref}.";
+const CUSTOMER_REPLY_LINE = "We will reply within five working days.";
+const CUSTOMER_COPY_LINE = "A copy is on its way to your email.";
+const customerRefOf = (r) => { const v = r && typeof r === "object" ? (r.reference !== undefined ? r.reference : r.reportNumber !== undefined ? r.reportNumber : r.ref) : null; return (typeof v === "string" || typeof v === "number") && String(v).trim() ? String(v).trim() : null; };
+// The photos a photo route answered with, each with its id: { photos: [...] },
+// { photo }, or the photo itself.
+const customerPhotosOf = (r) => {
+  const list = r && Array.isArray(r.photos) ? r.photos : r && r.photo ? [r.photo] : r && r.id ? [r] : [];
+  return list.map(p => (p && typeof p === "object" ? agentField(p, ["id", "photoId", "photo_id"], null) : null)).filter(id => id !== null && id !== "").map(String);
+};
 
 // The data twin of the rule the API evaluates, read exactly the
 // way the API reads it. A shape this cannot recognize counts as
@@ -7224,7 +7270,7 @@ function CustomerFormScreen({ token, t, themeMode }) {
   }
   const form = got.data.form;
   const draft = { id: null, formCode: form.code, formName: form.title, answers: {}, status: "draft", answered: 0, remaining: 0, missing: [] };
-  return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, asks: customerFieldsOf(got.data.customerFields, form), head: head, thanksHead: headOf(false) }} />;
+  return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, asks: customerFieldsOf(got.data, form), photoRoute: CUSTOMER_PHOTO_ROUTE_CODES.indexOf(form.code) !== -1, head: head, thanksHead: headOf(false) }} />;
 }
 
 // The client's acknowledgement of a monthly report, the page the mail
@@ -7689,6 +7735,9 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
   // the form asks them itself (customer.asks).
   const [customerName, setCustomerName] = useState("");
   const [customerRole, setCustomerRole] = useState("");
+  // What a filing answered with: its reference, a copy emailed, and who
+  // sent it, for the thank-you.
+  const [receipt, setReceipt] = useState(null);
   // The API's words under the question a refusal named, by key.
   const [keyErr, setKeyErr] = useState({});
   // A customer signature drawn on the page: its strokes by key.
@@ -8019,11 +8068,26 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
   // On the customer's page a photo goes nowhere yet: it is made small the
   // same way, read as a data URL, and kept under the question until Send
   // puts it in the body. Its own bytes are its thumbnail.
+  // On a form whose photos go through the link's own photo route, each
+  // goes up as it is added, and the filing names it by the id the route
+  // answered; its own bytes are still its thumbnail. A refusal is said
+  // under the question in the API's words and the photo is not kept.
   const keepPhotos = async (f, files) => {
+    let ids = null;
+    if (customer.photoRoute) {
+      try {
+        const r = await apiUpload("/api/public/forms/" + encodeURIComponent(customer.token) + "/photos?locale=" + locale, "photos", files, { noAuthEvent: true });
+        ids = customerPhotosOf(r);
+        if (ids.length !== files.length) throw new Error(UPLOAD_FAILED);
+      } catch (err) {
+        if (alive.current) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(err && err.message ? err.message : UPLOAD_FAILED) }));
+        return;
+      }
+    }
     const kept = [];
     for (let i = 0; i < files.length; i++) {
       const data = await new Promise((done) => { const r = new FileReader(); r.onload = () => done(String(r.result || "")); r.onerror = () => done(""); r.readAsDataURL(files[i]); });
-      if (data) kept.push({ id: "c-" + f.key + "-" + Date.now() + "-" + i, name: files[i].name, data: data });
+      if (data) kept.push(Object.assign({ id: "c-" + f.key + "-" + Date.now() + "-" + i, name: files[i].name, data: data }, ids ? { ref: ids[i] } : {}));
     }
     if (!alive.current) return;
     setValues(prev => Object.assign({}, prev, { [f.key]: formPhotoList(prev[f.key]).concat(kept) }));
@@ -8129,18 +8193,25 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
     const answers = {};
     shown.forEach((f) => {
       const v = values[f.key];
-      if (formTypeOf(f) === "photos") { const list = formPhotoList(v); if (list.length > 0) answers[f.key] = list.map(p => ({ name: p.name, data: p.data })); return; }
+      if (formTypeOf(f) === "photos") { const list = formPhotoList(v); if (list.length > 0) answers[f.key] = list.map(p => (p.ref ? { id: p.ref, name: p.name } : { name: p.name, data: p.data })); return; }
       if (formTypeOf(f) === "customer_signature") { if (customerSigned(v)) answers[f.key] = { name: sigNameOf(v).trim(), role: sigRoleOf(v).trim(), signature: v.signature }; return; }
       if (formHasAnswer(v)) answers[f.key] = v;
     });
-    return { answers: answers, customerName: nameNow.trim(), customerRole: roleNow.trim(), locale: locale, website: "" };
+    // Held to what the page's own boxes take, so a long answer in the
+    // form's own name question is never refused for its length.
+    return { answers: answers, customerName: nameNow.trim().slice(0, CUSTOMER_NAME_MAX), customerRole: roleNow.trim().slice(0, CUSTOMER_NAME_MAX), locale: locale, website: "" };
   };
   const sendCustomer = async () => {
     if (sending) return;
     setSending(true); setSendErr(null); setKeyErr({});
+    // Read before the answers are cleared: whether an email question has
+    // an answer, and who sent it when the form's own questions asked.
+    const emailGiven = shown.some(f => /(^|_)e_?mail($|_)/i.test(f.key) && typeof values[f.key] === "string" && values[f.key].trim() !== "");
+    const who = asks && asks.served ? [nameNow.trim(), roleNow.trim()].filter(Boolean).join(", ") : "";
     try {
-      await api("/api/public/forms/" + encodeURIComponent(customer.token) + "/responses?locale=" + locale, { method: "POST", body: customerBody(), noAuthEvent: true });
-      if (alive.current) { setValues({}); setSent("sent"); }
+      const r = await api("/api/public/forms/" + encodeURIComponent(customer.token) + "/responses?locale=" + locale, { method: "POST", body: customerBody(), noAuthEvent: true });
+      const emailed = r && typeof r.emailed === "boolean" ? r.emailed : emailGiven;
+      if (alive.current) { setReceipt({ ref: customerRefOf(r), emailed: emailed, who: who }); setValues({}); setSent("sent"); }
     } catch (err) {
       const keys = Array.isArray(err.body && err.body.keys) ? err.body.keys.map(String) : [];
       if (err.status === 400 && Array.isArray(err.body && err.body.missing)) {
@@ -8612,8 +8683,11 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
     return (
       <div style={{ padding: 16 }}>
         {customer.thanksHead}
-        <div style={{ background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 18 }}>
-          <div style={{ fontSize: 15, color: t.text, lineHeight: 1.55, fontFamily: FONT_HEAD, fontWeight: 600 }}>{tr(CUSTOMER_THANKS)}</div>
+        <div role="status" style={{ background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 18 }}>
+          <div style={{ fontSize: 15, color: t.text, lineHeight: 1.55, fontFamily: FONT_HEAD, fontWeight: 600, overflowWrap: "anywhere" }}>{receipt && receipt.ref ? tr(CUSTOMER_REF_THANKS, { ref: receipt.ref }) : tr(CUSTOMER_THANKS)}</div>
+          {receipt && receipt.ref && <div style={{ fontSize: 14, color: t.textSec, lineHeight: 1.55, marginTop: 8 }}>{tr(CUSTOMER_REPLY_LINE)}</div>}
+          {receipt && receipt.ref && receipt.emailed && <div style={{ fontSize: 14, color: t.textSec, lineHeight: 1.55, marginTop: 8 }}>{tr(CUSTOMER_COPY_LINE)}</div>}
+          {receipt && receipt.who && <div style={{ fontSize: 13, color: t.textMut, lineHeight: 1.55, marginTop: 8, overflowWrap: "anywhere" }}>{tr("Sent by {who}.", { who: receipt.who })}</div>}
         </div>
       </div>
     );
