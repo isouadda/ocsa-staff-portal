@@ -15,6 +15,10 @@ item opens with no page error and no sideways scroll, Start Shift's
 screen draws, a form opens, Help answers; `/sds` draws with no sign-in;
 the sign-in code screen appears when the stub answers `secondStep`; a
 cleaner never asks for `/api/workspace` and a supervisor sees Workspace;
+a cleaner sees no Field kit and asks for none of its routes, and a
+supervisor's Field kit issues PPE with a signature drawn, reads periodic
+work by state, opens and checks an item from its equipment list, and
+signs a review line and meets a refusal;
 a customer's form that asks the name and role itself draws neither of the
 page's own and sends its own answers, while another form still draws
 them; a check-off with no signal is kept and said, and goes once with its
@@ -28,7 +32,7 @@ non-zero on any failure or when the run takes three minutes or more.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`), off for every other case. The full suite below is separate
+`concern`, `fieldKit`), off for every other case. The full suite below is separate
 and is not run by it.
 
 ## The full suite

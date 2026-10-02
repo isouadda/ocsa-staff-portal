@@ -7,10 +7,10 @@ Build and validate (run before every commit)
 * Build, the real check: npm run build must pass with no errors.
 * Dev server: npm start
 * Guide check: npm run guide-check must pass.
-* Smoke check: npm run smoke must pass. It serves the build/ that npm run build left, so build first; it takes about a minute and a half. See audit/README.md.
+* Smoke check: npm run smoke must pass. It serves the build/ that npm run build left, so build first; it takes about two minutes. See audit/README.md.
 * Report the build result after any change.
 Architecture
-* Single file: src/App.js, about 10,900 lines. The portal's own words live in src/words.js in three languages: English, Spanish and French. French shows only once GET /api/languages lists it.
+* Single file: src/App.js, about 11,600 lines. The portal's own words live in src/words.js in three languages: English, Spanish and French. French shows only once GET /api/languages lists it.
 * Design vocabulary matches the admin app: FONT_HEAD and FONT_BODY (both the phone's own system stack), the R radius scale, a full theme token set, gold glow on primary buttons, and the shared mkLabel, mkInput, mkQtyBtn helpers.
 * Auth fetch helper returns parsed JSON and throws on error.
 Conventions (hard rules)
