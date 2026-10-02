@@ -998,6 +998,17 @@ function readOpenFromUrl() {
   } catch (e) { return null; }
 }
 const OPEN_AT_START = readOpenFromUrl();
+// An equipment label's QR (Step 238): /eq/<code>. Read once at start. It
+// is no entry screen: the app signs in or boots the stored session as it
+// always does, and the item opens once the portal is up. The code is read
+// off the path as written, since its case matters.
+function readEquipmentFromUrl() {
+  try {
+    var m = /^\/eq\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+    return m ? m[1] : null;
+  } catch (e) { return null; }
+}
+const EQUIPMENT_AT_START = readEquipmentFromUrl();
 const ENTRY = readEntryFromUrl();
 if (ENTRY && ENTRY.token) {
   try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
@@ -2294,6 +2305,16 @@ export default function OCSAStaffPortal() {
   // before the first screen was drawn and the portal showed only the
   // last resort.
   const [openAsk, setOpenAsk] = useState(OPEN_AT_START);
+  // The equipment label this phone was opened from, waiting until the
+  // portal is up, and then the one on the screen.
+  const [equipmentCode, setEquipmentCode] = useState(EQUIPMENT_AT_START);
+  const [equipmentShown, setEquipmentShown] = useState(null);
+  useEffect(() => {
+    if (!equipmentCode || screen !== "main" || offlineOpen) return;
+    setEquipmentShown(equipmentCode); setEquipmentCode(null);
+    setActiveTab("equipment"); setShowMore(false);
+    try { window.history.replaceState({}, "", "/"); } catch (e) {}
+  }, [equipmentCode, screen, offlineOpen]);
   // The worker tells an open window where a tapped alert points.
   useEffect(() => {
     const sw = navigator.serviceWorker;
@@ -2689,6 +2710,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
               {activeTab === "phonealerts" && <PhoneAlertsView token={token} t={t} onBack={() => setActiveTab("settings")} />}
+              {activeTab === "equipment" && equipmentShown && <EquipmentView token={token} code={equipmentShown} showToast={showToast} t={t} onBack={() => { setEquipmentShown(null); setActiveTab("clock"); }} />}
               {activeTab === "profile" && <MyProfileView token={token} user={user} showToast={showToast} t={t} setUser={setUser} setActiveTab={setActiveTab} />}
             </div>
           </div>
@@ -9558,6 +9580,171 @@ function WsFiles({ token, projectId, showToast, t }) {
         );
       })}
       {addSheet}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// An equipment label (Step 238), opened from its QR: /eq/<code>
+//
+// The item from GET /api/equipment/by-qr/:code, for anyone signed in who
+// may read its site: its name, site, status, next service and its latest
+// events, with Checked, all good and Tag out, each asked first. A tag out
+// takes a note and, if the person adds one, a photo, made ready the way a
+// form's is and sent through the upload route. A retired item says so and
+// offers neither, and so does one already tagged out, which only the
+// office puts back in service. The portal has no QR scanner of its own: the phone's
+// camera reads the label and opens this page.
+// ------------------------------------------------------------
+const eqPath = (path) => "/api/equipment" + path + "?locale=" + languageToSend();
+const EQ_STATUS = { in_service: "In service", out_of_service: "Out of service", retired: "Retired" };
+const EQ_KIND = { check: "Checked, all good", service: "Serviced", repair: "Repaired", tagged_out: "Tagged out", returned: "Back in service", moved: "Moved", retired: "Retired" };
+const EQ_NOTE_MAX = 1000;
+const eqText = (o, keys) => { const v = agentField(o, keys, ""); return typeof v === "string" ? v.trim() : ""; };
+function eqItemOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = agentField(x, ["id"], null);
+  const name = eqText(x, ["name"]);
+  if (id === null || !name) return null;
+  const site = x.site && typeof x.site === "object" ? x.site : {};
+  const next = eqText(x, ["nextServiceOn", "next_service_on"]).slice(0, 10);
+  return { id: id, name: name, siteName: eqText(x, ["siteName", "site_name"]) || eqText(site, ["name"]), status: eqText(x, ["status"]), nextServiceOn: localDay(next) ? next : null, category: eqText(x, ["category"]) };
+}
+function eqEventOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const kind = eqText(x, ["kind"]);
+  if (!kind) return null;
+  const by = x.by && typeof x.by === "object" ? eqText(x.by, ["name"]) : eqText(x, ["byName", "by_name", "actorName"]);
+  return { id: agentField(x, ["id"], kind + agentField(x, ["at", "createdAt"], "")), kind: kind, note: eqText(x, ["note"]), by: by, at: agentField(x, ["at", "createdAt", "created_at"], null) };
+}
+const eqSaidOf = (err) => (err && err.message !== ERR_OFFLINE && typeof err.code === "string" && err.code.indexOf("equipment.") === 0 && typeof err.message === "string" && err.message.trim() ? err.message.trim() : null);
+
+function EquipmentView({ token, code, showToast, t, onBack }) {
+  const [item, setItem] = useState(null);
+  const [asked, setAsked] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [tagOut, setTagOut] = useState(null);
+  const photoRef = useRef(null);
+  useBusy("equipment tag out", !!tagOut && (tagOut.note.trim() !== "" || !!tagOut.photo || tagOut.state !== "idle"));
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const d = await api(eqPath("/by-qr/" + encodeURIComponent(code)), { token });
+        const x = eqItemOf(d && typeof d === "object" && d.equipment && typeof d.equipment === "object" ? d.equipment : d);
+        if (!x) throw new Error(ERR_GENERIC);
+        const events = (wsRows(d, "events") || []).map(eqEventOf).filter(Boolean);
+        if (live) setItem({ state: "ok", item: x, events: events });
+      } catch (err) {
+        if (live) setItem(prev => (prev && prev.state === "ok" ? prev : { state: err && err.status === 404 ? "gone" : "failed", said: eqSaidOf(err) || (err && err.message === ERR_OFFLINE ? tr(ERR_OFFLINE) : err && err.status === 404 ? tr("This label does not match any equipment.") : tr("This item did not open. Try again.")) }));
+      }
+    })();
+    return () => { live = false; };
+  }, [code, asked]);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [code]);
+  const back = <WsBack label={tr("Back")} onBack={onBack} t={t} />;
+  const record = async (body, done) => {
+    setBusy(true);
+    try {
+      await api(eqPath("/" + encodeURIComponent(item.item.id) + "/events"), { method: "POST", body: body, token });
+      showToast(done);
+      setAsked(n => n + 1);
+      return true;
+    } catch (err) {
+      showToast(eqSaidOf(err) || (err && err.message === ERR_OFFLINE ? tr(ERR_OFFLINE) : tr("That was not recorded. Try again.")), "error");
+      return false;
+    } finally { setBusy(false); }
+  };
+  const checked = async () => {
+    if (busy || !window.confirm(tr("Record that this item was checked and is in good order?"))) return;
+    await record({ kind: "check" }, tr("Check recorded."));
+  };
+  const choosePhoto = async (picked) => {
+    if (!picked || !tagOut) return;
+    setTagOut(o => ({ ...o, state: "preparing", fault: null }));
+    try { const photo = await prepareFormPhoto(picked); setTagOut(o => (o ? { ...o, photo: photo, state: "idle" } : o)); }
+    catch (e) { setTagOut(o => (o ? { ...o, photo: null, state: "idle", fault: tr(FORMS_PHOTO_UNREADABLE) } : o)); }
+  };
+  const sendTagOut = async () => {
+    if (!tagOut || tagOut.state !== "idle") return;
+    const note = tagOut.note.trim();
+    if (!note) { setTagOut({ ...tagOut, fault: tr("Say what is wrong before you tag it out.") }); return; }
+    if (!window.confirm(tr("Tag this item out of service? The office is told."))) return;
+    setTagOut({ ...tagOut, state: "sending", fault: null });
+    let photoUrl = null;
+    if (tagOut.photo) {
+      try { const up = await uploadTaskMedia(tagOut.photo, token); photoUrl = up && up.url ? up.url : null; }
+      catch (err) { setTagOut(o => (o ? { ...o, state: "idle", fault: tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : "The photo did not upload. Try again, or tag it out without it.") } : o)); return; }
+    }
+    const body = { kind: "tagged_out", note: note };
+    if (photoUrl) body.photoUrl = photoUrl;
+    setBusy(true);
+    try {
+      await api(eqPath("/" + encodeURIComponent(item.item.id) + "/events"), { method: "POST", body: body, token });
+      setTagOut(null);
+      showToast(tr("Tagged out. The office has been told."));
+      setAsked(n => n + 1);
+    } catch (err) {
+      setTagOut(o => (o ? { ...o, state: "idle", fault: eqSaidOf(err) || (err && err.message === ERR_OFFLINE ? tr(ERR_OFFLINE) : tr("That was not recorded. Try again.")) } : o));
+    } finally { setBusy(false); }
+  };
+  const closeTagOut = () => { if (tagOut && tagOut.state !== "sending") setTagOut(null); };
+  if (!item) return <div style={{ padding: "16px 16px 0" }}>{back}<div style={{ fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div></div>;
+  if (item.state !== "ok") return <div style={{ padding: "16px 16px 0" }}>{back}<div style={{ padding: "24px 18px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><BoxIco sz={32} c={t.borderSolid} /><div role="alert" style={{ fontSize: 14, color: t.textSec, marginTop: 12, lineHeight: 1.5, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{item.said}</div>{item.state === "failed" && <button type="button" onClick={() => setAsked(n => n + 1)} style={{ minHeight: TAP, marginTop: 14, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button>}</div></div>;
+  const x = item.item;
+  const retired = x.status === "retired";
+  const out = x.status === "out_of_service";
+  const statusInk = retired ? t.textMut : out ? wsLateInk(t) : ink(t, GREEN);
+  const rowSt = { padding: "10px 12px", borderTop: "1px solid " + t.borderSolid };
+  const keySt = { ...mkLabel(t), marginBottom: 2 };
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      {back}
+      <div style={mkLabel(t)}>{tr("Equipment")}</div>
+      <div role="heading" aria-level={1} style={{ fontSize: 18, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{x.name}</div>
+      {x.category && <div style={{ fontSize: 13, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{x.category}</div>}
+      <div style={{ marginTop: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, overflow: "hidden" }}>
+        <div style={{ ...rowSt, borderTop: "none" }}><div style={keySt}>{tr("Status")}</div><div style={{ fontSize: 14, fontWeight: 600, color: statusInk, fontFamily: FONT_HEAD }}>{tr(EQ_STATUS[x.status] || "In service")}</div></div>
+        {x.siteName && <div style={rowSt}><div style={keySt}>{tr("Site")}</div><div style={{ fontSize: 14, color: t.text, overflowWrap: "anywhere" }}>{x.siteName}</div></div>}
+        {!retired && <div style={rowSt}><div style={keySt}>{tr("Next service")}</div><div style={{ fontSize: 14, color: x.nextServiceOn ? t.text : t.textMut }}>{x.nextServiceOn ? wsDueText(x.nextServiceOn) : tr("None set")}</div></div>}
+      </div>
+      {retired && <div role="status" style={{ ...wsQuiet(t), textAlign: "left", marginTop: 12 }}>{tr("This item is retired. Nothing can be recorded on it.")}</div>}
+      {out && <div role="status" style={{ ...wsQuiet(t), textAlign: "left", marginTop: 12, color: t.text }}>{tr("This item is tagged out. Do not use it until the office puts it back in service.")}</div>}
+      {!retired && !out && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+          <button type="button" onClick={checked} aria-disabled={busy} style={wsMainBtn(t, busy)}>{tr("Checked, all good")}</button>
+          <button type="button" onClick={() => setTagOut({ note: "", photo: null, state: "idle", fault: null })} aria-haspopup="dialog" style={{ ...wsPlainBtn(t), border: "1px solid " + RED, color: ink(t, RED) }}>{tr("Tag out")}</button>
+        </div>
+      )}
+      <div role="heading" aria-level={2} style={{ ...mkLabel(t), marginTop: 18, marginBottom: 8 }}>{tr("Recent")}</div>
+      {item.events.length === 0 && <div style={wsQuiet(t)}>{tr("Nothing recorded yet.")}</div>}
+      {item.events.map(e => (
+        <div key={e.id} style={{ padding: "10px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr(EQ_KIND[e.kind] || e.kind)}</div>
+          {e.note && <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5, marginTop: 2, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{e.note}</div>}
+          <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, overflowWrap: "anywhere" }}>{[e.by, wsWhen(e.at)].filter(Boolean).join(", ")}</div>
+        </div>
+      ))}
+      {tagOut && (
+        <WsSheet id="ocsa-eq-tagout" title={tr("Tag out")} onClose={closeTagOut} t={t} footer={<>
+          <button type="button" onClick={closeTagOut} disabled={tagOut.state === "sending"} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+          <button type="button" onClick={sendTagOut} aria-disabled={tagOut.state !== "idle"} style={wsMainBtn(t, tagOut.state !== "idle")}>{tagOut.state === "sending" ? tr("Sending...") : tr("Tag out")}</button>
+        </>}>
+          <div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.5, marginBottom: 12, overflowWrap: "anywhere" }}>{x.name}</div>
+          <label htmlFor="ocsa-eq-note" style={mkLabel(t)}>{tr("What is wrong")}</label>
+          <textarea id="ocsa-eq-note" value={tagOut.note} maxLength={EQ_NOTE_MAX} rows={3} onChange={e => setTagOut({ ...tagOut, note: e.target.value.slice(0, EQ_NOTE_MAX), fault: null })} style={{ ...mkInput(t), minHeight: 88, resize: "vertical", lineHeight: 1.45, marginBottom: 12 }} />
+          <input ref={photoRef} type="file" accept="image/*" data-eq-photo="" style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; choosePhoto(f); }} />
+          {!tagOut.photo && <button type="button" onClick={() => { if (photoRef.current && tagOut.state === "idle") photoRef.current.click(); }} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, textAlign: "left" }}><CamIco sz={18} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tagOut.state === "preparing" ? tr("Loading...") : tr("Take photo or choose from gallery")}</span></button>}
+          {tagOut.photo && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 4px 4px 12px", borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}>
+              <CamIco sz={18} c={t.goldText} style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: t.text, overflowWrap: "anywhere" }}>{tagOut.photo.name}</span>
+              <button type="button" onClick={() => setTagOut({ ...tagOut, photo: null })} aria-label={tr("Remove photo")} style={mkTapFrame({ flexShrink: 0, color: t.textSec, fontSize: 18 })}>&times;</button>
+            </div>
+          )}
+          {tagOut.fault && <WsFault text={tagOut.fault} t={t} />}
+        </WsSheet>
+      )}
     </div>
   );
 }
