@@ -13,7 +13,8 @@
 //     sideways scroll; every More item opens
 //   - Start Shift's screen draws; a form opens from Forms; Help sends a
 //     question and shows the stub's answer
-//   - /sds draws its list with no sign-in
+//   - /sds draws its list with no sign-in (English alone: the check reads
+//     the API's sheet names, which are the same in every language)
 //   - the sign-in code screen appears when the stub answers secondStep,
 //     and the right code signs in; without it, sign-in goes straight in
 //   - a cleaner never asks for /api/workspace, even where the API would
@@ -55,6 +56,13 @@
 //   - the supply page (Step 252) signed out, with the sheet in the page
 //     and Sign in to record use, and signed in, with Used one and
 //     Running low (English alone)
+//   - My training (Step 258): the stub answers GET /api/training/me with
+//     one item of each status and two records, so More offers My
+//     training, and the screen draws To do with the safety ones first
+//     and its line, Coming due, Done and History newest first; a person
+//     with nothing required reads so; an item with linkUrl offers Take
+//     the course online in a new tab with the certificate line (English
+//     alone)
 //   - Inspection findings (Step 255): a completion that opens two
 //     findings, one with an owner, through the API alone, with the
 //     API's refusal under the card it names, the answer screen with the
@@ -74,7 +82,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -132,6 +140,11 @@ const stampOf = () => { try { return JSON.parse(fs.readFileSync(path.join(BUILD,
 // --- driving the page
 
 const pause = (page, ms) => page.waitForTimeout(ms);
+// The settle after a tap on the bar, under More or on a tile, and after
+// a load, once the screen is there (Step 258: these were 700, 900 and
+// 1,200 ms, fixed, and padded every run).
+const TAP_SETTLE = 300;
+const LOAD_SETTLE = 400;
 async function waitFor(page, fn, arg, ms) {
   try { await page.waitForFunction(fn, arg, { timeout: ms || 6000 }); return true; } catch (e) { return false; }
 }
@@ -147,7 +160,9 @@ const hasBar = (page) => page.evaluate(BAR_JS + ".length >= 5");
 // A name on the bar or under More, without the count before it.
 const clean = (s) => String(s || "").replace(/\s+/g, " ").trim().replace(/^(9\+|\d+)\s*/, "");
 async function barNames(page) { return (await page.evaluate(BAR_JS + ".map(b => b.innerText)")).map(clean); }
-async function tapBar(page, i) { await page.evaluate("(" + barButtons.toString() + ")()[" + i + "].click()"); await pause(page, 700); }
+// A tap draws its screen in the same frame; the settle after it covers
+// the first paint. What a screen then loads is waited for by each check.
+async function tapBar(page, i) { await page.evaluate("(" + barButtons.toString() + ")()[" + i + "].click()"); await pause(page, TAP_SETTLE); }
 async function openMore(page) {
   const n = (await barNames(page)).length;
   await tapBar(page, n - 1);
@@ -160,7 +175,7 @@ async function tapMore(page, name) {
     if (b) b.click();
     return !!b;
   }, name);
-  await pause(page, 900);
+  await pause(page, TAP_SETTLE);
   return hit;
 }
 const contentText = (page) => page.evaluate(() => { const c = document.querySelector(".sp-content"); return c ? c.innerText : document.body.innerText; });
@@ -173,7 +188,10 @@ async function open(stubOptions, o) {
   app.page.on("pageerror", (e) => errors.push(String(e && e.message || e).split("\n")[0]));
   await app.page.setViewportSize({ width: o.width || 390, height: 780 });
   await app.page.reload({ waitUntil: "domcontentloaded" });
-  await pause(app.page, 1200);
+  // The first screen after the reload, then a short settle for whatever a
+  // check reads at once; what a screen loads is waited for by the check.
+  await waitFor(app.page, () => !!document.querySelector(".sp-content, input[type=\"password\"], form, button"), null, 10000);
+  await pause(app.page, LOAD_SETTLE);
   return Object.assign(app, { stub, errors });
 }
 async function signIn(page, language) {
@@ -184,7 +202,8 @@ async function signIn(page, language) {
     const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.trim().toUpperCase() === label.toUpperCase());
     if (b) b.click();
   }, say(language, "Sign In"));
-  await pause(page, 1200);
+  // The portal or the code screen is waited for by each caller.
+  await pause(page, TAP_SETTLE);
 }
 
 // --- the checks
@@ -423,7 +442,7 @@ async function fieldKit(app, language) {
 // A tile on the field kit, and Back from one.
 async function openTile(page, name) {
   await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.split("\n")[0].trim() === w); if (b) b.click(); }, name);
-  await pause(page, 700);
+  await pause(page, TAP_SETTLE);
 }
 async function backToKit(page, language) {
   await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Field kit"));
@@ -648,7 +667,8 @@ async function french(browser) {
   const page = app.page;
   // The first load learns that French is offered; the next one draws it.
   await page.reload({ waitUntil: "domcontentloaded" });
-  await pause(page, 1500);
+  await waitFor(page, BAR_JS + ".length >= 5", null, 10000);
+  await pause(page, LOAD_SETTLE);
   const names = await barNames(page);
   const isFrench = names[0] === say("fr", "Home") && (await page.evaluate(() => document.documentElement.lang)) === "fr";
   check("French offered by the stub turns the screen French", isFrench, "the bar reads " + names.join(", "));
@@ -853,6 +873,44 @@ async function findings(browser, language) {
   await app.context.close();
 }
 
+// My training (Step 258): the stub answers GET /api/training/me with one
+// item of each status and two records. More offers My training; the
+// screen draws To do (the safety-critical ones first, each with its
+// line, and the supervisor line under the group), Coming due, Done and
+// History newest first with the language each session was given in. A
+// person with nothing required reads so, with no group.
+async function training(browser, language) {
+  const app = await open({ training: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
+  const page = app.page;
+  const offered = await tapMore(page, say(language, "My training"));
+  const want = {
+    groups: "todo|soon|done|history", items: "missing|expired|missing|refresherDue|dueSoon|current", records: "tr-6|tr-8",
+    words: [say(language, "To do"), say(language, "Coming due"), say(language, "Done"), say(language, "History"), say(language, "Your supervisor sets up these sessions. Ask them when the next one is."),
+      say(language, "Not done yet"), say(language, "Refresher due at {site}", { site: "North Building" }), say(language, "Given in English"), say(language, "Given in Spanish"), "OCSA-HR-009 3", TRAINING_ME.items[0].name,
+      say(language, "Take the course online"), say(language, "When you finish, give your certificate to the office.")],
+    link: TRAINING_ME.items[1].linkUrl,
+  };
+  const drawn = offered && await waitFor(page, (w) => {
+    const c = document.querySelector('[data-training="1"]');
+    if (!c) return false;
+    const of = (sel, attr) => Array.from(c.querySelectorAll(sel)).map(e => e.getAttribute(attr)).join("|");
+    const text = c.innerText.toUpperCase();
+    const links = Array.from(c.querySelectorAll("a[data-training-link]"));
+    return of("[data-training-group]", "data-training-group") === w.groups && of("[data-training-item]", "data-training-item") === w.items && of("[data-training-record]", "data-training-record") === w.records && w.words.every(x => text.indexOf(x.toUpperCase()) !== -1) && links.length === 1 && links[0].getAttribute("href") === w.link && links[0].getAttribute("target") === "_blank";
+  }, want);
+  const wide = await sideways(page);
+  const asked = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/training/me").length;
+  await app.context.close();
+  // Nothing required: the one line, and no group.
+  const none = await open({ trainingNone: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
+  const offered2 = await tapMore(none.page, say(language, "My training"));
+  const quiet = offered2 && await waitFor(none.page, (w) => { const c = document.querySelector('[data-training="1"]'); return !!c && c.innerText.indexOf(w) !== -1 && c.querySelectorAll("[data-training-group]").length === 0; }, say(language, "Nothing is required for your role yet."));
+  await none.context.close();
+  check("My training under More draws To do with the safety-critical ones first and the supervisor line, Coming due, Done and History newest first with the language each was given in, from GET /api/training/me, one Take the course online link opening the item's linkUrl in a new tab with the certificate line under it, with no sideways scroll; a person with nothing required reads so (" + language + ")",
+    offered && drawn && wide <= 1 && asked >= 1 && quiet && app.errors.length === 0 && none.errors.length === 0,
+    !offered ? "no My training under More" : !drawn ? "the screen did not read as expected" : wide > 1 ? wide + " pixels sideways" : !asked ? "the route was not asked" : !quiet ? "the nothing-required line did not show alone" : (app.errors[0] || none.errors[0]));
+}
+
 // The supply page (Step 252): signed out, the sheet in the page and Sign
 // in to record use; signed in, Used one and Running low.
 async function supplyPage(browser, language) {
@@ -904,7 +962,8 @@ async function largest(browser) {
   const guard = async (name, fn) => { try { await fn(); } catch (e) { check(name, false, "threw " + String(e && e.message || e).split("\n")[0]); } };
   try {
     for (const language of ["en", "es"]) await guard("a cleaner's run (" + language + ")", () => cleaner(browser, language));
-    for (const language of ["en", "es"]) await guard("/sds (" + language + ")", () => sds(browser, language));
+    // /sds reads the API's sheet names alone, the same in every language.
+    await guard("/sds (en)", () => sds(browser, "en"));
     for (const language of ["en", "es"]) await guard("the second sign-in step (" + language + ")", () => secondStep(browser, language));
     for (const language of ["en", "es"]) await guard("the workspace (" + language + ")", () => supervisor(browser, language));
     for (const language of ["en", "es"]) await guard("007 on the customer page (" + language + ")", () => customerAsks(browser, language));
@@ -919,6 +978,7 @@ async function largest(browser) {
     await guard("Client requests for an approver", () => requestsApprover(browser, "en"));
     await guard("Client requests for an assignee", () => requestsAssignee(browser, "en"));
     await guard("Inspection findings", () => findings(browser, "en"));
+    await guard("My training", () => training(browser, "en"));
     await guard("the supply page", () => supplyPage(browser, "en"));
     await guard("French", () => french(browser));
     await guard("the Largest text size", () => largest(browser));

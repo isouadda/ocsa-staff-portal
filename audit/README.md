@@ -12,7 +12,8 @@ build and the guide check. It builds nothing: it serves the `build/` that
 newer than that build. It drives the portal at 390 wide against the stub,
 in English and Spanish: a cleaner signs in, every bar tab and every More
 item opens with no page error and no sideways scroll, Start Shift's
-screen draws, a form opens, Help answers; `/sds` draws with no sign-in;
+screen draws, a form opens, Help answers; `/sds` draws with no sign-in
+(English alone, since that check reads the API's sheet names);
 the sign-in code screen appears when the stub answers `secondStep`; a
 cleaner never asks for `/api/workspace` and a supervisor sees Workspace;
 a cleaner sees no Field kit and asks for none of its routes, and a
@@ -43,15 +44,20 @@ and signed in, with Used one and Running low; Inspection findings
 (Step 255), a completion that opens two findings through the API alone,
 one with an owner, with the API's refusal under the card it names, the
 answer screen with the band and each finding, and the owner's finding
-on Report, Fixed and Waiting for a check;
+on Report, Fixed and Waiting for a check; My training (Step 258)
+under More, with To do, Coming due, Done and History from an invented
+answer, and the line a person with nothing required reads;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
 non-zero on any failure or when the run takes three minutes or more.
+Since Step 258 it waits for each screen to be there rather than sleeping
+a fixed time after every load and tap, and a run takes about 100 seconds;
+the three-minute line stays where it was.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`), off for every other case. The full suite below is separate
+`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`), off for every other case. The full suite below is separate
 and is not run by it.
 
 ## The full suite

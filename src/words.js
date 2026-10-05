@@ -1182,6 +1182,23 @@ export const WORDS = {
   "A second person checks the fix before the finding closes.": "Otra persona verifica el arreglo antes de cerrar el hallazgo.",
   "Fixed. A second person checks it.": "Arreglado. Otra persona lo verifica.",
   "Waiting for a check": "Esperando verificaci\u00f3n",
+  // My training (Step 258)
+  "My training": "Mi capacitaci\u00f3n",
+  "To do": "Pendiente",
+  "Coming due": "Por vencer",
+  "History": "Historial",
+  "Expired {date}": "Venci\u00f3 el {date}",
+  "Refresher due at {site}": "Repaso pendiente en {site}",
+  "Refresher due": "Repaso pendiente",
+  "Expires {date}": "Vence el {date}",
+  "Done {date}": "Hecha el {date}",
+  "Your supervisor sets up these sessions. Ask them when the next one is.": "Su supervisor organiza estas sesiones. Preg\u00fantele cu\u00e1ndo es la pr\u00f3xima.",
+  "Nothing is required for your role yet.": "Todav\u00eda no se requiere nada para su puesto.",
+  "Given in English": "Dada en ingl\u00e9s",
+  "Given in Spanish": "Dada en espa\u00f1ol",
+  "Given in French": "Dada en franc\u00e9s",
+  "Take the course online": "Tomar el curso en l\u00ednea",
+  "When you finish, give your certificate to the office.": "Cuando termine, entregue su certificado a la oficina.",
   },
 };
 
@@ -2245,6 +2262,23 @@ WORDS.fr = {
   "A second person checks the fix before the finding closes.": "Une autre personne v\u00e9rifie la r\u00e9paration avant la cl\u00f4ture du constat.",
   "Fixed. A second person checks it.": "R\u00e9par\u00e9. Une autre personne le v\u00e9rifie.",
   "Waiting for a check": "En attente de v\u00e9rification",
+  // My training (Step 258)
+  "My training": "Ma formation",
+  "To do": "\u00c0 faire",
+  "Coming due": "Bient\u00f4t \u00e0 renouveler",
+  "History": "Historique",
+  "Expired {date}": "Expir\u00e9e le {date}",
+  "Refresher due at {site}": "Rappel \u00e0 faire \u00e0 {site}",
+  "Refresher due": "Rappel \u00e0 faire",
+  "Expires {date}": "Expire le {date}",
+  "Done {date}": "Faite le {date}",
+  "Your supervisor sets up these sessions. Ask them when the next one is.": "Votre superviseur organise ces s\u00e9ances. Demandez-lui quand aura lieu la prochaine.",
+  "Nothing is required for your role yet.": "Rien n'est encore requis pour votre poste.",
+  "Given in English": "Donn\u00e9e en anglais",
+  "Given in Spanish": "Donn\u00e9e en espagnol",
+  "Given in French": "Donn\u00e9e en fran\u00e7ais",
+  "Take the course online": "Suivre le cours en ligne",
+  "When you finish, give your certificate to the office.": "Quand vous avez termin\u00e9, remettez votre certificat au bureau.",
 };
 
 // {name} is replaced after the language is chosen, so the
