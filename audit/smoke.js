@@ -13,7 +13,8 @@
 //     sideways scroll; every More item opens
 //   - Start Shift's screen draws; a form opens from Forms; Help sends a
 //     question and shows the stub's answer
-//   - /sds draws its list with no sign-in
+//   - /sds draws its list with no sign-in (English alone: the check reads
+//     the API's sheet names, which are the same in every language)
 //   - the sign-in code screen appears when the stub answers secondStep,
 //     and the right code signs in; without it, sign-in goes straight in
 //   - a cleaner never asks for /api/workspace, even where the API would
@@ -132,6 +133,11 @@ const stampOf = () => { try { return JSON.parse(fs.readFileSync(path.join(BUILD,
 // --- driving the page
 
 const pause = (page, ms) => page.waitForTimeout(ms);
+// The settle after a tap on the bar, under More or on a tile, and after
+// a load, once the screen is there (Step 258: these were 700, 900 and
+// 1,200 ms, fixed, and padded every run).
+const TAP_SETTLE = 300;
+const LOAD_SETTLE = 400;
 async function waitFor(page, fn, arg, ms) {
   try { await page.waitForFunction(fn, arg, { timeout: ms || 6000 }); return true; } catch (e) { return false; }
 }
@@ -147,7 +153,9 @@ const hasBar = (page) => page.evaluate(BAR_JS + ".length >= 5");
 // A name on the bar or under More, without the count before it.
 const clean = (s) => String(s || "").replace(/\s+/g, " ").trim().replace(/^(9\+|\d+)\s*/, "");
 async function barNames(page) { return (await page.evaluate(BAR_JS + ".map(b => b.innerText)")).map(clean); }
-async function tapBar(page, i) { await page.evaluate("(" + barButtons.toString() + ")()[" + i + "].click()"); await pause(page, 700); }
+// A tap draws its screen in the same frame; the settle after it covers
+// the first paint. What a screen then loads is waited for by each check.
+async function tapBar(page, i) { await page.evaluate("(" + barButtons.toString() + ")()[" + i + "].click()"); await pause(page, TAP_SETTLE); }
 async function openMore(page) {
   const n = (await barNames(page)).length;
   await tapBar(page, n - 1);
@@ -160,7 +168,7 @@ async function tapMore(page, name) {
     if (b) b.click();
     return !!b;
   }, name);
-  await pause(page, 900);
+  await pause(page, TAP_SETTLE);
   return hit;
 }
 const contentText = (page) => page.evaluate(() => { const c = document.querySelector(".sp-content"); return c ? c.innerText : document.body.innerText; });
@@ -173,7 +181,10 @@ async function open(stubOptions, o) {
   app.page.on("pageerror", (e) => errors.push(String(e && e.message || e).split("\n")[0]));
   await app.page.setViewportSize({ width: o.width || 390, height: 780 });
   await app.page.reload({ waitUntil: "domcontentloaded" });
-  await pause(app.page, 1200);
+  // The first screen after the reload, then a short settle for whatever a
+  // check reads at once; what a screen loads is waited for by the check.
+  await waitFor(app.page, () => !!document.querySelector(".sp-content, input[type=\"password\"], form, button"), null, 10000);
+  await pause(app.page, LOAD_SETTLE);
   return Object.assign(app, { stub, errors });
 }
 async function signIn(page, language) {
@@ -184,7 +195,8 @@ async function signIn(page, language) {
     const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.trim().toUpperCase() === label.toUpperCase());
     if (b) b.click();
   }, say(language, "Sign In"));
-  await pause(page, 1200);
+  // The portal or the code screen is waited for by each caller.
+  await pause(page, TAP_SETTLE);
 }
 
 // --- the checks
@@ -423,7 +435,7 @@ async function fieldKit(app, language) {
 // A tile on the field kit, and Back from one.
 async function openTile(page, name) {
   await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.split("\n")[0].trim() === w); if (b) b.click(); }, name);
-  await pause(page, 700);
+  await pause(page, TAP_SETTLE);
 }
 async function backToKit(page, language) {
   await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Field kit"));
@@ -648,7 +660,8 @@ async function french(browser) {
   const page = app.page;
   // The first load learns that French is offered; the next one draws it.
   await page.reload({ waitUntil: "domcontentloaded" });
-  await pause(page, 1500);
+  await waitFor(page, BAR_JS + ".length >= 5", null, 10000);
+  await pause(page, LOAD_SETTLE);
   const names = await barNames(page);
   const isFrench = names[0] === say("fr", "Home") && (await page.evaluate(() => document.documentElement.lang)) === "fr";
   check("French offered by the stub turns the screen French", isFrench, "the bar reads " + names.join(", "));
@@ -904,7 +917,8 @@ async function largest(browser) {
   const guard = async (name, fn) => { try { await fn(); } catch (e) { check(name, false, "threw " + String(e && e.message || e).split("\n")[0]); } };
   try {
     for (const language of ["en", "es"]) await guard("a cleaner's run (" + language + ")", () => cleaner(browser, language));
-    for (const language of ["en", "es"]) await guard("/sds (" + language + ")", () => sds(browser, language));
+    // /sds reads the API's sheet names alone, the same in every language.
+    await guard("/sds (en)", () => sds(browser, "en"));
     for (const language of ["en", "es"]) await guard("the second sign-in step (" + language + ")", () => secondStep(browser, language));
     for (const language of ["en", "es"]) await guard("the workspace (" + language + ")", () => supervisor(browser, language));
     for (const language of ["en", "es"]) await guard("007 on the customer page (" + language + ")", () => customerAsks(browser, language));
