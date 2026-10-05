@@ -2651,7 +2651,7 @@ const JOURNEYS = [
           JSON.stringify(b));
         text = await bodyText(app.page);
         const left = await app.page.evaluate(() => Array.from(document.querySelectorAll("button, a[href], input, select, textarea")).filter(e => e.offsetParent !== null && getComputedStyle(e).opacity !== "0").length);
-        expect("a 200 shows the thank-you with nothing else to tap", has(text, spanishOf("Thank you. OCSA has your form.", language)) && left === 0, text.slice(0, 300) + " controls left: " + left);
+        expect("a 200 shows the thank-you with nothing else to tap", has(text, fill(spanishOf("Thank you. {company} has your form.", language), { company: PUBLIC_COMPANY })) && left === 0, text.slice(0, 300) + " controls left: " + left);
         const kept = await app.page.evaluate(() => ({ local: Object.keys(window.localStorage).filter(k => k !== "ocsa-staff-language" && k !== "ocsa-staff-text-size" && k !== "ocsa-staff-theme" && k !== "ocsa-home-screen-prompt" && k !== "audit-language-fresh"), session: Object.keys(window.sessionStorage).filter(k => k.indexOf("audit-") !== 0) }));
         expect("nothing is kept on the phone after Send", kept.local.length === 0 && kept.session.length === 0, JSON.stringify(kept));
         const behind = app.stub.state.calls.filter(c => !/^\/api\/public\//.test(c.path) || c.headers.authorization);
@@ -2796,7 +2796,7 @@ const JOURNEYS = [
           !!read && read.pics && read.pics[0].kind.ext === "jpg" && Math.max(read.pics[0].size.width, read.pics[0].size.height) <= 2000 && read.signed && read.signed.bytes <= SIGNATURE_MAX_BYTES && read.signed.size && read.signed.size.height === 320,
           JSON.stringify(read));
         text = await bodyText(app.page);
-        expect("a 200 shows the thank-you", has(text, spanishOf("Thank you. OCSA has your form.", language)), text.slice(0, 300));
+        expect("a 200 shows the thank-you", has(text, fill(spanishOf("Thank you. {company} has your form.", language), { company: PUBLIC_COMPANY })), text.slice(0, 300));
         const behind = app.stub.state.calls.filter(c => !/^\/api\/public\//.test(c.path) || c.headers.authorization);
         expect("the page never calls a route behind the token: 0 authenticated calls", behind.length === 0, JSON.stringify(behind.map(c => c.method + " " + c.path)));
       } finally { await app.context.close(); }

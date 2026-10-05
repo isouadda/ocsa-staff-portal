@@ -31,6 +31,15 @@ records a check; a periodic task says how often it comes; a checklist
 with one touchpoint and one critical touchpoint draws both chips, and the
 critical item's detail draws its chip; a concern link (OCSA-FRM-009)
 takes a photo through its own route and shows the reference after filing;
+the request page at 320 wide on the site-wide link asks where, says a
+refusal under its field, files a request with a photo through its own
+route and shows the API's thanks, and a second filing of the same
+category joins it; Client requests for an approver, Home's card, the
+section, Approve and assign with its picker and the 409 when someone
+else decided first, and for an assignee, the request opened from the
+notice's link, /requests/<id>, then I'm on it and Done; the supply
+page signed out, with the sheet in the page and Sign in to record use,
+and signed in, with Used one and Running low;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
@@ -38,7 +47,7 @@ non-zero on any failure or when the run takes three minutes or more.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`, `fieldKit`), off for every other case. The full suite below is separate
+`concern`, `fieldKit`, `requests`, `supplyQr`), off for every other case. The full suite below is separate
 and is not run by it.
 
 ## The full suite
