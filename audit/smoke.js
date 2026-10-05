@@ -25,15 +25,21 @@
 //     opens an item's own page from Equipment, checks it, and comes back
 //     to the list; and signs a review line, with a refusal said in the
 //     API's words
-//   - a customer's form that asks the name and role itself draws neither
-//     of the page's own and sends its own answers as customerName and
-//     customerRole; a form that does not ask still draws them
+//   - the customer page reads customerFields and photoRoute from the
+//     public form answer alone, in the API's as-built shapes: 007 and
+//     006 ask the name once in their own question and send photos
+//     through the link's route, filed by id; a form answered
+//     customerFields null and photoRoute false draws the page's own Your
+//     name and Your role and sends its photos inside the filing
 //   - a check-off with no signal is kept on the phone and says so, and
 //     goes once, with its clientId, when the signal is back (English
 //     alone)
 //   - an equipment label's page opens, signed in, and Checked, all good
 //     sends { kind: "check" }
 //   - a periodic task says how often it comes beside its name
+//   - a checklist with one touchpoint and one critical touchpoint draws
+//     Touchpoint once and Critical touchpoint once, and the critical
+//     item's detail draws its chip
 //   - a concern link heads itself with the API's customerTitle, takes a
 //     photo through its own route, files, and shows the reference, the
 //     reply line and the copy line
@@ -50,7 +56,7 @@ const fs = require("fs");
 const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
-const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF } = require("./stub");
+const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -417,39 +423,97 @@ async function sign(page, selector) {
   await pause(page, 200);
 }
 
-// A customer's form that asks the name and role itself (Step 240), and
-// one that does not.
+// The customer page (Step 249) reads customerFields and photoRoute from
+// the public form answer alone, in the shapes the API answers (Step 242
+// as built), and these four checks prove each shape against the stub.
+// A photo made on the page, added to the form's photo question.
+async function addCustomerPhoto(page, name) {
+  const jpg = await page.evaluate(async () => { const c = document.createElement("canvas"); c.width = 800; c.height = 600; const x = c.getContext("2d"); x.fillStyle = "#3a7"; x.fillRect(0, 0, 800, 600); const b = await new Promise(r => c.toBlob(r, "image/jpeg", 0.9)); const a = new Uint8Array(await b.arrayBuffer()); let s = ""; a.forEach(v => { s += String.fromCharCode(v); }); return btoa(s); });
+  await page.setInputFiles('input[type="file"][accept="image/*"]', { name: name, mimeType: "image/jpeg", buffer: Buffer.from(jpg, "base64") });
+  return waitFor(page, () => Array.from(document.querySelectorAll("img")).some(i => /^data:image/.test(i.src)));
+}
+const clickWord = (page, label) => page.evaluate((l) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.trim() === l); if (b) b.click(); return !!b; }, label);
+// Next until Send shows, then Send, and the filing the stub took.
+async function sendCustomerForm(app, language) {
+  const page = app.page;
+  for (let i = 0; i < 4 && !(await page.evaluate((s) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.trim() === s), say(language, "Send"))); i += 1) { await clickWord(page, say(language, "Next")); await pause(page, 400); }
+  await clickWord(page, say(language, "Send"));
+  for (let i = 0; i < 15 && app.stub.state.customerFiled.length === 0; i += 1) await pause(page, 200);
+  return app.stub.state.customerFiled[0] || null;
+}
+// What the page drew for the person: its own Your name or Your role, the
+// hidden website field, and how many questions read the form's own label.
+const customerLooks = (page, nameLabel) => page.evaluate((nameLabel) => ({
+  own: !!document.querySelector('input[autocomplete="name"]') || !!document.querySelector('input[autocomplete="organization-title"]'),
+  honeypot: !!document.querySelector('input[name="website"]'),
+  named: Array.from(document.querySelectorAll("div")).filter(d => d.firstChild && d.firstChild.nodeType === 3 && d.firstChild.textContent.trim() === nameLabel).length,
+}), nameLabel);
+const photoPosts = (app, token) => app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/public/forms/" + token + "/photos").length;
+
+// OCSA-FRM-007: customerFields { your_name, your_role } and photoRoute
+// true. The page asks the name once, in the form's own question, and the
+// photo goes through the link's route and is filed by id.
 async function customerAsks(browser, language) {
   const w = FORM_A_WORDS[language];
   const app = await open({ customerAsks: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, path: "/c/link-asks" });
   const page = app.page;
   const up = await waitFor(page, (title) => document.body.innerText.indexOf(title) !== -1 && document.querySelectorAll('input[type="text"]').length > 0, w.title);
-  const looks = await page.evaluate((nameLabel) => ({
-    own: !!document.querySelector('input[autocomplete="name"]') || !!document.querySelector('input[autocomplete="organization-title"]'),
-    honeypot: !!document.querySelector('input[name="website"]'),
-    named: Array.from(document.querySelectorAll("div")).filter(d => d.firstChild && d.firstChild.nodeType === 3 && d.firstChild.textContent.trim() === nameLabel).length,
-  }), w.name);
+  const looks = await customerLooks(page, w.name);
   const boxes = page.locator('input[type="text"]:not([name="website"])');
   await boxes.nth(0).fill("Invented Org");
   await boxes.nth(1).fill("An invented customer");
   await boxes.nth(2).fill("Facilities");
-  for (let i = 0; i < 4 && !(await page.evaluate((s) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.trim() === s), say(language, "Send"))); i += 1) {
-    await page.evaluate((n) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.trim() === n); if (b) b.click(); }, say(language, "Next"));
-    await pause(page, 500);
-  }
-  await page.evaluate((s) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.trim() === s); if (b) b.click(); }, say(language, "Send"));
-  for (let i = 0; i < 15 && app.stub.state.customerFiled.length === 0; i += 1) await pause(page, 200);
-  const got = app.stub.state.customerFiled[0];
+  await clickWord(page, say(language, "Next")); await pause(page, 400);
+  const shown = await addCustomerPhoto(page, "lobby.jpg");
+  const got = await sendCustomerForm(app, language);
   await app.context.close();
-  // Another form keeps the page's own.
-  const other = await open({ accountPreferences: { language: language, textSize: "standard" } }, { browser, language, path: "/c/link-survey" });
-  await waitFor(other.page, () => document.querySelectorAll('input[type="text"]').length > 0);
-  const kept = await other.page.evaluate(() => !!document.querySelector('input[autocomplete="name"]') && !!document.querySelector('input[autocomplete="organization-title"]') && !!document.querySelector('input[name="website"]'));
-  await other.context.close();
   const sent = !!got && got.customerName === "An invented customer" && got.customerRole === "Facilities" && got.answers.your_name === "An invented customer" && got.answers.your_role === "Facilities";
-  check("a customer's form that asks the name and role itself draws neither of the page's own and sends its answers as customerName and customerRole; another form still draws them (" + language + ")",
-    up && !looks.own && looks.honeypot && looks.named === 1 && sent && kept && app.errors.length === 0 && other.errors.length === 0,
-    !up ? "the form did not open" : looks.own ? "the page's own Your name or Your role showed" : !looks.honeypot ? "no hidden website field" : looks.named !== 1 ? looks.named + " questions read " + JSON.stringify(w.name) : !sent ? "sent " + JSON.stringify(got || null) : !kept ? "the other form lost the page's own Your name and Your role" : (app.errors[0] || other.errors[0]));
+  const byId = !!got && JSON.stringify(got.answers.pics) === '["cp-1"]' && photoPosts(app, "link-asks") === 1;
+  check("007, customerFields { your_name, your_role } and photoRoute true: the page asks the name once in the form's own question, draws neither of its own, sends them as customerName and customerRole, and the photo goes through the link's route and is filed by id (" + language + ")",
+    up && !looks.own && looks.honeypot && looks.named === 1 && shown && sent && byId && app.errors.length === 0,
+    !up ? "the form did not open" : looks.own ? "the page's own Your name or Your role showed" : !looks.honeypot ? "no hidden website field" : looks.named !== 1 ? looks.named + " questions read " + JSON.stringify(w.name) : !shown ? "no thumbnail for the photo" : !sent ? "sent " + JSON.stringify(got || null) : !byId ? "photos filed as " + JSON.stringify(got.answers.pics) + " after " + photoPosts(app, "link-asks") + " uploads" : app.errors[0]);
+}
+
+// OCSA-FRM-006: customerFields { completed_by, role null } and photoRoute
+// true. One question takes the name and role, asked once and required;
+// the role sent is empty; the photo goes through the route.
+async function customerWalk(browser, language) {
+  const w = FORM_W_WORDS[language];
+  const app = await open({ customerAsks: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, path: "/c/link-walk" });
+  const page = app.page;
+  const up = await waitFor(page, (title) => document.body.innerText.indexOf(title) !== -1 && document.querySelectorAll('input[type="text"]').length > 0, w.title);
+  const looks = await customerLooks(page, w.who);
+  await page.locator('input[type="text"]:not([name="website"])').nth(0).fill("An invented customer, Facilities");
+  await clickWord(page, say(language, "Next")); await pause(page, 400);
+  const shown = await addCustomerPhoto(page, "hall.jpg");
+  const got = await sendCustomerForm(app, language);
+  await app.context.close();
+  const sent = !!got && got.customerName === "An invented customer, Facilities" && got.customerRole === "" && got.answers.completed_by === "An invented customer, Facilities";
+  const byId = !!got && JSON.stringify(got.answers.pics) === '["cp-1"]' && photoPosts(app, "link-walk") === 1;
+  check("006, customerFields { completed_by, role null } and photoRoute true: the page asks the one question once, draws neither of its own, sends it as customerName with no customerRole, and the photo goes through the link's route and is filed by id (" + language + ")",
+    up && !looks.own && looks.honeypot && looks.named === 1 && shown && sent && byId && app.errors.length === 0,
+    !up ? "the form did not open" : looks.own ? "the page's own Your name or Your role showed" : !looks.honeypot ? "no hidden website field" : looks.named !== 1 ? looks.named + " questions read " + JSON.stringify(w.who) : !shown ? "no thumbnail for the photo" : !sent ? "sent " + JSON.stringify(got || null) : !byId ? "photos filed as " + JSON.stringify(got.answers.pics) + " after " + photoPosts(app, "link-walk") + " uploads" : app.errors[0]);
+}
+
+// A form the API's map does not name: customerFields null and photoRoute
+// false. The page draws its own Your name and Your role, and the photo
+// goes inside the filing as a data URL, with no call to the photo route.
+async function customerOwn(browser, language) {
+  const app = await open({ accountPreferences: { language: language, textSize: "standard" } }, { browser, language, path: "/c/link-survey" });
+  const page = app.page;
+  const up = await waitFor(page, () => document.querySelectorAll('input[type="text"]').length > 0);
+  const kept = await page.evaluate(() => !!document.querySelector('input[autocomplete="name"]') && !!document.querySelector('input[autocomplete="organization-title"]') && !!document.querySelector('input[name="website"]'));
+  if (kept) { await page.fill('input[autocomplete="name"]', "An invented customer"); await page.fill('input[autocomplete="organization-title"]', "Facilities"); }
+  await page.locator('input[type="text"]:not([name="website"]):not([autocomplete="name"]):not([autocomplete="organization-title"])').nth(0).fill("Invented Org");
+  await clickWord(page, say(language, "Next")); await pause(page, 400);
+  const shown = await addCustomerPhoto(page, "desk.jpg");
+  const got = await sendCustomerForm(app, language);
+  await app.context.close();
+  const inside = !!got && Array.isArray(got.answers.pics) && got.answers.pics.length === 1 && got.answers.pics[0].bytes > 0 && !!got.answers.pics[0].kind && photoPosts(app, "link-survey") === 0;
+  const sent = !!got && got.customerName === "An invented customer" && got.customerRole === "Facilities" && got.body.customerName === "An invented customer";
+  check("a form with customerFields null and photoRoute false: the page draws its own Your name and Your role and sends them, and the photo goes inside the filing with no call to the photo route (" + language + ")",
+    up && kept && shown && sent && inside && app.errors.length === 0,
+    !up ? "the form did not open" : !kept ? "the page's own Your name and Your role did not show" : !shown ? "no thumbnail for the photo" : !sent ? "sent " + JSON.stringify(got || null) : !inside ? "photos filed as " + JSON.stringify(got.answers.pics) + " after " + photoPosts(app, "link-survey") + " uploads" : app.errors[0]);
 }
 
 // A check-off with no signal (Step 240): kept, said, and sent once later.
@@ -506,8 +570,9 @@ async function periodic(browser, language) {
   await app.context.close();
 }
 
-// The concern link (Step 244): a photo through the link's own route, the
-// filing, and the receipt.
+// The concern link (Step 244), OCSA-FRM-009 on customerFields
+// { client_name, client_role } and photoRoute true: a photo through the
+// link's own route, the filing, and the receipt.
 async function concern(browser, language) {
   const w = FORM_N_WORDS[language];
   const app = await open({ concern: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, path: "/c/link-concern" });
@@ -532,10 +597,30 @@ async function concern(browser, language) {
   const lines = [w.title, say(language, "Thank you. Your reference is {ref}.", { ref: CONCERN_REF }), say(language, "We will reply within five working days."), say(language, "A copy is on its way to your email.")];
   const thanked = await waitFor(page, (want) => want.every(x => document.body.innerText.indexOf(x) !== -1), lines);
   const filed = app.stub.state.customerFiled[0];
-  const sent = !!filed && app.stub.state.concernPhotos.length === 1 && JSON.stringify(filed.answers.photos) === '["cp-1"]' && filed.customerName === "An invented customer" && filed.body.website === "";
+  const sent = !!filed && app.stub.state.linkPhotos.length === 1 && JSON.stringify(filed.answers.photos) === '["cp-1"]' && filed.customerName === "An invented customer" && filed.body.website === "";
   check("a concern link heads itself and its thank-you with customerTitle, takes a photo through its own route, files it by id, and shows the reference, the reply line and the copy line (" + language + ")",
     up && !office && !own && shown && thanked && sent && app.errors.length === 0,
-    !up ? "the form did not open" : office ? "the form's own title " + JSON.stringify(w.officeTitle) + " showed" : own ? "the page's own Your name or Your role showed" : !shown ? "no thumbnail for the photo" : !thanked ? "the thank-you did not read " + JSON.stringify(lines) : !sent ? "filed " + JSON.stringify(filed || null) + " photos " + app.stub.state.concernPhotos.length : app.errors[0]);
+    !up ? "the form did not open" : office ? "the form's own title " + JSON.stringify(w.officeTitle) + " showed" : own ? "the page's own Your name or Your role showed" : !shown ? "no thumbnail for the photo" : !thanked ? "the thank-you did not read " + JSON.stringify(lines) : !sent ? "filed " + JSON.stringify(filed || null) + " photos " + app.stub.state.linkPhotos.length : app.errors[0]);
+  await app.context.close();
+}
+
+// Touchpoint chips (Step 249): the north list has one touchpoint and one
+// critical touchpoint, and the list draws Touchpoint once and Critical
+// touchpoint once; the critical item's detail draws its chip too.
+async function touchpoints(browser, language) {
+  const app = await open({ accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
+  const page = app.page;
+  await tapBar(page, 2);
+  const words = ["Touchpoint", "Critical touchpoint"].map(w => say(language, w));
+  const chipsOf = (want) => Array.from(document.querySelectorAll(".sp-content span")).map(x => x.innerText.trim()).filter(v => want.indexOf(v) !== -1);
+  const listed = await waitFor(page, "(" + chipsOf.toString() + ")(" + JSON.stringify(words) + ").length >= 2");
+  const chips = listed ? await page.evaluate("(" + chipsOf.toString() + ")(" + JSON.stringify(words) + ")") : [];
+  const once = chips.filter(c => c === words[0]).length === 1 && chips.filter(c => c === words[1]).length === 1;
+  // The critical row's name opens its detail, which draws the chip beside
+  // the name, with PRIORITY, since that item is high priority too.
+  if (once) await page.evaluate((w) => { const chip = Array.from(document.querySelectorAll(".sp-content span")).find(x => x.innerText.trim() === w); const row = chip.parentElement.parentElement; row.querySelectorAll("button")[1].click(); }, words[1]);
+  const detail = once && await waitFor(page, (w) => { const c = document.querySelector(".sp-content"); return !!c && c.innerText.indexOf(w.back) !== -1 && w.chips.every(x => Array.from(c.querySelectorAll("span")).some(s => s.innerText.trim() === x)); }, { back: say(language, "Back to checklist"), chips: [words[1], say(language, "PRIORITY")] });
+  check("a checklist with one touchpoint and one critical touchpoint draws Touchpoint once and Critical touchpoint once, and the critical item's detail draws its chip beside PRIORITY (" + language + ")", once && detail && app.errors.length === 0, !once ? "found " + JSON.stringify(chips) : !detail ? "the detail did not draw the chip" : app.errors[0]);
   await app.context.close();
 }
 
@@ -593,11 +678,14 @@ async function largest(browser) {
     for (const language of ["en", "es"]) await guard("/sds (" + language + ")", () => sds(browser, language));
     for (const language of ["en", "es"]) await guard("the second sign-in step (" + language + ")", () => secondStep(browser, language));
     for (const language of ["en", "es"]) await guard("the workspace (" + language + ")", () => supervisor(browser, language));
-    for (const language of ["en", "es"]) await guard("a customer's own name and role (" + language + ")", () => customerAsks(browser, language));
+    for (const language of ["en", "es"]) await guard("007 on the customer page (" + language + ")", () => customerAsks(browser, language));
+    for (const language of ["en", "es"]) await guard("006 on the customer page (" + language + ")", () => customerWalk(browser, language));
+    for (const language of ["en", "es"]) await guard("the page's own name and role (" + language + ")", () => customerOwn(browser, language));
     await guard("a check-off with no signal", () => noSignal(browser));
     for (const language of ["en", "es"]) await guard("an equipment label (" + language + ")", () => equipment(browser, language));
     for (const language of ["en", "es"]) await guard("periodic work (" + language + ")", () => periodic(browser, language));
     for (const language of ["en", "es"]) await guard("a concern link (" + language + ")", () => concern(browser, language));
+    for (const language of ["en", "es"]) await guard("touchpoint chips (" + language + ")", () => touchpoints(browser, language));
     await guard("French", () => french(browser));
     await guard("the Largest text size", () => largest(browser));
   } finally {

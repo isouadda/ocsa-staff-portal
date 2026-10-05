@@ -1107,6 +1107,8 @@ export const WORDS = {
   "Photo {n} of {count}": "Foto {n} de {count}",
   "Signed.": "Firmado.",
   "This was not signed. Try again.": "No se firm\u00f3. Intente de nuevo.",
+  "Touchpoint": "Punto de contacto",
+  "Critical touchpoint": "Punto de contacto cr\u00edtico",
   },
 };
 
@@ -2095,6 +2097,8 @@ WORDS.fr = {
   "Photo {n} of {count}": "Photo {n} sur {count}",
   "Signed.": "Sign\u00e9.",
   "This was not signed. Try again.": "Rien n'a \u00e9t\u00e9 sign\u00e9. R\u00e9essayez.",
+  "Touchpoint": "Point de contact",
+  "Critical touchpoint": "Point de contact critique",
 };
 
 // {name} is replaced after the language is chosen, so the

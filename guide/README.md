@@ -38,11 +38,12 @@ third name as what a French screen shows):
 The CSV is the word table the portal draws from, so the guide names each
 button and heading the way the screen says it, in all three languages.
 A name the API serves, which has no row in the CSV, is listed in
-`guide/check-allow.txt` with its French; the API has no French, so a
-French screen shows that name in English, and the French written is the
-English. The guide file itself carries Spanish and French accents on
-purpose; it is the one file here, with the CSVs, written in real
-accented letters.
+`guide/check-allow.txt` with its French: the French the API answers a
+French screen with since Step 241, read from ocsa-api's
+`translation/api_words.csv` for its own words and from the form's
+`forms_*_french.csv` sheet for a form's words (Step 249). The guide file
+itself carries Spanish and French accents on purpose; it is the one file
+here, with the CSVs, written in real accented letters.
 
 ## How it reaches Help
 

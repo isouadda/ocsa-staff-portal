@@ -4376,6 +4376,20 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   const rowBase = { display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 11, padding: "11px 13px", marginBottom: 6, borderRadius: R.md, boxShadow: t.shadow };
   const chipPriority = { fontSize: 9, color: ink(t, ORANGE), background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600, letterSpacing: "0.5px" };
   const chipOften = { fontSize: 10, color: t.textSec, background: t.cardAlt, border: "1px solid " + t.borderSolid, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600, fontFamily: FONT_HEAD };
+  // A touchpoint (Step 238) and a critical touchpoint (Step 247), the
+  // items OCSA-FRM-021 logs one by one, in the PRIORITY chip's shape:
+  // Touchpoint in blue, and Critical touchpoint in red in its place. Each
+  // ink reads 4.5 to 1 or better on its own wash over the row in both
+  // themes: blue 5.26 dark and 6.55 light, the lifted red 4.97 dark and
+  // the light red 6.05 light. Nothing is drawn when the keys are absent,
+  // so a list from an API that does not answer them draws as before.
+  const chipTouch = { ...chipPriority, color: ink(t, BLUE), background: t.blueSubtle, border: "1px solid " + t.blueBorder };
+  const chipCritical = { ...chipPriority, color: t === LIGHT ? ink(t, RED) : RED_ON_WASH, background: t.redSubtle, border: "1px solid " + t.redBorder };
+  const touchChip = (item) => (item.critical === true ? <span style={chipCritical}>{tr("Critical touchpoint")}</span> : item.touchpoint === true ? <span style={chipTouch}>{tr("Touchpoint")}</span> : null);
+  // The chips beside a row's name, and beside an item's name on its
+  // detail. They wrap inside their own group and never widen the row, and
+  // the row's two buttons keep their own tap height whatever is here.
+  const chipGroupSt = { display: "flex", flexWrap: "wrap", gap: 4, flexShrink: 0, marginTop: 2, maxWidth: "100%" };
   const detailSecLabel = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD };
   // A section's title, Today or a period, with its count at the other end.
   const periodHeadSt = { display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: "2px 10px", marginBottom: 10 };
@@ -4403,12 +4417,13 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   const drawDetail = (item, byWho, action) => {
     const w = itemWords(item, apiWords);
     const place = [item.building_name, item.floor_number ? tr("Floor {n}", { n: item.floor_number }) : "", w.zone].filter(Boolean).join(" - ");
+    const touch = touchChip(item);
     return (
       <div style={{ padding: "16px" }}>
         <button onClick={() => setDetail(null)} style={{ display: "flex", alignItems: "center", gap: 6, minHeight: TAP, padding: "8px 13px", marginBottom: 14, background: "transparent", border: "1px solid " + t.borderSolid, borderRadius: R.md, color: t.textSec, fontSize: 12, cursor: "pointer", fontWeight: 600 }}><Ico d="M15 18l-6-6 6-6" sz={14} c={t.textSec} /> {tr("Back to checklist")}</button>
         <div style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, overflow: "hidden", boxShadow: t.popShadow }}>
           <div style={{ padding: "16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{w.label}</div>{item.priority === "high" && <div style={{ display: "flex", gap: 4, flexShrink: 0 }}><span style={chipPriority}>{tr("PRIORITY")}</span></div>}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}><div style={{ fontSize: 16, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{w.label}</div>{(item.priority === "high" || touch) && <div style={{ ...chipGroupSt, marginTop: 0, justifyContent: "flex-end" }}>{item.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}{touch}</div>}</div>
             <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{place}</div>
             {byWho && <div style={{ ...rowLineSt, fontSize: 12, marginTop: 0, marginBottom: 12 }}>{byWho}</div>}
             {w.description && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Instructions")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{w.description}</div></div>)}
@@ -4537,6 +4552,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
             const note = rowNote && rowNote.id === task.id ? rowNote.text : null;
             const hasInfo = task.has_details || w.description || task.media_url;
             const often = howOften(task);
+            const touch = touchChip(task);
             return (
               <div key={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: inset }}>
                 <button onClick={() => tap(task, done, lock)} disabled={lock === "earlier"} aria-label={tr(done ? "Mark {name} not done" : "Mark {name} done", { name: w.label })} style={mkTapFrame({ flexShrink: 0, marginTop: 1, cursor: lock === "earlier" ? "default" : "pointer" })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></button>
@@ -4551,7 +4567,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
                   </button>
                   {note && <div role="alert" style={{ ...rowLineSt, color: t.text, fontWeight: 600 }}>{note}</div>}
                 </div>
-                {(often || task.priority === "high") && <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>{often && <span style={chipOften}>{often}</span>}{task.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}</div>}
+                {(often || task.priority === "high" || touch) && <div style={chipGroupSt}>{often && <span style={chipOften}>{often}</span>}{task.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}{touch}</div>}
               </div>
             );
           })}
@@ -6822,30 +6838,17 @@ const CUSTOMER_NAME_MAX = 120;
 // A customer's form that asks the person's name and role itself, so the
 // page asks neither again and sends the form's own answers as
 // customerName and customerRole. The public form answer names the two
-// questions in customerFields, { name, role } (Step 242); an answer that
-// carries the key decides, null meaning the page asks its own. An answer
-// without the key falls back to the two forms known to ask, named here by
-// code (Step 240), and only those. A key the form does not have is not
-// taken, and a form with neither keeps the page's own. served says the
-// API named them, which is when the thank-you says who sent it.
-const CUSTOMER_FIELDS_BY_CODE = {
-  "OCSA-FRM-007": { name: "your_name", role: "your_role" },
-  "OCSA-FRM-006": { name: "completed_by", role: null },
-};
+// questions in customerFields, { name, role } (Step 242), and that answer
+// alone decides: null, or no key at all, keeps the page's own Your name
+// and Your role, so a new customer form needs no change here. A key the
+// form does not have is not taken, and a form with neither keeps the
+// page's own. When the form asks, the thank-you says who sent it.
 function customerFieldsOf(answer, form) {
   const keys = new Set((form && Array.isArray(form.fields) ? form.fields : []).map(f => f && f.key));
-  const take = (o, served) => (o && typeof o === "object" && typeof o.name === "string" && keys.has(o.name)
-    ? { name: o.name, role: typeof o.role === "string" && keys.has(o.role) ? o.role : null, served: served } : null);
-  if (answer && typeof answer === "object" && Object.prototype.hasOwnProperty.call(answer, "customerFields")) return take(answer.customerFields, true);
-  return take(CUSTOMER_FIELDS_BY_CODE[form && form.code], false);
+  const o = answer && typeof answer === "object" ? answer.customerFields : null;
+  return o && typeof o === "object" && typeof o.name === "string" && keys.has(o.name)
+    ? { name: o.name, role: typeof o.role === "string" && keys.has(o.role) ? o.role : null } : null;
 }
-// The forms whose photos go up one at a time through the link's own photo
-// route, POST /api/public/forms/:token/photos (Step 242), before the
-// filing names them by id. Every other customer form keeps its photos on
-// the phone and sends them inside the filing, as it always has. The
-// contract names no signal for this, so the one form it names is named
-// here by code.
-const CUSTOMER_PHOTO_ROUTE_CODES = ["OCSA-FRM-009"];
 // The receipt a filing answers with (Step 242): the report's reference,
 // and whether a copy went to the email the person gave.
 const CUSTOMER_REF_THANKS = "Thank you. Your reference is {ref}.";
@@ -7290,7 +7293,12 @@ function CustomerFormScreen({ token, t, themeMode }) {
   const form = got.data.form;
   const title = customerTitleOf(got.data);
   const draft = { id: null, formCode: form.code, formName: title || form.title, answers: {}, status: "draft", answered: 0, remaining: 0, missing: [] };
-  return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, asks: customerFieldsOf(got.data, form), photoRoute: CUSTOMER_PHOTO_ROUTE_CODES.indexOf(form.code) !== -1, title: title, head: head, thanksHead: headOf(false) }} />;
+  // photoRoute true in the answer (Step 242) means the form's photos go up
+  // one at a time through the link's own photo route, POST
+  // /api/public/forms/:token/photos, before the filing names them by id.
+  // Any other answer keeps the photos on the phone and sends them inside
+  // the filing, as the page always has.
+  return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, asks: customerFieldsOf(got.data, form), photoRoute: got.data.photoRoute === true, title: title, head: head, thanksHead: headOf(false) }} />;
 }
 
 // The client's acknowledgement of a monthly report, the page the mail
@@ -8227,7 +8235,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
     // Read before the answers are cleared: whether an email question has
     // an answer, and who sent it when the form's own questions asked.
     const emailGiven = shown.some(f => /(^|_)e_?mail($|_)/i.test(f.key) && typeof values[f.key] === "string" && values[f.key].trim() !== "");
-    const who = asks && asks.served ? [nameNow.trim(), roleNow.trim()].filter(Boolean).join(", ") : "";
+    const who = asks ? [nameNow.trim(), roleNow.trim()].filter(Boolean).join(", ") : "";
     try {
       const r = await api("/api/public/forms/" + encodeURIComponent(customer.token) + "/responses?locale=" + locale, { method: "POST", body: customerBody(), noAuthEvent: true });
       const emailed = r && typeof r.emailed === "boolean" ? r.emailed : emailGiven;

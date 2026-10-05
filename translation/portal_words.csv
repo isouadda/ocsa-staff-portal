@@ -949,3 +949,5 @@ Sign this line,Firmar esta línea,Signer cette ligne,"Field kit, Awaiting review
 Photo {n} of {count},Foto {n} de {count},Photo {n} sur {count},"Field kit, Awaiting review"
 Signed.,Firmado.,Signé.,"Field kit, Awaiting review"
 This was not signed. Try again.,No se firmó. Intente de nuevo.,Rien n'a été signé. Réessayez.,"Field kit, Awaiting review"
+Touchpoint,Punto de contacto,Point de contact,"Tasks, beside a touchpoint's name and on its details"
+Critical touchpoint,Punto de contacto crítico,Point de contact critique,"Tasks, beside a critical touchpoint's name and on its details"
