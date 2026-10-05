@@ -989,6 +989,10 @@ function readEntryFromUrl() {
     // eating area (Step 252): /r/<token>, read the same way.
     var ask = /^\/r\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
     if (ask) return { screen: "request", token: ask[1] };
+    // A supply label (Step 252): /sup/<code>, the code as written. No
+    // token, no sign-in; a session this phone holds adds the staff part.
+    var sup = /^\/sup\/([A-Za-z0-9_.-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+    if (sup) return { screen: "supply", token: null, code: sup[1] };
     // A client's acknowledgement of a monthly report, opened from the
     // mail that carries it: /a/<token>, read the same way.
     var ack = /^\/a\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
@@ -1635,6 +1639,9 @@ export default function OCSAStaffPortal() {
   const [user, setUser] = useState(null);
   const [sites, setSites] = useState([]);
   const [screen, setScreen] = useState(ENTRY ? ENTRY.screen : "login");
+  // The public screen a sign-in comes back to (Step 252): the supply
+  // label's page, when Sign in to record use opened the sign-in.
+  const returnTo = useRef(null);
   const [booting, setBooting] = useState(!ENTRY && !!readAuth());
   const [activeTab, setActiveTab] = useState("clock");
   const [clockStatus, setClockStatus] = useState(null);
@@ -1910,7 +1917,9 @@ export default function OCSAStaffPortal() {
     // The forced PIN set fires only when the API says so, strictly true.
     // mustSetPin sits at the top level of the /api/auth/me response,
     // beside user. While it is absent this branch stays dormant.
-    setScreen(me.mustSetPin === true ? "setpin" : "main");
+    const back = returnTo.current;
+    returnTo.current = null;
+    setScreen(me.mustSetPin === true ? "setpin" : (back || "main"));
     return me.user;
   }, [loadAssignedTasks, loadSessionSites, loadLookups]);
   // A switch of language asks for the pick lists again, in the new one,
@@ -2717,6 +2726,7 @@ export default function OCSAStaffPortal() {
       {screen === "forgot" && <ForgotScreen onGoLogin={goLogin} showToast={showToast} t={t} />}
       {screen === "customer" && <CustomerFormScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
       {screen === "request" && <ClientRequestScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
+      {screen === "supply" && <SupplyScreen code={ENTRY ? ENTRY.code : null} token={token} onSignIn={() => { returnTo.current = "supply"; setScreen("login"); }} showToast={showToast} t={t} themeMode={themeMode} />}
       {screen === "acknowledge" && <AcknowledgeScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
       {screen === "sds" && <SdsPublicScreen code={ENTRY ? ENTRY.code : null} t={t} themeMode={themeMode} />}
       {screen === "setpin" && <SetPinScreen token={token} user={user} onDone={handlePinSet} onSignOut={handleLogout} showToast={showToast} t={t} />}
@@ -7919,6 +7929,206 @@ function ClientRequestScreen({ token, t, themeMode }) {
           </div>
         )}
         <button type="button" onClick={send} disabled={sending || photoBusy > 0} style={{ ...mkPrimaryBtn(t, sending || photoBusy > 0), minHeight: TAP, cursor: sending ? "default" : "pointer" }}>{sending ? tr("Sending") : tr("Send")}</button>
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// A supply label (Step 252), opened from its QR at /sup/<code>, with the
+// head the other public pages draw and no sign-in: the product's name
+// large, its maker, and Safety sheet, which opens the sheet in the page
+// when the library holds it (so it works with no signal once opened, as
+// the closet poster's sheets do), else the maker's own sheet in a new tab,
+// else one line. With a token on this phone, GET /api/supplies/by-qr/:code
+// adds the site that holds it, picked when there is one, Used one and
+// Running low; without one, Sign in to record use, which signs in and
+// comes back here. Nothing is kept on the phone.
+// ------------------------------------------------------------
+const SUPPLY_COUNT_MAX = 10;
+const SUPPLY_NOTE_MAX = 500;
+function supplyPublicOf(r) {
+  const s = r && typeof r === "object" && r.supply && typeof r.supply === "object" ? r.supply : null;
+  const name = s && typeof s.name === "string" ? s.name.trim() : "";
+  if (!name) return null;
+  const str = (k) => (typeof s[k] === "string" ? s[k].trim() : "");
+  return { code: str("code"), name: name, maker: str("maker"), category: str("category"), unit: str("unit"), sdsUrl: /^https?:\/\//i.test(str("sdsUrl")) ? str("sdsUrl") : "", sdsCode: str("sdsCode") };
+}
+function supplySiteOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = agentField(x, ["siteId", "site_id", "id"], null);
+  if (id === null) return null;
+  return { siteId: String(id), siteName: typeof x.siteName === "string" ? x.siteName.trim() : (typeof x.site_name === "string" ? x.site_name.trim() : String(id)), currentStock: Number.isFinite(Number(x.currentStock)) ? Number(x.currentStock) : null, lowThreshold: Number.isFinite(Number(x.lowThreshold)) ? Number(x.lowThreshold) : null };
+}
+
+function SupplyScreen({ code, token: tokenProp, onSignIn, showToast, t, themeMode }) {
+  const { language, setLanguage } = useContext(LanguageCtx);
+  const locale = languageToSend(language);
+  // The session this phone holds: the one the app signed in with here,
+  // else the one it kept.
+  const token = tokenProp || readAuth();
+  const [got, setGot] = useState({ loading: true, data: null, said: null, offline: false });
+  const [asked, setAsked] = useState(0);
+  const [sheetCode, setSheetCode] = useState(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [staff, setStaff] = useState(null);
+  const [staffAsked, setStaffAsked] = useState(0);
+  const [siteId, setSiteId] = useState("");
+  const [qty, setQty] = useState(1);
+  const [low, setLow] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+  useBusy("supply label", busy !== null || (!!low && low.note.trim() !== ""));
+
+  useEffect(() => {
+    let live = true;
+    setGot(prev => Object.assign({}, prev, { loading: true }));
+    (async () => {
+      try {
+        const r = await api("/api/public/supplies/" + encodeURIComponent(code || "") + "?locale=" + locale, { noAuthEvent: true });
+        const s = supplyPublicOf(r);
+        if (live) setGot({ loading: false, data: s ? { supply: s, company: r.company && typeof r.company === "object" ? r.company : {} } : null, said: s ? null : tr(REQUEST_LOAD_FAILED), offline: false });
+      } catch (err) {
+        const offline = wentNowhere(err);
+        if (live) setGot({ loading: false, data: null, said: offline ? tr(REQUEST_LOAD_FAILED) : tr(err.message), offline: offline });
+      }
+    })();
+    return () => { live = false; };
+  }, [code, locale, asked]);
+  useEffect(() => {
+    if (!token) { setStaff(null); return undefined; }
+    let live = true;
+    setStaff(null);
+    (async () => {
+      try {
+        const d = await api("/api/supplies/by-qr/" + encodeURIComponent(code || ""), { token, noAuthEvent: true });
+        const supply = d && typeof d === "object" && d.supply && typeof d.supply === "object" ? d.supply : null;
+        const id = supply ? agentField(supply, ["id"], null) : null;
+        if (id === null) throw new Error(ERR_GENERIC);
+        const sites = (wsRows(d, "sites") || []).map(supplySiteOf).filter(Boolean);
+        if (!live) return;
+        setStaff({ state: "ok", id: String(id), name: typeof supply.name === "string" ? supply.name : "", unit: typeof supply.unit === "string" ? supply.unit : "", sites: sites });
+        setSiteId(prev => (sites.some(s => s.siteId === prev) ? prev : (sites.length === 1 ? sites[0].siteId : "")));
+      } catch (err) {
+        if (!live) return;
+        if (err && err.status === 401) setStaff({ state: "out" });
+        else setStaff({ state: "failed", said: fkFaultWords(err, "This did not load. Try again.") });
+      }
+    })();
+    return () => { live = false; };
+  }, [token, code, staffAsked]);
+
+  const data = got.data;
+  const company = data ? data.company : {};
+  const headOf = () => <PublicHead logo={company.logoUrl} companyName={company.name} siteName="" withPicker={true} locale={locale} setLanguage={setLanguage} t={t} themeMode={themeMode} />;
+  const cardSt = { background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 18 };
+  const ghostBtn = { width: "100%", minHeight: TAP, marginTop: 10, borderRadius: R.md, border: "1px solid " + GOLD, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD };
+  const primary = (off) => ({ ...mkPrimaryBtn(t, off), minHeight: TAP, marginTop: 10, cursor: off ? "default" : "pointer" });
+
+  if (!data && !got.loading) {
+    return (
+      <div style={{ padding: 16 }}>
+        {headOf()}
+        <div style={cardSt}>
+          <div role="alert" style={{ fontSize: 14, color: t.text, lineHeight: 1.55 }}>{got.said}</div>
+          {got.offline && <button type="button" onClick={() => setAsked(n => n + 1)} style={{ ...ghostBtn, marginTop: 14 }}>{tr("Try again")}</button>}
+        </div>
+      </div>
+    );
+  }
+  if (!data) return <div style={{ padding: 16 }}>{headOf()}<div style={{ fontSize: 13, color: t.textMut, lineHeight: 1.5 }}>{tr("Loading...")}</div></div>;
+
+  const supply = data.supply;
+  if (sheetOpen) {
+    return (
+      <div style={{ padding: 16 }}>
+        {headOf()}
+        <WsBack label={tr("Back")} onBack={() => { setSheetOpen(false); setSheetCode(null); }} t={t} />
+        <SdsBrowser initial={null} onList={null} code={sheetCode} onCode={setSheetCode} t={t} />
+      </div>
+    );
+  }
+
+  const site = staff && staff.state === "ok" ? staff.sites.find(s => s.siteId === siteId) || null : null;
+  const canRecord = !!site && busy === null;
+  const usedOne = async () => {
+    if (!canRecord) return;
+    setBusy("use");
+    try {
+      const d = await api("/api/supplies/log-usage", { method: "POST", body: { supplyId: staff.id, quantity: qty, siteId: site.siteId, scanMethod: "qr_scan" }, token });
+      showToast(d && typeof d.message === "string" && d.message.trim() ? d.message : tr("Recorded."));
+      if (d && d.lowStockAlert) showToast(tr("Low stock alert!"), "notice");
+      setQty(1);
+    } catch (err) { showToast(fkFaultWords(err, "That was not recorded. Try again."), "error"); }
+    if (alive.current) setBusy(null);
+  };
+  const runningLow = async () => {
+    if (!canRecord || !low) return;
+    setBusy("low");
+    try {
+      const d = await api("/api/supplies/requests", { method: "POST", body: { requestType: "refill", itemName: staff.name || supply.name, description: low.note.trim(), urgency: "normal", supplyId: staff.id, siteId: site.siteId }, token });
+      showToast(d && typeof d.message === "string" && d.message.trim() ? d.message : tr("Request submitted"));
+      setLow(null);
+    } catch (err) { showToast(fkFaultWords(err, "That was not sent. Try again."), "error"); }
+    if (alive.current) setBusy(null);
+  };
+  const qtyBtn = mkQtyBtn(t);
+
+  return (
+    <div style={{ padding: 16 }}>
+      {headOf()}
+      <div role="heading" aria-level={1} data-supply="name" style={{ fontSize: 22, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{supply.name}</div>
+      {supply.maker && <div style={{ fontSize: 14, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>{supply.maker}</div>}
+      <div style={{ marginTop: 14 }}>
+        {supply.sdsCode && <button type="button" data-supply="sheet" onClick={() => { setSheetCode(supply.sdsCode); setSheetOpen(true); }} style={{ ...ghostBtn, marginTop: 0 }}>{tr("Safety sheet")}</button>}
+        {!supply.sdsCode && supply.sdsUrl && <a href={supply.sdsUrl} target="_blank" rel="noopener noreferrer" data-supply="sheet" style={{ ...ghostBtn, marginTop: 0, display: "block", boxSizing: "border-box", textAlign: "center", textDecoration: "none", lineHeight: "42px" }}>{tr("Safety sheet")}</a>}
+        {!supply.sdsCode && !supply.sdsUrl && <div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.5 }}>{tr("No safety sheet on file. Ask your supervisor.")}</div>}
+      </div>
+
+      <div style={{ ...cardSt, marginTop: 18 }} data-supply="staff">
+        {(!token || (staff && staff.state === "out")) && (
+          <button type="button" onClick={onSignIn} style={{ ...primary(false), marginTop: 0 }}>{tr("Sign in to record use")}</button>
+        )}
+        {token && !staff && <div style={{ fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
+        {token && staff && staff.state === "failed" && <ListFault icon={BoxIco} text={staff.said} onRetry={() => setStaffAsked(n => n + 1)} t={t} />}
+        {token && staff && staff.state === "ok" && (
+          <>
+            <div style={mkLabel(t)}>{tr("Record use")}</div>
+            {staff.sites.length === 0 && <div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.5 }}>{tr("None of your sites stocks this supply.")}</div>}
+            {staff.sites.length === 1 && <div style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{staff.sites[0].siteName}</div>}
+            {staff.sites.length > 1 && (
+              <>
+                <label htmlFor="ocsa-supply-site" style={{ ...mkLabel(t), marginTop: 10 }}>{tr("Site")}</label>
+                <select id="ocsa-supply-site" value={siteId} onChange={e => setSiteId(e.target.value)} style={mkInput(t)}>
+                  <option value="">{tr("Select site...")}</option>
+                  {staff.sites.map(s => <option key={s.siteId} value={s.siteId}>{s.siteName}</option>)}
+                </select>
+              </>
+            )}
+            {staff.sites.length > 0 && (
+              <>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginTop: 16 }}>
+                  <button type="button" onClick={() => setQty(q => Math.max(1, q - 1))} aria-label={tr("One less")} disabled={busy !== null} style={mkTapFrame()}><span style={qtyBtn}><MinusIco sz={14} /></span></button>
+                  <div style={{ textAlign: "center" }}><div data-supply="count" style={{ fontSize: 28, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div>{(staff.unit || supply.unit) && <div style={{ fontSize: 10, color: t.textMut }}>{staff.unit || supply.unit}</div>}</div>
+                  <button type="button" onClick={() => setQty(q => Math.min(SUPPLY_COUNT_MAX, q + 1))} aria-label={tr("One more")} disabled={busy !== null} style={mkTapFrame()}><span style={qtyBtn}><PlusIco sz={14} /></span></button>
+                </div>
+                <button type="button" data-supply="used" onClick={usedOne} disabled={!canRecord} style={primary(!canRecord)}>{busy === "use" ? tr("Sending") : qty === 1 ? tr("Used one") : tr("Used {n}", { n: qty })}</button>
+                {!low && <button type="button" data-supply="low" onClick={() => setLow({ note: "" })} disabled={!canRecord} style={ghostBtn}>{tr("Running low")}</button>}
+                {low && (
+                  <div style={{ marginTop: 14 }}>
+                    <label htmlFor="ocsa-supply-note" style={mkLabel(t)}>{tr("Note")}<span style={{ marginLeft: 6, textTransform: "none", letterSpacing: 0, color: t.textMut }}>{tr("Optional")}</span></label>
+                    <textarea id="ocsa-supply-note" rows={3} maxLength={SUPPLY_NOTE_MAX} value={low.note} onChange={e => setLow({ note: e.target.value })} style={{ ...mkInput(t), minHeight: 80, resize: "vertical", lineHeight: 1.5 }} />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button type="button" onClick={() => setLow(null)} disabled={busy !== null} style={{ ...ghostBtn, flex: 1, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text }}>{tr("Cancel")}</button>
+                      <button type="button" data-supply="low-send" onClick={runningLow} disabled={!canRecord} style={{ ...primary(!canRecord), flex: 1, width: "auto" }}>{busy === "low" ? tr("Sending") : tr("Running low")}</button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
