@@ -2416,7 +2416,7 @@ export default function OCSAStaffPortal() {
       if (!isAdmin) { setActiveTab("training"); setShowMore(false); return; }
       setFieldKitAt(at => ({ siteId: at && at.siteId ? at.siteId : null, tile: place.signoff ? "signoff" : null }));
     }
-    if (place.tab === "training") setTrainingAt(place.join ? { join: String(place.join) } : null);
+    if (place.tab === "training") setTrainingAt(place.join ? { join: String(place.join) } : place.doc ? { doc: { docCode: String(place.doc), title: String(place.doc) } } : null);
     setActiveTab(place.tab); setShowMore(false);
     if (place.tab === "issues") { setRequestOpen(place.request || null); setFindingOpen(place.finding || null); loadClientRequests(); loadFindings(); }
     if (place.tab === "chat" && place.chat) { if (activeChannelRef.current === place.chat) loadMessages(place.chat); else chooseChat(place.chat); }
@@ -2502,8 +2502,18 @@ export default function OCSAStaffPortal() {
   // Where My training is (Step 264): a session's join screen for a code,
   // from /join/<code> or a code typed in. Dropped at sign out.
   const [trainingAt, setTrainingAt] = useState(null);
+  // Before you start (Step 264): open once a day while the list holds a
+  // document to sign or a first-day training, never over a place a notice
+  // asked for, and never blocking the rest of the app.
+  const [beforeOpen, setBeforeOpen] = useState(false);
   useEffect(() => {
-    if (!token || screen !== "main") { setTraining(null); setTrainingAt(null); return undefined; }
+    if (!training || !user || screen !== "main" || openAsk || beforeOpen) return;
+    if (training.documentsToSign.length === 0 && training.firstDay.length === 0) return;
+    if (beforeShownToday(user.id)) return;
+    markBeforeShown(user.id); setBeforeOpen(true);
+  }, [training, user && user.id, screen, openAsk]);
+  useEffect(() => {
+    if (!token || screen !== "main") { setTraining(null); setTrainingAt(null); setBeforeOpen(false); return undefined; }
     let live = true;
     readTraining(token).then(d => { if (live && d) setTraining(d); });
     return () => { live = false; };
@@ -2948,6 +2958,11 @@ export default function OCSAStaffPortal() {
         />
       )}
 
+      {beforeOpen && training && (
+        <BeforeYouStartSheet training={training} t={t} onClose={() => setBeforeOpen(false)}
+          onDocument={(doc) => { setBeforeOpen(false); setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }}
+          onLesson={(item) => { setBeforeOpen(false); setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} />
+      )}
       {announcementOpen && (
         <AnnouncementSheet token={token} id={announcementOpen} t={t} onClose={() => setAnnouncementOpen(null)} />
       )}
@@ -6540,7 +6555,7 @@ function trainingRecordOf(x) {
   const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
   const name = str("name");
   if (!name) return null;
-  return { id: String(agentField(x, ["id"], name)), name: name, completedDate: str("completedDate"), expiresOn: str("expiresOn"), siteName: str("siteName"), locale: str("locale") };
+  return { id: String(agentField(x, ["id"], name)), name: name, completedDate: str("completedDate"), expiresOn: str("expiresOn"), siteName: str("siteName"), locale: str("locale"), certificate: x.certificate === true };
 }
 // An attempt as the attempt routes answer it: open, scored, acknowledged
 // or signed off. The score and the pass are read as the server set them;
@@ -6557,7 +6572,10 @@ function trainingAttemptOf(x) {
 function trainingOf(d) {
   const items = wsRows(d, "items");
   if (!items || Array.isArray(d)) return null;
-  return { items: items.map(trainingItemOf).filter(Boolean), records: (wsRows(d, "records") || []).map(trainingRecordOf).filter(Boolean), attempts: (wsRows(d, "attempts") || []).map(trainingAttemptOf).filter(Boolean) };
+  return { items: items.map(trainingItemOf).filter(Boolean), records: (wsRows(d, "records") || []).map(trainingRecordOf).filter(Boolean), attempts: (wsRows(d, "attempts") || []).map(trainingAttemptOf).filter(Boolean),
+    // Step 264: the first-day path and the documents to sign (the Step
+    // 262 contract, sections 5 and 6); empty until the API answers them.
+    firstDay: (wsRows(d, "firstDay") || []).map(trainingItemOf).filter(Boolean), documentsToSign: (wsRows(d, "documentsToSign") || []).map(trainingDocumentOf).filter(Boolean) };
 }
 async function readTraining(token) {
   try { return trainingOf(await api("/api/training/me", { token })); } catch (e) { return null; }
@@ -6586,8 +6604,18 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
     readTraining(token).then(d => { if (!live) return; if (d) { onData(d); setFault(false); } else setFault(true); });
     return () => { live = false; };
   }, [asked]);
+  // A lesson named from Before you start opens once its item is on the list.
+  useEffect(() => {
+    if (!at || !at.lesson || !data) return;
+    const item = data.items.find(x => x.id === at.lesson) || data.firstDay.find(x => x.id === at.lesson);
+    if (item && item.lesson) setLesson({ id: item.id, item: item, opened: Date.now() });
+    onAt(null);
+  }, [at, data]);
   if (at && at.join) {
     return <TrainingJoin key={at.join} token={token} code={at.join} onBack={() => { onAt(null); setAsked(n => n + 1); }} t={t} />;
+  }
+  if (at && at.doc) {
+    return <DocumentReader key={at.doc.docCode} token={token} doc={at.doc} onBack={() => { onAt(null); setAsked(n => n + 1); }} onSigned={() => setAsked(n => n + 1)} t={t} />;
   }
   if (lesson) {
     return <TrainingLesson key={lesson.id + ":" + lesson.opened} token={token} item={lesson.item} siteId={lesson.item.siteId || shiftSiteId || null} onBack={() => { setLesson(null); setAsked(n => n + 1); }} t={t} />;
@@ -6599,6 +6627,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   const soon = items.filter(i => i.status === "dueSoon");
   const done = items.filter(i => i.status === "current");
   const records = (data ? data.records : []).slice().sort((a, b) => (a.completedDate < b.completedDate ? 1 : a.completedDate > b.completedDate ? -1 : 0));
+  const docs = data ? data.documentsToSign : [];
   // The supervisor line stays under To do while one of its items has no
   // lesson to take, or no tries left on it.
   const needsSession = todo.some(i => !i.lesson || i.lesson.attemptsLeft === 0);
@@ -6654,7 +6683,20 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
           </div>
         )}
       </div>
-      {items.length === 0 && <div style={wsQuiet(t)}>{tr("Nothing is required for your role yet.")}</div>}
+      {docs.length > 0 && (
+        <div>
+          {head("Documents to sign", "docs")}
+          {docs.map(x => (
+            <div key={x.docCode} data-training-doc={x.docCode} style={{ ...fkRowSt(t), minHeight: TAP }}>
+              <div style={nameSt}>{x.title}</div>
+              <div style={smallSt}>{[x.docCode, x.version ? tr("Version {n}", { n: x.version }) : ""].filter(Boolean).join(", ")}</div>
+              {x.signedVersion && <div style={lineSt}>{tr("You signed version {n}. This one is new.", { n: x.signedVersion })}</div>}
+              <div style={{ display: "flex", marginTop: 10 }}><button type="button" data-training-doc-read={x.docCode} onClick={() => onAt({ doc: x })} style={goldBtn}>{tr("Read and sign")}</button></div>
+            </div>
+          ))}
+        </div>
+      )}
+      {items.length === 0 && docs.length === 0 && <div style={wsQuiet(t)}>{tr("Nothing is required for your role yet.")}</div>}
       {todo.length > 0 && (
         <div>
           {head("To do", "todo")}
@@ -6672,6 +6714,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
             <div key={r.id} data-training-record={r.id} style={{ ...fkRowSt(t), minHeight: TAP }}>
               <div style={nameSt}>{r.name}</div>
               <div style={lineSt}>{[trainingDay(r.completedDate), r.siteName, TRAINING_GIVEN_IN[r.locale] ? TRAINING_GIVEN_IN[r.locale]() : ""].filter(Boolean).join(", ")}</div>
+              {r.certificate && <div data-training-certificate={r.id} style={{ ...lineSt, color: ink(t, GREEN), fontWeight: 600 }}>{tr("Certificate on file")}</div>}
             </div>
           ))}
         </div>
@@ -6799,6 +6842,213 @@ function TrainingJoin({ token, code, onBack, t }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Documents to read and sign (Step 264, the Step 262 contract's section
+// 6): the handbook first. GET /api/training/me lists the documents a
+// person must sign under documentsToSign; the reader reads
+// GET /api/documents/:docCode/read in the screen's language where the
+// library holds it, else English (and says so), section by section with
+// Next and Back and a contents list; then the acknowledgement line, the
+// signature and Sign, which posts POST /api/documents/:docCode/acknowledge
+// with the version read. A version that changed while reading is read
+// again. Nothing of it is kept on the phone.
+// ------------------------------------------------------------
+function trainingDocumentOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const docCode = typeof x.docCode === "string" ? x.docCode.trim() : "";
+  if (!docCode) return null;
+  const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
+  return { docCode: docCode, title: str("title") || docCode, version: str("version"), locales: (Array.isArray(x.locales) ? x.locales : []).filter(v => typeof v === "string"), signedVersion: str("signedVersion") };
+}
+function documentReadOf(d) {
+  const doc = d && typeof d === "object" && d.document && typeof d.document === "object" ? d.document : null;
+  if (!doc) return null;
+  const str = (k) => (typeof doc[k] === "string" ? doc[k].trim() : "");
+  const locale = str("locale") || "en";
+  const sections = (Array.isArray(doc.sections) ? doc.sections : []).map((x, i) => (x && typeof x === "object" ? { ref: typeof x.ref === "string" && x.ref.trim() ? x.ref.trim() : String(i + 1), title: typeof x.title === "string" ? x.title.trim() : "", content: typeof x.content === "string" ? x.content.trim() : "" } : null)).filter(x => x && (x.title || x.content));
+  if (sections.length === 0) return null;
+  return { docCode: str("docCode"), title: str("title"), version: str("version"), locale: locale, locales: (Array.isArray(doc.locales) ? doc.locales : []).filter(v => typeof v === "string"), sections: sections, acknowledgement: lessonText(doc.acknowledgement, locale) };
+}
+// A section's content as paragraphs: blank lines split them, and a line
+// starting with a dash or a bullet reads as a list item.
+function docParagraphs(content) {
+  return String(content || "").split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+}
+
+function DocumentReader({ token, doc, onBack, onSigned, t }) {
+  // loading, fault, read (at a section, or the contents), sign, done
+  const [state, setState] = useState({ kind: "loading" });
+  const [asked, setAsked] = useState(0);
+  const [at, setAt] = useState(0);
+  const [contents, setContents] = useState(false);
+  const [strokes, setStrokes] = useState([]);
+  const [png, setPng] = useState(null);
+  const [fault, setFault] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  useBusy("document reader", busy || strokes.length > 0);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [state.kind, at, contents]);
+  useEffect(() => {
+    let on = true;
+    setState({ kind: "loading" }); setFault(null); setAt(0); setContents(false); setStrokes([]); setPng(null);
+    (async () => {
+      try {
+        const d = documentReadOf(await api("/api/documents/" + encodeURIComponent(doc.docCode) + "/read?locale=" + encodeURIComponent(languageToSend()), { token }));
+        if (!d) throw new Error(ERR_GENERIC);
+        if (on) setState({ kind: "read", d: d });
+      } catch (err) {
+        if (on) setState({ kind: "fault", said: fkFaultWords(err, "This document did not open. Try again.") });
+      }
+    })();
+    return () => { on = false; };
+  }, [doc.docCode, asked]);
+  const sign = async () => {
+    if (busy || state.kind !== "sign") return;
+    if (!png) { setFault(tr("Sign before you send.")); return; }
+    setBusy(true); setFault(null);
+    try {
+      await api("/api/documents/" + encodeURIComponent(doc.docCode) + "/acknowledge", { method: "POST", body: { version: state.d.version, locale: state.d.locale, signature: png }, token });
+      if (live.current) { setState({ kind: "done", d: state.d }); onSigned(doc); }
+    } catch (err) {
+      if (!live.current) return;
+      if (err && err.code === "documents.versionChanged") { setFault(tr("This document changed while you read it. Read it again.")); setAsked(n => n + 1); }
+      else if (err && err.code === "documents.alreadySigned") { setState({ kind: "done", d: state.d }); onSigned(doc); }
+      else setFault(fkFaultWords(err, "This was not signed. Try again."));
+    } finally { if (live.current) setBusy(false); }
+  };
+  const back = <WsBack label={tr("My training")} onBack={onBack} t={t} />;
+  const titleSt = { fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const smallSt = { fontSize: 11, color: t.textMut, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const bodySt = { fontSize: 15, color: t.text, lineHeight: 1.55, overflowWrap: "anywhere", fontFamily: FONT_BODY, whiteSpace: "pre-wrap" };
+  const d = state.d || null;
+  const head = (
+    <div>
+      {back}
+      <div role="heading" aria-level={1} style={titleSt}>{d && d.title ? d.title : doc.title}</div>
+      <div style={smallSt}>{[doc.docCode, d && d.version ? tr("Version {n}", { n: d.version }) : ""].filter(Boolean).join(", ")}</div>
+      {d && d.locale !== languageToSend() && d.locale === "en" && <div data-doc-english="1" style={{ ...smallSt, fontSize: 12, marginTop: 6 }}>{tr("This document is shown in English.")}</div>}
+    </div>
+  );
+  if (state.kind === "loading" || state.kind === "fault") {
+    return (
+      <div data-doc={state.kind} style={{ padding: "16px 16px 100px" }}>
+        {head}
+        {state.kind === "loading" && <div style={{ ...wsQuiet(t), marginTop: 12 }}>{tr("Loading...")}</div>}
+        {state.kind === "fault" && <div style={{ marginTop: 12 }}><WsFault text={state.said} t={t} /><div style={{ display: "flex", gap: 8, marginTop: 12 }}><button type="button" onClick={() => setAsked(n => n + 1)} style={wsMainBtn(t, false)}>{tr("Try again")}</button><button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Back")}</button></div></div>}
+      </div>
+    );
+  }
+  if (state.kind === "done") {
+    return (
+      <div data-doc="done" style={{ padding: "16px 16px 100px" }}>
+        {head}
+        <div role="status" style={{ ...titleSt, marginTop: 14, color: ink(t, GREEN) }}>{tr("Signed. It is on your record.")}</div>
+        <div style={{ display: "flex", marginTop: 12 }}><button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Back to My training")}</button></div>
+      </div>
+    );
+  }
+  if (state.kind === "sign") {
+    return (
+      <div data-doc="sign" style={{ padding: "16px 16px 100px" }}>
+        {head}
+        {d.acknowledgement && <div style={{ ...bodySt, marginTop: 14, fontWeight: 600 }}>{d.acknowledgement}</div>}
+        <div data-doc-signature="1" style={{ marginTop: 12 }}>
+          <div style={mkLabel(t)}>{tr("Your signature")}</div>
+          <div style={{ borderRadius: R.md, border: fault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+            <SignatureBox strokes={strokes} onStroke={(stroke, size) => { const all = strokes.concat([stroke]); setStrokes(all); setPng(signaturePng(all, size.w, size.h)); setFault(null); }} height={SIGN_BOX_HEIGHT} />
+          </div>
+          <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+          <button type="button" onClick={() => { setStrokes([]); setPng(null); }} disabled={strokes.length === 0 || busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+        </div>
+        {fault && <WsFault text={fault} t={t} />}
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button type="button" disabled={busy} onClick={() => { setState({ kind: "read", d: d }); setAt(d.sections.length - 1); }} style={wsPlainBtn(t)}>{tr("Back")}</button>
+          <button type="button" data-doc-sign="1" disabled={busy} onClick={sign} style={wsMainBtn(t, busy)}>{busy ? tr("Sending...") : tr("Sign")}</button>
+        </div>
+      </div>
+    );
+  }
+  // Reading: the contents list, or one section with Back and Next.
+  const n = d.sections.length;
+  const sec = d.sections[Math.min(at, n - 1)];
+  return (
+    <div data-doc={contents ? "contents" : "read"} data-doc-section={at + 1} style={{ padding: "16px 16px 100px" }}>
+      {head}
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <button type="button" data-doc-contents="1" aria-pressed={contents} onClick={() => setContents(v => !v)} style={{ ...wsPlainBtn(t), flex: "none" }}>{tr("Contents")}</button>
+        <div style={{ ...smallSt, fontSize: 12, alignSelf: "center" }}>{tr("Section {n} of {count}", { n: at + 1, count: n })}</div>
+      </div>
+      {contents && (
+        <div style={{ marginTop: 12 }}>
+          {d.sections.map((x, i) => (
+            <button key={x.ref + i} type="button" data-doc-jump={i + 1} onClick={() => { setAt(i); setContents(false); }} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, padding: "8px 12px", marginBottom: 6, borderRadius: R.md, background: i === at ? t.goldBg : t.card, border: "1px solid " + (i === at ? GOLD : t.borderSolid), color: t.text, textAlign: "left", cursor: "pointer", fontSize: 14, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>
+              <span style={{ color: t.textMut, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{x.ref}</span>
+              <span style={{ minWidth: 0 }}>{x.title || tr("Section {n} of {count}", { n: i + 1, count: n })}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {!contents && (
+        <div style={{ marginTop: 14 }}>
+          <div role="heading" aria-level={2} style={{ ...titleSt, fontSize: 15 }}>{[sec.ref, sec.title].filter(Boolean).join(" ")}</div>
+          {docParagraphs(sec.content).map((p, i) => <div key={i} style={{ ...bodySt, marginTop: 10 }}>{p}</div>)}
+          <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+            <button type="button" data-doc-back="1" disabled={at === 0} onClick={() => setAt(a => Math.max(0, a - 1))} style={{ ...wsPlainBtn(t), opacity: at === 0 ? 0.6 : 1 }}>{tr("Back")}</button>
+            {at < n - 1 && <button type="button" data-doc-next={at + 2} onClick={() => setAt(a => a + 1)} style={wsMainBtn(t, false)}>{tr("Next")}</button>}
+            {at === n - 1 && <button type="button" data-doc-next="sign" onClick={() => setState({ kind: "sign", d: d })} style={wsMainBtn(t, false)}>{tr("Next")}</button>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Before you start (Step 264, the contract's section 5): opened once a day
+// after sign-in while GET /api/training/me answers a document to sign or
+// a first-day training, with Later to go on to the app. Each line opens
+// its place in My training.
+const BEFORE_YOU_START_KEY = "ocsa-before-you-start:";
+const beforeShownToday = (userId) => { try { return window.localStorage.getItem(BEFORE_YOU_START_KEY + String(userId || "")) === ymdLocal(todayLocal()); } catch (e) { return true; } };
+const markBeforeShown = (userId) => { try { window.localStorage.setItem(BEFORE_YOU_START_KEY + String(userId || ""), ymdLocal(todayLocal())); } catch (e) {} };
+function BeforeYouStartSheet({ training, onDocument, onLesson, onClose, t }) {
+  const docs = training ? training.documentsToSign : [];
+  const first = training ? training.firstDay : [];
+  const rowSt = { ...fkRowSt(t), display: "flex", alignItems: "center", gap: 10 };
+  const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
+  return (
+    <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 410, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div role="dialog" aria-modal="true" aria-labelledby="ocsa-before-title" data-before-you-start="1" onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, maxHeight: "calc(var(--ocsa-dvh, 100dvh) * 0.9)", display: "flex", flexDirection: "column", borderRadius: R.lg + "px " + R.lg + "px 0 0", border: "1px solid " + t.borderSolid, borderBottom: "none" }}>
+        <div style={{ padding: "14px 16px 10px", flexShrink: 0 }}>
+          <div id="ocsa-before-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Before you start")}</div>
+          <div style={lineSt}>{tr("A few things come first. Each takes a few minutes on this phone.")}</div>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 8px" }}>
+          {docs.length > 0 && <div style={fkHeadSt(t)}>{tr("Documents to sign")}</div>}
+          {docs.map(x => (
+            <div key={x.docCode} data-before-doc={x.docCode} style={rowSt}>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={nameSt}>{x.title}</div><div style={lineSt}>{x.docCode}</div></div>
+              <button type="button" onClick={() => onDocument(x)} style={{ ...wsMainBtn(t, false), flex: "none" }}>{tr("Read and sign")}</button>
+            </div>
+          ))}
+          {first.length > 0 && <div style={fkHeadSt(t)}>{tr("Your first trainings")}</div>}
+          {first.map(i => (
+            <div key={i.id} data-before-item={i.id} style={rowSt}>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={nameSt}>{i.name}</div>{(i.docCode || i.docSection) && <div style={lineSt}>{[i.docCode, i.docSection].filter(Boolean).join(" ")}</div>}</div>
+              {i.lesson && i.lesson.attemptsLeft > 0 && <button type="button" onClick={() => onLesson(i)} style={{ ...wsMainBtn(t, false), flex: "none" }}>{tr("Start the lesson")}</button>}
+              {(!i.lesson || i.lesson.attemptsLeft === 0) && <div style={{ ...lineSt, flex: "none", maxWidth: "45%" }}>{tr("Your supervisor sets up these sessions. Ask them when the next one is.")}</div>}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
+          <button type="button" data-before-later="1" onClick={onClose} style={wsPlainBtn(t)}>{tr("Later")}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -7424,6 +7674,8 @@ const NOTIF_TAB = {
   training_signoff: "fieldkit",
   // A session's /join/<code> (Step 264): My training, on the join screen.
   training_join: "training",
+  // A document to read and sign (Step 264): My training, on its reader.
+  document_to_sign: "training",
   chat: "chat",
   chat_mention: "chat",
   announcement: "announcement",
@@ -7442,6 +7694,7 @@ function notifPlace(subjectType, subjectId) {
   if (subjectType === "inspection_finding") return { tab: tab, finding: id };
   if (subjectType === "training_signoff") return { tab: tab, signoff: true };
   if (subjectType === "training_join") return id ? { tab: tab, join: id } : null;
+  if (subjectType === "document_to_sign") return { tab: tab, doc: id };
   return { tab: tab };
 }
 const NOTIF_PAGE = 30;
