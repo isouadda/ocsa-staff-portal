@@ -73,17 +73,21 @@ const lookupsIn = (lang) => LOOKUPS.map(c => Object.assign({}, c, { values: c.va
 // day says about it (see "the checklist day" below). Two fields here are
 // the stub's own and never served: every, how often an item of the day's
 // own work repeats, and shown, false for an item the checklist day does
-// not show today.
-const TASK_ROW = { building_name: null, floor_number: null, zone: null, task_type: "standard", shift_label: null, block_label: null, anchor_time: null, block_sort_order: null, cims_category: "SD", period: "today", every: "daily" };
+// not show today. Every row carries touchpoint (Step 238) and critical
+// (Step 247), false unless the item says otherwise; the API stores
+// critical only on a touchpoint.
+const TASK_ROW = { building_name: null, floor_number: null, zone: null, task_type: "standard", shift_label: null, block_label: null, anchor_time: null, block_sort_order: null, cims_category: "SD", period: "today", every: "daily", touchpoint: false, critical: false };
 const taskRow = (o) => Object.assign({}, TASK_ROW, o);
 const SITE_TASKS = {
   // Some people here are linked to particular items and most are not.
   // The open shift puts this person on Main Hall's second floor; the rest
   // are elsewhere on the site, and two carry no building and no floor.
+  // The entry doors are a critical touchpoint and the corridor a
+  // touchpoint (Step 249), one each, so the smoke check sees both chips.
   "site-north": [
-    taskRow({ id: "task-1", label: "Wipe the entry doors and handles", zone: "Entrance", building_name: "Main Hall", floor_number: "2", priority: "high", has_details: true, description: "Work top to bottom." }),
+    taskRow({ id: "task-1", label: "Wipe the entry doors and handles", zone: "Entrance", building_name: "Main Hall", floor_number: "2", priority: "high", has_details: true, description: "Work top to bottom.", touchpoint: true, critical: true }),
     taskRow({ id: "task-2", label: "Empty every bin on the floor", zone: "Entrance", building_name: "Main Hall", floor_number: "2" }),
-    taskRow({ id: "task-3", label: "Mop the corridor end to end", zone: "Corridor", building_name: "Main Hall", floor_number: "2" }),
+    taskRow({ id: "task-3", label: "Mop the corridor end to end", zone: "Corridor", building_name: "Main Hall", floor_number: "2", touchpoint: true }),
     taskRow({ id: "task-4", label: "Restock paper towels and soap", zone: "Restroom", building_name: "Main Hall", floor_number: "2" }),
     // One with no zone, which the screen gathers under its own heading.
     taskRow({ id: "task-5", label: "Refill the sanitizer stands", building_name: "Main Hall", floor_number: "2" }),

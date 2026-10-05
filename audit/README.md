@@ -27,9 +27,10 @@ id, while a form answered customerFields null and photoRoute false draws
 the page's own Your name and Your role and sends its photo inside the
 filing; a check-off with no signal is kept and said, and goes once with
 its clientId when the signal is back; an equipment label's page opens and
-records a check; a periodic task says how often it comes; a concern link
-(OCSA-FRM-009) takes a photo through its own route and shows the
-reference after filing;
+records a check; a periodic task says how often it comes; a checklist
+with one touchpoint and one critical touchpoint draws both chips, and the
+critical item's detail draws its chip; a concern link (OCSA-FRM-009)
+takes a photo through its own route and shows the reference after filing;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits

@@ -37,6 +37,9 @@
 //   - an equipment label's page opens, signed in, and Checked, all good
 //     sends { kind: "check" }
 //   - a periodic task says how often it comes beside its name
+//   - a checklist with one touchpoint and one critical touchpoint draws
+//     Touchpoint once and Critical touchpoint once, and the critical
+//     item's detail draws its chip
 //   - a concern link heads itself with the API's customerTitle, takes a
 //     photo through its own route, files, and shows the reference, the
 //     reply line and the copy line
@@ -601,6 +604,26 @@ async function concern(browser, language) {
   await app.context.close();
 }
 
+// Touchpoint chips (Step 249): the north list has one touchpoint and one
+// critical touchpoint, and the list draws Touchpoint once and Critical
+// touchpoint once; the critical item's detail draws its chip too.
+async function touchpoints(browser, language) {
+  const app = await open({ accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
+  const page = app.page;
+  await tapBar(page, 2);
+  const words = ["Touchpoint", "Critical touchpoint"].map(w => say(language, w));
+  const chipsOf = (want) => Array.from(document.querySelectorAll(".sp-content span")).map(x => x.innerText.trim()).filter(v => want.indexOf(v) !== -1);
+  const listed = await waitFor(page, "(" + chipsOf.toString() + ")(" + JSON.stringify(words) + ").length >= 2");
+  const chips = listed ? await page.evaluate("(" + chipsOf.toString() + ")(" + JSON.stringify(words) + ")") : [];
+  const once = chips.filter(c => c === words[0]).length === 1 && chips.filter(c => c === words[1]).length === 1;
+  // The critical row's name opens its detail, which draws the chip beside
+  // the name, with PRIORITY, since that item is high priority too.
+  if (once) await page.evaluate((w) => { const chip = Array.from(document.querySelectorAll(".sp-content span")).find(x => x.innerText.trim() === w); const row = chip.parentElement.parentElement; row.querySelectorAll("button")[1].click(); }, words[1]);
+  const detail = once && await waitFor(page, (w) => { const c = document.querySelector(".sp-content"); return !!c && c.innerText.indexOf(w.back) !== -1 && w.chips.every(x => Array.from(c.querySelectorAll("span")).some(s => s.innerText.trim() === x)); }, { back: say(language, "Back to checklist"), chips: [words[1], say(language, "PRIORITY")] });
+  check("a checklist with one touchpoint and one critical touchpoint draws Touchpoint once and Critical touchpoint once, and the critical item's detail draws its chip beside PRIORITY (" + language + ")", once && detail && app.errors.length === 0, !once ? "found " + JSON.stringify(chips) : !detail ? "the detail did not draw the chip" : app.errors[0]);
+  await app.context.close();
+}
+
 // French, offered by the stub.
 async function french(browser) {
   const app = await open({ languages: ["en", "es", "fr"], accountPreferences: { language: "fr", textSize: "standard" } }, { browser, language: "fr", signedIn: true });
@@ -662,6 +685,7 @@ async function largest(browser) {
     for (const language of ["en", "es"]) await guard("an equipment label (" + language + ")", () => equipment(browser, language));
     for (const language of ["en", "es"]) await guard("periodic work (" + language + ")", () => periodic(browser, language));
     for (const language of ["en", "es"]) await guard("a concern link (" + language + ")", () => concern(browser, language));
+    for (const language of ["en", "es"]) await guard("touchpoint chips (" + language + ")", () => touchpoints(browser, language));
     await guard("French", () => french(browser));
     await guard("the Largest text size", () => largest(browser));
   } finally {
