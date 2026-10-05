@@ -926,6 +926,26 @@ const INSPECT_PHOTO_UNDER_PCT = 70;
 // told in the API's own words under the box or the row it is about.
 const INSPECT_SIGN_CODES = ["inspections.signatureRequired", "inspections.badSignature"];
 const INSPECT_PHOTO_CODES = ["inspections.tooManyPhotos", "inspections.badPhoto"];
+// Step 255. Once GET /api/inspections/scheduled/:id answers owners, the
+// API opens each finding itself (Step 253): a card's Needs a fix sends
+// deficient with the card's note and an optional ownerId picked from that
+// list, and the screen files no report of its own. Until the read answers
+// owners, the screen, its call and its reports are what they were, so a
+// merge ahead of the API changes nothing. null is that older answer.
+const inspectOwnersOf = (d) => {
+  const list = d && d.owners;
+  if (!Array.isArray(list)) return null;
+  return list.map(x => (x && typeof x === "object" && x.id !== null && x.id !== undefined ? { id: String(x.id), name: typeof x.name === "string" ? x.name.trim() : "", role: typeof x.role === "string" ? x.role : "" } : null)).filter(Boolean);
+};
+// Under this share of its maximum the API opens a finding whether or not
+// the card is marked (QMS-014 5.2's failed line), so the card says so and
+// asks for its note, which the API requires on every deficient card.
+const INSPECT_FINDING_UNDER_PCT = 80;
+const inspectDeficient = (score, max, marked) => !!marked || (max > 0 && score * 100 < INSPECT_FINDING_UNDER_PCT * max);
+// The refusals the complete route gives about a finding, each told in the
+// API's words under the card its keys name: a deficient card with no
+// note, and an owner who is not on the list.
+const INSPECT_FINDING_CODES = ["inspections.findingNoteRequired", "inspections.badOwner"];
 // A control whose drawing is meant to stay smaller than that. The button
 // becomes a see-through frame of at least 44 by 44 and the look moves to
 // the span inside it, so the tap area grows and the drawing does not.
@@ -11612,6 +11632,14 @@ function InspectView({ token, user, showToast, t }) {
   const [needsFix, setNeedsFix] = useState({});
   const [missingNote, setMissingNote] = useState({});
   const notDueBefore = useRef({});
+  // Step 255. The owners the read answers (null before the API's Step
+  // 253), the owner picked for each deficient card by the card's id, and
+  // what the API said about a card's finding, under that card.
+  const owners = inspectOwnersOf(active);
+  const [ownerOf, setOwnerOf] = useState({});
+  const [cardFault, setCardFault] = useState({});
+  // Whether a card's score and mark open a finding, with owners answered.
+  const deficientNow = (item) => inspectDeficient(parseInt(scores[item.id]) || 0, item.max_score, needsFix[item.id]);
   // Once an inspection is sent: its name and one report per card marked
   // Needs a fix, each filed or not. Try again files one that was not.
   const [sent, setSent] = useState(null);
@@ -11706,6 +11734,7 @@ function InspectView({ token, user, showToast, t }) {
       setSigStrokes([]); setSigPng(null); setSigFault(null);
       setNeedsFix({});
       setMissingNote({});
+      setOwnerOf({}); setCardFault({});
       notDueBefore.current = {};
       setScoredIds({}); setLastTouched(null); setShowScored(false); setSectionsOpen(false);
     } catch (e) { showToast(tr(e.message), "error"); }
@@ -11733,6 +11762,7 @@ function InspectView({ token, user, showToast, t }) {
   const toggleNeedsFix = (id) => {
     setNeedsFix(prev => ({ ...prev, [id]: !prev[id] }));
     setMissingNote(prev => ({ ...prev, [id]: false }));
+    setCardFault(prev => (prev[id] ? { ...prev, [id]: null } : prev));
   };
 
   const handlePhotoUpload = async (itemId, file) => {
@@ -11823,7 +11853,9 @@ function InspectView({ token, user, showToast, t }) {
 
   const submit = async () => {
     if (!active) return;
-    const unsaid = (active.items || []).filter(item => needsFix[item.id] && !(notes[item.id] || "").trim());
+    // With owners answered, every card that opens a finding needs its note
+    // (the API refuses one without it); before that, the cards marked.
+    const unsaid = (active.items || []).filter(item => (owners ? deficientNow(item) : needsFix[item.id]) && !(notes[item.id] || "").trim());
     if (unsaid.length) {
       const flags = {};
       unsaid.forEach(item => { flags[item.id] = true; });
@@ -11860,6 +11892,8 @@ function InspectView({ token, user, showToast, t }) {
           photo_url: uploaded[item.id] || null,
         };
         if (capture) { const urls = shotUrls(inspectShotKey(item.id)); row.photo_urls = urls; row.photo_url = urls[0] || null; }
+        // Step 255: which cards open a finding, and whose each is.
+        if (owners) { row.deficient = deficientNow(item); if (row.deficient && ownerOf[item.id]) row.ownerId = ownerOf[item.id]; }
         return row;
       });
       const body = { scores: payload, overall_notes: overallNotes || null };
@@ -11869,8 +11903,10 @@ function InspectView({ token, user, showToast, t }) {
         method: "POST", token,
         body: body,
       });
-      // Only once the inspection is in: the reports, one after another.
-      const reports = (active.items || []).filter(item => needsFix[item.id]).map(reportFor);
+      // With owners answered the API opened the findings itself in the
+      // same transaction, and nothing is filed from here. Otherwise, only
+      // once the inspection is in: the reports, one after another.
+      const reports = owners ? [] : (active.items || []).filter(item => needsFix[item.id]).map(reportFor);
       if (!reports.length) {
         showToast(tr("Inspection submitted"));
       } else {
@@ -11880,7 +11916,7 @@ function InspectView({ token, user, showToast, t }) {
       }
       setActive(null);
       loadList();
-    } catch (e) { if (!(capture && placeRefusal(e))) showToast(tr(e.message), "error"); }
+    } catch (e) { if (!((capture || owners) && placeRefusal(e))) showToast(tr(e.message), "error"); }
     setSubmitting(false);
   };
   // The page scrolls to a mark once it is drawn.
@@ -11894,6 +11930,19 @@ function InspectView({ token, user, showToast, t }) {
     const said = e && e.message !== ERR_OFFLINE && typeof e.message === "string" ? e.message.trim() : "";
     if (!said) return false;
     if (INSPECT_SIGN_CODES.indexOf(code) !== -1) { setSigFault({ said: said }); scrollToMark("[data-inspect-signature]"); return true; }
+    // A finding's refusal goes under each card its keys name, by its
+    // template_item_id. One that names no card, about a missing note,
+    // lands on every card that opens a finding and has none.
+    if (owners && INSPECT_FINDING_CODES.indexOf(code) !== -1) {
+      const keys = e.body && Array.isArray(e.body.keys) ? e.body.keys.map(String) : [];
+      let ids = (active.items || []).filter(item => keys.indexOf(String(item.id)) !== -1).map(item => item.id);
+      if (ids.length === 0 && code === "inspections.findingNoteRequired") ids = (active.items || []).filter(item => deficientNow(item) && !(notes[item.id] || "").trim()).map(item => item.id);
+      if (ids.length === 0) return false;
+      setCardFault(prev => { const next = { ...prev }; ids.forEach(id => { next[id] = said; }); return next; });
+      setShowScored(true);
+      scrollToMark('[data-inspect-item="' + ids[0] + '"]');
+      return true;
+    }
     if (INSPECT_PHOTO_CODES.indexOf(code) === -1) return false;
     const keys = e.body && Array.isArray(e.body.keys) ? e.body.keys.map(String) : [];
     const rows = [];
@@ -12006,6 +12055,10 @@ function InspectView({ token, user, showToast, t }) {
       const iColor = iPct >= 80 ? GREEN : iPct >= 60 ? ORANGE : RED;
       const notDue = notDueOn(item);
       const fix = !!needsFix[item.id];
+      // With owners answered: whether this card opens a finding, and
+      // whether its score alone does, which the card says once scored.
+      const finding = !!owners && inspectDeficient(sc, item.max_score, fix);
+      const underLine = !!owners && !!scoredIds[item.id] && item.max_score > 0 && sc * 100 < INSPECT_FINDING_UNDER_PCT * item.max_score;
       return (
         <div key={item.id} data-inspect-item={item.id} style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "14px 14px 12px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -12028,8 +12081,21 @@ function InspectView({ token, user, showToast, t }) {
               {tr("Needs a fix")}
             </button>
           </div>
-          <input value={notes[item.id] || ""} onChange={e => { const v = e.target.value; setNotes(prev => ({ ...prev, [item.id]: v })); if (missingNote[item.id] && v.trim()) setMissingNote(prev => ({ ...prev, [item.id]: false })); }} placeholder={fix ? tr("Say what needs fixing") : tr("Notes for this item (optional)")} aria-invalid={!!missingNote[item.id]} style={{ ...inputSt, fontSize: 12, marginBottom: 8, ...(missingNote[item.id] ? { border: "1px solid " + RED } : {}) }} />
+          {underLine && (
+            <div data-inspect-finding={item.id} style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 8, fontSize: 11, color: t.text, lineHeight: 1.4 }}><AlertIco sz={14} c={ink(t, ORANGE)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ minWidth: 0 }}>{tr("This will open a finding.")}</span></div>
+          )}
+          {finding && (
+            <div data-inspect-owner={item.id} style={{ marginBottom: 8 }}>
+              <label htmlFor={"ocsa-inspect-owner-" + item.id} style={labelSt}>{tr("Owner")}</label>
+              <select id={"ocsa-inspect-owner-" + item.id} value={ownerOf[item.id] || ""} onChange={e => { const v = e.target.value; setOwnerOf(prev => ({ ...prev, [item.id]: v })); setCardFault(prev => (prev[item.id] ? { ...prev, [item.id]: null } : prev)); }} disabled={submitting} style={{ ...inputSt, fontSize: 12 }}>
+                <option value="">{tr("No owner yet")}</option>
+                {owners.map(o => <option key={o.id} value={o.id}>{o.name}{o.role ? ", " + roleWord(o.role) : ""}</option>)}
+              </select>
+            </div>
+          )}
+          <input value={notes[item.id] || ""} onChange={e => { const v = e.target.value; setNotes(prev => ({ ...prev, [item.id]: v })); if (missingNote[item.id] && v.trim()) setMissingNote(prev => ({ ...prev, [item.id]: false })); if (cardFault[item.id] && v.trim()) setCardFault(prev => ({ ...prev, [item.id]: null })); }} placeholder={fix || finding ? tr("Say what needs fixing") : tr("Notes for this item (optional)")} aria-invalid={!!missingNote[item.id] || !!cardFault[item.id]} style={{ ...inputSt, fontSize: 12, marginBottom: 8, ...(missingNote[item.id] || cardFault[item.id] ? { border: "1px solid " + RED } : {}) }} />
           {missingNote[item.id] && <div style={{ ...mkFieldErr(t), marginTop: -2, marginBottom: 8 }}>{tr("Say what needs fixing")}</div>}
+          {!missingNote[item.id] && cardFault[item.id] && <div role="alert" style={{ ...mkFieldErr(t), marginTop: -2, marginBottom: 8 }}>{cardFault[item.id]}</div>}
           {capture ? (
             <div data-inspect-photos={inspectShotKey(item.id)}>
               <div style={{ fontSize: 11, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("Photos")}</div>
