@@ -2409,6 +2409,12 @@ export default function OCSAStaffPortal() {
   const openPlace = (place) => {
     if (!place) return;
     if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
+    // Sign off training is a supervisor's place; anyone else lands on My
+    // training. The field kit keeps its site and opens on the tile.
+    if (place.tab === "fieldkit") {
+      if (!isAdmin) { setActiveTab("training"); setShowMore(false); return; }
+      setFieldKitAt(at => ({ siteId: at && at.siteId ? at.siteId : null, tile: place.signoff ? "signoff" : null }));
+    }
     setActiveTab(place.tab); setShowMore(false);
     if (place.tab === "issues") { setRequestOpen(place.request || null); setFindingOpen(place.finding || null); loadClientRequests(); loadFindings(); }
     if (place.tab === "chat" && place.chat) { if (activeChannelRef.current === place.chat) loadMessages(place.chat); else chooseChat(place.chat); }
@@ -2497,6 +2503,17 @@ export default function OCSAStaffPortal() {
     readTraining(token).then(d => { if (live && d) setTraining(d); });
     return () => { live = false; };
   }, [token, screen]);
+  // The lessons waiting for a sign-off (Step 261), for a supervisor or an
+  // admin, read each time Home opens; Home's card counts them. null until
+  // the route answers a list, so an API without it shows nothing.
+  const [awaiting, setAwaiting] = useState(null);
+  useEffect(() => {
+    if (!token || screen !== "main" || !isAdmin) { setAwaiting(null); return undefined; }
+    if (activeTab !== "clock") return undefined;
+    let live = true;
+    readTrainingAwaiting(token, null, user && user.id).then(list => { if (live) setAwaiting(list); });
+    return () => { live = false; };
+  }, [token, screen, isAdmin, activeTab]);
   const wsAsks = !!token && screen === "main" && isOfficePerson(user);
   useEffect(() => {
     if (!wsAsks) { setWsProjects(null); setWsAt(null); return undefined; }
@@ -2835,7 +2852,7 @@ export default function OCSAStaffPortal() {
 
           <div style={{ padding: "0 0 var(--ocsa-bar, 76px) 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
-              {activeTab === "clock" && <div><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
+              {activeTab === "clock" && <div><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -6064,6 +6081,29 @@ function RequestTarget({ label, at, state, t }) {
 }
 
 // Home's one card: how many client requests need this person.
+// Home's training cards (Step 261): the lessons the person can do on the
+// phone right now, which open My training; and, for a supervisor or an
+// admin, the lessons waiting for a sign-off, which open the field kit on
+// Sign off training. Each shows only when it has something to count.
+function TrainingCard({ training, awaiting, onOpen, onOpenSignoff, t }) {
+  const todo = trainingToDo(training).length;
+  const waiting = Array.isArray(awaiting) ? awaiting.length : 0;
+  if (todo === 0 && waiting === 0) return null;
+  const card = (tag, text, onTap) => (
+    <button key={tag} type="button" data-training-card={tag} onClick={onTap} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, minHeight: TAP, padding: "14px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.goldBorder, boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
+      <BookIco sz={20} c={t.goldText} style={{ flexShrink: 0 }} />
+      <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{text}</span>
+      <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0 }} />
+    </button>
+  );
+  return (
+    <div style={{ padding: "16px 16px 0", marginBottom: -8 }}>
+      {todo > 0 && card("todo", todo === 1 ? tr("1 training to do") : tr("{n} trainings to do", { n: todo }), onOpen)}
+      {waiting > 0 && card("signoff", waiting === 1 ? tr("1 training to sign off") : tr("{n} trainings to sign off", { n: waiting }), onOpenSignoff)}
+    </div>
+  );
+}
+
 function ClientRequestsCard({ rows, user, onOpen, t }) {
   const mine = requestsForMe(rows, user);
   const n = mine.waiting.length + mine.mine.length;
@@ -6573,7 +6613,7 @@ function TrainingView({ token, data, onData, shiftSiteId, t }) {
       {group === "done" && i.expiresOn && <div style={lineSt}>{tr("Expires {date}", { date: trainingDay(i.expiresOn) })}</div>}
       {i.lesson && (group === "todo" || group === "soon") && i.lesson.attemptsLeft > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
-          <button type="button" data-training-start={i.id} onClick={() => setLesson({ id: i.id, item: i, opened: Date.now() })} style={{ ...goldBtn, flex: "1 1 120px" }}>{i.status === "inProgress" ? tr("Continue") : tr("Start")}</button>
+          <button type="button" data-training-start={i.id} onClick={() => setLesson({ id: i.id, item: i, opened: Date.now() })} style={{ ...goldBtn, flex: "1 1 120px" }}>{i.status === "inProgress" ? tr("Continue the lesson") : tr("Start the lesson")}</button>
           <span data-training-tries={i.lesson.attemptsLeft} style={{ ...lineSt, marginTop: 0, flex: "1 1 80px", minWidth: 0 }}>{trainingTries(i.lesson.attemptsLeft)}</span>
         </div>
       )}
@@ -6744,7 +6784,9 @@ function TrainingLesson({ token, item, siteId, onBack, t }) {
       <div style={lineSt}>{tr("Pass mark: {pass}%", { pass: les.passPercent })}</div>
     </div>
   ) : null;
-  const backBtn = <button type="button" onClick={onBack} style={{ ...wsPlainBtn(t), width: "100%", marginTop: 12 }}>{tr("Back to My training")}</button>;
+  // In its own row: the screen is a flex column, and a button set straight
+  // in it would grow to fill the screen.
+  const backBtn = <div style={{ display: "flex", marginTop: 12 }}><button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Back to My training")}</button></div>;
   const head = (
     <div>
       {back}
@@ -7228,8 +7270,12 @@ const NOTIF_TAB = {
   client_request: "issues",
   // An inspection finding (Step 255): Report, with that finding in view.
   inspection_finding: "issues",
-  // A training record about to expire (Step 258): My training.
+  // A training record about to expire (Step 258): My training. A lesson
+  // failed on its last try (Step 261): My training too. A lesson waiting
+  // for a trainer: the field kit, on Sign off training.
   training_expiring: "training",
+  training_reteach: "training",
+  training_signoff: "fieldkit",
   chat: "chat",
   chat_mention: "chat",
   announcement: "announcement",
@@ -7246,6 +7292,7 @@ function notifPlace(subjectType, subjectId) {
   if (tab === "announcement") return id ? { announcement: id } : null;
   if (subjectType === "client_request") return { tab: tab, request: id };
   if (subjectType === "inspection_finding") return { tab: tab, finding: id };
+  if (subjectType === "training_signoff") return { tab: tab, signoff: true };
   return { tab: tab };
 }
 const NOTIF_PAGE = 30;

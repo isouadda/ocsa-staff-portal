@@ -334,6 +334,63 @@ const TRAINING_ME = {
     { id: "tr-6", name: "Invented injury reporting", completedDate: "2026-06-10", expiresOn: "2027-06-10", score: 95, siteName: "North Building", locale: "en" },
   ],
 };
+// Step 261: the lessons behind two of the items (the contract's slice
+// 2), every word invented. The first needs a trainer and is written in
+// English and Spanish; the second needs none and is English alone. Each
+// has five questions; the right option is kept here and never served.
+// TRAINING_AWAITING is an attempt another person passed and signed,
+// waiting for a supervisor's sign-off at North Building.
+const lessonWords = (en, es) => ({ en: en, es: es || en });
+const TRAINING_LESSONS = [
+  {
+    versionId: "lv-1", topicId: "tp-1", version: 2, passPercent: 80, maxAttempts: 3, needsTrainer: true, locales: ["en", "es"],
+    title: lessonWords("Invented hazard communication", "Comunicaci\u00f3n de riesgos inventada"),
+    blocks: [
+      { key: "b1", kind: "text", text: lessonWords("Every product at a site has a label and a safety sheet. Read the label before you open the bottle.", "Cada producto en un sitio tiene una etiqueta y una hoja de seguridad. Lea la etiqueta antes de abrir el envase."), items: [], source: { docCode: "OCSA-HR-009", sectionRef: "3.1" } },
+      { key: "b2", kind: "list", text: lessonWords("The label tells you:", "La etiqueta le dice:"), items: [lessonWords("what the product is", "qu\u00e9 es el producto"), lessonWords("what it can do to you", "qu\u00e9 puede hacerle"), lessonWords("what to wear when you use it", "qu\u00e9 debe ponerse para usarlo")], source: null },
+      { key: "b3", kind: "warning", text: lessonWords("Never mix two products. Bleach and ammonia together make a gas that can hurt you.", "Nunca mezcle dos productos. El cloro y el amoniaco juntos producen un gas que puede hacerle da\u00f1o."), items: [], source: { docCode: "OCSA-HR-009", sectionRef: "3.4" } },
+    ],
+    questions: [
+      { key: "q1", text: lessonWords("Before you open a product for the first time, you:", "Antes de abrir un producto por primera vez, usted:"), options: [{ value: "a", text: lessonWords("Read its label", "Lee su etiqueta") }, { value: "b", text: lessonWords("Smell it", "Lo huele") }, { value: "c", text: lessonWords("Ask a coworker what it is", "Le pregunta a un compa\u00f1ero qu\u00e9 es") }], correct: "a" },
+      { key: "q2", text: lessonWords("Where is a product's safety sheet?", "\u00bfD\u00f3nde est\u00e1 la hoja de seguridad de un producto?"), options: [{ value: "a", text: lessonWords("In the safety data sheets under More", "En las hojas de seguridad bajo M\u00e1s") }, { value: "b", text: lessonWords("There is none", "No hay") }], correct: "a" },
+      { key: "q3", text: lessonWords("Two products can be mixed when:", "Dos productos se pueden mezclar cuando:"), options: [{ value: "a", text: lessonWords("Never", "Nunca") }, { value: "b", text: lessonWords("Both are cleaners", "Los dos son limpiadores") }, { value: "c", text: lessonWords("The bottle is almost empty", "El envase est\u00e1 casi vac\u00edo") }], correct: "a" },
+      { key: "q4", text: lessonWords("A bottle with no label is:", "Un envase sin etiqueta es:"), options: [{ value: "a", text: lessonWords("Set aside and reported to your supervisor", "Apartado y reportado a su supervisor") }, { value: "b", text: lessonWords("Used up first", "Usado primero") }], correct: "a" },
+      { key: "q5", text: lessonWords("The label says to wear gloves. You:", "La etiqueta dice que use guantes. Usted:"), options: [{ value: "a", text: lessonWords("Wear gloves", "Usa guantes") }, { value: "b", text: lessonWords("Wear gloves when a supervisor is there", "Usa guantes cuando hay un supervisor") }], correct: "a" },
+    ],
+    acknowledgement: lessonWords("I read this lesson and I understand it.", "Le\u00ed esta lecci\u00f3n y la entiendo."),
+  },
+  {
+    versionId: "lv-2", topicId: "tp-2", version: 1, passPercent: 80, maxAttempts: 3, needsTrainer: false, locales: ["en"],
+    title: lessonWords("Invented ladders"),
+    blocks: [
+      { key: "b1", kind: "text", text: lessonWords("Check a ladder before you climb it: the feet, the rungs and the locks."), items: [], source: { docCode: "OCSA-HR-016", sectionRef: "5.2" } },
+      { key: "b2", kind: "warning", text: lessonWords("Never stand on the top two rungs."), items: [], source: null },
+    ],
+    questions: [
+      { key: "q1", text: lessonWords("Before you climb a ladder, you check:"), options: [{ value: "a", text: lessonWords("The feet, the rungs and the locks") }, { value: "b", text: lessonWords("The weather") }], correct: "a" },
+      { key: "q2", text: lessonWords("You may stand on the top rung:"), options: [{ value: "a", text: lessonWords("Never") }, { value: "b", text: lessonWords("When someone holds the ladder") }], correct: "a" },
+      { key: "q3", text: lessonWords("A ladder with a cracked rung is:"), options: [{ value: "a", text: lessonWords("Tagged out and reported") }, { value: "b", text: lessonWords("Used with care") }], correct: "a" },
+      { key: "q4", text: lessonWords("You carry tools up a ladder:"), options: [{ value: "a", text: lessonWords("In a belt or a bucket on a line") }, { value: "b", text: lessonWords("In your hands") }], correct: "a" },
+      { key: "q5", text: lessonWords("A ladder is set up on:"), options: [{ value: "a", text: lessonWords("Firm, level ground") }, { value: "b", text: lessonWords("Whatever is there") }], correct: "a" },
+    ],
+    acknowledgement: lessonWords("I read this lesson and I understand it."),
+  },
+];
+const TRAINING_AWAITING = { id: "ta-7", versionId: "lv-1", topicId: "tp-1", personId: SECOND_PERSON.id, personName: SECOND_PERSON.firstName + " " + SECOND_PERSON.lastName, attemptNo: 1, locale: "en", siteId: "site-north", startedAt: "2026-10-04T15:02:00Z", scoredAt: "2026-10-04T15:18:00Z", scorePercent: 100, passed: true, missed: [], acknowledgedAt: "2026-10-04T15:20:00Z", awaitingTrainer: true, trainerSignedAt: null, trainerId: null, trainerName: null, demonstrated: false, voidedAt: null };
+// The refusals the lesson routes write (the contract's section 8); the
+// words are the stub's, since the contract gives none.
+const TRAINING_REFUSALS = {
+  "training.noLesson": { status: 404, en: "This topic has no lesson yet.", es: "Este tema todav\u00eda no tiene lecci\u00f3n." },
+  "training.noAttemptsLeft": { status: 409, en: "You have no tries left on this lesson. Ask your supervisor for an in-person session.", es: "No le quedan intentos en esta lecci\u00f3n. P\u00eddale a su supervisor una sesi\u00f3n en persona." },
+  "training.badAnswers": { status: 400, en: "Answer every question.", es: "Responda todas las preguntas." },
+  "training.notPassed": { status: 409, en: "This attempt was not passed.", es: "Este intento no fue aprobado." },
+  "training.signatureRequired": { status: 400, en: "Sign before you send.", es: "Firme antes de enviar." },
+  "training.notReady": { status: 409, en: "This attempt is not waiting for a sign-off.", es: "Este intento no est\u00e1 esperando una firma." },
+  "training.cannotSignOwn": { status: 403, en: "You cannot sign off your own training.", es: "No puede firmar su propia capacitaci\u00f3n." },
+  "training.demonstrationRequired": { status: 400, en: "Watch the person do it before you sign.", es: "Vea a la persona hacerlo antes de firmar." },
+  "training.attemptNotFound": { status: 404, en: "This attempt was not found.", es: "No se encontr\u00f3 este intento." },
+  "training.noAccess": { status: 403, en: "You cannot see this.", es: "No puede ver esto." },
+};
 // The complete route's refusals about a finding (the Step 253 contract
 // section 3, item 2); the words are the stub's, since the contract gives
 // none, and the keys name the card.
@@ -582,6 +639,9 @@ function makeState(opts) {
     // /api/training/me; trainingNone answers it with nothing required.
     training: o.training === true || o.trainingNone === true,
     trainingNone: o.trainingNone === true,
+    // Step 261: every attempt on a lesson, seeded with the one another
+    // person passed and signed, waiting for a supervisor's sign-off.
+    trainingAttempts: o.training === true ? [Object.assign({}, TRAINING_AWAITING)] : [],
     // The supplies at the open shift's site, which a case can answer
     // with none. null answers the one supply every case has always had.
     supplies: Array.isArray(o.supplies) ? o.supplies : null,
@@ -2415,6 +2475,15 @@ function createStub(opts) {
     return json(201, { issue: issue });
   }
 
+  // Step 261: this person's attempts on a lesson, oldest first; the tries
+  // used and left on it (three in all, the contract's default); and an
+  // attempt as the routes answer it, with no correct value anywhere.
+  function lessonAttempts(lesson) { return state.trainingAttempts.filter(a => a.versionId === lesson.versionId && a.personId === state.person.id && !a.voidedAt); }
+  function lessonTries(lesson) { const used = lessonAttempts(lesson).length; return { used: used, left: Math.max(0, lesson.maxAttempts - used) }; }
+  function attemptView(a) {
+    const topic = TRAINING_ME.items.find(i => i.topicId === a.topicId);
+    return { id: a.id, versionId: a.versionId, topicId: a.topicId, topicName: topic ? topic.name : "", attemptNo: a.attemptNo, locale: a.locale, startedAt: a.startedAt, scoredAt: a.scoredAt, scorePercent: a.scorePercent, passed: a.passed, missed: a.missed.slice(), acknowledgedAt: a.acknowledgedAt, awaitingTrainer: a.awaitingTrainer, trainerSignedAt: a.trainerSignedAt, trainer: a.trainerName ? { name: a.trainerName } : null, demonstrated: a.demonstrated, siteId: a.siteId, voidedAt: a.voidedAt };
+  }
   function handle(method, pathname, search, body, headers) {
     const key = method + " " + pathname;
     state.calls.push({ method: method, path: pathname, search: search || "", body: body || null, headers: headers || {} });
@@ -3258,10 +3327,101 @@ function createStub(opts) {
         return json(201, { photo: { id: "rph-" + r.photos.length, url: String(body.photoUrl) } });
       }
     }
-    // --- My training (Step 258), behind state.training.
+    // --- My training (Step 258) and its lessons (Step 261), behind
+    // state.training. Items tp-1 and tp-2 carry a lesson; an attempt of
+    // this person on one moves the item to inProgress or awaitingTrainer.
     if (key === "GET /api/training/me") {
       if (!state.training) return json(404, { error: "Not found" });
-      return json(200, state.trainingNone ? { asOf: TRAINING_ME.asOf, items: [], records: [] } : JSON.parse(JSON.stringify(TRAINING_ME)));
+      if (state.trainingNone) return json(200, { asOf: TRAINING_ME.asOf, items: [], records: [], attempts: [] });
+      const me = JSON.parse(JSON.stringify(TRAINING_ME));
+      me.items.forEach(item => {
+        const lesson = TRAINING_LESSONS.find(l => l.topicId === item.topicId);
+        if (!lesson) return;
+        item.lesson = { versionId: lesson.versionId, attemptsUsed: lessonTries(lesson).used, attemptsLeft: lessonTries(lesson).left };
+        const latest = lessonAttempts(lesson).slice(-1)[0] || null;
+        if (!latest) return;
+        if (latest.acknowledgedAt && latest.awaitingTrainer) { item.status = "awaitingTrainer"; item.attemptId = latest.id; }
+        else if (latest.acknowledgedAt && !latest.awaitingTrainer) { item.status = "current"; item.completedDate = "2026-10-05"; item.attemptId = latest.id; }
+        else if ((!latest.scoredAt || !latest.passed) && lessonTries(lesson).left > 0) { item.status = "inProgress"; item.attemptId = latest.id; }
+      });
+      me.attempts = TRAINING_LESSONS.map(l => lessonAttempts(l).slice(-1)[0]).filter(Boolean).map(attemptView);
+      return json(200, me);
+    }
+    if (state.training && pathname.indexOf("/api/training/") === 0) {
+      const management = FK_MANAGEMENT.indexOf(state.person.role) !== -1;
+      const refuse = (k, extra) => { const r = TRAINING_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
+      const version = /^GET \/api\/training\/lesson-versions\/([^/]+)$/.exec(key);
+      if (version) {
+        const lesson = TRAINING_LESSONS.find(l => l.versionId === decodeURIComponent(version[1]));
+        if (!lesson) return refuse("training.noLesson");
+        const loc = lesson.locales.indexOf(lang) !== -1 ? lang : "en";
+        const inLoc = (w) => (w && typeof w === "object" ? (w[loc] || w.en) : w);
+        const tries = lessonTries(lesson);
+        return json(200, { lesson: {
+          versionId: lesson.versionId, topicId: lesson.topicId, version: lesson.version, title: inLoc(lesson.title), locale: loc, locales: lesson.locales.slice(),
+          blocks: lesson.blocks.map(b => ({ key: b.key, kind: b.kind, text: inLoc(b.text), items: b.items.map(inLoc), source: b.source ? Object.assign({}, b.source) : null })),
+          questions: lesson.questions.map(qn => ({ key: qn.key, text: inLoc(qn.text), options: qn.options.map(o => ({ value: o.value, text: inLoc(o.text) })) })),
+          acknowledgement: inLoc(lesson.acknowledgement), passPercent: lesson.passPercent, needsTrainer: lesson.needsTrainer, attemptsUsed: tries.used, attemptsLeft: tries.left,
+        } });
+      }
+      if (key === "POST /api/training/attempts") {
+        const lesson = TRAINING_LESSONS.find(l => body && l.versionId === body.versionId);
+        if (!lesson) return refuse("training.noLesson");
+        const open = lessonAttempts(lesson).find(a => !a.scoredAt);
+        if (open) return json(201, { attempt: attemptView(open) });
+        const tries = lessonTries(lesson);
+        if (tries.left <= 0) return refuse("training.noAttemptsLeft");
+        const made = { id: "ta-made-" + (state.trainingAttempts.length + 1), versionId: lesson.versionId, topicId: lesson.topicId, personId: state.person.id, personName: state.person.firstName + " " + state.person.lastName, attemptNo: tries.used + 1, locale: body.locale === "es" ? "es" : "en", siteId: body.siteId || null, startedAt: new Date().toISOString(), scoredAt: null, scorePercent: null, passed: null, missed: [], acknowledgedAt: null, awaitingTrainer: false, trainerSignedAt: null, trainerId: null, trainerName: null, demonstrated: false, voidedAt: null };
+        state.trainingAttempts.push(made);
+        return json(201, { attempt: attemptView(made) });
+      }
+      const act = /^POST \/api\/training\/attempts\/([^/]+)\/(answers|acknowledge|signoff)$/.exec(key);
+      if (act) {
+        const a = state.trainingAttempts.find(x => x.id === decodeURIComponent(act[1]));
+        if (!a) return refuse("training.attemptNotFound");
+        const lesson = TRAINING_LESSONS.find(l => l.versionId === a.versionId);
+        const b = body && typeof body === "object" ? body : {};
+        if (act[2] === "answers") {
+          if (a.personId !== state.person.id) return refuse("training.noAccess");
+          if (a.scoredAt) return refuse("training.notReady");
+          const given = b.answers && typeof b.answers === "object" ? b.answers : {};
+          const keys = lesson.questions.filter(qn => typeof given[qn.key] !== "string" || !qn.options.some(o => o.value === given[qn.key])).map(qn => "answers." + qn.key);
+          if (keys.length > 0) return refuse("training.badAnswers", { keys: keys });
+          a.missed = lesson.questions.filter(qn => given[qn.key] !== qn.correct).map(qn => qn.key);
+          a.scorePercent = Math.round((lesson.questions.length - a.missed.length) * 100 / lesson.questions.length);
+          a.passed = a.scorePercent >= lesson.passPercent;
+          a.scoredAt = new Date().toISOString();
+          return json(200, { attempt: attemptView(a) });
+        }
+        const raw = typeof b.signature === "string" ? b.signature.trim() : "";
+        const drawn = raw ? /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw) : null;
+        const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
+        const png = !!bytes && !!sniffImage(bytes) && sniffImage(bytes).ext === "png" && bytes.length <= SIGNATURE_MAX_BYTES;
+        if (act[2] === "acknowledge") {
+          if (a.personId !== state.person.id) return refuse("training.noAccess");
+          if (!a.passed) return refuse("training.notPassed");
+          if (!png) return refuse("training.signatureRequired");
+          state.calls[state.calls.length - 1].signature = { bytes: bytes.length, size: imageSize(bytes) };
+          a.acknowledgedAt = new Date().toISOString();
+          a.awaitingTrainer = lesson.needsTrainer;
+          const record = lesson.needsTrainer ? null : { id: "tr-made-" + a.id, name: TRAINING_ME.items.find(i => i.topicId === a.topicId).name, completedDate: "2026-10-05", expiresOn: null, score: a.scorePercent + "%", siteName: null, locale: a.locale };
+          return json(200, { attempt: attemptView(a), record: record });
+        }
+        if (!management) return refuse("training.noAccess");
+        if (a.personId === state.person.id) return refuse("training.cannotSignOwn");
+        if (!a.acknowledgedAt || !a.awaitingTrainer) return refuse("training.notReady");
+        if (b.demonstrated !== true) return refuse("training.demonstrationRequired");
+        if (!png) return refuse("training.signatureRequired");
+        state.calls[state.calls.length - 1].signature = { bytes: bytes.length, size: imageSize(bytes) };
+        a.awaitingTrainer = false; a.demonstrated = true; a.trainerSignedAt = new Date().toISOString(); a.trainerId = state.person.id; a.trainerName = state.person.firstName + " " + state.person.lastName; a.trainerNote = typeof b.note === "string" ? b.note.trim() : "";
+        return json(200, { attempt: attemptView(a), record: { id: "tr-made-" + a.id, name: TRAINING_ME.items.find(i => i.topicId === a.topicId).name, completedDate: "2026-10-05", expiresOn: null, score: a.scorePercent + "%", siteName: null, locale: a.locale } });
+      }
+      if (key === "GET /api/training/awaiting") {
+        if (!management) return refuse("training.noAccess");
+        const site = new URLSearchParams(search || "").get("siteId") || "";
+        const rows = state.trainingAttempts.filter(a => a.acknowledgedAt && a.awaitingTrainer && !a.voidedAt && a.personId !== state.person.id && (!site || a.siteId === site));
+        return json(200, { attempts: rows.map(a => Object.assign(attemptView(a), { person: { id: a.personId, name: a.personName } })) });
+      }
     }
     // --- reporting and supplies
     // Step 255: the findings the stub opened, listed as source inspection
@@ -3517,7 +3677,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
