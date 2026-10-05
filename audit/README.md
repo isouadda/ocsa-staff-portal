@@ -44,7 +44,9 @@ and signed in, with Used one and Running low; Inspection findings
 (Step 255), a completion that opens two findings through the API alone,
 one with an owner, with the API's refusal under the card it names, the
 answer screen with the band and each finding, and the owner's finding
-on Report, Fixed and Waiting for a check;
+on Report, Fixed and Waiting for a check; My training (Step 258)
+under More, with To do, Coming due, Done and History from an invented
+answer, and the line a person with nothing required reads;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
@@ -55,7 +57,7 @@ the three-minute line stays where it was.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`), off for every other case. The full suite below is separate
+`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`), off for every other case. The full suite below is separate
 and is not run by it.
 
 ## The full suite

@@ -315,6 +315,25 @@ const INSPECTION_F = {
     { id: "if-3", label: "Waste bins are emptied and lined", zone: "Lobby", max_score: 5 },
   ],
 };
+// Step 258: what GET /api/training/me answers (the Step 256 contract),
+// behind the training switch: one item of each status and two records,
+// every topic invented. trainingNone answers a person with nothing
+// required.
+const TRAINING_ME = {
+  asOf: "2026-10-05",
+  items: [
+    { topicId: "tp-1", name: "Invented hazard communication", docCode: "OCSA-HR-009", docSection: "3", safetyCritical: true, siteId: null, siteName: null, status: "missing", completedDate: null, expiresOn: null, recordId: null, attemptId: null, lesson: null },
+    { topicId: "tp-5", name: "Invented company orientation", docCode: "OCSA-HR-006", docSection: "3", safetyCritical: false, siteId: null, siteName: null, status: "missing", completedDate: null, expiresOn: null, recordId: null, attemptId: null, lesson: null },
+    { topicId: "tp-2", name: "Invented ladders", docCode: "OCSA-HR-016", docSection: "5", safetyCritical: true, siteId: null, siteName: null, status: "expired", completedDate: "2025-09-01", expiresOn: "2026-09-01", recordId: "tr-9", attemptId: null, lesson: null },
+    { topicId: "tp-3", name: "Invented site orientation", docCode: "OCSA-HR-005", docSection: "2", safetyCritical: false, siteId: "site-north", siteName: "North Building", status: "refresherDue", completedDate: "2026-02-03", expiresOn: null, recordId: "tr-7", attemptId: null, lesson: null },
+    { topicId: "tp-4", name: "Invented protective equipment", docCode: "OCSA-HR-012", docSection: "4", safetyCritical: true, siteId: null, siteName: null, status: "dueSoon", completedDate: "2025-10-20", expiresOn: "2026-10-20", recordId: "tr-8", attemptId: null, lesson: null },
+    { topicId: "tp-6", name: "Invented injury reporting", docCode: "OCSA-HR-013", docSection: "2", safetyCritical: true, siteId: null, siteName: null, status: "current", completedDate: "2026-06-10", expiresOn: "2027-06-10", recordId: "tr-6", attemptId: null, lesson: null },
+  ],
+  records: [
+    { id: "tr-8", name: "Invented protective equipment", completedDate: "2025-10-20", expiresOn: "2026-10-20", score: null, siteName: "South Building", locale: "es" },
+    { id: "tr-6", name: "Invented injury reporting", completedDate: "2026-06-10", expiresOn: "2027-06-10", score: 95, siteName: "North Building", locale: "en" },
+  ],
+};
 // The complete route's refusals about a finding (the Step 253 contract
 // section 3, item 2); the words are the stub's, since the contract gives
 // none, and the keys name the card.
@@ -559,6 +578,10 @@ function makeState(opts) {
     findings: o.findings === true,
     findingRows: [],
     findingRefusals: o.findings === true ? 1 : 0,
+    // Step 258: an API with Step 256 built, which answers GET
+    // /api/training/me; trainingNone answers it with nothing required.
+    training: o.training === true || o.trainingNone === true,
+    trainingNone: o.trainingNone === true,
     // The supplies at the open shift's site, which a case can answer
     // with none. null answers the one supply every case has always had.
     supplies: Array.isArray(o.supplies) ? o.supplies : null,
@@ -3235,6 +3258,11 @@ function createStub(opts) {
         return json(201, { photo: { id: "rph-" + r.photos.length, url: String(body.photoUrl) } });
       }
     }
+    // --- My training (Step 258), behind state.training.
+    if (key === "GET /api/training/me") {
+      if (!state.training) return json(404, { error: "Not found" });
+      return json(200, state.trainingNone ? { asOf: TRAINING_ME.asOf, items: [], records: [] } : JSON.parse(JSON.stringify(TRAINING_ME)));
+    }
     // --- reporting and supplies
     // Step 255: the findings the stub opened, listed as source inspection
     // to the person signed in, and resolved by their owner with the PATCH
@@ -3489,7 +3517,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

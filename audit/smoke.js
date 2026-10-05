@@ -56,6 +56,11 @@
 //   - the supply page (Step 252) signed out, with the sheet in the page
 //     and Sign in to record use, and signed in, with Used one and
 //     Running low (English alone)
+//   - My training (Step 258): the stub answers GET /api/training/me with
+//     one item of each status and two records, so More offers My
+//     training, and the screen draws To do with the safety ones first
+//     and its line, Coming due, Done and History newest first; a person
+//     with nothing required reads so (English alone)
 //   - Inspection findings (Step 255): a completion that opens two
 //     findings, one with an owner, through the API alone, with the
 //     API's refusal under the card it names, the answer screen with the
@@ -75,7 +80,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -866,6 +871,41 @@ async function findings(browser, language) {
   await app.context.close();
 }
 
+// My training (Step 258): the stub answers GET /api/training/me with one
+// item of each status and two records. More offers My training; the
+// screen draws To do (the safety-critical ones first, each with its
+// line, and the supervisor line under the group), Coming due, Done and
+// History newest first with the language each session was given in. A
+// person with nothing required reads so, with no group.
+async function training(browser, language) {
+  const app = await open({ training: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
+  const page = app.page;
+  const offered = await tapMore(page, say(language, "My training"));
+  const want = {
+    groups: "todo|soon|done|history", items: "missing|expired|missing|refresherDue|dueSoon|current", records: "tr-6|tr-8",
+    words: [say(language, "To do"), say(language, "Coming due"), say(language, "Done"), say(language, "History"), say(language, "Your supervisor sets up these sessions. Ask them when the next one is."),
+      say(language, "Not done yet"), say(language, "Refresher due at {site}", { site: "North Building" }), say(language, "Given in English"), say(language, "Given in Spanish"), "OCSA-HR-009 3", TRAINING_ME.items[0].name],
+  };
+  const drawn = offered && await waitFor(page, (w) => {
+    const c = document.querySelector('[data-training="1"]');
+    if (!c) return false;
+    const of = (sel, attr) => Array.from(c.querySelectorAll(sel)).map(e => e.getAttribute(attr)).join("|");
+    const text = c.innerText.toUpperCase();
+    return of("[data-training-group]", "data-training-group") === w.groups && of("[data-training-item]", "data-training-item") === w.items && of("[data-training-record]", "data-training-record") === w.records && w.words.every(x => text.indexOf(x.toUpperCase()) !== -1);
+  }, want);
+  const wide = await sideways(page);
+  const asked = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/training/me").length;
+  await app.context.close();
+  // Nothing required: the one line, and no group.
+  const none = await open({ trainingNone: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
+  const offered2 = await tapMore(none.page, say(language, "My training"));
+  const quiet = offered2 && await waitFor(none.page, (w) => { const c = document.querySelector('[data-training="1"]'); return !!c && c.innerText.indexOf(w) !== -1 && c.querySelectorAll("[data-training-group]").length === 0; }, say(language, "Nothing is required for your role yet."));
+  await none.context.close();
+  check("My training under More draws To do with the safety-critical ones first and the supervisor line, Coming due, Done and History newest first with the language each was given in, from GET /api/training/me, with no sideways scroll; a person with nothing required reads so (" + language + ")",
+    offered && drawn && wide <= 1 && asked >= 1 && quiet && app.errors.length === 0 && none.errors.length === 0,
+    !offered ? "no My training under More" : !drawn ? "the screen did not read as expected" : wide > 1 ? wide + " pixels sideways" : !asked ? "the route was not asked" : !quiet ? "the nothing-required line did not show alone" : (app.errors[0] || none.errors[0]));
+}
+
 // The supply page (Step 252): signed out, the sheet in the page and Sign
 // in to record use; signed in, Used one and Running low.
 async function supplyPage(browser, language) {
@@ -933,6 +973,7 @@ async function largest(browser) {
     await guard("Client requests for an approver", () => requestsApprover(browser, "en"));
     await guard("Client requests for an assignee", () => requestsAssignee(browser, "en"));
     await guard("Inspection findings", () => findings(browser, "en"));
+    await guard("My training", () => training(browser, "en"));
     await guard("the supply page", () => supplyPage(browser, "en"));
     await guard("French", () => french(browser));
     await guard("the Largest text size", () => largest(browser));
