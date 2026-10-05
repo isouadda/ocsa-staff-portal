@@ -481,6 +481,16 @@ function makeState(opts) {
     customerAsks: !!o.customerAsks,
     concern: !!o.concern,
     linkPhotos: [],
+    // requests (Step 252): the request links and the Client requests
+    // routes, with every filing and every photo the public route took,
+    // the rows as they move, and the ids a case says someone else decided
+    // first. supplyQr (Step 252): the supply label's two routes.
+    requests: !!o.requests,
+    requestsFiled: [],
+    requestPhotos: [],
+    requestRows: o.requests ? REQUEST_ROWS(o.now ? new Date(o.now).getTime() : NOW.getTime()) : [],
+    requestsTaken: [],
+    supplyQr: !!o.supplyQr,
     equipment: !!o.equipment,
     equipmentEvents: [],
     fieldKit: !!o.fieldKit,
@@ -869,6 +879,54 @@ const FORM_V_CODE = "TEST-FORM-V";
 // rest in the API's order.
 const FORM_N_CODE = "OCSA-FRM-009";
 const CONCERN_REF = "C-0042-INVENTED";
+// The request links (Step 252, the Step 250 contract section 4), answered
+// only when the requests switch is on: req-area carries an area, req-site
+// is the site-wide link that asks where, req-closed is disabled. The
+// categories, the title, the scope line and the thanks are the API's
+// words, invented here in English and Spanish; an area is the office's
+// own label, so a name.
+const REQUEST_LINKS = {
+  "req-area": { area: "Second floor restroom", closed: false },
+  "req-site": { area: null, closed: false },
+  "req-closed": { area: "Lobby restroom", closed: true },
+};
+const REQUEST_CATEGORIES = [
+  { key: "spill", severity: "high", en: ["Spill or wet floor", "Something spilled or the floor is wet."], es: ["Derrame o piso mojado", "Algo se derram\u00f3 o el piso est\u00e1 mojado."] },
+  { key: "urgent", severity: "high", en: ["Flood or broken glass", "Water that keeps coming, broken glass, or a mess that cannot wait."], es: ["Inundaci\u00f3n o vidrio roto", "Agua que sigue saliendo, vidrio roto o un desorden que no puede esperar."] },
+  { key: "supplies", severity: "medium", en: ["Out of paper or soap", "Toilet paper, paper towels, soap or a trash liner ran out."], es: ["Sin papel o jab\u00f3n", "Se acab\u00f3 el papel higi\u00e9nico, las toallas de papel, el jab\u00f3n o la bolsa de basura."] },
+  { key: "cleaning", severity: "medium", en: ["Something needs cleaning", "A full trash can, a restroom that needs attention, or something missed."], es: ["Algo necesita limpieza", "Un bote de basura lleno, un ba\u00f1o que necesita atenci\u00f3n o algo que se pas\u00f3."] },
+  { key: "other", severity: "low", en: ["Something else", "A question, or something extra you would like done. The office will look at it."], es: ["Otra cosa", "Una pregunta o algo m\u00e1s que quisiera que se hiciera. La oficina lo revisar\u00e1."] },
+];
+const REQUEST_WORDS = {
+  en: { title: "Ask for help here", scope: "Invented Cleaning Co does not clean blood or handle needles. Please tell the building's staff.", where: "Where in the building?",
+    thanks: "Thank you. Invented Cleaning Co has your request.", ref: "Your reference is {reference}.", mail: "We will email you as it moves.", joined: "Someone already asked for this. It is on our list.", danger: "If anyone is in danger, call the building's security now." },
+  es: { title: "Pida ayuda aqu\u00ed", scope: "Invented Cleaning Co no limpia sangre ni maneja agujas. Av\u00edsele al personal del edificio.", where: "\u00bfEn qu\u00e9 parte del edificio?",
+    thanks: "Gracias. Invented Cleaning Co recibi\u00f3 su solicitud.", ref: "Su referencia es {reference}.", mail: "Le escribiremos por correo conforme avance.", joined: "Alguien ya pidi\u00f3 esto. Est\u00e1 en nuestra lista.", danger: "Si alguien est\u00e1 en peligro, llame ahora a la seguridad del edificio." },
+};
+const REQUEST_REF = "R-0007-INVENTED";
+const REQUEST_OFFICE_PHONE = "0000000000";
+const REQUEST_CONCERN_URL = "/c/link-concern";
+const requestWord = (lang, k, vars) => String(REQUEST_WORDS[lang === "es" ? "es" : "en"][k]).replace(/\{(\w+)\}/g, (w, key) => (vars && key in vars ? String(vars[key]) : w));
+const requestCategoryTitle = (key, lang) => { const c = REQUEST_CATEGORIES.find(x => x.key === key); return c ? c[lang === "es" ? "es" : "en"][0] : key; };
+// Client requests in the app (Step 252, section 7), answered only when the
+// requests switch is on: two waiting for approval at North Building and
+// one assigned to the person signed in. Each is the one view the contract
+// gives everywhere. The clock is the stub's.
+const REQUEST_ROWS = (now) => [
+  { id: "cr-1", reference: "R-0001-INVENTED", siteId: "site-north", siteName: "North Building", area: "Second floor restroom", category: "spill", severity: "high", status: "awaiting_approval", reportedAt: new Date(now - 12 * 60 * 1000).toISOString(), respondBy: new Date(now + 3 * 60 * 1000).toISOString(), dueAt: new Date(now + 3 * 60 * 60 * 1000).toISOString(), note: "Water by the sinks, invented.", photos: [] },
+  { id: "cr-2", reference: "R-0002-INVENTED", siteId: "site-north", siteName: "North Building", area: "Lobby restroom", category: "supplies", severity: "medium", status: "awaiting_approval", reportedAt: new Date(now - 40 * 60 * 1000).toISOString(), respondBy: new Date(now - 10 * 60 * 1000).toISOString(), dueAt: new Date(now + 3 * 60 * 60 * 1000).toISOString(), note: "", photos: [] },
+  { id: "cr-3", reference: "R-0003-INVENTED", siteId: "site-north", siteName: "North Building", area: "Break room", category: "cleaning", severity: "medium", status: "open", reportedAt: new Date(now - 60 * 60 * 1000).toISOString(), respondBy: new Date(now + 2 * 60 * 60 * 1000).toISOString(), dueAt: new Date(now + 3 * 60 * 60 * 1000).toISOString(), note: "The trash can by the window is full, invented.", photos: [], assignedToMe: true, approvedAt: new Date(now - 50 * 60 * 1000).toISOString() },
+];
+const REQUEST_ASSIGNEES = [
+  { id: "u-two", name: "Sam Second", role: "lead", onShift: true },
+  { id: "u-three", name: "Robin Third", role: "custodian", onShift: false },
+];
+// The supply label (Step 252, section 10), answered only when the
+// supplyQr switch is on: one product, its safety sheet in the library, and
+// one site that holds it.
+const SUP_CODE = "OCSA0000123456";
+const SUP_ITEM = { id: "sup-qr", code: SUP_CODE, name: "Invented Neutral Rinse", maker: "Example Rinse Co.", category: "chemical", unit: "bottles", sdsUrl: null, sdsCode: "SDS-INVENTED-TWO" };
+const SUP_SITES = [{ siteId: "site-north", siteName: "North Building", currentStock: 4, lowThreshold: 2 }];
 // The two forms that ask the person's name and role themselves, each
 // answered only when the customerAsks switch is on (Step 240): link-asks
 // carries the code and the keys of OCSA-FRM-007, your_name and your_role;
@@ -1202,6 +1260,17 @@ const API_REFUSALS = {
   "customer.photoType": { status: 415, en: "Send a photo: JPG, PNG or WebP.", es: "Env\u00ede una foto: JPG, PNG o WebP." },
   "customer.photoTooBig": { status: 413, en: "That photo is too large. Each can be up to 10 MB.", es: "Esa foto es demasiado grande. Cada una puede ser de hasta 10 MB." },
   "customer.tooManyPhotos": { status: 400, en: "Up to 5 photos can be sent.", es: "Se pueden enviar hasta 5 fotos." },
+  // The request link's own (Step 252, the Step 250 contract section 4);
+  // the words are the stub's.
+  "customer.request.badCategory": { status: 400, en: "Choose one of the five.", es: "Elija una de las cinco." },
+  "customer.request.areaRequired": { status: 400, en: "Say where in the building.", es: "Diga en qu\u00e9 parte del edificio." },
+  "customer.request.tooLong": { status: 400, en: "That is too long.", es: "Es demasiado largo." },
+  "customer.request.badEmail": { status: 400, en: "That email address does not look right.", es: "Ese correo electr\u00f3nico no parece correcto." },
+  // Client requests in the app (Step 252, section 7) and the supply label.
+  "issues.request.alreadyDecided": { status: 409, en: "Someone already decided this request.", es: "Alguien ya decidi\u00f3 esta solicitud." },
+  "issues.noteRequired": { status: 400, en: "Say why in a note.", es: "Diga por qu\u00e9 en una nota." },
+  "issues.request.wrongState": { status: 409, en: "This request moved on.", es: "Esta solicitud ya cambi\u00f3." },
+  "supplies.notFound": { status: 404, en: "This label does not match any supply.", es: "Esta etiqueta no corresponde a ning\u00fan suministro." },
 };
 // The photo and signature refusals the stub answers on its own, which no
 // screen should meet once the phone makes every photo small and draws
@@ -1413,7 +1482,7 @@ const chatSeed = (channelId, odd, tagged) => {
 // beside each one, shift_label, block_label, label and shiftLabel, is
 // the key the portal sends back to change a shift, and is served as a
 // code: the screen is meant to draw the display name, never the key.
-const LIVE_KINDS = new Set(["form text", "refusal", "message", "shift header"]);
+const LIVE_KINDS = new Set(["form text", "refusal", "message", "shift header", "request category"]);
 
 const { ES } = require("./words");
 const { silently } = require("./stream");
@@ -1638,7 +1707,11 @@ const TWIN_PAIRS = [
   .concat(Object.keys(FORM_E_WORDS.en).map(k => [FORM_E_WORDS.en[k], FORM_E_WORDS.es[k]]))
   // The concern link's form (Step 244), and 006's client half (Step 249).
   .concat(Object.keys(FORM_N_WORDS.en).map(k => [FORM_N_WORDS.en[k], FORM_N_WORDS.es[k]]))
-  .concat(Object.keys(FORM_W_WORDS.en).map(k => [FORM_W_WORDS.en[k], FORM_W_WORDS.es[k]]));
+  .concat(Object.keys(FORM_W_WORDS.en).map(k => [FORM_W_WORDS.en[k], FORM_W_WORDS.es[k]]))
+  // The request link's words (Step 252).
+  .concat(REQUEST_CATEGORIES.map(c => [c.en[0], c.es[0]]))
+  .concat(REQUEST_CATEGORIES.map(c => [c.en[1], c.es[1]]))
+  .concat(Object.keys(REQUEST_WORDS.en).map(k => [REQUEST_WORDS.en[k], REQUEST_WORDS.es[k]]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -1675,6 +1748,16 @@ const ROUTE_WORDS = [
   // are names.
   [/^[A-Z]+ \/api\/public\/forms/, { title: "form text", label: "form text", rows: "form text", name: "name" }],
   [/^GET \/api\/inspections\//, { name: "inspection item", label: "inspection item", zone: "inspection item", kind: "code", formCode: "code", line: "code" }],
+  // The request link (Step 252): its title, tiles, scope line and thanks
+  // are the API's words in the request's language; an area, a site and a
+  // company are names; a reference is a name.
+  [/^[A-Z]+ \/api\/public\/requests\//, { title: "request category", help: "request category", scopeLine: "request category", thanks: "request category", name: "name", area: "name", reference: "name", key: "code", concernUrl: "name", officePhone: "name" }],
+  // Client requests in the app: the category's title comes in the
+  // reader's language; the area, the site, the note and every person are
+  // names; the states are codes.
+  [/^[A-Z]+ \/api\/issues\//, { categoryTitle: "request category", area: "name", siteName: "name", note: "name", name: "name", reference: "name", category: "code", respondState: "code", dueState: "code", route: "code", action: "code", details: "name", text: "name" }],
+  // The supply label: the product and its maker are names.
+  [/^GET \/api\/(public\/)?supplies\//, { name: "name", maker: "name", code: "name", category: "code", unit: "name", sdsCode: "name", sdsUrl: "name", siteName: "name" }],
   // A piece of Help's answer, as the streaming route sends it.
   [/^POST \/api\/agent\/message\/stream$/, { text: "Help reply" }],
   // The smoke check's routes: a sheet as its maker wrote it, and what
@@ -1707,6 +1790,8 @@ const SIGNED_OUT = [
   /^POST \/api\/auth\/reset\/request$/, /^GET \/api\/auth\/reset\/[^/]+$/, /^POST \/api\/auth\/reset$/,
   // The customer's page, Step 167: no sign-in, answered the same way.
   /^GET \/api\/public\/forms\/[^/]+$/, /^POST \/api\/public\/forms\/[^/]+\/responses$/,
+  // The request link and the supply label (Step 252), the same way.
+  /^GET \/api\/public\/requests\/[^/]+$/, /^POST \/api\/public\/requests\/[^/]+$/, /^GET \/api\/public\/supplies\/[^/]+$/,
 ];
 const signedOutLanguage = (search, accept) => {
   const m = String(search || "").match(/[?&]locale=(en|es)\b/);
@@ -2621,6 +2706,67 @@ function createStub(opts) {
       const r = API_REFUSALS[code] || FILE_REFUSALS[code];
       return json(r.status, Object.assign({ error: refusalIn(r, publicLang, vars || r.vars), code: code }, extra || {}));
     };
+    // --- the request link (Step 252), behind state.requests
+    const requestGet = /^\/api\/public\/requests\/([^/]+)$/.exec(pathname);
+    const requestPhotos = /^\/api\/public\/requests\/([^/]+)\/photos$/.exec(pathname);
+    if (requestGet || requestPhotos) {
+      const token = (requestGet || requestPhotos)[1];
+      const link = state.requests ? REQUEST_LINKS[token] : null;
+      if (!link) return publicRefusal("customer.linkUnknown");
+      if (link.closed) return publicRefusal("customer.linkClosed", { officePhone: REQUEST_OFFICE_PHONE });
+      if (method === "POST" && requestPhotos) {
+        const bytes = Buffer.isBuffer(body) ? body : Buffer.alloc(0);
+        const parts = bytes.toString("latin1").split(/name="photos"/).slice(1);
+        if (parts.length === 0) return publicRefusal("customer.photoType");
+        if (parts.some(p => !/Content-Type: image\/(jpeg|png|webp)/i.test(p.slice(0, 400)))) return publicRefusal("customer.photoType");
+        if (state.requestPhotos.length + parts.length > 3) return publicRefusal("customer.tooManyPhotos");
+        const photos = parts.map((p, i) => ({ id: "rp-" + (state.requestPhotos.length + i + 1), name: (/filename="([^"]*)"/.exec(p) || [])[1] || "photo" }));
+        photos.forEach(ph => state.requestPhotos.push(ph));
+        return json(201, { photos: photos });
+      }
+      if (method === "GET" && requestGet) {
+        return json(200, {
+          title: requestWord(publicLang, "title"), site: { name: PUBLIC_SITE }, company: { name: PUBLIC_COMPANY, logoUrl: null },
+          area: link.area, askArea: link.area === null,
+          categories: REQUEST_CATEGORIES.map(c => ({ key: c.key, title: c[publicLang === "es" ? "es" : "en"][0], help: c[publicLang === "es" ? "es" : "en"][1] })),
+          maxPhotos: 3, maxNote: 500, officePhone: REQUEST_OFFICE_PHONE, concernUrl: REQUEST_CONCERN_URL, scopeLine: requestWord(publicLang, "scope"),
+        });
+      }
+      if (method === "POST" && requestGet) {
+        const b = body && typeof body === "object" ? body : {};
+        if (typeof b.website === "string" && b.website.trim() !== "") return json(200, { ok: true });
+        if (!REQUEST_CATEGORIES.some(c => c.key === b.category)) return publicRefusal("customer.request.badCategory", { keys: ["category"] });
+        const area = link.area === null ? String(b.area || "").trim() : link.area;
+        if (link.area === null && !area) return publicRefusal("customer.request.areaRequired", { keys: ["area"] });
+        if (area.length > 80) return publicRefusal("customer.request.tooLong", { keys: ["area"] });
+        if (String(b.note || "").length > 500) return publicRefusal("customer.request.tooLong", { keys: ["note"] });
+        const email = String(b.email || "").trim();
+        if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return publicRefusal("customer.request.badEmail", { keys: ["email"] });
+        const ids = Array.isArray(b.photos) ? b.photos.map(String) : [];
+        if (ids.some(id => !state.requestPhotos.some(ph => ph.id === id))) return publicRefusal("forms.photoType", { keys: ["photos"] });
+        // A filing whose category matches an open one from the same link
+        // joins it; other never joins.
+        const open = state.requestsFiled.find(f => f.token === token && f.category === b.category && b.category !== "other");
+        state.requestsFiled.push({ token: token, locale: publicLang, category: b.category, area: area, note: String(b.note || ""), email: email, photos: ids, body: b, joined: !!open });
+        const lines = [requestWord(publicLang, "thanks"), requestWord(publicLang, "ref", { reference: REQUEST_REF })];
+        if (open) lines.push(requestWord(publicLang, "joined"));
+        if (email) lines.push(requestWord(publicLang, "mail"));
+        if (b.category === "urgent") lines.push(requestWord(publicLang, "danger"));
+        return json(open ? 200 : 201, { ok: true, reference: REQUEST_REF, joined: !!open, emailed: !!email, thanks: lines });
+      }
+    }
+    // --- the supply label (Step 252), behind state.supplyQr: the public
+    // read, and the signed-in read of the sites that hold it.
+    const supplyPublic = /^\/api\/public\/supplies\/([^/]+)$/.exec(pathname);
+    if (method === "GET" && supplyPublic) {
+      if (!state.supplyQr || supplyPublic[1] !== SUP_CODE) return publicRefusal("supplies.notFound");
+      return json(200, { supply: Object.assign({}, SUP_ITEM, { id: undefined }), company: { name: PUBLIC_COMPANY, logoUrl: null } });
+    }
+    const supplyByQr = /^\/api\/supplies\/by-qr\/([^/]+)$/.exec(pathname);
+    if (method === "GET" && supplyByQr) {
+      if (!state.supplyQr || supplyByQr[1] !== SUP_CODE) return apiRefusal("supplies.notFound", search);
+      return json(200, { supply: { id: SUP_ITEM.id, code: SUP_ITEM.code, name: SUP_ITEM.name, unit: SUP_ITEM.unit, category: SUP_ITEM.category }, sites: SUP_SITES });
+    }
     const publicGet = /^\/api\/public\/forms\/([^/]+)$/.exec(pathname);
     const publicPost = /^\/api\/public\/forms\/([^/]+)\/responses$/.exec(pathname);
     // The link's photo route, open to every form whose photoRoute is true:
@@ -2967,6 +3113,86 @@ function createStub(opts) {
       return second(pathname) ? json(200, { form: formP(lang) }) : json(200, { form: FORM });
     }
 
+    // --- Client requests (Step 252, the Step 250 contract section 7),
+    // behind state.requests. Approvers are admins and supervisors; anyone
+    // else reads the requests assigned to them. The view is the contract's
+    // one shape, its can* flags set for the person signed in.
+    if (state.requests && pathname.indexOf("/api/issues/") === 0) {
+      const management = FK_MANAGEMENT.indexOf(state.person.role) !== -1;
+      const me = { id: state.person.id, name: state.person.firstName + " " + state.person.lastName };
+      const view = (r) => {
+        const mine = r.assignedToMe === true || (r.assignedTo && r.assignedTo.id === state.person.id);
+        const waiting = r.status === "awaiting_approval";
+        const working = r.status === "open" || r.status === "in_progress";
+        const late = (at) => (at && new Date(at).getTime() < clockNow());
+        return {
+          id: r.id, reference: r.reference, siteId: r.siteId, siteName: r.siteName, area: r.area, category: r.category, categoryTitle: requestCategoryTitle(r.category, lang),
+          note: r.note, severity: r.severity, status: r.status, reportedAt: r.reportedAt, lastReportedAt: r.reportedAt, reportsCount: 1, attendedAtReport: true,
+          respondBy: r.respondBy, respondState: r.firstResponseAt ? "answered" : late(r.respondBy) ? "late" : "dueSoon", dueAt: r.dueAt, dueState: r.resolvedAt ? "answered" : late(r.dueAt) ? "late" : "onTime",
+          approvedAt: r.approvedAt || null, approvedBy: r.approvedAt ? me : null, declinedAt: r.declinedAt || null, declinedBy: r.declinedAt ? me : null, declineReason: r.declineReason || null,
+          assignedTo: r.assignedTo || (r.assignedToMe ? me : null), firstResponseAt: r.firstResponseAt || null, firstResponseBy: r.firstResponseAt ? me : null,
+          resolvedAt: r.resolvedAt || null, resolvedBy: r.resolvedAt ? me : null, responseMinutes: null, resolutionMinutes: r.resolvedAt ? 95 : null,
+          route: null, absorbedMinutes: null, photos: r.photos, hasEmail: false, linkId: "req-area",
+          canApprove: management && waiting, canDecline: management && waiting, canStart: (mine || management) && r.status === "open", canFinish: (mine || management) && working, canCannot: (mine || management) && working,
+          canNote: mine || management, canSendToClient: false, canRoute: false,
+        };
+      };
+      const readable = (r) => management || r.assignedToMe === true || (r.assignedTo && r.assignedTo.id === state.person.id);
+      if (key === "GET /api/issues/requests") {
+        const q = new URLSearchParams(search || "");
+        const want = q.get("state") || "open";
+        const shown = state.requestRows.filter(readable).filter(r => want === "all" || (want === "waiting" ? r.status === "awaiting_approval" : want === "closed" ? ["resolved", "closed", "declined"].indexOf(r.status) !== -1 : ["awaiting_approval", "open", "in_progress", "escalated"].indexOf(r.status) !== -1));
+        return json(200, { requests: shown.map(view) });
+      }
+      const one = /^\/api\/issues\/requests\/([^/]+)$/.exec(pathname);
+      if (method === "GET" && one) {
+        const r = state.requestRows.find(x => x.id === one[1]);
+        if (!r || !readable(r)) return json(404, { error: lang === "es" ? "No se encontr\u00f3 el problema" : "Issue not found", code: "issues.notFound" });
+        const v = view(r);
+        const answer = { request: v, activity: [{ id: "a-1", action: "filed", details: null, at: r.reportedAt, by: null, sentToClientAt: null }] };
+        if (v.canApprove) answer.assignees = [REQUEST_ASSIGNEES[0], Object.assign({}, me, { role: state.person.role, onShift: false }), REQUEST_ASSIGNEES[1]];
+        return json(200, answer);
+      }
+      const act = /^\/api\/issues\/([^/]+)\/(approve|decline|progress)$/.exec(pathname);
+      if (method === "POST" && act) {
+        const r = state.requestRows.find(x => x.id === act[1]);
+        if (!r || !readable(r)) return json(404, { error: lang === "es" ? "No se encontr\u00f3 el problema" : "Issue not found", code: "issues.notFound" });
+        const b = body && typeof body === "object" ? body : {};
+        if (act[2] === "approve" || act[2] === "decline") {
+          if (!management) return json(403, { error: lang === "es" ? "No tiene acceso" : "No access", code: "issues.noAccess" });
+          // A request a case says someone else decided first: the other
+          // approver's tap landed before this one, and every later read
+          // answers their win.
+          if (state.requestsTaken.indexOf(r.id) !== -1 && r.status === "awaiting_approval") { r.status = "open"; r.approvedAt = new Date(clockNow() - 60 * 1000).toISOString(); r.assignedTo = { id: REQUEST_ASSIGNEES[1].id, name: REQUEST_ASSIGNEES[1].name }; r.assignedToMe = false; r.takenElsewhere = true; }
+          if (r.takenElsewhere || r.status !== "awaiting_approval") {
+            const refusal = apiRefusal("issues.request.alreadyDecided", search);
+            return json(409, Object.assign(JSON.parse(refusal.body), { status: "open", decidedBy: { name: ADMIN_PERSON.firstName + " " + ADMIN_PERSON.lastName }, decidedAt: new Date(clockNow() - 60 * 1000).toISOString() }));
+          }
+          if (act[2] === "approve") {
+            const who = b.assignedTo === state.person.id ? Object.assign({}, me) : REQUEST_ASSIGNEES.map(a => ({ id: a.id, name: a.name })).find(a => a.id === b.assignedTo);
+            if (!who) return json(400, { error: lang === "es" ? "Elija a alguien de la lista" : "Choose someone on the list", code: "issues.badAssignee" });
+            r.status = "open"; r.approvedAt = new Date(clockNow()).toISOString(); r.assignedTo = who; r.assignedToMe = who.id === state.person.id;
+          } else {
+            if (!String(b.reason || "").trim()) return apiRefusal("issues.noteRequired", search);
+            r.status = "declined"; r.declinedAt = new Date(clockNow()).toISOString(); r.declineReason = String(b.reason).trim(); r.firstResponseAt = r.declinedAt;
+          }
+          return json(200, { request: view(r) });
+        }
+        if (b.action === "start" && r.status === "open") { r.status = "in_progress"; r.firstResponseAt = new Date(clockNow()).toISOString(); }
+        else if (b.action === "done" && (r.status === "open" || r.status === "in_progress")) { r.status = "resolved"; r.resolvedAt = new Date(clockNow()).toISOString(); r.firstResponseAt = r.firstResponseAt || r.resolvedAt; r.doneNote = String(b.note || ""); }
+        else if (b.action === "cannot" && (r.status === "open" || r.status === "in_progress")) { if (!String(b.note || "").trim()) return apiRefusal("issues.noteRequired", search); r.status = "escalated"; r.cannotNote = String(b.note).trim(); }
+        else if (["start", "done", "cannot"].indexOf(b.action) === -1) return json(400, { error: lang === "es" ? "Acci\u00f3n no v\u00e1lida" : "Bad action", code: "issues.request.badAction" });
+        else { const refusal = apiRefusal("issues.request.wrongState", search); return json(409, Object.assign(JSON.parse(refusal.body), { status: r.status })); }
+        return json(200, { request: view(r) });
+      }
+      const photo = /^\/api\/issues\/([^/]+)\/photos$/.exec(pathname);
+      if (method === "POST" && photo && state.requestRows.some(x => x.id === photo[1])) {
+        const r = state.requestRows.find(x => x.id === photo[1]);
+        if (!body || !body.photoUrl) return json(400, { error: "Photo URL is required" });
+        r.photos.push({ id: "rph-" + (r.photos.length + 1), url: String(body.photoUrl) });
+        return json(201, { photo: { id: "rph-" + r.photos.length, url: String(body.photoUrl) } });
+      }
+    }
     // --- reporting and supplies
     if (key === "GET /api/issues") return json(200, []);
     if (key === "POST /api/issues") {
@@ -3176,4 +3402,5 @@ module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSA
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES, localeFault, localeRows,
   CUSTOMER_LINKS, FORM_C_CODE, FORM_V_CODE, formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, PUBLIC_MAX_PHOTOS, PUBLIC_FILINGS_MAX, customerSignatureLine,
-  ANNOUNCEMENT, FORM_E_WORDS };
+  ANNOUNCEMENT, FORM_E_WORDS,
+  REQUEST_LINKS, REQUEST_CATEGORIES, REQUEST_WORDS, REQUEST_REF, REQUEST_OFFICE_PHONE, requestWord, requestCategoryTitle, REQUEST_ASSIGNEES, SUP_CODE, SUP_ITEM, SUP_SITES };

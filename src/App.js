@@ -6049,7 +6049,7 @@ function ClientRequestsSection({ token, user, rows, onChanged, showToast, openId
         <div style={{ ...headSt, flex: 1 }}>{r.categoryTitle}{r.reportsCount > 1 ? " (" + r.reportsCount + ")" : ""}</div>
         {r.reportedAt && <div style={{ fontSize: 10, color: t.textMut, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums", flexShrink: 0, marginTop: 2 }}>{ago(r.reportedAt)}</div>}
       </div>
-      <div style={lineSt}>{[r.area, r.siteName].filter(Boolean).join(" · ")}</div>
+      <div style={lineSt}>{[r.area, r.siteName].filter(Boolean).join(" \u00b7 ")}</div>
     </>
   );
   const rowSt = (r) => ({ ...cardSt, borderLeft: "3px solid " + (openId === r.id ? GOLD : t.borderSolid) });
@@ -6135,7 +6135,7 @@ function RequestApproveSheet({ token, user, row, onClose, onSend, t }) {
   );
   return (
     <WsSheet id="ocsa-request-approve" title={tr("Approve and assign")} onClose={onClose} footer={footer} t={t}>
-      <div style={{ fontSize: 13, color: t.textSec, marginBottom: 12, lineHeight: 1.45, overflowWrap: "anywhere" }}>{[row.categoryTitle, row.area, row.siteName].filter(Boolean).join(" · ")}</div>
+      <div style={{ fontSize: 13, color: t.textSec, marginBottom: 12, lineHeight: 1.45, overflowWrap: "anywhere" }}>{[row.categoryTitle, row.area, row.siteName].filter(Boolean).join(" \u00b7 ")}</div>
       {!list && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
       {list && list.state === "failed" && <div style={{ marginBottom: 12 }}><ListFault icon={PersonIco} text={list.said} onRetry={() => setAsked(n => n + 1)} t={t} /></div>}
       {list && list.state === "ok" && list.rows.length === 0 && <div style={wsQuiet(t)}>{tr("No one can be assigned at this site.")}</div>}
