@@ -2409,6 +2409,12 @@ export default function OCSAStaffPortal() {
   const openPlace = (place) => {
     if (!place) return;
     if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
+    // Sign off training is a supervisor's place; anyone else lands on My
+    // training. The field kit keeps its site and opens on the tile.
+    if (place.tab === "fieldkit") {
+      if (!isAdmin) { setActiveTab("training"); setShowMore(false); return; }
+      setFieldKitAt(at => ({ siteId: at && at.siteId ? at.siteId : null, tile: place.signoff ? "signoff" : null }));
+    }
     setActiveTab(place.tab); setShowMore(false);
     if (place.tab === "issues") { setRequestOpen(place.request || null); setFindingOpen(place.finding || null); loadClientRequests(); loadFindings(); }
     if (place.tab === "chat" && place.chat) { if (activeChannelRef.current === place.chat) loadMessages(place.chat); else chooseChat(place.chat); }
@@ -2497,6 +2503,17 @@ export default function OCSAStaffPortal() {
     readTraining(token).then(d => { if (live && d) setTraining(d); });
     return () => { live = false; };
   }, [token, screen]);
+  // The lessons waiting for a sign-off (Step 261), for a supervisor or an
+  // admin, read each time Home opens; Home's card counts them. null until
+  // the route answers a list, so an API without it shows nothing.
+  const [awaiting, setAwaiting] = useState(null);
+  useEffect(() => {
+    if (!token || screen !== "main" || !isAdmin) { setAwaiting(null); return undefined; }
+    if (activeTab !== "clock") return undefined;
+    let live = true;
+    readTrainingAwaiting(token, null, user && user.id).then(list => { if (live) setAwaiting(list); });
+    return () => { live = false; };
+  }, [token, screen, isAdmin, activeTab]);
   const wsAsks = !!token && screen === "main" && isOfficePerson(user);
   useEffect(() => {
     if (!wsAsks) { setWsProjects(null); setWsAt(null); return undefined; }
@@ -2835,7 +2852,7 @@ export default function OCSAStaffPortal() {
 
           <div style={{ padding: "0 0 var(--ocsa-bar, 76px) 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
-              {activeTab === "clock" && <div><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
+              {activeTab === "clock" && <div><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -2848,8 +2865,8 @@ export default function OCSAStaffPortal() {
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
               {activeTab === "sds" && <div style={{ padding: 16 }}><SdsBrowser initial={sdsList} onList={setSdsList} code={sdsCode} onCode={setSdsCode} t={t} /></div>}
               {activeTab === "workspace" && destCtx.workspace && <WorkspaceView token={token} user={user} projects={wsProjects} onProjects={setWsProjects} at={wsAt} onAt={setWsAt} channels={channels} onOpenChat={(id) => { chooseChat(id); setActiveTab("chat"); setShowMore(false); }} showToast={showToast} t={t} />}
-              {activeTab === "training" && destCtx.training && <TrainingView token={token} data={training} onData={setTraining} t={t} />}
-              {activeTab === "fieldkit" && destCtx.isAdmin && <FieldKitView token={token} at={fieldKitAt} onAt={setFieldKitAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} assignedSites={sites} onOpenEquipment={(code) => { setEquipmentShown(code); setEquipmentBack("fieldkit"); setActiveTab("equipment"); }} showToast={showToast} t={t} />}
+              {activeTab === "training" && destCtx.training && <TrainingView token={token} data={training} onData={setTraining} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} t={t} />}
+              {activeTab === "fieldkit" && destCtx.isAdmin && <FieldKitView token={token} user={user} at={fieldKitAt} onAt={setFieldKitAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} assignedSites={sites} onOpenEquipment={(code) => { setEquipmentShown(code); setEquipmentBack("fieldkit"); setActiveTab("equipment"); }} showToast={showToast} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
               {activeTab === "phonealerts" && <PhoneAlertsView token={token} t={t} onBack={() => setActiveTab("settings")} />}
@@ -6064,6 +6081,29 @@ function RequestTarget({ label, at, state, t }) {
 }
 
 // Home's one card: how many client requests need this person.
+// Home's training cards (Step 261): the lessons the person can do on the
+// phone right now, which open My training; and, for a supervisor or an
+// admin, the lessons waiting for a sign-off, which open the field kit on
+// Sign off training. Each shows only when it has something to count.
+function TrainingCard({ training, awaiting, onOpen, onOpenSignoff, t }) {
+  const todo = trainingToDo(training).length;
+  const waiting = Array.isArray(awaiting) ? awaiting.length : 0;
+  if (todo === 0 && waiting === 0) return null;
+  const card = (tag, text, onTap) => (
+    <button key={tag} type="button" data-training-card={tag} onClick={onTap} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, minHeight: TAP, padding: "14px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.goldBorder, boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
+      <BookIco sz={20} c={t.goldText} style={{ flexShrink: 0 }} />
+      <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{text}</span>
+      <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0 }} />
+    </button>
+  );
+  return (
+    <div style={{ padding: "16px 16px 0", marginBottom: -8 }}>
+      {todo > 0 && card("todo", todo === 1 ? tr("1 training to do") : tr("{n} trainings to do", { n: todo }), onOpen)}
+      {waiting > 0 && card("signoff", waiting === 1 ? tr("1 training to sign off") : tr("{n} trainings to sign off", { n: waiting }), onOpenSignoff)}
+    </div>
+  );
+}
+
 function ClientRequestsCard({ rows, user, onOpen, t }) {
   const mine = requestsForMe(rows, user);
   const n = mine.waiting.length + mine.mine.length;
@@ -6453,10 +6493,32 @@ function FindingsSection({ token, user, rows, onChanged, showToast, openId, t })
 // signed in (the Step 256 contract): items, one per required topic, and
 // one per assigned site for a per-site topic, each with a status; and
 // records, the sessions on file. More offers My training once the route
-// answers a list; a 404 or any other answer leaves it away. Read only in
-// this slice: the supervisor sets up the sessions.
+// answers a list; a 404 or any other answer leaves it away. The
+// supervisor sets up the in-person sessions.
+//
+// Online lessons (Step 261, the contract's slice 2): an item whose
+// lesson is set is done on the phone. Start posts an attempt and reads
+// the lesson in the person's language from GET
+// /api/training/lesson-versions/:id; the questions are answered one per
+// screen and scored on the server, which names only how many were
+// missed; a pass is signed with a finger. Nothing of a lesson is kept on
+// the phone. A topic that needs a trainer then waits for a supervisor's
+// sign-off in the field kit. Until GET /api/training/me carries a
+// lesson on an item, nothing of this shows.
 // ------------------------------------------------------------
-const TRAINING_TODO = ["missing", "expired", "refresherDue"];
+const TRAINING_TODO = ["missing", "expired", "refresherDue", "inProgress"];
+// The statuses an item can be started from, when it has a lesson.
+const TRAINING_CAN_START = ["missing", "expired", "refresherDue", "inProgress", "dueSoon"];
+const trainingNum = (v) => { const n = Number(v); return v === null || v === undefined || v === "" || !isFinite(n) ? null : n; };
+const trainingId = (x, keys) => { const v = agentField(x, keys, ""); return v === "" || v === null || v === undefined ? "" : String(v); };
+// The published lesson an item carries, or null for a topic with none.
+function trainingLessonLinkOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const versionId = trainingId(x, ["versionId"]);
+  if (!versionId) return null;
+  const used = trainingNum(x.attemptsUsed), left = trainingNum(x.attemptsLeft);
+  return { versionId: versionId, attemptsUsed: used === null ? 0 : Math.max(0, used), attemptsLeft: left === null ? 0 : Math.max(0, left) };
+}
 function trainingItemOf(x) {
   if (!x || typeof x !== "object") return null;
   const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
@@ -6465,7 +6527,8 @@ function trainingItemOf(x) {
   // An outside course (the chat's addition to Step 258): an https address
   // the item carries as linkUrl; anything else is left out.
   const link = str("linkUrl");
-  return { id: String(agentField(x, ["topicId"], "")) + ":" + String(agentField(x, ["siteId"], "")), name: name, docCode: str("docCode"), docSection: str("docSection"), safetyCritical: x.safetyCritical === true, siteName: str("siteName"), status: str("status"), completedDate: str("completedDate"), expiresOn: str("expiresOn"), linkUrl: /^https:\/\//i.test(link) ? link : "" };
+  const topicId = trainingId(x, ["topicId"]), siteId = trainingId(x, ["siteId"]);
+  return { id: topicId + ":" + siteId, topicId: topicId, siteId: siteId, name: name, docCode: str("docCode"), docSection: str("docSection"), safetyCritical: x.safetyCritical === true, siteName: str("siteName"), status: str("status"), completedDate: str("completedDate"), expiresOn: str("expiresOn"), linkUrl: /^https:\/\//i.test(link) ? link : "", attemptId: trainingId(x, ["attemptId"]), lesson: trainingLessonLinkOf(x.lesson) };
 }
 function trainingRecordOf(x) {
   if (!x || typeof x !== "object") return null;
@@ -6474,54 +6537,90 @@ function trainingRecordOf(x) {
   if (!name) return null;
   return { id: String(agentField(x, ["id"], name)), name: name, completedDate: str("completedDate"), expiresOn: str("expiresOn"), siteName: str("siteName"), locale: str("locale") };
 }
+// An attempt as the attempt routes answer it: open, scored, acknowledged
+// or signed off. The score and the pass are read as the server set them;
+// missed names the questions got wrong, never what was right.
+function trainingAttemptOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = trainingId(x, ["id"]);
+  if (!id) return null;
+  const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
+  const trainer = x.trainer && typeof x.trainer === "object" && typeof x.trainer.name === "string" ? x.trainer.name.trim() : "";
+  return { id: id, versionId: trainingId(x, ["versionId"]), topicId: trainingId(x, ["topicId"]), topicName: str("topicName"), attemptNo: trainingNum(x.attemptNo), locale: str("locale"), scoredAt: str("scoredAt"), scorePercent: trainingNum(x.scorePercent), passed: x.passed === true ? true : x.passed === false ? false : null, missed: Array.isArray(x.missed) ? x.missed.map(String) : [], acknowledgedAt: str("acknowledgedAt"), awaitingTrainer: x.awaitingTrainer === true, trainerSignedAt: str("trainerSignedAt"), trainerName: trainer, demonstrated: x.demonstrated === true, siteId: trainingId(x, ["siteId"]), voidedAt: str("voidedAt") };
+}
 // The answer as the screen reads it, or null for one that holds no list.
 function trainingOf(d) {
   const items = wsRows(d, "items");
   if (!items || Array.isArray(d)) return null;
-  return { items: items.map(trainingItemOf).filter(Boolean), records: (wsRows(d, "records") || []).map(trainingRecordOf).filter(Boolean) };
+  return { items: items.map(trainingItemOf).filter(Boolean), records: (wsRows(d, "records") || []).map(trainingRecordOf).filter(Boolean), attempts: (wsRows(d, "attempts") || []).map(trainingAttemptOf).filter(Boolean) };
 }
 async function readTraining(token) {
   try { return trainingOf(await api("/api/training/me", { token })); } catch (e) { return null; }
 }
+// The items a person can do on the phone right now: a lesson with tries
+// left, on a training still needed, in progress or coming due. Home's
+// card counts them.
+const trainingToDo = (data) => (data ? data.items.filter(i => i.lesson && i.lesson.attemptsLeft > 0 && TRAINING_CAN_START.indexOf(i.status) !== -1) : []);
 const trainingDay = (d) => (d ? dueDayText(d, { month: "short", day: "numeric", year: "numeric" }) : "");
 const TRAINING_GIVEN_IN = { en: () => tr("Given in English"), es: () => tr("Given in Spanish"), fr: () => tr("Given in French") };
+const trainingTries = (n) => (n === 1 ? tr("1 try left") : tr("{n} tries left", { n: n }));
 
-function TrainingView({ token, data, onData, t }) {
-  // Read again each time the screen opens; a read that fails keeps what
-  // is on the screen and says so, with Try again.
+function TrainingView({ token, data, onData, shiftSiteId, t }) {
+  // Read again each time the screen opens, and each time a lesson is
+  // left; a read that fails keeps what is on the screen and says so,
+  // with Try again.
   const [fault, setFault] = useState(false);
   const [asked, setAsked] = useState(0);
+  // The item whose lesson is open, with the list behind it.
+  const [lesson, setLesson] = useState(null);
   useEffect(() => {
     let live = true;
     readTraining(token).then(d => { if (!live) return; if (d) { onData(d); setFault(false); } else setFault(true); });
     return () => { live = false; };
   }, [asked]);
+  if (lesson) {
+    return <TrainingLesson key={lesson.id + ":" + lesson.opened} token={token} item={lesson.item} siteId={lesson.item.siteId || shiftSiteId || null} onBack={() => { setLesson(null); setAsked(n => n + 1); }} t={t} />;
+  }
   const items = data ? data.items : [];
   const bySafety = (a, b) => (b.safetyCritical ? 1 : 0) - (a.safetyCritical ? 1 : 0);
   const todo = items.filter(i => TRAINING_TODO.indexOf(i.status) !== -1).sort(bySafety);
+  const waiting = items.filter(i => i.status === "awaitingTrainer");
   const soon = items.filter(i => i.status === "dueSoon");
   const done = items.filter(i => i.status === "current");
   const records = (data ? data.records : []).slice().sort((a, b) => (a.completedDate < b.completedDate ? 1 : a.completedDate > b.completedDate ? -1 : 0));
+  // The supervisor line stays under To do while one of its items has no
+  // lesson to take, or no tries left on it.
+  const needsSession = todo.some(i => !i.lesson || i.lesson.attemptsLeft === 0);
   const why = (i) => {
     if (i.status === "missing") return tr("Not done yet");
     if (i.status === "expired") return tr("Expired {date}", { date: trainingDay(i.expiresOn) });
     if (i.status === "refresherDue") return i.siteName ? tr("Refresher due at {site}", { site: i.siteName }) : tr("Refresher due");
+    if (i.status === "inProgress") return tr("In progress");
+    if (i.status === "awaitingTrainer") return tr("Waiting for your trainer. Show them you can do it, and they sign it off.");
     if (i.status === "dueSoon") return tr("Expires {date}", { date: trainingDay(i.expiresOn) });
     return tr("Done {date}", { date: trainingDay(i.completedDate) });
   };
   const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
   const smallSt = { fontSize: 11, color: t.textMut, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
   const lineSt = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const goldBtn = { display: "flex", alignItems: "center", justifyContent: "center", minHeight: TAP, padding: "10px 14px", borderRadius: R.md, textDecoration: "none", border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", cursor: "pointer" };
   const row = (i, group) => (
     <div key={i.id} data-training-item={i.status} style={{ ...fkRowSt(t), minHeight: TAP }}>
       <div style={nameSt}>{i.name}</div>
       {(i.docCode || i.docSection) && <div style={smallSt}>{[i.docCode, i.docSection].filter(Boolean).join(" ")}</div>}
       {i.siteName && i.status !== "refresherDue" && <div style={lineSt}>{i.siteName}</div>}
-      <div style={{ ...lineSt, color: group === "todo" ? wsLateInk(t) : group === "soon" ? ink(t, ORANGE) : ink(t, GREEN), fontWeight: 600 }}>{why(i)}</div>
+      <div style={{ ...lineSt, color: group === "todo" ? wsLateInk(t) : group === "soon" ? ink(t, ORANGE) : group === "waiting" ? ink(t, BLUE) : ink(t, GREEN), fontWeight: 600 }}>{why(i)}</div>
       {group === "done" && i.expiresOn && <div style={lineSt}>{tr("Expires {date}", { date: trainingDay(i.expiresOn) })}</div>}
+      {i.lesson && (group === "todo" || group === "soon") && i.lesson.attemptsLeft > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
+          <button type="button" data-training-start={i.id} onClick={() => setLesson({ id: i.id, item: i, opened: Date.now() })} style={{ ...goldBtn, flex: "1 1 120px" }}>{i.status === "inProgress" ? tr("Continue the lesson") : tr("Start the lesson")}</button>
+          <span data-training-tries={i.lesson.attemptsLeft} style={{ ...lineSt, marginTop: 0, flex: "1 1 80px", minWidth: 0 }}>{trainingTries(i.lesson.attemptsLeft)}</span>
+        </div>
+      )}
+      {i.lesson && (group === "todo" || group === "soon") && i.lesson.attemptsLeft === 0 && <div data-training-tries="0" style={{ ...lineSt, marginTop: 8, fontWeight: 600 }}>{tr("Ask your supervisor for an in-person session.")}</div>}
       {i.linkUrl && (
         <div style={{ marginTop: 10 }}>
-          <a href={i.linkUrl} target="_blank" rel="noopener noreferrer" data-training-link={i.id} style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: TAP, padding: "10px 14px", borderRadius: R.md, textDecoration: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Take the course online")}</a>
+          <a href={i.linkUrl} target="_blank" rel="noopener noreferrer" data-training-link={i.id} style={goldBtn}>{tr("Take the course online")}</a>
           <div style={{ ...smallSt, fontSize: 12, marginTop: 6 }}>{tr("When you finish, give your certificate to the office.")}</div>
         </div>
       )}
@@ -6537,9 +6636,10 @@ function TrainingView({ token, data, onData, t }) {
         <div>
           {head("To do", "todo")}
           {todo.map(i => row(i, "todo"))}
-          <div style={{ ...smallSt, fontSize: 12, marginTop: 4, marginBottom: 8 }}>{tr("Your supervisor sets up these sessions. Ask them when the next one is.")}</div>
+          {needsSession && <div style={{ ...smallSt, fontSize: 12, marginTop: 4, marginBottom: 8 }}>{tr("Your supervisor sets up these sessions. Ask them when the next one is.")}</div>}
         </div>
       )}
+      {waiting.length > 0 && <div>{head("Waiting for your trainer", "waiting")}{waiting.map(i => row(i, "waiting"))}</div>}
       {soon.length > 0 && <div>{head("Coming due", "soon")}{soon.map(i => row(i, "soon"))}</div>}
       {done.length > 0 && <div>{head("Done", "done")}{done.map(i => row(i, "done"))}</div>}
       {records.length > 0 && (
@@ -6553,6 +6653,263 @@ function TrainingView({ token, data, onData, t }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// The lesson as GET /api/training/lesson-versions/:id answers it, in one
+// language. Every text is a string there; one that still arrives as
+// { en, es, fr } reads in the lesson's language, then in English. A
+// correct value is never in the answer, so none is looked for.
+const lessonText = (v, locale) => {
+  if (typeof v === "string") return v.trim();
+  if (v && typeof v === "object") { const s = v[locale] || v.en; return typeof s === "string" ? s.trim() : ""; }
+  return "";
+};
+function trainingLessonOf(d) {
+  const l = d && typeof d === "object" && d.lesson && typeof d.lesson === "object" ? d.lesson : null;
+  if (!l) return null;
+  const locale = typeof l.locale === "string" && l.locale.trim() ? l.locale.trim() : "en";
+  const locales = (Array.isArray(l.locales) ? l.locales : []).filter(x => typeof x === "string" && Object.prototype.hasOwnProperty.call(LANGUAGE_NAMES, x));
+  const blocks = (Array.isArray(l.blocks) ? l.blocks : []).map((b, i) => {
+    if (!b || typeof b !== "object") return null;
+    const items = (Array.isArray(b.items) ? b.items : []).map(x => lessonText(x, locale)).filter(Boolean);
+    const text = lessonText(b.text, locale);
+    if (!text && items.length === 0) return null;
+    const src = b.source && typeof b.source === "object" ? [b.source.docCode, b.source.sectionRef].map(v => (typeof v === "string" ? v.trim() : "")).filter(Boolean).join(" ") : "";
+    return { key: trainingId(b, ["key"]) || "b" + i, kind: b.kind === "list" || b.kind === "warning" ? b.kind : "text", text: text, items: items, source: src };
+  }).filter(Boolean);
+  const questions = (Array.isArray(l.questions) ? l.questions : []).map((q) => {
+    if (!q || typeof q !== "object") return null;
+    const key = trainingId(q, ["key"]);
+    const text = lessonText(q.text, locale);
+    const options = (Array.isArray(q.options) ? q.options : []).map(o => (o && typeof o === "object" && o.value !== undefined && o.value !== null ? { value: String(o.value), text: lessonText(o.text, locale) } : null)).filter(o => o && o.text);
+    return key && text && options.length >= 2 ? { key: key, text: text, options: options } : null;
+  }).filter(Boolean);
+  if (questions.length === 0) return null;
+  const used = trainingNum(l.attemptsUsed), left = trainingNum(l.attemptsLeft), pass = trainingNum(l.passPercent);
+  return { versionId: trainingId(l, ["versionId"]), version: trainingNum(l.version), title: lessonText(l.title, locale), locale: locale, locales: locales.length > 0 ? locales : [locale], blocks: blocks, questions: questions, acknowledgement: lessonText(l.acknowledgement, locale), passPercent: pass === null ? 80 : pass, needsTrainer: l.needsTrainer === true, attemptsUsed: used === null ? 0 : Math.max(0, used), attemptsLeft: left === null ? 0 : Math.max(0, left) };
+}
+
+// One lesson, from Start to Done. Start posts an attempt (an open one is
+// answered instead of a new one), the reading is drawn in the person's
+// language with a switch among the lesson's, the questions are answered
+// one per screen, Submit posts the answers and the server scores them,
+// and a pass is signed. Nothing of it is kept on the phone: leaving the
+// screen drops every answer, and Continue starts the questions over on
+// the same open attempt. A refusal reads in the API's words.
+function TrainingLesson({ token, item, siteId, onBack, t }) {
+  const [phase, setPhase] = useState("loading");
+  const [attempt, setAttempt] = useState(null);
+  const [les, setLes] = useState(null);
+  const [qi, setQi] = useState(0);
+  const [answers, setAnswers] = useState({});
+  const [fault, setFault] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [strokes, setStrokes] = useState([]);
+  const [png, setPng] = useState(null);
+  const [outcome, setOutcome] = useState(null);
+  // Bumped by Try again and by Read it again: a fresh attempt and reading.
+  const [asked, setAsked] = useState(0);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  useBusy("training lesson", phase === "ask" || phase === "sign" || busy);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [phase, qi]);
+  const readLesson = async (locale) => trainingLessonOf(await api("/api/training/lesson-versions/" + encodeURIComponent(item.lesson.versionId) + "?locale=" + encodeURIComponent(locale), { token }));
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      setPhase("loading"); setFault(null); setAnswers({}); setQi(0); setStrokes([]); setPng(null); setOutcome(null);
+      try {
+        // The reading first, in the screen's language where the lesson
+        // holds it, so the attempt is opened in the language read.
+        const l = await readLesson(languageToSend());
+        if (!l) throw new Error(ERR_GENERIC);
+        const a = trainingAttemptOf((await api("/api/training/attempts", { method: "POST", body: { versionId: item.lesson.versionId, locale: l.locale, siteId: siteId || null }, token }) || {}).attempt);
+        if (!a) throw new Error(ERR_GENERIC);
+        if (on) { setLes(l); setAttempt(a); setPhase("read"); }
+      } catch (err) {
+        if (on) { setFault(fkFaultWords(err, "This lesson did not open. Try again.")); setPhase("fault"); }
+      }
+    })();
+    return () => { on = false; };
+  }, [asked]);
+  const switchTo = async (loc) => {
+    if (busy || !les || loc === les.locale) return;
+    setBusy(true); setFault(null);
+    try {
+      const l = await readLesson(loc);
+      if (!l) throw new Error(ERR_GENERIC);
+      if (live.current) setLes(l);
+    } catch (err) {
+      if (live.current) setFault(fkFaultWords(err, "This lesson did not open. Try again."));
+    } finally { if (live.current) setBusy(false); }
+  };
+  const submit = async () => {
+    if (busy || !attempt || !les) return;
+    setBusy(true); setFault(null);
+    try {
+      const a = trainingAttemptOf((await api("/api/training/attempts/" + encodeURIComponent(attempt.id) + "/answers", { method: "POST", body: { answers: answers }, token }) || {}).attempt);
+      if (!a) throw new Error(ERR_GENERIC);
+      // On a fail, the tries left are read again from the lesson; when
+      // that read fails, one fewer than before is said.
+      let l = les;
+      if (!a.passed) { try { l = (await readLesson(les.locale)) || les; } catch (e) { l = { ...les, attemptsLeft: Math.max(0, les.attemptsLeft - 1) }; } }
+      if (live.current) { setAttempt(a); setLes(l); setPhase(a.passed ? "sign" : "result"); }
+    } catch (err) {
+      if (live.current) setFault(fkFaultWords(err, "Your answers were not sent. Try again."));
+    } finally { if (live.current) setBusy(false); }
+  };
+  const sign = async () => {
+    if (busy || !attempt) return;
+    if (!png) { setFault(tr("Sign before you send.")); return; }
+    setBusy(true); setFault(null);
+    try {
+      const d = await api("/api/training/attempts/" + encodeURIComponent(attempt.id) + "/acknowledge", { method: "POST", body: { signature: png }, token });
+      const a = trainingAttemptOf(d && d.attempt) || attempt;
+      const record = !!(d && d.record && typeof d.record === "object");
+      if (live.current) { setAttempt(a); setOutcome({ waiting: a.awaitingTrainer === true || (!record && les.needsTrainer) }); setPhase("done"); }
+    } catch (err) {
+      if (live.current) setFault(fkFaultWords(err, "This was not signed. Try again."));
+    } finally { if (live.current) setBusy(false); }
+  };
+  const back = <WsBack label={tr("My training")} onBack={onBack} t={t} />;
+  const titleSt = { fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const smallSt = { fontSize: 11, color: t.textMut, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const bodySt = { fontSize: 15, color: t.text, lineHeight: 1.55, overflowWrap: "anywhere", fontFamily: FONT_BODY };
+  const lineSt = { fontSize: 14, color: t.textSec, marginTop: 6, lineHeight: 1.45, overflowWrap: "anywhere" };
+  const scoreLines = attempt && attempt.scorePercent !== null && les ? (
+    <div data-lesson-score={attempt.scorePercent} style={{ ...fkRowSt(t), marginTop: 10 }}>
+      <div style={{ fontSize: 22, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{tr("Your score: {score}%", { score: attempt.scorePercent })}</div>
+      <div style={lineSt}>{tr("Pass mark: {pass}%", { pass: les.passPercent })}</div>
+    </div>
+  ) : null;
+  // In its own row: the screen is a flex column, and a button set straight
+  // in it would grow to fill the screen.
+  const backBtn = <div style={{ display: "flex", marginTop: 12 }}><button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Back to My training")}</button></div>;
+  const head = (
+    <div>
+      {back}
+      <div role="heading" aria-level={1} style={titleSt}>{les && les.title ? les.title : item.name}</div>
+      {(item.docCode || item.docSection) && <div style={smallSt}>{[item.docCode, item.docSection].filter(Boolean).join(" ")}</div>}
+    </div>
+  );
+  if (phase === "loading" || phase === "fault") {
+    return (
+      <div data-lesson={phase} style={{ padding: "16px 16px 100px" }}>
+        {head}
+        {phase === "loading" && <div style={{ ...wsQuiet(t), marginTop: 12 }}>{tr("Loading...")}</div>}
+        {phase === "fault" && <div style={{ marginTop: 12 }}><WsFault text={fault} t={t} /><div style={{ display: "flex", gap: 8, marginTop: 12 }}><button type="button" onClick={() => setAsked(n => n + 1)} style={wsMainBtn(t, false)}>{tr("Try again")}</button><button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Back")}</button></div></div>}
+      </div>
+    );
+  }
+  if (phase === "read") {
+    return (
+      <div data-lesson="read" style={{ padding: "16px 16px 100px" }}>
+        {head}
+        {les.locales.length > 1 && (
+          <div style={{ marginTop: 12 }}>
+            <div id="ocsa-lesson-lang" style={mkLabel(t)}>{tr("Language")}</div>
+            <div role="group" aria-labelledby="ocsa-lesson-lang" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {les.locales.map(loc => (
+                <button key={loc} type="button" data-lesson-lang={loc} aria-pressed={loc === les.locale} disabled={busy} onClick={() => switchTo(loc)} style={{ ...wsPlainBtn(t), flex: "1 1 80px", background: loc === les.locale ? t.goldBg : "transparent", border: loc === les.locale ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: loc === les.locale ? t.goldText : t.text }}>{LANGUAGE_NAMES[loc]}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        {fault && <WsFault text={fault} t={t} />}
+        <div style={{ marginTop: 14 }}>
+          {les.blocks.map(b => (
+            <div key={b.key} data-lesson-block={b.kind} style={b.kind === "warning"
+              ? { display: "flex", gap: 10, alignItems: "flex-start", padding: "12px", marginBottom: 12, borderRadius: R.md, background: ORANGE + "18", border: "1px solid " + ORANGE + "60" }
+              : { marginBottom: 14 }}>
+              {b.kind === "warning" && <AlertIco sz={20} c={ink(t, ORANGE)} style={{ flexShrink: 0, marginTop: 2 }} />}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {b.text && <div style={bodySt}>{b.text}</div>}
+                {b.items.length > 0 && <ul style={{ ...bodySt, margin: b.text ? "6px 0 0" : 0, paddingLeft: 22 }}>{b.items.map((x, i) => <li key={i} style={{ marginBottom: 4 }}>{x}</li>)}</ul>}
+                {b.source && <div style={{ ...smallSt, marginTop: 4 }}>{b.source}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", marginTop: 8 }}>
+          <button type="button" data-lesson-next="read" disabled={busy} onClick={() => { setQi(0); setPhase("ask"); }} style={wsMainBtn(t, busy)}>{tr("Next")}</button>
+        </div>
+      </div>
+    );
+  }
+  if (phase === "ask") {
+    const q = les.questions[Math.min(qi, les.questions.length - 1)];
+    const last = qi >= les.questions.length - 1;
+    const picked = answers[q.key];
+    const allAnswered = les.questions.every(x => answers[x.key] !== undefined);
+    return (
+      <div data-lesson="ask" data-lesson-question={qi + 1} style={{ padding: "16px 16px 100px" }}>
+        {head}
+        <div style={{ ...mkLabel(t), marginTop: 14 }}>{tr("Question {n} of {count}", { n: qi + 1, count: les.questions.length })}</div>
+        <div role="heading" aria-level={2} style={{ ...bodySt, fontWeight: 600 }}>{q.text}</div>
+        <div role="group" aria-label={q.text} style={{ marginTop: 12 }}>
+          {q.options.map(o => {
+            const on = picked === o.value;
+            return (
+              <button key={o.value} type="button" data-lesson-option={o.value} aria-pressed={on} disabled={busy} onClick={() => { setAnswers(a => ({ ...a, [q.key]: o.value })); setFault(null); }} style={{ width: "100%", minHeight: TAP, padding: "12px 14px", marginBottom: 8, borderRadius: R.md, textAlign: "left", cursor: "pointer", fontSize: 15, lineHeight: 1.4, fontFamily: FONT_BODY, overflowWrap: "anywhere", background: on ? t.goldBg : t.card, border: on ? "2px solid " + GOLD : "1px solid " + t.borderSolid, color: on ? t.goldText : t.text, fontWeight: on ? 600 : 400, boxShadow: t.shadow }}>{o.text}</button>
+            );
+          })}
+        </div>
+        {fault && <WsFault text={fault} t={t} />}
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button type="button" data-lesson-back="1" disabled={busy} onClick={() => { if (qi === 0) setPhase("read"); else setQi(n => n - 1); }} style={wsPlainBtn(t)}>{tr("Back")}</button>
+          {!last && <button type="button" data-lesson-next={qi + 1} disabled={busy || picked === undefined} onClick={() => setQi(n => n + 1)} style={wsMainBtn(t, busy || picked === undefined)}>{tr("Next")}</button>}
+          {last && <button type="button" data-lesson-submit="1" disabled={busy || !allAnswered} onClick={submit} style={wsMainBtn(t, busy || !allAnswered)}>{busy ? tr("Sending...") : tr("Submit")}</button>}
+        </div>
+      </div>
+    );
+  }
+  if (phase === "result") {
+    const missed = attempt.missed.length;
+    const left = les.attemptsLeft;
+    return (
+      <div data-lesson="result" data-lesson-tries={left} style={{ padding: "16px 16px 100px" }}>
+        {head}
+        <div role="heading" aria-level={2} style={{ ...titleSt, marginTop: 14, color: wsLateInk(t) }}>{tr("Not passed.")}</div>
+        {scoreLines}
+        <div style={lineSt}>{missed === 1 ? tr("You missed 1 question.") : tr("You missed {n} questions.", { n: missed })}</div>
+        {left > 0 && <div style={{ ...lineSt, fontWeight: 600, color: t.text }}>{trainingTries(left)}</div>}
+        {left === 0 && <div style={{ ...lineSt, fontWeight: 600, color: t.text }}>{tr("Ask your supervisor for an in-person session.")}</div>}
+        {fault && <WsFault text={fault} t={t} />}
+        {left > 0 && <div style={{ display: "flex", marginTop: 12 }}><button type="button" data-lesson-again="1" onClick={() => setAsked(n => n + 1)} style={wsMainBtn(t, false)}>{tr("Read it again")}</button></div>}
+        {backBtn}
+      </div>
+    );
+  }
+  if (phase === "sign") {
+    return (
+      <div data-lesson="sign" style={{ padding: "16px 16px 100px" }}>
+        {head}
+        <div role="heading" aria-level={2} style={{ ...titleSt, marginTop: 14, color: ink(t, GREEN) }}>{tr("You passed.")}</div>
+        {scoreLines}
+        {les.acknowledgement && <div style={{ ...bodySt, marginTop: 14 }}>{les.acknowledgement}</div>}
+        <div data-lesson-signature="1" style={{ marginTop: 12 }}>
+          <div style={mkLabel(t)}>{tr("Your signature")}</div>
+          <div style={{ borderRadius: R.md, border: fault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+            <SignatureBox strokes={strokes} onStroke={(stroke, size) => { const all = strokes.concat([stroke]); setStrokes(all); setPng(signaturePng(all, size.w, size.h)); setFault(null); }} height={SIGN_BOX_HEIGHT} />
+          </div>
+          <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+          <button type="button" onClick={() => { setStrokes([]); setPng(null); }} disabled={strokes.length === 0 || busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+        </div>
+        {fault && <WsFault text={fault} t={t} />}
+        <div style={{ display: "flex", marginTop: 12 }}>
+          <button type="button" data-lesson-sign="1" disabled={busy} onClick={sign} style={wsMainBtn(t, busy)}>{busy ? tr("Sending...") : tr("Sign")}</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div data-lesson="done" data-lesson-waiting={outcome && outcome.waiting ? "1" : "0"} style={{ padding: "16px 16px 100px" }}>
+      {head}
+      <div role="heading" aria-level={2} style={{ ...titleSt, marginTop: 14, color: outcome && outcome.waiting ? ink(t, BLUE) : ink(t, GREEN) }}>{outcome && outcome.waiting ? tr("Waiting for your trainer. Show them you can do it, and they sign it off.") : tr("Done. It is on your record.")}</div>
+      {scoreLines}
+      {backBtn}
     </div>
   );
 }
@@ -6913,8 +7270,12 @@ const NOTIF_TAB = {
   client_request: "issues",
   // An inspection finding (Step 255): Report, with that finding in view.
   inspection_finding: "issues",
-  // A training record about to expire (Step 258): My training.
+  // A training record about to expire (Step 258): My training. A lesson
+  // failed on its last try (Step 261): My training too. A lesson waiting
+  // for a trainer: the field kit, on Sign off training.
   training_expiring: "training",
+  training_reteach: "training",
+  training_signoff: "fieldkit",
   chat: "chat",
   chat_mention: "chat",
   announcement: "announcement",
@@ -6931,6 +7292,7 @@ function notifPlace(subjectType, subjectId) {
   if (tab === "announcement") return id ? { announcement: id } : null;
   if (subjectType === "client_request") return { tab: tab, request: id };
   if (subjectType === "inspection_finding") return { tab: tab, finding: id };
+  if (subjectType === "training_signoff") return { tab: tab, signoff: true };
   return { tab: tab };
 }
 const NOTIF_PAGE = 30;
@@ -11019,6 +11381,8 @@ const FK_TILES = [
   { id: "periodic", title: "Periodic work", line: "What is overdue, due and done at this site.", icon: CalIco },
   { id: "equipment", title: "Equipment", line: "Each item's status and next service.", icon: WrkIco },
   { id: "review", title: "Awaiting review", line: "Inspections waiting for a review signature.", icon: ClipIco },
+  // Step 261: the lessons passed and signed that wait for a trainer.
+  { id: "signoff", title: "Sign off training", line: "Lessons passed and signed, waiting for your sign-off after a demonstration.", icon: BookIco },
 ];
 const fkText = (o, keys) => { const v = agentField(o, keys, ""); return typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : ""; };
 function fkSiteOf(x) {
@@ -11038,7 +11402,7 @@ function fkSiteFor(list, chosen, shiftSiteId, assigned) {
   return list.length > 0 ? list[0].id : null;
 }
 
-function FieldKitView({ token, at, onAt, shiftSiteId, assignedSites, onOpenEquipment, showToast, t }) {
+function FieldKitView({ token, user, at, onAt, shiftSiteId, assignedSites, onOpenEquipment, showToast, t }) {
   const [sites, setSites] = useState(null);
   const [asked, setAsked] = useState(0);
   useEffect(() => {
@@ -11079,6 +11443,7 @@ function FieldKitView({ token, at, onAt, shiftSiteId, assignedSites, onOpenEquip
         {tile.id === "periodic" && <FkPeriodic key={site.id} token={token} site={site} t={t} />}
         {tile.id === "equipment" && <FkEquipment key={site.id} token={token} site={site} onOpen={onOpenEquipment} t={t} />}
         {tile.id === "review" && <FkReview key={site.id} token={token} site={site} onOpen={(id) => onAt({ siteId: site.id, tile: "review", inspection: id })} t={t} />}
+        {tile.id === "signoff" && <FkSignoff key={site.id} token={token} site={site} user={user} showToast={showToast} t={t} />}
       </div>
     );
   }
@@ -11645,6 +12010,116 @@ function FkInspection({ token, id, onBack, showToast, t }) {
           </div>
           <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
           <button type="button" onClick={() => setSigning(s => (s ? { ...s, strokes: [], png: null } : s))} disabled={signing.strokes.length === 0 || signing.busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: signing.strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+          {signing.fault && <WsFault text={signing.fault} t={t} />}
+        </WsSheet>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Sign off training (Step 261): the lessons passed and signed at this
+// site that wait for a trainer, from GET /api/training/awaiting. A
+// safety topic counts only once a trainer has watched the person do it
+// (OCSA-HR-016 5.5), so the sign-off asks for that tick, a note, and the
+// trainer's own signature, and posts them as one sign-off; the API
+// writes the record. A trainer never sees their own attempt here,
+// whatever the route answers, and the API refuses one in its own words.
+// ------------------------------------------------------------
+const SIGNOFF_NOTE_MAX = 1000;
+function trainingAwaitingOf(x) {
+  const a = trainingAttemptOf(x);
+  if (!a) return null;
+  const p = x.person && typeof x.person === "object" ? x.person : null;
+  return { ...a, personId: p ? trainingId(p, ["id"]) : "", personName: p && typeof p.name === "string" ? p.name.trim() : "" };
+}
+// The list as the route answers it, less the caller's own; null when the
+// route does not answer a list.
+async function readTrainingAwaiting(token, siteId, userId) {
+  try {
+    const list = wsRows(await api("/api/training/awaiting" + (siteId ? "?siteId=" + encodeURIComponent(siteId) : ""), { token }), "attempts");
+    if (!list) return null;
+    const me = userId ? String(userId) : "";
+    return list.map(trainingAwaitingOf).filter(a => a && a.personId !== me);
+  } catch (e) { return null; }
+}
+const SIGNOFF_BLANK = (row) => ({ row: row, strokes: [], png: null, watched: false, note: "", busy: false, fault: null });
+
+function FkSignoff({ token, site, user, showToast, t }) {
+  const [rows, setRows] = useState(null);
+  const [asked, setAsked] = useState(0);
+  // The sheet open on one attempt: the tick, the note, the signature.
+  const [signing, setSigning] = useState(null);
+  useBusy("training sign-off", !!signing);
+  useEffect(() => {
+    let live = true;
+    readTrainingAwaiting(token, site.id, user && user.id).then(list => {
+      if (!live) return;
+      if (list) setRows({ state: "ok", list: list });
+      else setRows(prev => (prev && prev.state === "ok" ? prev : { state: "failed" }));
+    });
+    return () => { live = false; };
+  }, [site.id, asked]);
+  const edit = (patch) => setSigning(s => (s ? { ...s, ...patch, fault: null } : s));
+  const send = async () => {
+    if (!signing || signing.busy) return;
+    if (!signing.watched) { setSigning({ ...signing, fault: tr("Tick I watched them do it first.") }); return; }
+    if (!signing.png) { setSigning({ ...signing, fault: tr("Sign before you send.") }); return; }
+    setSigning({ ...signing, busy: true, fault: null });
+    const body = { signature: signing.png, demonstrated: true };
+    if (signing.note.trim()) body.note = signing.note.trim();
+    try {
+      await api("/api/training/attempts/" + encodeURIComponent(signing.row.id) + "/signoff", { method: "POST", body: body, token });
+      setRows(prev => (prev && prev.state === "ok" ? { state: "ok", list: prev.list.filter(r => r.id !== signing.row.id) } : prev));
+      setSigning(null);
+      showToast(tr("Signed off. It is on their record."));
+    } catch (err) {
+      setSigning(s => (s ? { ...s, busy: false, fault: fkFaultWords(err, "This was not signed. Try again.") } : s));
+    }
+  };
+  const list = rows && rows.state === "ok" ? rows.list : [];
+  const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const signedLine = (r) => (r.scorePercent !== null ? tr("Score {score}%, signed {when}", { score: r.scorePercent, when: wsWhen(r.acknowledgedAt) }) : tr("Signed {when}", { when: wsWhen(r.acknowledgedAt) }));
+  return (
+    <div>
+      {!rows && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {rows && rows.state === "failed" && <div style={{ marginBottom: 12 }}><ListFault icon={BookIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} /></div>}
+      {rows && rows.state === "ok" && list.length === 0 && <div style={wsQuiet(t)}>{tr("Nobody is waiting for a sign-off at this site.")}</div>}
+      {list.map(r => (
+        <div key={r.id} data-fk-signoff={r.id} style={fkRowSt(t)}>
+          <div style={nameSt}>{r.personName}</div>
+          {r.topicName && <div style={{ ...lineSt, color: t.text }}>{r.topicName}</div>}
+          <div style={lineSt}>{signedLine(r)}</div>
+          <div style={{ display: "flex", marginTop: 8 }}>
+            <button type="button" onClick={() => setSigning(SIGNOFF_BLANK(r))} style={wsMainBtn(t, false)}>{tr("Sign off")}</button>
+          </div>
+        </div>
+      ))}
+      {signing && (
+        <WsSheet id="ocsa-fk-signoff" title={tr("Sign off")} onClose={() => { if (!signing.busy) setSigning(null); }} t={t} footer={<>
+          <button type="button" onClick={() => setSigning(null)} disabled={signing.busy} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+          <button type="button" data-fk-signoff-send="1" onClick={send} disabled={signing.busy} style={wsMainBtn(t, signing.busy)}>{signing.busy ? tr("Sending...") : tr("Sign off")}</button>
+        </>}>
+          <div style={nameSt}>{signing.row.personName}</div>
+          {signing.row.topicName && <div style={{ ...lineSt, color: t.text }}>{signing.row.topicName}</div>}
+          <div style={lineSt}>{signedLine(signing.row)}</div>
+          <button type="button" role="checkbox" aria-checked={signing.watched} data-fk-signoff-watched={signing.watched ? "1" : "0"} disabled={signing.busy} onClick={() => edit({ watched: !signing.watched })} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, marginTop: 12, padding: "0 2px", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: t.text, lineHeight: 1.4, textAlign: "left", fontFamily: FONT_BODY }}>
+            <span aria-hidden="true" style={{ width: 22, height: 22, flexShrink: 0, borderRadius: R.sm, border: "2px solid " + (signing.watched ? GOLD : t.textMut), background: signing.watched ? GOLD : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{signing.watched && <CheckIco sz={13} c={NAVY} />}</span>
+            <span style={{ minWidth: 0, fontWeight: 600 }}>{tr("I watched them do it")}</span>
+          </button>
+          <div style={{ marginTop: 10 }}>
+            <label htmlFor="ocsa-fk-signoff-note" style={mkLabel(t)}>{tr("Note")}</label>
+            <textarea id="ocsa-fk-signoff-note" value={signing.note} maxLength={SIGNOFF_NOTE_MAX} rows={2} placeholder={tr("Optional")} disabled={signing.busy} onChange={e => edit({ note: e.target.value })} style={{ ...mkInput(t), resize: "vertical" }} />
+          </div>
+          <div data-fk-signoff-signature="1" style={{ marginTop: 12 }}>
+            <div style={mkLabel(t)}>{tr("Your signature")}</div>
+            <div style={{ borderRadius: R.md, border: signing.fault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+              <SignatureBox strokes={signing.strokes} onStroke={(stroke, size) => setSigning(s => { if (!s) return s; const all = s.strokes.concat([stroke]); return { ...s, strokes: all, png: signaturePng(all, size.w, size.h), fault: null }; })} height={SIGN_BOX_HEIGHT} />
+            </div>
+            <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+            <button type="button" onClick={() => setSigning(s => (s ? { ...s, strokes: [], png: null } : s))} disabled={signing.strokes.length === 0 || signing.busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: signing.strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+          </div>
           {signing.fault && <WsFault text={signing.fault} t={t} />}
         </WsSheet>
       )}

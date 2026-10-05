@@ -46,7 +46,12 @@ one with an owner, with the API's refusal under the card it names, the
 answer screen with the band and each finding, and the owner's finding
 on Report, Fixed and Waiting for a check; My training (Step 258)
 under More, with To do, Coming due, Done and History from an invented
-answer, and the line a person with nothing required reads;
+answer, and the line a person with nothing required reads; Online
+lessons (Step 261), Home's card, a lesson read with its blocks and its
+Spanish switch, failed once with the score, the missed count and the
+tries left, then passed, signed and waiting for the trainer, and a
+supervisor's sign-off from Home's card through the field kit's tile,
+with the tick asked for and the API's refusal in its words;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits

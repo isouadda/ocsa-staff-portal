@@ -63,6 +63,14 @@
 //     with nothing required reads so; an item with linkUrl offers Take
 //     the course online in a new tab with the certificate line (English
 //     alone)
+//   - Online lessons (Step 261): Home counts the lessons to do; Start
+//     reads the lesson with its blocks, a warning, a cited passage and
+//     the Spanish switch; two wrong answers fail with the score, the pass
+//     mark, how many were missed, the tries left and Read it again; all
+//     right passes, the signature drawn is sent and the topic waits for
+//     the trainer; a supervisor's Home card counts it, Sign off training
+//     lists it, the tick is asked for, the API's refusal reads in the
+//     sheet, and the sign-off takes it off the list (English alone)
 //   - Inspection findings (Step 255): a completion that opens two
 //     findings, one with an owner, through the API alone, with the
 //     API's refusal under the card it names, the answer screen with the
@@ -82,7 +90,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -911,6 +919,99 @@ async function training(browser, language) {
     !offered ? "no My training under More" : !drawn ? "the screen did not read as expected" : wide > 1 ? wide + " pixels sideways" : !asked ? "the route was not asked" : !quiet ? "the nothing-required line did not show alone" : (app.errors[0] || none.errors[0]));
 }
 
+// Online lessons (Step 261): Home's card counts the two items with a
+// lesson and tries left; Start on the safety topic opens the reading
+// with its three blocks, the warning drawn as one, a cited passage under
+// a block and a language switch, which reads the lesson again in
+// Spanish; the questions one per screen; two wrong answers fail with
+// the score, the pass mark, how many were missed, two tries left and
+// Read it again; all right passes, the signature drawn and sent, and
+// the topic waits for the trainer; My training then lists it under
+// Waiting for your trainer with no Start. A supervisor's Home card
+// counts the attempt waiting; Sign off training lists it with the
+// person, the topic, the score and when they signed; Sign off without
+// the tick stays on the phone, the API's refusal reads in its words in
+// the sheet, and the sign-off with the tick, a note and a signature
+// takes the row off the list.
+async function lessons(browser) {
+  const language = "en";
+  const app = await open({ training: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
+  const page = app.page;
+  const card = await waitFor(page, (w) => { const b = document.querySelector('[data-training-card="todo"]'); return !!b && b.innerText.trim() === w; }, say(language, "{n} trainings to do", { n: 2 }));
+  if (card) await page.click('[data-training-card="todo"]');
+  const listed = card && await waitFor(page, (w) => { const b = document.querySelector('[data-training-start="tp-1:"]'); const s = b && b.parentElement.querySelector('[data-training-tries="3"]'); return !!b && b.innerText.trim() === w.start && !!s && s.innerText.trim() === w.tries && document.querySelectorAll("[data-training-start]").length === 2; }, { start: say(language, "Start the lesson"), tries: say(language, "{n} tries left", { n: 3 }) });
+  if (listed) await page.click('[data-training-start="tp-1:"]');
+  const lesson = TRAINING_LESSONS[0];
+  const reading = listed && await waitFor(page, (w) => { const c = document.querySelector('[data-lesson="read"]'); return !!c && c.querySelectorAll("[data-lesson-block]").length === 3 && !!c.querySelector('[data-lesson-block="warning"]') && !!c.querySelector('[data-lesson-lang="es"]') && c.innerText.indexOf(w.title) !== -1 && c.innerText.indexOf(w.source) !== -1 && c.innerText.indexOf(w.warning) !== -1 && !!c.querySelector('[data-lesson-next="read"]'); }, { title: lesson.title.en, source: lesson.blocks[0].source.docCode + " " + lesson.blocks[0].source.sectionRef, warning: lesson.blocks[2].text.en });
+  // The switch: Spanish read from the route, then English again.
+  if (reading) await page.click('[data-lesson-lang="es"]');
+  const spanish = reading && await waitFor(page, (w) => { const c = document.querySelector('[data-lesson="read"]'); return !!c && c.innerText.indexOf(w) !== -1 && c.querySelector('[data-lesson-lang="es"]').getAttribute("aria-pressed") === "true"; }, lesson.title.es);
+  if (spanish) await page.click('[data-lesson-lang="en"]');
+  await waitFor(page, (w) => { const c = document.querySelector('[data-lesson="read"]'); return !!c && c.innerText.indexOf(w) !== -1; }, lesson.title.en);
+  const answer = async (picks) => {
+    await page.click('[data-lesson-next="read"]');
+    for (let i = 0; i < picks.length; i += 1) {
+      if (!(await waitFor(page, (n) => { const c = document.querySelector('[data-lesson="ask"]'); return !!c && c.getAttribute("data-lesson-question") === String(n); }, i + 1))) return false;
+      await page.click('[data-lesson-option="' + picks[i] + '"]');
+      await page.click(i < picks.length - 1 ? '[data-lesson-next="' + (i + 1) + '"]' : '[data-lesson-submit="1"]');
+    }
+    return true;
+  };
+  const asked = spanish && await answer(["a", "b", "b", "a", "a"]);
+  const fail = { score: say(language, "Your score: {score}%", { score: 60 }), pass: say(language, "Pass mark: {pass}%", { pass: 80 }), missed: say(language, "You missed {n} questions.", { n: 2 }), tries: say(language, "{n} tries left", { n: 2 }), not: say(language, "Not passed.") };
+  const failed = asked && await waitFor(page, (w) => { const c = document.querySelector('[data-lesson="result"]'); return !!c && c.getAttribute("data-lesson-tries") === "2" && [w.score, w.pass, w.missed, w.tries, w.not].every(x => c.innerText.indexOf(x) !== -1) && !!c.querySelector('[data-lesson-again="1"]'); }, fail);
+  if (failed) await page.click('[data-lesson-again="1"]');
+  const again = failed && await waitFor(page, () => !!document.querySelector('[data-lesson="read"]'));
+  const passed = again && await answer(["a", "a", "a", "a", "a"]) && await waitFor(page, (w) => { const c = document.querySelector('[data-lesson="sign"]'); return !!c && c.innerText.indexOf(w.ok) !== -1 && c.innerText.indexOf(w.score) !== -1 && c.innerText.indexOf(w.ack) !== -1 && !!c.querySelector('[data-lesson-signature="1"] canvas'); }, { ok: say(language, "You passed."), score: say(language, "Your score: {score}%", { score: 100 }), ack: lesson.acknowledgement.en });
+  if (passed) { await sign(page, '[data-lesson-signature="1"] canvas'); await page.click('[data-lesson-sign="1"]'); }
+  const waiting = passed && await waitFor(page, (w) => { const c = document.querySelector('[data-lesson="done"]'); return !!c && c.getAttribute("data-lesson-waiting") === "1" && c.innerText.indexOf(w) !== -1; }, say(language, "Waiting for your trainer. Show them you can do it, and they sign it off."));
+  const wide = await sideways(page);
+  if (waiting) await clickWord(page, say(language, "Back to My training"));
+  const back = waiting && await waitFor(page, (w) => { const c = document.querySelector('[data-training="1"]'); return !!c && !!c.querySelector('[data-training-group="waiting"]') && !!c.querySelector('[data-training-item="awaitingTrainer"]') && !c.querySelector('[data-training-start="tp-1:"]') && !!c.querySelector('[data-training-start="tp-2:"]') && c.innerText.indexOf(w) !== -1; }, say(language, "Waiting for your trainer. Show them you can do it, and they sign it off."));
+  const calls = app.stub.state.calls;
+  const reads = calls.filter(c => c.method === "GET" && c.path === "/api/training/lesson-versions/lv-1").map(c => (c.search.match(/locale=(\w+)/) || [])[1]);
+  const starts = calls.filter(c => c.method === "POST" && c.path === "/api/training/attempts").map(c => c.body);
+  const answers = calls.filter(c => c.method === "POST" && /^\/api\/training\/attempts\/[^/]+\/answers$/.test(c.path)).map(c => c.body);
+  const acks = calls.filter(c => c.method === "POST" && /^\/api\/training\/attempts\/[^/]+\/acknowledge$/.test(c.path));
+  const sent = reads.length >= 4 && reads.indexOf("es") !== -1 && starts.length === 2 && starts.every(b => b.versionId === "lv-1" && b.locale === "en" && Object.prototype.hasOwnProperty.call(b, "siteId")) && answers.length === 2 && JSON.stringify(answers[0]) === '{"answers":{"q1":"a","q2":"b","q3":"b","q4":"a","q5":"a"}}' && acks.length === 1 && acks[0].signature && acks[0].signature.bytes > 0;
+  check("Online lessons: Home counts 2 trainings to do, Start on the safety topic reads the lesson with its blocks, the warning, a cited passage and the Spanish switch, two wrong answers fail with the score, the pass mark, 2 missed, 2 tries left and Read it again, all right passes, the signature drawn is sent once, the topic waits for the trainer and My training lists it so with no Start, with no sideways scroll (en)",
+    card && listed && reading && spanish && asked && failed && again && passed && waiting && back && wide <= 1 && sent && app.errors.length === 0,
+    !card ? "no Home card reading 2 trainings to do" : !listed ? "Start with 3 tries left did not show on tp-1" : !reading ? "the reading did not draw as expected" : !spanish ? "the Spanish switch did not read the lesson again" : !asked ? "a question screen did not come" : !failed ? "the fail did not read as expected" : !again ? "Read it again did not open the reading" : !passed ? "the pass did not read as expected" : !waiting ? "the trainer line did not show" : !back ? "My training did not list the topic under Waiting for your trainer" : wide > 1 ? wide + " pixels sideways" : !sent ? JSON.stringify({ reads, starts, answers, acks: acks.length }) : app.errors[0]);
+  await app.context.close();
+
+  // The supervisor's sign-off.
+  const person = Object.assign({}, ADMIN_PERSON, { id: "u-smoke-sup", firstName: "Riley", lastName: "Example", role: "supervisor", badgeNumber: "4801", phone: "0000000008", email: "riley@example.invalid" });
+  const sup = await open({ training: true, fieldKit: true, person: person, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
+  const p2 = sup.page;
+  const card2 = await waitFor(p2, (w) => { const b = document.querySelector('[data-training-card="signoff"]'); return !!b && b.innerText.trim() === w; }, say(language, "1 training to sign off"));
+  if (card2) await p2.click('[data-training-card="signoff"]');
+  const row = card2 && await waitFor(p2, (w) => { const r = document.querySelector('[data-fk-signoff="ta-7"]'); return !!r && r.innerText.indexOf(w.who) !== -1 && r.innerText.indexOf(w.topic) !== -1 && r.innerText.indexOf(w.score) !== -1 && document.body.innerText.indexOf(w.site) !== -1; }, { who: TRAINING_AWAITING.personName, topic: TRAINING_ME.items[0].name, score: "100%", site: "North Building" });
+  let held = false, refused = false, done = false;
+  if (row) {
+    await p2.evaluate((w) => { const r = document.querySelector('[data-fk-signoff="ta-7"]'); const b = Array.from(r.querySelectorAll("button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Sign off"));
+    await waitFor(p2, () => !!document.querySelector('[data-fk-signoff-send="1"]') && !!document.querySelector('[data-fk-signoff-signature="1"] canvas'));
+    // Without the tick: the phone says so and nothing is sent.
+    await p2.click('[data-fk-signoff-send="1"]');
+    held = await waitFor(p2, (w) => { const d = document.querySelector('[role="dialog"]'); return !!d && d.innerText.indexOf(w) !== -1; }, say(language, "Tick I watched them do it first."));
+    await p2.click('[data-fk-signoff-watched="0"]');
+    await p2.fill("#ocsa-fk-signoff-note", "Showed me the label and the gloves, invented.");
+    await sign(p2, '[data-fk-signoff-signature="1"] canvas');
+    // The API's refusal, once, read in its words in the sheet.
+    sup.stub.state.refuse["POST /api/training/attempts/ta-7/signoff"] = { status: 403, body: { error: TRAINING_REFUSALS["training.cannotSignOwn"].en, code: "training.cannotSignOwn" }, once: true };
+    await p2.click('[data-fk-signoff-send="1"]');
+    refused = await waitFor(p2, (w) => { const d = document.querySelector('[role="dialog"]'); return !!d && d.innerText.indexOf(w) !== -1; }, TRAINING_REFUSALS["training.cannotSignOwn"].en);
+    await p2.click('[data-fk-signoff-send="1"]');
+    done = await waitFor(p2, (w) => !document.querySelector('[role="dialog"]') && !document.querySelector('[data-fk-signoff="ta-7"]') && document.body.innerText.indexOf(w.toast) !== -1 && document.body.innerText.indexOf(w.none) !== -1, { toast: say(language, "Signed off. It is on their record."), none: say(language, "Nobody is waiting for a sign-off at this site.") });
+  }
+  const offs = sup.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/training/attempts/ta-7/signoff");
+  const sentOff = offs.length === 2 && offs.every(c => c.body && c.body.demonstrated === true && c.body.note === "Showed me the label and the gloves, invented.") && offs[1].signature && offs[1].signature.bytes > 0;
+  const wide2 = await sideways(p2);
+  check("Sign off training: a supervisor's Home card counts 1 training to sign off and opens the tile on the site, with the person, the topic, the score and when they signed; Sign off without the tick stays on the phone; the API's refusal reads in its words in the sheet; the sign-off sends the tick, the note and the signature drawn and takes the row off the list, with no sideways scroll (en)",
+    card2 && row && held && refused && done && sentOff && wide2 <= 1 && sup.errors.length === 0,
+    !card2 ? "no Home card reading 1 training to sign off" : !row ? "the tile did not list the attempt on North Building" : !held ? "the tick line did not show" : !refused ? "the refusal was not said in the sheet" : !done ? "the sign-off did not take the row off" : !sentOff ? JSON.stringify(offs.map(c => c.body)) : wide2 > 1 ? wide2 + " pixels sideways" : sup.errors[0]);
+  await sup.context.close();
+}
+
 // The supply page (Step 252): signed out, the sheet in the page and Sign
 // in to record use; signed in, Used one and Running low.
 async function supplyPage(browser, language) {
@@ -979,6 +1080,7 @@ async function largest(browser) {
     await guard("Client requests for an assignee", () => requestsAssignee(browser, "en"));
     await guard("Inspection findings", () => findings(browser, "en"));
     await guard("My training", () => training(browser, "en"));
+    await guard("Online lessons", () => lessons(browser));
     await guard("the supply page", () => supplyPage(browser, "en"));
     await guard("French", () => french(browser));
     await guard("the Largest text size", () => largest(browser));
