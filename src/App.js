@@ -1057,17 +1057,18 @@ function readEntryFromUrl() {
 // at start and taken off the address, before an emailed link's own read
 // below drops the query. A client request's notice links to
 // /requests/<id> (Step 252), and an inspection finding's to /issues/<id>
-// (Step 255); either address opens its subject the same way. Neither is
-// an entry screen, so the app signs in or boots the stored session as it
-// always does and the subject opens once the portal is up.
+// (Step 255); either address opens its subject the same way, and so does
+// a training session's /join/<code> (Step 264). None is an entry screen,
+// so the app signs in or boots the stored session as it always does and
+// the subject opens once the portal is up.
 function readOpenFromUrl() {
   try {
     var v = new URLSearchParams(window.location.search || "").get("open");
     if (!v) {
-      var m = /^\/(requests|issues)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+      var m = /^\/(requests|issues|join)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
       if (!m) return null;
       try { window.history.replaceState({}, "", "/"); } catch (e) {}
-      return { subjectType: m[1] === "requests" ? "client_request" : "inspection_finding", subjectId: m[2] };
+      return { subjectType: m[1] === "requests" ? "client_request" : m[1] === "issues" ? "inspection_finding" : "training_join", subjectId: m[2] };
     }
     try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
     var at = v.indexOf(":");
@@ -2415,6 +2416,7 @@ export default function OCSAStaffPortal() {
       if (!isAdmin) { setActiveTab("training"); setShowMore(false); return; }
       setFieldKitAt(at => ({ siteId: at && at.siteId ? at.siteId : null, tile: place.signoff ? "signoff" : null }));
     }
+    if (place.tab === "training") setTrainingAt(place.join ? { join: String(place.join) } : null);
     setActiveTab(place.tab); setShowMore(false);
     if (place.tab === "issues") { setRequestOpen(place.request || null); setFindingOpen(place.finding || null); loadClientRequests(); loadFindings(); }
     if (place.tab === "chat" && place.chat) { if (activeChannelRef.current === place.chat) loadMessages(place.chat); else chooseChat(place.chat); }
@@ -2497,8 +2499,11 @@ export default function OCSAStaffPortal() {
   // My training (Step 258): what GET /api/training/me answers, read once
   // the portal is up. Until it answers a list, More offers nothing new.
   const [training, setTraining] = useState(null);
+  // Where My training is (Step 264): a session's join screen for a code,
+  // from /join/<code> or a code typed in. Dropped at sign out.
+  const [trainingAt, setTrainingAt] = useState(null);
   useEffect(() => {
-    if (!token || screen !== "main") { setTraining(null); return undefined; }
+    if (!token || screen !== "main") { setTraining(null); setTrainingAt(null); return undefined; }
     let live = true;
     readTraining(token).then(d => { if (live && d) setTraining(d); });
     return () => { live = false; };
@@ -2865,7 +2870,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
               {activeTab === "sds" && <div style={{ padding: 16 }}><SdsBrowser initial={sdsList} onList={setSdsList} code={sdsCode} onCode={setSdsCode} t={t} /></div>}
               {activeTab === "workspace" && destCtx.workspace && <WorkspaceView token={token} user={user} projects={wsProjects} onProjects={setWsProjects} at={wsAt} onAt={setWsAt} channels={channels} onOpenChat={(id) => { chooseChat(id); setActiveTab("chat"); setShowMore(false); }} showToast={showToast} t={t} />}
-              {activeTab === "training" && destCtx.training && <TrainingView token={token} data={training} onData={setTraining} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} t={t} />}
+              {activeTab === "training" && (destCtx.training || !!trainingAt) && <TrainingView token={token} data={training} onData={setTraining} at={trainingAt} onAt={setTrainingAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} t={t} />}
               {activeTab === "fieldkit" && destCtx.isAdmin && <FieldKitView token={token} user={user} at={fieldKitAt} onAt={setFieldKitAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} assignedSites={sites} onOpenEquipment={(code) => { setEquipmentShown(code); setEquipmentBack("fieldkit"); setActiveTab("equipment"); }} showToast={showToast} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
@@ -6565,7 +6570,7 @@ const trainingDay = (d) => (d ? dueDayText(d, { month: "short", day: "numeric", 
 const TRAINING_GIVEN_IN = { en: () => tr("Given in English"), es: () => tr("Given in Spanish"), fr: () => tr("Given in French") };
 const trainingTries = (n) => (n === 1 ? tr("1 try left") : tr("{n} tries left", { n: n }));
 
-function TrainingView({ token, data, onData, shiftSiteId, t }) {
+function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   // Read again each time the screen opens, and each time a lesson is
   // left; a read that fails keeps what is on the screen and says so,
   // with Try again.
@@ -6573,11 +6578,17 @@ function TrainingView({ token, data, onData, shiftSiteId, t }) {
   const [asked, setAsked] = useState(0);
   // The item whose lesson is open, with the list behind it.
   const [lesson, setLesson] = useState(null);
+  // Join a session (Step 264): the code box open, and what is typed in it.
+  const [joinOpen, setJoinOpen] = useState(false);
+  const [joinCode, setJoinCode] = useState("");
   useEffect(() => {
     let live = true;
     readTraining(token).then(d => { if (!live) return; if (d) { onData(d); setFault(false); } else setFault(true); });
     return () => { live = false; };
   }, [asked]);
+  if (at && at.join) {
+    return <TrainingJoin key={at.join} token={token} code={at.join} onBack={() => { onAt(null); setAsked(n => n + 1); }} t={t} />;
+  }
   if (lesson) {
     return <TrainingLesson key={lesson.id + ":" + lesson.opened} token={token} item={lesson.item} siteId={lesson.item.siteId || shiftSiteId || null} onBack={() => { setLesson(null); setAsked(n => n + 1); }} t={t} />;
   }
@@ -6631,6 +6642,18 @@ function TrainingView({ token, data, onData, shiftSiteId, t }) {
     <div data-training="1" style={{ padding: "14px 16px 100px" }}>
       <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("My training")}</div>
       {fault && <ListFault icon={BookIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />}
+      <div data-training-join="1" style={{ ...fkRowSt(t), marginTop: 8 }}>
+        {!joinOpen && <button type="button" onClick={() => setJoinOpen(true)} style={{ ...wsPlainBtn(t), width: "100%" }}>{tr("Join a session")}</button>}
+        {joinOpen && (
+          <div>
+            <label htmlFor="ocsa-join-code" style={mkLabel(t)}>{tr("Session code")}</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input id="ocsa-join-code" value={joinCode} maxLength={12} autoCapitalize="characters" autoCorrect="off" spellCheck={false} placeholder={tr("The code on your trainer's screen")} onChange={e => setJoinCode(e.target.value.replace(/\s+/g, ""))} style={{ ...mkInput(t), flex: 1, minWidth: 0 }} />
+              <button type="button" data-training-join-go="1" disabled={!JOIN_CODE_RE.test(joinCode.trim())} onClick={() => { onAt({ join: joinCode.trim() }); setJoinOpen(false); setJoinCode(""); }} style={{ ...wsMainBtn(t, !JOIN_CODE_RE.test(joinCode.trim())), flex: "none" }}>{tr("Join")}</button>
+            </div>
+          </div>
+        )}
+      </div>
       {items.length === 0 && <div style={wsQuiet(t)}>{tr("Nothing is required for your role yet.")}</div>}
       {todo.length > 0 && (
         <div>
@@ -6651,6 +6674,129 @@ function TrainingView({ token, data, onData, shiftSiteId, t }) {
               <div style={lineSt}>{[trainingDay(r.completedDate), r.siteName, TRAINING_GIVEN_IN[r.locale] ? TRAINING_GIVEN_IN[r.locale]() : ""].filter(Boolean).join(", ")}</div>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Join a training session (Step 264, the Step 262 contract's section 2):
+// a trainer's session shows a QR and a code; each attendee opens
+// /join/<code>, or types the code under My training, reads the session's
+// title, day, site, trainer and topics, ticks that they understood it
+// and signs on their own phone (OCSA-HR-016 5.3). The trainer closes the
+// session, and the records are written then. A closed or unknown code
+// reads "This session is not open."
+// ------------------------------------------------------------
+const JOIN_CODE_RE = /^[A-Za-z0-9_-]{6,12}$/;
+function trainingSessionOf(d) {
+  const s = d && typeof d === "object" && d.session && typeof d.session === "object" ? d.session : null;
+  if (!s) return null;
+  const str = (k) => (typeof s[k] === "string" ? s[k].trim() : "");
+  const topics = (Array.isArray(s.topics) ? s.topics : []).map(x => (x && typeof x === "object" && typeof x.name === "string" && x.name.trim() ? { id: trainingId(x, ["id"]), name: x.name.trim(), docCode: typeof x.docCode === "string" ? x.docCode.trim() : "", docSection: typeof x.docSection === "string" ? x.docSection.trim() : "" } : null)).filter(Boolean);
+  return { id: trainingId(s, ["id"]), title: str("title"), day: str("day"), siteName: str("siteName"), trainerName: str("trainerName"), locale: str("locale"), topics: topics, alreadySigned: s.alreadySigned === true };
+}
+// A code the session routes say is not open: unknown, closed or cancelled.
+const joinNotOpen = (err) => !!err && (err.status === 404 || err.code === "training.sessionNotFound" || err.code === "training.sessionClosed");
+
+function TrainingJoin({ token, code, onBack, t }) {
+  // loading, notOpen, fault, open, signed
+  const [state, setState] = useState({ kind: "loading" });
+  const [asked, setAsked] = useState(0);
+  const [understood, setUnderstood] = useState(false);
+  const [strokes, setStrokes] = useState([]);
+  const [png, setPng] = useState(null);
+  const [fault, setFault] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  useBusy("training join", busy || strokes.length > 0);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [state.kind]);
+  useEffect(() => {
+    let on = true;
+    setState({ kind: "loading" }); setFault(null);
+    (async () => {
+      try {
+        const s = trainingSessionOf(await api("/api/training/join/" + encodeURIComponent(code), { token }));
+        if (!s) throw new Error(ERR_GENERIC);
+        if (on) setState(s.alreadySigned ? { kind: "signed", session: s, already: true } : { kind: "open", session: s });
+      } catch (err) {
+        if (!on) return;
+        if (joinNotOpen(err)) setState({ kind: "notOpen" });
+        else setState({ kind: "fault", said: fkFaultWords(err, "This session did not open. Try again.") });
+      }
+    })();
+    return () => { on = false; };
+  }, [code, asked]);
+  const send = async () => {
+    if (busy || state.kind !== "open") return;
+    if (!understood) { setFault(tr("Tick I understood this training first.")); return; }
+    if (!png) { setFault(tr("Sign before you send.")); return; }
+    setBusy(true); setFault(null);
+    try {
+      await api("/api/training/join/" + encodeURIComponent(code), { method: "POST", body: { understood: true, signature: png }, token });
+      if (live.current) setState({ kind: "signed", session: state.session, already: false });
+    } catch (err) {
+      if (!live.current) return;
+      if (err && err.code === "training.alreadySigned") setState({ kind: "signed", session: state.session, already: true });
+      else if (joinNotOpen(err)) setState({ kind: "notOpen" });
+      else setFault(fkFaultWords(err, "This was not sent. Try again."));
+    } finally { if (live.current) setBusy(false); }
+  };
+  const back = <WsBack label={tr("My training")} onBack={onBack} t={t} />;
+  const titleSt = { fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 13, color: t.textSec, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" };
+  const s = state.session || null;
+  const about = s && (
+    <div>
+      <div role="heading" aria-level={1} style={titleSt}>{s.title || tr("Training session")}</div>
+      <div style={lineSt}>{[s.day ? trainingDay(s.day) : "", s.siteName].filter(Boolean).join(", ")}</div>
+      {s.trainerName && <div style={lineSt}>{tr("Trainer: {name}", { name: s.trainerName })}</div>}
+      {s.topics.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={fkHeadSt(t)}>{tr("Topics")}</div>
+          {s.topics.map(x => (
+            <div key={x.id || x.name} data-join-topic={x.id} style={{ ...fkRowSt(t), minHeight: TAP }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{x.name}</div>
+              {(x.docCode || x.docSection) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{[x.docCode, x.docSection].filter(Boolean).join(" ")}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+  return (
+    <div data-join={state.kind} style={{ padding: "16px 16px 100px" }}>
+      {back}
+      {state.kind === "loading" && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {state.kind === "notOpen" && <div><div role="alert" style={{ ...titleSt, color: wsLateInk(t) }}>{tr("This session is not open.")}</div><div style={lineSt}>{tr("Ask your trainer for the code on their screen.")}</div></div>}
+      {state.kind === "fault" && <div><WsFault text={state.said} t={t} /><div style={{ display: "flex", gap: 8, marginTop: 12 }}><button type="button" onClick={() => setAsked(n => n + 1)} style={wsMainBtn(t, false)}>{tr("Try again")}</button></div></div>}
+      {state.kind === "signed" && (
+        <div>
+          {about}
+          <div role="status" style={{ ...titleSt, marginTop: 16, color: ink(t, GREEN) }}>{state.already ? tr("You already signed in to this session.") : tr("You are signed in. Your trainer closes the session.")}</div>
+        </div>
+      )}
+      {state.kind === "open" && (
+        <div>
+          {about}
+          <button type="button" role="checkbox" aria-checked={understood} data-join-understood={understood ? "1" : "0"} disabled={busy} onClick={() => { setUnderstood(v => !v); setFault(null); }} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, marginTop: 16, padding: "0 2px", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: t.text, lineHeight: 1.4, textAlign: "left", fontFamily: FONT_BODY }}>
+            <span aria-hidden="true" style={{ width: 22, height: 22, flexShrink: 0, borderRadius: R.sm, border: "2px solid " + (understood ? GOLD : t.textMut), background: understood ? GOLD : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{understood && <CheckIco sz={13} c={NAVY} />}</span>
+            <span style={{ minWidth: 0, fontWeight: 600 }}>{tr("I understood this training")}</span>
+          </button>
+          <div data-join-signature="1" style={{ marginTop: 12 }}>
+            <div style={mkLabel(t)}>{tr("Your signature")}</div>
+            <div style={{ borderRadius: R.md, border: fault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+              <SignatureBox strokes={strokes} onStroke={(stroke, size) => { const all = strokes.concat([stroke]); setStrokes(all); setPng(signaturePng(all, size.w, size.h)); setFault(null); }} height={SIGN_BOX_HEIGHT} />
+            </div>
+            <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+            <button type="button" onClick={() => { setStrokes([]); setPng(null); }} disabled={strokes.length === 0 || busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+          </div>
+          {fault && <WsFault text={fault} t={t} />}
+          <div style={{ display: "flex", marginTop: 12 }}>
+            <button type="button" data-join-send="1" disabled={busy} onClick={send} style={wsMainBtn(t, busy)}>{busy ? tr("Sending...") : tr("Sign in to this session")}</button>
+          </div>
         </div>
       )}
     </div>
@@ -7276,6 +7422,8 @@ const NOTIF_TAB = {
   training_expiring: "training",
   training_reteach: "training",
   training_signoff: "fieldkit",
+  // A session's /join/<code> (Step 264): My training, on the join screen.
+  training_join: "training",
   chat: "chat",
   chat_mention: "chat",
   announcement: "announcement",
@@ -7293,6 +7441,7 @@ function notifPlace(subjectType, subjectId) {
   if (subjectType === "client_request") return { tab: tab, request: id };
   if (subjectType === "inspection_finding") return { tab: tab, finding: id };
   if (subjectType === "training_signoff") return { tab: tab, signoff: true };
+  if (subjectType === "training_join") return id ? { tab: tab, join: id } : null;
   return { tab: tab };
 }
 const NOTIF_PAGE = 30;
