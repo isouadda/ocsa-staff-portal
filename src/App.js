@@ -7156,7 +7156,10 @@ const FORM_VALUE_MAX = 4000;
 const FORMS_LEAVE_LINE = "Leave this report? Your saved answers stay, and you can continue from Forms or Help.";
 // The customer's page, opened from a QR code with no sign-in. The public
 // side takes fewer photos than a staff form does, and smaller ones.
-const CUSTOMER_THANKS = "Thank you. OCSA has your form.";
+// The company is the one the page's answer names (Step 252), as every
+// other public line names it; a page answered with no name says We.
+const CUSTOMER_THANKS = "Thank you. {company} has your form.";
+const CUSTOMER_THANKS_PLAIN = "Thank you. We have your form.";
 const CUSTOMER_MAX_PHOTOS = 3;
 const CUSTOMER_NAME_MAX = 120;
 // A customer's form that asks the person's name and role itself, so the
@@ -7622,7 +7625,7 @@ function CustomerFormScreen({ token, t, themeMode }) {
   // /api/public/forms/:token/photos, before the filing names them by id.
   // Any other answer keeps the photos on the phone and sends them inside
   // the filing, as the page always has.
-  return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, asks: customerFieldsOf(got.data, form), photoRoute: got.data.photoRoute === true, title: title, head: head, thanksHead: headOf(false) }} />;
+  return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, asks: customerFieldsOf(got.data, form), photoRoute: got.data.photoRoute === true, title: title, head: head, thanksHead: headOf(false), company: typeof company.name === "string" ? company.name.trim() : "" }} />;
 }
 
 // ------------------------------------------------------------
@@ -9546,7 +9549,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
         {customer.thanksHead}
         {customer.title && <div role="heading" aria-level={1} style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere", marginBottom: 12 }}>{customer.title}</div>}
         <div role="status" style={{ background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 18 }}>
-          <div style={{ fontSize: 15, color: t.text, lineHeight: 1.55, fontFamily: FONT_HEAD, fontWeight: 600, overflowWrap: "anywhere" }}>{receipt && receipt.ref ? tr(CUSTOMER_REF_THANKS, { ref: receipt.ref }) : tr(CUSTOMER_THANKS)}</div>
+          <div style={{ fontSize: 15, color: t.text, lineHeight: 1.55, fontFamily: FONT_HEAD, fontWeight: 600, overflowWrap: "anywhere" }}>{receipt && receipt.ref ? tr(CUSTOMER_REF_THANKS, { ref: receipt.ref }) : customer.company ? tr(CUSTOMER_THANKS, { company: customer.company }) : tr(CUSTOMER_THANKS_PLAIN)}</div>
           {receipt && receipt.ref && <div style={{ fontSize: 14, color: t.textSec, lineHeight: 1.55, marginTop: 8 }}>{tr(CUSTOMER_REPLY_LINE)}</div>}
           {receipt && receipt.ref && receipt.emailed && <div style={{ fontSize: 14, color: t.textSec, lineHeight: 1.55, marginTop: 8 }}>{tr(CUSTOMER_COPY_LINE)}</div>}
           {receipt && receipt.who && <div style={{ fontSize: 13, color: t.textMut, lineHeight: 1.55, marginTop: 8, overflowWrap: "anywhere" }}>{tr("Sent by {who}.", { who: receipt.who })}</div>}

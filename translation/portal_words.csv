@@ -596,7 +596,8 @@ This question is full.,Esta pregunta está llena.,Cette question a atteint sa li
 This report was already sent.,Este reporte ya se había enviado.,Ce rapport a déjà été envoyé.,Forms
 Name,Nombre,Nom,Customer form
 Role,Puesto,Fonction,Customer form
-Thank you. OCSA has your form.,Gracias. OCSA recibió su formulario.,Merci. OCSA a bien reçu votre formulaire.,Customer form
+Thank you. {company} has your form.,Gracias. {company} recibió su formulario.,Merci. {company} a bien reçu votre formulaire.,"Customer form, the thank-you, with the company the page's answer names"
+Thank you. We have your form.,Gracias. Recibimos su formulario.,Merci. Nous avons bien reçu votre formulaire.,"Customer form, the thank-you when the page's answer names no company"
 Your name,Su nombre,Votre nom,Customer form
 Your role,Su puesto,Votre fonction,Customer form
 This table is full.,Esta tabla está llena.,Ce tableau est plein.,Forms
