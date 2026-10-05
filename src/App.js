@@ -1646,6 +1646,10 @@ export default function OCSAStaffPortal() {
   const [sessionSitesFailed, setSessionSitesFailed] = useState(false);
   const [assignedFailed, setAssignedFailed] = useState(false);
   const [issuesFailed, setIssuesFailed] = useState(false);
+  // Client requests (Step 252): what GET /api/issues/requests answers this
+  // person, null until it does, and the one a notice asked to open.
+  const [clientRequests, setClientRequests] = useState(null);
+  const [requestOpen, setRequestOpen] = useState(null);
   const [suppliesFailed, setSuppliesFailed] = useState(false);
   // True once a supplies list has come back, so a site with none can say
   // so without the line showing while the list is still on its way.
@@ -2245,6 +2249,11 @@ export default function OCSAStaffPortal() {
     }
     setShiftBusy(false);
   };
+  // Read once the portal is up, again when Report opens or the app comes
+  // back to the front, and after every action on one. An answer that is
+  // not a list, or no answer, leaves what was shown; nothing shows until
+  // the route has answered once.
+  const loadClientRequests = async (tok) => { const use = tok || token; if (!use) return; try { const d = await api("/api/issues/requests", { token: use }); const rows = clientRequestsOf(d); if (rows) setClientRequests(rows); } catch (err) { if (err && err.status === 404) setClientRequests(null); } };
   const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); setIssuesFailed(false); } catch (err) { console.error(err); setIssuesFailed(true); } };
   const resolveAssignedTask = async (taskId, status, note, photoUrl) => { try { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast(tr("Task updated to {status}", { status: taskStatusWord(status) })); loadAssignedTasks(); } catch (err) { showToast(tr(err.message), "error"); } };
   const submitIssue = async (title, description, zone, severity, photoUrl, siteId) => { const actualSiteId = siteId || clockStatus?.shift?.siteId; if (!actualSiteId) { showToast(tr("Select a site first"), "error"); return; } try { const data = await api("/api/issues", { method: "POST", body: { siteId: actualSiteId, title, description, zone, severity }, token }); if (photoUrl && data.issue) { await api("/api/issues/" + data.issue.id + "/photos", { method: "POST", body: { photoUrl }, token }); } showToast(tr("Issue reported")); loadIssues(); } catch (err) { showToast(tr(err.message), "error"); } };
@@ -2283,7 +2292,7 @@ export default function OCSAStaffPortal() {
   // answer is drawn once, matched by its id or by that clientId.
   const sendMessage = async (channelId, text, mentions, clientId) => { const body = { text }; if (Array.isArray(mentions) && mentions.length > 0) body.mentions = mentions; if (clientId) body.clientId = clientId; const data = await api(chatPath("/api/chat/channels/" + channelId + "/messages"), { method: "POST", body: body, token }); const msg = data && data.message && typeof data.message === "object" ? data.message : null; if (!msg) { await readMessages(channelId).catch(e => console.error(e)); } else if (activeChannelRef.current === channelId) setMessages(prev => (prev.some(m => (msg.id && m.id === msg.id) || isClientSend(m, msg.senderId, msg.clientId)) ? prev : [...prev, msg])); loadChannels(); };
 
-  useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "issues") loadIssues(); if (activeTab === "issuetasks") loadAssignedTasks(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId]);
+  useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "issues") { loadIssues(); loadClientRequests(); } if (activeTab === "issuetasks") loadAssignedTasks(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId]);
   // The task list is fetched as soon as a session is seen open, whichever
   // tab the person is standing on, so the Home card has its bar at boot.
   // Once per request: opening Tasks afterwards fires nothing new, and a
@@ -2329,6 +2338,7 @@ export default function OCSAStaffPortal() {
     if (!place) return;
     if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
     setActiveTab(place.tab); setShowMore(false);
+    if (place.tab === "issues") { setRequestOpen(place.request || null); loadClientRequests(); }
     if (place.tab === "chat" && place.chat) { if (activeChannelRef.current === place.chat) loadMessages(place.chat); else chooseChat(place.chat); }
   };
   // Where a tap on a phone alert asked the app to open: the address it
@@ -2370,13 +2380,15 @@ export default function OCSAStaffPortal() {
   // The list of chats is read once the portal is up, so the Chat tab's
   // count is on the bar before Chat is ever opened, and again each time
   // the app comes back to the front, with the clock status below.
-  useEffect(() => { if (token && screen === "main") loadChannels(); }, [token, screen]);
+  useEffect(() => { if (token && screen === "main") { loadChannels(); loadClientRequests(); } }, [token, screen]);
+  // The request a notice opened stays marked while Report is open.
+  useEffect(() => { if (activeTab !== "issues" && requestOpen) setRequestOpen(null); }, [activeTab]);
   // An admin can end a session from the dashboard, and a second device
   // can end it too. Re-read clock status when the app comes back into
   // view. One listener, no interval.
   useEffect(() => {
     if (!token || screen !== "main") return;
-    const h = () => { if (document.visibilityState !== "visible") return; refreshClockStatus().catch(e => console.warn("Clock status:", e.message)); loadChannels(); };
+    const h = () => { if (document.visibilityState !== "visible") return; refreshClockStatus().catch(e => console.warn("Clock status:", e.message)); loadChannels(); loadClientRequests(); };
     document.addEventListener("visibilitychange", h);
     return () => document.removeEventListener("visibilitychange", h);
   }, [token, screen, refreshClockStatus]);
@@ -2544,6 +2556,7 @@ export default function OCSAStaffPortal() {
     setToken(null); setUser(null); setSites([]); setScreen("login"); setLoginFault(null);
     setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null);
     setSessionSitesFailed(false); setAssignedFailed(false); setIssuesFailed(false); setSuppliesFailed(false); setSuppliesLoaded(false);
+    setClientRequests(null); setRequestOpen(null);
     setShiftAsk(null); setShiftBusy(false); setShiftFault(null); setTickOverrides(new Map()); setRowNote(null);
     // A checklist read still on its way is dropped, so it cannot keep the
     // list again after this.
@@ -2740,13 +2753,13 @@ export default function OCSAStaffPortal() {
 
           <div style={{ padding: "0 0 var(--ocsa-bar, 76px) 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
-              {activeTab === "clock" && <div><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
+              {activeTab === "clock" && <div><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
-              {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} />}
+              {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
@@ -5897,7 +5910,299 @@ function AssignedTasksView({ assignedTasks, failed, onRetry, resolveTask, showTo
   );
 }
 
-function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToast, user, sites, t, token, getOpts, lkColorMap }) {
+// ------------------------------------------------------------
+// Client requests (Step 252): what someone in the building asked for
+// through the request QR, as GET /api/issues/requests answers it to the
+// person signed in. The section sits at the top of the Report tab (Issues
+// for admins), and shows only once the route has answered and only when
+// it holds something for this person: a request waiting for their
+// approval, or one assigned to them and not done. Home shows one card
+// with the count. A request is one shape everywhere, the API's view, and
+// every button appears only where the view's own can* flag is true.
+// ------------------------------------------------------------
+const REQUEST_DONE_STATES = ["resolved", "closed", "declined"];
+const requestPersonOf = (p) => (p && typeof p === "object" ? { id: agentField(p, ["id"], null), name: typeof p.name === "string" ? p.name.trim() : "" } : null);
+function clientRequestOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = agentField(x, ["id"], null);
+  if (id === null) return null;
+  const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
+  return {
+    id: String(id), reference: str("reference"), siteName: str("siteName"), area: str("area"), category: str("category"), categoryTitle: str("categoryTitle") || str("category"),
+    note: str("note"), status: str("status"), reportedAt: x.reportedAt || null, reportsCount: Number(x.reportsCount) > 1 ? Number(x.reportsCount) : 1,
+    respondBy: x.respondBy || null, respondState: str("respondState"), dueAt: x.dueAt || null, dueState: str("dueState"),
+    assignedTo: requestPersonOf(x.assignedTo),
+    photos: (Array.isArray(x.photos) ? x.photos : []).map(p => (p && typeof p === "object" && typeof p.url === "string" && p.url ? { id: String(agentField(p, ["id"], p.url)), url: p.url } : null)).filter(Boolean),
+    canApprove: x.canApprove === true, canDecline: x.canDecline === true, canStart: x.canStart === true, canFinish: x.canFinish === true, canCannot: x.canCannot === true,
+  };
+}
+// The rows the answer holds, or null for an answer that is not a list,
+// which is read as the route not answering yet.
+function clientRequestsOf(d) {
+  const rows = wsRows(d, "requests");
+  return rows ? rows.map(clientRequestOf).filter(Boolean) : null;
+}
+const requestIsMine = (r, user) => !!r.assignedTo && !!user && String(r.assignedTo.id) === String(user.id) && REQUEST_DONE_STATES.indexOf(r.status) === -1;
+// What this person has to do: the requests waiting for their approval,
+// and the ones assigned to them and not done.
+function requestsForMe(rows, user) {
+  const list = Array.isArray(rows) ? rows : [];
+  return { waiting: list.filter(r => r.canApprove), mine: list.filter(r => requestIsMine(r, user) && !r.canApprove) };
+}
+// A time in the reader's language: the time alone today, the day and the
+// time otherwise.
+function requestWhen(iso) {
+  const d = new Date(iso);
+  if (!isFinite(d.getTime())) return "";
+  const today = new Date();
+  const sameDay = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+  return sameDay ? d.toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }) : d.toLocaleString(dateLocale(), { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+// A refusal in the API's own words, else the screen's own line.
+const requestFaultOf = (err, fallback) => fkSaidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : fallback);
+// The 409 the first approver's win leaves the second: who took it.
+const requestDecidedBy = (err) => (err && err.code === "issues.request.alreadyDecided" ? (err.body && err.body.decidedBy && typeof err.body.decidedBy.name === "string" && err.body.decidedBy.name.trim()) || "" : null);
+
+// A time target with its state, in the words the portal uses for due work.
+function RequestTarget({ label, at, state, t }) {
+  if (!at) return null;
+  const late = state === "late";
+  const soon = state === "dueSoon";
+  return (
+    <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6, fontSize: 12, marginTop: 4, color: late ? wsLateInk(t) : t.textSec, fontWeight: late ? 600 : 400, lineHeight: 1.4 }}>
+      <span>{tr(label, { when: requestWhen(at) })}</span>
+      {late && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: R.pill, background: t.redSubtle, border: "1px solid " + t.redBorder, color: wsLateInk(t), fontFamily: FONT_HEAD }}>{tr("Overdue")}</span>}
+      {soon && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: R.pill, background: ORANGE + "20", color: ink(t, ORANGE), fontFamily: FONT_HEAD }}>{tr("Due soon")}</span>}
+    </div>
+  );
+}
+
+// Home's one card: how many client requests need this person.
+function ClientRequestsCard({ rows, user, onOpen, t }) {
+  const mine = requestsForMe(rows, user);
+  const n = mine.waiting.length + mine.mine.length;
+  if (n === 0) return null;
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      <button type="button" data-request-card="home" onClick={onOpen} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, minHeight: TAP, padding: "14px 12px", borderRadius: R.md, background: t.card, border: "1px solid " + t.goldBorder, boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
+        <AlertIco sz={20} c={t.goldText} style={{ flexShrink: 0 }} />
+        <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{n === 1 ? tr("1 client request needs you") : tr("{n} client requests need you", { n: n })}</span>
+        <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0 }} />
+      </button>
+    </div>
+  );
+}
+
+// The section at the top of Report: Waiting for approval, then Yours.
+function ClientRequestsSection({ token, user, rows, onChanged, showToast, openId, t }) {
+  const mine = requestsForMe(rows, user);
+  // The sheet open: { kind: "approve" | "decline" | "done" | "cannot", row }.
+  const [sheet, setSheet] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const rowRefs = useRef({});
+  const scrolledTo = useRef(null);
+  useBusy("client request sheet", !!sheet);
+  // A notice opened on one request: it is brought into view once, and
+  // marked while the person stays on the tab.
+  useEffect(() => {
+    if (!openId || scrolledTo.current === openId) return;
+    const el = rowRefs.current[openId];
+    if (el && el.scrollIntoView) { scrolledTo.current = openId; el.scrollIntoView({ block: "center" }); }
+  }, [openId, rows]);
+  if (mine.waiting.length === 0 && mine.mine.length === 0) return null;
+
+  const act = async (row, path, body, done) => {
+    if (busy) return false;
+    setBusy(row.id);
+    try {
+      await api("/api/issues/" + encodeURIComponent(row.id) + path, { method: "POST", body: body, token });
+      if (done) showToast(done);
+      onChanged();
+      return true;
+    } catch (err) {
+      const who = requestDecidedBy(err);
+      if (who !== null) { showToast(tr("{name} already took care of this.", { name: who || tr("Someone") }), "notice"); onChanged(); return true; }
+      showToast(requestFaultOf(err, "That did not go through. Try again."), "error");
+      return false;
+    } finally { setBusy(null); }
+  };
+  const start = (row) => act(row, "/progress", { action: "start" }, tr("Started."));
+
+  const cardSt = { padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, boxShadow: t.shadow };
+  const btn = (primary) => ({ flex: "1 1 120px", minHeight: TAP, padding: "10px 12px", borderRadius: R.md, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, border: primary ? "none" : "1px solid " + t.borderSolid, background: primary ? "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")" : "transparent", color: primary ? NAVY : t.text, boxShadow: primary ? "0 6px 18px rgba(231,176,23,0.30)" : "none" });
+  const headSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 3, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const ago = (iso) => { const v = notifAgo(iso, Date.now()); return v ? tr("{ago} ago", { ago: v }) : ""; };
+  const head = (r) => (
+    <>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <div style={{ ...headSt, flex: 1 }}>{r.categoryTitle}{r.reportsCount > 1 ? " (" + r.reportsCount + ")" : ""}</div>
+        {r.reportedAt && <div style={{ fontSize: 10, color: t.textMut, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums", flexShrink: 0, marginTop: 2 }}>{ago(r.reportedAt)}</div>}
+      </div>
+      <div style={lineSt}>{[r.area, r.siteName].filter(Boolean).join(" · ")}</div>
+    </>
+  );
+  const rowSt = (r) => ({ ...cardSt, borderLeft: "3px solid " + (openId === r.id ? GOLD : t.borderSolid) });
+
+  return (
+    <div data-request-section="client" style={{ marginBottom: 18 }}>
+      <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>{tr("Client requests")}</div>
+      {mine.waiting.length > 0 && <div style={{ ...mkLabel(t), marginBottom: 8 }}>{tr("Waiting for approval")}</div>}
+      {mine.waiting.map(r => (
+        <div key={r.id} ref={el => { rowRefs.current[r.id] = el; }} data-request-row={r.id} style={rowSt(r)}>
+          {head(r)}
+          {r.note && <div style={{ ...lineSt, color: t.text, marginTop: 6, whiteSpace: "pre-line" }}>{r.note}</div>}
+          <RequestTarget label="Respond by {when}" at={r.respondBy} state={r.respondState} t={t} />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+            {r.canApprove && <button type="button" onClick={() => setSheet({ kind: "approve", row: r })} disabled={busy === r.id} style={btn(true)}>{tr("Approve and assign")}</button>}
+            {r.canDecline && <button type="button" onClick={() => setSheet({ kind: "decline", row: r })} disabled={busy === r.id} style={btn(false)}>{tr("Decline")}</button>}
+          </div>
+        </div>
+      ))}
+      {mine.mine.length > 0 && <div style={{ ...mkLabel(t), marginTop: mine.waiting.length > 0 ? 14 : 0, marginBottom: 8 }}>{tr("Yours")}</div>}
+      {mine.mine.map(r => (
+        <div key={r.id} ref={el => { rowRefs.current[r.id] = el; }} data-request-row={r.id} style={rowSt(r)}>
+          {head(r)}
+          {r.note && <div style={{ ...lineSt, color: t.text, marginTop: 6, whiteSpace: "pre-line" }}>{r.note}</div>}
+          {r.photos.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+              {r.photos.map(p => <a key={p.id} href={p.url} target="_blank" rel="noopener noreferrer"><img src={p.url} alt="" style={{ width: 64, height: 64, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt }} /></a>)}
+            </div>
+          )}
+          <RequestTarget label="Respond by {when}" at={r.respondBy} state={r.respondState} t={t} />
+          <RequestTarget label="Due {when}" at={r.dueAt} state={r.dueState} t={t} />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+            {r.canStart && <button type="button" onClick={() => start(r)} disabled={busy === r.id} style={btn(true)}>{tr("I'm on it")}</button>}
+            {r.canFinish && <button type="button" onClick={() => setSheet({ kind: "done", row: r })} disabled={busy === r.id} style={btn(!r.canStart)}>{tr("Done")}</button>}
+            {r.canCannot && <button type="button" onClick={() => setSheet({ kind: "cannot", row: r })} disabled={busy === r.id} style={btn(false)}>{tr("Can't finish")}</button>}
+          </div>
+        </div>
+      ))}
+      {sheet && sheet.kind === "approve" && <RequestApproveSheet token={token} user={user} row={sheet.row} onClose={() => setSheet(null)} onSend={(assignedTo) => act(sheet.row, "/approve", { assignedTo: assignedTo }, tr("Approved and assigned."))} t={t} />}
+      {sheet && sheet.kind === "decline" && <RequestNoteSheet id="ocsa-request-decline" title={tr("Decline this request")} line={tr("This reason is emailed to the person who asked, if they left an email.")} label={tr("Reason")} required={true} button={tr("Decline")} onClose={() => setSheet(null)} onSend={(note) => act(sheet.row, "/decline", { reason: note }, tr("Declined."))} t={t} />}
+      {sheet && sheet.kind === "done" && <RequestNoteSheet id="ocsa-request-done" title={tr("Mark this request done")} label={tr("Note")} required={false} button={tr("Done")} photos={true} token={token} row={sheet.row} onClose={() => setSheet(null)} onSend={(note) => act(sheet.row, "/progress", Object.assign({ action: "done" }, note ? { note: note } : {}), tr("Done. The person who asked is told if they left an email."))} t={t} />}
+      {sheet && sheet.kind === "cannot" && <RequestNoteSheet id="ocsa-request-cannot" title={tr("Can't finish this request")} line={tr("Say what is in the way. Your supervisors are told.")} label={tr("Note")} required={true} button={tr("Can't finish")} onClose={() => setSheet(null)} onSend={(note) => act(sheet.row, "/progress", { action: "cannot", note: note }, tr("Your supervisors have been told."))} t={t} />}
+    </div>
+  );
+}
+
+// Approve and assign: who the request goes to, from the assignees the
+// single read answers, on shift first and marked, the approver themself
+// labeled Me.
+function RequestApproveSheet({ token, user, row, onClose, onSend, t }) {
+  const [list, setList] = useState(null);
+  const [asked, setAsked] = useState(0);
+  const [picked, setPicked] = useState(null);
+  const [sending, setSending] = useState(false);
+  useEffect(() => {
+    let live = true;
+    setList(null);
+    (async () => {
+      try {
+        const d = await api("/api/issues/requests/" + encodeURIComponent(row.id), { token });
+        const rows = (wsRows(d, "assignees") || []).map(a => (a && typeof a === "object" && agentField(a, ["id"], null) !== null ? { id: String(agentField(a, ["id"], "")), name: typeof a.name === "string" ? a.name.trim() : "", role: typeof a.role === "string" ? a.role : "", onShift: a.onShift === true } : null)).filter(Boolean);
+        if (live) setList({ state: "ok", rows: rows });
+      } catch (err) {
+        if (live) setList({ state: "failed", said: requestFaultOf(err, "This list did not load.") });
+      }
+    })();
+    return () => { live = false; };
+  }, [row.id, asked]);
+  const send = async () => {
+    if (!picked || sending) return;
+    setSending(true);
+    const ok = await onSend(picked);
+    setSending(false);
+    if (ok) onClose();
+  };
+  const rowSt = (on) => ({ width: "100%", minHeight: TAP, marginBottom: 8, padding: "10px 12px", borderRadius: R.md, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: on ? t.goldBg : t.card, border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text });
+  const chip = (text, color) => <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: R.pill, background: color + "20", color: ink(t, color), fontFamily: FONT_HEAD, flexShrink: 0 }}>{text}</span>;
+  const footer = (
+    <>
+      <button type="button" onClick={onClose} style={{ flex: 1, minHeight: TAP, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button>
+      <button type="button" onClick={send} disabled={!picked || sending} style={{ ...mkPrimaryBtn(t, !picked || sending), flex: 1, width: "auto", minHeight: TAP, padding: "10px 12px", fontSize: 14 }}>{tr("Assign")}</button>
+    </>
+  );
+  return (
+    <WsSheet id="ocsa-request-approve" title={tr("Approve and assign")} onClose={onClose} footer={footer} t={t}>
+      <div style={{ fontSize: 13, color: t.textSec, marginBottom: 12, lineHeight: 1.45, overflowWrap: "anywhere" }}>{[row.categoryTitle, row.area, row.siteName].filter(Boolean).join(" · ")}</div>
+      {!list && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {list && list.state === "failed" && <div style={{ marginBottom: 12 }}><ListFault icon={PersonIco} text={list.said} onRetry={() => setAsked(n => n + 1)} t={t} /></div>}
+      {list && list.state === "ok" && list.rows.length === 0 && <div style={wsQuiet(t)}>{tr("No one can be assigned at this site.")}</div>}
+      {list && list.state === "ok" && list.rows.map(a => { const on = picked === a.id; const me = user && String(user.id) === a.id; return (
+        <button key={a.id} type="button" data-request-assignee={a.id} onClick={() => setPicked(a.id)} aria-pressed={on} style={rowSt(on)}>
+          <span style={{ width: 16, height: 16, flexShrink: 0, borderRadius: "50%", background: on ? GOLD : "transparent", border: on ? "none" : "2px solid " + t.borderSolid }} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{a.name}{me ? " (" + tr("Me") + ")" : ""}</span>
+            {a.role && <span style={{ display: "block", fontSize: 11, color: t.textMut, marginTop: 2 }}>{roleWord(a.role)}</span>}
+          </span>
+          {a.onShift && chip(tr("On shift"), GREEN)}
+        </button>
+      ); })}
+    </WsSheet>
+  );
+}
+
+// A note, required or not, with the line above it the sheet says, and,
+// for Done, photos sent through the issue's own photo route before the
+// action goes.
+function RequestNoteSheet({ id, title, line, label, required, button, photos, token, row, onClose, onSend, t }) {
+  const [note, setNote] = useState("");
+  const [fault, setFault] = useState(null);
+  const [files, setFiles] = useState([]);
+  const [sending, setSending] = useState(false);
+  const input = useRef(null);
+  const choose = async (picked) => {
+    const list = Array.from(picked || []).filter(Boolean);
+    for (let i = 0; i < list.length; i++) {
+      try { const f = await prepareFormPhoto(list[i]); setFiles(prev => prev.concat([{ id: "d-" + Date.now() + "-" + i, name: list[i].name, file: f, data: URL.createObjectURL(f) }])); }
+      catch (e) { setFault(tr(FORMS_PHOTO_UNREADABLE)); }
+    }
+  };
+  const send = async () => {
+    if (sending) return;
+    const text = note.trim();
+    if (required && !text) { setFault(tr("Write a note first.")); return; }
+    setSending(true); setFault(null);
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const url = await uploadPhoto(files[i].file, token);
+        await api("/api/issues/" + encodeURIComponent(row.id) + "/photos", { method: "POST", body: { photoUrl: url }, token });
+      }
+    } catch (err) {
+      setFault(requestFaultOf(err, "The photo did not upload. Try again, or send without it."));
+      setSending(false);
+      return;
+    }
+    const ok = await onSend(text);
+    setSending(false);
+    if (ok) onClose();
+  };
+  const footer = (
+    <>
+      <button type="button" onClick={onClose} style={{ flex: 1, minHeight: TAP, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button>
+      <button type="button" onClick={send} disabled={sending} style={{ ...mkPrimaryBtn(t, sending), flex: 1, width: "auto", minHeight: TAP, padding: "10px 12px", fontSize: 14 }}>{sending ? tr("Sending") : button}</button>
+    </>
+  );
+  return (
+    <WsSheet id={id} title={title} onClose={onClose} footer={footer} t={t}>
+      {line && <div style={{ fontSize: 13, color: t.textSec, marginBottom: 12, lineHeight: 1.45 }}>{line}</div>}
+      <label htmlFor={id + "-note"} style={mkLabel(t)}>{label}{!required && <span style={{ marginLeft: 6, textTransform: "none", letterSpacing: 0, color: t.textMut }}>{tr("Optional")}</span>}</label>
+      <textarea id={id + "-note"} rows={4} maxLength={500} value={note} onChange={e => { setNote(e.target.value); setFault(null); }} style={{ ...mkInput(t), minHeight: 96, resize: "vertical", lineHeight: 1.5 }} />
+      {photos && (
+        <div style={{ marginTop: 12 }}>
+          <div style={mkLabel(t)}>{tr("Photos")}<span style={{ marginLeft: 6, textTransform: "none", letterSpacing: 0, color: t.textMut }}>{tr("Optional")}</span></div>
+          {files.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>{files.map(f => <img key={f.id} src={f.data} alt="" style={{ width: 64, height: 64, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} />)}</div>}
+          <input ref={input} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { choose(e.target.files); e.target.value = ""; }} />
+          <button type="button" onClick={() => input.current && input.current.click()} style={{ width: "100%", minHeight: TAP, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, textAlign: "left", borderRadius: R.md, border: "1px dashed " + GOLD, background: t.hover, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}><CamIco sz={18} c={t.goldText} /><span>{tr("Take photo or choose from gallery")}</span></button>
+        </div>
+      )}
+      {fault && <WsFault text={fault} t={t} />}
+    </WsSheet>
+  );
+}
+
+function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToast, user, sites, t, token, getOpts, lkColorMap, requests, onRequestsChanged, openRequest }) {
   const [showForm, setShowForm] = useState(false); const [title, setTitle] = useState(""); const [desc, setDesc] = useState("");
   const [sev, setSev] = useState("medium"); const [zone, setZone] = useState(""); const [selSite, setSelSite] = useState("");
   const [photo, setPhoto] = useState(null); const [photoPreview, setPhotoPreview] = useState(null); const [uploading, setUploading] = useState(false);
@@ -5915,6 +6220,7 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToa
   const handleSubmit = async () => { if (!title.trim()) { showToast(tr("Enter issue title"), "error"); return; } const siteId = clockStatus?.clockedIn ? clockStatus.shift.siteId : selSite; if (!siteId) { showToast(tr("Select a site"), "error"); return; } setUploading(true); try { let photoUrl = null; if (photo) { photoUrl = await uploadPhoto(photo, token); } await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl, siteId); setTitle(""); setDesc(""); setZone(""); setSev("medium"); setPhoto(null); setPhotoPreview(null); setShowForm(false); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
   return (
     <div style={{ padding: "16px" }}>
+      <ClientRequestsSection token={token} user={user} rows={requests} onChanged={onRequestsChanged} showToast={showToast} openId={openRequest} t={t} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{isAdmin ? tr("Issues") : tr("Report an Issue")}</div>{isAdmin && <button onClick={() => setShowForm(!showForm)} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "7px 13px", borderRadius: R.sm, border: showForm ? "1px solid " + t.borderSolid : "none", background: showForm ? t.cardAlt : GOLD, color: showForm ? t.text : NAVY, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{showForm ? tr("Cancel") : tr("+ Report")}</span></button>}</div>
       {(showForm || !isAdmin) && (<div style={{ padding: 14, marginBottom: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, animation: "fadeIn 0.3s ease", boxShadow: t.popShadow }}>
         {!clockStatus?.clockedIn && sites && sites.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Site")}</label><select value={selSite} onChange={e => setSelSite(e.target.value)} style={inputSt}><option value="">{tr("Select site...")}</option>{sites.map(s => <option key={s.siteId} value={s.siteId}>{s.siteName}</option>)}</select></div>)}
@@ -6321,6 +6627,8 @@ const NOTIF_TAB = {
   shift_claim: "pickup",
   issue: "issues",
   issue_escalated: "issues",
+  // A client request (Step 252): Report, with that request in view.
+  client_request: "issues",
   chat: "chat",
   chat_mention: "chat",
   announcement: "announcement",
@@ -6335,6 +6643,7 @@ function notifPlace(subjectType, subjectId) {
   const id = subjectId === null || subjectId === undefined ? null : String(subjectId);
   if (tab === "chat") return { tab: "chat", chat: id };
   if (tab === "announcement") return id ? { announcement: id } : null;
+  if (subjectType === "client_request") return { tab: tab, request: id };
   return { tab: tab };
 }
 const NOTIF_PAGE = 30;
