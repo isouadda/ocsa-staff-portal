@@ -2849,7 +2849,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "sds" && <div style={{ padding: 16 }}><SdsBrowser initial={sdsList} onList={setSdsList} code={sdsCode} onCode={setSdsCode} t={t} /></div>}
               {activeTab === "workspace" && destCtx.workspace && <WorkspaceView token={token} user={user} projects={wsProjects} onProjects={setWsProjects} at={wsAt} onAt={setWsAt} channels={channels} onOpenChat={(id) => { chooseChat(id); setActiveTab("chat"); setShowMore(false); }} showToast={showToast} t={t} />}
               {activeTab === "training" && destCtx.training && <TrainingView token={token} data={training} onData={setTraining} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} t={t} />}
-              {activeTab === "fieldkit" && destCtx.isAdmin && <FieldKitView token={token} at={fieldKitAt} onAt={setFieldKitAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} assignedSites={sites} onOpenEquipment={(code) => { setEquipmentShown(code); setEquipmentBack("fieldkit"); setActiveTab("equipment"); }} showToast={showToast} t={t} />}
+              {activeTab === "fieldkit" && destCtx.isAdmin && <FieldKitView token={token} user={user} at={fieldKitAt} onAt={setFieldKitAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} assignedSites={sites} onOpenEquipment={(code) => { setEquipmentShown(code); setEquipmentBack("fieldkit"); setActiveTab("equipment"); }} showToast={showToast} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
               {activeTab === "phonealerts" && <PhoneAlertsView token={token} t={t} onBack={() => setActiveTab("settings")} />}
@@ -11334,6 +11334,8 @@ const FK_TILES = [
   { id: "periodic", title: "Periodic work", line: "What is overdue, due and done at this site.", icon: CalIco },
   { id: "equipment", title: "Equipment", line: "Each item's status and next service.", icon: WrkIco },
   { id: "review", title: "Awaiting review", line: "Inspections waiting for a review signature.", icon: ClipIco },
+  // Step 261: the lessons passed and signed that wait for a trainer.
+  { id: "signoff", title: "Sign off training", line: "Lessons passed and signed, waiting for your sign-off after a demonstration.", icon: BookIco },
 ];
 const fkText = (o, keys) => { const v = agentField(o, keys, ""); return typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : ""; };
 function fkSiteOf(x) {
@@ -11353,7 +11355,7 @@ function fkSiteFor(list, chosen, shiftSiteId, assigned) {
   return list.length > 0 ? list[0].id : null;
 }
 
-function FieldKitView({ token, at, onAt, shiftSiteId, assignedSites, onOpenEquipment, showToast, t }) {
+function FieldKitView({ token, user, at, onAt, shiftSiteId, assignedSites, onOpenEquipment, showToast, t }) {
   const [sites, setSites] = useState(null);
   const [asked, setAsked] = useState(0);
   useEffect(() => {
@@ -11394,6 +11396,7 @@ function FieldKitView({ token, at, onAt, shiftSiteId, assignedSites, onOpenEquip
         {tile.id === "periodic" && <FkPeriodic key={site.id} token={token} site={site} t={t} />}
         {tile.id === "equipment" && <FkEquipment key={site.id} token={token} site={site} onOpen={onOpenEquipment} t={t} />}
         {tile.id === "review" && <FkReview key={site.id} token={token} site={site} onOpen={(id) => onAt({ siteId: site.id, tile: "review", inspection: id })} t={t} />}
+        {tile.id === "signoff" && <FkSignoff key={site.id} token={token} site={site} user={user} showToast={showToast} t={t} />}
       </div>
     );
   }
@@ -11960,6 +11963,116 @@ function FkInspection({ token, id, onBack, showToast, t }) {
           </div>
           <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
           <button type="button" onClick={() => setSigning(s => (s ? { ...s, strokes: [], png: null } : s))} disabled={signing.strokes.length === 0 || signing.busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: signing.strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+          {signing.fault && <WsFault text={signing.fault} t={t} />}
+        </WsSheet>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Sign off training (Step 261): the lessons passed and signed at this
+// site that wait for a trainer, from GET /api/training/awaiting. A
+// safety topic counts only once a trainer has watched the person do it
+// (OCSA-HR-016 5.5), so the sign-off asks for that tick, a note, and the
+// trainer's own signature, and posts them as one sign-off; the API
+// writes the record. A trainer never sees their own attempt here,
+// whatever the route answers, and the API refuses one in its own words.
+// ------------------------------------------------------------
+const SIGNOFF_NOTE_MAX = 1000;
+function trainingAwaitingOf(x) {
+  const a = trainingAttemptOf(x);
+  if (!a) return null;
+  const p = x.person && typeof x.person === "object" ? x.person : null;
+  return { ...a, personId: p ? trainingId(p, ["id"]) : "", personName: p && typeof p.name === "string" ? p.name.trim() : "" };
+}
+// The list as the route answers it, less the caller's own; null when the
+// route does not answer a list.
+async function readTrainingAwaiting(token, siteId, userId) {
+  try {
+    const list = wsRows(await api("/api/training/awaiting" + (siteId ? "?siteId=" + encodeURIComponent(siteId) : ""), { token }), "attempts");
+    if (!list) return null;
+    const me = userId ? String(userId) : "";
+    return list.map(trainingAwaitingOf).filter(a => a && a.personId !== me);
+  } catch (e) { return null; }
+}
+const SIGNOFF_BLANK = (row) => ({ row: row, strokes: [], png: null, watched: false, note: "", busy: false, fault: null });
+
+function FkSignoff({ token, site, user, showToast, t }) {
+  const [rows, setRows] = useState(null);
+  const [asked, setAsked] = useState(0);
+  // The sheet open on one attempt: the tick, the note, the signature.
+  const [signing, setSigning] = useState(null);
+  useBusy("training sign-off", !!signing);
+  useEffect(() => {
+    let live = true;
+    readTrainingAwaiting(token, site.id, user && user.id).then(list => {
+      if (!live) return;
+      if (list) setRows({ state: "ok", list: list });
+      else setRows(prev => (prev && prev.state === "ok" ? prev : { state: "failed" }));
+    });
+    return () => { live = false; };
+  }, [site.id, asked]);
+  const edit = (patch) => setSigning(s => (s ? { ...s, ...patch, fault: null } : s));
+  const send = async () => {
+    if (!signing || signing.busy) return;
+    if (!signing.watched) { setSigning({ ...signing, fault: tr("Tick I watched them do it first.") }); return; }
+    if (!signing.png) { setSigning({ ...signing, fault: tr("Sign before you send.") }); return; }
+    setSigning({ ...signing, busy: true, fault: null });
+    const body = { signature: signing.png, demonstrated: true };
+    if (signing.note.trim()) body.note = signing.note.trim();
+    try {
+      await api("/api/training/attempts/" + encodeURIComponent(signing.row.id) + "/signoff", { method: "POST", body: body, token });
+      setRows(prev => (prev && prev.state === "ok" ? { state: "ok", list: prev.list.filter(r => r.id !== signing.row.id) } : prev));
+      setSigning(null);
+      showToast(tr("Signed off. It is on their record."));
+    } catch (err) {
+      setSigning(s => (s ? { ...s, busy: false, fault: fkFaultWords(err, "This was not signed. Try again.") } : s));
+    }
+  };
+  const list = rows && rows.state === "ok" ? rows.list : [];
+  const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const signedLine = (r) => (r.scorePercent !== null ? tr("Score {score}%, signed {when}", { score: r.scorePercent, when: wsWhen(r.acknowledgedAt) }) : tr("Signed {when}", { when: wsWhen(r.acknowledgedAt) }));
+  return (
+    <div>
+      {!rows && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {rows && rows.state === "failed" && <div style={{ marginBottom: 12 }}><ListFault icon={BookIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} /></div>}
+      {rows && rows.state === "ok" && list.length === 0 && <div style={wsQuiet(t)}>{tr("Nobody is waiting for a sign-off at this site.")}</div>}
+      {list.map(r => (
+        <div key={r.id} data-fk-signoff={r.id} style={fkRowSt(t)}>
+          <div style={nameSt}>{r.personName}</div>
+          {r.topicName && <div style={{ ...lineSt, color: t.text }}>{r.topicName}</div>}
+          <div style={lineSt}>{signedLine(r)}</div>
+          <div style={{ display: "flex", marginTop: 8 }}>
+            <button type="button" onClick={() => setSigning(SIGNOFF_BLANK(r))} style={wsMainBtn(t, false)}>{tr("Sign off")}</button>
+          </div>
+        </div>
+      ))}
+      {signing && (
+        <WsSheet id="ocsa-fk-signoff" title={tr("Sign off")} onClose={() => { if (!signing.busy) setSigning(null); }} t={t} footer={<>
+          <button type="button" onClick={() => setSigning(null)} disabled={signing.busy} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+          <button type="button" data-fk-signoff-send="1" onClick={send} disabled={signing.busy} style={wsMainBtn(t, signing.busy)}>{signing.busy ? tr("Sending...") : tr("Sign off")}</button>
+        </>}>
+          <div style={nameSt}>{signing.row.personName}</div>
+          {signing.row.topicName && <div style={{ ...lineSt, color: t.text }}>{signing.row.topicName}</div>}
+          <div style={lineSt}>{signedLine(signing.row)}</div>
+          <button type="button" role="checkbox" aria-checked={signing.watched} data-fk-signoff-watched={signing.watched ? "1" : "0"} disabled={signing.busy} onClick={() => edit({ watched: !signing.watched })} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, marginTop: 12, padding: "0 2px", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: t.text, lineHeight: 1.4, textAlign: "left", fontFamily: FONT_BODY }}>
+            <span aria-hidden="true" style={{ width: 22, height: 22, flexShrink: 0, borderRadius: R.sm, border: "2px solid " + (signing.watched ? GOLD : t.textMut), background: signing.watched ? GOLD : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{signing.watched && <CheckIco sz={13} c={NAVY} />}</span>
+            <span style={{ minWidth: 0, fontWeight: 600 }}>{tr("I watched them do it")}</span>
+          </button>
+          <div style={{ marginTop: 10 }}>
+            <label htmlFor="ocsa-fk-signoff-note" style={mkLabel(t)}>{tr("Note")}</label>
+            <textarea id="ocsa-fk-signoff-note" value={signing.note} maxLength={SIGNOFF_NOTE_MAX} rows={2} placeholder={tr("Optional")} disabled={signing.busy} onChange={e => edit({ note: e.target.value })} style={{ ...mkInput(t), resize: "vertical" }} />
+          </div>
+          <div data-fk-signoff-signature="1" style={{ marginTop: 12 }}>
+            <div style={mkLabel(t)}>{tr("Your signature")}</div>
+            <div style={{ borderRadius: R.md, border: signing.fault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+              <SignatureBox strokes={signing.strokes} onStroke={(stroke, size) => setSigning(s => { if (!s) return s; const all = s.strokes.concat([stroke]); return { ...s, strokes: all, png: signaturePng(all, size.w, size.h), fault: null }; })} height={SIGN_BOX_HEIGHT} />
+            </div>
+            <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+            <button type="button" onClick={() => setSigning(s => (s ? { ...s, strokes: [], png: null } : s))} disabled={signing.strokes.length === 0 || signing.busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: signing.strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+          </div>
           {signing.fault && <WsFault text={signing.fault} t={t} />}
         </WsSheet>
       )}
