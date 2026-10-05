@@ -6462,7 +6462,10 @@ function trainingItemOf(x) {
   const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
   const name = str("name");
   if (!name) return null;
-  return { id: String(agentField(x, ["topicId"], "")) + ":" + String(agentField(x, ["siteId"], "")), name: name, docCode: str("docCode"), docSection: str("docSection"), safetyCritical: x.safetyCritical === true, siteName: str("siteName"), status: str("status"), completedDate: str("completedDate"), expiresOn: str("expiresOn") };
+  // An outside course (the chat's addition to Step 258): an https address
+  // the item carries as linkUrl; anything else is left out.
+  const link = str("linkUrl");
+  return { id: String(agentField(x, ["topicId"], "")) + ":" + String(agentField(x, ["siteId"], "")), name: name, docCode: str("docCode"), docSection: str("docSection"), safetyCritical: x.safetyCritical === true, siteName: str("siteName"), status: str("status"), completedDate: str("completedDate"), expiresOn: str("expiresOn"), linkUrl: /^https:\/\//i.test(link) ? link : "" };
 }
 function trainingRecordOf(x) {
   if (!x || typeof x !== "object") return null;
@@ -6516,6 +6519,12 @@ function TrainingView({ token, data, onData, t }) {
       {i.siteName && i.status !== "refresherDue" && <div style={lineSt}>{i.siteName}</div>}
       <div style={{ ...lineSt, color: group === "todo" ? wsLateInk(t) : group === "soon" ? ink(t, ORANGE) : ink(t, GREEN), fontWeight: 600 }}>{why(i)}</div>
       {group === "done" && i.expiresOn && <div style={lineSt}>{tr("Expires {date}", { date: trainingDay(i.expiresOn) })}</div>}
+      {i.linkUrl && (
+        <div style={{ marginTop: 10 }}>
+          <a href={i.linkUrl} target="_blank" rel="noopener noreferrer" data-training-link={i.id} style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: TAP, padding: "10px 14px", borderRadius: R.md, textDecoration: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Take the course online")}</a>
+          <div style={{ ...smallSt, fontSize: 12, marginTop: 6 }}>{tr("When you finish, give your certificate to the office.")}</div>
+        </div>
+      )}
     </div>
   );
   const head = (word, tag) => <div role="heading" aria-level={3} data-training-group={tag} style={fkHeadSt(t)}>{tr(word)}</div>;

@@ -1197,6 +1197,8 @@ export const WORDS = {
   "Given in English": "Dada en ingl\u00e9s",
   "Given in Spanish": "Dada en espa\u00f1ol",
   "Given in French": "Dada en franc\u00e9s",
+  "Take the course online": "Tomar el curso en l\u00ednea",
+  "When you finish, give your certificate to the office.": "Cuando termine, entregue su certificado a la oficina.",
   },
 };
 
@@ -2275,6 +2277,8 @@ WORDS.fr = {
   "Given in English": "Donn\u00e9e en anglais",
   "Given in Spanish": "Donn\u00e9e en espagnol",
   "Given in French": "Donn\u00e9e en fran\u00e7ais",
+  "Take the course online": "Suivre le cours en ligne",
+  "When you finish, give your certificate to the office.": "Quand vous avez termin\u00e9, remettez votre certificat au bureau.",
 };
 
 // {name} is replaced after the language is chosen, so the

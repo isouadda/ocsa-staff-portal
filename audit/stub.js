@@ -323,7 +323,7 @@ const TRAINING_ME = {
   asOf: "2026-10-05",
   items: [
     { topicId: "tp-1", name: "Invented hazard communication", docCode: "OCSA-HR-009", docSection: "3", safetyCritical: true, siteId: null, siteName: null, status: "missing", completedDate: null, expiresOn: null, recordId: null, attemptId: null, lesson: null },
-    { topicId: "tp-5", name: "Invented company orientation", docCode: "OCSA-HR-006", docSection: "3", safetyCritical: false, siteId: null, siteName: null, status: "missing", completedDate: null, expiresOn: null, recordId: null, attemptId: null, lesson: null },
+    { topicId: "tp-5", name: "Invented mandated reporter course", docCode: "OCSA-HR-006", docSection: "3", safetyCritical: false, siteId: null, siteName: null, status: "missing", completedDate: null, expiresOn: null, recordId: null, attemptId: null, lesson: null, linkUrl: "https://courses.example.invalid/invented-mandated-reporter" },
     { topicId: "tp-2", name: "Invented ladders", docCode: "OCSA-HR-016", docSection: "5", safetyCritical: true, siteId: null, siteName: null, status: "expired", completedDate: "2025-09-01", expiresOn: "2026-09-01", recordId: "tr-9", attemptId: null, lesson: null },
     { topicId: "tp-3", name: "Invented site orientation", docCode: "OCSA-HR-005", docSection: "2", safetyCritical: false, siteId: "site-north", siteName: "North Building", status: "refresherDue", completedDate: "2026-02-03", expiresOn: null, recordId: "tr-7", attemptId: null, lesson: null },
     { topicId: "tp-4", name: "Invented protective equipment", docCode: "OCSA-HR-012", docSection: "4", safetyCritical: true, siteId: null, siteName: null, status: "dueSoon", completedDate: "2025-10-20", expiresOn: "2026-10-20", recordId: "tr-8", attemptId: null, lesson: null },
