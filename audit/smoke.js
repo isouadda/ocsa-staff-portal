@@ -55,6 +55,11 @@
 //   - the supply page (Step 252) signed out, with the sheet in the page
 //     and Sign in to record use, and signed in, with Used one and
 //     Running low (English alone)
+//   - Inspection findings (Step 255): a completion that opens two
+//     findings, one with an owner, through the API alone, with the
+//     API's refusal under the card it names, the answer screen with the
+//     band and each finding, and the owner's finding on Report, Fixed
+//     and Waiting for a check (English alone)
 //   - French offered by the stub turns the screen French, and a French
 //     screen shows no English the portal drew (French alone)
 //   - one page at the Largest text size, 360 wide, with no control cut
@@ -69,7 +74,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -783,6 +788,71 @@ async function requestsAssignee(browser, language) {
   await app.context.close();
 }
 
+// Inspection findings (Step 255): the stub answers owners on the
+// scheduled read, so the completion sends deficient and an owner per
+// card and files nothing of its own. Three cards: the first marked Needs
+// a fix with the person signed in as its owner, the second scored under
+// 80 percent, which says it will open a finding, the third fine. The
+// first send meets the API's refusal, laid over the stub, under the card
+// it names; the second answers the failed band, the corrective action
+// line and two findings, one with an owner. Then Report lists the
+// owner's finding under Inspection findings, Fixed takes a note and
+// sends the PATCH the API takes, and the row reads Waiting for a check.
+async function findings(browser, language) {
+  const app = await open({ findings: true, inspections: [INSPECTION_F], accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
+  const page = app.page;
+  const tapIn = (root, w) => page.evaluate((a) => { const el = a.root ? document.querySelector(a.root) : document; const b = el && Array.from(el.querySelectorAll("button")).find(x => x.innerText.trim().toUpperCase() === a.w.toUpperCase()); if (b) b.click(); return !!b; }, { root, w });
+  // A slider moved the way a finger moves it: the value set through the
+  // element's own setter, so React hears the input event.
+  const slide = (id, v) => page.evaluate((a) => { const r = document.querySelector('[data-inspect-item="' + a.id + '"] input[type="range"]'); if (!r) return false; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(r, String(a.v)); r.dispatchEvent(new Event("input", { bubbles: true })); r.dispatchEvent(new Event("change", { bubbles: true })); return true; }, { id, v });
+  const note = (id, text) => page.fill('[data-inspect-item="' + id + '"] input[placeholder]', text);
+  await tapMore(page, say(language, "Inspect"));
+  const listed = await waitFor(page, (w) => Array.from(document.querySelectorAll(".sp-content button")).some(b => b.innerText.indexOf(w) !== -1), INSPECTION_F.template_name);
+  if (listed) await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.indexOf(w) !== -1); if (b) b.click(); }, INSPECTION_F.template_name);
+  const opened = listed && await waitFor(page, () => !!document.querySelector('[data-inspect-item="if-3"]'));
+  let marked = false, said = false, refused = false, answered = false;
+  if (opened) {
+    // Card 1: scored 3 of 5, Needs a fix, the person signed in as owner.
+    await slide("if-1", 3);
+    await page.click('[data-inspect-item="if-1"] [role="switch"]');
+    marked = await waitFor(page, (w) => { const s = document.querySelector('#ocsa-inspect-owner-if-1'); return !!s && s.options[0].text === w.none && Array.from(s.options).some(o => o.value === w.me); }, { none: say(language, "No owner yet"), me: "u-one" });
+    if (marked) await page.selectOption("#ocsa-inspect-owner-if-1", "u-one");
+    await note("if-1", "Smudges on both doors, invented.");
+    // Card 2: scored 3 of 5, which says it will open a finding.
+    await slide("if-2", 3);
+    said = await waitFor(page, (w) => { const l = document.querySelector('[data-inspect-finding="if-2"]'); return !!l && l.innerText.trim() === w; }, say(language, "This will open a finding."));
+    await note("if-2", "Mat curled at the door, invented.");
+    // Card 3: fine.
+    await slide("if-3", 5);
+    // The first send meets the API's refusal under card 1, in the fold.
+    await tapIn(".sp-content", say(language, "Submit Inspection"));
+    refused = await waitFor(page, (w) => { const a = document.querySelector('[data-inspect-item="if-1"] [role="alert"]'); return !!a && a.innerText.trim() === w; }, FINDING_REFUSALS["inspections.findingNoteRequired"][language]);
+    await tapIn(".sp-content", say(language, "Submit Inspection"));
+    answered = await waitFor(page, (w) => { const s = document.querySelector('[data-inspect-sent="failed"]'); return !!s && !!s.querySelector('[data-inspect-corrective="1"]') && s.querySelectorAll("[data-inspect-found]").length === 2 && s.innerText.indexOf(w.band) !== -1 && s.innerText.indexOf(w.owner) !== -1 && s.innerText.indexOf(w.none) !== -1 && s.innerText.indexOf("73.3%") !== -1; }, { band: say(language, "Failed. A corrective action and a re-inspection within ten working days."), owner: say(language, "Owner: {name}", { name: "Alex Tester" }), none: say(language, "No owner yet") });
+  }
+  const completes = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/inspections/scheduled/in-f/complete").map(c => (c.body && c.body.scores ? c.body.scores.map(r => [r.template_item_id, r.deficient, r.ownerId || null, r.notes]) : null));
+  const sent = completes.length === 2 && JSON.stringify(completes[1]) === JSON.stringify([["if-1", true, "u-one", "Smudges on both doors, invented."], ["if-2", true, null, "Mat curled at the door, invented."], ["if-3", false, null, ""]].map(r => [r[0], r[1], r[2], r[3] || null]));
+  const noOwnPost = !app.stub.state.calls.some(c => c.method === "POST" && c.path === "/api/issues");
+  // Report: the owner's finding, Fixed with a note, Waiting for a check.
+  await tapIn(".sp-content", say(language, "Done"));
+  await tapMore(page, say(language, "Report"));
+  const row = await waitFor(page, (w) => { const r = document.querySelector('[data-finding-row="fnd-1"]'); return !!r && !document.querySelector('[data-finding-row="fnd-2"]') && r.innerText.indexOf(w.title) !== -1 && r.innerText.indexOf(w.note) !== -1 && Array.from(r.querySelectorAll("button")).map(b => b.innerText.trim()).join("|") === w.fixed; }, { title: INSPECTION_F.items[0].label, note: "Smudges on both doors, invented.", fixed: say(language, "Fixed") });
+  let waiting = false;
+  if (row) {
+    await tapIn('[data-finding-row="fnd-1"]', say(language, "Fixed"));
+    await waitFor(page, () => !!document.querySelector("#ocsa-finding-fixed-note"));
+    await page.fill("#ocsa-finding-fixed-note", "Wiped and dried, invented.");
+    await tapIn('[role="dialog"]', say(language, "Fixed"));
+    waiting = await waitFor(page, (w) => { const r = document.querySelector('[data-finding-row="fnd-1"]'); const l = document.querySelector('[data-finding-waiting="fnd-1"]'); return !document.querySelector('[role="dialog"]') && !!r && !!l && l.innerText.trim() === w && r.querySelectorAll("button").length === 0; }, say(language, "Waiting for a check"));
+  }
+  const patches = app.stub.state.calls.filter(c => c.method === "PATCH" && c.path === "/api/issues/fnd-1").map(c => c.body);
+  const resolved = JSON.stringify(patches) === '[{"status":"resolved","resolutionNotes":"Wiped and dried, invented."}]';
+  check("Inspection findings: a card marked Needs a fix offers an owner, a card under 80 percent says it will open a finding, the completion sends deficient and ownerId and files no issue of its own, the API's refusal lands under the card it names, the answer shows the failed band, the corrective action line and two findings with their owner, and Report lists the owner's finding, Fixed sends the PATCH with its note and the row reads Waiting for a check (" + language + ")",
+    opened && marked && said && refused && answered && sent && noOwnPost && row && waiting && resolved && app.errors.length === 0,
+    !opened ? "the inspection did not open" : !marked ? "the owner picker did not show" : !said ? "card 2 did not say it will open a finding" : !refused ? "the refusal was not said under card 1" : !answered ? "the answer screen did not read as expected" : !sent ? JSON.stringify(completes) : !noOwnPost ? "the portal posted /api/issues itself" : !row ? "Report did not list the owner's finding as expected" : !waiting ? "the row did not read Waiting for a check" : !resolved ? JSON.stringify(patches) : app.errors[0]);
+  await app.context.close();
+}
+
 // The supply page (Step 252): signed out, the sheet in the page and Sign
 // in to record use; signed in, Used one and Running low.
 async function supplyPage(browser, language) {
@@ -848,6 +918,7 @@ async function largest(browser) {
     for (const language of ["en", "es"]) await guard("the request page (" + language + ")", () => requestPage(browser, language));
     await guard("Client requests for an approver", () => requestsApprover(browser, "en"));
     await guard("Client requests for an assignee", () => requestsAssignee(browser, "en"));
+    await guard("Inspection findings", () => findings(browser, "en"));
     await guard("the supply page", () => supplyPage(browser, "en"));
     await guard("French", () => french(browser));
     await guard("the Largest text size", () => largest(browser));

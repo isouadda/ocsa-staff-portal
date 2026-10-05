@@ -926,6 +926,49 @@ const INSPECT_PHOTO_UNDER_PCT = 70;
 // told in the API's own words under the box or the row it is about.
 const INSPECT_SIGN_CODES = ["inspections.signatureRequired", "inspections.badSignature"];
 const INSPECT_PHOTO_CODES = ["inspections.tooManyPhotos", "inspections.badPhoto"];
+// Step 255. Once GET /api/inspections/scheduled/:id answers owners, the
+// API opens each finding itself (Step 253): a card's Needs a fix sends
+// deficient with the card's note and an optional ownerId picked from that
+// list, and the screen files no report of its own. Until the read answers
+// owners, the screen, its call and its reports are what they were, so a
+// merge ahead of the API changes nothing. null is that older answer.
+const inspectOwnersOf = (d) => {
+  const list = d && d.owners;
+  if (!Array.isArray(list)) return null;
+  return list.map(x => (x && typeof x === "object" && x.id !== null && x.id !== undefined ? { id: String(x.id), name: typeof x.name === "string" ? x.name.trim() : "", role: typeof x.role === "string" ? x.role : "" } : null)).filter(Boolean);
+};
+// Under this share of its maximum the API opens a finding whether or not
+// the card is marked (QMS-014 5.2's failed line), so the card says so and
+// asks for its note, which the API requires on every deficient card.
+const INSPECT_FINDING_UNDER_PCT = 80;
+const inspectDeficient = (score, max, marked) => !!marked || (max > 0 && score * 100 < INSPECT_FINDING_UNDER_PCT * max);
+// The refusals the complete route gives about a finding, each told in the
+// API's words under the card its keys name: a deficient card with no
+// note, and an owner who is not on the list.
+const INSPECT_FINDING_CODES = ["inspections.findingNoteRequired", "inspections.badOwner"];
+// What the complete route answers once it opens the findings: the score,
+// the band (meets, below, failed, serious), whether a corrective action
+// is required (below 80), and each finding with its owner and due date.
+// null for an answer without a band, which is read as the older answer.
+const INSPECT_BANDS = ["meets", "below", "failed", "serious"];
+const inspectAnswerOf = (d) => {
+  if (!d || typeof d !== "object" || INSPECT_BANDS.indexOf(d.band) === -1) return null;
+  const pct = Number(d.scorePct);
+  return {
+    scorePct: isFinite(pct) ? Math.round(pct * 10) / 10 : null, band: d.band, correctiveActionRequired: d.correctiveActionRequired === true,
+    findings: (Array.isArray(d.findings) ? d.findings : []).map(f => (f && typeof f === "object" ? {
+      id: String(agentField(f, ["issueId", "id"], "")), label: fkText(f, ["label"]), zone: fkText(f, ["zone"]), score: agentField(f, ["score"], null), maxScore: agentField(f, ["maxScore"], null),
+      severity: fkText(f, ["severity"]), dueAt: f.dueAt || null, owner: f.owner && typeof f.owner === "object" && typeof f.owner.name === "string" ? f.owner.name.trim() : "",
+    } : null)).filter(Boolean),
+  };
+};
+// The band in QMS-014 5.2's words.
+const INSPECT_BAND_WORDS = {
+  meets: () => tr("Meets the standard."),
+  below: () => tr("Below standard. Corrected within three working days."),
+  failed: () => tr("Failed. A corrective action and a re-inspection within ten working days."),
+  serious: () => tr("Serious. The officers are told the same day."),
+};
 // A control whose drawing is meant to stay smaller than that. The button
 // becomes a see-through frame of at least 44 by 44 and the look moves to
 // the span inside it, so the tap area grows and the drawing does not.
@@ -1008,17 +1051,18 @@ function readEntryFromUrl() {
 // to open a new window for it: ?open=<subjectType>:<subjectId>. Read once
 // at start and taken off the address, before an emailed link's own read
 // below drops the query. A client request's notice links to
-// /requests/<id> (Step 252), and that address opens the request the same
-// way; it is no entry screen, so the app signs in or boots the stored
-// session as it always does and the request opens once the portal is up.
+// /requests/<id> (Step 252), and an inspection finding's to /issues/<id>
+// (Step 255); either address opens its subject the same way. Neither is
+// an entry screen, so the app signs in or boots the stored session as it
+// always does and the subject opens once the portal is up.
 function readOpenFromUrl() {
   try {
     var v = new URLSearchParams(window.location.search || "").get("open");
     if (!v) {
-      var m = /^\/requests\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+      var m = /^\/(requests|issues)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
       if (!m) return null;
       try { window.history.replaceState({}, "", "/"); } catch (e) {}
-      return { subjectType: "client_request", subjectId: m[1] };
+      return { subjectType: m[1] === "requests" ? "client_request" : "inspection_finding", subjectId: m[2] };
     }
     try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
     var at = v.indexOf(":");
@@ -1665,6 +1709,11 @@ export default function OCSAStaffPortal() {
   // person, null until it does, and the one a notice asked to open.
   const [clientRequests, setClientRequests] = useState(null);
   const [requestOpen, setRequestOpen] = useState(null);
+  // Inspection findings (Step 255): the inspection tickets GET
+  // /api/issues?source=inspection answers this person, null until it
+  // answers a list, and the one a notice opened.
+  const [findings, setFindings] = useState(null);
+  const [findingOpen, setFindingOpen] = useState(null);
   const [suppliesFailed, setSuppliesFailed] = useState(false);
   // True once a supplies list has come back, so a site with none can say
   // so without the line showing while the list is still on its way.
@@ -2270,6 +2319,7 @@ export default function OCSAStaffPortal() {
   // back to the front, and after every action on one. An answer that is
   // not a list, or no answer, leaves what was shown; nothing shows until
   // the route has answered once.
+  const loadFindings = async (tok) => { const use = tok || token; if (!use) return; try { const d = await api("/api/issues?source=inspection", { token: use }); const rows = findingRowsOf(d); if (rows) setFindings(rows); } catch (err) { if (err && (err.status === 404 || err.status === 400)) setFindings(null); } };
   const loadClientRequests = async (tok) => { const use = tok || token; if (!use) return; try { const d = await api("/api/issues/requests", { token: use }); const rows = clientRequestsOf(d); if (rows) setClientRequests(rows); } catch (err) { if (err && err.status === 404) setClientRequests(null); } };
   const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); setIssuesFailed(false); } catch (err) { console.error(err); setIssuesFailed(true); } };
   const resolveAssignedTask = async (taskId, status, note, photoUrl) => { try { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast(tr("Task updated to {status}", { status: taskStatusWord(status) })); loadAssignedTasks(); } catch (err) { showToast(tr(err.message), "error"); } };
@@ -2309,7 +2359,7 @@ export default function OCSAStaffPortal() {
   // answer is drawn once, matched by its id or by that clientId.
   const sendMessage = async (channelId, text, mentions, clientId) => { const body = { text }; if (Array.isArray(mentions) && mentions.length > 0) body.mentions = mentions; if (clientId) body.clientId = clientId; const data = await api(chatPath("/api/chat/channels/" + channelId + "/messages"), { method: "POST", body: body, token }); const msg = data && data.message && typeof data.message === "object" ? data.message : null; if (!msg) { await readMessages(channelId).catch(e => console.error(e)); } else if (activeChannelRef.current === channelId) setMessages(prev => (prev.some(m => (msg.id && m.id === msg.id) || isClientSend(m, msg.senderId, msg.clientId)) ? prev : [...prev, msg])); loadChannels(); };
 
-  useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "issues") { loadIssues(); loadClientRequests(); } if (activeTab === "issuetasks") loadAssignedTasks(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId]);
+  useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "issues") { loadIssues(); loadClientRequests(); loadFindings(); } if (activeTab === "issuetasks") loadAssignedTasks(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId]);
   // The task list is fetched as soon as a session is seen open, whichever
   // tab the person is standing on, so the Home card has its bar at boot.
   // Once per request: opening Tasks afterwards fires nothing new, and a
@@ -2355,7 +2405,7 @@ export default function OCSAStaffPortal() {
     if (!place) return;
     if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
     setActiveTab(place.tab); setShowMore(false);
-    if (place.tab === "issues") { setRequestOpen(place.request || null); loadClientRequests(); }
+    if (place.tab === "issues") { setRequestOpen(place.request || null); setFindingOpen(place.finding || null); loadClientRequests(); loadFindings(); }
     if (place.tab === "chat" && place.chat) { if (activeChannelRef.current === place.chat) loadMessages(place.chat); else chooseChat(place.chat); }
   };
   // Where a tap on a phone alert asked the app to open: the address it
@@ -2397,9 +2447,9 @@ export default function OCSAStaffPortal() {
   // The list of chats is read once the portal is up, so the Chat tab's
   // count is on the bar before Chat is ever opened, and again each time
   // the app comes back to the front, with the clock status below.
-  useEffect(() => { if (token && screen === "main") { loadChannels(); loadClientRequests(); } }, [token, screen]);
-  // The request a notice opened stays marked while Report is open.
-  useEffect(() => { if (activeTab !== "issues" && requestOpen) setRequestOpen(null); }, [activeTab]);
+  useEffect(() => { if (token && screen === "main") { loadChannels(); loadClientRequests(); loadFindings(); } }, [token, screen]);
+  // The request or finding a notice opened stays marked while Report is open.
+  useEffect(() => { if (activeTab !== "issues" && requestOpen) setRequestOpen(null); if (activeTab !== "issues" && findingOpen) setFindingOpen(null); }, [activeTab]);
   // An admin can end a session from the dashboard, and a second device
   // can end it too. Re-read clock status when the app comes back into
   // view. One listener, no interval.
@@ -2777,7 +2827,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
-              {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} />}
+              {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} findings={findings} onFindingsChanged={() => loadFindings()} openFinding={findingOpen} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
@@ -5976,6 +6026,9 @@ function requestWhen(iso) {
   const sameDay = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
   return sameDay ? d.toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }) : d.toLocaleString(dateLocale(), { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
+// How long ago, the way the bell says it, with "ago" after it except for
+// a time under a minute, which reads "now" alone.
+const requestAgo = (iso) => { const v = notifAgo(iso, Date.now()); return !v ? "" : v === tr("now") ? v : tr("{ago} ago", { ago: v }); };
 // A refusal in the API's own words, else the screen's own line.
 const requestFaultOf = (err, fallback) => fkSaidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : fallback);
 // The 409 the first approver's win leaves the second: who took it.
@@ -6050,7 +6103,7 @@ function ClientRequestsSection({ token, user, rows, onChanged, showToast, openId
   const btn = (primary) => ({ flex: "1 1 120px", minHeight: TAP, padding: "10px 12px", borderRadius: R.md, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, border: primary ? "none" : "1px solid " + t.borderSolid, background: primary ? "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")" : "transparent", color: primary ? NAVY : t.text, boxShadow: primary ? "0 6px 18px rgba(231,176,23,0.30)" : "none" });
   const headSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
   const lineSt = { fontSize: 12, color: t.textSec, marginTop: 3, lineHeight: 1.4, overflowWrap: "anywhere" };
-  const ago = (iso) => { const v = notifAgo(iso, Date.now()); return v ? tr("{ago} ago", { ago: v }) : ""; };
+  const ago = (iso) => requestAgo(iso);
   const head = (r) => (
     <>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
@@ -6220,7 +6273,7 @@ function RequestNoteSheet({ id, title, line, label, required, button, photos, to
   );
 }
 
-function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToast, user, sites, t, token, getOpts, lkColorMap, requests, onRequestsChanged, openRequest }) {
+function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToast, user, sites, t, token, getOpts, lkColorMap, requests, onRequestsChanged, openRequest, findings, onFindingsChanged, openFinding }) {
   const [showForm, setShowForm] = useState(false); const [title, setTitle] = useState(""); const [desc, setDesc] = useState("");
   const [sev, setSev] = useState("medium"); const [zone, setZone] = useState(""); const [selSite, setSelSite] = useState("");
   const [photo, setPhoto] = useState(null); const [photoPreview, setPhotoPreview] = useState(null); const [uploading, setUploading] = useState(false);
@@ -6239,6 +6292,7 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToa
   return (
     <div style={{ padding: "16px" }}>
       <ClientRequestsSection token={token} user={user} rows={requests} onChanged={onRequestsChanged} showToast={showToast} openId={openRequest} t={t} />
+      <FindingsSection token={token} user={user} rows={findings} onChanged={onFindingsChanged} showToast={showToast} openId={openFinding} t={t} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{isAdmin ? tr("Issues") : tr("Report an Issue")}</div>{isAdmin && <button onClick={() => setShowForm(!showForm)} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "7px 13px", borderRadius: R.sm, border: showForm ? "1px solid " + t.borderSolid : "none", background: showForm ? t.cardAlt : GOLD, color: showForm ? t.text : NAVY, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{showForm ? tr("Cancel") : tr("+ Report")}</span></button>}</div>
       {(showForm || !isAdmin) && (<div style={{ padding: 14, marginBottom: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, animation: "fadeIn 0.3s ease", boxShadow: t.popShadow }}>
         {!clockStatus?.clockedIn && sites && sites.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Site")}</label><select value={selSite} onChange={e => setSelSite(e.target.value)} style={inputSt}><option value="">{tr("Select site...")}</option>{sites.map(s => <option key={s.siteId} value={s.siteId}>{s.siteName}</option>)}</select></div>)}
@@ -6289,6 +6343,92 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
       {loaded && !failed && supplies.length === 0 && <EmptyState icon={BoxIco} text={tr("No supplies are set up for this site.")} t={t} />}
       {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 600, color: t.textMut, fontFamily: "monospace" }}>{tr("QR")}</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div>{isLow && <div style={{ marginTop: 2, fontSize: 10, color: ink(t, ORANGE), fontWeight: 600 }}>{tr("LOW")}</div>}</div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} aria-label={tr("One less")} style={mkTapFrame()}><span style={qtyBtn}><MinusIco sz={14} /></span></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} aria-label={tr("One more")} style={mkTapFrame()}><span style={qtyBtn}><PlusIco sz={14} /></span></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Log Usage")}</button></div>)}</div>); })}
       {supplyLogs.length > 0 && (<div style={{ marginTop: 18 }}><label style={{ ...labelSt, display: "block", marginBottom: 8 }}>{tr("This Shift's Log")}</label>{supplyLogs.map((log, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", marginBottom: 3, background: t.hover, borderRadius: R.sm, fontSize: 11 }}><span style={{ fontWeight: 600, color: t.text }}>{log.supply_name || tr("Item")} <span style={{ color: t.textMut, fontWeight: 400 }}>{log.quantity} {log.unit}</span></span><span style={{ color: t.textMut, fontSize: 9 }}>{formatTime(log.loggedAt || log.scanned_at)}</span></div>))}</div>)}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Inspection findings (Step 255): the tickets the API opens from an
+// inspection's deficient cards (Step 253), as GET
+// /api/issues?source=inspection lists them to the person signed in. The
+// section sits under Client requests on the Report tab and shows only
+// once the route answers a list and only when a finding is assigned to
+// this person and not closed. Fixed marks it resolved, the PATCH every
+// assignee may make; a resolved finding stays listed as waiting for the
+// check a second person makes (QMS-014 8 step 4) until it is closed.
+// ------------------------------------------------------------
+const FINDING_OPEN_STATES = ["open", "in_progress", "escalated"];
+function findingRowOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = agentField(x, ["id"], null);
+  if (id === null) return null;
+  const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
+  return {
+    id: String(id), title: str("title"), description: str("description"), zone: str("zone"), siteName: str("site_name"), severity: str("severity"), status: str("status"), source: str("source"),
+    assignedTo: agentField(x, ["assigned_to"], null), reportedAt: x.reported_at || null, dueAt: x.due_at || null, dueState: str("due_state"), resolvedAt: x.resolved_at || null, verifiedAt: x.verified_at || null,
+  };
+}
+// The rows the answer holds, or null for an answer that is not a list,
+// which is read as the route not answering yet.
+function findingRowsOf(d) {
+  const rows = wsRows(d, "issues");
+  return rows ? rows.map(findingRowOf).filter(Boolean) : null;
+}
+// The findings assigned to this person and not closed.
+const findingsForMe = (rows, user) => (Array.isArray(rows) ? rows : []).filter(r => r.source === "inspection" && !!user && r.assignedTo !== null && String(r.assignedTo) === String(user.id) && r.status !== "closed");
+
+function FindingsSection({ token, user, rows, onChanged, showToast, openId, t }) {
+  const mine = findingsForMe(rows, user);
+  const [sheet, setSheet] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const rowRefs = useRef({});
+  const scrolledTo = useRef(null);
+  useBusy("finding sheet", !!sheet);
+  useEffect(() => {
+    if (!openId || scrolledTo.current === openId) return;
+    const el = rowRefs.current[openId];
+    if (el && el.scrollIntoView) { scrolledTo.current = openId; el.scrollIntoView({ block: "center" }); }
+  }, [openId, rows]);
+  if (mine.length === 0) return null;
+  const fixed = async (row, note) => {
+    if (busy) return false;
+    setBusy(row.id);
+    try {
+      await api("/api/issues/" + encodeURIComponent(row.id), { method: "PATCH", body: Object.assign({ status: "resolved" }, note ? { resolutionNotes: note } : {}), token });
+      showToast(tr("Fixed. A second person checks it."));
+      onChanged();
+      return true;
+    } catch (err) {
+      showToast(requestFaultOf(err, "That did not go through. Try again."), "error");
+      return false;
+    } finally { setBusy(null); }
+  };
+  const cardSt = { padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, boxShadow: t.shadow };
+  const btn = { flex: "1 1 120px", minHeight: TAP, padding: "10px 12px", borderRadius: R.md, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" };
+  const headSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 3, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const ago = (iso) => requestAgo(iso);
+  return (
+    <div data-finding-section="mine" style={{ marginBottom: 18 }}>
+      <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>{tr("Inspection findings")}</div>
+      {mine.map(r => (
+        <div key={r.id} ref={el => { rowRefs.current[r.id] = el; }} data-finding-row={r.id} style={{ ...cardSt, borderLeft: "3px solid " + (openId === r.id ? GOLD : t.borderSolid) }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <div style={{ ...headSt, flex: 1 }}>{r.title}</div>
+            {r.reportedAt && <div style={{ fontSize: 10, color: t.textMut, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums", flexShrink: 0, marginTop: 2 }}>{ago(r.reportedAt)}</div>}
+          </div>
+          <div style={lineSt}>{[r.zone, r.siteName].filter(Boolean).join(" \u00b7 ")}</div>
+          {r.description && <div style={{ ...lineSt, color: t.text, marginTop: 6, whiteSpace: "pre-line" }}>{r.description}</div>}
+          <RequestTarget label="Due {when}" at={r.dueAt} state={r.status === "resolved" ? "answered" : r.dueState} t={t} />
+          {r.status === "resolved" && <div data-finding-waiting={r.id} style={{ ...lineSt, marginTop: 8, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD }}>{tr("Waiting for a check")}</div>}
+          {FINDING_OPEN_STATES.indexOf(r.status) !== -1 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+              <button type="button" onClick={() => setSheet(r)} disabled={busy === r.id} style={btn}>{tr("Fixed")}</button>
+            </div>
+          )}
+        </div>
+      ))}
+      {sheet && <RequestNoteSheet id="ocsa-finding-fixed" title={tr("Mark this finding fixed")} line={tr("A second person checks the fix before the finding closes.")} label={tr("Note")} required={false} button={tr("Fixed")} photos={true} token={token} row={sheet} onClose={() => setSheet(null)} onSend={(note) => fixed(sheet, note)} t={t} />}
     </div>
   );
 }
@@ -6647,6 +6787,8 @@ const NOTIF_TAB = {
   issue_escalated: "issues",
   // A client request (Step 252): Report, with that request in view.
   client_request: "issues",
+  // An inspection finding (Step 255): Report, with that finding in view.
+  inspection_finding: "issues",
   chat: "chat",
   chat_mention: "chat",
   announcement: "announcement",
@@ -6662,6 +6804,7 @@ function notifPlace(subjectType, subjectId) {
   if (tab === "chat") return { tab: "chat", chat: id };
   if (tab === "announcement") return id ? { announcement: id } : null;
   if (subjectType === "client_request") return { tab: tab, request: id };
+  if (subjectType === "inspection_finding") return { tab: tab, finding: id };
   return { tab: tab };
 }
 const NOTIF_PAGE = 30;
@@ -11612,6 +11755,14 @@ function InspectView({ token, user, showToast, t }) {
   const [needsFix, setNeedsFix] = useState({});
   const [missingNote, setMissingNote] = useState({});
   const notDueBefore = useRef({});
+  // Step 255. The owners the read answers (null before the API's Step
+  // 253), the owner picked for each deficient card by the card's id, and
+  // what the API said about a card's finding, under that card.
+  const owners = inspectOwnersOf(active);
+  const [ownerOf, setOwnerOf] = useState({});
+  const [cardFault, setCardFault] = useState({});
+  // Whether a card's score and mark open a finding, with owners answered.
+  const deficientNow = (item) => inspectDeficient(parseInt(scores[item.id]) || 0, item.max_score, needsFix[item.id]);
   // Once an inspection is sent: its name and one report per card marked
   // Needs a fix, each filed or not. Try again files one that was not.
   const [sent, setSent] = useState(null);
@@ -11706,6 +11857,7 @@ function InspectView({ token, user, showToast, t }) {
       setSigStrokes([]); setSigPng(null); setSigFault(null);
       setNeedsFix({});
       setMissingNote({});
+      setOwnerOf({}); setCardFault({});
       notDueBefore.current = {};
       setScoredIds({}); setLastTouched(null); setShowScored(false); setSectionsOpen(false);
     } catch (e) { showToast(tr(e.message), "error"); }
@@ -11733,6 +11885,7 @@ function InspectView({ token, user, showToast, t }) {
   const toggleNeedsFix = (id) => {
     setNeedsFix(prev => ({ ...prev, [id]: !prev[id] }));
     setMissingNote(prev => ({ ...prev, [id]: false }));
+    setCardFault(prev => (prev[id] ? { ...prev, [id]: null } : prev));
   };
 
   const handlePhotoUpload = async (itemId, file) => {
@@ -11823,7 +11976,9 @@ function InspectView({ token, user, showToast, t }) {
 
   const submit = async () => {
     if (!active) return;
-    const unsaid = (active.items || []).filter(item => needsFix[item.id] && !(notes[item.id] || "").trim());
+    // With owners answered, every card that opens a finding needs its note
+    // (the API refuses one without it); before that, the cards marked.
+    const unsaid = (active.items || []).filter(item => (owners ? deficientNow(item) : needsFix[item.id]) && !(notes[item.id] || "").trim());
     if (unsaid.length) {
       const flags = {};
       unsaid.forEach(item => { flags[item.id] = true; });
@@ -11860,18 +12015,26 @@ function InspectView({ token, user, showToast, t }) {
           photo_url: uploaded[item.id] || null,
         };
         if (capture) { const urls = shotUrls(inspectShotKey(item.id)); row.photo_urls = urls; row.photo_url = urls[0] || null; }
+        // Step 255: which cards open a finding, and whose each is.
+        if (owners) { row.deficient = deficientNow(item); if (row.deficient && ownerOf[item.id]) row.ownerId = ownerOf[item.id]; }
         return row;
       });
       const body = { scores: payload, overall_notes: overallNotes || null };
       if (capture) body.photo_urls = shotUrls(INSPECT_WHOLE);
       if (capture && sigPng) body.signature = sigPng;
-      await api("/api/inspections/scheduled/" + active.id + "/complete" + (capture ? "?locale=" + languageToSend() : ""), {
+      const d = await api("/api/inspections/scheduled/" + active.id + "/complete" + (capture ? "?locale=" + languageToSend() : ""), {
         method: "POST", token,
         body: body,
       });
-      // Only once the inspection is in: the reports, one after another.
-      const reports = (active.items || []).filter(item => needsFix[item.id]).map(reportFor);
-      if (!reports.length) {
+      // With owners answered the API opened the findings itself in the
+      // same transaction, and nothing is filed from here: the screen shows
+      // what it answered. Otherwise, only once the inspection is in: the
+      // reports, one after another.
+      const answer = owners ? inspectAnswerOf(d) : null;
+      const reports = owners ? [] : (active.items || []).filter(item => needsFix[item.id]).map(reportFor);
+      if (answer) {
+        setSent({ name: active.template_name, reports: [], answer: answer });
+      } else if (!reports.length) {
         showToast(tr("Inspection submitted"));
       } else {
         const filed = [];
@@ -11880,7 +12043,7 @@ function InspectView({ token, user, showToast, t }) {
       }
       setActive(null);
       loadList();
-    } catch (e) { if (!(capture && placeRefusal(e))) showToast(tr(e.message), "error"); }
+    } catch (e) { if (!((capture || owners) && placeRefusal(e))) showToast(tr(e.message), "error"); }
     setSubmitting(false);
   };
   // The page scrolls to a mark once it is drawn.
@@ -11894,6 +12057,19 @@ function InspectView({ token, user, showToast, t }) {
     const said = e && e.message !== ERR_OFFLINE && typeof e.message === "string" ? e.message.trim() : "";
     if (!said) return false;
     if (INSPECT_SIGN_CODES.indexOf(code) !== -1) { setSigFault({ said: said }); scrollToMark("[data-inspect-signature]"); return true; }
+    // A finding's refusal goes under each card its keys name, by its
+    // template_item_id. One that names no card, about a missing note,
+    // lands on every card that opens a finding and has none.
+    if (owners && INSPECT_FINDING_CODES.indexOf(code) !== -1) {
+      const keys = e.body && Array.isArray(e.body.keys) ? e.body.keys.map(String) : [];
+      let ids = (active.items || []).filter(item => keys.indexOf(String(item.id)) !== -1).map(item => item.id);
+      if (ids.length === 0 && code === "inspections.findingNoteRequired") ids = (active.items || []).filter(item => deficientNow(item) && !(notes[item.id] || "").trim()).map(item => item.id);
+      if (ids.length === 0) return false;
+      setCardFault(prev => { const next = { ...prev }; ids.forEach(id => { next[id] = said; }); return next; });
+      setShowScored(true);
+      scrollToMark('[data-inspect-item="' + ids[0] + '"]');
+      return true;
+    }
     if (INSPECT_PHOTO_CODES.indexOf(code) === -1) return false;
     const keys = e.body && Array.isArray(e.body.keys) ? e.body.keys.map(String) : [];
     const rows = [];
@@ -12006,6 +12182,10 @@ function InspectView({ token, user, showToast, t }) {
       const iColor = iPct >= 80 ? GREEN : iPct >= 60 ? ORANGE : RED;
       const notDue = notDueOn(item);
       const fix = !!needsFix[item.id];
+      // With owners answered: whether this card opens a finding, and
+      // whether its score alone does, which the card says once scored.
+      const finding = !!owners && inspectDeficient(sc, item.max_score, fix);
+      const underLine = !!owners && !!scoredIds[item.id] && item.max_score > 0 && sc * 100 < INSPECT_FINDING_UNDER_PCT * item.max_score;
       return (
         <div key={item.id} data-inspect-item={item.id} style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "14px 14px 12px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -12028,8 +12208,21 @@ function InspectView({ token, user, showToast, t }) {
               {tr("Needs a fix")}
             </button>
           </div>
-          <input value={notes[item.id] || ""} onChange={e => { const v = e.target.value; setNotes(prev => ({ ...prev, [item.id]: v })); if (missingNote[item.id] && v.trim()) setMissingNote(prev => ({ ...prev, [item.id]: false })); }} placeholder={fix ? tr("Say what needs fixing") : tr("Notes for this item (optional)")} aria-invalid={!!missingNote[item.id]} style={{ ...inputSt, fontSize: 12, marginBottom: 8, ...(missingNote[item.id] ? { border: "1px solid " + RED } : {}) }} />
+          {underLine && (
+            <div data-inspect-finding={item.id} style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 8, fontSize: 11, color: t.text, lineHeight: 1.4 }}><AlertIco sz={14} c={ink(t, ORANGE)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ minWidth: 0 }}>{tr("This will open a finding.")}</span></div>
+          )}
+          {finding && (
+            <div data-inspect-owner={item.id} style={{ marginBottom: 8 }}>
+              <label htmlFor={"ocsa-inspect-owner-" + item.id} style={labelSt}>{tr("Owner")}</label>
+              <select id={"ocsa-inspect-owner-" + item.id} value={ownerOf[item.id] || ""} onChange={e => { const v = e.target.value; setOwnerOf(prev => ({ ...prev, [item.id]: v })); setCardFault(prev => (prev[item.id] ? { ...prev, [item.id]: null } : prev)); }} disabled={submitting} style={{ ...inputSt, fontSize: 12 }}>
+                <option value="">{tr("No owner yet")}</option>
+                {owners.map(o => <option key={o.id} value={o.id}>{o.name}{o.role ? ", " + roleWord(o.role) : ""}</option>)}
+              </select>
+            </div>
+          )}
+          <input value={notes[item.id] || ""} onChange={e => { const v = e.target.value; setNotes(prev => ({ ...prev, [item.id]: v })); if (missingNote[item.id] && v.trim()) setMissingNote(prev => ({ ...prev, [item.id]: false })); if (cardFault[item.id] && v.trim()) setCardFault(prev => ({ ...prev, [item.id]: null })); }} placeholder={fix || finding ? tr("Say what needs fixing") : tr("Notes for this item (optional)")} aria-invalid={!!missingNote[item.id] || !!cardFault[item.id]} style={{ ...inputSt, fontSize: 12, marginBottom: 8, ...(missingNote[item.id] || cardFault[item.id] ? { border: "1px solid " + RED } : {}) }} />
           {missingNote[item.id] && <div style={{ ...mkFieldErr(t), marginTop: -2, marginBottom: 8 }}>{tr("Say what needs fixing")}</div>}
+          {!missingNote[item.id] && cardFault[item.id] && <div role="alert" style={{ ...mkFieldErr(t), marginTop: -2, marginBottom: 8 }}>{cardFault[item.id]}</div>}
           {capture ? (
             <div data-inspect-photos={inspectShotKey(item.id)}>
               <div style={{ fontSize: 11, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("Photos")}</div>
@@ -12124,12 +12317,41 @@ function InspectView({ token, user, showToast, t }) {
   if (sent) {
     const filed = sent.reports.filter(r => !r.error).length;
     const failed = sent.reports.filter(r => r.error);
+    const a = sent.answer || null;
+    // With the API's answer (Step 255): the band in QMS-014 5.2's words
+    // and the score, each finding with its owner and due date, and the
+    // corrective action line below 80.
+    const bandColor = a ? (a.band === "meets" ? GREEN : a.band === "below" ? ORANGE : RED) : GREEN;
     return (
-      <div style={{ padding: "14px 16px 100px" }}>
+      <div style={{ padding: "14px 16px 100px" }} data-inspect-sent={a ? a.band : "reports"}>
         <div style={{ padding: "16px", borderRadius: R.lg, background: t.card, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow, marginBottom: 16 }}>
           <div style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 6 }}>{sent.name}</div>
-          <div role="status" style={{ fontSize: 13, color: t.textSec, lineHeight: 1.45, fontFamily: FONT_BODY }}>{tr(filed === 1 ? "Inspection sent. {n} problem reported for fixing." : "Inspection sent. {n} problems reported for fixing.", { n: filed })}</div>
+          {!a && <div role="status" style={{ fontSize: 13, color: t.textSec, lineHeight: 1.45, fontFamily: FONT_BODY }}>{tr(filed === 1 ? "Inspection sent. {n} problem reported for fixing." : "Inspection sent. {n} problems reported for fixing.", { n: filed })}</div>}
+          {a && (
+            <div role="status">
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                {a.scorePct !== null && <span style={{ fontSize: 22, fontWeight: 600, color: ink(t, bandColor), fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{a.scorePct}%</span>}
+                <span style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.4 }}>{INSPECT_BAND_WORDS[a.band]()}</span>
+              </div>
+              <div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.45, marginTop: 6, fontFamily: FONT_BODY }}>{tr(a.findings.length === 1 ? "Inspection sent. 1 finding opened." : "Inspection sent. {n} findings opened.", { n: a.findings.length })}</div>
+              {a.correctiveActionRequired && <div data-inspect-corrective="1" style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 10, fontSize: 13, fontWeight: 600, color: t.text, lineHeight: 1.4 }}><AlertIco sz={16} c={ink(t, RED)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ minWidth: 0 }}>{tr("A corrective action is required. The office has been told.")}</span></div>}
+            </div>
+          )}
         </div>
+        {a && a.findings.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+            {a.findings.map((f, i) => (
+              <div key={f.id || i} data-inspect-found={f.id || i} style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "14px" }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                  <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{f.label}{f.zone && f.zone !== f.label ? <span style={{ display: "block", fontSize: 12, fontWeight: 400, color: t.textSec, fontFamily: FONT_BODY }}>{f.zone}</span> : null}</div>
+                  {f.score !== null && f.maxScore !== null && <div style={{ flexShrink: 0, fontSize: 13, fontWeight: 600, color: t.text, fontVariantNumeric: "tabular-nums" }}>{tr("{score} of {max}", { score: f.score, max: f.maxScore })}</div>}
+                </div>
+                <div style={{ fontSize: 12, color: t.textSec, marginTop: 6, lineHeight: 1.4, overflowWrap: "anywhere" }}>{f.owner ? tr("Owner: {name}", { name: f.owner }) : tr("No owner yet")}</div>
+                {f.dueAt && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4 }}>{tr("Due {when}", { when: requestWhen(f.dueAt) })}</div>}
+              </div>
+            ))}
+          </div>
+        )}
         {failed.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
             {failed.map(r => (
