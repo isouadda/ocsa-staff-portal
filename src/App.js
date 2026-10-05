@@ -985,6 +985,10 @@ function readEntryFromUrl() {
     // read off the path as written, since its case matters.
     var link = /^\/c\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
     if (link) return { screen: "customer", token: link[1] };
+    // A client's request for help, opened from the QR in a restroom or an
+    // eating area (Step 252): /r/<token>, read the same way.
+    var ask = /^\/r\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+    if (ask) return { screen: "request", token: ask[1] };
     // A client's acknowledgement of a monthly report, opened from the
     // mail that carries it: /a/<token>, read the same way.
     var ack = /^\/a\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
@@ -2699,6 +2703,7 @@ export default function OCSAStaffPortal() {
       {screen === "reset" && <ResetScreen token={ENTRY ? ENTRY.token : null} onReset={handleAuthSuccess} onGoLogin={goLogin} onGoForgot={() => setScreen("forgot")} showToast={showToast} t={t} />}
       {screen === "forgot" && <ForgotScreen onGoLogin={goLogin} showToast={showToast} t={t} />}
       {screen === "customer" && <CustomerFormScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
+      {screen === "request" && <ClientRequestScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
       {screen === "acknowledge" && <AcknowledgeScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
       {screen === "sds" && <SdsPublicScreen code={ENTRY ? ENTRY.code : null} t={t} themeMode={themeMode} />}
       {screen === "setpin" && <SetPinScreen token={token} user={user} onDone={handlePinSet} onSignOut={handleLogout} showToast={showToast} t={t} />}
@@ -7299,6 +7304,315 @@ function CustomerFormScreen({ token, t, themeMode }) {
   // Any other answer keeps the photos on the phone and sends them inside
   // the filing, as the page always has.
   return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, asks: customerFieldsOf(got.data, form), photoRoute: got.data.photoRoute === true, title: title, head: head, thanksHead: headOf(false) }} />;
+}
+
+// ------------------------------------------------------------
+// A client's request for help (Step 252), opened from the QR in a
+// restroom or an eating area, at /r/<token>, with no sign-in and nothing
+// of the app around it: the head the other public pages draw, the link's
+// area or a question asking for it, five large tiles, a note, up to three
+// photos, an optional email for updates, and Send. Nobody is asked who
+// they are. Nothing typed here is kept on the phone, and the token is
+// never stored. Everything the page says about the request, the title,
+// the tiles, the scope line and the thanks, is the API's, in the language
+// on the screen, and is read again when the language changes; what was
+// typed stays through it. A link that is closed or names nothing shows
+// the API's one line and nothing else.
+// ------------------------------------------------------------
+const REQUEST_NOTE_MAX = 500;
+const REQUEST_AREA_MAX = 80;
+const REQUEST_MAX_PHOTOS = 3;
+const REQUEST_EMAIL_MAX = 254;
+const REQUEST_LOAD_FAILED = "This page could not load. Check your signal and try again.";
+const REQUEST_NOT_SENT = "Your request was not sent. Check your signal and tap Try again.";
+const REQUEST_PICK_ONE = "Pick one of these first.";
+const REQUEST_AREA_NEEDED = "Say where in the building.";
+// Which field a refusal is drawn under: the one its keys name, else the
+// one its code is about, else none, and one with none sits above Send.
+const REQUEST_BOXES = ["area", "category", "note", "photos", "email"];
+function requestBoxOf(err) {
+  const keys = Array.isArray(err && err.body && err.body.keys) ? err.body.keys.map(String) : [];
+  const named = keys.find(k => REQUEST_BOXES.indexOf(k) !== -1);
+  if (named) return named;
+  const code = String((err && err.code) || "");
+  if (/badCategory$/.test(code)) return "category";
+  if (/areaRequired$/.test(code)) return "area";
+  if (/badEmail$/.test(code)) return "email";
+  if (/photo/i.test(code)) return "photos";
+  return null;
+}
+// The office phone a closed link's refusal carries, as the API sends it
+// beside the sentence, else the number written in the sentence itself.
+function requestPhoneOf(err) {
+  const own = err && err.body && (typeof err.body.officePhone === "string" || typeof err.body.officePhone === "number") ? String(err.body.officePhone).trim() : "";
+  if (own) return own;
+  const m = /(\+?1?[\s.(-]*\d{3}[\s.)-]*\d{3}[\s.-]*\d{4})/.exec(String((err && err.message) || ""));
+  return m ? m[1].trim() : "";
+}
+const telOf = (phone) => "tel:" + String(phone).replace(/[^\d+]/g, "");
+// A category as the page draws it: its key, its title and its help line.
+function requestCategoryOf(c) {
+  if (!c || typeof c !== "object") return null;
+  const key = agentField(c, ["key"], null);
+  const title = typeof c.title === "string" ? c.title.trim() : "";
+  if (key === null || !title) return null;
+  return { key: String(key), title: title, help: typeof c.help === "string" ? c.help.trim() : "" };
+}
+// A line a public answer gives, or nothing.
+const publicLineOf = (v) => (typeof v === "string" && v.trim() ? v.trim() : null);
+
+function ClientRequestScreen({ token, t, themeMode }) {
+  const { language, setLanguage } = useContext(LanguageCtx);
+  const locale = languageToSend(language);
+  const [got, setGot] = useState({ loading: true, data: null, said: null, offline: false, phone: "" });
+  const [asked, setAsked] = useState(0);
+  const [area, setArea] = useState("");
+  const [category, setCategory] = useState(null);
+  const [note, setNote] = useState("");
+  const [email, setEmail] = useState("");
+  // Each photo once the link's route took it: the id the filing names,
+  // its name, and its own bytes as its thumbnail.
+  const [photos, setPhotos] = useState([]);
+  const [photoBusy, setPhotoBusy] = useState(0);
+  const [sending, setSending] = useState(false);
+  // The API's words when it refused: under the field they name, or above
+  // Send when they name none.
+  const [boxErr, setBoxErr] = useState({});
+  const [sendErr, setSendErr] = useState(null);
+  // The request is in, with the API's thanks; or the API's one line for a
+  // link that is closed or names nothing, which takes the page's place.
+  const [done, setDone] = useState(null);
+  const [closed, setClosed] = useState(null);
+  const boxRefs = useRef({});
+  const photoInput = useRef(null);
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+  useBusy("client request", sending || photoBusy > 0 || (!done && !closed && (area.trim() !== "" || category !== null || note.trim() !== "" || email.trim() !== "" || photos.length > 0)));
+
+  const path = "/api/public/requests/" + encodeURIComponent(token || "");
+  useEffect(() => {
+    let live = true;
+    setGot(prev => Object.assign({}, prev, { loading: true }));
+    (async () => {
+      try {
+        const r = await api(path + "?locale=" + locale, { noAuthEvent: true });
+        const ok = !!r && typeof r === "object" && Array.isArray(r.categories);
+        if (live) setGot({ loading: false, data: ok ? r : null, said: ok ? null : tr(REQUEST_LOAD_FAILED), offline: false, phone: "" });
+      } catch (err) {
+        const offline = wentNowhere(err);
+        if (live) setGot({ loading: false, data: null, said: offline ? tr(REQUEST_LOAD_FAILED) : tr(err.message), offline: offline, phone: err.status === 410 ? requestPhoneOf(err) : "" });
+      }
+    })();
+    return () => { live = false; };
+  }, [token, locale, asked]);
+
+  const data = got.data;
+  const company = data && data.company && typeof data.company === "object" ? data.company : {};
+  const site = data && data.site && typeof data.site === "object" ? data.site : {};
+  const headOf = (withPicker) => <PublicHead logo={company.logoUrl} companyName={company.name} siteName={site.name} withPicker={withPicker} locale={locale} setLanguage={setLanguage} t={t} themeMode={themeMode} />;
+  const cardSt = { background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 18 };
+  const linkBtn = { ...mkPrimaryBtn(t, false), display: "block", boxSizing: "border-box", minHeight: TAP, marginTop: 16, textAlign: "center", textDecoration: "none" };
+  const plainBtn = { width: "100%", minHeight: TAP, marginTop: 14, borderRadius: R.md, border: "1px solid " + GOLD, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD };
+  const callLink = (phone) => <a href={telOf(phone)} style={{ ...plainBtn, display: "block", boxSizing: "border-box", textAlign: "center", textDecoration: "none", lineHeight: "42px" }}>{tr("Call the office")}</a>;
+
+  if (closed || (!data && !got.loading)) {
+    const phone = closed ? closed.phone : got.phone;
+    return (
+      <div style={{ padding: 16 }}>
+        {headOf(true)}
+        <div style={cardSt}>
+          <div role="alert" style={{ fontSize: 14, color: t.text, lineHeight: 1.55 }}>{closed ? closed.said : got.said}</div>
+          {phone && callLink(phone)}
+          {!closed && got.offline && <button type="button" onClick={() => setAsked(n => n + 1)} style={plainBtn}>{tr("Try again")}</button>}
+        </div>
+      </div>
+    );
+  }
+  if (!data) {
+    return <div style={{ padding: 16 }}>{headOf(true)}<div style={{ fontSize: 13, color: t.textMut, lineHeight: 1.5 }}>{tr("Loading...")}</div></div>;
+  }
+
+  const title = publicLineOf(data.title);
+  const concernUrl = publicLineOf(data.concernUrl);
+  if (done) {
+    return (
+      <div style={{ padding: 16 }}>
+        {headOf(false)}
+        {title && <div role="heading" aria-level={1} style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere", marginBottom: 12 }}>{title}</div>}
+        <div role="status" style={cardSt}>
+          {done.thanks.map((line, i) => <div key={i} style={{ fontSize: i === 0 ? 15 : 14, color: i === 0 ? t.text : t.textSec, lineHeight: 1.55, fontFamily: i === 0 ? FONT_HEAD : FONT_BODY, fontWeight: i === 0 ? 600 : 400, marginTop: i === 0 ? 0 : 8, overflowWrap: "anywhere" }}>{line}</div>)}
+          {concernUrl && <a href={concernUrl} style={linkBtn}>{tr("Report a concern instead")}</a>}
+        </div>
+      </div>
+    );
+  }
+
+  const categories = (Array.isArray(data.categories) ? data.categories : []).map(requestCategoryOf).filter(Boolean);
+  const askArea = data.askArea === true;
+  const areaShown = publicLineOf(data.area);
+  const maxPhotos = Number(data.maxPhotos) > 0 ? Math.min(Number(data.maxPhotos), REQUEST_MAX_PHOTOS) : REQUEST_MAX_PHOTOS;
+  const maxNote = Number(data.maxNote) > 0 ? Number(data.maxNote) : REQUEST_NOTE_MAX;
+  const scopeLine = publicLineOf(data.scopeLine);
+  const full = photos.length + photoBusy >= maxPhotos;
+
+  const clearBox = (k) => setBoxErr(prev => { if (!prev[k]) return prev; const next = Object.assign({}, prev); delete next[k]; return next; });
+  const showAt = (box) => setTimeout(() => { const el = boxRefs.current[box]; if (el && el.scrollIntoView) el.scrollIntoView({ block: "center" }); }, 0);
+  // Every picture is made small on the phone first, a HEIC among them,
+  // then goes up through the link's own photo route at once, and the
+  // filing names it by the id the route answered. A refusal is said under
+  // the photos in the API's words and the photo is not kept.
+  const addPhotos = async (fileList) => {
+    const picked = Array.from(fileList || []).filter(Boolean).slice(0, Math.max(0, maxPhotos - photos.length));
+    if (picked.length === 0) return;
+    setPhotoBusy(n => n + picked.length);
+    clearBox("photos");
+    const files = [];
+    let unreadable = false;
+    for (let i = 0; i < picked.length; i++) {
+      try { files.push(await prepareFormPhoto(picked[i])); } catch (e) { unreadable = true; }
+    }
+    if (files.length > 0) {
+      try {
+        const r = await apiUpload(path + "/photos?locale=" + locale, "photos", files, { noAuthEvent: true });
+        const ids = customerPhotosOf(r);
+        if (ids.length !== files.length) throw new Error(UPLOAD_FAILED);
+        const kept = [];
+        for (let i = 0; i < files.length; i++) {
+          const bytes = await new Promise((resolve) => { const rd = new FileReader(); rd.onload = () => resolve(String(rd.result || "")); rd.onerror = () => resolve(""); rd.readAsDataURL(files[i]); });
+          kept.push({ id: ids[i], name: files[i].name, data: bytes });
+        }
+        if (alive.current) setPhotos(prev => prev.concat(kept).slice(0, maxPhotos));
+      } catch (err) {
+        if (alive.current) setBoxErr(prev => Object.assign({}, prev, { photos: tr(err && err.message ? err.message : UPLOAD_FAILED) }));
+      }
+    }
+    if (alive.current && unreadable) setBoxErr(prev => Object.assign({}, prev, { photos: tr(FORMS_PHOTO_UNREADABLE) }));
+    if (alive.current) setPhotoBusy(n => Math.max(0, n - picked.length));
+  };
+  const send = async () => {
+    if (sending || photoBusy > 0) return;
+    const own = {};
+    if (askArea && area.trim() === "") own.area = tr(REQUEST_AREA_NEEDED);
+    if (category === null) own.category = tr(REQUEST_PICK_ONE);
+    if (Object.keys(own).length > 0) { setBoxErr(own); showAt(own.area ? "area" : "category"); return; }
+    setSending(true); setSendErr(null); setBoxErr({});
+    const body = { category: category, note: note.trim(), photos: photos.map(p => p.id), email: email.trim(), locale: locale, website: "" };
+    if (askArea) body.area = area.trim();
+    try {
+      const r = await api(path + "?locale=" + locale, { method: "POST", body: body, noAuthEvent: true });
+      if (!alive.current) return;
+      // What was typed leaves memory once it is in.
+      setArea(""); setCategory(null); setNote(""); setEmail(""); setPhotos([]);
+      const thanks = r && Array.isArray(r.thanks) ? r.thanks.map(publicLineOf).filter(Boolean) : [];
+      setDone({ thanks: thanks });
+    } catch (err) {
+      if (!alive.current) return;
+      const box = requestBoxOf(err);
+      if (wentNowhere(err)) setSendErr(tr(REQUEST_NOT_SENT));
+      else if (err.status === 404 || err.status === 410) setClosed({ said: tr(err.message), phone: err.status === 410 ? requestPhoneOf(err) : "" });
+      else if (box) { setBoxErr({ [box]: tr(err.message) }); showAt(box); }
+      else setSendErr(tr(err.message));
+    }
+    if (alive.current) setSending(false);
+  };
+
+  const qSt = { marginBottom: 20 };
+  const labelSt = { display: "block", fontSize: 14, fontWeight: 600, color: t.text, lineHeight: 1.45, fontFamily: FONT_HEAD, overflowWrap: "anywhere" };
+  const optSt = { fontSize: 11, fontWeight: 600, color: t.textMut, marginLeft: 6, whiteSpace: "nowrap" };
+  const inputSt = { ...mkInput(t), minHeight: TAP, marginTop: 8 };
+  const errOf = (k) => boxErr[k] ? <div role="alert" style={mkFieldErr(t)}>{boxErr[k]}</div> : null;
+  const tileSt = (on) => ({
+    width: "100%", minHeight: 56, marginTop: 8, padding: "12px 14px", borderRadius: R.md, cursor: sending ? "default" : "pointer",
+    display: "flex", alignItems: "center", gap: 12, textAlign: "left", boxSizing: "border-box",
+    background: on ? t.goldBg : t.card, border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text, boxShadow: t.shadow,
+  });
+  const markSt = (on) => ({ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: on ? GOLD : "transparent", border: on ? "none" : "2px solid " + t.borderSolid });
+  const thumbSt = { width: 72, height: 72, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt };
+  const photoNameSt = { fontSize: 10, color: t.textMut, marginTop: 4, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const smallBtn = { width: "100%", minHeight: TAP, marginTop: 6, padding: "8px 6px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD };
+  const used = note.length.toLocaleString(dateLocale());
+
+  return (
+    <div style={{ padding: 16 }}>
+      {headOf(true)}
+      {title && <div role="heading" aria-level={1} style={{ fontSize: 17, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{title}</div>}
+      {!askArea && areaShown && <div data-request="area" style={{ fontSize: 22, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, marginTop: 6, overflowWrap: "anywhere" }}>{areaShown}</div>}
+
+      <div style={{ marginTop: 18 }}>
+        {askArea && (
+          <div style={qSt} ref={el => { boxRefs.current.area = el; }}>
+            <label htmlFor="ocsa-request-area" style={labelSt}>{tr("Where in the building?")}<span style={optSt}>{tr("Required")}</span></label>
+            <input id="ocsa-request-area" type="text" maxLength={REQUEST_AREA_MAX} value={area} disabled={sending} onChange={e => { setArea(e.target.value); clearBox("area"); }} aria-invalid={!!boxErr.area} style={inputSt} />
+            {errOf("area")}
+          </div>
+        )}
+
+        <div style={qSt} ref={el => { boxRefs.current.category = el; }} role="group" aria-label={title || undefined}>
+          {categories.map(c => { const on = category === c.key; return (
+            <button key={c.key} type="button" data-request-category={c.key} onClick={() => { setCategory(c.key); clearBox("category"); }} disabled={sending} aria-pressed={on} style={tileSt(on)}>
+              <span style={markSt(on)} />
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <span style={{ display: "block", fontSize: 15, fontWeight: 600, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{c.title}</span>
+                {c.help && <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{c.help}</span>}
+              </span>
+            </button>
+          ); })}
+          {errOf("category")}
+          {scopeLine && <div style={{ fontSize: 12, color: t.textMut, marginTop: 10, lineHeight: 1.45, overflowWrap: "anywhere" }}>{scopeLine}</div>}
+        </div>
+
+        <div style={qSt} ref={el => { boxRefs.current.note = el; }}>
+          <label htmlFor="ocsa-request-note" style={labelSt}>{tr("Anything we should know?")}<span style={optSt}>{tr("Optional")}</span></label>
+          <textarea id="ocsa-request-note" rows={3} maxLength={maxNote} value={note} disabled={sending} onChange={e => { setNote(e.target.value.slice(0, maxNote)); clearBox("note"); }} aria-invalid={!!boxErr.note} style={{ ...inputSt, minHeight: 84, resize: "vertical", lineHeight: 1.5 }} />
+          <div style={mkHelp(t)}>{tr("{used} of {max} characters used.", { used: used, max: maxNote.toLocaleString(dateLocale()) })}</div>
+          {errOf("note")}
+        </div>
+
+        <div style={qSt} ref={el => { boxRefs.current.photos = el; }}>
+          <div style={labelSt}>{tr("Add photos")}<span style={optSt}>{tr("Optional")}</span></div>
+          {photos.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
+              {photos.map(p => (
+                <div key={p.id} style={{ width: 104 }}>
+                  {p.data ? <img src={p.data} alt="" style={thumbSt} /> : <div style={thumbSt} />}
+                  <div style={photoNameSt}>{p.name}</div>
+                  <button type="button" onClick={() => { setPhotos(prev => prev.filter(x => x.id !== p.id)); clearBox("photos"); }} disabled={sending} style={smallBtn}>{tr("Remove photo")}</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {photoBusy > 0 && <div style={{ ...mkHelp(t), marginTop: 10 }}>{tr("Uploading...")}</div>}
+          {!full && (
+            <>
+              <input ref={photoInput} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { addPhotos(e.target.files); e.target.value = ""; }} />
+              <button type="button" onClick={() => photoInput.current && photoInput.current.click()} disabled={sending} style={{ width: "100%", minHeight: TAP, marginTop: 8, padding: "12px", display: "flex", alignItems: "center", gap: 10, textAlign: "left", borderRadius: R.md, border: "1px dashed " + GOLD, background: t.hover, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>
+                <CamIco sz={18} c={t.goldText} /><span>{tr("Take photo or choose from gallery")}</span>
+              </button>
+            </>
+          )}
+          {errOf("photos")}
+        </div>
+
+        <div style={qSt} ref={el => { boxRefs.current.email = el; }}>
+          <label htmlFor="ocsa-request-email" style={labelSt}>{tr("Email me updates (optional)")}</label>
+          <input id="ocsa-request-email" type="email" inputMode="email" autoComplete="email" maxLength={REQUEST_EMAIL_MAX} value={email} disabled={sending} onChange={e => { setEmail(e.target.value); clearBox("email"); }} aria-invalid={!!boxErr.email} style={inputSt} />
+          {errOf("email")}
+        </div>
+
+        {/* The hidden field a form-filling robot fills and a person never
+            sees. The API answers a filing that fills it as if it went. */}
+        <input type="text" name="website" value="" readOnly tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: "absolute", opacity: 0, width: 0, height: 0, border: 0, padding: 0, margin: 0, pointerEvents: "none" }} />
+
+        {sendErr && (
+          <div role="alert" style={{ padding: "10px 12px", marginBottom: 14, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text, fontSize: 13, lineHeight: 1.5 }}>
+            <div>{sendErr}</div>
+            <button type="button" onClick={send} disabled={sending} style={{ ...plainBtn, marginTop: 10 }}>{tr("Try again")}</button>
+          </div>
+        )}
+        <button type="button" onClick={send} disabled={sending || photoBusy > 0} style={{ ...mkPrimaryBtn(t, sending || photoBusy > 0), minHeight: TAP, cursor: sending ? "default" : "pointer" }}>{sending ? tr("Sending") : tr("Send")}</button>
+      </div>
+    </div>
+  );
 }
 
 // The client's acknowledgement of a monthly report, the page the mail
