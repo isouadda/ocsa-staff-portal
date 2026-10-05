@@ -303,6 +303,30 @@ const INSPECTION = {
     { id: "it-2", label: "Floor mats are straight and dry", zone: "Lobby", max_score: 5, cims_category: "SD" },
   ],
 };
+// Step 255: an inspection of three cards for the findings check, opened
+// by a stub whose findings switch is on. Two of its cards open a
+// finding and one is fine, so the whole scores 11 of 15 and lands in
+// the failed band (70 to 79.9), which requires a corrective action.
+const INSPECTION_F = {
+  id: "in-f", template_name: "Invented lobby walk", site_id: "site-north", site_name: "North Building", scheduled_date: "2026-10-05", status: "scheduled",
+  items: [
+    { id: "if-1", label: "Glass doors are free of smudges", zone: "Lobby", max_score: 5 },
+    { id: "if-2", label: "Floor mats are straight and dry", zone: "Lobby", max_score: 5 },
+    { id: "if-3", label: "Waste bins are emptied and lined", zone: "Lobby", max_score: 5 },
+  ],
+};
+// The complete route's refusals about a finding (the Step 253 contract
+// section 3, item 2); the words are the stub's, since the contract gives
+// none, and the keys name the card.
+const FINDING_REFUSALS = {
+  "inspections.findingNoteRequired": { status: 400, en: "Say what needs fixing on this card.", es: "Diga qu\u00e9 hay que arreglar en esta tarjeta." },
+  "inspections.badOwner": { status: 400, en: "Choose an owner from the list.", es: "Elija un responsable de la lista." },
+};
+// The band a score lands in (QMS-014 5.2), its due date from the
+// completion, and the severity of each finding, as the contract's rule 2.
+const findingBandOf = (pct) => (pct >= 90 ? "meets" : pct >= 80 ? "below" : pct >= 70 ? "failed" : "serious");
+const FINDING_DUE_DAYS = { meets: 1, below: 3, failed: 10 };
+const FINDING_SEVERITY = { meets: "low", below: "medium", failed: "high", serious: "high" };
 // A long one, five items, for a case that scores several and watches the
 // scored ones fold away.
 const INSPECTION_LONG = {
@@ -527,6 +551,14 @@ function makeState(opts) {
     inspections: (o.inspections || []).map(i => Object.assign({}, i)),
     // Step 145: every problem filed through POST /api/issues, in order.
     issues: [],
+    // Step 255: an API with Step 253 built, which answers owners on the
+    // scheduled read, opens one ticket per deficient card at completion
+    // and lists them as source inspection. The first completion is turned
+    // away once with findingNoteRequired on its first deficient card, laid
+    // over the stub, so a check sees the refusal under the card.
+    findings: o.findings === true,
+    findingRows: [],
+    findingRefusals: o.findings === true ? 1 : 0,
     // The supplies at the open shift's site, which a case can answer
     // with none. null answers the one supply every case has always had.
     supplies: Array.isArray(o.supplies) ? o.supplies : null,
@@ -2086,6 +2118,13 @@ function createStub(opts) {
   // The stub's clock, which a case can move, and when a check was made. A
   // check with no time was made a minute before the clock.
   const clockNow = () => (state.now !== null ? state.now : NOW.getTime());
+  // Step 255: who may own a finding at the site, as the scheduled read
+  // answers owners: the person signed in first, then two invented people.
+  const findingOwners = () => [
+    { id: state.person.id, name: state.person.firstName + " " + state.person.lastName, role: state.person.role },
+    { id: "s-02", name: "Ben Brooks", role: "custodian" },
+    { id: "s-05", name: "Eve Everett", role: "supervisor" },
+  ];
   const atOf = (c) => (c.at !== undefined ? c.at : clockNow() - 60 * 1000);
   const firstNameOf = (userId) => (userId === state.person.id ? state.person.firstName : (FIRST_NAMES[userId] || "Someone"));
   const latest = (list) => list.slice().sort((a, b) => atOf(b) - atOf(a))[0];
@@ -3197,6 +3236,24 @@ function createStub(opts) {
       }
     }
     // --- reporting and supplies
+    // Step 255: the findings the stub opened, listed as source inspection
+    // to the person signed in, and resolved by their owner with the PATCH
+    // the API as built takes ({ status, resolutionNotes }).
+    if (state.findings && key === "GET /api/issues") {
+      const q = new URLSearchParams(search || "");
+      return json(200, q.get("source") === "inspection" ? state.findingRows.map(r => Object.assign({}, r)) : []);
+    }
+    if (state.findings && method === "PATCH" && /^\/api\/issues\/[^/]+$/.test(pathname)) {
+      const row = state.findingRows.find(r => pathname === "/api/issues/" + r.id);
+      if (!row) return json(404, { error: "Issue not found", code: "issues.notFound" });
+      const b = body && typeof body === "object" ? body : {};
+      if (b.status === "resolved") {
+        if (row.assigned_to !== state.person.id && FK_MANAGEMENT.indexOf(state.person.role) === -1) return json(403, { error: "This is not assigned to you", code: "issues.cannotResolve" });
+        row.status = "resolved"; row.resolved_at = new Date(clockNow()).toISOString(); row.resolved_by = state.person.id; row.due_state = "answered";
+      } else if (b.status === "closed") return json(409, { error: "Use verify", code: "issues.useVerify" });
+      if (b.resolutionNotes) row.resolution_notes = String(b.resolutionNotes);
+      return json(200, { message: "Issue updated", code: "issues.updated", issue: Object.assign({}, row) });
+    }
     if (key === "GET /api/issues") return json(200, []);
     if (key === "POST /api/issues") {
       if (!body || !body.siteId || !body.title) return json(400, { error: "Site and title are required" });
@@ -3205,6 +3262,8 @@ function createStub(opts) {
       return json(201, { message: "Issue reported", code: "issues.reported", issue: { id: issue.id } });
     }
     if (method === "POST" && /^\/api\/issues\/[^/]+\/photos$/.test(pathname)) {
+      const finding = state.findings ? state.findingRows.find(r => pathname === "/api/issues/" + r.id + "/photos") : null;
+      if (finding) { if (!body || !body.photoUrl) return json(400, { error: "Photo URL is required" }); finding.photos.push({ id: "fph-" + (finding.photos.length + 1), url: String(body.photoUrl) }); return json(201, { photo: { id: "fph-" + finding.photos.length, url: String(body.photoUrl) } }); }
       const issue = state.issues.find(i => pathname === "/api/issues/" + i.id + "/photos");
       if (!issue) return json(404, { error: "Issue not found" });
       if (!body || !body.photoUrl) return json(400, { error: "Photo URL is required" });
@@ -3225,11 +3284,42 @@ function createStub(opts) {
       const one = state.inspections.find(i => i.id === completing[1] && !i.gone);
       if (!one) return json(404, { error: INSPECTION_NOT_FOUND[0] });
       if (one.status === "completed") return json(400, { error: "This inspection was already completed" });
+      const total = body.scores.reduce((s, x) => s + (parseInt(x.score) || 0), 0);
+      if (state.findings) {
+        // Step 255, as the Step 253 contract's section 3 item 2: a card
+        // marked deficient or scored under 80 percent of its maximum is a
+        // finding, needs a note, and may name an owner from the list.
+        const items = one.items || [];
+        const refuse = (key, keys) => { const r = FINDING_REFUSALS[key]; return json(r.status, { error: refusalIn(r, lang), code: key, keys: keys }); };
+        const rows = body.scores.map(x => { const item = items.find(i => i.id === x.template_item_id) || { max_score: 0 }; const score = parseInt(x.score) || 0; return { x: x, item: item, score: score, deficient: x.deficient === true || score * 100 < 80 * item.max_score }; }).filter(r => r.deficient);
+        const ownerIds = findingOwners().map(o => o.id);
+        const noNote = rows.filter(r => !String(r.x.notes || "").trim());
+        if (noNote.length) return refuse("inspections.findingNoteRequired", noNote.map(r => r.x.template_item_id));
+        const badOwner = rows.filter(r => r.x.ownerId !== undefined && r.x.ownerId !== null && ownerIds.indexOf(String(r.x.ownerId)) === -1);
+        if (badOwner.length) return refuse("inspections.badOwner", badOwner.map(r => r.x.template_item_id));
+        if (state.findingRefusals > 0 && rows.length) { state.findingRefusals -= 1; return refuse("inspections.findingNoteRequired", [rows[0].x.template_item_id]); }
+        one.status = "completed";
+        const max = items.reduce((s, i) => s + (i.max_score || 0), 0);
+        const pct = max > 0 ? Math.round(total * 1000 / max) / 10 : 0;
+        const band = findingBandOf(pct);
+        const at = new Date(clockNow());
+        const due = new Date(at.getTime());
+        if (band === "serious") due.setHours(23, 59, 0, 0); else due.setDate(due.getDate() + FINDING_DUE_DAYS[band]);
+        const opened = rows.map(r => {
+          const owner = r.x.ownerId ? findingOwners().find(o => o.id === String(r.x.ownerId)) : null;
+          const row = { id: "fnd-" + (state.findingRows.length + 1), site_id: one.site_id, site_name: one.site_name, title: r.item.label, description: String(r.x.notes || "").trim(), zone: r.item.zone || null, severity: FINDING_SEVERITY[band], status: "open", source: "inspection", reference: null,
+            reported_at: at.toISOString(), reported_by: state.person.id, assigned_to: owner ? owner.id : null, assigned_to_name: owner ? owner.name : null, due_at: due.toISOString(), due_state: "onTime", first_response_at: owner ? at.toISOString() : null, resolved_at: null, resolved_by: null, verified_at: null, verified_by_name: null, item_score_id: "sc-" + r.x.template_item_id, corrective_action_id: null, photos: [] };
+          state.findingRows.push(row);
+          return { issueId: row.id, templateItemId: r.x.template_item_id, label: r.item.label, zone: r.item.zone || null, score: r.score, maxScore: r.item.max_score, severity: row.severity, dueAt: row.due_at, owner: owner ? { id: owner.id, name: owner.name } : null };
+        });
+        return json(200, { success: true, result: { id: "res-" + one.id, scheduled_inspection_id: one.id, total_score: total, max_possible_score: max }, scorePct: pct, band: band, correctiveActionRequired: pct < 80, findings: opened });
+      }
       one.status = "completed";
-      return json(200, { success: true, result: { id: "res-" + one.id, scheduled_inspection_id: one.id, total_score: body.scores.reduce((s, x) => s + (parseInt(x.score) || 0), 0) } });
+      return json(200, { success: true, result: { id: "res-" + one.id, scheduled_inspection_id: one.id, total_score: total } });
     }
     if (method === "GET" && /^\/api\/inspections\/scheduled\/[^/]+$/.test(pathname)) {
       const one = state.inspections.find(i => pathname.endsWith("/" + i.id) && !i.gone);
+      if (one && state.findings) return json(200, Object.assign({}, one, { owners: findingOwners() }));
       return one ? json(200, one) : json(404, { error: INSPECTION_NOT_FOUND[0] });
     }
     if (pathname === "/api/inspections/scheduled") return json(200, []);
@@ -3399,7 +3489,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

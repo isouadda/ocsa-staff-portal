@@ -39,7 +39,11 @@ section, Approve and assign with its picker and the 409 when someone
 else decided first, and for an assignee, the request opened from the
 notice's link, /requests/<id>, then I'm on it and Done; the supply
 page signed out, with the sheet in the page and Sign in to record use,
-and signed in, with Used one and Running low;
+and signed in, with Used one and Running low; Inspection findings
+(Step 255), a completion that opens two findings through the API alone,
+one with an owner, with the API's refusal under the card it names, the
+answer screen with the band and each finding, and the owner's finding
+on Report, Fixed and Waiting for a check;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
@@ -47,7 +51,7 @@ non-zero on any failure or when the run takes three minutes or more.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`, `fieldKit`, `requests`, `supplyQr`), off for every other case. The full suite below is separate
+`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`), off for every other case. The full suite below is separate
 and is not run by it.
 
 ## The full suite

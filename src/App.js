@@ -6026,6 +6026,9 @@ function requestWhen(iso) {
   const sameDay = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
   return sameDay ? d.toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }) : d.toLocaleString(dateLocale(), { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
+// How long ago, the way the bell says it, with "ago" after it except for
+// a time under a minute, which reads "now" alone.
+const requestAgo = (iso) => { const v = notifAgo(iso, Date.now()); return !v ? "" : v === tr("now") ? v : tr("{ago} ago", { ago: v }); };
 // A refusal in the API's own words, else the screen's own line.
 const requestFaultOf = (err, fallback) => fkSaidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : fallback);
 // The 409 the first approver's win leaves the second: who took it.
@@ -6100,7 +6103,7 @@ function ClientRequestsSection({ token, user, rows, onChanged, showToast, openId
   const btn = (primary) => ({ flex: "1 1 120px", minHeight: TAP, padding: "10px 12px", borderRadius: R.md, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, border: primary ? "none" : "1px solid " + t.borderSolid, background: primary ? "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")" : "transparent", color: primary ? NAVY : t.text, boxShadow: primary ? "0 6px 18px rgba(231,176,23,0.30)" : "none" });
   const headSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
   const lineSt = { fontSize: 12, color: t.textSec, marginTop: 3, lineHeight: 1.4, overflowWrap: "anywhere" };
-  const ago = (iso) => { const v = notifAgo(iso, Date.now()); return v ? tr("{ago} ago", { ago: v }) : ""; };
+  const ago = (iso) => requestAgo(iso);
   const head = (r) => (
     <>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
@@ -6404,7 +6407,7 @@ function FindingsSection({ token, user, rows, onChanged, showToast, openId, t })
   const btn = { flex: "1 1 120px", minHeight: TAP, padding: "10px 12px", borderRadius: R.md, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" };
   const headSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
   const lineSt = { fontSize: 12, color: t.textSec, marginTop: 3, lineHeight: 1.4, overflowWrap: "anywhere" };
-  const ago = (iso) => { const v = notifAgo(iso, Date.now()); return v ? tr("{ago} ago", { ago: v }) : ""; };
+  const ago = (iso) => requestAgo(iso);
   return (
     <div data-finding-section="mine" style={{ marginBottom: 18 }}>
       <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>{tr("Inspection findings")}</div>
