@@ -71,6 +71,14 @@
 //     the trainer; a supervisor's Home card counts it, Sign off training
 //     lists it, the tick is asked for, the API's refusal reads in the
 //     sheet, and the sign-off takes it off the list (English alone)
+//   - Step 264: Before you start at boot on a document to sign; a session
+//     joined from /join/<code> with the understood tick and a signature,
+//     the same code saying already signed in, a wrong code saying not
+//     open; a document read section by section with its contents list
+//     and signed with the version read; a supervisor's session started,
+//     its code and QR shown, a sign-in arriving and the close with a
+//     signature; and a checklist watched, an unticked step named, the
+//     person's signature, then the trainer's sign-off (English alone)
 //   - Inspection findings (Step 255): a completion that opens two
 //     findings, one with an owner, through the API alone, with the
 //     API's refusal under the card it names, the answer screen with the
@@ -90,7 +98,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, STAFF } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -1012,6 +1020,148 @@ async function lessons(browser) {
   await sup.context.close();
 }
 
+// Step 264 (English alone): a person opens /join/<code> signed in, reads
+// the session's title, topics and trainer, ticks that they understood it,
+// signs, and reads that they are signed in; the same code opened again
+// says they already signed in; a wrong code reads that the session is not
+// open. A supervisor's Training session tile starts a session with a
+// title and a topic, shows its code and QR, reads one sign-in arriving,
+// and closes it with a signature; Watch and sign off picks a person and
+// their observation checklist, names an unticked step, ticks every step,
+// takes the person's signature, then the trainer's sign-off. Before you
+// start opens at boot on a document to sign, Read and sign opens the
+// reader, Next walks its three sections, the signature is sent with the
+// version read, and My training no longer lists the document.
+async function step264(browser) {
+  const language = "en";
+  const prefs = { language: language, textSize: "standard" };
+  // Joining a session.
+  const app = await open({ training: true, documents: true, accountPreferences: prefs }, { browser, language, signedIn: true, path: "/join/" + TRAINING_SESSION_SEED.joinCode });
+  const page = app.page;
+  // Before you start opens first on a document to sign: Later goes on.
+  const before = await waitFor(page, () => !!document.querySelector('[data-before-you-start="1"]') && !!document.querySelector('[data-before-doc="' + "OCSA-HR-002" + '"]'));
+  if (before) await page.click('[data-before-later="1"]');
+  await page.goto(BASE + "/join/" + TRAINING_SESSION_SEED.joinCode, { waitUntil: "domcontentloaded" });
+  const opened = await waitFor(page, (w) => { const c = document.querySelector('[data-join="open"]'); return !!c && window.location.pathname === "/" && c.innerText.indexOf(w.title) !== -1 && c.innerText.indexOf(w.trainer) !== -1 && !!c.querySelector('[data-join-topic="tp-2"]') && !!c.querySelector('[data-join-signature="1"] canvas'); }, { title: TRAINING_SESSION_SEED.title, trainer: say(language, "Trainer: {name}", { name: TRAINING_SESSION_SEED.trainerName }) });
+  let held = false, signedIn = false, again = false, notOpen = false;
+  if (opened) {
+    await page.click('[data-join-send="1"]');
+    held = await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Tick I understood this training first."));
+    await page.click('[data-join-understood="0"]');
+    await sign(page, '[data-join-signature="1"] canvas');
+    await page.click('[data-join-send="1"]');
+    signedIn = await waitFor(page, (w) => { const c = document.querySelector('[data-join="signed"]'); return !!c && c.innerText.indexOf(w) !== -1; }, say(language, "You are signed in. Your trainer closes the session."));
+    await page.goto(BASE + "/join/" + TRAINING_SESSION_SEED.joinCode, { waitUntil: "domcontentloaded" });
+    again = await waitFor(page, (w) => { const c = document.querySelector('[data-join="signed"]'); return !!c && c.innerText.indexOf(w) !== -1; }, say(language, "You already signed in to this session."));
+    await page.goto(BASE + "/join/WRONGCODE1", { waitUntil: "domcontentloaded" });
+    notOpen = await waitFor(page, (w) => { const c = document.querySelector('[data-join="notOpen"]'); return !!c && c.innerText.indexOf(w) !== -1; }, say(language, "This session is not open."));
+  }
+  const joins = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/training/join/" + TRAINING_SESSION_SEED.joinCode);
+  const joinSent = joins.length === 1 && joins[0].body && joins[0].body.understood === true && joins[0].signature && joins[0].signature.bytes > 0;
+  const wide = await sideways(page);
+  check("Join a session: Before you start opens first and Later goes on; /join/<code> opens the session with its title, trainer and topic, the understood tick is asked for, the signature drawn is sent once with understood true, the person reads that they are signed in, the same code says they already signed in, and a wrong code says the session is not open, with no sideways scroll (en)",
+    before && opened && held && signedIn && again && notOpen && joinSent && wide <= 1 && app.errors.length === 0,
+    !before ? "Before you start did not open on the document" : !opened ? "the join screen did not open as expected" : !held ? "the tick line did not show" : !signedIn ? "the signed-in line did not show" : !again ? "the already-signed line did not show" : !notOpen ? "the not-open line did not show" : !joinSent ? JSON.stringify(joins.map(c => c.body)) : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+  await app.context.close();
+
+  // A document read and signed, from My training.
+  const doc = await open({ training: true, documents: true, accountPreferences: prefs }, { browser, language, signedIn: true });
+  const p2 = doc.page;
+  const sheet = await waitFor(p2, () => !!document.querySelector('[data-before-you-start="1"]'));
+  if (sheet) await p2.evaluate(() => { const r = document.querySelector('[data-before-doc="OCSA-HR-002"]'); const b = r && r.querySelector("button"); if (b) b.click(); });
+  const reading = sheet && await waitFor(p2, (w) => { const c = document.querySelector('[data-doc="read"]'); return !!c && c.getAttribute("data-doc-section") === "1" && c.innerText.indexOf(w.title) !== -1 && c.innerText.indexOf(w.first) !== -1 && !!c.querySelector('[data-doc-next="2"]') && !document.querySelector('[data-before-you-start="1"]'); }, { title: TRAINING_DOCUMENT.title, first: TRAINING_DOCUMENT.sections[0].title });
+  let contents = false, signedDoc = false, gone = false;
+  if (reading) {
+    await p2.click('[data-doc-contents="1"]');
+    contents = await waitFor(p2, () => document.querySelectorAll("[data-doc-jump]").length === 3);
+    await p2.click('[data-doc-jump="2"]');
+    await waitFor(p2, () => { const c = document.querySelector('[data-doc="read"]'); return !!c && c.getAttribute("data-doc-section") === "2"; });
+    await p2.click('[data-doc-next="3"]');
+    await waitFor(p2, () => !!document.querySelector('[data-doc-next="sign"]'));
+    await p2.click('[data-doc-next="sign"]');
+    await waitFor(p2, () => !!document.querySelector('[data-doc-signature="1"] canvas'));
+    await sign(p2, '[data-doc-signature="1"] canvas');
+    await p2.click('[data-doc-sign="1"]');
+    signedDoc = await waitFor(p2, (w) => { const c = document.querySelector('[data-doc="done"]'); return !!c && c.innerText.indexOf(w) !== -1; }, say(language, "Signed. It is on your record."));
+    await clickWord(p2, say(language, "Back to My training"));
+    gone = await waitFor(p2, () => { const c = document.querySelector('[data-training="1"]'); return !!c && !c.querySelector("[data-training-doc]") && !!c.querySelector('[data-training-certificate="tr-6"]'); });
+  }
+  const acks = doc.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/documents/OCSA-HR-002/acknowledge");
+  const ackSent = acks.length === 1 && acks[0].body && acks[0].body.version === TRAINING_DOCUMENT.version && acks[0].body.locale === "en" && acks[0].signature && acks[0].signature.bytes > 0;
+  const wide2 = await sideways(p2);
+  check("Documents to sign: Read and sign from Before you start opens the reader on section 1, Contents lists the three sections and jumps to one, Next reaches the signature, Sign sends the version read and the signature drawn once, Signed. It is on your record. shows, and My training then lists no document and says Certificate on file on the record with one, with no sideways scroll (en)",
+    sheet && reading && contents && signedDoc && gone && ackSent && wide2 <= 1 && doc.errors.length === 0,
+    !sheet ? "Before you start did not open" : !reading ? "the reader did not open on section 1" : !contents ? "Contents did not list three sections" : !signedDoc ? "the signed line did not show" : !gone ? "My training still lists the document, or no Certificate on file" : !ackSent ? JSON.stringify(acks.map(c => c.body)) : wide2 > 1 ? wide2 + " pixels sideways" : doc.errors[0]);
+  await doc.context.close();
+
+  // The supervisor: a session started and closed, and a checklist signed off.
+  const person = Object.assign({}, ADMIN_PERSON, { id: "u-smoke-sup", firstName: "Riley", lastName: "Example", role: "supervisor", badgeNumber: "4801", phone: "0000000008", email: "riley@example.invalid" });
+  const sup = await open({ training: true, fieldKit: true, person: person, accountPreferences: prefs }, { browser, language, signedIn: true });
+  const p3 = sup.page;
+  const kit = await tapMore(p3, say(language, "Field kit"));
+  const tiles = kit && await waitFor(p3, (w) => { const c = document.querySelector(".sp-content"); return !!c && w.every(x => Array.from(c.querySelectorAll("button")).some(b => b.innerText.indexOf(x) !== -1)); }, [say(language, "Training session"), say(language, "Watch and sign off")]);
+  let form = false, started = false, arrived = false, closed = false;
+  if (tiles) {
+    await openTile(p3, say(language, "Training session"));
+    form = await waitFor(p3, () => !!document.querySelector('[data-fk-session="form"]') && !!document.querySelector('[data-fk-session-topic="tp-2"]'));
+    if (form) {
+      await p3.fill("#ocsa-session-title", "Invented ladders refresher, afternoon");
+      await p3.click('[data-fk-session-topic="tp-2"]');
+      await p3.click('[data-fk-session-start="1"]');
+    }
+    started = form && await waitFor(p3, () => { const c = document.querySelector('[data-fk-session="open"]'); return !!c && !!c.querySelector("[data-fk-session-code]") && !!c.querySelector("img"); });
+    arrived = started && await waitFor(p3, () => !!document.querySelector('[data-fk-signin="si-arrived"]'), null, 12000);
+    if (arrived) {
+      await p3.click('[data-fk-session-close="1"]');
+      await waitFor(p3, () => !!document.querySelector('[data-fk-session-signature="1"] canvas'));
+      await sign(p3, '[data-fk-session-signature="1"] canvas');
+      await p3.click('[data-fk-session-send="close"]');
+    }
+    closed = arrived && await waitFor(p3, (w) => { const c = document.querySelector('[data-fk-session="closed"]'); return !!c && c.innerText.indexOf(w) !== -1; }, say(language, "Closed. 1 record saved."));
+  }
+  const starts = sup.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/training/sessions").map(c => c.body);
+  const closes = sup.stub.state.calls.filter(c => c.method === "POST" && /^\/api\/training\/sessions\/[^/]+\/close$/.test(c.path));
+  const sessionSent = starts.length === 1 && starts[0].title === "Invented ladders refresher, afternoon" && starts[0].siteId === "site-north" && JSON.stringify(starts[0].topicIds) === '["tp-2"]' && /^\d{4}-\d{2}-\d{2}$/.test(starts[0].day) && closes.length === 1 && closes[0].signature && closes[0].signature.bytes > 0;
+  check("Training session: the tile starts a session with a title and a topic on the site, shows its code and QR, reads a sign-in arriving, and Close the session with the signature drawn says 1 record saved (en)",
+    tiles && form && started && arrived && closed && sessionSent && sup.errors.length === 0,
+    !tiles ? "the two tiles are not in the field kit" : !form ? "the form did not show the topic" : !started ? "the session did not open with its code and QR" : !arrived ? "no sign-in arrived" : !closed ? "the closed line did not show" : !sessionSent ? JSON.stringify({ starts, closes: closes.length }) : sup.errors[0]);
+  // Watch and sign off.
+  let picked = false, named = false, handed = false, personSigned = false, signedOff = false;
+  if (tiles) {
+    await backToKit(p3, language);
+    await openTile(p3, say(language, "Watch and sign off"));
+    await waitFor(p3, () => !!document.querySelector("#ocsa-observe-person option[value]:not([value=''])"));
+    await p3.selectOption("#ocsa-observe-person", { index: 1 });
+    picked = await waitFor(p3, () => !!document.querySelector('[data-fk-checklist="tp-4"]') && !document.querySelector('[data-fk-checklist="tp-1"]'));
+    if (picked) await p3.evaluate(() => { const b = document.querySelector('[data-fk-checklist="tp-4"] button'); if (b) b.click(); });
+    await waitFor(p3, () => !!document.querySelector('[data-fk-observe="steps"]') && document.querySelectorAll("[data-fk-step]").length === 3);
+    await p3.click('[data-fk-step="s1"]');
+    await p3.click('[data-fk-observe-hand="1"]');
+    named = await waitFor(p3, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Not ticked yet: {steps}", { steps: TRAINING_OBSERVATION.steps[1].text + "; " + TRAINING_OBSERVATION.steps[2].text }));
+    await p3.click('[data-fk-step="s2"]');
+    await p3.click('[data-fk-step="s3"]');
+    await p3.click('[data-fk-observe-hand="1"]');
+    handed = await waitFor(p3, (w) => { const c = document.querySelector('[data-fk-observe="person"]'); return !!c && c.innerText.indexOf(w) !== -1 && !!c.querySelector('[data-fk-observe-signature="1"] canvas'); }, TRAINING_OBSERVATION.acknowledgement);
+    await sign(p3, '[data-fk-observe-signature="1"] canvas');
+    await p3.click('[data-fk-observe-sign="1"]');
+    personSigned = await waitFor(p3, () => !!document.querySelector('[data-fk-observe="trainer"]') && !!document.querySelector('[data-fk-signoff-signature="1"] canvas'));
+    await p3.click('[data-fk-signoff-watched="0"]');
+    await sign(p3, '[data-fk-signoff-signature="1"] canvas');
+    await p3.click('[data-fk-signoff-send="1"]');
+    signedOff = await waitFor(p3, (w) => { const c = document.querySelector('[data-fk-observe="done"]'); return !!c && c.innerText.indexOf(w) !== -1 && !document.querySelector('[role="dialog"]'); }, say(language, "Signed off. It is on their record."));
+  }
+  const obs = sup.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/training/observations").map(c => c.body);
+  const steps = sup.stub.state.calls.filter(c => c.method === "POST" && /\/observations\/[^/]+\/steps$/.test(c.path)).map(c => c.body);
+  const pSign = sup.stub.state.calls.filter(c => c.method === "POST" && /\/observations\/[^/]+\/person-sign$/.test(c.path));
+  const offs = sup.stub.state.calls.filter(c => c.method === "POST" && /\/attempts\/[^/]+\/signoff$/.test(c.path));
+  const obsSent = obs.length === 1 && obs[0].versionId === "lv-3" && obs[0].userId === STAFF[0].id && obs[0].siteId === "site-north" && steps.length === 1 && JSON.stringify(steps[0]) === '{"steps":{"s1":true,"s2":true,"s3":true}}' && pSign.length === 1 && pSign[0].signature && pSign[0].signature.bytes > 0 && offs.length === 1 && offs[0].body.demonstrated === true && offs[0].signature && offs[0].signature.bytes > 0;
+  const wide3 = await sideways(p3);
+  check("Watch and sign off: the person at the site, their observation checklist alone, an unticked step named on the phone before anything is sent, every step ticked and sent once, the person's signature on the trainer's phone, then the trainer's tick and signature through the sign-off, and Signed off. It is on their record., with no sideways scroll (en)",
+    tiles && picked && named && handed && personSigned && signedOff && obsSent && wide3 <= 1 && sup.errors.length === 0,
+    !tiles ? "the tiles did not show" : !picked ? "the checklist list did not read as expected" : !named ? "the unticked steps were not named" : !handed ? "the person's signature screen did not show" : !personSigned ? "the trainer's sheet did not open" : !signedOff ? "the signed-off line did not show" : !obsSent ? JSON.stringify({ obs, steps, pSign: pSign.length, offs: offs.length }) : wide3 > 1 ? wide3 + " pixels sideways" : sup.errors[0]);
+  await sup.context.close();
+}
+
 // The supply page (Step 252): signed out, the sheet in the page and Sign
 // in to record use; signed in, Used one and Running low.
 async function supplyPage(browser, language) {
@@ -1081,6 +1231,7 @@ async function largest(browser) {
     await guard("Inspection findings", () => findings(browser, "en"));
     await guard("My training", () => training(browser, "en"));
     await guard("Online lessons", () => lessons(browser));
+    await guard("Step 264", () => step264(browser));
     await guard("the supply page", () => supplyPage(browser, "en"));
     await guard("French", () => french(browser));
     await guard("the Largest text size", () => largest(browser));
