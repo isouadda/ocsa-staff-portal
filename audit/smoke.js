@@ -49,8 +49,9 @@
 //     filing of the same category joins it
 //   - Client requests (Step 252): an approver's Home card and section,
 //     Approve and assign with its picker and the 409 when someone else
-//     decided first (English alone); an assignee's card, I'm on it and
-//     Done (English alone)
+//     decided first (English alone); an assignee's request opened from
+//     the notice's link, /requests/<id>, the card, I'm on it and Done
+//     (English alone)
 //   - the supply page (Step 252) signed out, with the sheet in the page
 //     and Sign in to record use, and signed in, with Used one and
 //     Running low (English alone)
@@ -702,9 +703,9 @@ async function requestPage(browser, language) {
   await clickWord(page, say(language, "Send"));
   const joined = await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, requestWord(language, "joined"));
   const filed = app.stub.state.requestsFiled;
-  const sent = filed.length === 2 && filed[0].category === "spill" && filed[0].area === "Third floor kitchen" && JSON.stringify(filed[0].photos) === '["rp-1"]' && filed[0].email === "invented@example.invalid" && filed[0].body.website === "" && filed[0].joined === false && filed[1].joined === true;
+  const sent = filed.length === 2 && filed[0].category === "spill" && filed[0].area === "Third floor kitchen" && JSON.stringify(filed[0].photos) === '[{"id":"rp-1","name":"sink.jpg"}]' && filed[0].email === "invented@example.invalid" && filed[0].body.website === "" && filed[0].joined === false && filed[1].joined === true;
   const posts = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/public/requests/req-site").length;
-  check("the request page at 320 asks where on the site-wide link, says a refusal under its field, files a request with a photo through its own route and shows the API's thanks with Report a concern instead, and a second filing of the same category joins it (" + language + ")",
+  check("the request page at 320 asks where on the site-wide link, says a refusal under its field, files a request with a photo through its own route, named as { id, name }, and shows the API's thanks with Report a concern instead, and a second filing of the same category joins it (" + language + ")",
     up && under && thanked && concern && wide <= 1 && joined && sent && posts === 3 && app.errors.length === 0,
     !up ? "the page did not open" : !under ? "no " + JSON.stringify(refusal) + " under the email" : !thanked ? "the thanks did not read " + JSON.stringify(lines) : !concern ? "no Report a concern instead" : wide > 1 ? wide + " pixels sideways" : !joined ? "the join did not read " + JSON.stringify(requestWord(language, "joined")) : !sent ? "filed " + JSON.stringify(filed.map(f => Object.assign({}, f, { body: undefined }))) : posts !== 3 ? posts + " filings sent" : app.errors[0]);
   await app.context.close();
@@ -748,11 +749,17 @@ async function requestsApprover(browser, language) {
   await app.context.close();
 }
 
-// Client requests for an assignee: I'm on it, then Done with a note.
+// Client requests for an assignee, opened from the notice's own link,
+// /requests/<id>: I'm on it, then Done with a note.
 async function requestsAssignee(browser, language) {
-  const app = await open({ requests: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
+  const app = await open({ requests: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, path: "/requests/cr-3" });
   const page = app.page;
-  const card = await waitFor(page, (w) => { const b = document.querySelector('[data-request-card="home"]'); return !!b && b.innerText.trim() === w; }, say(language, "1 client request needs you"));
+  // open() reloads after the first load has put the address back to /,
+  // so the link is opened again, the way a tap on the alert would.
+  await page.goto(BASE + "/requests/cr-3", { waitUntil: "domcontentloaded" });
+  const linked = await waitFor(page, () => !!document.querySelector('[data-request-row="cr-3"]') && window.location.pathname === "/" && !document.querySelector('[data-request-card="home"]'));
+  await tapBar(page, 0);
+  const card = linked && await waitFor(page, (w) => { const b = document.querySelector('[data-request-card="home"]'); return !!b && b.innerText.trim() === w; }, say(language, "1 client request needs you"));
   if (card) await page.click('[data-request-card="home"]');
   // The heading is drawn in capitals, so it is read without case.
   const row = card && await waitFor(page, (w) => { const s = document.querySelector('[data-request-section="client"]'); const r = document.querySelector('[data-request-row="cr-3"]'); return !!s && s.innerText.toUpperCase().indexOf(w.yours.toUpperCase()) !== -1 && !!r && r.innerText.indexOf(w.title) !== -1 && Array.from(r.querySelectorAll("button")).map(b => b.innerText.trim()).join("|") === w.buttons; }, { yours: say(language, "Yours"), title: requestCategoryTitle("cleaning", language), buttons: [say(language, "I'm on it"), say(language, "Done"), say(language, "Can't finish")].join("|") });
@@ -770,9 +777,9 @@ async function requestsAssignee(browser, language) {
   const sent = JSON.stringify(progress) === '[{"action":"start"},{"action":"done","note":"Emptied and wiped, invented."}]';
   await tapBar(page, 0);
   const cardGone = await waitFor(page, () => !document.querySelector('[data-request-card="home"]'));
-  check("Client requests for an assignee: Home's card counts one, Report lists it under Yours with I'm on it, Done and Can't finish, I'm on it posts start, Done takes a note and posts done, and the section and the card go (" + language + ")",
-    card && row && started && done && sent && cardGone && app.errors.length === 0,
-    !card ? "no Home card" : !row ? "the row did not read as expected" : !started ? "I'm on it did not take the button away" : !done ? "the section stayed after Done" : !sent ? JSON.stringify(progress) : !cardGone ? "the Home card stayed" : app.errors[0]);
+  check("Client requests for an assignee: /requests/<id> opens Report on that request and puts the address back to /, Home's card counts one, Report lists it under Yours with I'm on it, Done and Can't finish, I'm on it posts start, Done takes a note and posts done, and the section and the card go (" + language + ")",
+    linked && card && row && started && done && sent && cardGone && app.errors.length === 0,
+    !linked ? "/requests/cr-3 did not open the request" : !card ? "no Home card" : !row ? "the row did not read as expected" : !started ? "I'm on it did not take the button away" : !done ? "the section stayed after Done" : !sent ? JSON.stringify(progress) : !cardGone ? "the Home card stayed" : app.errors[0]);
   await app.context.close();
 }
 

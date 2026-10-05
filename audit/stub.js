@@ -2742,12 +2742,15 @@ function createStub(opts) {
         if (String(b.note || "").length > 500) return publicRefusal("customer.request.tooLong", { keys: ["note"] });
         const email = String(b.email || "").trim();
         if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return publicRefusal("customer.request.badEmail", { keys: ["email"] });
-        const ids = Array.isArray(b.photos) ? b.photos.map(String) : [];
-        if (ids.some(id => !state.requestPhotos.some(ph => ph.id === id))) return publicRefusal("forms.photoType", { keys: ["photos"] });
+        // Each photo as the photo route answered it, { id, name }: an id
+        // alone, or a pair the route never answered, is refused.
+        const given = Array.isArray(b.photos) ? b.photos : [];
+        if (given.some(x => !x || typeof x !== "object" || !state.requestPhotos.some(ph => ph.id === x.id && ph.name === x.name))) return publicRefusal("forms.photoType", { keys: ["photos"] });
+        const ids = given.map(x => x.id);
         // A filing whose category matches an open one from the same link
         // joins it; other never joins.
         const open = state.requestsFiled.find(f => f.token === token && f.category === b.category && b.category !== "other");
-        state.requestsFiled.push({ token: token, locale: publicLang, category: b.category, area: area, note: String(b.note || ""), email: email, photos: ids, body: b, joined: !!open });
+        state.requestsFiled.push({ token: token, locale: publicLang, category: b.category, area: area, note: String(b.note || ""), email: email, photos: given.map(x => ({ id: x.id, name: x.name })), body: b, joined: !!open });
         const lines = [requestWord(publicLang, "thanks"), requestWord(publicLang, "ref", { reference: REQUEST_REF })];
         if (open) lines.push(requestWord(publicLang, "joined"));
         if (email) lines.push(requestWord(publicLang, "mail"));

@@ -36,7 +36,8 @@ refusal under its field, files a request with a photo through its own
 route and shows the API's thanks, and a second filing of the same
 category joins it; Client requests for an approver, Home's card, the
 section, Approve and assign with its picker and the 409 when someone
-else decided first, and for an assignee, I'm on it and Done; the supply
+else decided first, and for an assignee, the request opened from the
+notice's link, /requests/<id>, then I'm on it and Done; the supply
 page signed out, with the sheet in the page and Sign in to record use,
 and signed in, with Used one and Running low;
 French offered by the stub turns the screen French with no English the

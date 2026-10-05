@@ -1007,11 +1007,19 @@ function readEntryFromUrl() {
 // Where a tap on a phone alert asked the app to open, when the worker had
 // to open a new window for it: ?open=<subjectType>:<subjectId>. Read once
 // at start and taken off the address, before an emailed link's own read
-// below drops the query.
+// below drops the query. A client request's notice links to
+// /requests/<id> (Step 252), and that address opens the request the same
+// way; it is no entry screen, so the app signs in or boots the stored
+// session as it always does and the request opens once the portal is up.
 function readOpenFromUrl() {
   try {
     var v = new URLSearchParams(window.location.search || "").get("open");
-    if (!v) return null;
+    if (!v) {
+      var m = /^\/requests\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+      if (!m) return null;
+      try { window.history.replaceState({}, "", "/"); } catch (e) {}
+      return { subjectType: "client_request", subjectId: m[1] };
+    }
     try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
     var at = v.indexOf(":");
     return { subjectType: at === -1 ? v : v.slice(0, at), subjectId: at === -1 ? null : v.slice(at + 1) };
@@ -7818,7 +7826,9 @@ function ClientRequestScreen({ token, t, themeMode }) {
     if (category === null) own.category = tr(REQUEST_PICK_ONE);
     if (Object.keys(own).length > 0) { setBoxErr(own); showAt(own.area ? "area" : "category"); return; }
     setSending(true); setSendErr(null); setBoxErr({});
-    const body = { category: category, note: note.trim(), photos: photos.map(p => p.id), email: email.trim(), locale: locale, website: "" };
+    // Each photo goes in the filing as the photo route answered it, { id,
+    // name }, which is what the API as built takes.
+    const body = { category: category, note: note.trim(), photos: photos.map(p => ({ id: p.id, name: p.name })), email: email.trim(), locale: locale, website: "" };
     if (askArea) body.area = area.trim();
     try {
       const r = await api(path + "?locale=" + locale, { method: "POST", body: body, noAuthEvent: true });
