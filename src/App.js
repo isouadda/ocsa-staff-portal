@@ -6522,7 +6522,7 @@ function trainingLessonLinkOf(x) {
   const versionId = trainingId(x, ["versionId"]);
   if (!versionId) return null;
   const used = trainingNum(x.attemptsUsed), left = trainingNum(x.attemptsLeft);
-  return { versionId: versionId, attemptsUsed: used === null ? 0 : Math.max(0, used), attemptsLeft: left === null ? 0 : Math.max(0, left) };
+  return { versionId: versionId, kind: x.kind === "observation" || x.kind === "quiz" ? x.kind : "", attemptsUsed: used === null ? 0 : Math.max(0, used), attemptsLeft: left === null ? 0 : Math.max(0, left) };
 }
 function trainingItemOf(x) {
   if (!x || typeof x !== "object") return null;
@@ -11532,6 +11532,9 @@ const FK_TILES = [
   { id: "review", title: "Awaiting review", line: "Inspections waiting for a review signature.", icon: ClipIco },
   // Step 261: the lessons passed and signed that wait for a trainer.
   { id: "signoff", title: "Sign off training", line: "Lessons passed and signed, waiting for your sign-off after a demonstration.", icon: BookIco },
+  // Step 264: a session signed on phones, and a task watched and signed off.
+  { id: "session", title: "Training session", line: "Start a session on this site, show its code, and close it with your signature.", icon: BookIco },
+  { id: "observe", title: "Watch and sign off", line: "Watch a person do a task, tick each step, and sign it off with them.", icon: CheckIco },
 ];
 const fkText = (o, keys) => { const v = agentField(o, keys, ""); return typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : ""; };
 function fkSiteOf(x) {
@@ -11593,6 +11596,8 @@ function FieldKitView({ token, user, at, onAt, shiftSiteId, assignedSites, onOpe
         {tile.id === "equipment" && <FkEquipment key={site.id} token={token} site={site} onOpen={onOpenEquipment} t={t} />}
         {tile.id === "review" && <FkReview key={site.id} token={token} site={site} onOpen={(id) => onAt({ siteId: site.id, tile: "review", inspection: id })} t={t} />}
         {tile.id === "signoff" && <FkSignoff key={site.id} token={token} site={site} user={user} showToast={showToast} t={t} />}
+        {tile.id === "session" && <FkSession key={site.id} token={token} site={site} user={user} showToast={showToast} t={t} />}
+        {tile.id === "observe" && <FkObserve key={site.id} token={token} site={site} user={user} showToast={showToast} t={t} />}
       </div>
     );
   }
@@ -12175,7 +12180,7 @@ function FkInspection({ token, id, onBack, showToast, t }) {
 // writes the record. A trainer never sees their own attempt here,
 // whatever the route answers, and the API refuses one in its own words.
 // ------------------------------------------------------------
-const SIGNOFF_NOTE_MAX = 1000;
+const SIGNOFF_NOTE_MAX = 500;
 function trainingAwaitingOf(x) {
   const a = trainingAttemptOf(x);
   if (!a) return null;
@@ -12192,12 +12197,11 @@ async function readTrainingAwaiting(token, siteId, userId) {
     return list.map(trainingAwaitingOf).filter(a => a && a.personId !== me);
   } catch (e) { return null; }
 }
-const SIGNOFF_BLANK = (row) => ({ row: row, strokes: [], png: null, watched: false, note: "", busy: false, fault: null });
 
 function FkSignoff({ token, site, user, showToast, t }) {
   const [rows, setRows] = useState(null);
   const [asked, setAsked] = useState(0);
-  // The sheet open on one attempt: the tick, the note, the signature.
+  // The attempt the sheet is open on.
   const [signing, setSigning] = useState(null);
   useBusy("training sign-off", !!signing);
   useEffect(() => {
@@ -12209,23 +12213,6 @@ function FkSignoff({ token, site, user, showToast, t }) {
     });
     return () => { live = false; };
   }, [site.id, asked]);
-  const edit = (patch) => setSigning(s => (s ? { ...s, ...patch, fault: null } : s));
-  const send = async () => {
-    if (!signing || signing.busy) return;
-    if (!signing.watched) { setSigning({ ...signing, fault: tr("Tick I watched them do it first.") }); return; }
-    if (!signing.png) { setSigning({ ...signing, fault: tr("Sign before you send.") }); return; }
-    setSigning({ ...signing, busy: true, fault: null });
-    const body = { signature: signing.png, demonstrated: true };
-    if (signing.note.trim()) body.note = signing.note.trim();
-    try {
-      await api("/api/training/attempts/" + encodeURIComponent(signing.row.id) + "/signoff", { method: "POST", body: body, token });
-      setRows(prev => (prev && prev.state === "ok" ? { state: "ok", list: prev.list.filter(r => r.id !== signing.row.id) } : prev));
-      setSigning(null);
-      showToast(tr("Signed off. It is on their record."));
-    } catch (err) {
-      setSigning(s => (s ? { ...s, busy: false, fault: fkFaultWords(err, "This was not signed. Try again.") } : s));
-    }
-  };
   const list = rows && rows.state === "ok" ? rows.list : [];
   const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
   const lineSt = { fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
@@ -12241,36 +12228,495 @@ function FkSignoff({ token, site, user, showToast, t }) {
           {r.topicName && <div style={{ ...lineSt, color: t.text }}>{r.topicName}</div>}
           <div style={lineSt}>{signedLine(r)}</div>
           <div style={{ display: "flex", marginTop: 8 }}>
-            <button type="button" onClick={() => setSigning(SIGNOFF_BLANK(r))} style={wsMainBtn(t, false)}>{tr("Sign off")}</button>
+            <button type="button" onClick={() => setSigning(r)} style={wsMainBtn(t, false)}>{tr("Sign off")}</button>
           </div>
         </div>
       ))}
       {signing && (
-        <WsSheet id="ocsa-fk-signoff" title={tr("Sign off")} onClose={() => { if (!signing.busy) setSigning(null); }} t={t} footer={<>
-          <button type="button" onClick={() => setSigning(null)} disabled={signing.busy} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
-          <button type="button" data-fk-signoff-send="1" onClick={send} disabled={signing.busy} style={wsMainBtn(t, signing.busy)}>{signing.busy ? tr("Sending...") : tr("Sign off")}</button>
+        <TrainerSignoffSheet token={token} row={{ id: signing.id, personName: signing.personName, topicName: signing.topicName, line: signedLine(signing) }} onSigned={(row) => { setRows(prev => (prev && prev.state === "ok" ? { state: "ok", list: prev.list.filter(x => x.id !== row.id) } : prev)); setSigning(null); showToast(tr("Signed off. It is on their record.")); }} onClose={() => setSigning(null)} t={t} />
+      )}
+    </div>
+  );
+}
+
+// The trainer's sign-off sheet (Step 261; shared since Step 264 with
+// Watch and sign off): the tick I watched them do it, a note, and the
+// trainer's signature, posted as one sign-off to the attempt. onSigned
+// gets the row and the API's answer once it is written.
+function TrainerSignoffSheet({ token, row, onSigned, onClose, t }) {
+  const [s, setS] = useState({ strokes: [], png: null, watched: false, note: "", busy: false, fault: null });
+  const edit = (patch) => setS(prev => ({ ...prev, ...patch, fault: null }));
+  const send = async () => {
+    if (s.busy) return;
+    if (!s.watched) { setS({ ...s, fault: tr("Tick I watched them do it first.") }); return; }
+    if (!s.png) { setS({ ...s, fault: tr("Sign before you send.") }); return; }
+    setS({ ...s, busy: true, fault: null });
+    const body = { signature: s.png, demonstrated: true };
+    if (s.note.trim()) body.note = s.note.trim();
+    try {
+      const d = await api("/api/training/attempts/" + encodeURIComponent(row.id) + "/signoff", { method: "POST", body: body, token });
+      onSigned(row, d);
+    } catch (err) {
+      setS(prev => ({ ...prev, busy: false, fault: fkFaultWords(err, "This was not signed. Try again.") }));
+    }
+  };
+  const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
+  return (
+    <WsSheet id="ocsa-fk-signoff" title={tr("Sign off")} onClose={() => { if (!s.busy) onClose(); }} t={t} footer={<>
+      <button type="button" onClick={onClose} disabled={s.busy} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+      <button type="button" data-fk-signoff-send="1" onClick={send} disabled={s.busy} style={wsMainBtn(t, s.busy)}>{s.busy ? tr("Sending...") : tr("Sign off")}</button>
+    </>}>
+      <div style={nameSt}>{row.personName}</div>
+      {row.topicName && <div style={{ ...lineSt, color: t.text }}>{row.topicName}</div>}
+      {row.line && <div style={lineSt}>{row.line}</div>}
+      <button type="button" role="checkbox" aria-checked={s.watched} data-fk-signoff-watched={s.watched ? "1" : "0"} disabled={s.busy} onClick={() => edit({ watched: !s.watched })} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, marginTop: 12, padding: "0 2px", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: t.text, lineHeight: 1.4, textAlign: "left", fontFamily: FONT_BODY }}>
+        <span aria-hidden="true" style={{ width: 22, height: 22, flexShrink: 0, borderRadius: R.sm, border: "2px solid " + (s.watched ? GOLD : t.textMut), background: s.watched ? GOLD : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{s.watched && <CheckIco sz={13} c={NAVY} />}</span>
+        <span style={{ minWidth: 0, fontWeight: 600 }}>{tr("I watched them do it")}</span>
+      </button>
+      <div style={{ marginTop: 10 }}>
+        <label htmlFor="ocsa-fk-signoff-note" style={mkLabel(t)}>{tr("Note")}</label>
+        <textarea id="ocsa-fk-signoff-note" value={s.note} maxLength={SIGNOFF_NOTE_MAX} rows={2} placeholder={tr("Optional")} disabled={s.busy} onChange={e => edit({ note: e.target.value })} style={{ ...mkInput(t), resize: "vertical" }} />
+      </div>
+      <div data-fk-signoff-signature="1" style={{ marginTop: 12 }}>
+        <div style={mkLabel(t)}>{tr("Your signature")}</div>
+        <div style={{ borderRadius: R.md, border: s.fault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+          <SignatureBox strokes={s.strokes} onStroke={(stroke, size) => setS(prev => { const all = prev.strokes.concat([stroke]); return { ...prev, strokes: all, png: signaturePng(all, size.w, size.h), fault: null }; })} height={SIGN_BOX_HEIGHT} />
+        </div>
+        <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+        <button type="button" onClick={() => setS(prev => ({ ...prev, strokes: [], png: null }))} disabled={s.strokes.length === 0 || s.busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: s.strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+      </div>
+      {s.fault && <WsFault text={s.fault} t={t} />}
+    </WsSheet>
+  );
+}
+
+// ------------------------------------------------------------
+// Training session (Step 264, the Step 262 contract's section 2): a
+// trainer starts a session on the kit's site with a title, a language and
+// 1 to 10 topics from the training list; the phone shows the QR and the
+// code large for others to scan or type; the sign-ins are read again
+// every five seconds as they arrive, and a wrong one is removed; Close
+// asks the trainer's signature and the API writes one record per person
+// and topic; Cancel writes nothing. An open session of the trainer's at
+// the site is picked up where it was.
+// ------------------------------------------------------------
+const SESSION_TITLE_MAX = 120;
+const SESSION_NOTE_MAX = 500;
+const SESSION_TOPICS_MAX = 10;
+const SESSION_POLL_MS = 5000;
+// Today on the company's calendar, as YYYY-MM-DD.
+const companyYmd = () => { const p = {}; new Intl.DateTimeFormat("en-US", { timeZone: clientConfig.company.timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()).forEach((x) => { p[x.type] = x.value; }); return p.year + "-" + p.month + "-" + p.day; };
+function fkSessionOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = trainingId(x, ["id"]);
+  if (!id) return null;
+  const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
+  const trainer = x.trainer && typeof x.trainer === "object" ? x.trainer : null;
+  const signins = (Array.isArray(x.signins) ? x.signins : []).map(s => (s && typeof s === "object" ? { id: trainingId(s, ["id"]), personId: s.person && typeof s.person === "object" ? trainingId(s.person, ["id"]) : "", name: s.person && typeof s.person === "object" && typeof s.person.name === "string" ? s.person.name.trim() : "", at: typeof s.signedAt === "string" ? s.signedAt : "" } : null)).filter(s => s && s.id);
+  return { id: id, title: str("title"), day: str("day"), trainerId: trainer ? trainingId(trainer, ["id"]) : "", locale: str("locale"), topics: (Array.isArray(x.topics) ? x.topics : []).map(tp => (tp && typeof tp === "object" && typeof tp.name === "string" ? tp.name.trim() : "")).filter(Boolean), joinCode: str("joinCode"), status: str("status"), signins: signins };
+}
+function fkTopicOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = trainingId(x, ["id"]);
+  const name = typeof x.name === "string" ? x.name.trim() : "";
+  return id && name && x.active !== false ? { id: id, name: name, docCode: typeof x.docCode === "string" ? x.docCode.trim() : "" } : null;
+}
+const fkTick = (t, on, word, onTap, attrs) => (
+  <button type="button" role="checkbox" aria-checked={on} onClick={onTap} {...attrs} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, padding: "4px 2px", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: t.text, lineHeight: 1.4, textAlign: "left", fontFamily: FONT_BODY }}>
+    <span aria-hidden="true" style={{ width: 22, height: 22, flexShrink: 0, borderRadius: R.sm, border: "2px solid " + (on ? GOLD : t.textMut), background: on ? GOLD : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{on && <CheckIco sz={13} c={NAVY} />}</span>
+    <span style={{ minWidth: 0 }}>{word}</span>
+  </button>
+);
+
+function FkSession({ token, site, user, showToast, t }) {
+  // view: null while loading; { kind: "form" }; { kind: "open", session };
+  // { kind: "closed", saved, already }; { kind: "failed", said }.
+  const [view, setView] = useState(null);
+  const [asked, setAsked] = useState(0);
+  const [topics, setTopics] = useState([]);
+  const [draft, setDraft] = useState({ title: "", locale: languageToSend(), topicIds: [], note: "" });
+  const [fault, setFault] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [qr, setQr] = useState(null);
+  // The sheet open: { kind: "close" | "cancel" | "remove", signin, strokes, png, fault, busy }.
+  const [sheet, setSheet] = useState(null);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  const open = view && view.kind === "open" ? view.session : null;
+  useBusy("training session", !!open || busy || !!(view && view.kind === "form" && (draft.title.trim() !== "" || draft.topicIds.length > 0)));
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      try {
+        const [list, tp] = await Promise.all([
+          api("/api/training/sessions?status=open&siteId=" + encodeURIComponent(site.id), { token }),
+          api("/api/training/topics", { token }).catch(() => null),
+        ]);
+        if (!on) return;
+        setTopics((wsRows(tp, "topics") || []).map(fkTopicOf).filter(Boolean));
+        const rows = (wsRows(list, "sessions") || []).map(fkSessionOf).filter(Boolean);
+        const me = user && user.id ? String(user.id) : "";
+        const mine = rows.find(s => s.trainerId === me) || rows[0] || null;
+        if (!mine) { setView({ kind: "form" }); return; }
+        const one = fkSessionOf((await api("/api/training/sessions/" + encodeURIComponent(mine.id), { token }) || {}).session);
+        if (on) setView({ kind: "open", session: one || mine });
+      } catch (err) {
+        if (on) setView(prev => (prev && prev.kind !== "failed" ? prev : { kind: "failed", said: fkFaultWords(err, "This list did not load.") }));
+      }
+    })();
+    return () => { on = false; };
+  }, [site.id, asked]);
+  // The QR, read once per open session behind the token and shown from
+  // memory; the sign-ins, read again every five seconds while it is open.
+  useEffect(() => {
+    if (!open) { setQr(null); return undefined; }
+    let on = true;
+    let url = null;
+    apiBlob("/api/training/sessions/" + encodeURIComponent(open.id) + "/qr.png", { token }).then(blob => { if (!on) return; url = URL.createObjectURL(blob); setQr(url); }).catch(() => {});
+    const timer = setInterval(async () => {
+      try {
+        const one = fkSessionOf((await api("/api/training/sessions/" + encodeURIComponent(open.id), { token }) || {}).session);
+        if (on && one) setView(prev => (prev && prev.kind === "open" && prev.session.id === one.id ? { kind: "open", session: one } : prev));
+      } catch (e) {}
+    }, SESSION_POLL_MS);
+    return () => { on = false; clearInterval(timer); if (url) URL.revokeObjectURL(url); };
+  }, [open ? open.id : null]);
+  const start = async () => {
+    if (busy) return;
+    if (!draft.title.trim()) { setFault(tr("Type a title.")); return; }
+    if (draft.topicIds.length === 0) { setFault(tr("Choose at least one topic.")); return; }
+    setBusy(true); setFault(null);
+    try {
+      const body = { title: draft.title.trim(), day: companyYmd(), siteId: site.id, locale: draft.locale, topicIds: draft.topicIds.slice() };
+      if (draft.note.trim()) body.note = draft.note.trim();
+      const one = fkSessionOf((await api("/api/training/sessions", { method: "POST", body: body, token }) || {}).session);
+      if (!one) throw new Error(ERR_GENERIC);
+      if (live.current) { setView({ kind: "open", session: one }); setDraft({ title: "", locale: languageToSend(), topicIds: [], note: "" }); }
+    } catch (err) {
+      if (live.current) setFault(fkFaultWords(err, "This session did not start. Try again."));
+    } finally { if (live.current) setBusy(false); }
+  };
+  const act = async () => {
+    if (!sheet || sheet.busy || !open) return;
+    if (sheet.kind === "close" && !sheet.png) { setSheet({ ...sheet, fault: tr("Sign before you send.") }); return; }
+    setSheet({ ...sheet, busy: true, fault: null });
+    try {
+      if (sheet.kind === "close") {
+        const d = await api("/api/training/sessions/" + encodeURIComponent(open.id) + "/close", { method: "POST", body: { signature: sheet.png }, token });
+        const already = Array.isArray(d && d.already) ? d.already : [];
+        const names = already.map(a => { const p = open.signins.find(s => s.personId && a && String(agentField(a, ["userId"], "")) === s.personId); return p ? p.name : ""; }).filter(Boolean);
+        if (live.current) { setSheet(null); setView({ kind: "closed", saved: Array.isArray(d && d.saved) ? d.saved.length : 0, already: already.length, names: names.filter((n, i) => names.indexOf(n) === i) }); }
+      } else if (sheet.kind === "cancel") {
+        await api("/api/training/sessions/" + encodeURIComponent(open.id) + "/cancel", { method: "POST", body: {}, token });
+        if (live.current) { setSheet(null); setView({ kind: "form" }); showToast(tr("Session cancelled. Nothing was written.")); }
+      } else {
+        const d = await api("/api/training/sessions/" + encodeURIComponent(open.id) + "/signins/" + encodeURIComponent(sheet.signin.id), { method: "DELETE", token });
+        const one = fkSessionOf(d && d.session);
+        if (live.current) { setSheet(null); setView(prev => (prev && prev.kind === "open" ? { kind: "open", session: one || { ...prev.session, signins: prev.session.signins.filter(s => s.id !== sheet.signin.id) } } : prev)); }
+      }
+    } catch (err) {
+      if (live.current) setSheet(prev => (prev ? { ...prev, busy: false, fault: fkFaultWords(err, sheet.kind === "close" ? "The session was not closed. Try again." : "This was not sent. Try again.") } : prev));
+    }
+  };
+  const labelSt = mkLabel(t);
+  const fieldSt = { marginBottom: 14 };
+  const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const languages = offeredLanguages();
+  if (!view) return <div style={wsQuiet(t)}>{tr("Loading...")}</div>;
+  if (view.kind === "failed") return <ListFault icon={BookIco} text={view.said} onRetry={() => setAsked(n => n + 1)} t={t} />;
+  if (view.kind === "closed") {
+    return (
+      <div data-fk-session="closed">
+        <div role="status" style={{ ...nameSt, color: ink(t, GREEN), fontSize: 16 }}>{view.saved === 1 ? tr("Closed. 1 record saved.") : tr("Closed. {n} records saved.", { n: view.saved })}</div>
+        {view.already > 0 && <div style={{ ...lineSt, marginTop: 8 }}>{view.names.length > 0 ? tr("Already had it today: {names}", { names: view.names.join(", ") }) : tr("{n} already had it today.", { n: view.already })}</div>}
+        <div style={{ display: "flex", marginTop: 14 }}><button type="button" onClick={() => setView({ kind: "form" })} style={wsMainBtn(t, false)}>{tr("Start another session")}</button></div>
+      </div>
+    );
+  }
+  if (view.kind === "form") {
+    const toggle = (id) => setDraft(d => ({ ...d, topicIds: d.topicIds.indexOf(id) !== -1 ? d.topicIds.filter(x => x !== id) : d.topicIds.length >= SESSION_TOPICS_MAX ? d.topicIds : d.topicIds.concat([id]) }));
+    return (
+      <div data-fk-session="form">
+        <div style={fieldSt}>
+          <label htmlFor="ocsa-session-title" style={labelSt}>{tr("Title")}</label>
+          <input id="ocsa-session-title" value={draft.title} maxLength={SESSION_TITLE_MAX} onChange={e => { setDraft(d => ({ ...d, title: e.target.value })); setFault(null); }} style={mkInput(t)} />
+        </div>
+        <div style={fieldSt}>
+          <label htmlFor="ocsa-session-locale" style={labelSt}>{tr("Language")}</label>
+          <select id="ocsa-session-locale" value={draft.locale} onChange={e => setDraft(d => ({ ...d, locale: e.target.value }))} style={mkInput(t)}>
+            {languages.map(code => <option key={code} value={code}>{LANGUAGE_NAMES[code]}</option>)}
+          </select>
+        </div>
+        <div style={fieldSt}>
+          <div id="ocsa-session-topics" style={labelSt}>{tr("Topics")}</div>
+          <div role="group" aria-labelledby="ocsa-session-topics">
+            {topics.length === 0 && <div style={lineSt}>{tr("The training list did not load. Try again.")}</div>}
+            {topics.map(tp => fkTick(t, draft.topicIds.indexOf(tp.id) !== -1, tp.name, () => { toggle(tp.id); setFault(null); }, { "data-fk-session-topic": tp.id, disabled: busy }))}
+          </div>
+          <div style={mkHelp(t)}>{tr("Choose 1 to 10 topics.")}</div>
+        </div>
+        <div style={fieldSt}>
+          <label htmlFor="ocsa-session-note" style={labelSt}>{tr("Note")}</label>
+          <textarea id="ocsa-session-note" value={draft.note} maxLength={SESSION_NOTE_MAX} rows={2} placeholder={tr("Optional")} onChange={e => setDraft(d => ({ ...d, note: e.target.value }))} style={{ ...mkInput(t), resize: "vertical" }} />
+        </div>
+        {fault && <WsFault text={fault} t={t} />}
+        <div style={{ display: "flex", marginTop: 12 }}>
+          <button type="button" data-fk-session-start="1" onClick={start} disabled={busy} style={wsMainBtn(t, busy)}>{busy ? tr("Sending...") : tr("Start the session")}</button>
+        </div>
+      </div>
+    );
+  }
+  const s = view.session;
+  return (
+    <div data-fk-session="open">
+      <div style={nameSt}>{s.title}</div>
+      <div style={lineSt}>{[s.day ? trainingDay(s.day) : "", s.topics.join(", ")].filter(Boolean).join(", ")}</div>
+      <div style={{ ...fkRowSt(t), marginTop: 12, textAlign: "center", padding: "16px 12px" }}>
+        {qr && <img src={qr} alt="" style={{ display: "block", width: "100%", maxWidth: 240, height: "auto", margin: "0 auto 12px", background: "#FFFFFF", borderRadius: R.sm }} />}
+        <div style={labelSt}>{tr("Code")}</div>
+        <div data-fk-session-code={s.joinCode} style={{ fontSize: 32, fontWeight: 700, letterSpacing: "0.18em", color: t.text, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums", overflowWrap: "anywhere" }}>{s.joinCode}</div>
+        <div style={{ ...lineSt, marginTop: 8 }}>{tr("Scan the QR, or type the code under My training, Join a session.")}</div>
+      </div>
+      <div role="heading" aria-level={3} style={fkHeadSt(t)}>{tr("Signed in so far")}</div>
+      {s.signins.length === 0 && <div style={wsQuiet(t)}>{tr("Nobody has signed in yet.")}</div>}
+      {s.signins.map(x => (
+        <div key={x.id} data-fk-signin={x.id} style={{ ...fkRowSt(t), display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={nameSt}>{x.name}</div>
+            {x.at && <div style={lineSt}>{wsWhen(x.at)}</div>}
+          </div>
+          <button type="button" onClick={() => setSheet({ kind: "remove", signin: x, strokes: [], png: null, fault: null, busy: false })} style={{ ...wsPlainBtn(t), flex: "none" }}>{tr("Remove")}</button>
+        </div>
+      ))}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
+        <button type="button" data-fk-session-close="1" onClick={() => setSheet({ kind: "close", signin: null, strokes: [], png: null, fault: null, busy: false })} style={wsMainBtn(t, false)}>{tr("Close the session")}</button>
+        <button type="button" onClick={() => setSheet({ kind: "cancel", signin: null, strokes: [], png: null, fault: null, busy: false })} style={wsPlainBtn(t)}>{tr("Cancel the session")}</button>
+      </div>
+      {sheet && (
+        <WsSheet id="ocsa-fk-session-sheet" title={sheet.kind === "close" ? tr("Close the session") : sheet.kind === "cancel" ? tr("Cancel the session") : tr("Remove")} onClose={() => { if (!sheet.busy) setSheet(null); }} t={t} footer={<>
+          <button type="button" onClick={() => setSheet(null)} disabled={sheet.busy} style={wsPlainBtn(t)}>{tr("Back")}</button>
+          <button type="button" data-fk-session-send={sheet.kind} onClick={act} disabled={sheet.busy} style={wsMainBtn(t, sheet.busy)}>{sheet.busy ? tr("Sending...") : sheet.kind === "close" ? tr("Close the session") : sheet.kind === "cancel" ? tr("Cancel the session") : tr("Remove")}</button>
         </>}>
-          <div style={nameSt}>{signing.row.personName}</div>
-          {signing.row.topicName && <div style={{ ...lineSt, color: t.text }}>{signing.row.topicName}</div>}
-          <div style={lineSt}>{signedLine(signing.row)}</div>
-          <button type="button" role="checkbox" aria-checked={signing.watched} data-fk-signoff-watched={signing.watched ? "1" : "0"} disabled={signing.busy} onClick={() => edit({ watched: !signing.watched })} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, marginTop: 12, padding: "0 2px", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: t.text, lineHeight: 1.4, textAlign: "left", fontFamily: FONT_BODY }}>
-            <span aria-hidden="true" style={{ width: 22, height: 22, flexShrink: 0, borderRadius: R.sm, border: "2px solid " + (signing.watched ? GOLD : t.textMut), background: signing.watched ? GOLD : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{signing.watched && <CheckIco sz={13} c={NAVY} />}</span>
-            <span style={{ minWidth: 0, fontWeight: 600 }}>{tr("I watched them do it")}</span>
-          </button>
-          <div style={{ marginTop: 10 }}>
-            <label htmlFor="ocsa-fk-signoff-note" style={mkLabel(t)}>{tr("Note")}</label>
-            <textarea id="ocsa-fk-signoff-note" value={signing.note} maxLength={SIGNOFF_NOTE_MAX} rows={2} placeholder={tr("Optional")} disabled={signing.busy} onChange={e => edit({ note: e.target.value })} style={{ ...mkInput(t), resize: "vertical" }} />
-          </div>
-          <div data-fk-signoff-signature="1" style={{ marginTop: 12 }}>
-            <div style={mkLabel(t)}>{tr("Your signature")}</div>
-            <div style={{ borderRadius: R.md, border: signing.fault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
-              <SignatureBox strokes={signing.strokes} onStroke={(stroke, size) => setSigning(s => { if (!s) return s; const all = s.strokes.concat([stroke]); return { ...s, strokes: all, png: signaturePng(all, size.w, size.h), fault: null }; })} height={SIGN_BOX_HEIGHT} />
+          {sheet.kind === "close" && (
+            <div data-fk-session-signature="1">
+              <div style={lineSt}>{tr("Your signature closes the session and writes a record for each person signed in, on each topic.")}</div>
+              <div style={{ ...labelSt, marginTop: 12 }}>{tr("Your signature")}</div>
+              <div style={{ borderRadius: R.md, border: sheet.fault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+                <SignatureBox strokes={sheet.strokes} onStroke={(stroke, size) => setSheet(prev => { if (!prev) return prev; const all = prev.strokes.concat([stroke]); return { ...prev, strokes: all, png: signaturePng(all, size.w, size.h), fault: null }; })} height={SIGN_BOX_HEIGHT} />
+              </div>
+              <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+              <button type="button" onClick={() => setSheet(prev => (prev ? { ...prev, strokes: [], png: null } : prev))} disabled={sheet.strokes.length === 0 || sheet.busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: sheet.strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
             </div>
-            <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
-            <button type="button" onClick={() => setSigning(s => (s ? { ...s, strokes: [], png: null } : s))} disabled={signing.strokes.length === 0 || signing.busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: signing.strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
-          </div>
-          {signing.fault && <WsFault text={signing.fault} t={t} />}
+          )}
+          {sheet.kind === "cancel" && <div style={{ ...lineSt, fontSize: 14, color: t.text }}>{tr("Cancel this session? Nothing is written for it.")}</div>}
+          {sheet.kind === "remove" && <div style={{ ...lineSt, fontSize: 14, color: t.text }}>{tr("Remove {name} from this session?", { name: sheet.signin.name })}</div>}
+          {sheet.fault && <WsFault text={sheet.fault} t={t} />}
         </WsSheet>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Watch and sign off (Step 264, the Step 262 contract's section 3): a
+// supervisor picks a person at the site and one of the observation
+// checklists that person needs, ticks each step as they do it, hands the
+// phone over for the person's signature, then signs it off with the tick
+// I watched them do it (Step 256's sign-off). A step not ticked is
+// named before anything is sent.
+// ------------------------------------------------------------
+function fkChecklistOf(d) {
+  const attempt = trainingAttemptOf(d && d.attempt);
+  const c = d && typeof d === "object" && d.checklist && typeof d.checklist === "object" ? d.checklist : null;
+  if (!attempt || !c) return null;
+  const steps = (Array.isArray(c.steps) ? c.steps : []).map(s => (s && typeof s === "object" ? { key: trainingId(s, ["key"]), text: lessonText(s.text, "en") } : null)).filter(s => s && s.key && s.text);
+  if (steps.length === 0) return null;
+  return { attempt: attempt, title: lessonText(c.title, "en"), steps: steps, acknowledgement: lessonText(c.acknowledgement, "en") };
+}
+// The items a person needs that have a checklist: the observation ones
+// where the API says the kind, else every item with a lesson, which the
+// API sorts with training.notObservation.
+function fkChecklistItems(items) {
+  const withLesson = items.filter(i => i.lesson && TRAINING_CAN_START.indexOf(i.status) !== -1);
+  const kinds = withLesson.some(i => i.lesson.kind);
+  return kinds ? withLesson.filter(i => i.lesson.kind === "observation") : withLesson;
+}
+
+function FkObserve({ token, site, user, showToast, t }) {
+  const [people, setPeople] = useState(null);
+  const [asked, setAsked] = useState(0);
+  const [person, setPerson] = useState("");
+  // The person's checklists: null until read, { state, items }.
+  const [lists, setLists] = useState(null);
+  // The checklist open: { checklist, ticked: {}, phase: "steps" | "person" | "trainer" | "done" }.
+  const [open, setOpen] = useState(null);
+  const [strokes, setStrokes] = useState([]);
+  const [png, setPng] = useState(null);
+  const [fault, setFault] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  useBusy("observation", !!open && open.phase !== "done");
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      try {
+        const staff = wsRows(await api("/api/sites/" + encodeURIComponent(site.id), { token }), "staff");
+        if (!staff) throw new Error(ERR_GENERIC);
+        const me = user && user.id ? String(user.id) : "";
+        const list = [];
+        staff.map(ppePersonOf).filter(Boolean).forEach(p => { if (p.id !== me && !list.some(x => x.id === p.id)) list.push(p); });
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        if (on) setPeople({ state: "ok", list: list });
+      } catch (err) {
+        if (on) setPeople(prev => (prev && prev.state === "ok" ? prev : { state: "failed", said: fkFaultWords(err, "This list did not load.") }));
+      }
+    })();
+    return () => { on = false; };
+  }, [site.id, asked]);
+  useEffect(() => {
+    if (!person) { setLists(null); return undefined; }
+    let on = true;
+    setLists(null);
+    (async () => {
+      try {
+        const d = await api("/api/training/gaps/people/" + encodeURIComponent(person), { token });
+        const items = (wsRows(d, "items") || []).map(trainingItemOf).filter(Boolean);
+        if (on) setLists({ state: "ok", items: fkChecklistItems(items) });
+      } catch (err) {
+        if (on) setLists({ state: "failed", said: fkFaultWords(err, "This list did not load.") });
+      }
+    })();
+    return () => { on = false; };
+  }, [person]);
+  const who = people && people.state === "ok" ? people.list.find(p => p.id === person) : null;
+  const start = async (item) => {
+    if (busy) return;
+    setBusy(true); setFault(null);
+    try {
+      const c = fkChecklistOf(await api("/api/training/observations", { method: "POST", body: { versionId: item.lesson.versionId, userId: person, siteId: site.id }, token }));
+      if (!c) throw new Error(ERR_GENERIC);
+      if (live.current) { setOpen({ checklist: c, ticked: {}, phase: "steps" }); setStrokes([]); setPng(null); }
+    } catch (err) {
+      if (live.current) setFault(fkFaultWords(err, "This checklist did not start. Try again."));
+    } finally { if (live.current) setBusy(false); }
+  };
+  const hand = async () => {
+    if (busy || !open) return;
+    const missing = open.checklist.steps.filter(s => !open.ticked[s.key]);
+    if (missing.length > 0) { setFault(tr("Not ticked yet: {steps}", { steps: missing.map(s => s.text).join("; ") })); return; }
+    setBusy(true); setFault(null);
+    try {
+      const steps = {};
+      open.checklist.steps.forEach(s => { steps[s.key] = true; });
+      await api("/api/training/observations/" + encodeURIComponent(open.checklist.attempt.id) + "/steps", { method: "POST", body: { steps: steps }, token });
+      if (live.current) setOpen(o => (o ? { ...o, phase: "person" } : o));
+    } catch (err) {
+      if (!live.current) return;
+      const keys = Array.isArray(err && err.body && err.body.keys) ? err.body.keys.map(String) : [];
+      const named = open.checklist.steps.filter(s => keys.indexOf(s.key) !== -1).map(s => s.text);
+      setFault(named.length > 0 ? tr("Not ticked yet: {steps}", { steps: named.join("; ") }) : fkFaultWords(err, "This was not sent. Try again."));
+    } finally { if (live.current) setBusy(false); }
+  };
+  const personSign = async () => {
+    if (busy || !open) return;
+    if (!png) { setFault(tr("Sign before you send.")); return; }
+    setBusy(true); setFault(null);
+    try {
+      await api("/api/training/observations/" + encodeURIComponent(open.checklist.attempt.id) + "/person-sign", { method: "POST", body: { signature: png }, token });
+      if (live.current) setOpen(o => (o ? { ...o, phase: "trainer" } : o));
+    } catch (err) {
+      if (live.current) setFault(fkFaultWords(err, "This was not signed. Try again."));
+    } finally { if (live.current) setBusy(false); }
+  };
+  const labelSt = mkLabel(t);
+  const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const bodySt = { fontSize: 15, color: t.text, lineHeight: 1.55, overflowWrap: "anywhere", fontFamily: FONT_BODY };
+  if (open && open.phase === "done") {
+    return (
+      <div data-fk-observe="done">
+        <div role="status" style={{ ...nameSt, fontSize: 16, color: ink(t, GREEN) }}>{tr("Signed off. It is on their record.")}</div>
+        <div style={{ ...lineSt, marginTop: 6 }}>{[who ? who.name : "", open.checklist.title].filter(Boolean).join(", ")}</div>
+        <div style={{ display: "flex", marginTop: 14 }}><button type="button" onClick={() => { setOpen(null); setPerson(""); setFault(null); }} style={wsMainBtn(t, false)}>{tr("Watch another")}</button></div>
+      </div>
+    );
+  }
+  if (open) {
+    const c = open.checklist;
+    return (
+      <div data-fk-observe={open.phase}>
+        <div style={nameSt}>{c.title}</div>
+        <div style={lineSt}>{who ? who.name : ""}</div>
+        {open.phase === "steps" && (
+          <div>
+            <div style={{ ...labelSt, marginTop: 14 }}>{tr("Steps")}</div>
+            <div role="group">
+              {c.steps.map(s => fkTick(t, !!open.ticked[s.key], s.text, () => { setOpen(o => (o ? { ...o, ticked: { ...o.ticked, [s.key]: !o.ticked[s.key] } } : o)); setFault(null); }, { "data-fk-step": s.key, disabled: busy }))}
+            </div>
+            {fault && <WsFault text={fault} t={t} />}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+              <button type="button" data-fk-observe-hand="1" onClick={hand} disabled={busy} style={wsMainBtn(t, busy)}>{busy ? tr("Sending...") : tr("Hand the phone to {name} to sign", { name: who ? who.name : "" })}</button>
+              <button type="button" onClick={() => { setOpen(null); setFault(null); }} disabled={busy} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+            </div>
+          </div>
+        )}
+        {open.phase === "person" && (
+          <div>
+            {c.acknowledgement && <div style={{ ...bodySt, marginTop: 14 }}>{c.acknowledgement}</div>}
+            <div data-fk-observe-signature="1" style={{ marginTop: 12 }}>
+              <div style={labelSt}>{tr("Signature of {name}", { name: who ? who.name : "" })}</div>
+              <div style={{ borderRadius: R.md, border: fault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+                <SignatureBox strokes={strokes} onStroke={(stroke, size) => { const all = strokes.concat([stroke]); setStrokes(all); setPng(signaturePng(all, size.w, size.h)); setFault(null); }} height={SIGN_BOX_HEIGHT} />
+              </div>
+              <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr("Hand the phone to the person. They sign with a finger.")}</div>
+              <button type="button" onClick={() => { setStrokes([]); setPng(null); }} disabled={strokes.length === 0 || busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+            </div>
+            {fault && <WsFault text={fault} t={t} />}
+            <div style={{ display: "flex", marginTop: 12 }}>
+              <button type="button" data-fk-observe-sign="1" onClick={personSign} disabled={busy} style={wsMainBtn(t, busy)}>{busy ? tr("Sending...") : tr("Sign")}</button>
+            </div>
+          </div>
+        )}
+        {open.phase === "trainer" && (
+          <TrainerSignoffSheet token={token} row={{ id: c.attempt.id, personName: who ? who.name : "", topicName: c.title, line: null }} onSigned={() => { setOpen(o => (o ? { ...o, phase: "done" } : o)); showToast(tr("Signed off. It is on their record.")); }} onClose={() => setOpen(o => (o ? { ...o, phase: "person" } : o))} t={t} />
+        )}
+        {open.phase === "trainer" && <div style={{ ...lineSt, marginTop: 14 }}>{tr("Now you sign.")}</div>}
+      </div>
+    );
+  }
+  const list = lists && lists.state === "ok" ? lists.items : [];
+  return (
+    <div data-fk-observe="pick">
+      {!people && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {people && people.state === "failed" && <ListFault icon={BookIco} text={people.said} onRetry={() => setAsked(n => n + 1)} t={t} />}
+      {people && people.state === "ok" && (
+        <div style={{ marginBottom: 14 }}>
+          <label htmlFor="ocsa-observe-person" style={labelSt}>{tr("Person")}</label>
+          <select id="ocsa-observe-person" value={person} onChange={e => { setPerson(e.target.value); setFault(null); }} style={mkInput(t)}>
+            <option value="">{tr("Choose a person")}</option>
+            {people.list.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          {people.list.length === 0 && <div style={mkHelp(t)}>{tr("No one is assigned to this site.")}</div>}
+        </div>
+      )}
+      {person && !lists && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {person && lists && lists.state === "failed" && <WsFault text={lists.said} t={t} />}
+      {person && lists && lists.state === "ok" && (
+        <div>
+          <div style={labelSt}>{tr("Checklist")}</div>
+          {list.length === 0 && <div style={wsQuiet(t)}>{tr("No checklist is waiting for {name}.", { name: who ? who.name : "" })}</div>}
+          {list.map(i => (
+            <div key={i.id} data-fk-checklist={i.topicId} style={fkRowSt(t)}>
+              <div style={nameSt}>{i.name}</div>
+              {(i.docCode || i.docSection) && <div style={lineSt}>{[i.docCode, i.docSection].filter(Boolean).join(" ")}</div>}
+              <div style={{ display: "flex", marginTop: 8 }}><button type="button" onClick={() => start(i)} disabled={busy} style={wsMainBtn(t, busy)}>{tr("Start the checklist")}</button></div>
+            </div>
+          ))}
+          {fault && <WsFault text={fault} t={t} />}
+        </div>
       )}
     </div>
   );
