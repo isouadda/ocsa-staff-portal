@@ -19,12 +19,17 @@ a cleaner sees no Field kit and asks for none of its routes, and a
 supervisor's Field kit issues PPE with a signature drawn, reads periodic
 work by state, opens and checks an item from its equipment list, and
 signs a review line and meets a refusal;
-a customer's form that asks the name and role itself draws neither of the
-page's own and sends its own answers, while another form still draws
-them; a check-off with no signal is kept and said, and goes once with its
-clientId when the signal is back; an equipment label's page opens and
+the customer page reads customerFields and photoRoute from the public
+form answer alone, in the API's as-built shapes (Step 249): OCSA-FRM-007
+and OCSA-FRM-006 ask the name once in their own question, draw neither
+of the page's own, and send a photo through the link's route, filed by
+id, while a form answered customerFields null and photoRoute false draws
+the page's own Your name and Your role and sends its photo inside the
+filing; a check-off with no signal is kept and said, and goes once with
+its clientId when the signal is back; an equipment label's page opens and
 records a check; a periodic task says how often it comes; a concern link
-takes a photo through its own route and shows the reference after filing;
+(OCSA-FRM-009) takes a photo through its own route and shows the
+reference after filing;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits

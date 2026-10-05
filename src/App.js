@@ -6838,30 +6838,17 @@ const CUSTOMER_NAME_MAX = 120;
 // A customer's form that asks the person's name and role itself, so the
 // page asks neither again and sends the form's own answers as
 // customerName and customerRole. The public form answer names the two
-// questions in customerFields, { name, role } (Step 242); an answer that
-// carries the key decides, null meaning the page asks its own. An answer
-// without the key falls back to the two forms known to ask, named here by
-// code (Step 240), and only those. A key the form does not have is not
-// taken, and a form with neither keeps the page's own. served says the
-// API named them, which is when the thank-you says who sent it.
-const CUSTOMER_FIELDS_BY_CODE = {
-  "OCSA-FRM-007": { name: "your_name", role: "your_role" },
-  "OCSA-FRM-006": { name: "completed_by", role: null },
-};
+// questions in customerFields, { name, role } (Step 242), and that answer
+// alone decides: null, or no key at all, keeps the page's own Your name
+// and Your role, so a new customer form needs no change here. A key the
+// form does not have is not taken, and a form with neither keeps the
+// page's own. When the form asks, the thank-you says who sent it.
 function customerFieldsOf(answer, form) {
   const keys = new Set((form && Array.isArray(form.fields) ? form.fields : []).map(f => f && f.key));
-  const take = (o, served) => (o && typeof o === "object" && typeof o.name === "string" && keys.has(o.name)
-    ? { name: o.name, role: typeof o.role === "string" && keys.has(o.role) ? o.role : null, served: served } : null);
-  if (answer && typeof answer === "object" && Object.prototype.hasOwnProperty.call(answer, "customerFields")) return take(answer.customerFields, true);
-  return take(CUSTOMER_FIELDS_BY_CODE[form && form.code], false);
+  const o = answer && typeof answer === "object" ? answer.customerFields : null;
+  return o && typeof o === "object" && typeof o.name === "string" && keys.has(o.name)
+    ? { name: o.name, role: typeof o.role === "string" && keys.has(o.role) ? o.role : null } : null;
 }
-// The forms whose photos go up one at a time through the link's own photo
-// route, POST /api/public/forms/:token/photos (Step 242), before the
-// filing names them by id. Every other customer form keeps its photos on
-// the phone and sends them inside the filing, as it always has. The
-// contract names no signal for this, so the one form it names is named
-// here by code.
-const CUSTOMER_PHOTO_ROUTE_CODES = ["OCSA-FRM-009"];
 // The receipt a filing answers with (Step 242): the report's reference,
 // and whether a copy went to the email the person gave.
 const CUSTOMER_REF_THANKS = "Thank you. Your reference is {ref}.";
@@ -7306,7 +7293,12 @@ function CustomerFormScreen({ token, t, themeMode }) {
   const form = got.data.form;
   const title = customerTitleOf(got.data);
   const draft = { id: null, formCode: form.code, formName: title || form.title, answers: {}, status: "draft", answered: 0, remaining: 0, missing: [] };
-  return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, asks: customerFieldsOf(got.data, form), photoRoute: CUSTOMER_PHOTO_ROUTE_CODES.indexOf(form.code) !== -1, title: title, head: head, thanksHead: headOf(false) }} />;
+  // photoRoute true in the answer (Step 242) means the form's photos go up
+  // one at a time through the link's own photo route, POST
+  // /api/public/forms/:token/photos, before the filing names them by id.
+  // Any other answer keeps the photos on the phone and sends them inside
+  // the filing, as the page always has.
+  return <FormFiller token={null} t={t} locale={locale} form={form} draft={draft} onLeave={() => {}} customer={{ token: token, nameRequired: got.data.customerNameRequired === true, asks: customerFieldsOf(got.data, form), photoRoute: got.data.photoRoute === true, title: title, head: head, thanksHead: headOf(false) }} />;
 }
 
 // The client's acknowledgement of a monthly report, the page the mail
@@ -8243,7 +8235,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
     // Read before the answers are cleared: whether an email question has
     // an answer, and who sent it when the form's own questions asked.
     const emailGiven = shown.some(f => /(^|_)e_?mail($|_)/i.test(f.key) && typeof values[f.key] === "string" && values[f.key].trim() !== "");
-    const who = asks && asks.served ? [nameNow.trim(), roleNow.trim()].filter(Boolean).join(", ") : "";
+    const who = asks ? [nameNow.trim(), roleNow.trim()].filter(Boolean).join(", ") : "";
     try {
       const r = await api("/api/public/forms/" + encodeURIComponent(customer.token) + "/responses?locale=" + locale, { method: "POST", body: customerBody(), noAuthEvent: true });
       const emailed = r && typeof r.emailed === "boolean" ? r.emailed : emailGiven;

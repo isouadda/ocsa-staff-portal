@@ -461,20 +461,22 @@ function makeState(opts) {
     // secondStep: the right PIN is answered with the second sign-in step,
     // and SECOND_STEP_CODE signs in. workspace: an office person's
     // projects and to-dos; anyone else is turned away. customerAsks
-    // (Step 240): link-asks answers a form that asks the person's name
-    // and role itself. equipment (Step 240): one item on the register,
-    // opened by EQ_CODE, and the events recorded on it. concern (Step
-    // 244): link-concern answers OCSA-FRM-009's client part, its photo
-    // route and a receipt with a reference. fieldKit (Step 246): the
+    // (Step 240): link-asks and link-walk answer the two forms that ask
+    // the person's name and role themselves. equipment (Step 240): one
+    // item on the register, opened by EQ_CODE, and the events recorded on
+    // it. concern (Step 244): link-concern answers OCSA-FRM-009's client
+    // part and a receipt with a reference. fieldKit (Step 246): the
     // supervisor's field kit, its sites and what each tile reads, for an
     // admin or a supervisor; anyone else is turned away from its routes.
+    // linkPhotos: every photo the public photo route took, for any link
+    // whose form's photoRoute is true, with the id the filing names.
     languages: Array.isArray(o.languages) ? o.languages.slice() : null,
     sds: !!o.sds,
     secondStep: !!o.secondStep,
     workspace: !!o.workspace,
     customerAsks: !!o.customerAsks,
     concern: !!o.concern,
-    concernPhotos: [],
+    linkPhotos: [],
     equipment: !!o.equipment,
     equipmentEvents: [],
     fieldKit: !!o.fieldKit,
@@ -857,24 +859,43 @@ const FORM_V_CODE = "TEST-FORM-V";
 // The concern link (Step 242): the client's part of OCSA-FRM-009 on
 // link-concern, answered only when its switch is on, with its own photo
 // route, a receipt that carries a reference, and customerTitle (v3), the
-// title the client sees in place of the form's own. Invented words under the
-// code the contract names; the keys are the stub's own, since the API has
-// not built the form yet.
+// title the client sees in place of the form's own. Invented words under
+// the code the contract names, on the keys the API built (Step 242 as
+// built): client_name, client_role, client_email, client_phone and the
+// rest in the API's order.
 const FORM_N_CODE = "OCSA-FRM-009";
 const CONCERN_REF = "C-0042-INVENTED";
-const CONCERN_FIELDS = { name: "your_name", role: "org_role" };
-// The smoke check's form that asks the person's name and role itself, on
-// link-asks, answered only when its switch is on (Step 240). It carries
-// the code and the keys of OCSA-FRM-007, the real form that asks them,
-// and invented words.
+// The two forms that ask the person's name and role themselves, each
+// answered only when the customerAsks switch is on (Step 240): link-asks
+// carries the code and the keys of OCSA-FRM-007, your_name and your_role;
+// link-walk the code and the key of OCSA-FRM-006, completed_by, one
+// required question for both. Invented words on both.
 const FORM_A_CODE = "OCSA-FRM-007";
+const FORM_W_CODE = "OCSA-FRM-006";
 const CUSTOMER_LINKS = {
   "link-checklist": { form: FORM_C_CODE, closed: false },
   "link-survey": { form: FORM_V_CODE, closed: false },
   "link-closed": { form: FORM_V_CODE, closed: true },
   "link-asks": { form: FORM_A_CODE, closed: false, only: "customerAsks" },
+  "link-walk": { form: FORM_W_CODE, closed: false, only: "customerAsks" },
   "link-concern": { form: FORM_N_CODE, closed: false, only: "concern" },
 };
+// What the public form answer says about each form, in the shapes the
+// API answers since Step 242 (STEP242_AS_BUILT): customerFields names the
+// form's own name and role questions by key, role null where one
+// question takes both, and is null for a form the API's map does not
+// name, which keeps the page's own Your name and Your role; photoRoute
+// is true for every customer form with a photos question, whose photos
+// then go through POST /api/public/forms/:token/photos and are filed by
+// id. The two invented test forms keep photoRoute false, so the other
+// path, photos as data URLs inside the filing, stays proven too.
+const CUSTOMER_FIELDS = {
+  [FORM_W_CODE]: { name: "completed_by", role: null },
+  [FORM_A_CODE]: { name: "your_name", role: "your_role" },
+  [FORM_N_CODE]: { name: "client_name", role: "client_role" },
+};
+const customerFieldsOf = (code) => CUSTOMER_FIELDS[code] || null;
+const photoRouteOf = (code) => Object.prototype.hasOwnProperty.call(CUSTOMER_FIELDS, code);
 const PUBLIC_MAX_PHOTOS = 3;
 const PUBLIC_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
 const PUBLIC_FILINGS_MAX = 5;
@@ -945,8 +966,8 @@ function formV(lang) {
   };
 }
 const FORM_A_WORDS = {
-  en: { title: "Quarterly check in", first: "About you", second: "Your ratings", ocsa: "For the OCSA office", org: "Organization", name: "Your name", role: "Your role", overall: "Overall quality", notes: "Anything else" },
-  es: { title: "Revision trimestral", first: "Sobre usted", second: "Sus calificaciones", ocsa: "Para la oficina de OCSA", org: "Organizacion", name: "Su nombre", role: "Su puesto", overall: "Calidad general", notes: "Algo mas" },
+  en: { title: "Quarterly check in", first: "About you", second: "Your ratings", ocsa: "For the OCSA office", org: "Organization", name: "Your name", role: "Your role", overall: "Overall quality", notes: "Anything else", pics: "Photos, if any" },
+  es: { title: "Revision trimestral", first: "Sobre usted", second: "Sus calificaciones", ocsa: "Para la oficina de OCSA", org: "Organizacion", name: "Su nombre", role: "Su puesto", overall: "Calidad general", notes: "Algo mas", pics: "Fotos, si las hay" },
 };
 function formA(lang) {
   const w = FORM_A_WORDS[lang === "es" ? "es" : "en"];
@@ -959,6 +980,27 @@ function formA(lang) {
       customerField("your_name", w.name, "text", "1", false),
       customerField("your_role", w.role, "text", "1", false),
       customerField("overall", w.overall, "select", "2", false, { options: stars }),
+      customerField("notes", w.notes, "textarea", "2", false),
+      customerField("pics", w.pics, "photos", "2", false, { maxPhotos: PUBLIC_MAX_PHOTOS }),
+    ],
+  };
+}
+// OCSA-FRM-006's client half, invented: one required question for the
+// person's name and role, completed_by, and a photos question.
+const FORM_W_WORDS = {
+  en: { title: "Walk through with the customer", first: "Who you are", second: "What you saw", ocsa: "For the OCSA office", who: "Name and role", area: "Which area did you walk", clean: "How clean was it", good: "Good", fair: "Fair", poor: "Poor", pics: "Photos of what you saw", notes: "Anything else" },
+  es: { title: "Recorrido con el cliente", first: "Quien es usted", second: "Lo que vio", ocsa: "Para la oficina de OCSA", who: "Nombre y puesto", area: "Que area recorrio", clean: "Que tan limpia estaba", good: "Bien", fair: "Regular", poor: "Mal", pics: "Fotos de lo que vio", notes: "Algo mas" },
+};
+function formW(lang) {
+  const w = FORM_W_WORDS[lang === "es" ? "es" : "en"];
+  return {
+    code: FORM_W_CODE, title: w.title, version: 1,
+    sections: [{ key: "1", title: w.first }, { key: "2", title: w.second }, { key: "3", title: w.ocsa }],
+    fields: [
+      customerField("completed_by", w.who, "text", "1", true),
+      customerField("area", w.area, "text", "2", false),
+      customerField("clean", w.clean, "select", "2", false, { options: [{ value: "good", label: w.good }, { value: "fair", label: w.fair }, { value: "poor", label: w.poor }] }),
+      customerField("pics", w.pics, "photos", "2", false, { maxPhotos: PUBLIC_MAX_PHOTOS }),
       customerField("notes", w.notes, "textarea", "2", false),
     ],
   };
@@ -977,21 +1019,23 @@ function formN(lang) {
     code: FORM_N_CODE, title: w.officeTitle, version: 2,
     sections: [{ key: "1", title: w.first }, { key: "2", title: w.second }, { key: "3", title: w.ocsa }],
     fields: [
-      customerField("your_name", w.name, "text", "1", true),
-      customerField("org_role", w.orgRole, "text", "1", false),
-      customerField("email", w.email, "text", "1", false),
-      customerField("phone", w.phone, "text", "1", false),
-      customerField("contact_by", w.contactBy, "select", "1", false, { options: [{ value: "email", label: w.byEmail }, { value: "phone", label: w.byPhone }] }),
-      customerField("where", w.where, "text", "2", false),
+      customerField("client_name", w.name, "text", "1", true),
+      customerField("client_role", w.orgRole, "text", "1", false),
+      customerField("client_email", w.email, "text", "1", false),
+      customerField("client_phone", w.phone, "text", "1", false),
+      customerField("contact_preference", w.contactBy, "select", "1", false, { options: [{ value: "email", label: w.byEmail }, { value: "phone", label: w.byPhone }] }),
+      customerField("building_area", w.where, "text", "2", false),
       customerField("what_happened", w.what, "textarea", "2", true),
-      customerField("noticed", w.noticed, "text", "2", false),
+      customerField("noticed_on", w.noticed, "text", "2", false),
       customerField("photos", w.photos, "photos", "2", false, { maxPhotos: 5 }),
       customerField("about_staff", w.staff, "select", "2", true, { options: [{ value: "no", label: w.no }, { value: "yes", label: w.yes }] }),
     ],
   };
 }
-const customerFormOf = (code, lang) => (code === FORM_C_CODE ? formC(lang) : code === FORM_A_CODE ? formA(lang) : code === FORM_N_CODE ? formN(lang) : formV(lang));
-const customerNameRequired = (code) => code === FORM_C_CODE || code === FORM_N_CODE;
+const customerFormOf = (code, lang) => (code === FORM_C_CODE ? formC(lang) : code === FORM_A_CODE ? formA(lang) : code === FORM_W_CODE ? formW(lang) : code === FORM_N_CODE ? formN(lang) : formV(lang));
+// Checked against the form's own name question where it has one: 006's
+// completed_by and 009's client_name are required, 007's your_name is not.
+const customerNameRequired = (code) => code === FORM_C_CODE || code === FORM_W_CODE || code === FORM_N_CODE;
 
 // Everyone the Speak Up picker can offer, invented, each one a first and
 // a last name, sorted by last name then first name the way the route
@@ -1588,8 +1632,9 @@ const TWIN_PAIRS = [
   .concat([["Which room was it in", "En qu\u00e9 cuarto fue"]])
   // The form about one person.
   .concat(Object.keys(FORM_E_WORDS.en).map(k => [FORM_E_WORDS.en[k], FORM_E_WORDS.es[k]]))
-  // The concern link's form (Step 244).
-  .concat(Object.keys(FORM_N_WORDS.en).map(k => [FORM_N_WORDS.en[k], FORM_N_WORDS.es[k]]));
+  // The concern link's form (Step 244), and 006's client half (Step 249).
+  .concat(Object.keys(FORM_N_WORDS.en).map(k => [FORM_N_WORDS.en[k], FORM_N_WORDS.es[k]]))
+  .concat(Object.keys(FORM_W_WORDS.en).map(k => [FORM_W_WORDS.en[k], FORM_W_WORDS.es[k]]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -2574,31 +2619,45 @@ function createStub(opts) {
     };
     const publicGet = /^\/api\/public\/forms\/([^/]+)$/.exec(pathname);
     const publicPost = /^\/api\/public\/forms\/([^/]+)\/responses$/.exec(pathname);
-    // The concern link's photo route: each photo a multipart part named
-    // photos, images only, answered with an id the filing names.
+    // The link's photo route, open to every form whose photoRoute is true:
+    // each photo a multipart part named photos, images only, answered with
+    // an id the filing names.
     const publicPhotos = /^\/api\/public\/forms\/([^/]+)\/photos$/.exec(pathname);
-    if (method === "POST" && publicPhotos && state.concern && CUSTOMER_LINKS[publicPhotos[1]] && CUSTOMER_LINKS[publicPhotos[1]].only === "concern") {
+    const linkOf = (token) => { const l = CUSTOMER_LINKS[token]; return l && (!l.only || state[l.only]) ? l : null; };
+    if (method === "POST" && publicPhotos) {
+      const link = linkOf(publicPhotos[1]);
+      if (!link) return publicRefusal("customer.linkUnknown");
+      if (link.closed) return publicRefusal("customer.linkClosed");
+      if (!photoRouteOf(link.form)) return publicRefusal("customer.linkUnknown");
       const bytes = Buffer.isBuffer(body) ? body : Buffer.alloc(0);
       const parts = bytes.toString("latin1").split(/name="photos"/).slice(1);
       if (parts.length === 0) return publicRefusal("customer.photoType");
       if (parts.some(p => !/Content-Type: image\/(jpeg|png|webp)/i.test(p.slice(0, 400)))) return publicRefusal("customer.photoType");
-      if (state.concernPhotos.length + parts.length > 5) return publicRefusal("customer.tooManyPhotos");
+      if (state.linkPhotos.length + parts.length > 5) return publicRefusal("customer.tooManyPhotos");
       const photos = parts.map((p, i) => {
         const name = (/filename="([^"]*)"/.exec(p) || [])[1] || "photo";
-        const id = "cp-" + (state.concernPhotos.length + i + 1);
+        const id = "cp-" + (state.linkPhotos.length + i + 1);
         return { id: id, name: name, exif: p.indexOf("Exif") !== -1, gps: p.indexOf("GPS-INVENTED") !== -1, head: Buffer.from(p.slice(p.indexOf("\r\n\r\n") + 4, p.indexOf("\r\n\r\n") + 6), "latin1").toString("hex") };
       });
-      photos.forEach(ph => state.concernPhotos.push(ph));
+      photos.forEach(ph => state.linkPhotos.push(ph));
       return json(201, { photos: photos.map(ph => ({ id: ph.id, name: ph.name })) });
     }
     if ((method === "GET" && publicGet) || (method === "POST" && publicPost)) {
       const token = (publicGet || publicPost)[1];
-      const link = CUSTOMER_LINKS[token];
-      if (!link || (link.only && !state[link.only])) return publicRefusal("customer.linkUnknown");
+      const link = linkOf(token);
+      if (!link) return publicRefusal("customer.linkUnknown");
       if (link.closed) return publicRefusal("customer.linkClosed");
       const form = customerFormOf(link.form, publicLang);
+      // The form's own name and role questions, where it asks them.
+      const asked = customerFieldsOf(link.form);
       if (method === "GET") {
-        return json(200, Object.assign({ form: form, site: { name: PUBLIC_SITE }, company: { name: PUBLIC_COMPANY, logoUrl: null }, customerNameRequired: customerNameRequired(link.form) }, link.form === FORM_N_CODE ? { customerFields: CONCERN_FIELDS, customerTitle: FORM_N_WORDS[publicLang === "es" ? "es" : "en"].title } : {}));
+        return json(200, {
+          form: form, site: { name: PUBLIC_SITE }, company: { name: PUBLIC_COMPANY, logoUrl: null },
+          customerNameRequired: customerNameRequired(link.form),
+          customerFields: asked,
+          photoRoute: photoRouteOf(link.form),
+          customerTitle: link.form === FORM_N_CODE ? FORM_N_WORDS[publicLang === "es" ? "es" : "en"].title : null,
+        });
       }
       const b = body && typeof body === "object" ? body : {};
       // The honeypot: a filing that fills it is answered as if it went.
@@ -2625,12 +2684,12 @@ function createStub(opts) {
           got[k] = { name: String(o.name).trim(), role: String(o.role || "").trim(), bytes: bytes.length, size: imageSize(bytes) };
           continue;
         }
-        if (field.type === "photos" && link.form === FORM_N_CODE) {
+        if (field.type === "photos" && photoRouteOf(link.form)) {
           // Named by the ids the photo route answered, never sent again.
           const list = Array.isArray(v) ? v : [v];
           const ids = list.map(e => (e && typeof e === "object" ? e.id : null));
-          if (ids.some(id => !state.concernPhotos.some(ph => ph.id === id))) return publicRefusal("forms.photoType", { keys: [k] });
-          if (list.length > 5) return publicRefusal("customer.tooManyPhotos", { keys: [k] });
+          if (ids.some(id => !state.linkPhotos.some(ph => ph.id === id))) return publicRefusal("forms.photoType", { keys: [k] });
+          if (list.length > (field.maxPhotos || 5)) return publicRefusal("customer.tooManyPhotos", { keys: [k] });
           got[k] = ids;
           continue;
         }
@@ -2663,10 +2722,9 @@ function createStub(opts) {
       if (invalid.length > 0) return publicRefusal("forms.invalidAnswers", { keys: invalid });
       // A form whose own questions ask for the person takes the name and
       // role from them, and the body's are not read (Step 242).
-      const asked = link.form === FORM_N_CODE ? CONCERN_FIELDS : null;
       const customerName = String((asked ? got[asked.name] : b.customerName) || "").replace(/\s+/g, " ").trim();
       if (customerNameRequired(link.form) && !customerName) return publicRefusal("customer.nameRequired", asked ? { keys: [asked.name] } : undefined);
-      if (link.form === FORM_N_CODE && !got.email && !got.phone) return publicRefusal("customer.contactRequired", { keys: ["email", "phone"] });
+      if (link.form === FORM_N_CODE && !got.client_email && !got.client_phone) return publicRefusal("customer.contactRequired", { keys: ["client_email", "client_phone"] });
       const missing = form.fields.filter(f => f.required && got[f.key] === undefined).map(f => f.key);
       if (missing.length > 0) {
         return publicRefusal("forms.requiredUnanswered", { missing: missing, missingFields: missing.map(k => ({ key: k, label: form.fields.find(f => f.key === k).label })) });
@@ -2675,7 +2733,7 @@ function createStub(opts) {
       // case can judge the photos and the drawing by their bytes.
       state.calls[state.calls.length - 1].read = got;
       state.customerFiled.push({ token: token, locale: publicLang, customerName: customerName, customerRole: String((asked ? got[asked.role] : b.customerRole) || "").trim(), answers: got, body: b });
-      if (link.form === FORM_N_CODE) return json(200, { ok: true, reference: CONCERN_REF, emailed: !!got.email });
+      if (link.form === FORM_N_CODE) return json(200, { ok: true, reference: CONCERN_REF, emailed: !!got.client_email });
       return json(200, { ok: true });
     }
 
@@ -3110,7 +3168,7 @@ function draftOf(state) {
 
 module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
-  SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
+  SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES, localeFault, localeRows,
   CUSTOMER_LINKS, FORM_C_CODE, FORM_V_CODE, formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, PUBLIC_MAX_PHOTOS, PUBLIC_FILINGS_MAX, customerSignatureLine,
