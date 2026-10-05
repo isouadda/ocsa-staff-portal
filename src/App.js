@@ -802,6 +802,8 @@ const FolderIco = (p) => <Ico d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 
 // A briefcase, for the field kit, and a shield, for protective gear.
 const KitIco = (p) => <Ico d="M20 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zM16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" {...p} />;
 const ShieldIco = (p) => <Ico d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" {...p} />;
+// A book, for My training.
+const BookIco = (p) => <Ico d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
 // Every destination the portal has, in one list, so the bottom bar and the
@@ -832,6 +834,9 @@ const DESTINATIONS = [
   // Under More alone, for an admin or a supervisor, the accounts its
   // routes answer (Step 246).
   { id: "fieldkit", label: () => "Field kit", icon: KitIco, moreOnly: true, role: (ctx) => !!ctx.isAdmin },
+  // Under More alone, for everyone, and only once GET /api/training/me
+  // has answered a list (Step 258).
+  { id: "training", label: () => "My training", icon: BookIco, moreOnly: true, role: (ctx) => !!ctx.training },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
 
@@ -2483,6 +2488,15 @@ export default function OCSAStaffPortal() {
   // Where the field kit is (Step 246): the site chosen and the tile open,
   // kept while the person goes elsewhere and back, and dropped at sign out.
   const [fieldKitAt, setFieldKitAt] = useState(null);
+  // My training (Step 258): what GET /api/training/me answers, read once
+  // the portal is up. Until it answers a list, More offers nothing new.
+  const [training, setTraining] = useState(null);
+  useEffect(() => {
+    if (!token || screen !== "main") { setTraining(null); return undefined; }
+    let live = true;
+    readTraining(token).then(d => { if (live && d) setTraining(d); });
+    return () => { live = false; };
+  }, [token, screen]);
   const wsAsks = !!token && screen === "main" && isOfficePerson(user);
   useEffect(() => {
     if (!wsAsks) { setWsProjects(null); setWsAt(null); return undefined; }
@@ -2490,7 +2504,7 @@ export default function OCSAStaffPortal() {
     readWorkspaceProjects(token).then(list => { if (live) setWsProjects(list); });
     return () => { live = false; };
   }, [wsAsks, token, user && user.id]);
-  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects) };
+  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training };
   const shortcutChoices = shortcutChoicesFor(destCtx);
   const allowedShortcutIds = shortcutChoices.map(d => d.id);
   const uid = user && user.id ? user.id : null;
@@ -2834,6 +2848,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
               {activeTab === "sds" && <div style={{ padding: 16 }}><SdsBrowser initial={sdsList} onList={setSdsList} code={sdsCode} onCode={setSdsCode} t={t} /></div>}
               {activeTab === "workspace" && destCtx.workspace && <WorkspaceView token={token} user={user} projects={wsProjects} onProjects={setWsProjects} at={wsAt} onAt={setWsAt} channels={channels} onOpenChat={(id) => { chooseChat(id); setActiveTab("chat"); setShowMore(false); }} showToast={showToast} t={t} />}
+              {activeTab === "training" && destCtx.training && <TrainingView token={token} data={training} onData={setTraining} t={t} />}
               {activeTab === "fieldkit" && destCtx.isAdmin && <FieldKitView token={token} at={fieldKitAt} onAt={setFieldKitAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} assignedSites={sites} onOpenEquipment={(code) => { setEquipmentShown(code); setEquipmentBack("fieldkit"); setActiveTab("equipment"); }} showToast={showToast} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
@@ -6433,6 +6448,106 @@ function FindingsSection({ token, user, rows, onChanged, showToast, openId, t })
   );
 }
 
+// ------------------------------------------------------------
+// My training (Step 258): what GET /api/training/me answers the person
+// signed in (the Step 256 contract): items, one per required topic, and
+// one per assigned site for a per-site topic, each with a status; and
+// records, the sessions on file. More offers My training once the route
+// answers a list; a 404 or any other answer leaves it away. Read only in
+// this slice: the supervisor sets up the sessions.
+// ------------------------------------------------------------
+const TRAINING_TODO = ["missing", "expired", "refresherDue"];
+function trainingItemOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
+  const name = str("name");
+  if (!name) return null;
+  return { id: String(agentField(x, ["topicId"], "")) + ":" + String(agentField(x, ["siteId"], "")), name: name, docCode: str("docCode"), docSection: str("docSection"), safetyCritical: x.safetyCritical === true, siteName: str("siteName"), status: str("status"), completedDate: str("completedDate"), expiresOn: str("expiresOn") };
+}
+function trainingRecordOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
+  const name = str("name");
+  if (!name) return null;
+  return { id: String(agentField(x, ["id"], name)), name: name, completedDate: str("completedDate"), expiresOn: str("expiresOn"), siteName: str("siteName"), locale: str("locale") };
+}
+// The answer as the screen reads it, or null for one that holds no list.
+function trainingOf(d) {
+  const items = wsRows(d, "items");
+  if (!items || Array.isArray(d)) return null;
+  return { items: items.map(trainingItemOf).filter(Boolean), records: (wsRows(d, "records") || []).map(trainingRecordOf).filter(Boolean) };
+}
+async function readTraining(token) {
+  try { return trainingOf(await api("/api/training/me", { token })); } catch (e) { return null; }
+}
+const trainingDay = (d) => (d ? dueDayText(d, { month: "short", day: "numeric", year: "numeric" }) : "");
+const TRAINING_GIVEN_IN = { en: () => tr("Given in English"), es: () => tr("Given in Spanish"), fr: () => tr("Given in French") };
+
+function TrainingView({ token, data, onData, t }) {
+  // Read again each time the screen opens; a read that fails keeps what
+  // is on the screen and says so, with Try again.
+  const [fault, setFault] = useState(false);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let live = true;
+    readTraining(token).then(d => { if (!live) return; if (d) { onData(d); setFault(false); } else setFault(true); });
+    return () => { live = false; };
+  }, [asked]);
+  const items = data ? data.items : [];
+  const bySafety = (a, b) => (b.safetyCritical ? 1 : 0) - (a.safetyCritical ? 1 : 0);
+  const todo = items.filter(i => TRAINING_TODO.indexOf(i.status) !== -1).sort(bySafety);
+  const soon = items.filter(i => i.status === "dueSoon");
+  const done = items.filter(i => i.status === "current");
+  const records = (data ? data.records : []).slice().sort((a, b) => (a.completedDate < b.completedDate ? 1 : a.completedDate > b.completedDate ? -1 : 0));
+  const why = (i) => {
+    if (i.status === "missing") return tr("Not done yet");
+    if (i.status === "expired") return tr("Expired {date}", { date: trainingDay(i.expiresOn) });
+    if (i.status === "refresherDue") return i.siteName ? tr("Refresher due at {site}", { site: i.siteName }) : tr("Refresher due");
+    if (i.status === "dueSoon") return tr("Expires {date}", { date: trainingDay(i.expiresOn) });
+    return tr("Done {date}", { date: trainingDay(i.completedDate) });
+  };
+  const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const smallSt = { fontSize: 11, color: t.textMut, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const row = (i, group) => (
+    <div key={i.id} data-training-item={i.status} style={{ ...fkRowSt(t), minHeight: TAP }}>
+      <div style={nameSt}>{i.name}</div>
+      {(i.docCode || i.docSection) && <div style={smallSt}>{[i.docCode, i.docSection].filter(Boolean).join(" ")}</div>}
+      {i.siteName && i.status !== "refresherDue" && <div style={lineSt}>{i.siteName}</div>}
+      <div style={{ ...lineSt, color: group === "todo" ? wsLateInk(t) : group === "soon" ? ink(t, ORANGE) : ink(t, GREEN), fontWeight: 600 }}>{why(i)}</div>
+      {group === "done" && i.expiresOn && <div style={lineSt}>{tr("Expires {date}", { date: trainingDay(i.expiresOn) })}</div>}
+    </div>
+  );
+  const head = (word, tag) => <div role="heading" aria-level={3} data-training-group={tag} style={fkHeadSt(t)}>{tr(word)}</div>;
+  return (
+    <div data-training="1" style={{ padding: "14px 16px 100px" }}>
+      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("My training")}</div>
+      {fault && <ListFault icon={BookIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />}
+      {items.length === 0 && <div style={wsQuiet(t)}>{tr("Nothing is required for your role yet.")}</div>}
+      {todo.length > 0 && (
+        <div>
+          {head("To do", "todo")}
+          {todo.map(i => row(i, "todo"))}
+          <div style={{ ...smallSt, fontSize: 12, marginTop: 4, marginBottom: 8 }}>{tr("Your supervisor sets up these sessions. Ask them when the next one is.")}</div>
+        </div>
+      )}
+      {soon.length > 0 && <div>{head("Coming due", "soon")}{soon.map(i => row(i, "soon"))}</div>}
+      {done.length > 0 && <div>{head("Done", "done")}{done.map(i => row(i, "done"))}</div>}
+      {records.length > 0 && (
+        <div>
+          {head("History", "history")}
+          {records.map(r => (
+            <div key={r.id} data-training-record={r.id} style={{ ...fkRowSt(t), minHeight: TAP }}>
+              <div style={nameSt}>{r.name}</div>
+              <div style={lineSt}>{[trainingDay(r.completedDate), r.siteName, TRAINING_GIVEN_IN[r.locale] ? TRAINING_GIVEN_IN[r.locale]() : ""].filter(Boolean).join(", ")}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ============================================================
 // SPEAK UP
 // A report about a person. Three things: what happened, who it is
@@ -6789,6 +6904,8 @@ const NOTIF_TAB = {
   client_request: "issues",
   // An inspection finding (Step 255): Report, with that finding in view.
   inspection_finding: "issues",
+  // A training record about to expire (Step 258): My training.
+  training_expiring: "training",
   chat: "chat",
   chat_mention: "chat",
   announcement: "announcement",
