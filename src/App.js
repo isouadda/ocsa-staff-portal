@@ -2503,15 +2503,18 @@ export default function OCSAStaffPortal() {
   // from /join/<code> or a code typed in. Dropped at sign out.
   const [trainingAt, setTrainingAt] = useState(null);
   // Before you start (Step 264): open once a day while the list holds a
-  // document to sign or a first-day training, never over a place a notice
-  // asked for, and never blocking the rest of the app.
+  // document to sign or a first-day training, never when the app was
+  // opened from a link to a place, and never blocking the rest of the
+  // app. It counts as shown when Later or one of its lines is tapped.
   const [beforeOpen, setBeforeOpen] = useState(false);
+  const bootedFromLink = useRef(!!OPEN_AT_START);
   useEffect(() => {
-    if (!training || !user || screen !== "main" || openAsk || beforeOpen) return;
+    if (!training || !user || screen !== "main" || openAsk || beforeOpen || bootedFromLink.current) return;
     if (training.documentsToSign.length === 0 && training.firstDay.length === 0) return;
     if (beforeShownToday(user.id)) return;
-    markBeforeShown(user.id); setBeforeOpen(true);
+    setBeforeOpen(true);
   }, [training, user && user.id, screen, openAsk]);
+  const closeBefore = () => { setBeforeOpen(false); if (user) markBeforeShown(user.id); };
   useEffect(() => {
     if (!token || screen !== "main") { setTraining(null); setTrainingAt(null); setBeforeOpen(false); return undefined; }
     let live = true;
@@ -2959,9 +2962,9 @@ export default function OCSAStaffPortal() {
       )}
 
       {beforeOpen && training && (
-        <BeforeYouStartSheet training={training} t={t} onClose={() => setBeforeOpen(false)}
-          onDocument={(doc) => { setBeforeOpen(false); setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }}
-          onLesson={(item) => { setBeforeOpen(false); setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} />
+        <BeforeYouStartSheet training={training} t={t} onClose={closeBefore}
+          onDocument={(doc) => { closeBefore(); setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }}
+          onLesson={(item) => { closeBefore(); setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} />
       )}
       {announcementOpen && (
         <AnnouncementSheet token={token} id={announcementOpen} t={t} onClose={() => setAnnouncementOpen(null)} />
@@ -12610,7 +12613,9 @@ function FkSession({ token, site, user, showToast, t }) {
         setTopics((wsRows(tp, "topics") || []).map(fkTopicOf).filter(Boolean));
         const rows = (wsRows(list, "sessions") || []).map(fkSessionOf).filter(Boolean);
         const me = user && user.id ? String(user.id) : "";
-        const mine = rows.find(s => s.trainerId === me) || rows[0] || null;
+        // Only this trainer's own open session is picked up; another
+        // trainer's at the site is theirs to close.
+        const mine = rows.find(s => s.trainerId === me) || null;
         if (!mine) { setView({ kind: "form" }); return; }
         const one = fkSessionOf((await api("/api/training/sessions/" + encodeURIComponent(mine.id), { token }) || {}).session);
         if (on) setView({ kind: "open", session: one || mine });

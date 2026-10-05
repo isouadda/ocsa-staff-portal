@@ -51,7 +51,13 @@ lessons (Step 261), Home's card, a lesson read with its blocks and its
 Spanish switch, failed once with the score, the missed count and the
 tries left, then passed, signed and waiting for the trainer, and a
 supervisor's sign-off from Home's card through the field kit's tile,
-with the tick asked for and the API's refusal in its words;
+with the tick asked for and the API's refusal in its words; Step 264,
+Before you start at boot, a session joined from /join/<code> with the
+understood tick and a signature, a document read section by section and
+signed with the version read, a supervisor's session started with its
+code and QR, a sign-in arriving and the close with a signature, and a
+checklist watched, an unticked step named, the person's signature and
+the trainer's sign-off;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
@@ -62,7 +68,7 @@ the three-minute line stays where it was.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`), off for every other case. The full suite below is separate
+`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`), off for every other case. The full suite below is separate
 and is not run by it.
 
 ## The full suite

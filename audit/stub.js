@@ -391,6 +391,41 @@ const TRAINING_REFUSALS = {
   "training.attemptNotFound": { status: 404, en: "This attempt was not found.", es: "No se encontr\u00f3 este intento." },
   "training.noAccess": { status: 403, en: "You cannot see this.", es: "No puede ver esto." },
 };
+// Step 264: the Step 262 contract's answers behind the training switch,
+// every value invented. A session another trainer opened at North
+// Building, which a person joins by its code; the sessions a supervisor
+// starts, with one sign-in arriving on the first read after the start; an
+// observation checklist of three steps for a person at the site; and a
+// document of three sections, in English alone, that everyone signs.
+const TRAINING_SESSION_SEED = { id: "ts-1", title: "Invented ladders refresher", day: "2026-10-05", siteId: "site-north", locale: "en", trainerId: "u-trainer-other", trainerName: "Casey Trainer", topicIds: ["tp-2"], joinCode: "QR7K2M9P", status: "open", signins: [], note: "" };
+const TRAINING_OBSERVATION = { versionId: "lv-3", topicId: "tp-4", version: 1, kind: "observation", maxAttempts: 3, needsTrainer: true, locales: ["en"], title: "Invented protective equipment, on the job",
+  steps: [{ key: "s1", text: "Checks the gloves for tears before putting them on" }, { key: "s2", text: "Puts the glasses on before opening the product" }, { key: "s3", text: "Takes the gloves off without touching the outside" }],
+  acknowledgement: "I did each step and I will do it this way every time." };
+const TRAINING_DOCUMENT = { docCode: "OCSA-HR-002", title: "Invented employee handbook", version: "3", locales: ["en"],
+  sections: [
+    { ref: "1", title: "Welcome", content: "This handbook says how we work together. Read each section, then sign at the end.\n\nAsk your supervisor about anything that is not clear." },
+    { ref: "2", title: "Your hours", content: "Start every shift from the app, and end it from the app.\n\nTell your supervisor before your shift when you cannot come in." },
+    { ref: "3", title: "Safety", content: "Wear what the label says. Never mix two products. Report every injury the same day." },
+  ],
+  acknowledgement: { en: "I received this document, I read it, and I will follow it.", es: "Recib\u00ed este documento, lo le\u00ed y lo cumplir\u00e9.", fr: "J'ai re\u00e7u ce document, je l'ai lu et je le respecterai." } };
+// The items due on the first day (the contract's section 5), by topic.
+const TRAINING_FIRST_DAY = ["tp-1", "tp-3"];
+// A one by one white PNG, what the QR route answers here.
+const QR_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=", "base64");
+const SESSION_REFUSALS = {
+  "training.sessionNotFound": { status: 404, en: "This session is not open.", es: "Esta sesi\u00f3n no est\u00e1 abierta." },
+  "training.alreadySigned": { status: 409, en: "You already signed in to this session.", es: "Ya firm\u00f3 su entrada a esta sesi\u00f3n." },
+  "training.understoodRequired": { status: 400, en: "Tick that you understood the training.", es: "Marque que entendi\u00f3 la capacitaci\u00f3n." },
+  "training.cannotJoinOwn": { status: 403, en: "A trainer cannot sign in to their own session.", es: "Un capacitador no puede firmar su propia sesi\u00f3n." },
+  "training.sessionClosed": { status: 409, en: "This session is closed.", es: "Esta sesi\u00f3n est\u00e1 cerrada." },
+  "training.noSignins": { status: 400, en: "Nobody has signed in yet.", es: "Nadie ha firmado todav\u00eda." },
+  "training.notObservation": { status: 409, en: "This lesson is a quiz, not a checklist.", es: "Esta lecci\u00f3n es un cuestionario, no una lista." },
+  "training.stepsIncomplete": { status: 400, en: "Tick every step first.", es: "Marque todos los pasos primero." },
+  "documents.notFound": { status: 404, en: "This document was not found.", es: "No se encontr\u00f3 este documento." },
+  "documents.versionChanged": { status: 409, en: "This document changed. Read it again.", es: "Este documento cambi\u00f3. L\u00e9alo de nuevo." },
+  "documents.alreadySigned": { status: 409, en: "You already signed this version.", es: "Ya firm\u00f3 esta versi\u00f3n." },
+  "documents.signatureRequired": { status: 400, en: "Sign before you send.", es: "Firme antes de enviar." },
+};
 // The complete route's refusals about a finding (the Step 253 contract
 // section 3, item 2); the words are the stub's, since the contract gives
 // none, and the keys name the card.
@@ -642,6 +677,12 @@ function makeState(opts) {
     // Step 261: every attempt on a lesson, seeded with the one another
     // person passed and signed, waiting for a supervisor's sign-off.
     trainingAttempts: o.training === true ? [Object.assign({}, TRAINING_AWAITING)] : [],
+    // Step 264: the sessions, with one another trainer opened; the
+    // document acknowledgments; and the documents switch, which puts the
+    // document to sign and the first-day items on GET /api/training/me.
+    trainingSessions: o.training === true ? [JSON.parse(JSON.stringify(TRAINING_SESSION_SEED))] : [],
+    documentAcks: [],
+    documents: o.documents === true,
     // The supplies at the open shift's site, which a case can answer
     // with none. null answers the one supply every case has always had.
     supplies: Array.isArray(o.supplies) ? o.supplies : null,
@@ -3327,6 +3368,34 @@ function createStub(opts) {
         return json(201, { photo: { id: "rph-" + r.photos.length, url: String(body.photoUrl) } });
       }
     }
+    // --- Step 264: the documents to read and sign (the Step 262
+    // contract, section 6), behind state.training: one document for
+    // everyone, in English alone, signed once per version.
+    if (state.training && pathname.indexOf("/api/documents/") === 0) {
+      const refuseDoc = (k, extra) => { const r = SESSION_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
+      const signed = state.documentAcks.find(a => a.docCode === TRAINING_DOCUMENT.docCode && a.version === TRAINING_DOCUMENT.version && a.personId === state.person.id) || null;
+      if (key === "GET /api/documents/to-sign") return json(200, { documents: signed ? [] : [{ docCode: TRAINING_DOCUMENT.docCode, title: TRAINING_DOCUMENT.title, version: TRAINING_DOCUMENT.version, locales: TRAINING_DOCUMENT.locales.slice(), signedVersion: null }] });
+      const doc = /^(GET|POST) \/api\/documents\/([^/]+)\/(read|acknowledge)$/.exec(key);
+      if (doc) {
+        if (decodeURIComponent(doc[2]) !== TRAINING_DOCUMENT.docCode) return refuseDoc("documents.notFound");
+        if (doc[3] === "read") {
+          const loc = TRAINING_DOCUMENT.locales.indexOf(lang) !== -1 ? lang : "en";
+          return json(200, { document: { docCode: TRAINING_DOCUMENT.docCode, title: TRAINING_DOCUMENT.title, version: TRAINING_DOCUMENT.version, locale: loc, locales: TRAINING_DOCUMENT.locales.slice(), sections: TRAINING_DOCUMENT.sections.map(s => Object.assign({}, s)), acknowledgement: TRAINING_DOCUMENT.acknowledgement[loc] || TRAINING_DOCUMENT.acknowledgement.en } });
+        }
+        const b = body && typeof body === "object" ? body : {};
+        if (String(b.version || "") !== TRAINING_DOCUMENT.version) return refuseDoc("documents.versionChanged", { version: TRAINING_DOCUMENT.version });
+        if (signed) return refuseDoc("documents.alreadySigned");
+        const raw = typeof b.signature === "string" ? b.signature.trim() : "";
+        const drawn = raw ? /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw) : null;
+        const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
+        if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") return refuseDoc("documents.signatureRequired");
+        state.calls[state.calls.length - 1].signature = { bytes: bytes.length, size: imageSize(bytes) };
+        const ack = { id: "da-" + (state.documentAcks.length + 1), docCode: TRAINING_DOCUMENT.docCode, version: TRAINING_DOCUMENT.version, personId: state.person.id, locale: b.locale === "es" || b.locale === "fr" ? b.locale : "en", signedAt: new Date().toISOString() };
+        state.documentAcks.push(ack);
+        return json(201, { acknowledgment: { id: ack.id, docCode: ack.docCode, version: ack.version, locale: ack.locale, signedAt: ack.signedAt } });
+      }
+      return refuseDoc("documents.notFound");
+    }
     // --- My training (Step 258) and its lessons (Step 261), behind
     // state.training. Items tp-1 and tp-2 carry a lesson; an attempt of
     // this person on one moves the item to inProgress or awaitingTrainer.
@@ -3345,11 +3414,149 @@ function createStub(opts) {
         else if ((!latest.scoredAt || !latest.passed) && lessonTries(lesson).left > 0) { item.status = "inProgress"; item.attemptId = latest.id; }
       });
       me.attempts = TRAINING_LESSONS.map(l => lessonAttempts(l).slice(-1)[0]).filter(Boolean).map(attemptView);
+      // Step 264, behind the documents switch: the first-day items, the
+      // document to sign until it is signed, and a certificate on file.
+      if (state.documents) {
+        me.firstDay = me.items.filter(i => TRAINING_FIRST_DAY.indexOf(i.topicId) !== -1 && i.status !== "current").map(i => Object.assign({}, i));
+        const signedDoc = state.documentAcks.some(a => a.docCode === TRAINING_DOCUMENT.docCode && a.version === TRAINING_DOCUMENT.version && a.personId === state.person.id);
+        me.documentsToSign = signedDoc ? [] : [{ docCode: TRAINING_DOCUMENT.docCode, title: TRAINING_DOCUMENT.title, version: TRAINING_DOCUMENT.version, locales: TRAINING_DOCUMENT.locales.slice(), signedVersion: null }];
+        me.records.forEach(r => { if (r.id === "tr-6") r.certificate = true; });
+      }
       return json(200, me);
     }
     if (state.training && pathname.indexOf("/api/training/") === 0) {
       const management = FK_MANAGEMENT.indexOf(state.person.role) !== -1;
       const refuse = (k, extra) => { const r = TRAINING_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
+      // --- Step 264: sessions signed on phones, watched sign-offs, the
+      // documents to sign (the Step 262 contract, sections 2, 3 and 6).
+      const sessionRefuse = (k, extra) => { const r = SESSION_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
+      const sessionView = (x, withSignins) => {
+        const site = SITES.find(y => y.siteId === x.siteId) || null;
+        const v = { id: x.id, title: x.title, day: x.day, site: site ? { id: site.siteId, name: site.siteName } : null, locale: x.locale, trainer: { id: x.trainerId, name: x.trainerName }, topics: x.topicIds.map(id => { const tp = TRAINING_ME.items.find(i => i.topicId === id); return tp ? { id: id, name: tp.name, docCode: tp.docCode, docSection: tp.docSection } : null; }).filter(Boolean), joinCode: x.joinCode, joinUrl: "https://portal.example.invalid/join/" + x.joinCode, status: x.status, closedAt: x.closedAt || null, note: x.note || "" };
+        if (withSignins !== false) v.signins = x.signins.filter(s => !s.removedAt).map(s => ({ id: s.id, person: { id: s.personId, name: s.personName }, signedAt: s.signedAt }));
+        return v;
+      };
+      const q = new URLSearchParams(search || "");
+      if (key === "GET /api/training/topics") {
+        if (!management) return refuse("training.noAccess");
+        return json(200, { topics: TRAINING_ME.items.filter((i, n, all) => all.findIndex(x => x.topicId === i.topicId) === n).map(i => ({ id: i.topicId, name: i.name, docCode: i.docCode, docSection: i.docSection, safetyCritical: i.safetyCritical, active: true })) });
+      }
+      const joined = /^(GET|POST) \/api\/training\/join\/([^/]+)$/.exec(key);
+      if (joined) {
+        const sess = state.trainingSessions.find(x => x.joinCode === decodeURIComponent(joined[2]) && x.status === "open");
+        if (!sess) return sessionRefuse("training.sessionNotFound");
+        const mine = sess.signins.find(x => x.personId === state.person.id && !x.removedAt);
+        if (method === "GET") return json(200, { session: Object.assign(sessionView(sess, false), { siteName: sessionView(sess, false).site ? sessionView(sess, false).site.name : null, trainerName: sess.trainerName, alreadySigned: !!mine }) });
+        const b = body && typeof body === "object" ? body : {};
+        if (sess.trainerId === state.person.id) return sessionRefuse("training.cannotJoinOwn");
+        if (mine) return sessionRefuse("training.alreadySigned");
+        if (b.understood !== true) return sessionRefuse("training.understoodRequired", { keys: ["understood"] });
+        const raw = typeof b.signature === "string" ? b.signature.trim() : "";
+        const drawn = raw ? /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw) : null;
+        const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
+        if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") return refuse("training.signatureRequired");
+        state.calls[state.calls.length - 1].signature = { bytes: bytes.length, size: imageSize(bytes) };
+        const signin = { id: "si-" + (sess.signins.length + 1), personId: state.person.id, personName: state.person.firstName + " " + state.person.lastName, signedAt: new Date().toISOString(), removedAt: null };
+        sess.signins.push(signin);
+        return json(201, { signin: { id: signin.id, signedAt: signin.signedAt } });
+      }
+      if (pathname.indexOf("/api/training/sessions") === 0) {
+        if (!management) return refuse("training.noAccess");
+        if (key === "GET /api/training/sessions") {
+          const want = q.get("status") || "";
+          const site = q.get("siteId") || "";
+          return json(200, { sessions: state.trainingSessions.filter(x => (!want || x.status === want) && (!site || x.siteId === site)).map(x => sessionView(x, false)) });
+        }
+        if (key === "POST /api/training/sessions") {
+          const b = body && typeof body === "object" ? body : {};
+          const keys = [];
+          if (typeof b.title !== "string" || !b.title.trim() || b.title.trim().length > 120) keys.push("title");
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.day || ""))) keys.push("day");
+          if (!SITES.some(x => x.siteId === b.siteId)) keys.push("siteId");
+          if (["en", "es", "fr"].indexOf(b.locale) === -1) keys.push("locale");
+          const ids = Array.isArray(b.topicIds) ? b.topicIds.filter(id => TRAINING_ME.items.some(i => i.topicId === id)) : [];
+          if (!Array.isArray(b.topicIds) || ids.length !== b.topicIds.length || ids.length < 1 || ids.length > 10) keys.push("topicIds");
+          if (keys.length > 0) return json(400, { error: refusalIn(FK_PPE_BAD, lang), code: "training.badDetails", keys: keys });
+          const made = { id: "ts-made-" + (state.trainingSessions.length + 1), title: b.title.trim(), day: b.day, siteId: b.siteId, locale: b.locale, trainerId: state.person.id, trainerName: state.person.firstName + " " + state.person.lastName, topicIds: ids, joinCode: "MADE" + String(1000 + state.trainingSessions.length), status: "open", signins: [], note: typeof b.note === "string" ? b.note.trim() : "", reads: 0 };
+          state.trainingSessions.push(made);
+          return json(201, { session: sessionView(made) });
+        }
+        const one = /^(GET|POST|DELETE) \/api\/training\/sessions\/([^/]+)(?:\/(qr\.png|close|cancel|signins\/([^/]+)))?$/.exec(key);
+        const sess = one ? state.trainingSessions.find(x => x.id === decodeURIComponent(one[2])) : null;
+        if (!sess) return sessionRefuse("training.sessionNotFound");
+        if (!one[3] && method === "GET") {
+          // A sign-in arrives on the second read of a session this
+          // trainer started, the way a person at the session would sign.
+          if (sess.id.indexOf("ts-made-") === 0) { sess.reads = (sess.reads || 0) + 1; if (sess.reads === 2 && sess.signins.length === 0) sess.signins.push({ id: "si-arrived", personId: STAFF[1].id, personName: STAFF[1].firstName + " " + STAFF[1].lastName, signedAt: new Date().toISOString(), removedAt: null }); }
+          return json(200, { session: sessionView(sess) });
+        }
+        if (one[3] === "qr.png") return image("image/png", QR_PNG);
+        if (sess.status !== "open") return sessionRefuse("training.sessionClosed");
+        if (one[3] === "cancel") { sess.status = "cancelled"; return json(200, { session: sessionView(sess) }); }
+        if (one[3] && one[3].indexOf("signins/") === 0) {
+          const s = sess.signins.find(x => x.id === decodeURIComponent(one[4]) && !x.removedAt);
+          if (!s) return refuse("training.attemptNotFound");
+          s.removedAt = new Date().toISOString();
+          return json(200, { session: sessionView(sess) });
+        }
+        // close
+        const b = body && typeof body === "object" ? body : {};
+        const raw = typeof b.signature === "string" ? b.signature.trim() : "";
+        const drawn = raw ? /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw) : null;
+        const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
+        if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") return refuse("training.signatureRequired");
+        const live = sess.signins.filter(x => !x.removedAt);
+        if (live.length === 0) return sessionRefuse("training.noSignins");
+        state.calls[state.calls.length - 1].signature = { bytes: bytes.length, size: imageSize(bytes) };
+        sess.status = "closed"; sess.closedAt = new Date().toISOString();
+        const saved = [];
+        live.forEach(s => sess.topicIds.forEach(tid => saved.push({ userId: s.personId, topicId: tid, recordId: "tr-sess-" + s.id + "-" + tid })));
+        return json(200, { session: sessionView(sess), saved: saved, already: [] });
+      }
+      if (key === "GET /api/training/gaps/people/" + encodeURIComponent(STAFF[0].id) || /^GET \/api\/training\/gaps\/people\/[^/]+$/.test(key)) {
+        if (!management) return refuse("training.noAccess");
+        const who = STAFF.find(p => key === "GET /api/training/gaps/people/" + p.id) || STAFF[0];
+        const quiz = TRAINING_ME.items.find(i => i.topicId === "tp-1");
+        const obs = TRAINING_ME.items.find(i => i.topicId === TRAINING_OBSERVATION.topicId);
+        const done = state.trainingAttempts.some(a => a.versionId === TRAINING_OBSERVATION.versionId && a.personId === who.id && a.trainerSignedAt);
+        return json(200, { person: { id: who.id, name: who.firstName + " " + who.lastName, role: "custodian", hireDate: "2026-09-01", language: "en", sites: [{ id: "site-north", name: "North Building" }] }, items: [
+          Object.assign({}, quiz, { lesson: { versionId: "lv-1", kind: "quiz", attemptsUsed: 0, attemptsLeft: 3 } }),
+          Object.assign({}, obs, { status: done ? "current" : "missing", lesson: { versionId: TRAINING_OBSERVATION.versionId, kind: "observation", attemptsUsed: 0, attemptsLeft: 3 } }),
+        ] });
+      }
+      if (key === "POST /api/training/observations") {
+        if (!management) return refuse("training.noAccess");
+        const b = body && typeof body === "object" ? body : {};
+        if (b.versionId !== TRAINING_OBSERVATION.versionId) return sessionRefuse("training.notObservation");
+        if (b.userId === state.person.id) return refuse("training.cannotSignOwn");
+        const who = STAFF.find(p => p.id === b.userId);
+        if (!who) return refuse("training.personNotFound" in TRAINING_REFUSALS ? "training.personNotFound" : "training.attemptNotFound");
+        const made = { id: "ta-obs-" + (state.trainingAttempts.length + 1), versionId: TRAINING_OBSERVATION.versionId, topicId: TRAINING_OBSERVATION.topicId, personId: who.id, personName: who.firstName + " " + who.lastName, attemptNo: 1, locale: "en", siteId: b.siteId || null, startedAt: new Date().toISOString(), scoredAt: null, scorePercent: null, passed: null, missed: [], acknowledgedAt: null, awaitingTrainer: false, trainerSignedAt: null, trainerId: null, trainerName: null, demonstrated: false, voidedAt: null, observerId: state.person.id, steps: {} };
+        state.trainingAttempts.push(made);
+        return json(201, { attempt: attemptView(made), checklist: { title: TRAINING_OBSERVATION.title, steps: TRAINING_OBSERVATION.steps.map(s => ({ key: s.key, text: s.text })), acknowledgement: TRAINING_OBSERVATION.acknowledgement } });
+      }
+      const obsAct = /^POST \/api\/training\/observations\/([^/]+)\/(steps|person-sign)$/.exec(key);
+      if (obsAct) {
+        const a = state.trainingAttempts.find(x => x.id === decodeURIComponent(obsAct[1]));
+        if (!a) return refuse("training.attemptNotFound");
+        if (a.observerId !== state.person.id) return refuse("training.noAccess");
+        const b = body && typeof body === "object" ? body : {};
+        if (obsAct[2] === "steps") {
+          const given = b.steps && typeof b.steps === "object" ? b.steps : {};
+          const missing = TRAINING_OBSERVATION.steps.filter(s => given[s.key] !== true).map(s => s.key);
+          if (missing.length > 0) return sessionRefuse("training.stepsIncomplete", { keys: missing });
+          a.steps = given; a.scorePercent = 100; a.passed = true; a.scoredAt = new Date().toISOString(); a.missed = [];
+          return json(200, { attempt: attemptView(a) });
+        }
+        if (!a.passed) return refuse("training.notPassed");
+        const raw = typeof b.signature === "string" ? b.signature.trim() : "";
+        const drawn = raw ? /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw) : null;
+        const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
+        if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") return refuse("training.signatureRequired");
+        state.calls[state.calls.length - 1].signature = { bytes: bytes.length, size: imageSize(bytes) };
+        a.acknowledgedAt = new Date().toISOString(); a.awaitingTrainer = true;
+        return json(200, { attempt: attemptView(a) });
+      }
       const version = /^GET \/api\/training\/lesson-versions\/([^/]+)$/.exec(key);
       if (version) {
         const lesson = TRAINING_LESSONS.find(l => l.versionId === decodeURIComponent(version[1]));
@@ -3677,7 +3884,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
