@@ -385,6 +385,38 @@ function pngOf(w, h, pixel) {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(rows)), chunk("IEND", Buffer.alloc(0))]);
 }
 const LESSON_PNG = pngOf(48, 32, (x, y) => (x >= 14 && x <= 33 && (y === 8 || y === 16) ? [231, 76, 60] : (x === 14 || x === 33) && y >= 4 ? [138, 95, 16] : [210, 219, 230]));
+// Step 271 (the Step 270 contract, section 2), behind the signatures
+// switch: three requests sent to the person's phone, a key, a pair of
+// gloves and a written warning, each waiting; and the person's company
+// property, the key waiting for its signature, a shirt signed on the
+// office screen and a badge returned. Every value invented. The title and
+// the statement are served in the request's language, as the API writes
+// them.
+const SIGN_WORDS = {
+  property_issue: { title: { en: "Sign for your {item}", es: "Firme por su {item}" }, statement: { en: "I received {quantity} {item} on {date}. I will take care of it and return it when I leave OCSA or when asked.", es: "Recib\u00ed {quantity} {item} el {date}. Lo cuidar\u00e9 y lo devolver\u00e9 cuando deje OCSA o cuando me lo pidan." } },
+  ppe_issue: { title: { en: "Sign for the PPE you received", es: "Firme por el EPP que recibi\u00f3" }, statement: { en: "I received {quantity} {item} on {date}, and I know how to wear it and care for it.", es: "Recib\u00ed {quantity} {item} el {date}, y s\u00e9 c\u00f3mo usarlo y cuidarlo." } },
+  warning: { title: { en: "Sign for a written warning", es: "Firme por una amonestaci\u00f3n escrita" }, statement: { en: "Signing confirms I received this warning. It does not mean I agree.", es: "Firmar confirma que recib\u00ed esta amonestaci\u00f3n. No significa que est\u00e9 de acuerdo." } },
+};
+const PROPERTY_KIND_WORDS = { key: { en: "Key", es: "Llave" }, badge: { en: "Badge", es: "Gafete" }, fob: { en: "Fob", es: "Llavero" }, uniform_shirt: { en: "Uniform shirt", es: "Camisa de uniforme" }, uniform_other: { en: "Other uniform", es: "Otro uniforme" }, other: { en: "Other", es: "Otro" } };
+const SIGN_SEED = [
+  { id: "sr-1", kind: "property_issue", subjectId: "pi-1", item: { kind: "key", label: null, quantity: 1, size: null, siteId: "site-north", date: "2026-10-06" }, state: "waiting", requestedAt: "2026-10-06T14:05:00Z", requestedBy: "Jordan Office", signedAt: null, signedWhere: null, disputeNote: null, reminders: 0, warning: null },
+  { id: "sr-2", kind: "ppe_issue", subjectId: "ppe-1", item: { kind: null, label: "Invented nitrile gloves", quantity: 2, size: "M", siteId: "site-north", date: "2026-10-06" }, state: "waiting", requestedAt: "2026-10-06T14:10:00Z", requestedBy: "Jordan Office", signedAt: null, signedWhere: null, disputeNote: null, reminders: 0, warning: null },
+  { id: "sr-3", kind: "warning", subjectId: "da-1", item: { kind: null, label: null, quantity: null, size: null, siteId: null, date: "2026-10-05" }, state: "waiting", requestedAt: "2026-10-06T14:20:00Z", requestedBy: "Jordan Office", signedAt: null, signedWhere: null, disputeNote: null, reminders: 0, warning: { level: "Written warning", date: "2026-10-05", summary: "Invented: arrived late three times in September after a verbal warning.", pdfUrl: "https://files.example.invalid/api/warnings/signed/da-1.pdf?token=invented-signature" } },
+];
+const PROPERTY_SEED = [
+  { id: "pi-1", kind: "key", description: null, size: null, quantity: 1, siteId: "site-north", issuedOn: "2026-10-06", issuedBy: "Jordan Office", note: null, returnedOn: null, requestId: "sr-1" },
+  { id: "pi-2", kind: "uniform_shirt", description: null, size: "L", quantity: 2, siteId: null, issuedOn: "2026-09-01", issuedBy: "Jordan Office", note: null, returnedOn: null, requestId: null, signedWhere: "office" },
+  { id: "pi-3", kind: "badge", description: null, size: null, quantity: 1, siteId: "site-south", issuedOn: "2026-03-02", issuedBy: "Jordan Office", note: null, returnedOn: "2026-08-30", requestId: null, signedWhere: "office" },
+];
+const SIGN_REFUSALS = {
+  "signatures.notFound": { status: 404, en: "This signature request was not found.", es: "No se encontr\u00f3 esta solicitud de firma." },
+  "signatures.notYours": { status: 403, en: "This signature request is not yours.", es: "Esta solicitud de firma no es suya." },
+  "signatures.notOpen": { status: 409, en: "This signature request is already done.", es: "Esta solicitud de firma ya est\u00e1 resuelta." },
+  "signatures.signatureRequired": { status: 400, en: "Sign before you send.", es: "Firme antes de enviar." },
+  "signatures.cannotDispute": { status: 409, en: "A warning cannot be sent back. You can decline to sign it.", es: "Una amonestaci\u00f3n no se puede devolver. Puede negarse a firmarla." },
+  "signatures.cannotDecline": { status: 409, en: "Only a warning can be declined.", es: "Solo una amonestaci\u00f3n se puede rechazar." },
+  "signatures.noteTooLong": { status: 400, en: "The note is too long.", es: "La nota es demasiado larga." },
+};
 const lessonWords = (en, es) => ({ en: en, es: es || en });
 const TRAINING_LESSONS = [
   {
@@ -733,6 +765,11 @@ function makeState(opts) {
     // Step 267: an API with Step 266 built, which answers categories and
     // continue on GET /api/training/me, with each item's category.
     trainingPortal: o.trainingPortal === true,
+    // Step 271: an API with Step 270 built, which answers the person's
+    // signature requests and their company property.
+    signatures: o.signatures === true,
+    signRequests: o.signatures === true ? JSON.parse(JSON.stringify(SIGN_SEED)) : [],
+    propertyIssues: o.signatures === true ? JSON.parse(JSON.stringify(PROPERTY_SEED)) : [],
     // The supplies at the open shift's site, which a case can answer
     // with none. null answers the one supply every case has always had.
     supplies: Array.isArray(o.supplies) ? o.supplies : null,
@@ -3504,6 +3541,67 @@ function createStub(opts) {
       }
       return json(200, me);
     }
+    // --- Step 271: signatures sent to the person's phone, and the
+    // person's company property (the Step 270 contract, section 2).
+    if (state.signatures && (pathname.indexOf("/api/signatures") === 0 || pathname === "/api/hr/property/mine")) {
+      const signRefuse = (k, extra) => { const r = SIGN_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
+      const fill = (w, vars) => String(w[lang] || w.en).replace(/\{(\w+)\}/g, (whole, k) => (k in vars ? String(vars[k]) : whole));
+      const itemLabel = (it) => (it.label ? it.label : it.kind && PROPERTY_KIND_WORDS[it.kind] ? PROPERTY_KIND_WORDS[it.kind][lang] || PROPERTY_KIND_WORDS[it.kind].en : "");
+      const requestView = (r) => {
+        const site = SITES.find(x => x.siteId === r.item.siteId) || null;
+        const label = itemLabel(r.item);
+        const w = SIGN_WORDS[r.kind];
+        return { id: r.id, kind: r.kind, subjectId: r.subjectId, person: { id: state.person.id, name: state.person.firstName + " " + state.person.lastName },
+          title: fill(w.title, { item: label }), statement: fill(w.statement, { item: label, quantity: r.item.quantity === null ? 1 : r.item.quantity, date: r.item.date }),
+          item: { label: label, quantity: r.item.quantity, size: r.item.size, site: site ? { id: site.siteId, name: site.siteName } : null, date: r.item.date },
+          state: r.state, requestedAt: r.requestedAt, requestedBy: { name: r.requestedBy }, signedAt: r.signedAt, signedWhere: r.signedWhere, disputeNote: r.disputeNote, reminders: r.reminders,
+          warning: r.warning ? Object.assign({}, r.warning) : null };
+      };
+      if (key === "GET /api/signatures/mine") {
+        const rows = state.signRequests.filter(r => r.state === "waiting" || r.state === "disputed").sort((a, b) => (a.requestedAt < b.requestedAt ? 1 : -1));
+        return json(200, { requests: rows.map(requestView) });
+      }
+      if (key === "GET /api/hr/property/mine") {
+        const issueView = (p) => {
+          const site = SITES.find(x => x.siteId === p.siteId) || null;
+          const r = p.requestId ? state.signRequests.find(x => x.id === p.requestId) : null;
+          return { id: p.id, person: { id: state.person.id, name: state.person.firstName + " " + state.person.lastName }, kind: p.kind, description: p.description, size: p.size, quantity: p.quantity, site: site ? { id: site.siteId, name: site.siteName } : null, issuedOn: p.issuedOn, issuedBy: { name: p.issuedBy }, note: p.note, returnedOn: p.returnedOn, returnedTo: p.returnedOn ? { name: p.issuedBy } : null, returnNote: null,
+            signature: r ? { state: r.state, requestId: r.id, requestedAt: r.requestedAt, signedAt: r.signedAt, signedWhere: r.signedWhere } : { state: "signed", requestId: null, requestedAt: null, signedAt: p.issuedOn + "T15:00:00Z", signedWhere: p.signedWhere || "office" } };
+        };
+        const rows = state.propertyIssues.slice().sort((a, b) => ((a.returnedOn ? 1 : 0) - (b.returnedOn ? 1 : 0)) || (a.issuedOn < b.issuedOn ? 1 : -1));
+        return json(200, { issues: rows.map(issueView) });
+      }
+      const one = /^(GET|POST) \/api\/signatures\/([^/]+)(?:\/(sign|dispute|decline))?$/.exec(key);
+      if (!one) return json(404, { error: "Not found" });
+      const r = state.signRequests.find(x => x.id === decodeURIComponent(one[2]));
+      if (!r) return signRefuse("signatures.notFound");
+      if (one[1] === "GET") return json(200, { request: requestView(r) });
+      const b = body && typeof body === "object" ? body : {};
+      const act = one[3];
+      if (!act) return json(404, { error: "Not found" });
+      if (act === "sign") {
+        if (r.state !== "waiting" && r.state !== "disputed") return signRefuse("signatures.notOpen");
+        const raw = typeof b.signature === "string" ? b.signature.trim() : "";
+        const drawn = raw ? /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw) : null;
+        const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
+        if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") return signRefuse("signatures.signatureRequired");
+        state.calls[state.calls.length - 1].signature = { bytes: bytes.length, size: imageSize(bytes) };
+        r.state = "signed"; r.signedAt = new Date().toISOString(); r.signedWhere = "phone"; r.locale = b.locale === "es" ? "es" : "en";
+        return json(200, { request: requestView(r) });
+      }
+      const note = typeof b.note === "string" ? b.note.trim() : "";
+      if (note.length > 500) return signRefuse("signatures.noteTooLong", { keys: ["note"] });
+      if (r.state !== "waiting") return signRefuse("signatures.notOpen");
+      if (act === "dispute") {
+        if (r.kind === "warning") return signRefuse("signatures.cannotDispute");
+        if (!note) return signRefuse("signatures.badDetails" in SIGN_REFUSALS ? "signatures.badDetails" : "signatures.noteTooLong", { keys: ["note"] });
+        r.state = "disputed"; r.disputeNote = note; r.disputedAt = new Date().toISOString();
+        return json(200, { request: requestView(r) });
+      }
+      if (r.kind !== "warning") return signRefuse("signatures.cannotDecline");
+      r.state = "declined"; r.disputeNote = note || null; r.declinedAt = new Date().toISOString();
+      return json(200, { request: requestView(r) });
+    }
     // Step 267: a lesson picture at its signed address, from storage.
     if (state.training && /^GET \/api\/lesson-images\/signed\/[^/]+\.png$/.test(key)) return image("image/png", LESSON_PNG);
     if (state.training && pathname.indexOf("/api/training/") === 0) {
@@ -3973,7 +4071,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

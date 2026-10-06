@@ -65,7 +65,12 @@ category's page with its modules and chips at /training/c/safety, the
 ladders lesson with a drawing and a photo both decoded, the picture full
 screen, the held Spanish line over an English safety lesson, Back to the
 category page and the phone's back to the portal, in English at 390 and
-Spanish at 320;
+Spanish at 320; Sign on your own phone (Step 271), Home's card and the
+list of what waits, a key signed with the signature drawn, PPE sent back
+to the office with a note, a written warning opened and declined, the
+signed key's address reading done, My company property with what the
+person holds and returned, and with the routes not answering no card and
+no More item, in English at 390 and Spanish at 320;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
@@ -76,7 +81,7 @@ the three-minute line stays where it was.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`), off for every other case. The full suite below is separate
+`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`), off for every other case. The full suite below is separate
 and is not run by it.
 
 ## The full suite
