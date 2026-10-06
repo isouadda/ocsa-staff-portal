@@ -803,6 +803,8 @@ const FolderIco = (p) => <Ico d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 
 const KitIco = (p) => <Ico d="M20 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zM16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" {...p} />;
 const ShieldIco = (p) => <Ico d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" {...p} />;
 // A book, for My training.
+// A pen, for a signature waiting (Step 271).
+const PenIco = (p) => <Ico d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" {...p} />;
 const BookIco = (p) => <Ico d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
@@ -837,6 +839,9 @@ const DESTINATIONS = [
   // Under More alone, for everyone, and only once GET /api/training/me
   // has answered a list (Step 258).
   { id: "training", label: () => "My training", icon: BookIco, moreOnly: true, role: (ctx) => !!ctx.training },
+  // Under More alone, for everyone, and only once GET /api/hr/property/mine
+  // has answered a list (Step 271).
+  { id: "property", label: () => "My company property", icon: BoxIco, moreOnly: true, role: (ctx) => !!ctx.property },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
 
@@ -1058,18 +1063,20 @@ function readEntryFromUrl() {
 // below drops the query. A client request's notice links to
 // /requests/<id> (Step 252), and an inspection finding's to /issues/<id>
 // (Step 255); either address opens its subject the same way, and so does
-// a training session's /join/<code> (Step 264) and a training category's
-// page, /training/c/<key> (Step 267). None is an entry screen, so the app
-// signs in or boots the stored session as it always does and the subject
-// opens once the portal is up.
+// a training session's /join/<code> (Step 264), a training category's
+// page, /training/c/<key> (Step 267), and a signature request's /sign/<id>
+// (Step 271). None is an entry screen, so the app signs in or boots the
+// stored session as it always does and the subject opens once the portal
+// is up.
 function readOpenFromUrl() {
   try {
     var v = new URLSearchParams(window.location.search || "").get("open");
     if (!v) {
-      var m = /^\/(requests|issues|join|training\/c)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+      var m = /^\/(requests|issues|join|training\/c|sign)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
       if (!m) return null;
       try { window.history.replaceState({}, "", "/"); } catch (e) {}
-      return { subjectType: m[1] === "requests" ? "client_request" : m[1] === "issues" ? "inspection_finding" : m[1] === "join" ? "training_join" : "training_category", subjectId: m[2] };
+      var types = { requests: "client_request", issues: "inspection_finding", join: "training_join", "training/c": "training_category", sign: "signature_request" };
+      return { subjectType: types[m[1]], subjectId: m[2] };
     }
     try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
     var at = v.indexOf(":");
@@ -2411,6 +2418,7 @@ export default function OCSAStaffPortal() {
   const openPlace = (place) => {
     if (!place) return;
     if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
+    if (place.sign) { setSignAt({ id: String(place.sign) }); setActiveTab("clock"); setShowMore(false); return; }
     // Sign off training is a supervisor's place; anyone else lands on My
     // training. The field kit keeps its site and opens on the tile.
     if (place.tab === "fieldkit") {
@@ -2503,6 +2511,31 @@ export default function OCSAStaffPortal() {
   // Where My training is (Step 264): a session's join screen for a code,
   // from /join/<code> or a code typed in. Dropped at sign out.
   const [trainingAt, setTrainingAt] = useState(null);
+  // Sign on your own phone (Step 271): the signing screen open in Home's
+  // place, { id } for one request or { list: true } for what waits; and
+  // the open requests GET /api/signatures/mine answers, null until it
+  // answers a list, read again after each signature, note or decline.
+  const [signAt, setSignAt] = useState(null);
+  const [signList, setSignList] = useState(null);
+  const [signAsked, setSignAsked] = useState(0);
+  useEffect(() => { if (activeTab !== "clock") setSignAt(null); }, [activeTab]);
+  useEffect(() => {
+    if (!token || screen !== "main") { setSignList(null); setSignAt(null); return undefined; }
+    let live = true;
+    readSignRequests(token).then(l => { if (live && l) setSignList(l); });
+    return () => { live = false; };
+  }, [token, screen, signAsked]);
+  const openSign = (at) => { setSignAt(at); setActiveTab("clock"); setShowMore(false); };
+  // My company property (Step 271): what GET /api/hr/property/mine
+  // answers, null until it answers a list; More offers the screen then.
+  // Read with the requests, since a signature changes what it says.
+  const [property, setProperty] = useState(null);
+  useEffect(() => {
+    if (!token || screen !== "main") { setProperty(null); return undefined; }
+    let live = true;
+    readPropertyMine(token).then(l => { if (live && l) setProperty(l); });
+    return () => { live = false; };
+  }, [token, screen, signAsked]);
   useEffect(() => {
     if (!token || screen !== "main") { setTraining(null); setTrainingAt(null); return undefined; }
     let live = true;
@@ -2527,7 +2560,7 @@ export default function OCSAStaffPortal() {
     readWorkspaceProjects(token).then(list => { if (live) setWsProjects(list); });
     return () => { live = false; };
   }, [wsAsks, token, user && user.id]);
-  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training };
+  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training, property: Array.isArray(property) };
   const shortcutChoices = shortcutChoicesFor(destCtx);
   const allowedShortcutIds = shortcutChoices.map(d => d.id);
   const uid = user && user.id ? user.id : null;
@@ -2858,7 +2891,9 @@ export default function OCSAStaffPortal() {
 
           <div style={{ padding: "0 0 var(--ocsa-bar, 76px) 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
-              {activeTab === "clock" && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
+              {activeTab === "clock" && signAt && <SignScreen key={signAt.id || "list"} token={token} id={signAt.id || null} requests={signList} onOpen={openSign} onBack={() => setSignAt(null)} onChanged={() => setSignAsked(n => n + 1)} t={t} />}
+              {activeTab === "property" && destCtx.property && <MyPropertyView rows={property} onSign={(id) => openSign({ id: id })} t={t} />}
+              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -6823,8 +6858,8 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
             const chip = trainingChip(i);
             return (
               <div key={i.id} data-training-module={i.status} data-training-chip={chip.tag} style={{ ...fkRowSt(t), minHeight: TAP }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 8 }}>
+                  <div style={{ flex: "1 1 160px", minWidth: 0 }}>
                     <div style={nameSt}>{i.name}</div>
                     {(i.docCode || i.docSection) && <div style={smallSt}>{[i.docCode, i.docSection].filter(Boolean).join(" ")}</div>}
                     {i.siteName && <div style={lineSt}>{i.siteName}</div>}
@@ -7557,6 +7592,359 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
   );
 }
 
+// ------------------------------------------------------------
+// Sign on your own phone (Step 271, the Step 270 contract's sections 2
+// and 4). The office records a key, a badge, a uniform, PPE or a written
+// warning and sends the signature to the person's phone. /sign/<id>
+// opens the request, from the signature_request notice, Home's card or
+// My company property, once the person is signed in: what it is, the
+// statement in the person's language, the signature box and Sign, which
+// posts the PNG with the screen's language. Property and PPE carry This
+// is not right, a note to the office; a warning carries I will not sign,
+// an optional note and a confirm. A request no longer open says so. The
+// screen sits in Home's place and every tab works beside it, so nothing
+// blocks the rest of the app.
+// ------------------------------------------------------------
+const SIGN_KINDS = ["property_issue", "ppe_issue", "warning"];
+const SIGN_OPEN = ["waiting", "disputed"];
+// A warning's level as the API stores it, in words; the two the API sends
+// to a phone. Anything else is drawn as sent.
+const SIGN_LEVEL_WORDS = { written_warning: "Written warning", final_warning: "Final written warning" };
+const signLevel = (level) => (SIGN_LEVEL_WORDS[level] ? tr(SIGN_LEVEL_WORDS[level]) : level);
+// The code a refusal carries, when it carries one.
+const signCodeOf = (err) => (err && err.body && typeof err.body.code === "string" ? err.body.code : "");
+function signRequestOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = trainingId(x, ["id"]);
+  if (!id) return null;
+  const str = (k, o) => { const v = (o || x)[k]; return typeof v === "string" ? v.trim() : ""; };
+  const item = x.item && typeof x.item === "object" ? x.item : {};
+  const w = x.warning && typeof x.warning === "object" ? x.warning : null;
+  const pdf = w ? str("pdfUrl", w) : "";
+  return {
+    id: id, kind: SIGN_KINDS.indexOf(x.kind) !== -1 ? x.kind : "", subjectId: trainingId(x, ["subjectId"]), title: str("title"), statement: str("statement"),
+    item: { label: str("label", item), quantity: trainingNum(item.quantity), size: str("size", item), siteName: item.site && typeof item.site === "object" ? str("name", item.site) : "", date: str("date", item) },
+    state: str("state"), requestedAt: str("requestedAt"), requestedBy: x.requestedBy && typeof x.requestedBy === "object" ? str("name", x.requestedBy) : "",
+    signedAt: str("signedAt"), signedWhere: str("signedWhere"), disputeNote: str("disputeNote"),
+    // The warning's document: the API's own path behind the token (as
+    // Step 270 built it), or an https address.
+    warning: w ? { level: str("level", w), date: str("date", w), summary: str("summary", w), pdfUrl: /^(https:\/\/|\/api\/)/i.test(pdf) ? pdf : "" } : null,
+  };
+}
+// GET /api/signatures/mine as the screen reads it: the open requests,
+// waiting and disputed, newest first; null until the route answers a list.
+const signRequestsOf = (d) => { const rows = wsRows(d, "requests"); return rows && !Array.isArray(d) ? rows.map(signRequestOf).filter(Boolean) : null; };
+async function readSignRequests(token) {
+  try { return signRequestsOf(await api("/api/signatures/mine", { token })); } catch (e) { return null; }
+}
+// What Home's card counts: the requests still waiting for the person.
+// One sent back to the office waits on the office, and is listed but
+// not counted.
+const signToDo = (list) => (Array.isArray(list) ? list.filter(r => r.state === "waiting") : []);
+const signChip = (r) => (r.state === "disputed" ? { word: "Not right", color: ORANGE } : { word: "Waiting for your signature", color: BLUE });
+
+// Home's card (Step 271): how many requests wait for the person's
+// signature, opening the one when there is one and the list when there
+// are several. Shown only while GET /api/signatures/mine answers one.
+function SignCard({ requests, onOpen, t }) {
+  const todo = signToDo(requests);
+  if (todo.length === 0) return null;
+  return (
+    <div style={{ padding: "16px 16px 0", marginBottom: -8 }}>
+      <button type="button" data-sign-card={todo.length} onClick={() => onOpen(todo.length === 1 ? { id: todo[0].id } : { list: true })} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, minHeight: TAP, padding: "14px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.goldBorder, boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
+        <PenIco sz={20} c={t.goldText} style={{ flexShrink: 0 }} />
+        <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{todo.length === 1 ? tr("1 to sign") : tr("{n} to sign", { n: todo.length })}</span>
+        <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0 }} />
+      </button>
+    </div>
+  );
+}
+
+// The signing screen, or, with no id, the list of what waits. onChanged
+// is called after a signature, a note or a decline, so Home's card and
+// My company property read again.
+function SignScreen({ token, id, requests, onOpen, onBack, onChanged, t }) {
+  const [phase, setPhase] = useState("loading");
+  const [req, setReq] = useState(null);
+  const [fault, setFault] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [strokes, setStrokes] = useState([]);
+  const [png, setPng] = useState(null);
+  // The note box open under the statement: "dispute" (This is not right)
+  // or "decline" (I will not sign), with what is typed in it.
+  const [ask, setAsk] = useState(null);
+  const [note, setNote] = useState("");
+  const [asked, setAsked] = useState(0);
+  // The warning's document being read, and why it did not open.
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfFault, setPdfFault] = useState(null);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  useBusy("signature request", busy || strokes.length > 0 || !!ask);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [id, phase]);
+  const readOne = async () => signRequestOf((await api("/api/signatures/" + encodeURIComponent(id), { token }) || {}).request);
+  useEffect(() => {
+    if (!id) return undefined;
+    let on = true;
+    (async () => {
+      setPhase("loading"); setFault(null); setStrokes([]); setPng(null); setAsk(null); setNote("");
+      try {
+        const r = await readOne();
+        if (!r) throw new Error(ERR_GENERIC);
+        if (on) { setReq(r); setPhase("ready"); }
+      } catch (err) {
+        if (on) { setFault(fkFaultWords(err, "This request did not open. Try again.")); setPhase("fault"); }
+      }
+    })();
+    return () => { on = false; };
+  }, [id, asked]);
+  // A refusal that the request is no longer open reads the request
+  // again, so the screen says what happened to it.
+  const after = async (d, fallback) => {
+    const r = signRequestOf(d && d.request) || fallback;
+    if (live.current) { setReq(r); setAsk(null); setNote(""); setStrokes([]); setPng(null); }
+    if (onChanged) onChanged();
+  };
+  const refused = async (err, word) => {
+    if (signCodeOf(err) === "signatures.notOpen") { try { const r = await readOne(); if (r && live.current) { setReq(r); setAsk(null); if (onChanged) onChanged(); return; } } catch (e) {} }
+    if (live.current) setFault(fkFaultWords(err, word));
+  };
+  const sign = async () => {
+    if (busy || !req) return;
+    if (!png) { setFault(tr("Sign before you send.")); return; }
+    setBusy(true); setFault(null);
+    try { await after(await api("/api/signatures/" + encodeURIComponent(req.id) + "/sign", { method: "POST", body: { signature: png, locale: languageToSend() }, token }), { ...req, state: "signed" }); }
+    catch (err) { await refused(err, "This was not signed. Try again."); }
+    finally { if (live.current) setBusy(false); }
+  };
+  const sendNote = async () => {
+    if (busy || !req || !ask) return;
+    const text = note.trim();
+    if (ask === "dispute" && !text) { setFault(tr("Write a note first.")); return; }
+    setBusy(true); setFault(null);
+    try { await after(await api("/api/signatures/" + encodeURIComponent(req.id) + "/" + ask, { method: "POST", body: { note: text }, token }), { ...req, state: ask === "dispute" ? "disputed" : "declined", disputeNote: text }); }
+    catch (err) { await refused(err, "Your note was not sent. Try again."); }
+    finally { if (live.current) setBusy(false); }
+  };
+  const back = <WsBack label={tr("Home")} onBack={onBack} t={t} />;
+  const titleSt = { fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 13, color: t.textSec, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" };
+  const bodySt = { fontSize: 15, color: t.text, lineHeight: 1.55, overflowWrap: "anywhere", fontFamily: FONT_BODY };
+  const chipSt = (c) => trainingChipSt(t, c);
+  const backBtn = <div style={{ display: "flex", marginTop: 12 }}><button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Home")}</button></div>;
+  // The list: every open request, waiting first, each opening its screen.
+  if (!id) {
+    const rows = (Array.isArray(requests) ? requests : []).slice().sort((a, b) => (a.state === b.state ? 0 : a.state === "waiting" ? -1 : 1));
+    return (
+      <div data-sign="list" style={{ padding: "14px 16px 100px" }}>
+        {back}
+        <div role="heading" aria-level={2} style={titleSt}>{tr("To sign")}</div>
+        <div style={{ marginTop: 10 }}>
+          {rows.map(r => { const chip = signChip(r); return (
+            <div key={r.id} data-sign-row={r.id} data-sign-row-state={r.state} style={{ ...fkRowSt(t), minHeight: TAP }}>
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 8 }}>
+                <div style={{ flex: "1 1 160px", minWidth: 0 }}>
+                  <div style={{ ...titleSt, fontSize: 14 }}>{r.title || r.item.label}</div>
+                  {r.kind !== "warning" && r.item.label && <div style={lineSt}>{[r.item.label, r.item.date ? trainingDay(r.item.date) : ""].filter(Boolean).join(", ")}</div>}
+                  {r.kind === "warning" && r.warning && <div style={lineSt}>{[signLevel(r.warning.level), r.warning.date ? trainingDay(r.warning.date) : ""].filter(Boolean).join(", ")}</div>}
+                </div>
+                <span style={chipSt(chip.color)}>{tr(chip.word)}</span>
+              </div>
+              <div style={{ display: "flex", marginTop: 10 }}><button type="button" data-sign-open={r.id} onClick={() => onOpen({ id: r.id })} style={trainingGoldBtn}>{tr("Sign")}</button></div>
+            </div>
+          ); })}
+          {rows.length === 0 && <div style={wsQuiet(t)}>{tr("Nothing is waiting for your signature.")}</div>}
+        </div>
+      </div>
+    );
+  }
+  if (phase !== "ready") {
+    return (
+      <div data-sign={phase} style={{ padding: "14px 16px 100px" }}>
+        {back}
+        {phase === "loading" && <div style={{ ...wsQuiet(t), marginTop: 12 }}>{tr("Loading...")}</div>}
+        {phase === "fault" && <div style={{ marginTop: 12 }}><WsFault text={fault} t={t} /><div style={{ display: "flex", gap: 8, marginTop: 12 }}><button type="button" onClick={() => setAsked(n => n + 1)} style={wsMainBtn(t, false)}>{tr("Try again")}</button><button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Home")}</button></div></div>}
+      </div>
+    );
+  }
+  const r = req;
+  const warning = r.kind === "warning";
+  const open = SIGN_OPEN.indexOf(r.state) !== -1;
+  // The warning's document from the API's own path: a new tab is opened
+  // in the tap itself, which an iPhone allows, the PDF is read behind the
+  // token in the screen's language, and the tab is pointed at it. With no
+  // tab, the file is saved as warning.pdf the way a streamed file is. A
+  // refusal closes the tab and reads under the button.
+  const openWarning = async () => {
+    if (pdfBusy || !r.warning || !r.warning.pdfUrl) return;
+    let tab = null;
+    try { tab = window.open("", "_blank"); } catch (e) { tab = null; }
+    setPdfBusy(true); setPdfFault(null);
+    try {
+      const blob = await apiBlob(r.warning.pdfUrl + (r.warning.pdfUrl.indexOf("?") === -1 ? "?" : "&") + "locale=" + encodeURIComponent(languageToSend()), { token });
+      const href = URL.createObjectURL(blob);
+      if (tab) tab.location.href = href;
+      else {
+        const a = document.createElement("a");
+        a.href = href; a.rel = "noopener"; a.download = "warning.pdf";
+        document.body.appendChild(a); a.click(); a.remove();
+      }
+      setTimeout(() => URL.revokeObjectURL(href), 60000);
+    } catch (err) {
+      if (tab) { try { tab.close(); } catch (e) {} }
+      if (live.current) setPdfFault(fkFaultWords(err, "The warning did not open. Try again."));
+    } finally { if (live.current) setPdfBusy(false); }
+  };
+  // What it is: the item with its quantity, size, site, date and who
+  // issued it; or the warning's level, date and summary, with the
+  // document itself a tap away.
+  const what = (
+    <div data-sign-kind={r.kind} style={{ ...fkRowSt(t), marginTop: 12 }}>
+      {!warning && (
+        <div>
+          <div style={titleSt}>{r.item.label}</div>
+          {r.item.quantity !== null && r.item.quantity > 1 && <div style={lineSt}>{tr("Quantity")}: {r.item.quantity}</div>}
+          {r.item.size && <div style={lineSt}>{tr("Size")}: {r.item.size}</div>}
+          {r.item.siteName && <div style={lineSt}>{r.item.siteName}</div>}
+          {(r.requestedBy || r.item.date) && <div style={lineSt}>{r.requestedBy ? tr("Issued by {name}, {when}", { name: r.requestedBy, when: trainingDay(r.item.date || r.requestedAt) }) : trainingDay(r.item.date)}</div>}
+        </div>
+      )}
+      {warning && r.warning && (
+        <div>
+          <div style={titleSt}>{r.warning.level ? signLevel(r.warning.level) : r.title}</div>
+          {r.warning.date && <div style={lineSt}>{trainingDay(r.warning.date)}</div>}
+          {r.requestedBy && <div style={lineSt}>{tr("Issued by {name}, {when}", { name: r.requestedBy, when: trainingDay(r.requestedAt) })}</div>}
+          {r.warning.summary && <div style={{ ...bodySt, fontSize: 14, marginTop: 8 }}>{r.warning.summary}</div>}
+          {r.warning.pdfUrl && (
+            <div style={{ display: "flex", marginTop: 10 }}>
+              {/^https:\/\//i.test(r.warning.pdfUrl)
+                ? <a href={r.warning.pdfUrl} target="_blank" rel="noopener noreferrer" data-sign-warning-open="1" style={trainingGoldBtn}>{tr("Open the warning")}</a>
+                : <button type="button" data-sign-warning-open="1" disabled={pdfBusy} onClick={openWarning} style={{ ...trainingGoldBtn, opacity: pdfBusy ? 0.7 : 1 }}>{pdfBusy ? tr("Loading...") : tr("Open the warning")}</button>}
+            </div>
+          )}
+          {pdfFault && <WsFault text={pdfFault} t={t} />}
+        </div>
+      )}
+    </div>
+  );
+  if (!open) {
+    const word = r.state === "signed" ? "Signed. It is on your record." : r.state === "declined" ? "Your answer was sent to the office." : "This is already done.";
+    return (
+      <div data-sign="done" data-sign-state={r.state} style={{ padding: "14px 16px 100px" }}>
+        {back}
+        <div role="heading" aria-level={2} style={{ ...titleSt, color: r.state === "signed" ? ink(t, GREEN) : t.text }}>{tr(word)}</div>
+        {r.state === "signed" && r.signedAt && <div style={lineSt}>{trainingDay(r.signedAt)}</div>}
+        {what}
+        {r.state === "signed" && r.statement && <div style={{ ...lineSt, marginTop: 12 }}>{r.statement}</div>}
+        {backBtn}
+      </div>
+    );
+  }
+  return (
+    <div data-sign="ready" data-sign-state={r.state} style={{ padding: "14px 16px 100px" }}>
+      {back}
+      <div role="heading" aria-level={2} style={titleSt}>{r.title}</div>
+      {what}
+      {r.state === "disputed" && (
+        <div data-sign-disputed="1" style={{ ...fkRowSt(t), marginTop: 12, border: "1px solid " + ORANGE + "60", background: ORANGE + "18" }}>
+          <div style={{ ...bodySt, fontSize: 14, fontWeight: 600 }}>{tr("Sent back to the office. They will follow up.")}</div>
+          {r.disputeNote && <div style={lineSt}>{r.disputeNote}</div>}
+        </div>
+      )}
+      <div data-sign-statement="1" style={{ ...bodySt, fontSize: 17, lineHeight: 1.5, marginTop: 16 }}>{r.statement}</div>
+      {!ask && (
+        <div>
+          <div data-sign-signature="1" style={{ marginTop: 14 }}>
+            <div style={mkLabel(t)}>{tr("Your signature")}</div>
+            <div style={{ borderRadius: R.md, border: fault && !png ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+              <SignatureBox strokes={strokes} onStroke={(stroke, size) => { const all = strokes.concat([stroke]); setStrokes(all); setPng(signaturePng(all, size.w, size.h)); setFault(null); }} height={SIGN_BOX_HEIGHT} />
+            </div>
+            <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+            <button type="button" onClick={() => { setStrokes([]); setPng(null); }} disabled={strokes.length === 0 || busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+          </div>
+          {fault && <WsFault text={fault} t={t} />}
+          <div style={{ display: "flex", marginTop: 12 }}>
+            <button type="button" data-sign-send="1" disabled={busy} onClick={sign} style={wsMainBtn(t, busy)}>{busy ? tr("Sending...") : tr("Sign")}</button>
+          </div>
+          {r.state === "waiting" && (
+            <div style={{ display: "flex", marginTop: 10 }}>
+              <button type="button" data-sign-ask={warning ? "decline" : "dispute"} disabled={busy} onClick={() => { setAsk(warning ? "decline" : "dispute"); setFault(null); }} style={wsPlainBtn(t)}>{warning ? tr("I will not sign") : tr("This is not right")}</button>
+            </div>
+          )}
+        </div>
+      )}
+      {ask && (
+        <div data-sign-note={ask} style={{ ...fkRowSt(t), marginTop: 14 }}>
+          <div style={{ ...titleSt, fontSize: 14 }}>{ask === "dispute" ? tr("This is not right") : tr("I will not sign")}</div>
+          <div style={lineSt}>{ask === "dispute" ? tr("Tell the office what is not right. They will follow up with you.") : tr("You can say why. The office is told either way, and the warning stays on file.")}</div>
+          <label htmlFor="ocsa-sign-note" style={{ ...mkLabel(t), marginTop: 10 }}>{tr("Note")}{ask === "decline" && <span style={{ marginLeft: 6, textTransform: "none", letterSpacing: 0, color: t.textMut }}>{tr("Optional")}</span>}</label>
+          <textarea id="ocsa-sign-note" rows={4} maxLength={500} value={note} onChange={e => { setNote(e.target.value); setFault(null); }} style={{ ...mkInput(t), minHeight: 96, resize: "vertical", lineHeight: 1.5 }} />
+          {fault && <WsFault text={fault} t={t} />}
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button type="button" disabled={busy} onClick={() => { setAsk(null); setNote(""); setFault(null); }} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+            <button type="button" data-sign-note-send={ask} disabled={busy} onClick={sendNote} style={wsMainBtn(t, busy)}>{busy ? tr("Sending...") : ask === "dispute" ? tr("Send to the office") : tr("Yes, I will not sign")}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// My company property (Step 271): what the person holds, with Waiting
+// for your signature and Sign where a signature waits, and what they
+// returned, with dates. A kind with no description reads as its word.
+const PROPERTY_KIND_WORDS = { key: "Key", badge: "Badge", fob: "Fob", uniform_shirt: "Uniform shirt", uniform_other: "Other uniform", other: "Other" };
+function propertyIssueOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = trainingId(x, ["id"]);
+  if (!id) return null;
+  const str = (k, o) => { const v = (o || x)[k]; return typeof v === "string" ? v.trim() : ""; };
+  const sig = x.signature && typeof x.signature === "object" ? x.signature : null;
+  return { id: id, kind: str("kind"), description: str("description"), size: str("size"), quantity: trainingNum(x.quantity), siteName: x.site && typeof x.site === "object" ? str("name", x.site) : "", issuedOn: str("issuedOn"), issuedBy: x.issuedBy && typeof x.issuedBy === "object" ? str("name", x.issuedBy) : "", returnedOn: str("returnedOn"),
+    signature: sig ? { state: str("state", sig), requestId: trainingId(sig, ["requestId"]) } : null };
+}
+const propertyIssuesOf = (d) => { const rows = wsRows(d, "issues"); return rows && !Array.isArray(d) ? rows.map(propertyIssueOf).filter(Boolean) : null; };
+async function readPropertyMine(token) {
+  try { return propertyIssuesOf(await api("/api/hr/property/mine", { token })); } catch (e) { return null; }
+}
+const propertyLabel = (p) => p.description || (PROPERTY_KIND_WORDS[p.kind] ? tr(PROPERTY_KIND_WORDS[p.kind]) : p.kind);
+function MyPropertyView({ rows, onSign, t }) {
+  const all = Array.isArray(rows) ? rows : [];
+  const held = all.filter(p => !p.returnedOn), returned = all.filter(p => !!p.returnedOn);
+  const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const head = (word, tag) => <div role="heading" aria-level={3} data-property-group={tag} style={fkHeadSt(t)}>{tr(word)}</div>;
+  const row = (p) => {
+    const waiting = !p.returnedOn && p.signature && p.signature.state === "waiting" && p.signature.requestId;
+    const disputed = !p.returnedOn && p.signature && p.signature.state === "disputed";
+    return (
+      <div key={p.id} data-property-item={p.id} data-property-signature={p.signature ? p.signature.state : ""} style={{ ...fkRowSt(t), minHeight: TAP }}>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 8 }}>
+          <div style={{ flex: "1 1 160px", minWidth: 0 }}>
+            <div style={nameSt}>{propertyLabel(p)}</div>
+            {p.quantity !== null && p.quantity > 1 && <div style={lineSt}>{tr("Quantity")}: {p.quantity}</div>}
+            {p.size && <div style={lineSt}>{tr("Size")}: {p.size}</div>}
+            {p.siteName && <div style={lineSt}>{p.siteName}</div>}
+            <div style={lineSt}>{p.issuedBy ? tr("Issued by {name}, {when}", { name: p.issuedBy, when: trainingDay(p.issuedOn) }) : tr("Issued {date}", { date: trainingDay(p.issuedOn) })}</div>
+            {p.returnedOn && <div style={{ ...lineSt, color: ink(t, GREEN), fontWeight: 600 }}>{tr("Returned {date}", { date: trainingDay(p.returnedOn) })}</div>}
+          </div>
+          {waiting && <span style={trainingChipSt(t, BLUE)}>{tr("Waiting for your signature")}</span>}
+          {disputed && <span style={trainingChipSt(t, ORANGE)}>{tr("Not right")}</span>}
+        </div>
+        {waiting && <div style={{ display: "flex", marginTop: 10 }}><button type="button" data-property-sign={p.signature.requestId} onClick={() => onSign(p.signature.requestId)} style={trainingGoldBtn}>{tr("Sign")}</button></div>}
+      </div>
+    );
+  };
+  return (
+    <div data-property="1" style={{ padding: "14px 16px 100px" }}>
+      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("My company property")}</div>
+      {all.length === 0 && <div style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("You hold no company property.")}</div>}
+      {held.length > 0 && <div>{head("You hold", "held")}{held.map(row)}</div>}
+      {returned.length > 0 && <div>{head("Returned", "returned")}{returned.map(row)}</div>}
+    </div>
+  );
+}
+
 // ============================================================
 // SPEAK UP
 // A report about a person. Three things: what happened, who it is
@@ -7928,6 +8316,9 @@ const NOTIF_TAB = {
   // A training category's page, /training/c/<key> (Step 267): the portal's
   // own address, never a notice the API sends.
   training_category: "training",
+  // A signature sent to the person's phone (Step 271): the signing screen,
+  // in Home's place.
+  signature_request: "sign",
   chat: "chat",
   chat_mention: "chat",
   announcement: "announcement",
@@ -7948,6 +8339,7 @@ function notifPlace(subjectType, subjectId) {
   if (subjectType === "training_join") return id ? { tab: tab, join: id } : null;
   if (subjectType === "document_to_sign") return { tab: tab, doc: id };
   if (subjectType === "training_category") return id ? { tab: tab, category: id } : null;
+  if (subjectType === "signature_request") return id ? { sign: id } : null;
   // A training notice naming a topic, or an attempt on one (Step 267):
   // the portal, on that topic's category page when the item is known.
   if (subjectType === "training_expiring" || subjectType === "training_reteach") return id ? { tab: tab, topic: id } : { tab: tab };

@@ -83,6 +83,20 @@
 //     phone's back to the portal; the old layout stays where categories
 //     is absent (the My training check above). English at 390, Spanish
 //     at 320.
+//   - Sign on your own phone (Step 271): with the stub's three signature
+//     requests, Home's card reads 3 to sign and opens the list; the key's
+//     screen draws what it is and the statement, Sign without a signature
+//     is held on the phone, the signature drawn is sent with the screen's
+//     language and reads Signed. It is on your record.; the PPE's screen
+//     sends This is not right with a note and reads Sent back to the
+//     office; the warning's screen reads its level in words and Open the
+//     warning reads the PDF behind the token into a new tab,
+//     I will not sign asks to confirm and reads Your answer was sent to
+//     the office.; the key's address then says it is already done; My
+//     company property lists the key, the shirt and the badge returned
+//     with its date; and with the routes not answering, Home has no card
+//     and More no My company property, read in the cleaner's run (English
+//     at 390, Spanish at 320)
 //   - Step 264: Your first trainings on Home, with the document to sign
 //     and the first-day training that has a lesson; a session
 //     joined from /join/<code> with the understood tick and a signature,
@@ -111,7 +125,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, STAFF } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -289,6 +303,10 @@ async function cleaner(browser, language) {
     if (sheet) { await page.keyboard.press("Escape"); await page.evaluate((w) => { const b = Array.from(document.querySelectorAll('[role="dialog"] button')).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Cancel")); await pause(page, 400); }
   }
   check("every More item opens" + tag + ": " + items.join(", "), items.length > 0 && badMore.length === 0, badMore.join("; ") || "More holds nothing");
+  // Step 271: with the signature routes not answering, nothing new shows.
+  await tapBar(page, 0);
+  const signAsked = app.stub.state.calls.filter(c => c.path.indexOf("/api/signatures") === 0 || c.path === "/api/hr/property/mine").length;
+  check("with the signature routes not answering, Home has no card to sign and More no My company property, though both were asked once" + tag, !(await page.$("[data-sign-card]")) && items.indexOf(say(language, "My company property")) === -1 && signAsked === 2, (await page.$("[data-sign-card]")) ? "Home shows a card" : items.indexOf(say(language, "My company property")) !== -1 ? "More offers My company property" : signAsked + " calls to the routes");
 
   // A form from Forms.
   await tapMore(page, say(language, "Forms"));
@@ -1259,6 +1277,87 @@ async function trainingPortal(browser, language, width) {
   await app.context.close();
 }
 
+// Sign on your own phone (Step 271): Home's card and the list, a key
+// signed, PPE sent back with a note, a warning opened and declined, the
+// key's address once it is done, My company property, and the old layout
+// where the routes do not answer.
+async function signOnPhone(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const prefs = { language: language, textSize: "standard" };
+  const app = await open({ signatures: true, accountPreferences: prefs }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  const kindWord = (k) => PROPERTY_KIND_WORDS[k][language] || PROPERTY_KIND_WORDS[k].en;
+  const sw = (kind, part, vars) => String(SIGN_WORDS[kind][part][language] || SIGN_WORDS[kind][part].en).replace(/\{(\w+)\}/g, (w, k) => (k in vars ? String(vars[k]) : w));
+  const card = await waitFor(page, (w) => { const c = document.querySelector('[data-sign-card="3"]'); return !!c && c.innerText.trim() === w; }, say(language, "{n} to sign", { n: 3 }));
+  if (card) await page.click("[data-sign-card]");
+  const listed = card && await waitFor(page, (w) => { const c = document.querySelector('[data-sign="list"]'); return !!c && c.innerText.indexOf(w.head) !== -1 && Array.from(c.querySelectorAll("[data-sign-row]")).map(x => x.getAttribute("data-sign-row")).join("|") === "sr-3|sr-2|sr-1" && c.innerText.indexOf(w.title) !== -1 && Array.from(c.querySelectorAll("[data-sign-row] span")).filter(x => x.innerText.trim() === w.chip).length === 3; }, { head: say(language, "To sign"), title: sw("warning", "title", {}), chip: say(language, "Waiting for your signature") });
+  if (listed) await page.click('[data-sign-open="sr-1"]');
+  const keyWords = { title: sw("property_issue", "title", { item: kindWord("key") }), statement: sw("property_issue", "statement", { item: kindWord("key"), quantity: 1, date: SIGN_SEED[0].item.date }), issued: say(language, "Issued by {name}, {when}", { name: SIGN_SEED[0].requestedBy, when: "" }).replace(/,\s*$/, ""), site: "North Building" };
+  const keyScreen = listed && await waitFor(page, (w) => { const c = document.querySelector('[data-sign="ready"][data-sign-state="waiting"][data-sign-kind="property_issue"], [data-sign="ready"][data-sign-state="waiting"]'); return !!c && !!c.querySelector('[data-sign-kind="property_issue"]') && [w.title, w.statement, w.issued, w.site].every(x => c.innerText.indexOf(x) !== -1) && !!c.querySelector('[data-sign-signature="1"] canvas') && !!c.querySelector('[data-sign-ask="dispute"]') && !c.querySelector('[data-sign-ask="decline"]'); }, keyWords);
+  const wide = await sideways(page);
+  let held = false, signed = false, cardAfter = false, disputed = false, warningScreen = false, pdfOpened = false, declined = false, done = false, property = false;
+  if (keyScreen) {
+    await page.click('[data-sign-send="1"]');
+    held = await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Sign before you send."));
+    await sign(page, '[data-sign-signature="1"] canvas');
+    await page.click('[data-sign-send="1"]');
+    signed = await waitFor(page, (w) => { const c = document.querySelector('[data-sign="done"][data-sign-state="signed"]'); return !!c && c.innerText.indexOf(w) !== -1; }, say(language, "Signed. It is on your record."));
+    await clickWord(page, say(language, "Home"));
+    cardAfter = await waitFor(page, (w) => { const c = document.querySelector('[data-sign-card="2"]'); return !!c && c.innerText.trim() === w; }, say(language, "{n} to sign", { n: 2 }));
+    // The PPE, sent back with a note.
+    await page.goto(BASE + "/sign/sr-2", { waitUntil: "domcontentloaded" });
+    await waitFor(page, () => !!document.querySelector('[data-sign-ask="dispute"]'));
+    await page.click('[data-sign-ask="dispute"]');
+    await waitFor(page, () => !!document.querySelector("#ocsa-sign-note"));
+    await page.click('[data-sign-note-send="dispute"]');
+    const noteHeld = await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Write a note first."));
+    await page.fill("#ocsa-sign-note", "Invented: the gloves are a size too small.");
+    await page.click('[data-sign-note-send="dispute"]');
+    disputed = noteHeld && await waitFor(page, (w) => { const c = document.querySelector('[data-sign="ready"][data-sign-state="disputed"]'); return !!c && c.innerText.indexOf(w) !== -1 && c.innerText.indexOf("size too small") !== -1 && !!c.querySelector('[data-sign-send="1"]') && !c.querySelector("[data-sign-ask]"); }, say(language, "Sent back to the office. They will follow up."));
+    // The warning, opened and declined.
+    await page.goto(BASE + "/sign/sr-3", { waitUntil: "domcontentloaded" });
+    warningScreen = await waitFor(page, (w) => { const c = document.querySelector('[data-sign="ready"][data-sign-state="waiting"]'); const a = c && c.querySelector('button[data-sign-warning-open="1"]'); return !!a && a.innerText.trim() === w.open && c.innerText.indexOf(w.level) !== -1 && c.innerText.indexOf(w.summary) !== -1 && c.innerText.indexOf(w.statement) !== -1 && !!c.querySelector('[data-sign-ask="decline"]') && !c.querySelector('[data-sign-ask="dispute"]'); }, { open: say(language, "Open the warning"), level: say(language, "Written warning"), summary: SIGN_SEED[2].warning.summary, statement: sw("warning", "statement", {}) });
+    if (warningScreen) {
+      // Open the warning: a new tab, pointed at the PDF read behind the
+      // token. A phone shows the PDF in the tab; headless Chromium has no
+      // viewer, so the tab hands the blob address over as a download, and
+      // either counts.
+      const [popup] = await Promise.all([page.context().waitForEvent("page", { timeout: 6000 }).catch(() => null), page.click('[data-sign-warning-open="1"]')]);
+      if (popup) {
+        // Chromium fails the navigation the moment it becomes a download,
+        // so a failed URL wait defers to the download.
+        const download = popup.waitForEvent("download", { timeout: 6000 }).then(d => d.url().indexOf("blob:") === 0, () => false);
+        const shown = popup.waitForURL(/^blob:/, { timeout: 6000 }).then(() => true, () => null);
+        const first = await Promise.race([shown, download]);
+        pdfOpened = first === null ? await download : first;
+        await popup.close();
+      }
+      await page.click('[data-sign-ask="decline"]');
+      await waitFor(page, () => !!document.querySelector('[data-sign-note-send="decline"]'));
+      await page.click('[data-sign-note-send="decline"]');
+      declined = await waitFor(page, (w) => { const c = document.querySelector('[data-sign="done"][data-sign-state="declined"]'); return !!c && c.innerText.indexOf(w) !== -1; }, say(language, "Your answer was sent to the office."));
+    }
+    // The key's address, once it is signed.
+    await page.goto(BASE + "/sign/sr-1", { waitUntil: "domcontentloaded" });
+    done = await waitFor(page, (w) => { const c = document.querySelector('[data-sign="done"][data-sign-state="signed"]'); return !!c && c.innerText.indexOf(w) !== -1 && !c.querySelector("canvas"); }, say(language, "Signed. It is on your record."));
+    // My company property.
+    const offered = await tapMore(page, say(language, "My company property"));
+    property = offered && await waitFor(page, (w) => { const c = document.querySelector('[data-property="1"]'); if (!c) return false; const of = (sel, attr) => Array.from(c.querySelectorAll(sel)).map(e => e.getAttribute(attr)).join("|"); return of("[data-property-group]", "data-property-group") === "held|returned" && of("[data-property-item]", "data-property-item") === "pi-1|pi-2|pi-3" && of("[data-property-item]", "data-property-signature") === "signed|signed|signed" && !c.querySelector("[data-property-sign]") && w.every(x => c.innerText.toUpperCase().indexOf(x.toUpperCase()) !== -1); }, [say(language, "You hold"), say(language, "Returned"), kindWord("key"), kindWord("uniform_shirt"), kindWord("badge"), say(language, "Size") + ": L", say(language, "Quantity") + ": 2", say(language, "Returned {date}", { date: "" }).trim().split(" ")[0]]);
+  }
+  const wide2 = await sideways(page);
+  const calls = app.stub.state.calls;
+  const signs = calls.filter(c => c.method === "POST" && c.path === "/api/signatures/sr-1/sign");
+  const disputes = calls.filter(c => c.method === "POST" && c.path === "/api/signatures/sr-2/dispute").map(c => c.body);
+  const declines = calls.filter(c => c.method === "POST" && c.path === "/api/signatures/sr-3/decline").map(c => c.body);
+  const pdfs = calls.filter(c => c.method === "GET" && c.path === "/api/signatures/sr-3/warning.pdf");
+  const sent = signs.length === 1 && signs[0].body && signs[0].body.locale === language && signs[0].signature && signs[0].signature.bytes > 0 && disputes.length === 1 && disputes[0].note === "Invented: the gloves are a size too small." && declines.length === 1 && declines[0].note === ""
+    && pdfs.length === 1 && pdfs[0].search === "?locale=" + language && /^Bearer /.test(String(pdfs[0].headers.authorization || ""));
+  await app.context.close();
+  check("Sign on your own phone: Home's card reads 3 to sign and opens the list of three, the key's screen draws what it is, who issued it and the statement, Sign with no signature is held on the phone, the signature drawn is sent once with the screen's language and reads Signed. It is on your record., Home then reads 2 to sign; the PPE's screen holds This is not right until a note is written, sends it and reads Sent back to the office with the note and Sign still offered; the warning's screen reads its level in words, its summary and statement, Open the warning reads the PDF behind the token with the screen's language and opens it in a new tab, I will not sign asks to confirm and reads Your answer was sent to the office.; the key's address then reads signed with no box; My company property lists the key, the shirt and the badge returned with its date, nothing waiting; with no sideways scroll" + tag,
+    card && listed && keyScreen && held && signed && cardAfter && disputed && warningScreen && pdfOpened && declined && done && property && sent && wide <= 1 && wide2 <= 1 && app.errors.length === 0,
+    !card ? "no card reading 3 to sign on Home" : !listed ? "the list did not read as expected" : !keyScreen ? "the key's screen did not read as expected" : !held ? "Sign with no signature was not held" : !signed ? "the signed line did not show" : !cardAfter ? "Home did not read 2 to sign" : !disputed ? "This is not right did not read as expected" : !warningScreen ? "the warning's screen did not read as expected" : !pdfOpened ? "Open the warning did not open a tab at the PDF" : !declined ? "the declined line did not show" : !done ? "the signed key's address did not read as done" : !property ? "My company property did not read as expected" : !sent ? JSON.stringify({ signs: signs.length, disputes, declines }) : Math.max(wide, wide2) > 1 ? Math.max(wide, wide2) + " pixels sideways" : app.errors[0]);
+}
+
 // The supply page (Step 252): signed out, the sheet in the page and Sign
 // in to record use; signed in, Used one and Running low.
 async function supplyPage(browser, language) {
@@ -1331,6 +1430,8 @@ async function largest(browser) {
     await guard("Step 264", () => step264(browser));
     await guard("the training portal (en)", () => trainingPortal(browser, "en", 390));
     await guard("the training portal (es)", () => trainingPortal(browser, "es", 320));
+    await guard("sign on your own phone (en)", () => signOnPhone(browser, "en", 390));
+    await guard("sign on your own phone (es)", () => signOnPhone(browser, "es", 320));
     await guard("the supply page", () => supplyPage(browser, "en"));
     await guard("French", () => french(browser));
     await guard("the Largest text size", () => largest(browser));
