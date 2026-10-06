@@ -14,6 +14,13 @@
 //   its French is not that row's French, or the French the allow list
 //     gives it
 //   the file holds an email address or a phone number
+//   an entry's pictures break a rule of Step 276 (guide/README.md):
+//     more than two Picture: lines in an entry, a line not written
+//     "Picture: <name>" with a name of 1 to 60 of a-z, 0-9 and -, a
+//     Picture: line anywhere but just before Last checked:, a picture
+//     whose English or Spanish JPEG in public/guide-shots/ is missing,
+//     not a JPEG or over 250 KB, two entries naming the same picture,
+//     or a file in public/guide-shots/ that no entry names
 //
 // It warns, and does not fail, when a row in the CSV has no French.
 //
@@ -31,6 +38,16 @@ const { GUIDE_CODE, GUIDE_FILE, readGuide, parseGuide, fingerprint } = require("
 
 const root = path.join(__dirname, "..");
 const WORDS_FILE = path.join(root, "translation", "portal_words.csv");
+// The pictures of the screen Help draws under an answer (Step 276 in the
+// API, 277 here): public/guide-shots/<name>.<lang>.jpg, written by
+// npm run shots, one file in each of these languages.
+const SHOTS_DIR = path.join(root, "public", "guide-shots");
+const SHOT_LANGUAGES = ["en", "es"];
+const SHOT_MAX_BYTES = 250 * 1024;
+const SHOTS_PER_ENTRY = 2;
+const PICTURE_LINE_RE = /^Picture:/;
+const PICTURE_RE = /^Picture: ([a-z0-9-]{1,60})$/;
+const SHOT_FILE_RE = /^([a-z0-9-]{1,60})\.([a-z]+)\.jpg$/;
 const ALLOW_FILE = path.join(root, "guide", "check-allow.txt");
 const rel = (f) => path.relative(root, f).split(path.sep).join("/");
 const inActions = process.env.GITHUB_ACTIONS === "true";
@@ -113,6 +130,51 @@ function allowList(failures) {
   return allowed;
 }
 
+// Each entry's Picture: lines, read against the rules Help's sync holds
+// them to, and every file in public/guide-shots/ against the names the
+// entries give. Returns how many pictures the entries name.
+function pictureFailures(guide, failures) {
+  const lines = guide.lines;
+  const starts = [];
+  lines.forEach((line, i) => { if (/^## /.test(line)) starts.push(i); });
+  const named = new Map();
+  starts.forEach((at, k) => {
+    const end = k + 1 < starts.length ? starts[k + 1] : lines.length;
+    const title = lines[at].replace(/^## /, "").trim();
+    let count = 0;
+    for (let i = at + 1; i < end; i += 1) {
+      if (!PICTURE_LINE_RE.test(lines[i])) continue;
+      count += 1;
+      const m = PICTURE_RE.exec(lines[i]);
+      if (!m) { failures.push({ file: GUIDE_FILE, line: i + 1, text: "Write a picture line as Picture: <name>, the name 1 to 60 of a-z, 0-9 and -." }); continue; }
+      // Just before Last checked:, after any other Picture: lines.
+      let j = i + 1;
+      while (j < end && PICTURE_LINE_RE.test(lines[j])) j += 1;
+      if (j >= end || !/^Last checked:/.test(lines[j])) failures.push({ file: GUIDE_FILE, line: i + 1, text: "A Picture: line goes just before Last checked: in its entry." });
+      if (count === SHOTS_PER_ENTRY + 1) failures.push({ file: GUIDE_FILE, line: i + 1, text: "The entry \"" + title + "\" names more than " + SHOTS_PER_ENTRY + " pictures." });
+      const name = m[1];
+      if (named.has(name)) { failures.push({ file: GUIDE_FILE, line: i + 1, text: "The picture " + name + " is named already, at line " + named.get(name) + ". Each picture belongs to one entry." }); continue; }
+      named.set(name, i + 1);
+      SHOT_LANGUAGES.forEach((lang) => {
+        const file = path.join(SHOTS_DIR, name + "." + lang + ".jpg");
+        if (!fs.existsSync(file)) { failures.push({ file: GUIDE_FILE, line: i + 1, text: rel(file) + " is missing. Take it with npm run shots -- " + name + "." }); return; }
+        const bytes = fs.readFileSync(file);
+        if (bytes.length > SHOT_MAX_BYTES) failures.push({ file: GUIDE_FILE, line: i + 1, text: rel(file) + " is " + Math.ceil(bytes.length / 1024) + " KB, over 250 KB." });
+        if (bytes[0] !== 0xff || bytes[1] !== 0xd8) failures.push({ file: GUIDE_FILE, line: i + 1, text: rel(file) + " is not a JPEG." });
+      });
+    }
+  });
+  // Every file in the folder is one of those, in one of the languages.
+  if (fs.existsSync(SHOTS_DIR)) {
+    fs.readdirSync(SHOTS_DIR).sort().forEach((f) => {
+      const m = SHOT_FILE_RE.exec(f);
+      if (m && named.has(m[1]) && SHOT_LANGUAGES.indexOf(m[2]) !== -1) return;
+      failures.push({ file: path.join(SHOTS_DIR, f), line: 1, text: m && SHOT_LANGUAGES.indexOf(m[2]) !== -1 ? "No entry names the picture " + m[1] + ". Add Picture: " + m[1] + " to its entry, or take the file off." : "Not a picture file. Each is " + SHOT_LANGUAGES.map(l => "<name>." + l + ".jpg").join(" or ") + "." });
+    });
+  }
+  return named.size;
+}
+
 // The files the pull request changes, or null when there is nothing to
 // compare with.
 function changedFiles() {
@@ -146,6 +208,8 @@ function main() {
     else firstAt.set(e.title, e.line);
     if (!e.content) failures.push({ file: GUIDE_FILE, line: e.line, text: "The entry \"" + e.title + "\" has nothing under it." });
   });
+
+  const pictures = pictureFailures(guide, failures);
 
   const words = wordPairs();
   const allowed = allowList(failures);
@@ -193,14 +257,14 @@ function main() {
   }
 
   // The guide's own failures first, each file in line order.
-  failures.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file === GUIDE_FILE ? -1 : 1));
+  failures.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file === GUIDE_FILE ? -1 : b.file === GUIDE_FILE ? 1 : a.file < b.file ? -1 : 1));
   failures.forEach((f) => {
     const where = rel(f.file) + ":" + f.line;
     process.stdout.write(where + ": " + f.text + "\n");
     if (inActions) process.stdout.write("::error file=" + rel(f.file) + ",line=" + f.line + "::" + f.text + "\n");
   });
   process.stdout.write("guide-check: " + guide.entries.length + " entries, " + pairCount + " bold names, " + frenchCount + " with English, Spanish and French, " +
-    allowed.size + " allowed, fingerprint " + fingerprint(guide.entries) + ", " +
+    allowed.size + " allowed, " + pictures + " pictures, fingerprint " + fingerprint(guide.entries) + ", " +
     (failures.length === 0 ? "passed" : failures.length + " failed") + "\n");
   process.exit(failures.length === 0 ? 0 : 1);
 }
