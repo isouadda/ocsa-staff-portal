@@ -1328,6 +1328,9 @@ export const WORDS = {
   "Fob": "Llavero",
   "Uniform shirt": "Camisa de uniforme",
   "Other uniform": "Otro uniforme",
+  "The warning did not open. Try again.": "La amonestaci\u00f3n no se abri\u00f3. Intente de nuevo.",
+  "Written warning": "Amonestaci\u00f3n por escrito",
+  "Final written warning": "Amonestaci\u00f3n final por escrito",
   },
 };
 
@@ -2537,6 +2540,9 @@ WORDS.fr = {
   "Fob": "Badge de proximit\u00e9",
   "Uniform shirt": "Chemise d'uniforme",
   "Other uniform": "Autre uniforme",
+  "The warning did not open. Try again.": "L'avertissement ne s'est pas ouvert. R\u00e9essayez.",
+  "Written warning": "Avertissement \u00e9crit",
+  "Final written warning": "Avertissement final \u00e9crit",
 };
 
 // {name} is replaced after the language is chosen, so the

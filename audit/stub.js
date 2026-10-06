@@ -401,13 +401,16 @@ const PROPERTY_KIND_WORDS = { key: { en: "Key", es: "Llave" }, badge: { en: "Bad
 const SIGN_SEED = [
   { id: "sr-1", kind: "property_issue", subjectId: "pi-1", item: { kind: "key", label: null, quantity: 1, size: null, siteId: "site-north", date: "2026-10-06" }, state: "waiting", requestedAt: "2026-10-06T14:05:00Z", requestedBy: "Jordan Office", signedAt: null, signedWhere: null, disputeNote: null, reminders: 0, warning: null },
   { id: "sr-2", kind: "ppe_issue", subjectId: "ppe-1", item: { kind: null, label: "Invented nitrile gloves", quantity: 2, size: "M", siteId: "site-north", date: "2026-10-06" }, state: "waiting", requestedAt: "2026-10-06T14:10:00Z", requestedBy: "Jordan Office", signedAt: null, signedWhere: null, disputeNote: null, reminders: 0, warning: null },
-  { id: "sr-3", kind: "warning", subjectId: "da-1", item: { kind: null, label: null, quantity: null, size: null, siteId: null, date: "2026-10-05" }, state: "waiting", requestedAt: "2026-10-06T14:20:00Z", requestedBy: "Jordan Office", signedAt: null, signedWhere: null, disputeNote: null, reminders: 0, warning: { level: "Written warning", date: "2026-10-05", summary: "Invented: arrived late three times in September after a verbal warning.", pdfUrl: "https://files.example.invalid/api/warnings/signed/da-1.pdf?token=invented-signature" } },
+  { id: "sr-3", kind: "warning", subjectId: "da-1", item: { kind: null, label: null, quantity: null, size: null, siteId: null, date: "2026-10-05" }, state: "waiting", requestedAt: "2026-10-06T14:20:00Z", requestedBy: "Jordan Office", signedAt: null, signedWhere: null, disputeNote: null, reminders: 0, warning: { level: "written_warning", date: "2026-10-05", summary: "Invented: arrived late three times in September after a verbal warning.", pdfUrl: "/api/signatures/sr-3/warning.pdf" } },
 ];
 const PROPERTY_SEED = [
   { id: "pi-1", kind: "key", description: null, size: null, quantity: 1, siteId: "site-north", issuedOn: "2026-10-06", issuedBy: "Jordan Office", note: null, returnedOn: null, requestId: "sr-1" },
   { id: "pi-2", kind: "uniform_shirt", description: null, size: "L", quantity: 2, siteId: null, issuedOn: "2026-09-01", issuedBy: "Jordan Office", note: null, returnedOn: null, requestId: null, signedWhere: "office" },
   { id: "pi-3", kind: "badge", description: null, size: null, quantity: 1, siteId: "site-south", issuedOn: "2026-03-02", issuedBy: "Jordan Office", note: null, returnedOn: "2026-08-30", requestId: null, signedWhere: "office" },
 ];
+// The warning's document, served at the API's own path behind the token
+// (Step 270 as built): a one-page PDF with one line, invented.
+const WARNING_PDF = Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 144]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n4 0 obj<</Length 58>>stream\nBT /F1 18 Tf 24 90 Td (Invented written warning) Tj ET\nendstream\nendobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n", "latin1");
 const SIGN_REFUSALS = {
   "signatures.notFound": { status: 404, en: "This signature request was not found.", es: "No se encontr\u00f3 esta solicitud de firma." },
   "signatures.notYours": { status: 403, en: "This signature request is not yours.", es: "Esta solicitud de firma no es suya." },
@@ -3571,10 +3574,15 @@ function createStub(opts) {
         const rows = state.propertyIssues.slice().sort((a, b) => ((a.returnedOn ? 1 : 0) - (b.returnedOn ? 1 : 0)) || (a.issuedOn < b.issuedOn ? 1 : -1));
         return json(200, { issues: rows.map(issueView) });
       }
-      const one = /^(GET|POST) \/api\/signatures\/([^/]+)(?:\/(sign|dispute|decline))?$/.exec(key);
+      const one = /^(GET|POST) \/api\/signatures\/([^/]+)(?:\/(sign|dispute|decline|warning\.pdf))?$/.exec(key);
       if (!one) return json(404, { error: "Not found" });
       const r = state.signRequests.find(x => x.id === decodeURIComponent(one[2]));
       if (!r) return signRefuse("signatures.notFound");
+      if (one[3] === "warning.pdf") {
+        if (one[1] !== "GET" || !r.warning) return json(404, { error: "Not found" });
+        if (!/^Bearer /.test(String((headers || {}).authorization || ""))) return json(401, { error: "Sign in first", code: "auth.required" });
+        return image("application/pdf", WARNING_PDF);
+      }
       if (one[1] === "GET") return json(200, { request: requestView(r) });
       const b = body && typeof body === "object" ? body : {};
       const act = one[3];

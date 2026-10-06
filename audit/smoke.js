@@ -89,7 +89,8 @@
 //     is held on the phone, the signature drawn is sent with the screen's
 //     language and reads Signed. It is on your record.; the PPE's screen
 //     sends This is not right with a note and reads Sent back to the
-//     office; the warning's screen offers Open the warning in a new tab,
+//     office; the warning's screen reads its level in words and Open the
+//     warning reads the PDF behind the token into a new tab,
 //     I will not sign asks to confirm and reads Your answer was sent to
 //     the office.; the key's address then says it is already done; My
 //     company property lists the key, the shirt and the badge returned
@@ -1294,7 +1295,7 @@ async function signOnPhone(browser, language, width) {
   const keyWords = { title: sw("property_issue", "title", { item: kindWord("key") }), statement: sw("property_issue", "statement", { item: kindWord("key"), quantity: 1, date: SIGN_SEED[0].item.date }), issued: say(language, "Issued by {name}, {when}", { name: SIGN_SEED[0].requestedBy, when: "" }).replace(/,\s*$/, ""), site: "North Building" };
   const keyScreen = listed && await waitFor(page, (w) => { const c = document.querySelector('[data-sign="ready"][data-sign-state="waiting"][data-sign-kind="property_issue"], [data-sign="ready"][data-sign-state="waiting"]'); return !!c && !!c.querySelector('[data-sign-kind="property_issue"]') && [w.title, w.statement, w.issued, w.site].every(x => c.innerText.indexOf(x) !== -1) && !!c.querySelector('[data-sign-signature="1"] canvas') && !!c.querySelector('[data-sign-ask="dispute"]') && !c.querySelector('[data-sign-ask="decline"]'); }, keyWords);
   const wide = await sideways(page);
-  let held = false, signed = false, cardAfter = false, disputed = false, warningScreen = false, declined = false, done = false, property = false;
+  let held = false, signed = false, cardAfter = false, disputed = false, warningScreen = false, pdfOpened = false, declined = false, done = false, property = false;
   if (keyScreen) {
     await page.click('[data-sign-send="1"]');
     held = await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Sign before you send."));
@@ -1315,8 +1316,22 @@ async function signOnPhone(browser, language, width) {
     disputed = noteHeld && await waitFor(page, (w) => { const c = document.querySelector('[data-sign="ready"][data-sign-state="disputed"]'); return !!c && c.innerText.indexOf(w) !== -1 && c.innerText.indexOf("size too small") !== -1 && !!c.querySelector('[data-sign-send="1"]') && !c.querySelector("[data-sign-ask]"); }, say(language, "Sent back to the office. They will follow up."));
     // The warning, opened and declined.
     await page.goto(BASE + "/sign/sr-3", { waitUntil: "domcontentloaded" });
-    warningScreen = await waitFor(page, (w) => { const c = document.querySelector('[data-sign="ready"][data-sign-state="waiting"]'); const a = c && c.querySelector('[data-sign-warning-open="1"]'); return !!a && a.getAttribute("href") === w.pdf && a.getAttribute("target") === "_blank" && a.innerText.trim() === w.open && c.innerText.indexOf(w.level) !== -1 && c.innerText.indexOf(w.summary) !== -1 && c.innerText.indexOf(w.statement) !== -1 && !!c.querySelector('[data-sign-ask="decline"]') && !c.querySelector('[data-sign-ask="dispute"]'); }, { pdf: SIGN_SEED[2].warning.pdfUrl, open: say(language, "Open the warning"), level: SIGN_SEED[2].warning.level, summary: SIGN_SEED[2].warning.summary, statement: sw("warning", "statement", {}) });
+    warningScreen = await waitFor(page, (w) => { const c = document.querySelector('[data-sign="ready"][data-sign-state="waiting"]'); const a = c && c.querySelector('button[data-sign-warning-open="1"]'); return !!a && a.innerText.trim() === w.open && c.innerText.indexOf(w.level) !== -1 && c.innerText.indexOf(w.summary) !== -1 && c.innerText.indexOf(w.statement) !== -1 && !!c.querySelector('[data-sign-ask="decline"]') && !c.querySelector('[data-sign-ask="dispute"]'); }, { open: say(language, "Open the warning"), level: say(language, "Written warning"), summary: SIGN_SEED[2].warning.summary, statement: sw("warning", "statement", {}) });
     if (warningScreen) {
+      // Open the warning: a new tab, pointed at the PDF read behind the
+      // token. A phone shows the PDF in the tab; headless Chromium has no
+      // viewer, so the tab hands the blob address over as a download, and
+      // either counts.
+      const [popup] = await Promise.all([page.context().waitForEvent("page", { timeout: 6000 }).catch(() => null), page.click('[data-sign-warning-open="1"]')]);
+      if (popup) {
+        // Chromium fails the navigation the moment it becomes a download,
+        // so a failed URL wait defers to the download.
+        const download = popup.waitForEvent("download", { timeout: 6000 }).then(d => d.url().indexOf("blob:") === 0, () => false);
+        const shown = popup.waitForURL(/^blob:/, { timeout: 6000 }).then(() => true, () => null);
+        const first = await Promise.race([shown, download]);
+        pdfOpened = first === null ? await download : first;
+        await popup.close();
+      }
       await page.click('[data-sign-ask="decline"]');
       await waitFor(page, () => !!document.querySelector('[data-sign-note-send="decline"]'));
       await page.click('[data-sign-note-send="decline"]');
@@ -1334,11 +1349,13 @@ async function signOnPhone(browser, language, width) {
   const signs = calls.filter(c => c.method === "POST" && c.path === "/api/signatures/sr-1/sign");
   const disputes = calls.filter(c => c.method === "POST" && c.path === "/api/signatures/sr-2/dispute").map(c => c.body);
   const declines = calls.filter(c => c.method === "POST" && c.path === "/api/signatures/sr-3/decline").map(c => c.body);
-  const sent = signs.length === 1 && signs[0].body && signs[0].body.locale === language && signs[0].signature && signs[0].signature.bytes > 0 && disputes.length === 1 && disputes[0].note === "Invented: the gloves are a size too small." && declines.length === 1 && declines[0].note === "";
+  const pdfs = calls.filter(c => c.method === "GET" && c.path === "/api/signatures/sr-3/warning.pdf");
+  const sent = signs.length === 1 && signs[0].body && signs[0].body.locale === language && signs[0].signature && signs[0].signature.bytes > 0 && disputes.length === 1 && disputes[0].note === "Invented: the gloves are a size too small." && declines.length === 1 && declines[0].note === ""
+    && pdfs.length === 1 && pdfs[0].search === "?locale=" + language && /^Bearer /.test(String(pdfs[0].headers.authorization || ""));
   await app.context.close();
-  check("Sign on your own phone: Home's card reads 3 to sign and opens the list of three, the key's screen draws what it is, who issued it and the statement, Sign with no signature is held on the phone, the signature drawn is sent once with the screen's language and reads Signed. It is on your record., Home then reads 2 to sign; the PPE's screen holds This is not right until a note is written, sends it and reads Sent back to the office with the note and Sign still offered; the warning's screen offers Open the warning in a new tab with its level, summary and statement, I will not sign asks to confirm and reads Your answer was sent to the office.; the key's address then reads signed with no box; My company property lists the key, the shirt and the badge returned with its date, nothing waiting; with no sideways scroll" + tag,
-    card && listed && keyScreen && held && signed && cardAfter && disputed && warningScreen && declined && done && property && sent && wide <= 1 && wide2 <= 1 && app.errors.length === 0,
-    !card ? "no card reading 3 to sign on Home" : !listed ? "the list did not read as expected" : !keyScreen ? "the key's screen did not read as expected" : !held ? "Sign with no signature was not held" : !signed ? "the signed line did not show" : !cardAfter ? "Home did not read 2 to sign" : !disputed ? "This is not right did not read as expected" : !warningScreen ? "the warning's screen did not read as expected" : !declined ? "the declined line did not show" : !done ? "the signed key's address did not read as done" : !property ? "My company property did not read as expected" : !sent ? JSON.stringify({ signs: signs.length, disputes, declines }) : Math.max(wide, wide2) > 1 ? Math.max(wide, wide2) + " pixels sideways" : app.errors[0]);
+  check("Sign on your own phone: Home's card reads 3 to sign and opens the list of three, the key's screen draws what it is, who issued it and the statement, Sign with no signature is held on the phone, the signature drawn is sent once with the screen's language and reads Signed. It is on your record., Home then reads 2 to sign; the PPE's screen holds This is not right until a note is written, sends it and reads Sent back to the office with the note and Sign still offered; the warning's screen reads its level in words, its summary and statement, Open the warning reads the PDF behind the token with the screen's language and opens it in a new tab, I will not sign asks to confirm and reads Your answer was sent to the office.; the key's address then reads signed with no box; My company property lists the key, the shirt and the badge returned with its date, nothing waiting; with no sideways scroll" + tag,
+    card && listed && keyScreen && held && signed && cardAfter && disputed && warningScreen && pdfOpened && declined && done && property && sent && wide <= 1 && wide2 <= 1 && app.errors.length === 0,
+    !card ? "no card reading 3 to sign on Home" : !listed ? "the list did not read as expected" : !keyScreen ? "the key's screen did not read as expected" : !held ? "Sign with no signature was not held" : !signed ? "the signed line did not show" : !cardAfter ? "Home did not read 2 to sign" : !disputed ? "This is not right did not read as expected" : !warningScreen ? "the warning's screen did not read as expected" : !pdfOpened ? "Open the warning did not open a tab at the PDF" : !declined ? "the declined line did not show" : !done ? "the signed key's address did not read as done" : !property ? "My company property did not read as expected" : !sent ? JSON.stringify({ signs: signs.length, disputes, declines }) : Math.max(wide, wide2) > 1 ? Math.max(wide, wide2) + " pixels sideways" : app.errors[0]);
 }
 
 // The supply page (Step 252): signed out, the sheet in the page and Sign

@@ -7607,6 +7607,10 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
 // ------------------------------------------------------------
 const SIGN_KINDS = ["property_issue", "ppe_issue", "warning"];
 const SIGN_OPEN = ["waiting", "disputed"];
+// A warning's level as the API stores it, in words; the two the API sends
+// to a phone. Anything else is drawn as sent.
+const SIGN_LEVEL_WORDS = { written_warning: "Written warning", final_warning: "Final written warning" };
+const signLevel = (level) => (SIGN_LEVEL_WORDS[level] ? tr(SIGN_LEVEL_WORDS[level]) : level);
 // The code a refusal carries, when it carries one.
 const signCodeOf = (err) => (err && err.body && typeof err.body.code === "string" ? err.body.code : "");
 function signRequestOf(x) {
@@ -7622,7 +7626,9 @@ function signRequestOf(x) {
     item: { label: str("label", item), quantity: trainingNum(item.quantity), size: str("size", item), siteName: item.site && typeof item.site === "object" ? str("name", item.site) : "", date: str("date", item) },
     state: str("state"), requestedAt: str("requestedAt"), requestedBy: x.requestedBy && typeof x.requestedBy === "object" ? str("name", x.requestedBy) : "",
     signedAt: str("signedAt"), signedWhere: str("signedWhere"), disputeNote: str("disputeNote"),
-    warning: w ? { level: str("level", w), date: str("date", w), summary: str("summary", w), pdfUrl: /^https:\/\//i.test(pdf) ? pdf : "" } : null,
+    // The warning's document: the API's own path behind the token (as
+    // Step 270 built it), or an https address.
+    warning: w ? { level: str("level", w), date: str("date", w), summary: str("summary", w), pdfUrl: /^(https:\/\/|\/api\/)/i.test(pdf) ? pdf : "" } : null,
   };
 }
 // GET /api/signatures/mine as the screen reads it: the open requests,
@@ -7669,6 +7675,9 @@ function SignScreen({ token, id, requests, onOpen, onBack, onChanged, t }) {
   const [ask, setAsk] = useState(null);
   const [note, setNote] = useState("");
   const [asked, setAsked] = useState(0);
+  // The warning's document being read, and why it did not open.
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfFault, setPdfFault] = useState(null);
   const live = useRef(true);
   useEffect(() => () => { live.current = false; }, []);
   useBusy("signature request", busy || strokes.length > 0 || !!ask);
@@ -7737,7 +7746,7 @@ function SignScreen({ token, id, requests, onOpen, onBack, onChanged, t }) {
                 <div style={{ flex: "1 1 160px", minWidth: 0 }}>
                   <div style={{ ...titleSt, fontSize: 14 }}>{r.title || r.item.label}</div>
                   {r.kind !== "warning" && r.item.label && <div style={lineSt}>{[r.item.label, r.item.date ? trainingDay(r.item.date) : ""].filter(Boolean).join(", ")}</div>}
-                  {r.kind === "warning" && r.warning && <div style={lineSt}>{[r.warning.level, r.warning.date ? trainingDay(r.warning.date) : ""].filter(Boolean).join(", ")}</div>}
+                  {r.kind === "warning" && r.warning && <div style={lineSt}>{[signLevel(r.warning.level), r.warning.date ? trainingDay(r.warning.date) : ""].filter(Boolean).join(", ")}</div>}
                 </div>
                 <span style={chipSt(chip.color)}>{tr(chip.word)}</span>
               </div>
@@ -7761,6 +7770,31 @@ function SignScreen({ token, id, requests, onOpen, onBack, onChanged, t }) {
   const r = req;
   const warning = r.kind === "warning";
   const open = SIGN_OPEN.indexOf(r.state) !== -1;
+  // The warning's document from the API's own path: a new tab is opened
+  // in the tap itself, which an iPhone allows, the PDF is read behind the
+  // token in the screen's language, and the tab is pointed at it. With no
+  // tab, the file is saved as warning.pdf the way a streamed file is. A
+  // refusal closes the tab and reads under the button.
+  const openWarning = async () => {
+    if (pdfBusy || !r.warning || !r.warning.pdfUrl) return;
+    let tab = null;
+    try { tab = window.open("", "_blank"); } catch (e) { tab = null; }
+    setPdfBusy(true); setPdfFault(null);
+    try {
+      const blob = await apiBlob(r.warning.pdfUrl + (r.warning.pdfUrl.indexOf("?") === -1 ? "?" : "&") + "locale=" + encodeURIComponent(languageToSend()), { token });
+      const href = URL.createObjectURL(blob);
+      if (tab) tab.location.href = href;
+      else {
+        const a = document.createElement("a");
+        a.href = href; a.rel = "noopener"; a.download = "warning.pdf";
+        document.body.appendChild(a); a.click(); a.remove();
+      }
+      setTimeout(() => URL.revokeObjectURL(href), 60000);
+    } catch (err) {
+      if (tab) { try { tab.close(); } catch (e) {} }
+      if (live.current) setPdfFault(fkFaultWords(err, "The warning did not open. Try again."));
+    } finally { if (live.current) setPdfBusy(false); }
+  };
   // What it is: the item with its quantity, size, site, date and who
   // issued it; or the warning's level, date and summary, with the
   // document itself a tap away.
@@ -7777,11 +7811,18 @@ function SignScreen({ token, id, requests, onOpen, onBack, onChanged, t }) {
       )}
       {warning && r.warning && (
         <div>
-          <div style={titleSt}>{r.warning.level || r.title}</div>
+          <div style={titleSt}>{r.warning.level ? signLevel(r.warning.level) : r.title}</div>
           {r.warning.date && <div style={lineSt}>{trainingDay(r.warning.date)}</div>}
           {r.requestedBy && <div style={lineSt}>{tr("Issued by {name}, {when}", { name: r.requestedBy, when: trainingDay(r.requestedAt) })}</div>}
           {r.warning.summary && <div style={{ ...bodySt, fontSize: 14, marginTop: 8 }}>{r.warning.summary}</div>}
-          {r.warning.pdfUrl && <div style={{ display: "flex", marginTop: 10 }}><a href={r.warning.pdfUrl} target="_blank" rel="noopener noreferrer" data-sign-warning-open="1" style={trainingGoldBtn}>{tr("Open the warning")}</a></div>}
+          {r.warning.pdfUrl && (
+            <div style={{ display: "flex", marginTop: 10 }}>
+              {/^https:\/\//i.test(r.warning.pdfUrl)
+                ? <a href={r.warning.pdfUrl} target="_blank" rel="noopener noreferrer" data-sign-warning-open="1" style={trainingGoldBtn}>{tr("Open the warning")}</a>
+                : <button type="button" data-sign-warning-open="1" disabled={pdfBusy} onClick={openWarning} style={{ ...trainingGoldBtn, opacity: pdfBusy ? 0.7 : 1 }}>{pdfBusy ? tr("Loading...") : tr("Open the warning")}</button>}
+            </div>
+          )}
+          {pdfFault && <WsFault text={pdfFault} t={t} />}
         </div>
       )}
     </div>
