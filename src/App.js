@@ -2503,21 +2503,8 @@ export default function OCSAStaffPortal() {
   // Where My training is (Step 264): a session's join screen for a code,
   // from /join/<code> or a code typed in. Dropped at sign out.
   const [trainingAt, setTrainingAt] = useState(null);
-  // Before you start (Step 264): open once a day while the list holds a
-  // document to sign or a first-day training, never when the app was
-  // opened from a link to a place, and never blocking the rest of the
-  // app. It counts as shown when Later or one of its lines is tapped.
-  const [beforeOpen, setBeforeOpen] = useState(false);
-  const bootedFromLink = useRef(!!OPEN_AT_START);
   useEffect(() => {
-    if (!training || !user || screen !== "main" || openAsk || beforeOpen || bootedFromLink.current) return;
-    if (training.documentsToSign.length === 0 && training.firstDay.length === 0) return;
-    if (beforeShownToday(user.id)) return;
-    setBeforeOpen(true);
-  }, [training, user && user.id, screen, openAsk]);
-  const closeBefore = () => { setBeforeOpen(false); if (user) markBeforeShown(user.id); };
-  useEffect(() => {
-    if (!token || screen !== "main") { setTraining(null); setTrainingAt(null); setBeforeOpen(false); return undefined; }
+    if (!token || screen !== "main") { setTraining(null); setTrainingAt(null); return undefined; }
     let live = true;
     readTraining(token).then(d => { if (live && d) setTraining(d); });
     return () => { live = false; };
@@ -2871,7 +2858,7 @@ export default function OCSAStaffPortal() {
 
           <div style={{ padding: "0 0 var(--ocsa-bar, 76px) 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
-              {activeTab === "clock" && <div><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
+              {activeTab === "clock" && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -2962,11 +2949,6 @@ export default function OCSAStaffPortal() {
         />
       )}
 
-      {beforeOpen && training && (
-        <BeforeYouStartSheet training={training} t={t} onClose={closeBefore}
-          onDocument={(doc) => { closeBefore(); setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }}
-          onLesson={(item) => { closeBefore(); setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} />
-      )}
       {announcementOpen && (
         <AnnouncementSheet token={token} id={announcementOpen} t={t} onClose={() => setAnnouncementOpen(null)} />
       )}
@@ -6638,16 +6620,16 @@ function TrainingBar({ done, required, t }) {
   );
 }
 // A module's status on a category page: Done, Expires soon, Waiting for
-// your trainer, In progress, Needs an in-person session (a training still
-// needed with no lesson to take, or no tries left on it, and no outside
-// course), or To do.
+// your trainer, In progress, Needs an in-person session (a lesson with no
+// tries left), or To do. A training with no lesson and no outside course
+// is To do, with a line saying the trainer goes over it with the person.
 function trainingChip(i) {
   if (i.status === "current") return { tag: "done", word: "Done", color: GREEN };
   if (i.status === "dueSoon") return { tag: "soon", word: "Expires soon", color: ORANGE };
   if (i.status === "awaitingTrainer") return { tag: "waiting", word: "Waiting for your trainer", color: BLUE };
   if (i.status === "inProgress") return { tag: "progress", word: "In progress", color: BLUE };
-  if (!i.linkUrl && (!i.lesson || i.lesson.attemptsLeft === 0)) return { tag: "session", word: "Needs an in-person session", color: RED };
-  return { tag: "todo", word: "To do", color: RED };
+  if (i.lesson && i.lesson.attemptsLeft === 0) return { tag: "session", word: "Needs an in-person session", color: RED };
+  return { tag: "todo", word: "To do", color: RED, trainer: !i.lesson && !i.linkUrl };
 }
 const trainingChipSt = (t, color) => ({ flexShrink: 0, fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: R.pill, whiteSpace: "nowrap", fontFamily: FONT_HEAD, background: color === RED ? t.redSubtle : color + "20", border: "1px solid " + (color === RED ? t.redBorder : color + "50"), color: color === RED ? wsLateInk(t) : ink(t, color) });
 async function readTraining(token) {
@@ -6727,9 +6709,6 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   const done = items.filter(i => i.status === "current");
   const records = (data ? data.records : []).slice().sort((a, b) => (a.completedDate < b.completedDate ? 1 : a.completedDate > b.completedDate ? -1 : 0));
   const docs = data ? data.documentsToSign : [];
-  // The supervisor line stays under To do while one of its items has no
-  // lesson to take, or no tries left on it.
-  const needsSession = todo.some(i => !i.lesson || i.lesson.attemptsLeft === 0);
   const why = (i) => {
     if (i.status === "missing") return tr("Not done yet");
     if (i.status === "expired") return tr("Expired {date}", { date: trainingDay(i.expiresOn) });
@@ -6770,6 +6749,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
       {group === "done" && i.expiresOn && <div style={lineSt}>{tr("Expires {date}", { date: trainingDay(i.expiresOn) })}</div>}
       {(group === "todo" || group === "soon") && lessonPart(i)}
       {i.lesson && (group === "todo" || group === "soon") && i.lesson.attemptsLeft === 0 && <div data-training-tries="0" style={{ ...lineSt, marginTop: 8, fontWeight: 600 }}>{tr("Ask your supervisor for an in-person session.")}</div>}
+      {!i.lesson && !i.linkUrl && group === "todo" && <div data-training-trainer="1" style={{ ...lineSt, marginTop: 8 }}>{tr("Your trainer goes over this one with you.")}</div>}
       {group !== "todo" && group !== "soon" && i.linkUrl && lessonPart({ ...i, lesson: null })}
     </div>
   );
@@ -6847,6 +6827,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
                 {i.status === "expired" && i.expiresOn && <div style={lineSt}>{tr("Expired {date}", { date: trainingDay(i.expiresOn) })}</div>}
                 {(i.status === "dueSoon" || i.status === "current") && i.expiresOn && <div style={lineSt}>{tr("Expires {date}", { date: trainingDay(i.expiresOn) })}</div>}
                 {i.status === "current" && i.completedDate && <div style={lineSt}>{tr("Done {date}", { date: trainingDay(i.completedDate) })}</div>}
+                {chip.trainer && <div data-training-trainer="1" style={lineSt}>{tr("Your trainer goes over this one with you.")}</div>}
                 {chip.tag === "waiting" && i.signoffBy && <div data-training-signoff={i.signoffBy.topicId} style={{ ...lineSt, color: ink(t, BLUE), fontWeight: 600 }}>{tr("Your trainer signs this off in the {name} checklist.", { name: i.signoffBy.name })}</div>}
                 {lessonPart(i)}
               </div>
@@ -6924,7 +6905,6 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
         <div>
           {head("To do", "todo")}
           {todo.map(i => row(i, "todo"))}
-          {needsSession && <div style={{ ...smallSt, fontSize: 12, marginTop: 4, marginBottom: 8 }}>{tr("Your supervisor sets up these sessions. Ask them when the next one is.")}</div>}
         </div>
       )}
       {waiting.length > 0 && <div>{head("Waiting for your trainer", "waiting")}{waiting.map(i => row(i, "waiting"))}</div>}
@@ -7220,46 +7200,43 @@ function DocumentReader({ token, doc, onBack, onSigned, t }) {
   );
 }
 
-// Before you start (Step 264, the contract's section 5): opened once a day
-// after sign-in while GET /api/training/me answers a document to sign or
-// a first-day training, with Later to go on to the app. Each line opens
-// its place in My training.
-const BEFORE_YOU_START_KEY = "ocsa-before-you-start:";
-const beforeShownToday = (userId) => { try { return window.localStorage.getItem(BEFORE_YOU_START_KEY + String(userId || "")) === ymdLocal(todayLocal()); } catch (e) { return true; } };
-const markBeforeShown = (userId) => { try { window.localStorage.setItem(BEFORE_YOU_START_KEY + String(userId || ""), ymdLocal(todayLocal())); } catch (e) {} };
-function BeforeYouStartSheet({ training, onDocument, onLesson, onClose, t }) {
+// Your first trainings (Step 264, the Step 262 contract's section 5, and
+// the owner's change of October 6): a card at the top of Home while GET
+// /api/training/me answers a document to sign or a first-day training
+// the person can do now, a lesson with tries left. Nothing opens by
+// itself, every tab works under it, and it stays until its list is
+// empty. A first-day training with no lesson is left off; My training
+// still lists it.
+const firstTrainingsOf = (training) => (training ? training.firstDay.filter(i => i.lesson && i.lesson.attemptsLeft > 0 && TRAINING_CAN_START.indexOf(i.status) !== -1) : []);
+function FirstTrainingsCard({ training, onDocument, onLesson, t }) {
   const docs = training ? training.documentsToSign : [];
-  const first = training ? training.firstDay : [];
-  const rowSt = { ...fkRowSt(t), display: "flex", alignItems: "center", gap: 10 };
+  const first = firstTrainingsOf(training);
+  if (docs.length === 0 && first.length === 0) return null;
+  // The button sits beside the name where both fit, and under it on a
+  // narrow phone, so a long name never breaks letter by letter.
+  const rowSt = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "8px 0", borderTop: "1px solid " + t.border };
   const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
   const lineSt = { fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const btnSt = { ...wsMainBtn(t, false), flex: "0 0 auto", fontSize: 13, padding: "0 12px" };
   return (
-    <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 410, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div role="dialog" aria-modal="true" aria-labelledby="ocsa-before-title" data-before-you-start="1" onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, maxHeight: "calc(var(--ocsa-dvh, 100dvh) * 0.9)", display: "flex", flexDirection: "column", borderRadius: R.lg + "px " + R.lg + "px 0 0", border: "1px solid " + t.borderSolid, borderBottom: "none" }}>
-        <div style={{ padding: "14px 16px 10px", flexShrink: 0 }}>
-          <div id="ocsa-before-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Before you start")}</div>
-          <div style={lineSt}>{tr("A few things come first. Each takes a few minutes on this phone.")}</div>
+    <div style={{ padding: "16px 16px 0" }}>
+      <div data-first-trainings={docs.length + first.length} style={{ ...fkRowSt(t), marginBottom: 0, border: "1px solid " + t.goldBorder }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+          <BookIco sz={20} c={t.goldText} style={{ flexShrink: 0 }} />
+          <div role="heading" aria-level={2} style={{ ...nameSt, flex: 1, minWidth: 0 }}>{tr("Your first trainings")}</div>
         </div>
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 8px" }}>
-          {docs.length > 0 && <div style={fkHeadSt(t)}>{tr("Documents to sign")}</div>}
-          {docs.map(x => (
-            <div key={x.docCode} data-before-doc={x.docCode} style={rowSt}>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={nameSt}>{x.title}</div><div style={lineSt}>{x.docCode}</div></div>
-              <button type="button" onClick={() => onDocument(x)} style={{ ...wsMainBtn(t, false), flex: "none" }}>{tr("Read and sign")}</button>
-            </div>
-          ))}
-          {first.length > 0 && <div style={fkHeadSt(t)}>{tr("Your first trainings")}</div>}
-          {first.map(i => (
-            <div key={i.id} data-before-item={i.id} style={rowSt}>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={nameSt}>{i.name}</div>{(i.docCode || i.docSection) && <div style={lineSt}>{[i.docCode, i.docSection].filter(Boolean).join(" ")}</div>}</div>
-              {i.lesson && i.lesson.attemptsLeft > 0 && <button type="button" onClick={() => onLesson(i)} style={{ ...wsMainBtn(t, false), flex: "none" }}>{tr("Start the lesson")}</button>}
-              {(!i.lesson || i.lesson.attemptsLeft === 0) && <div style={{ ...lineSt, flex: "none", maxWidth: "45%" }}>{tr("Your supervisor sets up these sessions. Ask them when the next one is.")}</div>}
-            </div>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 8, padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
-          <button type="button" data-before-later="1" onClick={onClose} style={wsPlainBtn(t)}>{tr("Later")}</button>
-        </div>
+        {docs.map(x => (
+          <div key={x.docCode} data-first-doc={x.docCode} style={rowSt}>
+            <div style={{ flex: "1 1 150px", minWidth: 0 }}><div style={nameSt}>{x.title}</div><div style={lineSt}>{x.docCode}</div></div>
+            <button type="button" onClick={() => onDocument(x)} style={btnSt}>{tr("Read and sign")}</button>
+          </div>
+        ))}
+        {first.map(i => (
+          <div key={i.id} data-first-item={i.id} style={rowSt}>
+            <div style={{ flex: "1 1 150px", minWidth: 0 }}><div style={nameSt}>{i.name}</div>{(i.docCode || i.docSection) && <div style={lineSt}>{[i.docCode, i.docSection].filter(Boolean).join(" ")}</div>}</div>
+            <button type="button" onClick={() => onLesson(i)} style={btnSt}>{i.status === "inProgress" ? tr("Continue the lesson") : tr("Start the lesson")}</button>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -7927,8 +7904,10 @@ const NOTIF_TAB = {
   // An inspection finding (Step 255): Report, with that finding in view.
   inspection_finding: "issues",
   // A training record about to expire (Step 258): My training. A lesson
-  // failed on its last try (Step 261): My training too. A lesson waiting
-  // for a trainer: the field kit, on Sign off training.
+  // failed on its last try (Step 261): My training too. Since Step 267
+  // both open the training portal, on the topic's category page when the
+  // notice names a topic the list holds. A lesson waiting for a trainer:
+  // the field kit, on Sign off training.
   training_expiring: "training",
   training_reteach: "training",
   training_signoff: "fieldkit",
@@ -7959,6 +7938,9 @@ function notifPlace(subjectType, subjectId) {
   if (subjectType === "training_join") return id ? { tab: tab, join: id } : null;
   if (subjectType === "document_to_sign") return { tab: tab, doc: id };
   if (subjectType === "training_category") return id ? { tab: tab, category: id } : null;
+  // A training notice naming a topic, or an attempt on one (Step 267):
+  // the portal, on that topic's category page when the item is known.
+  if (subjectType === "training_expiring" || subjectType === "training_reteach") return id ? { tab: tab, topic: id } : { tab: tab };
   return { tab: tab };
 }
 const NOTIF_PAGE = 30;
