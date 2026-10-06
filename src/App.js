@@ -6539,7 +6539,7 @@ function trainingItemOf(x) {
   // in the category; and the observation checklist whose sign-off stands
   // in for this topic's.
   const signoff = x.signoffBy && typeof x.signoffBy === "object" && typeof x.signoffBy.name === "string" && x.signoffBy.name.trim() ? { topicId: trainingId(x.signoffBy, ["topicId"]), name: x.signoffBy.name.trim() } : null;
-  return { id: topicId + ":" + siteId, topicId: topicId, siteId: siteId, name: name, docCode: str("docCode"), docSection: str("docSection"), safetyCritical: x.safetyCritical === true, siteName: str("siteName"), status: str("status"), completedDate: str("completedDate"), expiresOn: str("expiresOn"), linkUrl: /^https:\/\//i.test(link) ? link : "", attemptId: trainingId(x, ["attemptId"]), lesson: trainingLessonLinkOf(x.lesson),
+  return { id: topicId + ":" + siteId, topicId: topicId, siteId: siteId, name: name, docCode: str("docCode"), docSection: str("docSection"), safetyCritical: x.safetyCritical === true, siteName: str("siteName"), status: str("status"), completedDate: str("completedDate"), expiresOn: str("expiresOn"), linkUrl: /^https:\/\//i.test(link) ? link : "", attemptId: trainingId(x, ["attemptId"]), recordId: trainingId(x, ["recordId"]), lesson: trainingLessonLinkOf(x.lesson),
     category: str("category") || "other", sortOrder: trainingNum(x.sortOrder), needsTrainer: x.needsTrainer === true, signoffBy: signoff };
 }
 // One of the portal's categories as GET /api/training/me answers it: the
@@ -6599,10 +6599,12 @@ function trainingOf(d) {
 const TRAINING_CATEGORY_ORDER = ["start_here", "safety", "chemicals", "cleaning_methods", "floor_care", "equipment", "customer_service", "site_security", "supervisors", "other"];
 const trainingCategoryRank = (key) => { const n = TRAINING_CATEGORY_ORDER.indexOf(key); return n === -1 ? TRAINING_CATEGORY_ORDER.length : n; };
 const trainingInOrder = (items) => items.slice().sort((a, b) => trainingCategoryRank(a.category) - trainingCategoryRank(b.category) || (a.sortOrder === null ? 100 : a.sortOrder) - (b.sortOrder === null ? 100 : b.sortOrder) || a.name.localeCompare(b.name) || a.siteName.localeCompare(b.siteName));
-// The item a notice or a link names: a topic, or an attempt on one.
+// The item a notice or a link names: a topic; the record about to expire
+// (training_expiring carries the record's id, as the API writes it); or
+// an attempt on the topic (training_reteach carries the attempt's id).
 function trainingItemFor(data, id) {
   if (!data || !id) return null;
-  const direct = data.items.find(i => i.topicId === id || i.id === id);
+  const direct = data.items.find(i => i.topicId === id || i.id === id || (i.recordId && i.recordId === id) || (i.attemptId && i.attemptId === id));
   if (direct) return direct;
   const attempt = data.attempts.find(a => a.id === id);
   return attempt ? data.items.find(i => i.topicId === attempt.topicId) || null : null;
@@ -6628,8 +6630,8 @@ function trainingChip(i) {
   if (i.status === "dueSoon") return { tag: "soon", word: "Expires soon", color: ORANGE };
   if (i.status === "awaitingTrainer") return { tag: "waiting", word: "Waiting for your trainer", color: BLUE };
   if (i.status === "inProgress") return { tag: "progress", word: "In progress", color: BLUE };
-  if (i.lesson && i.lesson.attemptsLeft === 0) return { tag: "session", word: "Needs an in-person session", color: RED };
-  return { tag: "todo", word: "To do", color: RED, trainer: !i.lesson && !i.linkUrl };
+  if (trainingQuiz(i) && i.lesson.attemptsLeft === 0) return { tag: "session", word: "Needs an in-person session", color: RED };
+  return { tag: "todo", word: "To do", color: RED, trainer: !trainingQuiz(i) && !i.linkUrl };
 }
 const trainingChipSt = (t, color) => ({ flexShrink: 0, fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: R.pill, whiteSpace: "nowrap", fontFamily: FONT_HEAD, background: color === RED ? t.redSubtle : color + "20", border: "1px solid " + (color === RED ? t.redBorder : color + "50"), color: color === RED ? wsLateInk(t) : ink(t, color) });
 async function readTraining(token) {
@@ -6638,7 +6640,12 @@ async function readTraining(token) {
 // The items a person can do on the phone right now: a lesson with tries
 // left, on a training still needed, in progress or coming due. Home's
 // card counts them.
-const trainingToDo = (data) => (data ? data.items.filter(i => i.lesson && i.lesson.attemptsLeft > 0 && TRAINING_CAN_START.indexOf(i.status) !== -1) : []);
+// A lesson the person can take on the phone: a quiz with a try left. A
+// watched checklist (kind observation, Step 264) is the trainer's to
+// run, and the API refuses an attempt on it (training.observationByTrainer).
+const trainingQuiz = (i) => !!i.lesson && i.lesson.kind !== "observation";
+const trainingTakeable = (i) => trainingQuiz(i) && i.lesson.attemptsLeft > 0;
+const trainingToDo = (data) => (data ? data.items.filter(i => trainingTakeable(i) && TRAINING_CAN_START.indexOf(i.status) !== -1) : []);
 const trainingDay = (d) => (d ? dueDayText(d, { month: "short", day: "numeric", year: "numeric" }) : "");
 const TRAINING_GIVEN_IN = { en: () => tr("Given in English"), es: () => tr("Given in Spanish"), fr: () => tr("Given in French") };
 const trainingTries = (n) => (n === 1 ? tr("1 try left") : tr("{n} tries left", { n: n }));
@@ -6726,7 +6733,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   // can be started or continued; an outside course's link under it.
   const lessonPart = (i) => (
     <div>
-      {i.lesson && TRAINING_CAN_START.indexOf(i.status) !== -1 && i.lesson.attemptsLeft > 0 && (
+      {trainingTakeable(i) && TRAINING_CAN_START.indexOf(i.status) !== -1 && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
           <button type="button" data-training-start={i.id} onClick={() => openLesson(i)} style={{ ...goldBtn, flex: "1 1 120px" }}>{i.status === "inProgress" ? tr("Continue the lesson") : tr("Start the lesson")}</button>
           <span data-training-tries={i.lesson.attemptsLeft} style={{ ...lineSt, marginTop: 0, flex: "1 1 80px", minWidth: 0 }}>{trainingTries(i.lesson.attemptsLeft)}</span>
@@ -6748,8 +6755,8 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
       <div style={{ ...lineSt, color: group === "todo" ? wsLateInk(t) : group === "soon" ? ink(t, ORANGE) : group === "waiting" ? ink(t, BLUE) : ink(t, GREEN), fontWeight: 600 }}>{why(i)}</div>
       {group === "done" && i.expiresOn && <div style={lineSt}>{tr("Expires {date}", { date: trainingDay(i.expiresOn) })}</div>}
       {(group === "todo" || group === "soon") && lessonPart(i)}
-      {i.lesson && (group === "todo" || group === "soon") && i.lesson.attemptsLeft === 0 && <div data-training-tries="0" style={{ ...lineSt, marginTop: 8, fontWeight: 600 }}>{tr("Ask your supervisor for an in-person session.")}</div>}
-      {!i.lesson && !i.linkUrl && group === "todo" && <div data-training-trainer="1" style={{ ...lineSt, marginTop: 8 }}>{tr("Your trainer goes over this one with you.")}</div>}
+      {trainingQuiz(i) && (group === "todo" || group === "soon") && i.lesson.attemptsLeft === 0 && <div data-training-tries="0" style={{ ...lineSt, marginTop: 8, fontWeight: 600 }}>{tr("Ask your supervisor for an in-person session.")}</div>}
+      {!trainingQuiz(i) && !i.linkUrl && group === "todo" && <div data-training-trainer="1" style={{ ...lineSt, marginTop: 8 }}>{tr("Your trainer goes over this one with you.")}</div>}
       {group !== "todo" && group !== "soon" && i.linkUrl && lessonPart({ ...i, lesson: null })}
     </div>
   );
@@ -7207,7 +7214,7 @@ function DocumentReader({ token, doc, onBack, onSigned, t }) {
 // itself, every tab works under it, and it stays until its list is
 // empty. A first-day training with no lesson is left off; My training
 // still lists it.
-const firstTrainingsOf = (training) => (training ? training.firstDay.filter(i => i.lesson && i.lesson.attemptsLeft > 0 && TRAINING_CAN_START.indexOf(i.status) !== -1) : []);
+const firstTrainingsOf = (training) => (training ? training.firstDay.filter(i => trainingTakeable(i) && TRAINING_CAN_START.indexOf(i.status) !== -1) : []);
 function FirstTrainingsCard({ training, onDocument, onLesson, t }) {
   const docs = training ? training.documentsToSign : [];
   const first = firstTrainingsOf(training);
@@ -7288,7 +7295,10 @@ function trainingLessonOf(d) {
     spanishHeld: l.spanishHeld === true };
 }
 // The line over a lesson answered with spanishHeld, in Spanish whatever
-// the screen's language, since it is written for the Spanish reader.
+// the screen's language, since it is written for the Spanish reader. The
+// API as built (Step 266) answers the key false on every lesson: the
+// owner withdrew the held case on October 6, and Spanish is offered the
+// moment every text has it. The line is drawn only if that changes.
 const LESSON_SPANISH_HELD = "Esta lecci\u00f3n de seguridad se muestra en ingl\u00e9s. Su entrenador la repasa con usted en espa\u00f1ol.";
 
 // One lesson, from Start to Done. Start posts an attempt (an open one is
