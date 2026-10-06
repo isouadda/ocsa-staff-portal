@@ -1058,17 +1058,18 @@ function readEntryFromUrl() {
 // below drops the query. A client request's notice links to
 // /requests/<id> (Step 252), and an inspection finding's to /issues/<id>
 // (Step 255); either address opens its subject the same way, and so does
-// a training session's /join/<code> (Step 264). None is an entry screen,
-// so the app signs in or boots the stored session as it always does and
-// the subject opens once the portal is up.
+// a training session's /join/<code> (Step 264) and a training category's
+// page, /training/c/<key> (Step 267). None is an entry screen, so the app
+// signs in or boots the stored session as it always does and the subject
+// opens once the portal is up.
 function readOpenFromUrl() {
   try {
     var v = new URLSearchParams(window.location.search || "").get("open");
     if (!v) {
-      var m = /^\/(requests|issues|join)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+      var m = /^\/(requests|issues|join|training\/c)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
       if (!m) return null;
       try { window.history.replaceState({}, "", "/"); } catch (e) {}
-      return { subjectType: m[1] === "requests" ? "client_request" : m[1] === "issues" ? "inspection_finding" : "training_join", subjectId: m[2] };
+      return { subjectType: m[1] === "requests" ? "client_request" : m[1] === "issues" ? "inspection_finding" : m[1] === "join" ? "training_join" : "training_category", subjectId: m[2] };
     }
     try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
     var at = v.indexOf(":");
@@ -2416,7 +2417,7 @@ export default function OCSAStaffPortal() {
       if (!isAdmin) { setActiveTab("training"); setShowMore(false); return; }
       setFieldKitAt(at => ({ siteId: at && at.siteId ? at.siteId : null, tile: place.signoff ? "signoff" : null }));
     }
-    if (place.tab === "training") setTrainingAt(place.join ? { join: String(place.join) } : place.doc ? { doc: { docCode: String(place.doc), title: String(place.doc) } } : null);
+    if (place.tab === "training") setTrainingAt(place.join ? { join: String(place.join) } : place.doc ? { doc: { docCode: String(place.doc), title: String(place.doc) } } : place.category ? { category: String(place.category) } : place.topic ? { topic: String(place.topic) } : null);
     setActiveTab(place.tab); setShowMore(false);
     if (place.tab === "issues") { setRequestOpen(place.request || null); setFindingOpen(place.finding || null); loadClientRequests(); loadFindings(); }
     if (place.tab === "chat" && place.chat) { if (activeChannelRef.current === place.chat) loadMessages(place.chat); else chooseChat(place.chat); }
@@ -6551,7 +6552,33 @@ function trainingItemOf(x) {
   // the item carries as linkUrl; anything else is left out.
   const link = str("linkUrl");
   const topicId = trainingId(x, ["topicId"]), siteId = trainingId(x, ["siteId"]);
-  return { id: topicId + ":" + siteId, topicId: topicId, siteId: siteId, name: name, docCode: str("docCode"), docSection: str("docSection"), safetyCritical: x.safetyCritical === true, siteName: str("siteName"), status: str("status"), completedDate: str("completedDate"), expiresOn: str("expiresOn"), linkUrl: /^https:\/\//i.test(link) ? link : "", attemptId: trainingId(x, ["attemptId"]), lesson: trainingLessonLinkOf(x.lesson) };
+  // The training portal (Step 267, the Step 266 contract's section 3): the
+  // topic's category, answered as other for a topic with none; its place
+  // in the category; and the observation checklist whose sign-off stands
+  // in for this topic's.
+  const signoff = x.signoffBy && typeof x.signoffBy === "object" && typeof x.signoffBy.name === "string" && x.signoffBy.name.trim() ? { topicId: trainingId(x.signoffBy, ["topicId"]), name: x.signoffBy.name.trim() } : null;
+  return { id: topicId + ":" + siteId, topicId: topicId, siteId: siteId, name: name, docCode: str("docCode"), docSection: str("docSection"), safetyCritical: x.safetyCritical === true, siteName: str("siteName"), status: str("status"), completedDate: str("completedDate"), expiresOn: str("expiresOn"), linkUrl: /^https:\/\//i.test(link) ? link : "", attemptId: trainingId(x, ["attemptId"]), lesson: trainingLessonLinkOf(x.lesson),
+    category: str("category") || "other", sortOrder: trainingNum(x.sortOrder), needsTrainer: x.needsTrainer === true, signoffBy: signoff };
+}
+// One of the portal's categories as GET /api/training/me answers it: the
+// counts of the person's items in it, and the first module still to do.
+function trainingCategoryOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const key = trainingId(x, ["key"]);
+  const name = typeof x.name === "string" ? x.name.trim() : "";
+  if (!key || !name) return null;
+  const count = (k) => { const v = trainingNum(x[k]); return v === null ? 0 : Math.max(0, Math.round(v)); };
+  return { key: key, name: name, required: count("required"), done: count("done"), toDo: count("toDo"), inProgress: count("inProgress"), awaitingTrainer: count("awaitingTrainer"), nextTopicId: trainingId(x, ["nextTopicId"]) };
+}
+// Continue where you left off: the module behind the person's most
+// recently started open attempt, else the first module to do that has a
+// lesson. attemptId is set when an attempt is open.
+function trainingContinueOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const name = typeof x.name === "string" ? x.name.trim() : "";
+  const topicId = trainingId(x, ["topicId"]), versionId = trainingId(x, ["versionId"]);
+  if (!name || !topicId || !versionId) return null;
+  return { topicId: topicId, name: name, category: trainingId(x, ["category"]) || "other", categoryName: typeof x.categoryName === "string" ? x.categoryName.trim() : "", attemptId: trainingId(x, ["attemptId"]), versionId: versionId, siteId: trainingId(x, ["siteId"]) };
 }
 function trainingRecordOf(x) {
   if (!x || typeof x !== "object") return null;
@@ -6578,8 +6605,51 @@ function trainingOf(d) {
   return { items: items.map(trainingItemOf).filter(Boolean), records: (wsRows(d, "records") || []).map(trainingRecordOf).filter(Boolean), attempts: (wsRows(d, "attempts") || []).map(trainingAttemptOf).filter(Boolean),
     // Step 264: the first-day path and the documents to sign (the Step
     // 262 contract, sections 5 and 6); empty until the API answers them.
-    firstDay: (wsRows(d, "firstDay") || []).map(trainingItemOf).filter(Boolean), documentsToSign: (wsRows(d, "documentsToSign") || []).map(trainingDocumentOf).filter(Boolean) };
+    firstDay: trainingInOrder((wsRows(d, "firstDay") || []).map(trainingItemOf).filter(Boolean)), documentsToSign: (wsRows(d, "documentsToSign") || []).map(trainingDocumentOf).filter(Boolean),
+    // The training portal (Step 267): the categories and Continue where
+    // you left off. categories is null until the API answers it, and My
+    // training then stays as it was.
+    categories: Array.isArray(d.categories) ? d.categories.map(trainingCategoryOf).filter(Boolean) : null, continue: trainingContinueOf(d.continue) };
 }
+// The fixed categories in the order the API answers them (the Step 266
+// contract's section 2), other last. The API sorts the items; the portal
+// sorts only what it puts in order itself, Before you start's first-day list.
+const TRAINING_CATEGORY_ORDER = ["start_here", "safety", "chemicals", "cleaning_methods", "floor_care", "equipment", "customer_service", "site_security", "supervisors", "other"];
+const trainingCategoryRank = (key) => { const n = TRAINING_CATEGORY_ORDER.indexOf(key); return n === -1 ? TRAINING_CATEGORY_ORDER.length : n; };
+const trainingInOrder = (items) => items.slice().sort((a, b) => trainingCategoryRank(a.category) - trainingCategoryRank(b.category) || (a.sortOrder === null ? 100 : a.sortOrder) - (b.sortOrder === null ? 100 : b.sortOrder) || a.name.localeCompare(b.name) || a.siteName.localeCompare(b.siteName));
+// The item a notice or a link names: a topic, or an attempt on one.
+function trainingItemFor(data, id) {
+  if (!data || !id) return null;
+  const direct = data.items.find(i => i.topicId === id || i.id === id);
+  if (direct) return direct;
+  const attempt = data.attempts.find(a => a.id === id);
+  return attempt ? data.items.find(i => i.topicId === attempt.topicId) || null : null;
+}
+// The gold button a training row offers: Start the lesson, Take the
+// course online, Read and sign.
+const trainingGoldBtn = { display: "flex", alignItems: "center", justifyContent: "center", minHeight: TAP, padding: "10px 14px", borderRadius: R.md, textDecoration: "none", border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", cursor: "pointer" };
+// A progress bar: done of required, gold while it fills and green when full.
+function TrainingBar({ done, required, t }) {
+  const pct = required > 0 ? Math.min(100, Math.round(done * 100 / required)) : 0;
+  return (
+    <div role="progressbar" aria-valuemin={0} aria-valuemax={Math.max(1, required)} aria-valuenow={Math.min(done, required)} data-training-bar={done + "/" + required} style={{ height: 8, borderRadius: R.pill, background: t.cardAlt, border: "1px solid " + t.border, overflow: "hidden" }}>
+      <div style={{ width: pct + "%", height: "100%", background: pct >= 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")" }} />
+    </div>
+  );
+}
+// A module's status on a category page: Done, Expires soon, Waiting for
+// your trainer, In progress, Needs an in-person session (a training still
+// needed with no lesson to take, or no tries left on it, and no outside
+// course), or To do.
+function trainingChip(i) {
+  if (i.status === "current") return { tag: "done", word: "Done", color: GREEN };
+  if (i.status === "dueSoon") return { tag: "soon", word: "Expires soon", color: ORANGE };
+  if (i.status === "awaitingTrainer") return { tag: "waiting", word: "Waiting for your trainer", color: BLUE };
+  if (i.status === "inProgress") return { tag: "progress", word: "In progress", color: BLUE };
+  if (!i.linkUrl && (!i.lesson || i.lesson.attemptsLeft === 0)) return { tag: "session", word: "Needs an in-person session", color: RED };
+  return { tag: "todo", word: "To do", color: RED };
+}
+const trainingChipSt = (t, color) => ({ flexShrink: 0, fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: R.pill, whiteSpace: "nowrap", fontFamily: FONT_HEAD, background: color === RED ? t.redSubtle : color + "20", border: "1px solid " + (color === RED ? t.redBorder : color + "50"), color: color === RED ? wsLateInk(t) : ink(t, color) });
 async function readTraining(token) {
   try { return trainingOf(await api("/api/training/me", { token })); } catch (e) { return null; }
 }
@@ -6602,16 +6672,39 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   // Join a session (Step 264): the code box open, and what is typed in it.
   const [joinOpen, setJoinOpen] = useState(false);
   const [joinCode, setJoinCode] = useState("");
+  // The training portal (Step 267, the Step 266 contract's section 8):
+  // the category page open, from a card, a notice naming a topic, or
+  // /training/c/<key>. The page is an entry in the phone's history, so the
+  // phone's back goes from it to My training, and the address bar reads
+  // /training/c/<key> while it is open. The portal shows only once the
+  // API answers categories; until then My training is as it was.
+  const [cat, setCat] = useState(null);
+  const portal = !!(data && data.categories && (data.categories.length > 0 || data.items.length === 0));
+  const openCat = (key) => { setCat(key); try { window.history.pushState({ trainingCategory: key }, "", "/training/c/" + encodeURIComponent(key)); } catch (e) {} };
+  const closeCat = () => { setCat(null); try { if (window.history.state && window.history.state.trainingCategory) window.history.back(); } catch (e) {} };
+  useEffect(() => {
+    const onPop = () => setCat(window.history.state && window.history.state.trainingCategory ? String(window.history.state.trainingCategory) : null);
+    window.addEventListener("popstate", onPop);
+    return () => { window.removeEventListener("popstate", onPop); try { if (window.history.state && window.history.state.trainingCategory) window.history.replaceState({}, "", "/"); } catch (e) {} };
+  }, []);
   useEffect(() => {
     let live = true;
     readTraining(token).then(d => { if (!live) return; if (d) { onData(d); setFault(false); } else setFault(true); });
     return () => { live = false; };
   }, [asked]);
-  // A lesson named from Before you start opens once its item is on the list.
+  // A lesson named from Before you start opens once its item is on the
+  // list; a category named by a link, or the category of a topic a notice
+  // names, opens its page once the portal is drawn.
   useEffect(() => {
-    if (!at || !at.lesson || !data) return;
-    const item = data.items.find(x => x.id === at.lesson) || data.firstDay.find(x => x.id === at.lesson);
-    if (item && item.lesson) setLesson({ id: item.id, item: item, opened: Date.now() });
+    if (!at || !data || !(at.lesson || at.category || at.topic)) return;
+    if (at.lesson) {
+      const item = data.items.find(x => x.id === at.lesson) || data.firstDay.find(x => x.id === at.lesson);
+      if (item && item.lesson) setLesson({ id: item.id, item: item, opened: Date.now() });
+    } else if (portal) {
+      const item = at.topic ? trainingItemFor(data, at.topic) : null;
+      const key = at.category || (item ? item.category : "");
+      if (key && data.categories.some(c => c.key === key)) openCat(key);
+    }
     onAt(null);
   }, [at, data]);
   if (at && at.join) {
@@ -6620,10 +6713,13 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   if (at && at.doc) {
     return <DocumentReader key={at.doc.docCode} token={token} doc={at.doc} onBack={() => { onAt(null); setAsked(n => n + 1); }} onSigned={() => setAsked(n => n + 1)} t={t} />;
   }
-  if (lesson) {
-    return <TrainingLesson key={lesson.id + ":" + lesson.opened} token={token} item={lesson.item} siteId={lesson.item.siteId || shiftSiteId || null} onBack={() => { setLesson(null); setAsked(n => n + 1); }} t={t} />;
-  }
   const items = data ? data.items : [];
+  const cats = portal ? data.categories : [];
+  const openCatOf = cat ? cats.find(c => c.key === cat) || null : null;
+  if (lesson) {
+    return <TrainingLesson key={lesson.id + ":" + lesson.opened} token={token} item={lesson.item} siteId={lesson.item.siteId || shiftSiteId || null} backLabel={openCatOf ? openCatOf.name : ""} onBack={() => { setLesson(null); setAsked(n => n + 1); }} t={t} />;
+  }
+  const openLesson = (i) => setLesson({ id: i.id, item: i, opened: Date.now() });
   const bySafety = (a, b) => (b.safetyCritical ? 1 : 0) - (a.safetyCritical ? 1 : 0);
   const todo = items.filter(i => TRAINING_TODO.indexOf(i.status) !== -1).sort(bySafety);
   const waiting = items.filter(i => i.status === "awaitingTrainer");
@@ -6646,21 +6742,17 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
   const smallSt = { fontSize: 11, color: t.textMut, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
   const lineSt = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" };
-  const goldBtn = { display: "flex", alignItems: "center", justifyContent: "center", minHeight: TAP, padding: "10px 14px", borderRadius: R.md, textDecoration: "none", border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", cursor: "pointer" };
-  const row = (i, group) => (
-    <div key={i.id} data-training-item={i.status} style={{ ...fkRowSt(t), minHeight: TAP }}>
-      <div style={nameSt}>{i.name}</div>
-      {(i.docCode || i.docSection) && <div style={smallSt}>{[i.docCode, i.docSection].filter(Boolean).join(" ")}</div>}
-      {i.siteName && i.status !== "refresherDue" && <div style={lineSt}>{i.siteName}</div>}
-      <div style={{ ...lineSt, color: group === "todo" ? wsLateInk(t) : group === "soon" ? ink(t, ORANGE) : group === "waiting" ? ink(t, BLUE) : ink(t, GREEN), fontWeight: 600 }}>{why(i)}</div>
-      {group === "done" && i.expiresOn && <div style={lineSt}>{tr("Expires {date}", { date: trainingDay(i.expiresOn) })}</div>}
-      {i.lesson && (group === "todo" || group === "soon") && i.lesson.attemptsLeft > 0 && (
+  const goldBtn = trainingGoldBtn;
+  // A lesson's button and the tries left beside it, on a training that
+  // can be started or continued; an outside course's link under it.
+  const lessonPart = (i) => (
+    <div>
+      {i.lesson && TRAINING_CAN_START.indexOf(i.status) !== -1 && i.lesson.attemptsLeft > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
-          <button type="button" data-training-start={i.id} onClick={() => setLesson({ id: i.id, item: i, opened: Date.now() })} style={{ ...goldBtn, flex: "1 1 120px" }}>{i.status === "inProgress" ? tr("Continue the lesson") : tr("Start the lesson")}</button>
+          <button type="button" data-training-start={i.id} onClick={() => openLesson(i)} style={{ ...goldBtn, flex: "1 1 120px" }}>{i.status === "inProgress" ? tr("Continue the lesson") : tr("Start the lesson")}</button>
           <span data-training-tries={i.lesson.attemptsLeft} style={{ ...lineSt, marginTop: 0, flex: "1 1 80px", minWidth: 0 }}>{trainingTries(i.lesson.attemptsLeft)}</span>
         </div>
       )}
-      {i.lesson && (group === "todo" || group === "soon") && i.lesson.attemptsLeft === 0 && <div data-training-tries="0" style={{ ...lineSt, marginTop: 8, fontWeight: 600 }}>{tr("Ask your supervisor for an in-person session.")}</div>}
       {i.linkUrl && (
         <div style={{ marginTop: 10 }}>
           <a href={i.linkUrl} target="_blank" rel="noopener noreferrer" data-training-link={i.id} style={goldBtn}>{tr("Take the course online")}</a>
@@ -6669,36 +6761,164 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
       )}
     </div>
   );
+  const row = (i, group) => (
+    <div key={i.id} data-training-item={i.status} style={{ ...fkRowSt(t), minHeight: TAP }}>
+      <div style={nameSt}>{i.name}</div>
+      {(i.docCode || i.docSection) && <div style={smallSt}>{[i.docCode, i.docSection].filter(Boolean).join(" ")}</div>}
+      {i.siteName && i.status !== "refresherDue" && <div style={lineSt}>{i.siteName}</div>}
+      <div style={{ ...lineSt, color: group === "todo" ? wsLateInk(t) : group === "soon" ? ink(t, ORANGE) : group === "waiting" ? ink(t, BLUE) : ink(t, GREEN), fontWeight: 600 }}>{why(i)}</div>
+      {group === "done" && i.expiresOn && <div style={lineSt}>{tr("Expires {date}", { date: trainingDay(i.expiresOn) })}</div>}
+      {(group === "todo" || group === "soon") && lessonPart(i)}
+      {i.lesson && (group === "todo" || group === "soon") && i.lesson.attemptsLeft === 0 && <div data-training-tries="0" style={{ ...lineSt, marginTop: 8, fontWeight: 600 }}>{tr("Ask your supervisor for an in-person session.")}</div>}
+      {group !== "todo" && group !== "soon" && i.linkUrl && lessonPart({ ...i, lesson: null })}
+    </div>
+  );
   const head = (word, tag) => <div role="heading" aria-level={3} data-training-group={tag} style={fkHeadSt(t)}>{tr(word)}</div>;
-  return (
-    <div data-training="1" style={{ padding: "14px 16px 100px" }}>
-      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("My training")}</div>
-      {fault && <ListFault icon={BookIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />}
-      <div data-training-join="1" style={{ ...fkRowSt(t), marginTop: 8 }}>
-        {!joinOpen && <button type="button" onClick={() => setJoinOpen(true)} style={{ ...wsPlainBtn(t), width: "100%" }}>{tr("Join a session")}</button>}
-        {joinOpen && (
-          <div>
-            <label htmlFor="ocsa-join-code" style={mkLabel(t)}>{tr("Session code")}</label>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input id="ocsa-join-code" value={joinCode} maxLength={12} autoCapitalize="characters" autoCorrect="off" spellCheck={false} placeholder={tr("The code on your trainer's screen")} onChange={e => setJoinCode(e.target.value.replace(/\s+/g, ""))} style={{ ...mkInput(t), flex: 1, minWidth: 0 }} />
-              <button type="button" data-training-join-go="1" disabled={!JOIN_CODE_RE.test(joinCode.trim())} onClick={() => { onAt({ join: joinCode.trim() }); setJoinOpen(false); setJoinCode(""); }} style={{ ...wsMainBtn(t, !JOIN_CODE_RE.test(joinCode.trim())), flex: "none" }}>{tr("Join")}</button>
-            </div>
-          </div>
-        )}
-      </div>
-      {docs.length > 0 && (
+  // The pieces under the list in both layouts: Join a session, Documents
+  // to sign and History.
+  const joinPart = (
+    <div data-training-join="1" style={{ ...fkRowSt(t), marginTop: 8 }}>
+      {!joinOpen && <button type="button" onClick={() => setJoinOpen(true)} style={{ ...wsPlainBtn(t), width: "100%" }}>{tr("Join a session")}</button>}
+      {joinOpen && (
         <div>
-          {head("Documents to sign", "docs")}
-          {docs.map(x => (
-            <div key={x.docCode} data-training-doc={x.docCode} style={{ ...fkRowSt(t), minHeight: TAP }}>
-              <div style={nameSt}>{x.title}</div>
-              <div style={smallSt}>{[x.docCode, x.version ? tr("Version {n}", { n: x.version }) : ""].filter(Boolean).join(", ")}</div>
-              {x.signedVersion && <div style={lineSt}>{tr("You signed version {n}. This one is new.", { n: x.signedVersion })}</div>}
-              <div style={{ display: "flex", marginTop: 10 }}><button type="button" data-training-doc-read={x.docCode} onClick={() => onAt({ doc: x })} style={goldBtn}>{tr("Read and sign")}</button></div>
-            </div>
-          ))}
+          <label htmlFor="ocsa-join-code" style={mkLabel(t)}>{tr("Session code")}</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input id="ocsa-join-code" value={joinCode} maxLength={12} autoCapitalize="characters" autoCorrect="off" spellCheck={false} placeholder={tr("The code on your trainer's screen")} onChange={e => setJoinCode(e.target.value.replace(/\s+/g, ""))} style={{ ...mkInput(t), flex: 1, minWidth: 0 }} />
+            <button type="button" data-training-join-go="1" disabled={!JOIN_CODE_RE.test(joinCode.trim())} onClick={() => { onAt({ join: joinCode.trim() }); setJoinOpen(false); setJoinCode(""); }} style={{ ...wsMainBtn(t, !JOIN_CODE_RE.test(joinCode.trim())), flex: "none" }}>{tr("Join")}</button>
+          </div>
         </div>
       )}
+    </div>
+  );
+  const docsPart = docs.length > 0 && (
+    <div>
+      {head("Documents to sign", "docs")}
+      {docs.map(x => (
+        <div key={x.docCode} data-training-doc={x.docCode} style={{ ...fkRowSt(t), minHeight: TAP }}>
+          <div style={nameSt}>{x.title}</div>
+          <div style={smallSt}>{[x.docCode, x.version ? tr("Version {n}", { n: x.version }) : ""].filter(Boolean).join(", ")}</div>
+          {x.signedVersion && <div style={lineSt}>{tr("You signed version {n}. This one is new.", { n: x.signedVersion })}</div>}
+          <div style={{ display: "flex", marginTop: 10 }}><button type="button" data-training-doc-read={x.docCode} onClick={() => onAt({ doc: x })} style={goldBtn}>{tr("Read and sign")}</button></div>
+        </div>
+      ))}
+    </div>
+  );
+  const historyPart = records.length > 0 && (
+    <div>
+      {head("History", "history")}
+      {records.map(r => (
+        <div key={r.id} data-training-record={r.id} style={{ ...fkRowSt(t), minHeight: TAP }}>
+          <div style={nameSt}>{r.name}</div>
+          <div style={lineSt}>{[trainingDay(r.completedDate), r.siteName, TRAINING_GIVEN_IN[r.locale] ? TRAINING_GIVEN_IN[r.locale]() : ""].filter(Boolean).join(", ")}</div>
+          {r.certificate && <div data-training-certificate={r.id} style={{ ...lineSt, color: ink(t, GREEN), fontWeight: 600 }}>{tr("Certificate on file")}</div>}
+        </div>
+      ))}
+    </div>
+  );
+  const title = <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("My training")}</div>;
+  const faultPart = fault && <ListFault icon={BookIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />;
+  // A category page: the category's modules in the order answered, each
+  // with its status chip, the site on a per-site item, Start or Continue
+  // where a lesson exists, the outside course's link, and the checklist
+  // that signs a waiting module off.
+  if (openCatOf) {
+    const c = openCatOf;
+    const modules = items.filter(i => i.category === c.key);
+    return (
+      <div data-training-page={c.key} style={{ padding: "14px 16px 100px" }}>
+        <WsBack label={tr("My training")} onBack={closeCat} t={t} />
+        <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{c.name}</div>
+        <div style={{ ...lineSt, marginTop: 2, marginBottom: 8 }}>{tr("{done} of {required} done", { done: c.done, required: c.required })}</div>
+        <TrainingBar done={c.done} required={c.required} t={t} />
+        {faultPart}
+        <div style={{ marginTop: 14 }}>
+          {modules.map(i => {
+            const chip = trainingChip(i);
+            return (
+              <div key={i.id} data-training-module={i.status} data-training-chip={chip.tag} style={{ ...fkRowSt(t), minHeight: TAP }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={nameSt}>{i.name}</div>
+                    {(i.docCode || i.docSection) && <div style={smallSt}>{[i.docCode, i.docSection].filter(Boolean).join(" ")}</div>}
+                    {i.siteName && <div style={lineSt}>{i.siteName}</div>}
+                  </div>
+                  <span style={trainingChipSt(t, chip.color)}>{tr(chip.word)}</span>
+                </div>
+                {i.status === "expired" && i.expiresOn && <div style={lineSt}>{tr("Expired {date}", { date: trainingDay(i.expiresOn) })}</div>}
+                {(i.status === "dueSoon" || i.status === "current") && i.expiresOn && <div style={lineSt}>{tr("Expires {date}", { date: trainingDay(i.expiresOn) })}</div>}
+                {i.status === "current" && i.completedDate && <div style={lineSt}>{tr("Done {date}", { date: trainingDay(i.completedDate) })}</div>}
+                {chip.tag === "waiting" && i.signoffBy && <div data-training-signoff={i.signoffBy.topicId} style={{ ...lineSt, color: ink(t, BLUE), fontWeight: 600 }}>{tr("Your trainer signs this off in the {name} checklist.", { name: i.signoffBy.name })}</div>}
+                {lessonPart(i)}
+              </div>
+            );
+          })}
+          {modules.length === 0 && <div style={wsQuiet(t)}>{tr("Nothing is required for your role yet.")}</div>}
+        </div>
+      </div>
+    );
+  }
+  if (portal) {
+    const required = cats.reduce((n, c) => n + c.required, 0), doneAll = cats.reduce((n, c) => n + c.done, 0);
+    const nameOf = (topicId) => { const i = items.find(x => x.topicId === topicId); return i ? i.name : ""; };
+    // The module Continue opens: the item it names, or one built from the
+    // answer when the list does not hold it.
+    const go = data.continue;
+    const goItem = go ? (() => {
+      const found = items.find(i => i.topicId === go.topicId && (i.siteId || "") === (go.siteId || "")) || items.find(i => i.topicId === go.topicId) || null;
+      const standIn = { id: go.topicId + ":" + go.siteId, topicId: go.topicId, siteId: go.siteId, name: go.name, docCode: "", docSection: "", safetyCritical: false, siteName: "", status: go.attemptId ? "inProgress" : "missing", completedDate: "", expiresOn: "", linkUrl: "", attemptId: go.attemptId, lesson: null, category: go.category, sortOrder: null, needsTrainer: false, signoffBy: null };
+      const base = found || standIn;
+      return base.lesson ? base : { ...base, lesson: { versionId: go.versionId, kind: "", attemptsUsed: 0, attemptsLeft: 1 } };
+    })() : null;
+    return (
+      <div data-training="portal" style={{ padding: "14px 16px 100px" }}>
+        {title}
+        {faultPart}
+        {cats.length > 0 && (
+          <div data-training-overall={doneAll + "/" + required} style={{ ...fkRowSt(t), marginTop: 8 }}>
+            <div style={{ ...nameSt, marginBottom: 8 }}>{tr("{done} of {required} trainings done", { done: doneAll, required: required })}</div>
+            <TrainingBar done={doneAll} required={required} t={t} />
+          </div>
+        )}
+        {go && (
+          <div data-training-continue={go.attemptId ? "continue" : "start"} style={{ ...fkRowSt(t), border: "1px solid " + t.goldBorder }}>
+            <div style={mkLabel(t)}>{tr("Continue where you left off")}</div>
+            <div style={nameSt}>{go.name}</div>
+            {go.categoryName && <div style={lineSt}>{go.categoryName}</div>}
+            <div style={{ display: "flex", marginTop: 10 }}><button type="button" data-training-continue-go={goItem.id} onClick={() => openLesson(goItem)} style={goldBtn}>{go.attemptId ? tr("Continue the lesson") : tr("Start the lesson")}</button></div>
+          </div>
+        )}
+        {cats.length > 0 && (
+          <div data-training-cards={cats.length} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8, marginTop: 4 }}>
+            {cats.map(c => {
+              const all = c.required > 0 && c.done >= c.required;
+              const next = c.nextTopicId ? nameOf(c.nextTopicId) : "";
+              return (
+                <button key={c.key} type="button" data-training-category={c.key} data-training-category-done={all ? "1" : "0"} onClick={() => openCat(c.key)} style={{ ...fkRowSt(t), marginBottom: 0, minHeight: TAP, textAlign: "left", cursor: "pointer", color: t.text, fontFamily: FONT_BODY, display: "flex", flexDirection: "column", alignItems: "stretch", gap: 6 }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+                    <div style={{ ...nameSt, flex: 1, minWidth: 0 }}>{c.name}</div>
+                    {all && <CheckIco sz={18} c={ink(t, GREEN)} role="img" aria-label={tr("Done")} style={{ flexShrink: 0 }} />}
+                  </div>
+                  <div style={{ ...lineSt, marginTop: 0 }}>{tr("{done} of {required} done", { done: c.done, required: c.required })}</div>
+                  <TrainingBar done={c.done} required={c.required} t={t} />
+                  {next && <div style={{ ...smallSt, fontSize: 12, marginTop: 0 }}>{tr("Up next: {name}", { name: next })}</div>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {items.length === 0 && docs.length === 0 && <div style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("Nothing is required for your role yet.")}</div>}
+        {docsPart}
+        <div style={{ marginTop: 12 }}>{joinPart}</div>
+        {historyPart}
+      </div>
+    );
+  }
+  return (
+    <div data-training="1" style={{ padding: "14px 16px 100px" }}>
+      {title}
+      {faultPart}
+      {joinPart}
+      {docsPart}
       {items.length === 0 && docs.length === 0 && <div style={wsQuiet(t)}>{tr("Nothing is required for your role yet.")}</div>}
       {todo.length > 0 && (
         <div>
@@ -6710,18 +6930,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
       {waiting.length > 0 && <div>{head("Waiting for your trainer", "waiting")}{waiting.map(i => row(i, "waiting"))}</div>}
       {soon.length > 0 && <div>{head("Coming due", "soon")}{soon.map(i => row(i, "soon"))}</div>}
       {done.length > 0 && <div>{head("Done", "done")}{done.map(i => row(i, "done"))}</div>}
-      {records.length > 0 && (
-        <div>
-          {head("History", "history")}
-          {records.map(r => (
-            <div key={r.id} data-training-record={r.id} style={{ ...fkRowSt(t), minHeight: TAP }}>
-              <div style={nameSt}>{r.name}</div>
-              <div style={lineSt}>{[trainingDay(r.completedDate), r.siteName, TRAINING_GIVEN_IN[r.locale] ? TRAINING_GIVEN_IN[r.locale]() : ""].filter(Boolean).join(", ")}</div>
-              {r.certificate && <div data-training-certificate={r.id} style={{ ...lineSt, color: ink(t, GREEN), fontWeight: 600 }}>{tr("Certificate on file")}</div>}
-            </div>
-          ))}
-        </div>
-      )}
+      {historyPart}
     </div>
   );
 }
@@ -7097,7 +7306,7 @@ function trainingLessonOf(d) {
 // and a pass is signed. Nothing of it is kept on the phone: leaving the
 // screen drops every answer, and Continue starts the questions over on
 // the same open attempt. A refusal reads in the API's words.
-function TrainingLesson({ token, item, siteId, onBack, t }) {
+function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
   const [phase, setPhase] = useState("loading");
   const [attempt, setAttempt] = useState(null);
   const [les, setLes] = useState(null);
@@ -7172,7 +7381,9 @@ function TrainingLesson({ token, item, siteId, onBack, t }) {
       if (live.current) setFault(fkFaultWords(err, "This was not signed. Try again."));
     } finally { if (live.current) setBusy(false); }
   };
-  const back = <WsBack label={tr("My training")} onBack={onBack} t={t} />;
+  // Back goes to My training, or to the category page the lesson was
+  // opened from (Step 267), named on the way back.
+  const back = <WsBack label={backLabel || tr("My training")} onBack={onBack} t={t} />;
   const titleSt = { fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
   const smallSt = { fontSize: 11, color: t.textMut, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
   const bodySt = { fontSize: 15, color: t.text, lineHeight: 1.55, overflowWrap: "anywhere", fontFamily: FONT_BODY };
@@ -7185,7 +7396,7 @@ function TrainingLesson({ token, item, siteId, onBack, t }) {
   ) : null;
   // In its own row: the screen is a flex column, and a button set straight
   // in it would grow to fill the screen.
-  const backBtn = <div style={{ display: "flex", marginTop: 12 }}><button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Back to My training")}</button></div>;
+  const backBtn = <div style={{ display: "flex", marginTop: 12 }}><button type="button" onClick={onBack} style={wsPlainBtn(t)}>{backLabel ? tr("Back") : tr("Back to My training")}</button></div>;
   const head = (
     <div>
       {back}
@@ -7679,6 +7890,9 @@ const NOTIF_TAB = {
   training_join: "training",
   // A document to read and sign (Step 264): My training, on its reader.
   document_to_sign: "training",
+  // A training category's page, /training/c/<key> (Step 267): the portal's
+  // own address, never a notice the API sends.
+  training_category: "training",
   chat: "chat",
   chat_mention: "chat",
   announcement: "announcement",
@@ -7698,6 +7912,7 @@ function notifPlace(subjectType, subjectId) {
   if (subjectType === "training_signoff") return { tab: tab, signoff: true };
   if (subjectType === "training_join") return id ? { tab: tab, join: id } : null;
   if (subjectType === "document_to_sign") return { tab: tab, doc: id };
+  if (subjectType === "training_category") return id ? { tab: tab, category: id } : null;
   return { tab: tab };
 }
 const NOTIF_PAGE = 30;
