@@ -103,6 +103,15 @@
 //     with its date; and with the routes not answering, Home has no card
 //     and More no My company property, read in the cleaner's run (English
 //     at 390, Spanish at 320)
+//   - A supply request with many items (Step 281): with an API that
+//     answers items (Step 280), My requests reads a decided request,
+//     Approved 3 of 5 and Denied with the office's note; Refill takes four
+//     items, one is removed, and Submit Request posts the three once as
+//     items in order with their quantities and note, which My requests
+//     then lists; New Gear's refusal naming items.0.itemName reads under
+//     that item's name; the 31st item is refused on the phone; Damage
+//     Report posts one supply and no items, as before (English at 390,
+//     Spanish at 320)
 //   - Step 264: Your first trainings on Home, with the document to sign
 //     and the first-day training that has a lesson; a session
 //     joined from /join/<code> with the understood tick and a signature,
@@ -131,7 +140,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -1428,6 +1437,90 @@ async function signOnPhone(browser, language, width) {
     !card ? "no card reading 3 to sign on Home" : !listed ? "the list did not read as expected" : !keyScreen ? "the key's screen did not read as expected" : !held ? "Sign with no signature was not held" : !signed ? "the signed line did not show" : !cardAfter ? "Home did not read 2 to sign" : !disputed ? "This is not right did not read as expected" : !warningScreen ? "the warning's screen did not read as expected" : !pdfOpened ? "Open the warning did not open a tab at the PDF" : !declined ? "the declined line did not show" : !done ? "the signed key's address did not read as done" : !property ? "My company property did not read as expected" : !sent ? JSON.stringify({ signs: signs.length, disputes, declines }) : Math.max(wide, wide2) > 1 ? Math.max(wide, wide2) + " pixels sideways" : app.errors[0]);
 }
 
+// A supply request with many items (Step 281), against an API that
+// answers items (Step 280): My requests reads the decided request,
+// Approved 3 of 5 and Denied with the office's note; Refill takes four
+// items, one is removed, and the three go once as items in order with
+// their quantities and note, then show under My requests; New Gear's
+// refusal naming items.0.itemName reads under that item's name; the
+// 31st item is refused on the phone; and Damage Report posts one supply
+// and no items, as it always has.
+async function supplyLines(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const app = await open({ supplyItems: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  const posts = () => app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/supplies/requests").map(c => c.body);
+  const formOpen = async (type) => {
+    await clickWord(page, say(language, "+ Request"));
+    await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Supply/Gear Request"));
+    await clickWord(page, say(language, type));
+  };
+  const inBar = await waitFor(page, BAR_JS + ".length >= 5");
+  if (inBar) await tapMore(page, say(language, "Supplies"));
+  const decided = inBar && await waitFor(page, (w) => {
+    const c = document.querySelector('[data-supply-req="sreq-1"]');
+    const a = c && c.querySelector('[data-supply-req-line="0"] [data-supply-decision="approved"]');
+    const d = c && c.querySelector('[data-supply-req-line="1"] [data-supply-decision="denied"]');
+    return !!a && !!d && a.innerText.trim() === w.approved && d.innerText.trim() === w.denied && c.querySelector('[data-supply-req-line="1"]').innerText.indexOf(w.note) !== -1 && c.querySelector('[data-supply-req-line="0"]').innerText.indexOf(w.qty) !== -1;
+  }, { approved: say(language, "Approved {n} of {m}", { n: 3, m: 5 }), denied: say(language, "Denied"), note: say(language, "Note: {note}", { note: SUPPLY_DENY_NOTE }), qty: say(language, "Quantity: {n}", { n: 5 }) + " rolls" });
+  let lines = false, three = false, listed = false, refused = false, capped = false, damage = false, wide = 0;
+  if (decided) { await formOpen("Refill"); lines = await waitFor(page, () => !!document.querySelector('[data-supply-lines="1"] [data-supply-line-supply="0"]') && !!document.querySelector("[data-supply-add]")); }
+  if (lines) {
+    for (let i = 0; i < 3; i += 1) await page.click("[data-supply-add]");
+    const more = say(language, "One more");
+    await page.selectOption('[data-supply-line-supply="0"]', "sup-1");
+    await page.click('[data-supply-line="0"] [aria-label="' + more + '"]');
+    await page.click('[data-supply-line="0"] [aria-label="' + more + '"]');
+    await page.selectOption('[data-supply-line-supply="1"]', "sup-2");
+    await page.fill('[data-supply-line-qty="1"]', "7");
+    await page.selectOption('[data-supply-line-supply="2"]', "sup-3");
+    await page.fill('[data-supply-line-qty="2"]', "12");
+    await page.fill('[data-supply-line-note="2"]', "Invented: the large ones.");
+    await page.selectOption('[data-supply-line-supply="3"]', "sup-4");
+    wide = await sideways(page);
+    await page.click('[data-supply-line-remove="1"]');
+    three = await waitFor(page, () => !!document.querySelector('[data-supply-lines="3"]'));
+    await page.click("[data-supply-send]");
+    listed = three && await waitFor(page, (w) => {
+      const c = document.querySelector('[data-supply-req="sreq-3"]');
+      const rows = c ? Array.from(c.querySelectorAll("[data-supply-req-line]")).map(x => x.innerText) : [];
+      return !document.querySelector("[data-supply-lines]") && rows.length === 3 && w.every((q, i) => rows[i].indexOf(q) !== -1);
+    }, [say(language, "Quantity: {n}", { n: 3 }) + " rolls", say(language, "Quantity: {n}", { n: 12 }) + " boxes", say(language, "Quantity: {n}", { n: 1 }) + " bottles"]);
+  }
+  const refill = posts().filter(b => b && b.requestType === "refill");
+  const sentOnce = refill.length === 1 && JSON.stringify(refill[0].items) === JSON.stringify([{ supplyId: "sup-1", quantity: 3 }, { supplyId: "sup-3", quantity: 12, note: "Invented: the large ones." }, { supplyId: "sup-4", quantity: 1 }]) && refill[0].urgency === "normal" && !("supplyId" in refill[0]);
+  if (listed) {
+    // New Gear: the API turns the typed name away, under that item.
+    const said = API_REFUSALS["supplies.badDetails"][language];
+    await formOpen("New Gear");
+    await waitFor(page, () => !!document.querySelector('[data-supply-line-name="0"]'));
+    await page.fill('[data-supply-line-name="0"]', "Invented floor pads");
+    app.stub.state.refuse["POST /api/supplies/requests"] = { status: 400, once: true, body: { error: said, code: "supplies.badDetails", keys: ["items.0.itemName"] } };
+    await page.click("[data-supply-send]");
+    refused = await waitFor(page, (w) => { const n = document.querySelector('[data-supply-line-name="0"]'); const a = n && n.nextElementSibling; return !!a && a.getAttribute("role") === "alert" && a.innerText.trim() === w; }, said);
+    // Thirty items, and the 31st refused on the phone.
+    await page.evaluate(async () => { for (let i = 0; i < 30; i += 1) { const b = document.querySelector("[data-supply-add]"); if (b) b.click(); await new Promise(r => setTimeout(r, 0)); } });
+    capped = await waitFor(page, (w) => { const b = document.querySelector("[data-supply-add]"); const a = b && b.nextElementSibling; return !!document.querySelector('[data-supply-lines="30"]') && !!a && a.innerText.trim() === w; }, say(language, "A request holds up to 30 items."));
+    wide = Math.max(wide, await sideways(page));
+    await clickWord(page, say(language, "Cancel"));
+    // Damage Report: one supply and no items, as before.
+    await formOpen("Damage Report");
+    const plain = await waitFor(page, () => !document.querySelector("[data-supply-lines]") && !document.querySelector("[data-supply-add]") && !!document.querySelector('select option[value="sup-2"]'));
+    if (plain) {
+      await page.selectOption('select:has(option[value="sup-2"])', "sup-2");
+      await page.click("[data-supply-send]");
+      damage = await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1 && !document.querySelector("[data-supply-send]"), say(language, "Request submitted"));
+    }
+  }
+  const all = posts();
+  const dmg = all.filter(b => b && b.requestType === "damage_report");
+  const damageSent = dmg.length === 1 && dmg[0].supplyId === "sup-2" && dmg[0].itemName === "Invented hand soap" && !("items" in dmg[0]);
+  await app.context.close();
+  check("A supply request with many items: My requests reads Approved 3 of 5 and Denied with the office's note; Refill takes four items, one is removed, and Submit Request posts the three once as items in order with their quantities and note, which My requests then lists; New Gear's refusal naming items.0.itemName reads under that item's name; the 31st item is refused on the phone; Damage Report posts one supply and no items, as before; with no sideways scroll" + tag,
+    decided && lines && three && listed && sentOnce && refused && capped && damage && damageSent && all.length === 3 && wide <= 1 && app.errors.length === 0,
+    !decided ? "My requests did not read the decided request" : !lines ? "Refill did not offer items" : !three ? "removing an item did not leave three" : !listed ? "My requests did not list the new request's three items" : !sentOnce ? JSON.stringify(refill) : !refused ? "the refusal did not read under the item's name" : !capped ? "the 31st item was not refused on the phone" : !damage ? "the damage report did not go" : !damageSent ? JSON.stringify(dmg) : all.length !== 3 ? all.length + " posts" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+}
+
 // The supply page (Step 252): signed out, the sheet in the page and Sign
 // in to record use; signed in, Used one and Running low.
 async function supplyPage(browser, language) {
@@ -1502,6 +1595,8 @@ async function largest(browser) {
     await guard("the training portal (es)", () => trainingPortal(browser, "es", 320));
     await guard("sign on your own phone (en)", () => signOnPhone(browser, "en", 390));
     await guard("sign on your own phone (es)", () => signOnPhone(browser, "es", 320));
+    await guard("a supply request with many items (en)", () => supplyLines(browser, "en", 390));
+    await guard("a supply request with many items (es)", () => supplyLines(browser, "es", 320));
     await guard("the supply page", () => supplyPage(browser, "en"));
     await guard("French", () => french(browser));
     await guard("the Largest text size", () => largest(browser));

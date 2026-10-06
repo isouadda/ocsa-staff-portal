@@ -408,6 +408,31 @@ const PROPERTY_SEED = [
   { id: "pi-2", kind: "uniform_shirt", description: null, size: "L", quantity: 2, siteId: null, issuedOn: "2026-09-01", issuedBy: "Jordan Office", note: null, returnedOn: null, requestId: null, signedWhere: "office" },
   { id: "pi-3", kind: "badge", description: null, size: null, quantity: 1, siteId: "site-south", issuedOn: "2026-03-02", issuedBy: "Jordan Office", note: null, returnedOn: "2026-08-30", requestId: null, signedWhere: "office" },
 ];
+// Step 281: an API with Step 280 built, behind the supplyItems switch.
+// The catalog the request form offers, and the person's requests as GET
+// /api/supplies/requests answers them, each with its items: one refill
+// the office decided, three of five paper towels approved and the glass
+// cleaner denied with a note, and another person's request, which the
+// API answers management alone. Every value invented.
+const SUPPLY_CATALOG = [
+  { id: "sup-1", name: "Paper towels", qr_code: "QR-0001", unit: "rolls", is_low: true },
+  { id: "sup-2", name: "Invented hand soap", qr_code: "QR-0002", unit: "bottles", is_low: false },
+  { id: "sup-3", name: "Invented trash liners", qr_code: "QR-0003", unit: "boxes", is_low: false },
+  { id: "sup-4", name: "Invented glass cleaner", qr_code: "QR-0004", unit: "bottles", is_low: false },
+];
+const SUPPLY_DENY_NOTE = "Invented: the closet still holds four.";
+const supplyLine = (id, sup, quantity, extra) => Object.assign({ id: id, supplyId: sup ? sup.id : null, name: sup ? sup.name : "", unit: sup ? sup.unit : "", quantity: quantity, note: null, decision: null, approvedQuantity: null, decisionNote: null, decidedAt: null, decidedBy: null }, extra || {});
+const SUPPLY_REQ_SEED = () => [
+  { id: "sreq-2", requested_by: "u-two", requested_by_name: "Sam Second", site_id: "site-north", site_name: "North Building", supply_id: "sup-2", supply_name: "Invented hand soap", request_type: "refill", item_name: null, description: null, urgency: "normal", status: "pending", admin_notes: null, handled_by: null, handled_at: null, created_at: "2026-10-01T15:00:00Z",
+    items: [supplyLine("sri-3", SUPPLY_CATALOG[1], 4)] },
+  { id: "sreq-1", requested_by: "u-one", requested_by_name: "Alex Tester", site_id: "site-north", site_name: "North Building", supply_id: "sup-1", supply_name: "Paper towels", request_type: "refill", item_name: null, description: "For the lobby restrooms, invented.", urgency: "normal", status: "approved", admin_notes: null, handled_by: "u-admin", handled_at: "2026-09-30T16:00:00Z", created_at: "2026-09-29T14:00:00Z",
+    items: [
+      supplyLine("sri-1", SUPPLY_CATALOG[0], 5, { decision: "approved", approvedQuantity: 3, decidedAt: "2026-09-30T16:00:00Z", decidedBy: { name: "Jordan Office" } }),
+      supplyLine("sri-2", SUPPLY_CATALOG[3], 2, { decision: "denied", decisionNote: SUPPLY_DENY_NOTE, decidedAt: "2026-09-30T16:00:00Z", decidedBy: { name: "Jordan Office" } }),
+    ] },
+];
+const SUPPLY_TYPES = ["refill", "damage_report", "new_gear", "new_supply"];
+
 // The warning's document, served at the API's own path behind the token
 // (Step 270 as built): a one-page PDF with one line, invented.
 const WARNING_PDF = Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 144]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n4 0 obj<</Length 58>>stream\nBT /F1 18 Tf 24 90 Td (Invented written warning) Tj ET\nendstream\nendobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n", "latin1");
@@ -812,9 +837,13 @@ function makeState(opts) {
     signatures: o.signatures === true,
     signRequests: o.signatures === true ? JSON.parse(JSON.stringify(SIGN_SEED)) : [],
     propertyIssues: o.signatures === true ? JSON.parse(JSON.stringify(PROPERTY_SEED)) : [],
+    // Step 281: an API with Step 280 built, whose supply requests take
+    // and answer items, with the person's requests seeded.
+    supplyItems: o.supplyItems === true,
+    supplyRequests: o.supplyItems === true ? SUPPLY_REQ_SEED() : [],
     // The supplies at the open shift's site, which a case can answer
     // with none. null answers the one supply every case has always had.
-    supplies: Array.isArray(o.supplies) ? o.supplies : null,
+    supplies: Array.isArray(o.supplies) ? o.supplies : o.supplyItems === true ? SUPPLY_CATALOG.map(x => Object.assign({}, x)) : null,
     // A due date on the assigned task, as the API sends one, when a case
     // gives it: a DATE column reaches JSON as that day at midnight UTC.
     assignedDue: o.assignedDue || null,
@@ -1527,6 +1556,8 @@ const API_REFUSALS = {
   "timeOff.lastBeforeFirst": { status: 400, en: "The last day cannot be before the first day", es: "El \u00faltimo d\u00eda no puede ser anterior al primer d\u00eda" },
   "pickups.alreadyClaimed": { status: 409, en: "Shift was already claimed", es: "Este turno ya fue tomado" },
   "supplies.requestTypeRequired": { status: 400, en: "Request type is required", es: "Elija el tipo de solicitud" },
+  // Step 280: a request's items the API turns away, with the keys it names.
+  "supplies.badDetails": { status: 400, en: "Some details are missing or not valid", es: "Faltan algunos datos o no son v\u00e1lidos" },
   // Photos on a form, as the API's Step 163 writes them. The limit names
   // the question's own ceiling, which is what fills {max}.
   "forms.photoTooLarge": { status: 400, en: "This photo is over 10 MB.", es: "Esta foto pesa m\u00e1s de 10 MB." },
@@ -1907,6 +1938,7 @@ const TWIN_PAIRS = [
   ["Day porter", "Conserje de d\u00eda"],
   // Messages and Help's reply.
   ["Usage logged", "Uso registrado"],
+  ["Request submitted", "Solicitud enviada"],
   ["Take the pads from the second floor store room.", "Tome los pa\u00f1os del almac\u00e9n del segundo piso."],
   // Help's other answers, the procedure one cites, and its refusals.
   [helpReply(HELP_ANSWERS.spill), HELP_ANSWERS.spill.piecesEs.join("")],
@@ -2050,6 +2082,9 @@ const ROUTE_WORDS = [
   // reader's language; the area, the site, the note and every person are
   // names; the states are codes.
   [/^[A-Z]+ \/api\/issues\//, { categoryTitle: "request category", area: "name", siteName: "name", note: "name", name: "name", reference: "name", category: "code", respondState: "code", dueState: "code", route: "code", action: "code", details: "name", text: "name" }],
+  // Supply requests (Step 280): every line's name, unit and notes, and
+  // the request's details, are names; a decision is a code.
+  [/^[A-Z]+ \/api\/supplies\/requests$/, { name: "name", unit: "name", note: "name", decisionNote: "name", description: "name", item_name: "name", supply_name: "name", site_name: "name", requested_by_name: "name", request_type: "code", urgency: "code", decision: "code" }],
   // The supply label: the product and its maker are names.
   [/^GET \/api\/(public\/)?supplies\//, { name: "name", maker: "name", code: "name", category: "code", unit: "name", sdsCode: "name", sdsUrl: "name", siteName: "name" }],
   // A piece of Help's answer, as the streaming route sends it.
@@ -2526,6 +2561,51 @@ function createStub(opts) {
     if (r.chat) return chatRefusal(r.chat, search);
     if (r.api) return apiRefusal(r.api, search);
     return json(r.status || 400, r.body || { error: r.error || "Request failed" });
+  }
+
+  // --- Supply requests with items (Step 281), behind state.supplyItems
+  //
+  // The person's own requests, or everyone's for management, newest
+  // first; and a request taken as Step 280 takes it: items, 1 to 30, each
+  // a catalog supply or a typed name with a quantity from 1 to 999 and a
+  // note of up to 500, refused with supplies.badDetails and the keys
+  // items or items.<n>.<field>, n counting from 0. A body with no items
+  // is one line, quantity 1, from supplyId or itemName.
+  function supplyRequestAnswer(method, search, body, lang) {
+    const copy = (r) => JSON.parse(JSON.stringify(r));
+    if (method === "GET") {
+      const all = FK_MANAGEMENT.indexOf(state.person.role) !== -1;
+      const status = new URLSearchParams(search || "").get("status");
+      return json(200, state.supplyRequests.filter(r => (all || r.requested_by === state.person.id) && (!status || r.status === status)).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).map(copy));
+    }
+    const b = body && typeof body === "object" ? body : {};
+    if (!b.requestType) return apiRefusal("supplies.requestTypeRequired", search);
+    const bad = (keys) => json(400, { error: refusalIn(API_REFUSALS["supplies.badDetails"], lang), code: "supplies.badDetails", keys: keys });
+    if (SUPPLY_TYPES.indexOf(b.requestType) === -1) return bad(["requestType"]);
+    const catalog = state.supplies || SUPPLY_CATALOG;
+    const given = b.items !== undefined ? b.items : [{ supplyId: b.supplyId || undefined, itemName: b.itemName || undefined, quantity: 1 }];
+    if (!Array.isArray(given) || given.length < 1 || given.length > 30 || (b.requestType === "damage_report" && given.length !== 1)) return bad(["items"]);
+    const keys = [];
+    const lines = given.map((x, i) => {
+      const it = x && typeof x === "object" ? x : {};
+      const sup = it.supplyId ? catalog.find(s => s.id === it.supplyId) : null;
+      const typed = typeof it.itemName === "string" ? it.itemName.trim() : "";
+      if (it.supplyId && !sup) keys.push("items." + i + ".supplyId");
+      else if (!it.supplyId && (typed.length < 1 || typed.length > 255)) keys.push("items." + i + ".itemName");
+      if (!Number.isInteger(it.quantity) || it.quantity < 1 || it.quantity > 999) keys.push("items." + i + ".quantity");
+      if (it.note !== undefined && it.note !== null && (typeof it.note !== "string" || it.note.length > 500)) keys.push("items." + i + ".note");
+      return supplyLine("sri-" + (state.supplyRequests.length + 1) + "-" + (i + 1), sup || null, it.quantity, sup ? { note: it.note || null } : { name: typed, note: it.note || null });
+    });
+    if (keys.length > 0) return bad(keys);
+    const first = lines[0];
+    const row = {
+      id: "sreq-" + (state.supplyRequests.length + 1), requested_by: state.person.id, requested_by_name: state.person.firstName + " " + state.person.lastName,
+      site_id: b.siteId || null, site_name: b.siteId ? ((SITES.find(x => x.siteId === b.siteId) || {}).siteName || null) : null,
+      supply_id: first.supplyId, supply_name: first.supplyId ? first.name : null, request_type: b.requestType, item_name: first.supplyId ? (b.itemName || null) : first.name,
+      description: b.description || null, urgency: b.urgency || "normal", status: "pending", admin_notes: null, handled_by: null, handled_at: null, created_at: new Date(clockNow()).toISOString(), items: lines,
+    };
+    state.supplyRequests.push(row);
+    return json(201, { message: "Request submitted", code: "supplies.requestSubmitted", request: copy(row) });
   }
 
   // --- The supervisor's field kit (Step 246), behind state.fieldKit
@@ -3915,6 +3995,7 @@ function createStub(opts) {
     }
     if (key === "GET /api/supplies") return json(200, state.supplies || [{ id: "sup-1", name: "Paper towels", qr_code: "QR-0001", unit: "rolls", is_low: true }]);
     if (key === "POST /api/supplies/log-usage") return json(200, { message: "Usage logged", log: { id: "log-1", supply_name: "Paper towels", quantity: 1 }, lowStockAlert: false });
+    if (state.supplyItems && (key === "GET /api/supplies/requests" || key === "POST /api/supplies/requests")) return supplyRequestAnswer(method, search, body, lang);
     if (key === "POST /api/supplies/requests") return json(200, { ok: true });
 
     // --- inspections
@@ -4139,4 +4220,5 @@ module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSA
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES, localeFault, localeRows,
   CUSTOMER_LINKS, FORM_C_CODE, FORM_V_CODE, formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, PUBLIC_MAX_PHOTOS, PUBLIC_FILINGS_MAX, customerSignatureLine,
   ANNOUNCEMENT, FORM_E_WORDS,
-  REQUEST_LINKS, REQUEST_CATEGORIES, REQUEST_WORDS, REQUEST_REF, REQUEST_OFFICE_PHONE, requestWord, requestCategoryTitle, REQUEST_ASSIGNEES, SUP_CODE, SUP_ITEM, SUP_SITES };
+  REQUEST_LINKS, REQUEST_CATEGORIES, REQUEST_WORDS, REQUEST_REF, REQUEST_OFFICE_PHONE, requestWord, requestCategoryTitle, REQUEST_ASSIGNEES, SUP_CODE, SUP_ITEM, SUP_SITES,
+  SUPPLY_CATALOG, SUPPLY_DENY_NOTE };
