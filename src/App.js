@@ -839,6 +839,9 @@ const DESTINATIONS = [
   // Under More alone, for everyone, and only once GET /api/training/me
   // has answered a list (Step 258).
   { id: "training", label: () => "My training", icon: BookIco, moreOnly: true, role: (ctx) => !!ctx.training },
+  // Under More alone, for everyone, and only once GET /api/hr/property/mine
+  // has answered a list (Step 271).
+  { id: "property", label: () => "My company property", icon: BoxIco, moreOnly: true, role: (ctx) => !!ctx.property },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
 
@@ -2523,6 +2526,16 @@ export default function OCSAStaffPortal() {
     return () => { live = false; };
   }, [token, screen, signAsked]);
   const openSign = (at) => { setSignAt(at); setActiveTab("clock"); setShowMore(false); };
+  // My company property (Step 271): what GET /api/hr/property/mine
+  // answers, null until it answers a list; More offers the screen then.
+  // Read with the requests, since a signature changes what it says.
+  const [property, setProperty] = useState(null);
+  useEffect(() => {
+    if (!token || screen !== "main") { setProperty(null); return undefined; }
+    let live = true;
+    readPropertyMine(token).then(l => { if (live && l) setProperty(l); });
+    return () => { live = false; };
+  }, [token, screen, signAsked]);
   useEffect(() => {
     if (!token || screen !== "main") { setTraining(null); setTrainingAt(null); return undefined; }
     let live = true;
@@ -2547,7 +2560,7 @@ export default function OCSAStaffPortal() {
     readWorkspaceProjects(token).then(list => { if (live) setWsProjects(list); });
     return () => { live = false; };
   }, [wsAsks, token, user && user.id]);
-  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training };
+  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training, property: Array.isArray(property) };
   const shortcutChoices = shortcutChoicesFor(destCtx);
   const allowedShortcutIds = shortcutChoices.map(d => d.id);
   const uid = user && user.id ? user.id : null;
@@ -2879,7 +2892,8 @@ export default function OCSAStaffPortal() {
           <div style={{ padding: "0 0 var(--ocsa-bar, 76px) 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
               {activeTab === "clock" && signAt && <SignScreen key={signAt.id || "list"} token={token} id={signAt.id || null} requests={signList} onOpen={openSign} onBack={() => setSignAt(null)} onChanged={() => setSignAsked(n => n + 1)} t={t} />}
-              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
+              {activeTab === "property" && destCtx.property && <MyPropertyView rows={property} onSign={(id) => openSign({ id: id })} t={t} />}
+              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -7831,6 +7845,61 @@ function SignScreen({ token, id, requests, onOpen, onBack, onChanged, t }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// My company property (Step 271): what the person holds, with Waiting
+// for your signature and Sign where a signature waits, and what they
+// returned, with dates. A kind with no description reads as its word.
+const PROPERTY_KIND_WORDS = { key: "Key", badge: "Badge", fob: "Fob", uniform_shirt: "Uniform shirt", uniform_other: "Other uniform", other: "Other" };
+function propertyIssueOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = trainingId(x, ["id"]);
+  if (!id) return null;
+  const str = (k, o) => { const v = (o || x)[k]; return typeof v === "string" ? v.trim() : ""; };
+  const sig = x.signature && typeof x.signature === "object" ? x.signature : null;
+  return { id: id, kind: str("kind"), description: str("description"), size: str("size"), quantity: trainingNum(x.quantity), siteName: x.site && typeof x.site === "object" ? str("name", x.site) : "", issuedOn: str("issuedOn"), issuedBy: x.issuedBy && typeof x.issuedBy === "object" ? str("name", x.issuedBy) : "", returnedOn: str("returnedOn"),
+    signature: sig ? { state: str("state", sig), requestId: trainingId(sig, ["requestId"]) } : null };
+}
+const propertyIssuesOf = (d) => { const rows = wsRows(d, "issues"); return rows && !Array.isArray(d) ? rows.map(propertyIssueOf).filter(Boolean) : null; };
+async function readPropertyMine(token) {
+  try { return propertyIssuesOf(await api("/api/hr/property/mine", { token })); } catch (e) { return null; }
+}
+const propertyLabel = (p) => p.description || (PROPERTY_KIND_WORDS[p.kind] ? tr(PROPERTY_KIND_WORDS[p.kind]) : p.kind);
+function MyPropertyView({ rows, onSign, t }) {
+  const all = Array.isArray(rows) ? rows : [];
+  const held = all.filter(p => !p.returnedOn), returned = all.filter(p => !!p.returnedOn);
+  const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const head = (word, tag) => <div role="heading" aria-level={3} data-property-group={tag} style={fkHeadSt(t)}>{tr(word)}</div>;
+  const row = (p) => {
+    const waiting = !p.returnedOn && p.signature && p.signature.state === "waiting" && p.signature.requestId;
+    const disputed = !p.returnedOn && p.signature && p.signature.state === "disputed";
+    return (
+      <div key={p.id} data-property-item={p.id} data-property-signature={p.signature ? p.signature.state : ""} style={{ ...fkRowSt(t), minHeight: TAP }}>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 8 }}>
+          <div style={{ flex: "1 1 160px", minWidth: 0 }}>
+            <div style={nameSt}>{propertyLabel(p)}</div>
+            {p.quantity !== null && p.quantity > 1 && <div style={lineSt}>{tr("Quantity")}: {p.quantity}</div>}
+            {p.size && <div style={lineSt}>{tr("Size")}: {p.size}</div>}
+            {p.siteName && <div style={lineSt}>{p.siteName}</div>}
+            <div style={lineSt}>{p.issuedBy ? tr("Issued by {name}, {when}", { name: p.issuedBy, when: trainingDay(p.issuedOn) }) : tr("Issued {date}", { date: trainingDay(p.issuedOn) })}</div>
+            {p.returnedOn && <div style={{ ...lineSt, color: ink(t, GREEN), fontWeight: 600 }}>{tr("Returned {date}", { date: trainingDay(p.returnedOn) })}</div>}
+          </div>
+          {waiting && <span style={trainingChipSt(t, BLUE)}>{tr("Waiting for your signature")}</span>}
+          {disputed && <span style={trainingChipSt(t, ORANGE)}>{tr("Not right")}</span>}
+        </div>
+        {waiting && <div style={{ display: "flex", marginTop: 10 }}><button type="button" data-property-sign={p.signature.requestId} onClick={() => onSign(p.signature.requestId)} style={trainingGoldBtn}>{tr("Sign")}</button></div>}
+      </div>
+    );
+  };
+  return (
+    <div data-property="1" style={{ padding: "14px 16px 100px" }}>
+      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("My company property")}</div>
+      {all.length === 0 && <div style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("You hold no company property.")}</div>}
+      {held.length > 0 && <div>{head("You hold", "held")}{held.map(row)}</div>}
+      {returned.length > 0 && <div>{head("Returned", "returned")}{returned.map(row)}</div>}
     </div>
   );
 }
