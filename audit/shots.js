@@ -582,8 +582,25 @@ const SHOTS = [
     go: async (s) => { if (!(await openAssigned(s))) return false; await s.tap(s.say("Resolved")); return s.waitText(s.say("Mark as Resolved")); } },
   { name: "assigned-cannot", entry: E("Say you cannot finish an assigned task"), o: { signedIn: true },
     go: async (s) => { if (!(await openAssigned(s))) return false; await s.tap(s.say("Cannot Resolve")); return s.waitText(s.say("Submit")); } },
-  { name: "supply-request", entry: E("Request supplies or report damaged gear"), o: { signedIn: true, stub: { clockedIn: false } },
-    go: async (s) => { if (!(await s.go("Supplies"))) return false; await s.tap(s.say("+ Request")); return s.waitText(s.say("Supply/Gear Request")); } },
+  // Step 281: a refill with two items, against an API that takes items,
+  // and the person's own requests with the office's decisions.
+  { name: "supply-request", entry: E("Request supplies or report damaged gear"), o: { signedIn: true, stub: { clockedIn: false, supplyItems: true } },
+    go: async (s) => {
+      if (!(await s.go("Supplies"))) return false;
+      await s.tap(s.say("+ Request"));
+      if (!(await s.waitText(s.say("Supply/Gear Request")))) return false;
+      await s.tap(s.say("Refill"));
+      if (!(await s.waitFor(() => !!document.querySelector('[data-supply-line-supply="0"]')))) return false;
+      await s.page.selectOption('[data-supply-line-supply="0"]', "sup-1");
+      await s.fill('[data-supply-line-qty="0"]', "3");
+      await s.tap(s.say("Add item"));
+      if (!(await s.waitFor(() => !!document.querySelector('[data-supply-line-supply="1"]')))) return false;
+      await s.page.selectOption('[data-supply-line-supply="1"]', "sup-2");
+      await s.top();
+      return true;
+    } },
+  { name: "supply-requests-mine", entry: E("Request supplies or report damaged gear"), o: { signedIn: true, stub: { clockedIn: false, supplyItems: true } },
+    go: async (s) => { if (!(await s.go("Supplies"))) return false; return s.waitFor(() => !!document.querySelector('[data-supply-req="sreq-1"] [data-supply-decision="denied"]')); } },
   { name: "supply-usage", entry: E("Log supplies you used"), o: { signedIn: true },
     go: async (s) => { if (!(await s.go("Supplies"))) return false; return s.waitText(s.say("Supply Tracking")); } },
   { name: "inspection-open", entry: E("Do an inspection assigned to you"), o: { signedIn: true, stub: { inspections: [INSPECTION] } },

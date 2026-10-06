@@ -1332,6 +1332,18 @@ export const WORDS = {
   "The warning did not open. Try again.": "La amonestaci\u00f3n no se abri\u00f3. Intente de nuevo.",
   "Written warning": "Amonestaci\u00f3n por escrito",
   "Final written warning": "Amonestaci\u00f3n final por escrito",
+  // Step 281: a supply request with many items
+  "Fulfilled": "Entregada",
+  "My requests": "Mis solicitudes",
+  "Quantity: {n}": "Cantidad: {n}",
+  "Approved {n} of {m}": "Aprobado: {n} de {m}",
+  "Showing your latest 10 requests.": "Mostrando sus 10 solicitudes m\u00e1s recientes.",
+  "Item {n}": "Art\u00edculo {n}",
+  "Remove item {n}": "Quitar art\u00edculo {n}",
+  "Add item": "Agregar art\u00edculo",
+  "Choose a supply": "Elija un art\u00edculo",
+  "Enter a quantity from 1 to 999.": "Escriba una cantidad de 1 a 999.",
+  "A request holds up to 30 items.": "Una solicitud lleva hasta 30 art\u00edculos.",
   },
 };
 
@@ -2545,6 +2557,18 @@ WORDS.fr = {
   "The warning did not open. Try again.": "L'avertissement ne s'est pas ouvert. R\u00e9essayez.",
   "Written warning": "Avertissement \u00e9crit",
   "Final written warning": "Avertissement final \u00e9crit",
+  // Step 281: a supply request with many items
+  "Fulfilled": "Livr\u00e9e",
+  "My requests": "Mes demandes",
+  "Quantity: {n}": "Quantit\u00e9\u00a0: {n}",
+  "Approved {n} of {m}": "Approuv\u00e9\u00a0: {n} sur {m}",
+  "Showing your latest 10 requests.": "Vos 10 demandes les plus r\u00e9centes sont affich\u00e9es.",
+  "Item {n}": "Article {n}",
+  "Remove item {n}": "Retirer l'article {n}",
+  "Add item": "Ajouter un article",
+  "Choose a supply": "Choisissez un article",
+  "Enter a quantity from 1 to 999.": "Entrez une quantit\u00e9 de 1 \u00e0 999.",
+  "A request holds up to 30 items.": "Une demande compte au plus 30 articles.",
 };
 
 // {name} is replaced after the language is chosen, so the

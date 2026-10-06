@@ -140,7 +140,7 @@ const FORM_CASES = [
   { id: "dropshift", label: "Request to drop a shift", where: "Schedule", fields: "reason (required); specify the reason (required when Other); notes" },
   { id: "issue", label: "Report a problem", where: "Report", fields: "title (required); description; zone; severity; site (required when off shift); photo" },
   { id: "supplyusage", label: "Log supply usage", where: "Supplies", fields: "supply (required); quantity (required)" },
-  { id: "supplyrequest", label: "Request supplies or report damaged gear", where: "Supplies", fields: "type (required); item name (required for new gear or a new supply); description; urgency" },
+  { id: "supplyrequest", label: "Request supplies or report damaged gear", where: "Supplies", fields: "type (required); item name (required for new gear or a new supply); description; urgency; since Step 281, once the API answers items, items for a refill, new gear or a new supply (1 to 30, each a supply or an item name with a quantity from 1 to 999 and a note)" },
   { id: "resolvetask", label: "Resolve an assigned task", where: "Assigned", fields: "note (required); photo (required)" },
   { id: "speakup", label: "Speak Up", where: "Speak Up", fields: "who it is about; what happened (required)" },
   { id: "inspection", label: "Fill in an inspection", where: "Inspect", fields: "a score per item (required); notes per item; photos; overall notes" },

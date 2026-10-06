@@ -74,7 +74,14 @@ list of what waits, a key signed with the signature drawn, PPE sent back
 to the office with a note, a written warning opened and declined, the
 signed key's address reading done, My company property with what the
 person holds and returned, and with the routes not answering no card and
-no More item, in English at 390 and Spanish at 320;
+no More item, in English at 390 and Spanish at 320; a supply request
+with many items (Step 281), against an API that answers items: My
+requests reading a decided request, Approved 3 of 5 and Denied with the
+office's note, a refill of four items with one removed posted once as
+three items in order with their quantities and note, a refusal naming
+items.0.itemName under that item's name, the 31st item refused on the
+phone, and a damage report posted as before, one supply and no items, in
+English at 390 and Spanish at 320;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
@@ -89,7 +96,7 @@ through it.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`), off for every other case. The full suite below is separate
+`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`), off for every other case. The full suite below is separate
 and is not run by it.
 
 ## Pictures for Help

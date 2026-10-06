@@ -748,6 +748,7 @@ const STATUS_WORDS = {
   claimed: () => tr("Claimed"), filled: () => tr("Filled"), approved: () => tr("Approved"), denied: () => tr("Denied"),
   cancelled: () => tr("Cancelled"), in_progress: () => tr("In Progress"), resolved: () => tr("Resolved"),
   unable_to_resolve: () => tr("Unable to resolve"), open: () => tr("Open"), closed: () => tr("Closed"),
+  fulfilled: () => tr("Fulfilled"),
 };
 const statusWord = (code) => (STATUS_WORDS[code] ? STATUS_WORDS[code]() : titleCase(code));
 // A severity or a priority.
@@ -2900,7 +2901,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} findings={findings} onFindingsChanged={() => loadFindings()} openFinding={findingOpen} />}
-              {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} />}
+              {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} token={token} user={user} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
@@ -6473,39 +6474,222 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToa
   );
 }
 
-function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLogs, logSupplyUsage, submitRequest, showToast, t, getOpts, lkColorMap }) {
+// ------------------------------------------------------------
+// A supply request with many items (Step 281, the Step 280 contract):
+// Refill, New Gear and New Supply take lines, each a supply from the
+// list (a refill) or a typed name (new gear, a new supply), a quantity
+// from 1 to 999 and an optional note, up to 30, sent once as items with
+// one Details and one Urgency. A damage report stays one item, and the
+// low-supply path on a supply's label is untouched. My requests shows
+// the person's own requests, each line with its quantity and, once the
+// office decides it, Approved {n} of {m} or Denied with the office's
+// note. GET /api/supplies/requests answers them (management's answer
+// holds everyone's, so only the person's own are kept), and until a row
+// there carries items the form and the screen are as they were.
+// ------------------------------------------------------------
+const SUPPLY_LINES_MAX = 30;
+const SUPPLY_QTY_MAX = 999;
+const SUPPLY_NAME_MAX = 255;
+// A line's note takes SUPPLY_NOTE_MAX, 500, as Running low's does.
+const SUPPLY_MINE_SHOWN = 10;
+const SUPPLY_LINE_TYPES = ["refill", "new_gear", "new_supply"];
+let supplyLineSeq = 0;
+const supplyLineBlank = () => { supplyLineSeq += 1; return { key: "line-" + supplyLineSeq, supplyId: "", itemName: "", quantity: "1", note: "" }; };
+const supplyQtyOf = (s) => { const n = parseInt(s, 10); return isFinite(n) ? n : 0; };
+function supplyLineOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
+  return {
+    id: String(agentField(x, ["id"], "")), name: str("name"), unit: str("unit"), quantity: trainingNum(x.quantity), note: str("note"),
+    decision: x.decision === "approved" || x.decision === "denied" ? x.decision : null, approvedQuantity: trainingNum(x.approvedQuantity), decisionNote: str("decisionNote"),
+  };
+}
+function supplyRequestOf(x) {
+  if (!x || typeof x !== "object" || !Array.isArray(x.items)) return null;
+  const id = agentField(x, ["id"], null);
+  if (id === null) return null;
+  const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
+  return {
+    id: String(id), requestedBy: agentField(x, ["requested_by", "requestedBy"], null), type: str("request_type") || str("requestType"), status: str("status"),
+    description: str("description"), createdAt: x.created_at || x.createdAt || null, items: x.items.map(supplyLineOf).filter(Boolean), name: str("supply_name") || str("item_name"),
+  };
+}
+// The person's own requests, newest first as the API sends them, or null
+// for an answer that is not a list or holds no row carrying items, which
+// is read as an API from before Step 280.
+function supplyMineOf(d, userId) {
+  const rows = wsRows(d, "requests");
+  if (!rows || !rows.some(r => r && typeof r === "object" && Array.isArray(r.items))) return null;
+  return rows.map(supplyRequestOf).filter(r => r && (r.requestedBy === null || userId === null || String(r.requestedBy) === String(userId)));
+}
+// A refusal's key, items.<n>.<field>, as the line and the box it is
+// drawn under; n counts from 0, the line's place in items.
+function supplyFaultKey(k, lines) {
+  if (k === "items") return "items";
+  const m = /^items\.(\d+)\.(supplyId|itemName|quantity|note)$/.exec(k);
+  if (!m || Number(m[1]) >= lines) return null;
+  return m[1] + "." + (m[2] === "quantity" || m[2] === "note" ? m[2] : "item");
+}
+const supplyStatusColor = (status, t) => (status === "approved" || status === "fulfilled" ? ink(t, GREEN) : status === "denied" ? ink(t, RED) : ink(t, ORANGE));
+
+function SupplyRequestsMine({ rows, typeWord, t }) {
+  if (!rows || rows.length === 0) return null;
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 3, lineHeight: 1.4, overflowWrap: "anywhere" };
+  return (
+    <div data-supply-mine={rows.length} style={{ marginTop: 18 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("My requests")}</div>
+      {rows.slice(0, SUPPLY_MINE_SHOWN).map(r => (
+        <div key={r.id} data-supply-req={r.id} style={{ padding: "10px 12px", marginBottom: 8, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.card, boxShadow: t.shadow }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 140px", minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{typeWord(r.type)}</div>
+              {r.createdAt && <div style={{ fontSize: 11, color: t.textSec, marginTop: 3 }}>{new Date(r.createdAt).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}</div>}
+            </div>
+            {r.status && <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", color: supplyStatusColor(r.status, t), flexShrink: 0, fontFamily: FONT_HEAD }}>{statusWord(r.status)}</span>}
+          </div>
+          {r.description && <div style={{ ...lineSt, whiteSpace: "pre-line" }}>{r.description}</div>}
+          {r.items.length === 0 && r.name && <div style={{ ...lineSt, color: t.text, fontWeight: 600 }}>{r.name}</div>}
+          {r.items.map((ln, i) => (
+            <div key={ln.id || i} data-supply-req-line={i} style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid " + t.border }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: t.text, overflowWrap: "anywhere" }}>{ln.name}</div>
+                {ln.quantity !== null && <div style={{ fontSize: 12, color: t.textSec, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{tr("Quantity: {n}", { n: ln.quantity }) + (ln.unit ? " " + ln.unit : "")}</div>}
+              </div>
+              {ln.note && <div style={lineSt}>{ln.note}</div>}
+              {ln.decision === "approved" && <div data-supply-decision="approved" style={{ fontSize: 12, fontWeight: 600, color: ink(t, GREEN), marginTop: 4, fontFamily: FONT_HEAD }}>{tr("Approved {n} of {m}", { n: ln.approvedQuantity !== null ? ln.approvedQuantity : ln.quantity, m: ln.quantity })}</div>}
+              {ln.decision === "denied" && <div data-supply-decision="denied" style={{ fontSize: 12, fontWeight: 600, color: ink(t, RED), marginTop: 4, fontFamily: FONT_HEAD }}>{tr("Denied")}</div>}
+              {ln.decision && ln.decisionNote && <div style={lineSt}>{tr("Note: {note}", { note: ln.decisionNote })}</div>}
+            </div>
+          ))}
+        </div>
+      ))}
+      {rows.length > SUPPLY_MINE_SHOWN && <div style={{ fontSize: 11, color: t.textMut, marginTop: 4 }}>{tr("Showing your latest 10 requests.")}</div>}
+    </div>
+  );
+}
+
+function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLogs, logSupplyUsage, submitRequest, showToast, t, getOpts, lkColorMap, token, user }) {
   const [scanning, setScanning] = useState(null); const [qty, setQty] = useState(1); const [reqForm, setReqForm] = useState(null);
   useBusy("supply request form", !!reqForm || scanning !== null);
+  // The person's own requests, read when Supplies opens and after a
+  // request is sent; null until a row in the answer carries items.
+  const [mine, setMine] = useState(null);
+  const [mineAsked, setMineAsked] = useState(0);
+  const [lineFaults, setLineFaults] = useState({});
+  const [sending, setSending] = useState(false);
+  const userId = user ? user.id : null;
+  useEffect(() => {
+    let live = true;
+    api("/api/supplies/requests", { token }).then(d => { if (live) setMine(supplyMineOf(d, userId)); }).catch(() => {});
+    return () => { live = false; };
+  }, [token, userId, mineAsked]);
   const labelSt = mkLabel(t); const inputSt = mkInput(t); const qtyBtn = mkQtyBtn(t);
-  const handleSubmitReq = () => { if (!reqForm.type) { showToast(tr("Select a request type"), "error"); return; } if ((reqForm.type === "new_gear" || reqForm.type === "new_supply") && !reqForm.itemName) { showToast(tr("Enter the item name"), "error"); return; } submitRequest(reqForm.type, reqForm.itemName, reqForm.description, reqForm.urgency, reqForm.supplyId); setReqForm(null); };
+  const typeOpts = getOpts("request_types").length > 0 ? getOpts("request_types") : [{ v: "refill", l: tr("Refill") }, { v: "damage_report", l: tr("Damage Report") }, { v: "new_gear", l: tr("New Gear") }, { v: "new_supply", l: tr("New Supply") }];
+  const typeWord = (v) => { const o = typeOpts.find(x => x.v === v); return o ? o.l : titleCase(v || ""); };
+  const linesOn = !!reqForm && mine !== null && SUPPLY_LINE_TYPES.indexOf(reqForm.type) !== -1;
+  const typedLines = !!reqForm && (reqForm.type !== "refill" || supplies.length === 0);
+  const openForm = () => { setLineFaults({}); setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null, lines: [supplyLineBlank()] }); };
+  const handleSubmitReq = () => { if (!reqForm.type) { showToast(tr("Select a request type"), "error"); return; } if ((reqForm.type === "new_gear" || reqForm.type === "new_supply") && !reqForm.itemName) { showToast(tr("Enter the item name"), "error"); return; } Promise.resolve(submitRequest(reqForm.type, reqForm.itemName, reqForm.description, reqForm.urgency, reqForm.supplyId)).then(() => setMineAsked(n => n + 1)); setReqForm(null); };
+  const editLine = (i, field, value, box) => {
+    setReqForm(f => ({ ...f, lines: f.lines.map((ln, j) => (j === i ? { ...ln, [field]: value } : ln)) }));
+    const k = i + "." + (box || field);
+    if (lineFaults[k] || lineFaults.form) setLineFaults(f => { const next = { ...f }; delete next[k]; delete next.form; return next; });
+  };
+  const addLine = () => {
+    if (reqForm.lines.length >= SUPPLY_LINES_MAX) { setLineFaults(f => ({ ...f, items: tr("A request holds up to 30 items.") })); return; }
+    setReqForm(f => (f.lines.length >= SUPPLY_LINES_MAX ? f : { ...f, lines: f.lines.concat([supplyLineBlank()]) }));
+    if (lineFaults.items) setLineFaults(f => { const next = { ...f }; delete next.items; return next; });
+  };
+  // A line's faults are kept by its place, so removing one clears them.
+  const removeLine = (i) => { setReqForm(f => ({ ...f, lines: f.lines.filter((ln, j) => j !== i) })); setLineFaults({}); };
+  const sendLines = async () => {
+    if (sending) return;
+    const local = {};
+    reqForm.lines.forEach((ln, i) => {
+      if (typedLines ? !ln.itemName.trim() : !ln.supplyId) local[i + ".item"] = tr(typedLines ? "Enter the item name" : "Choose a supply");
+      const q = supplyQtyOf(ln.quantity);
+      if (!/^\d+$/.test(String(ln.quantity).trim()) || q < 1 || q > SUPPLY_QTY_MAX) local[i + ".quantity"] = tr("Enter a quantity from 1 to 999.");
+    });
+    if (Object.keys(local).length > 0) { setLineFaults(local); return; }
+    const items = reqForm.lines.map(ln => Object.assign(typedLines ? { itemName: ln.itemName.trim() } : { supplyId: ln.supplyId }, { quantity: supplyQtyOf(ln.quantity) }, ln.note.trim() ? { note: ln.note.trim() } : {}));
+    const body = { requestType: reqForm.type, items: items, description: reqForm.description.trim(), urgency: reqForm.urgency, siteId: clockStatus?.shift?.siteId || null };
+    setSending(true); setLineFaults({});
+    try {
+      const d = await api("/api/supplies/requests", { method: "POST", body: body, token });
+      showToast(d && typeof d.message === "string" && d.message.trim() ? d.message : tr("Request submitted"));
+      setReqForm(null);
+      setMineAsked(n => n + 1);
+    } catch (err) {
+      const said = requestFaultOf(err, "That was not sent. Try again.");
+      const keys = Array.isArray(err && err.body && err.body.keys) ? err.body.keys.map(String) : [];
+      const next = {};
+      keys.forEach(k => { const box = supplyFaultKey(k, reqForm.lines.length); if (box) next[box] = said; });
+      if (Object.keys(next).length === 0) next.form = said;
+      setLineFaults(next);
+    } finally { setSending(false); }
+  };
+  const lineErr = (k) => (lineFaults[k] ? <div role="alert" style={mkFieldErr(t)}>{lineFaults[k]}</div> : null);
+  const lineRing = (k) => (lineFaults[k] ? { border: "2px solid " + RED } : {});
+  const linesUI = () => (
+    <div data-supply-lines={reqForm.lines.length} style={{ marginBottom: 10 }}>
+      {reqForm.lines.map((ln, i) => (
+        <div key={ln.key} data-supply-line={i} style={{ padding: 10, marginBottom: 8, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.hover }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minHeight: TAP, marginTop: -6, marginBottom: 2 }}>
+            <div style={{ ...labelSt, marginBottom: 0 }}>{tr("Item {n}", { n: i + 1 })}</div>
+            {reqForm.lines.length > 1 && <button type="button" data-supply-line-remove={i} onClick={() => removeLine(i)} aria-label={tr("Remove item {n}", { n: i + 1 })} style={mkTapFrame({ marginRight: -8 })}><span style={{ padding: "4px 8px", fontSize: 12, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("Remove")}</span></button>}
+          </div>
+          {typedLines
+            ? <input data-supply-line-name={i} aria-label={tr("Item Name")} value={ln.itemName} maxLength={SUPPLY_NAME_MAX} onChange={e => editLine(i, "itemName", e.target.value, "item")} placeholder={tr("What do you need?")} style={{ ...inputSt, ...lineRing(i + ".item") }} />
+            : <select data-supply-line-supply={i} aria-label={tr("Supply Item")} value={ln.supplyId} onChange={e => editLine(i, "supplyId", e.target.value, "item")} style={{ ...inputSt, ...lineRing(i + ".item") }}><option value="">{tr("Select supply...")}</option>{supplies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
+          {lineErr(i + ".item")}
+          <div id={"ocsa-supply-qty-" + ln.key} style={{ ...labelSt, marginTop: 10 }}>{tr("Quantity")}</div>
+          <div role="group" aria-labelledby={"ocsa-supply-qty-" + ln.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button type="button" onClick={() => editLine(i, "quantity", String(Math.max(1, supplyQtyOf(ln.quantity) - 1)))} disabled={supplyQtyOf(ln.quantity) <= 1} aria-label={tr("One less")} style={{ ...mkTapFrame(), opacity: supplyQtyOf(ln.quantity) <= 1 ? 0.5 : 1 }}><span style={qtyBtn}><MinusIco sz={14} /></span></button>
+            <input data-supply-line-qty={i} type="text" inputMode="numeric" pattern="[0-9]*" maxLength={3} aria-label={tr("Quantity")} value={ln.quantity} onChange={e => editLine(i, "quantity", e.target.value.replace(/\D/g, "").slice(0, 3))} style={{ ...inputSt, width: 72, textAlign: "center", fontVariantNumeric: "tabular-nums", ...lineRing(i + ".quantity") }} />
+            <button type="button" onClick={() => editLine(i, "quantity", String(Math.min(SUPPLY_QTY_MAX, Math.max(1, supplyQtyOf(ln.quantity) + 1))))} disabled={supplyQtyOf(ln.quantity) >= SUPPLY_QTY_MAX} aria-label={tr("One more")} style={{ ...mkTapFrame(), opacity: supplyQtyOf(ln.quantity) >= SUPPLY_QTY_MAX ? 0.5 : 1 }}><span style={qtyBtn}><PlusIco sz={14} /></span></button>
+          </div>
+          {lineErr(i + ".quantity")}
+          <label htmlFor={"ocsa-supply-note-" + ln.key} style={{ ...labelSt, marginTop: 10 }}>{tr("Note")}</label>
+          <input id={"ocsa-supply-note-" + ln.key} data-supply-line-note={i} value={ln.note} maxLength={SUPPLY_NOTE_MAX} onChange={e => editLine(i, "note", e.target.value)} placeholder={tr("Optional")} style={{ ...inputSt, ...lineRing(i + ".note") }} />
+          {lineErr(i + ".note")}
+        </div>
+      ))}
+      <button type="button" data-supply-add onClick={addLine} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 12px", background: t.hover, border: "1px dashed " + GOLD, borderRadius: R.sm, cursor: "pointer", color: t.goldText, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}><PlusIco sz={14} c={t.goldText} />{tr("Add item")}</button>
+      {lineErr("items")}
+    </div>
+  );
 
   const reqFormUI = reqForm && (
     <div style={{ padding: 14, marginBottom: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, boxShadow: t.popShadow }}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supply/Gear Request")}</div>
-      <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Request Type")}</label><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{(getOpts("request_types").length > 0 ? getOpts("request_types") : [{ v: "refill", l: tr("Refill") }, { v: "damage_report", l: tr("Damage Report") }, { v: "new_gear", l: tr("New Gear") }, { v: "new_supply", l: tr("New Supply") }]).map(tp => (<button key={tp.v} onClick={() => setReqForm({ ...reqForm, type: tp.v })} style={{ minHeight: TAP, padding: "7px 11px", borderRadius: R.sm, border: reqForm.type === tp.v ? "2px solid " + GOLD : "1px solid " + t.borderSolid, background: reqForm.type === tp.v ? t.goldBg : "transparent", color: reqForm.type === tp.v ? t.goldText : t.textSec, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tp.l}</button>))}</div></div>
-      {(reqForm.type === "refill" || reqForm.type === "damage_report") && supplies.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Supply Item")}</label><select value={reqForm.supplyId || ""} onChange={e => setReqForm({ ...reqForm, supplyId: e.target.value || null, itemName: supplies.find(s => s.id === e.target.value)?.name || "" })} style={inputSt}><option value="">{tr("Select supply...")}</option>{supplies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>)}
-      {(reqForm.type === "new_gear" || reqForm.type === "new_supply") && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Item Name")}</label><input value={reqForm.itemName} onChange={e => setReqForm({ ...reqForm, itemName: e.target.value })} placeholder={tr("What do you need?")} style={inputSt} /></div>)}
+      <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Request Type")}</label><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{typeOpts.map(tp => (<button key={tp.v} onClick={() => { setReqForm({ ...reqForm, type: tp.v }); setLineFaults({}); }} style={{ minHeight: TAP, padding: "7px 11px", borderRadius: R.sm, border: reqForm.type === tp.v ? "2px solid " + GOLD : "1px solid " + t.borderSolid, background: reqForm.type === tp.v ? t.goldBg : "transparent", color: reqForm.type === tp.v ? t.goldText : t.textSec, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tp.l}</button>))}</div></div>
+      {!linesOn && (reqForm.type === "refill" || reqForm.type === "damage_report") && supplies.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Supply Item")}</label><select value={reqForm.supplyId || ""} onChange={e => setReqForm({ ...reqForm, supplyId: e.target.value || null, itemName: supplies.find(s => s.id === e.target.value)?.name || "" })} style={inputSt}><option value="">{tr("Select supply...")}</option>{supplies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>)}
+      {!linesOn && (reqForm.type === "new_gear" || reqForm.type === "new_supply") && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Item Name")}</label><input value={reqForm.itemName} onChange={e => setReqForm({ ...reqForm, itemName: e.target.value })} placeholder={tr("What do you need?")} style={inputSt} /></div>)}
+      {linesOn && linesUI()}
       <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Details")}</label><textarea value={reqForm.description} onChange={e => setReqForm({ ...reqForm, description: e.target.value })} placeholder={tr("Describe the request...")} rows={2} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
       <div style={{ marginBottom: 12 }}><label style={labelSt}>{tr("Urgency")}</label><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{(() => { const urgOpts = getOpts("urgency_levels"); const urgColors = lkColorMap("urgency_levels"); const items = urgOpts.length > 0 ? urgOpts.map(o => ({ v: o.v, l: o.l, c: urgColors[o.v] || t.textSec })) : [{ v: "low", l: tr("Low"), c: GREEN }, { v: "normal", l: tr("Normal"), c: t.textSec }, { v: "high", l: tr("High"), c: ORANGE }, { v: "urgent", l: tr("Urgent"), c: RED }]; return items.map(u => (<button key={u.v} onClick={() => setReqForm({ ...reqForm, urgency: u.v })} style={{ flex: 1, minHeight: TAP, padding: "7px", borderRadius: R.sm, border: reqForm.urgency === u.v ? "2px solid " + u.c : "1px solid " + t.borderSolid, background: reqForm.urgency === u.v ? u.c + "1A" : "transparent", color: ink(t, u.c), fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{u.l}</button>)); })()}</div></div>
-      <div style={{ display: "flex", gap: 8 }}><button onClick={() => setReqForm(null)} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={handleSubmitReq} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.sm, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Submit Request")}</button></div>
+      {linesOn && lineFaults.form && <div role="alert" style={{ ...mkFieldErr(t), marginTop: 0, marginBottom: 10 }}>{lineFaults.form}</div>}
+      <div style={{ display: "flex", gap: 8 }}><button onClick={() => setReqForm(null)} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button data-supply-send onClick={linesOn ? sendLines : handleSubmitReq} disabled={linesOn && sending} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.sm, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", opacity: linesOn && sending ? 0.6 : 1 }}>{tr("Submit Request")}</button></div>
     </div>
   );
 
   if (!clockStatus?.clockedIn) return (
     <div style={{ padding: "16px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supplies")}</div><div style={{ fontSize: 11, color: t.textSec }}>{tr("Start your shift to log usage. Requests can be submitted anytime.")}</div></div><button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "7px 13px", borderRadius: R.sm, background: GOLD, color: NAVY, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("+ Request")}</span></button></div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supplies")}</div><div style={{ fontSize: 11, color: t.textSec }}>{tr("Start your shift to log usage. Requests can be submitted anytime.")}</div></div><button onClick={openForm} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "7px 13px", borderRadius: R.sm, background: GOLD, color: NAVY, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("+ Request")}</span></button></div>
       {reqFormUI}
+      <SupplyRequestsMine rows={mine} typeWord={typeWord} t={t} />
     </div>
   );
 
   return (
     <div style={{ padding: "16px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supply Tracking")}</div><div style={{ fontSize: 11, color: t.textSec }}>{tr("Log usage or submit a request")}</div></div><button onClick={() => setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null })} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "7px 13px", borderRadius: R.sm, background: GOLD, color: NAVY, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("+ Request")}</span></button></div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supply Tracking")}</div><div style={{ fontSize: 11, color: t.textSec }}>{tr("Log usage or submit a request")}</div></div><button onClick={openForm} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "7px 13px", borderRadius: R.sm, background: GOLD, color: NAVY, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("+ Request")}</span></button></div>
       {reqFormUI}
       {failed && supplies.length === 0 && <ListFault icon={BoxIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} />}
       {loaded && !failed && supplies.length === 0 && <EmptyState icon={BoxIco} text={tr("No supplies are set up for this site.")} t={t} />}
       {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 600, color: t.textMut, fontFamily: "monospace" }}>{tr("QR")}</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div>{isLow && <div style={{ marginTop: 2, fontSize: 10, color: ink(t, ORANGE), fontWeight: 600 }}>{tr("LOW")}</div>}</div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} aria-label={tr("One less")} style={mkTapFrame()}><span style={qtyBtn}><MinusIco sz={14} /></span></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} aria-label={tr("One more")} style={mkTapFrame()}><span style={qtyBtn}><PlusIco sz={14} /></span></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Log Usage")}</button></div>)}</div>); })}
       {supplyLogs.length > 0 && (<div style={{ marginTop: 18 }}><label style={{ ...labelSt, display: "block", marginBottom: 8 }}>{tr("This Shift's Log")}</label>{supplyLogs.map((log, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", marginBottom: 3, background: t.hover, borderRadius: R.sm, fontSize: 11 }}><span style={{ fontWeight: 600, color: t.text }}>{log.supply_name || tr("Item")} <span style={{ color: t.textMut, fontWeight: 400 }}>{log.quantity} {log.unit}</span></span><span style={{ color: t.textMut, fontSize: 9 }}>{formatTime(log.loggedAt || log.scanned_at)}</span></div>))}</div>)}
+      <SupplyRequestsMine rows={mine} typeWord={typeWord} t={t} />
     </div>
   );
 }
