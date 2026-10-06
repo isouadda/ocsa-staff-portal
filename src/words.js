@@ -1192,7 +1192,6 @@ export const WORDS = {
   "Refresher due": "Repaso pendiente",
   "Expires {date}": "Vence el {date}",
   "Done {date}": "Hecha el {date}",
-  "Your supervisor sets up these sessions. Ask them when the next one is.": "Su supervisor organiza estas sesiones. Preg\u00fantele cu\u00e1ndo es la pr\u00f3xima.",
   "Nothing is required for your role yet.": "Todav\u00eda no se requiere nada para su puesto.",
   "Given in English": "Dada en ingl\u00e9s",
   "Given in Spanish": "Dada en espa\u00f1ol",
@@ -1232,7 +1231,7 @@ export const WORDS = {
   "{n} trainings to do": "{n} capacitaciones pendientes",
   "1 training to sign off": "1 capacitaci\u00f3n por firmar",
   "{n} trainings to sign off": "{n} capacitaciones por firmar",
-  // Sessions, watched sign-offs, Before you start and documents to sign (Step 264).
+  // Sessions, watched sign-offs, Your first trainings and documents to sign (Step 264).
   "Join a session": "Unirse a una sesi\u00f3n",
   "Session code": "C\u00f3digo de la sesi\u00f3n",
   "The code on your trainer's screen": "El c\u00f3digo en la pantalla de su capacitador",
@@ -1256,11 +1255,8 @@ export const WORDS = {
   "Signed. It is on your record.": "Firmado. Ya est\u00e1 en su expediente.",
   "Contents": "Contenido",
   "Section {n} of {count}": "Secci\u00f3n {n} de {count}",
-  "Before you start": "Antes de empezar",
-  "A few things come first. Each takes a few minutes on this phone.": "Algunas cosas van primero. Cada una toma unos minutos en este tel\u00e9fono.",
   "Documents to sign": "Documentos por firmar",
   "Your first trainings": "Sus primeras capacitaciones",
-  "Later": "Despu\u00e9s",
   "Type a title.": "Escriba un t\u00edtulo.",
   "Choose at least one topic.": "Elija al menos un tema.",
   "Choose 1 to 10 topics.": "Elija de 1 a 10 temas.",
@@ -1293,6 +1289,15 @@ export const WORDS = {
   "Signature of {name}": "Firma de {name}",
   "Now you sign.": "Ahora firma usted.",
   "Watch another": "Observar otra",
+  // The training portal (Step 267).
+  "{done} of {required} trainings done": "{done} de {required} capacitaciones hechas",
+  "Continue where you left off": "Continuar donde lo dej\u00f3",
+  "{done} of {required} done": "{done} de {required} hechas",
+  "Up next: {name}": "Siguiente: {name}",
+  "Needs an in-person session": "Necesita una sesi\u00f3n en persona",
+  "Expires soon": "Vence pronto",
+  "Your trainer signs this off in the {name} checklist.": "Su capacitador lo firma en la lista {name}.",
+  "Your trainer goes over this one with you.": "Su capacitador repasa esta con usted.",
   },
 };
 
@@ -2366,7 +2371,6 @@ WORDS.fr = {
   "Refresher due": "Rappel \u00e0 faire",
   "Expires {date}": "Expire le {date}",
   "Done {date}": "Faite le {date}",
-  "Your supervisor sets up these sessions. Ask them when the next one is.": "Votre superviseur organise ces s\u00e9ances. Demandez-lui quand aura lieu la prochaine.",
   "Nothing is required for your role yet.": "Rien n'est encore requis pour votre poste.",
   "Given in English": "Donn\u00e9e en anglais",
   "Given in Spanish": "Donn\u00e9e en espagnol",
@@ -2406,7 +2410,7 @@ WORDS.fr = {
   "{n} trainings to do": "{n} formations \u00e0 faire",
   "1 training to sign off": "1 formation \u00e0 valider",
   "{n} trainings to sign off": "{n} formations \u00e0 valider",
-  // Sessions, watched sign-offs, Before you start and documents to sign (Step 264).
+  // Sessions, watched sign-offs, Your first trainings and documents to sign (Step 264).
   "Join a session": "Rejoindre une s\u00e9ance",
   "Session code": "Code de la s\u00e9ance",
   "The code on your trainer's screen": "Le code affich\u00e9 sur l'\u00e9cran de votre formateur",
@@ -2430,11 +2434,8 @@ WORDS.fr = {
   "Signed. It is on your record.": "Sign\u00e9. C'est dans votre dossier.",
   "Contents": "Sommaire",
   "Section {n} of {count}": "Section {n} sur {count}",
-  "Before you start": "Avant de commencer",
-  "A few things come first. Each takes a few minutes on this phone.": "Quelques choses viennent d'abord. Chacune prend quelques minutes sur ce t\u00e9l\u00e9phone.",
   "Documents to sign": "Documents \u00e0 signer",
   "Your first trainings": "Vos premi\u00e8res formations",
-  "Later": "Plus tard",
   "Type a title.": "Saisissez un titre.",
   "Choose at least one topic.": "Choisissez au moins un sujet.",
   "Choose 1 to 10 topics.": "Choisissez de 1 \u00e0 10 sujets.",
@@ -2467,6 +2468,15 @@ WORDS.fr = {
   "Signature of {name}": "Signature de {name}",
   "Now you sign.": "\u00c0 vous de signer.",
   "Watch another": "Observer une autre",
+  // The training portal (Step 267).
+  "{done} of {required} trainings done": "{done} formations faites sur {required}",
+  "Continue where you left off": "Reprendre o\u00f9 vous en \u00e9tiez",
+  "{done} of {required} done": "{done} faites sur {required}",
+  "Up next: {name}": "\u00c0 suivre\u00a0: {name}",
+  "Needs an in-person session": "N\u00e9cessite une s\u00e9ance en personne",
+  "Expires soon": "Expire bient\u00f4t",
+  "Your trainer signs this off in the {name} checklist.": "Votre formateur le valide dans la liste {name}.",
+  "Your trainer goes over this one with you.": "Votre formateur voit celle-ci avec vous.",
 };
 
 // {name} is replaced after the language is chosen, so the

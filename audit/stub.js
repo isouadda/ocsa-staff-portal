@@ -340,6 +340,51 @@ const TRAINING_ME = {
 // has five questions; the right option is kept here and never served.
 // TRAINING_AWAITING is an attempt another person passed and signed,
 // waiting for a supervisor's sign-off at North Building.
+// Step 267 (the Step 266 contract, sections 2 to 4), behind the
+// trainingPortal switch: the fixed categories in order, each topic's
+// category and place (tp-5 and tp-3 have none, and are answered under
+// other), the checklist that signs tp-1 off, and the two pictures in the
+// ladders lesson: a drawing (svg) and a photo (path), the photo served
+// from an invented storage host through a signed address, the way the
+// API's storage serves one.
+const TRAINING_CATEGORIES = [
+  { key: "start_here", en: "Start here", es: "Para empezar", fr: "Pour commencer" },
+  { key: "safety", en: "Safety at work", es: "Seguridad en el trabajo", fr: "S\u00e9curit\u00e9 au travail" },
+  { key: "chemicals", en: "Chemicals", es: "Productos qu\u00edmicos", fr: "Produits chimiques" },
+  { key: "cleaning_methods", en: "Cleaning methods", es: "M\u00e9todos de limpieza", fr: "M\u00e9thodes de nettoyage" },
+  { key: "floor_care", en: "Floor care", es: "Cuidado de pisos", fr: "Entretien des sols" },
+  { key: "equipment", en: "Equipment", es: "Equipo", fr: "\u00c9quipement" },
+  { key: "customer_service", en: "Customer service", es: "Servicio al cliente", fr: "Service \u00e0 la client\u00e8le" },
+  { key: "site_security", en: "Building security", es: "Seguridad del edificio", fr: "S\u00e9curit\u00e9 du b\u00e2timent" },
+  { key: "supervisors", en: "For supervisors", es: "Para supervisores", fr: "Pour les superviseurs" },
+  { key: "other", en: "Other trainings", es: "Otras capacitaciones", fr: "Autres formations" },
+];
+const TRAINING_TOPIC_PLACE = {
+  "tp-6": { category: "start_here", sortOrder: 100 },
+  "tp-1": { category: "safety", sortOrder: 100, signoffTopicId: "tp-4" },
+  "tp-2": { category: "safety", sortOrder: 200 },
+  "tp-4": { category: "safety", sortOrder: 300 },
+  "tp-5": { category: null, sortOrder: 100 },
+  "tp-3": { category: null, sortOrder: 200 },
+};
+const LESSON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img"><rect width="320" height="200" rx="12" fill="#EEF3F9"/><path d="M110 176 L140 24 M210 176 L180 24" stroke="#8A5F10" stroke-width="10" stroke-linecap="round"/><path d="M118 150h84M124 118h72M130 86h60M136 54h48" stroke="#8A5F10" stroke-width="8" stroke-linecap="round"/><circle cx="110" cy="178" r="9" fill="#2ECC71"/><circle cx="210" cy="178" r="9" fill="#2ECC71"/><circle cx="160" cy="86" r="9" fill="#2ECC71"/><text x="18" y="192" font-family="sans-serif" font-size="14" fill="#1B3058">Feet, rungs and locks, invented</text></svg>';
+const LESSON_IMAGE_PATH = "lessons/11111111-2222-4333-8444-555555555555.png";
+const LESSON_IMAGE_ID = "11111111-2222-4333-8444-555555555555";
+const LESSON_IMAGE_HOST = "https://files.example.invalid";
+const lessonImageSrc = (p) => LESSON_IMAGE_HOST + "/api/lesson-images/signed/" + String(p).replace(/^lessons\//, "").replace(/\.(jpg|png|webp)$/, "") + ".png?token=invented-signature";
+// A small PNG drawn here, so the photo is a real file the browser decodes
+// rather than a one-pixel stand-in: 48 by 32, a ladder's top two rungs in
+// red over gray.
+function crc32(buf) { let crc = 0xFFFFFFFF; for (let n = 0; n < buf.length; n += 1) { let c = (crc ^ buf[n]) & 0xFF; for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; crc = (crc >>> 8) ^ c; } return (crc ^ 0xFFFFFFFF) >>> 0; }
+function pngOf(w, h, pixel) {
+  const zlib = require("zlib");
+  const rows = Buffer.alloc((w * 3 + 1) * h);
+  for (let y = 0; y < h; y += 1) { for (let x = 0; x < w; x += 1) { const px = pixel(x, y); const at = y * (w * 3 + 1) + 1 + x * 3; rows[at] = px[0]; rows[at + 1] = px[1]; rows[at + 2] = px[2]; } }
+  const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length, 0); const td = Buffer.concat([Buffer.from(type, "ascii"), data]); const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td), 0); return Buffer.concat([len, td, crc]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(rows)), chunk("IEND", Buffer.alloc(0))]);
+}
+const LESSON_PNG = pngOf(48, 32, (x, y) => (x >= 14 && x <= 33 && (y === 8 || y === 16) ? [231, 76, 60] : (x === 14 || x === 33) && y >= 4 ? [138, 95, 16] : [210, 219, 230]));
 const lessonWords = (en, es) => ({ en: en, es: es || en });
 const TRAINING_LESSONS = [
   {
@@ -365,6 +410,8 @@ const TRAINING_LESSONS = [
     blocks: [
       { key: "b1", kind: "text", text: lessonWords("Check a ladder before you climb it: the feet, the rungs and the locks."), items: [], source: { docCode: "OCSA-HR-016", sectionRef: "5.2" } },
       { key: "b2", kind: "warning", text: lessonWords("Never stand on the top two rungs."), items: [], source: null },
+      { key: "b3", kind: "image", svg: LESSON_SVG, path: null, alt: lessonWords("A step ladder with its feet, rungs and locks marked"), caption: lessonWords("Check these three before you climb.") },
+      { key: "b4", kind: "image", svg: null, path: LESSON_IMAGE_PATH, alt: lessonWords("The top two rungs of a ladder, marked in red"), caption: lessonWords("") },
     ],
     questions: [
       { key: "q1", text: lessonWords("Before you climb a ladder, you check:"), options: [{ value: "a", text: lessonWords("The feet, the rungs and the locks") }, { value: "b", text: lessonWords("The weather") }], correct: "a" },
@@ -683,6 +730,9 @@ function makeState(opts) {
     trainingSessions: o.training === true ? [JSON.parse(JSON.stringify(TRAINING_SESSION_SEED))] : [],
     documentAcks: [],
     documents: o.documents === true,
+    // Step 267: an API with Step 266 built, which answers categories and
+    // continue on GET /api/training/me, with each item's category.
+    trainingPortal: o.trainingPortal === true,
     // The supplies at the open shift's site, which a case can answer
     // with none. null answers the one supply every case has always had.
     supplies: Array.isArray(o.supplies) ? o.supplies : null,
@@ -1948,6 +1998,9 @@ const SIGNED_OUT = [
   /^GET \/api\/public\/forms\/[^/]+$/, /^POST \/api\/public\/forms\/[^/]+\/responses$/,
   // The request link and the supply label (Step 252), the same way.
   /^GET \/api\/public\/requests\/[^/]+$/, /^POST \/api\/public\/requests\/[^/]+$/, /^GET \/api\/public\/supplies\/[^/]+$/,
+  // A lesson picture's signed address (Step 267): a storage file the
+  // browser fetches as an image, with no token and no language.
+  /^GET \/api\/lesson-images\/signed\/[^/]+\.png$/,
 ];
 const signedOutLanguage = (search, accept) => {
   const m = String(search || "").match(/[?&]locale=(en|es)\b/);
@@ -3414,6 +3467,33 @@ function createStub(opts) {
         else if ((!latest.scoredAt || !latest.passed) && lessonTries(lesson).left > 0) { item.status = "inProgress"; item.attemptId = latest.id; }
       });
       me.attempts = TRAINING_LESSONS.map(l => lessonAttempts(l).slice(-1)[0]).filter(Boolean).map(attemptView);
+      // Step 267, behind the trainingPortal switch (the Step 266 contract,
+      // section 3): each item's category, place and sign-off checklist,
+      // the items in category order, the categories the person holds an
+      // item in with their counts, and Continue where you left off.
+      if (state.trainingPortal) {
+        const rank = (cat) => { const n = TRAINING_CATEGORIES.findIndex(c => c.key === (cat || "other")); return n === -1 ? TRAINING_CATEGORIES.length : n; };
+        me.items.forEach(i => {
+          const p = TRAINING_TOPIC_PLACE[i.topicId] || { category: null, sortOrder: 100 };
+          const lesson = TRAINING_LESSONS.find(l => l.topicId === i.topicId);
+          const signoff = p.signoffTopicId ? TRAINING_ME.items.find(x => x.topicId === p.signoffTopicId) : null;
+          Object.assign(i, { topicKey: i.topicId, category: p.category, sortOrder: p.sortOrder, needsTrainer: i.safetyCritical || !!(lesson && lesson.needsTrainer), signoffBy: signoff ? { topicId: signoff.topicId, name: signoff.name } : null });
+        });
+        me.items.sort((a, b) => rank(a.category) - rank(b.category) || a.sortOrder - b.sortOrder || a.name.localeCompare(b.name) || String(a.siteName || "").localeCompare(String(b.siteName || "")));
+        const isDone = (i) => i.status === "current" || i.status === "dueSoon";
+        me.categories = TRAINING_CATEGORIES.map(c => {
+          const rows = me.items.filter(i => (i.category || "other") === c.key);
+          if (rows.length === 0) return null;
+          const next = rows.find(i => !isDone(i) && i.status !== "awaitingTrainer");
+          return { key: c.key, name: c[lang] || c.en, names: { en: c.en, es: c.es, fr: c.fr }, required: rows.length, done: rows.filter(isDone).length, toDo: rows.filter(i => !isDone(i) && i.status !== "inProgress" && i.status !== "awaitingTrainer").length, inProgress: rows.filter(i => i.status === "inProgress").length, awaitingTrainer: rows.filter(i => i.status === "awaitingTrainer").length, nextTopicId: next ? next.topicId : null };
+        }).filter(Boolean);
+        const open = state.trainingAttempts.filter(a => a.personId === state.person.id && !a.scoredAt && !a.voidedAt).sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))[0] || null;
+        const openItem = open ? me.items.find(i => i.topicId === open.topicId && i.lesson) : null;
+        const first = me.items.find(i => ["missing", "expired", "refresherDue"].indexOf(i.status) !== -1 && i.lesson && i.lesson.attemptsLeft > 0) || null;
+        const go = openItem || first;
+        const cat = go ? TRAINING_CATEGORIES.find(c => c.key === (go.category || "other")) : null;
+        me.continue = go ? { topicId: go.topicId, name: go.name, category: cat.key, categoryName: cat[lang] || cat.en, attemptId: openItem ? open.id : null, versionId: go.lesson.versionId, siteId: go.siteId || null } : null;
+      }
       // Step 264, behind the documents switch: the first-day items, the
       // document to sign until it is signed, and a certificate on file.
       if (state.documents) {
@@ -3424,6 +3504,8 @@ function createStub(opts) {
       }
       return json(200, me);
     }
+    // Step 267: a lesson picture at its signed address, from storage.
+    if (state.training && /^GET \/api\/lesson-images\/signed\/[^/]+\.png$/.test(key)) return image("image/png", LESSON_PNG);
     if (state.training && pathname.indexOf("/api/training/") === 0) {
       const management = FK_MANAGEMENT.indexOf(state.person.role) !== -1;
       const refuse = (k, extra) => { const r = TRAINING_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
@@ -3566,7 +3648,14 @@ function createStub(opts) {
         const tries = lessonTries(lesson);
         return json(200, { lesson: {
           versionId: lesson.versionId, topicId: lesson.topicId, version: lesson.version, title: inLoc(lesson.title), locale: loc, locales: lesson.locales.slice(),
-          blocks: lesson.blocks.map(b => ({ key: b.key, kind: b.kind, text: inLoc(b.text), items: b.items.map(inLoc), source: b.source ? Object.assign({}, b.source) : null })),
+          // Step 267: an image block is answered as its src, alt and caption
+          // in the lesson's language; the stored svg and path never reach a
+          // learner. A safety lesson with no Spanish read for a Spanish
+          // reader is answered in English with spanishHeld.
+          blocks: lesson.blocks.map(b => (b.kind === "image"
+            ? { key: b.key, kind: "image", src: b.svg ? "data:image/svg+xml;base64," + Buffer.from(b.svg, "utf8").toString("base64") : lessonImageSrc(b.path), alt: inLoc(b.alt), caption: inLoc(b.caption) }
+            : { key: b.key, kind: b.kind, text: inLoc(b.text), items: b.items.map(inLoc), source: b.source ? Object.assign({}, b.source) : null })),
+          spanishHeld: lang === "es" && lesson.locales.indexOf("es") === -1 && TRAINING_ME.items.some(i => i.topicId === lesson.topicId && i.safetyCritical),
           questions: lesson.questions.map(qn => ({ key: qn.key, text: inLoc(qn.text), options: qn.options.map(o => ({ value: o.value, text: inLoc(o.text) })) })),
           acknowledgement: inLoc(lesson.acknowledgement), passPercent: lesson.passPercent, needsTrainer: lesson.needsTrainer, attemptsUsed: tries.used, attemptsLeft: tries.left,
         } });
@@ -3884,7 +3973,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

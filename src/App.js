@@ -1058,17 +1058,18 @@ function readEntryFromUrl() {
 // below drops the query. A client request's notice links to
 // /requests/<id> (Step 252), and an inspection finding's to /issues/<id>
 // (Step 255); either address opens its subject the same way, and so does
-// a training session's /join/<code> (Step 264). None is an entry screen,
-// so the app signs in or boots the stored session as it always does and
-// the subject opens once the portal is up.
+// a training session's /join/<code> (Step 264) and a training category's
+// page, /training/c/<key> (Step 267). None is an entry screen, so the app
+// signs in or boots the stored session as it always does and the subject
+// opens once the portal is up.
 function readOpenFromUrl() {
   try {
     var v = new URLSearchParams(window.location.search || "").get("open");
     if (!v) {
-      var m = /^\/(requests|issues|join)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+      var m = /^\/(requests|issues|join|training\/c)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
       if (!m) return null;
       try { window.history.replaceState({}, "", "/"); } catch (e) {}
-      return { subjectType: m[1] === "requests" ? "client_request" : m[1] === "issues" ? "inspection_finding" : "training_join", subjectId: m[2] };
+      return { subjectType: m[1] === "requests" ? "client_request" : m[1] === "issues" ? "inspection_finding" : m[1] === "join" ? "training_join" : "training_category", subjectId: m[2] };
     }
     try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
     var at = v.indexOf(":");
@@ -2416,7 +2417,7 @@ export default function OCSAStaffPortal() {
       if (!isAdmin) { setActiveTab("training"); setShowMore(false); return; }
       setFieldKitAt(at => ({ siteId: at && at.siteId ? at.siteId : null, tile: place.signoff ? "signoff" : null }));
     }
-    if (place.tab === "training") setTrainingAt(place.join ? { join: String(place.join) } : place.doc ? { doc: { docCode: String(place.doc), title: String(place.doc) } } : null);
+    if (place.tab === "training") setTrainingAt(place.join ? { join: String(place.join) } : place.doc ? { doc: { docCode: String(place.doc), title: String(place.doc) } } : place.category ? { category: String(place.category) } : place.topic ? { topic: String(place.topic) } : null);
     setActiveTab(place.tab); setShowMore(false);
     if (place.tab === "issues") { setRequestOpen(place.request || null); setFindingOpen(place.finding || null); loadClientRequests(); loadFindings(); }
     if (place.tab === "chat" && place.chat) { if (activeChannelRef.current === place.chat) loadMessages(place.chat); else chooseChat(place.chat); }
@@ -2502,21 +2503,8 @@ export default function OCSAStaffPortal() {
   // Where My training is (Step 264): a session's join screen for a code,
   // from /join/<code> or a code typed in. Dropped at sign out.
   const [trainingAt, setTrainingAt] = useState(null);
-  // Before you start (Step 264): open once a day while the list holds a
-  // document to sign or a first-day training, never when the app was
-  // opened from a link to a place, and never blocking the rest of the
-  // app. It counts as shown when Later or one of its lines is tapped.
-  const [beforeOpen, setBeforeOpen] = useState(false);
-  const bootedFromLink = useRef(!!OPEN_AT_START);
   useEffect(() => {
-    if (!training || !user || screen !== "main" || openAsk || beforeOpen || bootedFromLink.current) return;
-    if (training.documentsToSign.length === 0 && training.firstDay.length === 0) return;
-    if (beforeShownToday(user.id)) return;
-    setBeforeOpen(true);
-  }, [training, user && user.id, screen, openAsk]);
-  const closeBefore = () => { setBeforeOpen(false); if (user) markBeforeShown(user.id); };
-  useEffect(() => {
-    if (!token || screen !== "main") { setTraining(null); setTrainingAt(null); setBeforeOpen(false); return undefined; }
+    if (!token || screen !== "main") { setTraining(null); setTrainingAt(null); return undefined; }
     let live = true;
     readTraining(token).then(d => { if (live && d) setTraining(d); });
     return () => { live = false; };
@@ -2870,7 +2858,7 @@ export default function OCSAStaffPortal() {
 
           <div style={{ padding: "0 0 var(--ocsa-bar, 76px) 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
-              {activeTab === "clock" && <div><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
+              {activeTab === "clock" && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -2961,11 +2949,6 @@ export default function OCSAStaffPortal() {
         />
       )}
 
-      {beforeOpen && training && (
-        <BeforeYouStartSheet training={training} t={t} onClose={closeBefore}
-          onDocument={(doc) => { closeBefore(); setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }}
-          onLesson={(item) => { closeBefore(); setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} />
-      )}
       {announcementOpen && (
         <AnnouncementSheet token={token} id={announcementOpen} t={t} onClose={() => setAnnouncementOpen(null)} />
       )}
@@ -6551,7 +6534,33 @@ function trainingItemOf(x) {
   // the item carries as linkUrl; anything else is left out.
   const link = str("linkUrl");
   const topicId = trainingId(x, ["topicId"]), siteId = trainingId(x, ["siteId"]);
-  return { id: topicId + ":" + siteId, topicId: topicId, siteId: siteId, name: name, docCode: str("docCode"), docSection: str("docSection"), safetyCritical: x.safetyCritical === true, siteName: str("siteName"), status: str("status"), completedDate: str("completedDate"), expiresOn: str("expiresOn"), linkUrl: /^https:\/\//i.test(link) ? link : "", attemptId: trainingId(x, ["attemptId"]), lesson: trainingLessonLinkOf(x.lesson) };
+  // The training portal (Step 267, the Step 266 contract's section 3): the
+  // topic's category, answered as other for a topic with none; its place
+  // in the category; and the observation checklist whose sign-off stands
+  // in for this topic's.
+  const signoff = x.signoffBy && typeof x.signoffBy === "object" && typeof x.signoffBy.name === "string" && x.signoffBy.name.trim() ? { topicId: trainingId(x.signoffBy, ["topicId"]), name: x.signoffBy.name.trim() } : null;
+  return { id: topicId + ":" + siteId, topicId: topicId, siteId: siteId, name: name, docCode: str("docCode"), docSection: str("docSection"), safetyCritical: x.safetyCritical === true, siteName: str("siteName"), status: str("status"), completedDate: str("completedDate"), expiresOn: str("expiresOn"), linkUrl: /^https:\/\//i.test(link) ? link : "", attemptId: trainingId(x, ["attemptId"]), recordId: trainingId(x, ["recordId"]), lesson: trainingLessonLinkOf(x.lesson),
+    category: str("category") || "other", sortOrder: trainingNum(x.sortOrder), needsTrainer: x.needsTrainer === true, signoffBy: signoff };
+}
+// One of the portal's categories as GET /api/training/me answers it: the
+// counts of the person's items in it, and the first module still to do.
+function trainingCategoryOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const key = trainingId(x, ["key"]);
+  const name = typeof x.name === "string" ? x.name.trim() : "";
+  if (!key || !name) return null;
+  const count = (k) => { const v = trainingNum(x[k]); return v === null ? 0 : Math.max(0, Math.round(v)); };
+  return { key: key, name: name, required: count("required"), done: count("done"), toDo: count("toDo"), inProgress: count("inProgress"), awaitingTrainer: count("awaitingTrainer"), nextTopicId: trainingId(x, ["nextTopicId"]) };
+}
+// Continue where you left off: the module behind the person's most
+// recently started open attempt, else the first module to do that has a
+// lesson. attemptId is set when an attempt is open.
+function trainingContinueOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const name = typeof x.name === "string" ? x.name.trim() : "";
+  const topicId = trainingId(x, ["topicId"]), versionId = trainingId(x, ["versionId"]);
+  if (!name || !topicId || !versionId) return null;
+  return { topicId: topicId, name: name, category: trainingId(x, ["category"]) || "other", categoryName: typeof x.categoryName === "string" ? x.categoryName.trim() : "", attemptId: trainingId(x, ["attemptId"]), versionId: versionId, siteId: trainingId(x, ["siteId"]) };
 }
 function trainingRecordOf(x) {
   if (!x || typeof x !== "object") return null;
@@ -6578,15 +6587,65 @@ function trainingOf(d) {
   return { items: items.map(trainingItemOf).filter(Boolean), records: (wsRows(d, "records") || []).map(trainingRecordOf).filter(Boolean), attempts: (wsRows(d, "attempts") || []).map(trainingAttemptOf).filter(Boolean),
     // Step 264: the first-day path and the documents to sign (the Step
     // 262 contract, sections 5 and 6); empty until the API answers them.
-    firstDay: (wsRows(d, "firstDay") || []).map(trainingItemOf).filter(Boolean), documentsToSign: (wsRows(d, "documentsToSign") || []).map(trainingDocumentOf).filter(Boolean) };
+    firstDay: trainingInOrder((wsRows(d, "firstDay") || []).map(trainingItemOf).filter(Boolean)), documentsToSign: (wsRows(d, "documentsToSign") || []).map(trainingDocumentOf).filter(Boolean),
+    // The training portal (Step 267): the categories and Continue where
+    // you left off. categories is null until the API answers it, and My
+    // training then stays as it was.
+    categories: Array.isArray(d.categories) ? d.categories.map(trainingCategoryOf).filter(Boolean) : null, continue: trainingContinueOf(d.continue) };
 }
+// The fixed categories in the order the API answers them (the Step 266
+// contract's section 2), other last. The API sorts the items; the portal
+// sorts only what it puts in order itself, Before you start's first-day list.
+const TRAINING_CATEGORY_ORDER = ["start_here", "safety", "chemicals", "cleaning_methods", "floor_care", "equipment", "customer_service", "site_security", "supervisors", "other"];
+const trainingCategoryRank = (key) => { const n = TRAINING_CATEGORY_ORDER.indexOf(key); return n === -1 ? TRAINING_CATEGORY_ORDER.length : n; };
+const trainingInOrder = (items) => items.slice().sort((a, b) => trainingCategoryRank(a.category) - trainingCategoryRank(b.category) || (a.sortOrder === null ? 100 : a.sortOrder) - (b.sortOrder === null ? 100 : b.sortOrder) || a.name.localeCompare(b.name) || a.siteName.localeCompare(b.siteName));
+// The item a notice or a link names: a topic; the record about to expire
+// (training_expiring carries the record's id, as the API writes it); or
+// an attempt on the topic (training_reteach carries the attempt's id).
+function trainingItemFor(data, id) {
+  if (!data || !id) return null;
+  const direct = data.items.find(i => i.topicId === id || i.id === id || (i.recordId && i.recordId === id) || (i.attemptId && i.attemptId === id));
+  if (direct) return direct;
+  const attempt = data.attempts.find(a => a.id === id);
+  return attempt ? data.items.find(i => i.topicId === attempt.topicId) || null : null;
+}
+// The gold button a training row offers: Start the lesson, Take the
+// course online, Read and sign.
+const trainingGoldBtn = { display: "flex", alignItems: "center", justifyContent: "center", minHeight: TAP, padding: "10px 14px", borderRadius: R.md, textDecoration: "none", border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", cursor: "pointer" };
+// A progress bar: done of required, gold while it fills and green when full.
+function TrainingBar({ done, required, t }) {
+  const pct = required > 0 ? Math.min(100, Math.round(done * 100 / required)) : 0;
+  return (
+    <div role="progressbar" aria-valuemin={0} aria-valuemax={Math.max(1, required)} aria-valuenow={Math.min(done, required)} data-training-bar={done + "/" + required} style={{ height: 8, borderRadius: R.pill, background: t.cardAlt, border: "1px solid " + t.border, overflow: "hidden" }}>
+      <div style={{ width: pct + "%", height: "100%", background: pct >= 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")" }} />
+    </div>
+  );
+}
+// A module's status on a category page: Done, Expires soon, Waiting for
+// your trainer, In progress, Needs an in-person session (a lesson with no
+// tries left), or To do. A training with no lesson and no outside course
+// is To do, with a line saying the trainer goes over it with the person.
+function trainingChip(i) {
+  if (i.status === "current") return { tag: "done", word: "Done", color: GREEN };
+  if (i.status === "dueSoon") return { tag: "soon", word: "Expires soon", color: ORANGE };
+  if (i.status === "awaitingTrainer") return { tag: "waiting", word: "Waiting for your trainer", color: BLUE };
+  if (i.status === "inProgress") return { tag: "progress", word: "In progress", color: BLUE };
+  if (trainingQuiz(i) && i.lesson.attemptsLeft === 0) return { tag: "session", word: "Needs an in-person session", color: RED };
+  return { tag: "todo", word: "To do", color: RED, trainer: !trainingQuiz(i) && !i.linkUrl };
+}
+const trainingChipSt = (t, color) => ({ flexShrink: 0, fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: R.pill, whiteSpace: "nowrap", fontFamily: FONT_HEAD, background: color === RED ? t.redSubtle : color + "20", border: "1px solid " + (color === RED ? t.redBorder : color + "50"), color: color === RED ? wsLateInk(t) : ink(t, color) });
 async function readTraining(token) {
   try { return trainingOf(await api("/api/training/me", { token })); } catch (e) { return null; }
 }
 // The items a person can do on the phone right now: a lesson with tries
 // left, on a training still needed, in progress or coming due. Home's
 // card counts them.
-const trainingToDo = (data) => (data ? data.items.filter(i => i.lesson && i.lesson.attemptsLeft > 0 && TRAINING_CAN_START.indexOf(i.status) !== -1) : []);
+// A lesson the person can take on the phone: a quiz with a try left. A
+// watched checklist (kind observation, Step 264) is the trainer's to
+// run, and the API refuses an attempt on it (training.observationByTrainer).
+const trainingQuiz = (i) => !!i.lesson && i.lesson.kind !== "observation";
+const trainingTakeable = (i) => trainingQuiz(i) && i.lesson.attemptsLeft > 0;
+const trainingToDo = (data) => (data ? data.items.filter(i => trainingTakeable(i) && TRAINING_CAN_START.indexOf(i.status) !== -1) : []);
 const trainingDay = (d) => (d ? dueDayText(d, { month: "short", day: "numeric", year: "numeric" }) : "");
 const TRAINING_GIVEN_IN = { en: () => tr("Given in English"), es: () => tr("Given in Spanish"), fr: () => tr("Given in French") };
 const trainingTries = (n) => (n === 1 ? tr("1 try left") : tr("{n} tries left", { n: n }));
@@ -6602,16 +6661,39 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   // Join a session (Step 264): the code box open, and what is typed in it.
   const [joinOpen, setJoinOpen] = useState(false);
   const [joinCode, setJoinCode] = useState("");
+  // The training portal (Step 267, the Step 266 contract's section 8):
+  // the category page open, from a card, a notice naming a topic, or
+  // /training/c/<key>. The page is an entry in the phone's history, so the
+  // phone's back goes from it to My training, and the address bar reads
+  // /training/c/<key> while it is open. The portal shows only once the
+  // API answers categories; until then My training is as it was.
+  const [cat, setCat] = useState(null);
+  const portal = !!(data && data.categories && (data.categories.length > 0 || data.items.length === 0));
+  const openCat = (key) => { setCat(key); try { window.history.pushState({ trainingCategory: key }, "", "/training/c/" + encodeURIComponent(key)); } catch (e) {} };
+  const closeCat = () => { setCat(null); try { if (window.history.state && window.history.state.trainingCategory) window.history.back(); } catch (e) {} };
+  useEffect(() => {
+    const onPop = () => setCat(window.history.state && window.history.state.trainingCategory ? String(window.history.state.trainingCategory) : null);
+    window.addEventListener("popstate", onPop);
+    return () => { window.removeEventListener("popstate", onPop); try { if (window.history.state && window.history.state.trainingCategory) window.history.replaceState({}, "", "/"); } catch (e) {} };
+  }, []);
   useEffect(() => {
     let live = true;
     readTraining(token).then(d => { if (!live) return; if (d) { onData(d); setFault(false); } else setFault(true); });
     return () => { live = false; };
   }, [asked]);
-  // A lesson named from Before you start opens once its item is on the list.
+  // A lesson named from Before you start opens once its item is on the
+  // list; a category named by a link, or the category of a topic a notice
+  // names, opens its page once the portal is drawn.
   useEffect(() => {
-    if (!at || !at.lesson || !data) return;
-    const item = data.items.find(x => x.id === at.lesson) || data.firstDay.find(x => x.id === at.lesson);
-    if (item && item.lesson) setLesson({ id: item.id, item: item, opened: Date.now() });
+    if (!at || !data || !(at.lesson || at.category || at.topic)) return;
+    if (at.lesson) {
+      const item = data.items.find(x => x.id === at.lesson) || data.firstDay.find(x => x.id === at.lesson);
+      if (item && item.lesson) setLesson({ id: item.id, item: item, opened: Date.now() });
+    } else if (portal) {
+      const item = at.topic ? trainingItemFor(data, at.topic) : null;
+      const key = at.category || (item ? item.category : "");
+      if (key && data.categories.some(c => c.key === key)) openCat(key);
+    }
     onAt(null);
   }, [at, data]);
   if (at && at.join) {
@@ -6620,10 +6702,13 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   if (at && at.doc) {
     return <DocumentReader key={at.doc.docCode} token={token} doc={at.doc} onBack={() => { onAt(null); setAsked(n => n + 1); }} onSigned={() => setAsked(n => n + 1)} t={t} />;
   }
-  if (lesson) {
-    return <TrainingLesson key={lesson.id + ":" + lesson.opened} token={token} item={lesson.item} siteId={lesson.item.siteId || shiftSiteId || null} onBack={() => { setLesson(null); setAsked(n => n + 1); }} t={t} />;
-  }
   const items = data ? data.items : [];
+  const cats = portal ? data.categories : [];
+  const openCatOf = cat ? cats.find(c => c.key === cat) || null : null;
+  if (lesson) {
+    return <TrainingLesson key={lesson.id + ":" + lesson.opened} token={token} item={lesson.item} siteId={lesson.item.siteId || shiftSiteId || null} backLabel={openCatOf ? openCatOf.name : ""} onBack={() => { setLesson(null); setAsked(n => n + 1); }} t={t} />;
+  }
+  const openLesson = (i) => setLesson({ id: i.id, item: i, opened: Date.now() });
   const bySafety = (a, b) => (b.safetyCritical ? 1 : 0) - (a.safetyCritical ? 1 : 0);
   const todo = items.filter(i => TRAINING_TODO.indexOf(i.status) !== -1).sort(bySafety);
   const waiting = items.filter(i => i.status === "awaitingTrainer");
@@ -6631,9 +6716,6 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   const done = items.filter(i => i.status === "current");
   const records = (data ? data.records : []).slice().sort((a, b) => (a.completedDate < b.completedDate ? 1 : a.completedDate > b.completedDate ? -1 : 0));
   const docs = data ? data.documentsToSign : [];
-  // The supervisor line stays under To do while one of its items has no
-  // lesson to take, or no tries left on it.
-  const needsSession = todo.some(i => !i.lesson || i.lesson.attemptsLeft === 0);
   const why = (i) => {
     if (i.status === "missing") return tr("Not done yet");
     if (i.status === "expired") return tr("Expired {date}", { date: trainingDay(i.expiresOn) });
@@ -6646,21 +6728,17 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
   const smallSt = { fontSize: 11, color: t.textMut, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
   const lineSt = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" };
-  const goldBtn = { display: "flex", alignItems: "center", justifyContent: "center", minHeight: TAP, padding: "10px 14px", borderRadius: R.md, textDecoration: "none", border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", cursor: "pointer" };
-  const row = (i, group) => (
-    <div key={i.id} data-training-item={i.status} style={{ ...fkRowSt(t), minHeight: TAP }}>
-      <div style={nameSt}>{i.name}</div>
-      {(i.docCode || i.docSection) && <div style={smallSt}>{[i.docCode, i.docSection].filter(Boolean).join(" ")}</div>}
-      {i.siteName && i.status !== "refresherDue" && <div style={lineSt}>{i.siteName}</div>}
-      <div style={{ ...lineSt, color: group === "todo" ? wsLateInk(t) : group === "soon" ? ink(t, ORANGE) : group === "waiting" ? ink(t, BLUE) : ink(t, GREEN), fontWeight: 600 }}>{why(i)}</div>
-      {group === "done" && i.expiresOn && <div style={lineSt}>{tr("Expires {date}", { date: trainingDay(i.expiresOn) })}</div>}
-      {i.lesson && (group === "todo" || group === "soon") && i.lesson.attemptsLeft > 0 && (
+  const goldBtn = trainingGoldBtn;
+  // A lesson's button and the tries left beside it, on a training that
+  // can be started or continued; an outside course's link under it.
+  const lessonPart = (i) => (
+    <div>
+      {trainingTakeable(i) && TRAINING_CAN_START.indexOf(i.status) !== -1 && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
-          <button type="button" data-training-start={i.id} onClick={() => setLesson({ id: i.id, item: i, opened: Date.now() })} style={{ ...goldBtn, flex: "1 1 120px" }}>{i.status === "inProgress" ? tr("Continue the lesson") : tr("Start the lesson")}</button>
+          <button type="button" data-training-start={i.id} onClick={() => openLesson(i)} style={{ ...goldBtn, flex: "1 1 120px" }}>{i.status === "inProgress" ? tr("Continue the lesson") : tr("Start the lesson")}</button>
           <span data-training-tries={i.lesson.attemptsLeft} style={{ ...lineSt, marginTop: 0, flex: "1 1 80px", minWidth: 0 }}>{trainingTries(i.lesson.attemptsLeft)}</span>
         </div>
       )}
-      {i.lesson && (group === "todo" || group === "soon") && i.lesson.attemptsLeft === 0 && <div data-training-tries="0" style={{ ...lineSt, marginTop: 8, fontWeight: 600 }}>{tr("Ask your supervisor for an in-person session.")}</div>}
       {i.linkUrl && (
         <div style={{ marginTop: 10 }}>
           <a href={i.linkUrl} target="_blank" rel="noopener noreferrer" data-training-link={i.id} style={goldBtn}>{tr("Take the course online")}</a>
@@ -6669,59 +6747,177 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
       )}
     </div>
   );
+  const row = (i, group) => (
+    <div key={i.id} data-training-item={i.status} style={{ ...fkRowSt(t), minHeight: TAP }}>
+      <div style={nameSt}>{i.name}</div>
+      {(i.docCode || i.docSection) && <div style={smallSt}>{[i.docCode, i.docSection].filter(Boolean).join(" ")}</div>}
+      {i.siteName && i.status !== "refresherDue" && <div style={lineSt}>{i.siteName}</div>}
+      <div style={{ ...lineSt, color: group === "todo" ? wsLateInk(t) : group === "soon" ? ink(t, ORANGE) : group === "waiting" ? ink(t, BLUE) : ink(t, GREEN), fontWeight: 600 }}>{why(i)}</div>
+      {group === "done" && i.expiresOn && <div style={lineSt}>{tr("Expires {date}", { date: trainingDay(i.expiresOn) })}</div>}
+      {(group === "todo" || group === "soon") && lessonPart(i)}
+      {trainingQuiz(i) && (group === "todo" || group === "soon") && i.lesson.attemptsLeft === 0 && <div data-training-tries="0" style={{ ...lineSt, marginTop: 8, fontWeight: 600 }}>{tr("Ask your supervisor for an in-person session.")}</div>}
+      {!trainingQuiz(i) && !i.linkUrl && group === "todo" && <div data-training-trainer="1" style={{ ...lineSt, marginTop: 8 }}>{tr("Your trainer goes over this one with you.")}</div>}
+      {group !== "todo" && group !== "soon" && i.linkUrl && lessonPart({ ...i, lesson: null })}
+    </div>
+  );
   const head = (word, tag) => <div role="heading" aria-level={3} data-training-group={tag} style={fkHeadSt(t)}>{tr(word)}</div>;
-  return (
-    <div data-training="1" style={{ padding: "14px 16px 100px" }}>
-      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("My training")}</div>
-      {fault && <ListFault icon={BookIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />}
-      <div data-training-join="1" style={{ ...fkRowSt(t), marginTop: 8 }}>
-        {!joinOpen && <button type="button" onClick={() => setJoinOpen(true)} style={{ ...wsPlainBtn(t), width: "100%" }}>{tr("Join a session")}</button>}
-        {joinOpen && (
-          <div>
-            <label htmlFor="ocsa-join-code" style={mkLabel(t)}>{tr("Session code")}</label>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input id="ocsa-join-code" value={joinCode} maxLength={12} autoCapitalize="characters" autoCorrect="off" spellCheck={false} placeholder={tr("The code on your trainer's screen")} onChange={e => setJoinCode(e.target.value.replace(/\s+/g, ""))} style={{ ...mkInput(t), flex: 1, minWidth: 0 }} />
-              <button type="button" data-training-join-go="1" disabled={!JOIN_CODE_RE.test(joinCode.trim())} onClick={() => { onAt({ join: joinCode.trim() }); setJoinOpen(false); setJoinCode(""); }} style={{ ...wsMainBtn(t, !JOIN_CODE_RE.test(joinCode.trim())), flex: "none" }}>{tr("Join")}</button>
-            </div>
-          </div>
-        )}
-      </div>
-      {docs.length > 0 && (
+  // The pieces under the list in both layouts: Join a session, Documents
+  // to sign and History.
+  const joinPart = (
+    <div data-training-join="1" style={{ ...fkRowSt(t), marginTop: 8 }}>
+      {!joinOpen && <button type="button" onClick={() => setJoinOpen(true)} style={{ ...wsPlainBtn(t), width: "100%" }}>{tr("Join a session")}</button>}
+      {joinOpen && (
         <div>
-          {head("Documents to sign", "docs")}
-          {docs.map(x => (
-            <div key={x.docCode} data-training-doc={x.docCode} style={{ ...fkRowSt(t), minHeight: TAP }}>
-              <div style={nameSt}>{x.title}</div>
-              <div style={smallSt}>{[x.docCode, x.version ? tr("Version {n}", { n: x.version }) : ""].filter(Boolean).join(", ")}</div>
-              {x.signedVersion && <div style={lineSt}>{tr("You signed version {n}. This one is new.", { n: x.signedVersion })}</div>}
-              <div style={{ display: "flex", marginTop: 10 }}><button type="button" data-training-doc-read={x.docCode} onClick={() => onAt({ doc: x })} style={goldBtn}>{tr("Read and sign")}</button></div>
-            </div>
-          ))}
+          <label htmlFor="ocsa-join-code" style={mkLabel(t)}>{tr("Session code")}</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input id="ocsa-join-code" value={joinCode} maxLength={12} autoCapitalize="characters" autoCorrect="off" spellCheck={false} placeholder={tr("The code on your trainer's screen")} onChange={e => setJoinCode(e.target.value.replace(/\s+/g, ""))} style={{ ...mkInput(t), flex: 1, minWidth: 0 }} />
+            <button type="button" data-training-join-go="1" disabled={!JOIN_CODE_RE.test(joinCode.trim())} onClick={() => { onAt({ join: joinCode.trim() }); setJoinOpen(false); setJoinCode(""); }} style={{ ...wsMainBtn(t, !JOIN_CODE_RE.test(joinCode.trim())), flex: "none" }}>{tr("Join")}</button>
+          </div>
         </div>
       )}
+    </div>
+  );
+  const docsPart = docs.length > 0 && (
+    <div>
+      {head("Documents to sign", "docs")}
+      {docs.map(x => (
+        <div key={x.docCode} data-training-doc={x.docCode} style={{ ...fkRowSt(t), minHeight: TAP }}>
+          <div style={nameSt}>{x.title}</div>
+          <div style={smallSt}>{[x.docCode, x.version ? tr("Version {n}", { n: x.version }) : ""].filter(Boolean).join(", ")}</div>
+          {x.signedVersion && <div style={lineSt}>{tr("You signed version {n}. This one is new.", { n: x.signedVersion })}</div>}
+          <div style={{ display: "flex", marginTop: 10 }}><button type="button" data-training-doc-read={x.docCode} onClick={() => onAt({ doc: x })} style={goldBtn}>{tr("Read and sign")}</button></div>
+        </div>
+      ))}
+    </div>
+  );
+  const historyPart = records.length > 0 && (
+    <div>
+      {head("History", "history")}
+      {records.map(r => (
+        <div key={r.id} data-training-record={r.id} style={{ ...fkRowSt(t), minHeight: TAP }}>
+          <div style={nameSt}>{r.name}</div>
+          <div style={lineSt}>{[trainingDay(r.completedDate), r.siteName, TRAINING_GIVEN_IN[r.locale] ? TRAINING_GIVEN_IN[r.locale]() : ""].filter(Boolean).join(", ")}</div>
+          {r.certificate && <div data-training-certificate={r.id} style={{ ...lineSt, color: ink(t, GREEN), fontWeight: 600 }}>{tr("Certificate on file")}</div>}
+        </div>
+      ))}
+    </div>
+  );
+  const title = <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("My training")}</div>;
+  const faultPart = fault && <ListFault icon={BookIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />;
+  // A category page: the category's modules in the order answered, each
+  // with its status chip, the site on a per-site item, Start or Continue
+  // where a lesson exists, the outside course's link, and the checklist
+  // that signs a waiting module off.
+  if (openCatOf) {
+    const c = openCatOf;
+    const modules = items.filter(i => i.category === c.key);
+    return (
+      <div data-training-page={c.key} style={{ padding: "14px 16px 100px" }}>
+        <WsBack label={tr("My training")} onBack={closeCat} t={t} />
+        <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{c.name}</div>
+        <div style={{ ...lineSt, marginTop: 2, marginBottom: 8 }}>{tr("{done} of {required} done", { done: c.done, required: c.required })}</div>
+        <TrainingBar done={c.done} required={c.required} t={t} />
+        {faultPart}
+        <div style={{ marginTop: 14 }}>
+          {modules.map(i => {
+            const chip = trainingChip(i);
+            return (
+              <div key={i.id} data-training-module={i.status} data-training-chip={chip.tag} style={{ ...fkRowSt(t), minHeight: TAP }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={nameSt}>{i.name}</div>
+                    {(i.docCode || i.docSection) && <div style={smallSt}>{[i.docCode, i.docSection].filter(Boolean).join(" ")}</div>}
+                    {i.siteName && <div style={lineSt}>{i.siteName}</div>}
+                  </div>
+                  <span style={trainingChipSt(t, chip.color)}>{tr(chip.word)}</span>
+                </div>
+                {i.status === "expired" && i.expiresOn && <div style={lineSt}>{tr("Expired {date}", { date: trainingDay(i.expiresOn) })}</div>}
+                {(i.status === "dueSoon" || i.status === "current") && i.expiresOn && <div style={lineSt}>{tr("Expires {date}", { date: trainingDay(i.expiresOn) })}</div>}
+                {i.status === "current" && i.completedDate && <div style={lineSt}>{tr("Done {date}", { date: trainingDay(i.completedDate) })}</div>}
+                {chip.trainer && <div data-training-trainer="1" style={lineSt}>{tr("Your trainer goes over this one with you.")}</div>}
+                {chip.tag === "waiting" && i.signoffBy && <div data-training-signoff={i.signoffBy.topicId} style={{ ...lineSt, color: ink(t, BLUE), fontWeight: 600 }}>{tr("Your trainer signs this off in the {name} checklist.", { name: i.signoffBy.name })}</div>}
+                {lessonPart(i)}
+              </div>
+            );
+          })}
+          {modules.length === 0 && <div style={wsQuiet(t)}>{tr("Nothing is required for your role yet.")}</div>}
+        </div>
+      </div>
+    );
+  }
+  if (portal) {
+    const required = cats.reduce((n, c) => n + c.required, 0), doneAll = cats.reduce((n, c) => n + c.done, 0);
+    const nameOf = (topicId) => { const i = items.find(x => x.topicId === topicId); return i ? i.name : ""; };
+    // The module Continue opens: the item it names, or one built from the
+    // answer when the list does not hold it.
+    const go = data.continue;
+    const goItem = go ? (() => {
+      const found = items.find(i => i.topicId === go.topicId && (i.siteId || "") === (go.siteId || "")) || items.find(i => i.topicId === go.topicId) || null;
+      const standIn = { id: go.topicId + ":" + go.siteId, topicId: go.topicId, siteId: go.siteId, name: go.name, docCode: "", docSection: "", safetyCritical: false, siteName: "", status: go.attemptId ? "inProgress" : "missing", completedDate: "", expiresOn: "", linkUrl: "", attemptId: go.attemptId, lesson: null, category: go.category, sortOrder: null, needsTrainer: false, signoffBy: null };
+      const base = found || standIn;
+      return base.lesson ? base : { ...base, lesson: { versionId: go.versionId, kind: "", attemptsUsed: 0, attemptsLeft: 1 } };
+    })() : null;
+    return (
+      <div data-training="portal" style={{ padding: "14px 16px 100px" }}>
+        {title}
+        {faultPart}
+        {cats.length > 0 && (
+          <div data-training-overall={doneAll + "/" + required} style={{ ...fkRowSt(t), marginTop: 8 }}>
+            <div style={{ ...nameSt, marginBottom: 8 }}>{tr("{done} of {required} trainings done", { done: doneAll, required: required })}</div>
+            <TrainingBar done={doneAll} required={required} t={t} />
+          </div>
+        )}
+        {go && (
+          <div data-training-continue={go.attemptId ? "continue" : "start"} style={{ ...fkRowSt(t), border: "1px solid " + t.goldBorder }}>
+            <div style={mkLabel(t)}>{tr("Continue where you left off")}</div>
+            <div style={nameSt}>{go.name}</div>
+            {go.categoryName && <div style={lineSt}>{go.categoryName}</div>}
+            <div style={{ display: "flex", marginTop: 10 }}><button type="button" data-training-continue-go={goItem.id} onClick={() => openLesson(goItem)} style={goldBtn}>{go.attemptId ? tr("Continue the lesson") : tr("Start the lesson")}</button></div>
+          </div>
+        )}
+        {cats.length > 0 && (
+          <div data-training-cards={cats.length} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8, marginTop: 4 }}>
+            {cats.map(c => {
+              const all = c.required > 0 && c.done >= c.required;
+              const next = c.nextTopicId ? nameOf(c.nextTopicId) : "";
+              return (
+                <button key={c.key} type="button" data-training-category={c.key} data-training-category-done={all ? "1" : "0"} onClick={() => openCat(c.key)} style={{ ...fkRowSt(t), marginBottom: 0, minHeight: TAP, textAlign: "left", cursor: "pointer", color: t.text, fontFamily: FONT_BODY, display: "flex", flexDirection: "column", alignItems: "stretch", gap: 6 }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+                    <div style={{ ...nameSt, flex: 1, minWidth: 0 }}>{c.name}</div>
+                    {all && <CheckIco sz={18} c={ink(t, GREEN)} role="img" aria-label={tr("Done")} style={{ flexShrink: 0 }} />}
+                  </div>
+                  <div style={{ ...lineSt, marginTop: 0 }}>{tr("{done} of {required} done", { done: c.done, required: c.required })}</div>
+                  <TrainingBar done={c.done} required={c.required} t={t} />
+                  {next && <div style={{ ...smallSt, fontSize: 12, marginTop: 0 }}>{tr("Up next: {name}", { name: next })}</div>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {items.length === 0 && docs.length === 0 && <div style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("Nothing is required for your role yet.")}</div>}
+        {docsPart}
+        <div style={{ marginTop: 12 }}>{joinPart}</div>
+        {historyPart}
+      </div>
+    );
+  }
+  return (
+    <div data-training="1" style={{ padding: "14px 16px 100px" }}>
+      {title}
+      {faultPart}
+      {joinPart}
+      {docsPart}
       {items.length === 0 && docs.length === 0 && <div style={wsQuiet(t)}>{tr("Nothing is required for your role yet.")}</div>}
       {todo.length > 0 && (
         <div>
           {head("To do", "todo")}
           {todo.map(i => row(i, "todo"))}
-          {needsSession && <div style={{ ...smallSt, fontSize: 12, marginTop: 4, marginBottom: 8 }}>{tr("Your supervisor sets up these sessions. Ask them when the next one is.")}</div>}
         </div>
       )}
       {waiting.length > 0 && <div>{head("Waiting for your trainer", "waiting")}{waiting.map(i => row(i, "waiting"))}</div>}
       {soon.length > 0 && <div>{head("Coming due", "soon")}{soon.map(i => row(i, "soon"))}</div>}
       {done.length > 0 && <div>{head("Done", "done")}{done.map(i => row(i, "done"))}</div>}
-      {records.length > 0 && (
-        <div>
-          {head("History", "history")}
-          {records.map(r => (
-            <div key={r.id} data-training-record={r.id} style={{ ...fkRowSt(t), minHeight: TAP }}>
-              <div style={nameSt}>{r.name}</div>
-              <div style={lineSt}>{[trainingDay(r.completedDate), r.siteName, TRAINING_GIVEN_IN[r.locale] ? TRAINING_GIVEN_IN[r.locale]() : ""].filter(Boolean).join(", ")}</div>
-              {r.certificate && <div data-training-certificate={r.id} style={{ ...lineSt, color: ink(t, GREEN), fontWeight: 600 }}>{tr("Certificate on file")}</div>}
-            </div>
-          ))}
-        </div>
-      )}
+      {historyPart}
     </div>
   );
 }
@@ -7011,46 +7207,43 @@ function DocumentReader({ token, doc, onBack, onSigned, t }) {
   );
 }
 
-// Before you start (Step 264, the contract's section 5): opened once a day
-// after sign-in while GET /api/training/me answers a document to sign or
-// a first-day training, with Later to go on to the app. Each line opens
-// its place in My training.
-const BEFORE_YOU_START_KEY = "ocsa-before-you-start:";
-const beforeShownToday = (userId) => { try { return window.localStorage.getItem(BEFORE_YOU_START_KEY + String(userId || "")) === ymdLocal(todayLocal()); } catch (e) { return true; } };
-const markBeforeShown = (userId) => { try { window.localStorage.setItem(BEFORE_YOU_START_KEY + String(userId || ""), ymdLocal(todayLocal())); } catch (e) {} };
-function BeforeYouStartSheet({ training, onDocument, onLesson, onClose, t }) {
+// Your first trainings (Step 264, the Step 262 contract's section 5, and
+// the owner's change of October 6): a card at the top of Home while GET
+// /api/training/me answers a document to sign or a first-day training
+// the person can do now, a lesson with tries left. Nothing opens by
+// itself, every tab works under it, and it stays until its list is
+// empty. A first-day training with no lesson is left off; My training
+// still lists it.
+const firstTrainingsOf = (training) => (training ? training.firstDay.filter(i => trainingTakeable(i) && TRAINING_CAN_START.indexOf(i.status) !== -1) : []);
+function FirstTrainingsCard({ training, onDocument, onLesson, t }) {
   const docs = training ? training.documentsToSign : [];
-  const first = training ? training.firstDay : [];
-  const rowSt = { ...fkRowSt(t), display: "flex", alignItems: "center", gap: 10 };
+  const first = firstTrainingsOf(training);
+  if (docs.length === 0 && first.length === 0) return null;
+  // The button sits beside the name where both fit, and under it on a
+  // narrow phone, so a long name never breaks letter by letter.
+  const rowSt = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "8px 0", borderTop: "1px solid " + t.border };
   const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
   const lineSt = { fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const btnSt = { ...wsMainBtn(t, false), flex: "0 0 auto", fontSize: 13, padding: "0 12px" };
   return (
-    <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 410, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div role="dialog" aria-modal="true" aria-labelledby="ocsa-before-title" data-before-you-start="1" onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, maxHeight: "calc(var(--ocsa-dvh, 100dvh) * 0.9)", display: "flex", flexDirection: "column", borderRadius: R.lg + "px " + R.lg + "px 0 0", border: "1px solid " + t.borderSolid, borderBottom: "none" }}>
-        <div style={{ padding: "14px 16px 10px", flexShrink: 0 }}>
-          <div id="ocsa-before-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Before you start")}</div>
-          <div style={lineSt}>{tr("A few things come first. Each takes a few minutes on this phone.")}</div>
+    <div style={{ padding: "16px 16px 0" }}>
+      <div data-first-trainings={docs.length + first.length} style={{ ...fkRowSt(t), marginBottom: 0, border: "1px solid " + t.goldBorder }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+          <BookIco sz={20} c={t.goldText} style={{ flexShrink: 0 }} />
+          <div role="heading" aria-level={2} style={{ ...nameSt, flex: 1, minWidth: 0 }}>{tr("Your first trainings")}</div>
         </div>
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 8px" }}>
-          {docs.length > 0 && <div style={fkHeadSt(t)}>{tr("Documents to sign")}</div>}
-          {docs.map(x => (
-            <div key={x.docCode} data-before-doc={x.docCode} style={rowSt}>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={nameSt}>{x.title}</div><div style={lineSt}>{x.docCode}</div></div>
-              <button type="button" onClick={() => onDocument(x)} style={{ ...wsMainBtn(t, false), flex: "none" }}>{tr("Read and sign")}</button>
-            </div>
-          ))}
-          {first.length > 0 && <div style={fkHeadSt(t)}>{tr("Your first trainings")}</div>}
-          {first.map(i => (
-            <div key={i.id} data-before-item={i.id} style={rowSt}>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={nameSt}>{i.name}</div>{(i.docCode || i.docSection) && <div style={lineSt}>{[i.docCode, i.docSection].filter(Boolean).join(" ")}</div>}</div>
-              {i.lesson && i.lesson.attemptsLeft > 0 && <button type="button" onClick={() => onLesson(i)} style={{ ...wsMainBtn(t, false), flex: "none" }}>{tr("Start the lesson")}</button>}
-              {(!i.lesson || i.lesson.attemptsLeft === 0) && <div style={{ ...lineSt, flex: "none", maxWidth: "45%" }}>{tr("Your supervisor sets up these sessions. Ask them when the next one is.")}</div>}
-            </div>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 8, padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
-          <button type="button" data-before-later="1" onClick={onClose} style={wsPlainBtn(t)}>{tr("Later")}</button>
-        </div>
+        {docs.map(x => (
+          <div key={x.docCode} data-first-doc={x.docCode} style={rowSt}>
+            <div style={{ flex: "1 1 150px", minWidth: 0 }}><div style={nameSt}>{x.title}</div><div style={lineSt}>{x.docCode}</div></div>
+            <button type="button" onClick={() => onDocument(x)} style={btnSt}>{tr("Read and sign")}</button>
+          </div>
+        ))}
+        {first.map(i => (
+          <div key={i.id} data-first-item={i.id} style={rowSt}>
+            <div style={{ flex: "1 1 150px", minWidth: 0 }}><div style={nameSt}>{i.name}</div>{(i.docCode || i.docSection) && <div style={lineSt}>{[i.docCode, i.docSection].filter(Boolean).join(" ")}</div>}</div>
+            <button type="button" onClick={() => onLesson(i)} style={btnSt}>{i.status === "inProgress" ? tr("Continue the lesson") : tr("Start the lesson")}</button>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -7072,6 +7265,14 @@ function trainingLessonOf(d) {
   const locales = (Array.isArray(l.locales) ? l.locales : []).filter(x => typeof x === "string" && Object.prototype.hasOwnProperty.call(LANGUAGE_NAMES, x));
   const blocks = (Array.isArray(l.blocks) ? l.blocks : []).map((b, i) => {
     if (!b || typeof b !== "object") return null;
+    // A picture (Step 267, the Step 266 contract's section 4): its src, a
+    // signed address or a data URL, with alt and a caption in the
+    // lesson's language. The stored drawing or path never arrives.
+    if (b.kind === "image") {
+      const pic = typeof b.src === "string" ? b.src.trim() : "";
+      if (!/^(https:\/\/|data:image\/)/i.test(pic)) return null;
+      return { key: trainingId(b, ["key"]) || "b" + i, kind: "image", src: pic, alt: lessonText(b.alt, locale), caption: lessonText(b.caption, locale), text: "", items: [], source: "" };
+    }
     const items = (Array.isArray(b.items) ? b.items : []).map(x => lessonText(x, locale)).filter(Boolean);
     const text = lessonText(b.text, locale);
     if (!text && items.length === 0) return null;
@@ -7087,8 +7288,18 @@ function trainingLessonOf(d) {
   }).filter(Boolean);
   if (questions.length === 0) return null;
   const used = trainingNum(l.attemptsUsed), left = trainingNum(l.attemptsLeft), pass = trainingNum(l.passPercent);
-  return { versionId: trainingId(l, ["versionId"]), version: trainingNum(l.version), title: lessonText(l.title, locale), locale: locale, locales: locales.length > 0 ? locales : [locale], blocks: blocks, questions: questions, acknowledgement: lessonText(l.acknowledgement, locale), passPercent: pass === null ? 80 : pass, needsTrainer: l.needsTrainer === true, attemptsUsed: used === null ? 0 : Math.max(0, used), attemptsLeft: left === null ? 0 : Math.max(0, left) };
+  return { versionId: trainingId(l, ["versionId"]), version: trainingNum(l.version), title: lessonText(l.title, locale), locale: locale, locales: locales.length > 0 ? locales : [locale], blocks: blocks, questions: questions, acknowledgement: lessonText(l.acknowledgement, locale), passPercent: pass === null ? 80 : pass, needsTrainer: l.needsTrainer === true, attemptsUsed: used === null ? 0 : Math.max(0, used), attemptsLeft: left === null ? 0 : Math.max(0, left),
+    // A safety lesson read for a Spanish reader whose Spanish is not
+    // checked yet (the Step 266 contract's section 5): answered in
+    // English, with a fixed line in Spanish over the reading.
+    spanishHeld: l.spanishHeld === true };
 }
+// The line over a lesson answered with spanishHeld, in Spanish whatever
+// the screen's language, since it is written for the Spanish reader. The
+// API as built (Step 266) answers the key false on every lesson: the
+// owner withdrew the held case on October 6, and Spanish is offered the
+// moment every text has it. The line is drawn only if that changes.
+const LESSON_SPANISH_HELD = "Esta lecci\u00f3n de seguridad se muestra en ingl\u00e9s. Su entrenador la repasa con usted en espa\u00f1ol.";
 
 // One lesson, from Start to Done. Start posts an attempt (an open one is
 // answered instead of a new one), the reading is drawn in the person's
@@ -7097,7 +7308,7 @@ function trainingLessonOf(d) {
 // and a pass is signed. Nothing of it is kept on the phone: leaving the
 // screen drops every answer, and Continue starts the questions over on
 // the same open attempt. A refusal reads in the API's words.
-function TrainingLesson({ token, item, siteId, onBack, t }) {
+function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
   const [phase, setPhase] = useState("loading");
   const [attempt, setAttempt] = useState(null);
   const [les, setLes] = useState(null);
@@ -7110,10 +7321,20 @@ function TrainingLesson({ token, item, siteId, onBack, t }) {
   const [outcome, setOutcome] = useState(null);
   // Bumped by Try again and by Read it again: a fresh attempt and reading.
   const [asked, setAsked] = useState(0);
+  // A picture open full screen (Step 267), and the pictures that did not
+  // load, which show their alt text in a box instead.
+  const [picture, setPicture] = useState(null);
+  const [broken, setBroken] = useState({});
   const live = useRef(true);
   useEffect(() => () => { live.current = false; }, []);
   useBusy("training lesson", phase === "ask" || phase === "sign" || busy);
   useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [phase, qi]);
+  useEffect(() => {
+    if (!picture) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setPicture(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [picture]);
   const readLesson = async (locale) => trainingLessonOf(await api("/api/training/lesson-versions/" + encodeURIComponent(item.lesson.versionId) + "?locale=" + encodeURIComponent(locale), { token }));
   useEffect(() => {
     let on = true;
@@ -7172,7 +7393,9 @@ function TrainingLesson({ token, item, siteId, onBack, t }) {
       if (live.current) setFault(fkFaultWords(err, "This was not signed. Try again."));
     } finally { if (live.current) setBusy(false); }
   };
-  const back = <WsBack label={tr("My training")} onBack={onBack} t={t} />;
+  // Back goes to My training, or to the category page the lesson was
+  // opened from (Step 267), named on the way back.
+  const back = <WsBack label={backLabel || tr("My training")} onBack={onBack} t={t} />;
   const titleSt = { fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
   const smallSt = { fontSize: 11, color: t.textMut, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
   const bodySt = { fontSize: 15, color: t.text, lineHeight: 1.55, overflowWrap: "anywhere", fontFamily: FONT_BODY };
@@ -7185,7 +7408,7 @@ function TrainingLesson({ token, item, siteId, onBack, t }) {
   ) : null;
   // In its own row: the screen is a flex column, and a button set straight
   // in it would grow to fill the screen.
-  const backBtn = <div style={{ display: "flex", marginTop: 12 }}><button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Back to My training")}</button></div>;
+  const backBtn = <div style={{ display: "flex", marginTop: 12 }}><button type="button" onClick={onBack} style={wsPlainBtn(t)}>{backLabel ? tr("Back") : tr("Back to My training")}</button></div>;
   const head = (
     <div>
       {back}
@@ -7216,9 +7439,19 @@ function TrainingLesson({ token, item, siteId, onBack, t }) {
             </div>
           </div>
         )}
+        {les.spanishHeld && <div data-lesson-held="1" lang="es" style={{ ...fkRowSt(t), marginTop: 12, marginBottom: 0, border: "1px solid " + GOLD, background: t.goldBg, fontSize: 14, color: t.text, lineHeight: 1.45, fontFamily: FONT_BODY, overflowWrap: "anywhere" }}>{LESSON_SPANISH_HELD}</div>}
         {fault && <WsFault text={fault} t={t} />}
         <div style={{ marginTop: 14 }}>
-          {les.blocks.map(b => (
+          {les.blocks.map(b => (b.kind === "image" ? (
+            <figure key={b.key} data-lesson-block="image" data-lesson-picture-state={broken[b.key] ? "missing" : "shown"} style={{ margin: "0 0 14px" }}>
+              {broken[b.key]
+                ? <div role="img" aria-label={b.alt} style={{ ...wsQuiet(t), marginBottom: 0, textAlign: "left", color: t.text, fontFamily: FONT_BODY, fontSize: 14, lineHeight: 1.45, overflowWrap: "anywhere" }}>{b.alt}</div>
+                : <button type="button" aria-label={b.alt} onClick={() => setPicture(b)} style={{ display: "block", width: "100%", padding: 0, border: "none", background: "transparent", cursor: "zoom-in", borderRadius: R.md }}>
+                  <img src={b.src} alt={b.alt} onError={() => setBroken(x => ({ ...x, [b.key]: true }))} style={{ display: "block", width: "100%", maxWidth: "100%", height: "auto", borderRadius: R.md, border: "1px solid " + t.borderSolid }} />
+                </button>}
+              {b.caption && <figcaption style={{ ...smallSt, fontSize: 12, marginTop: 6 }}>{b.caption}</figcaption>}
+            </figure>
+          ) : (
             <div key={b.key} data-lesson-block={b.kind} style={b.kind === "warning"
               ? { display: "flex", gap: 10, alignItems: "flex-start", padding: "12px", marginBottom: 12, borderRadius: R.md, background: ORANGE + "18", border: "1px solid " + ORANGE + "60" }
               : { marginBottom: 14 }}>
@@ -7229,11 +7462,22 @@ function TrainingLesson({ token, item, siteId, onBack, t }) {
                 {b.source && <div style={{ ...smallSt, marginTop: 4 }}>{b.source}</div>}
               </div>
             </div>
-          ))}
+          )))}
         </div>
         <div style={{ display: "flex", marginTop: 8 }}>
           <button type="button" data-lesson-next="read" disabled={busy} onClick={() => { setQi(0); setPhase("ask"); }} style={wsMainBtn(t, busy)}>{tr("Next")}</button>
         </div>
+        {picture && (
+          <div data-lesson-picture="1" role="dialog" aria-modal="true" aria-label={picture.alt} onClick={() => setPicture(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 420, background: "rgba(0,0,0,0.92)", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", padding: "calc(10px + env(safe-area-inset-top, 0px)) 12px 6px", flexShrink: 0 }}>
+              <button type="button" data-lesson-picture-close="1" onClick={() => setPicture(null)} style={{ ...wsPlainBtn(t), flex: "none", color: "#FFFFFF", border: "1px solid rgba(255,255,255,0.6)" }}>{tr("Close")}</button>
+            </div>
+            <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 12px" }}>
+              <img src={picture.src} alt={picture.alt} onClick={e => e.stopPropagation()} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: R.sm }} />
+            </div>
+            {picture.caption && <div style={{ padding: "8px 16px calc(14px + env(safe-area-inset-bottom, 0px))", color: "#FFFFFF", fontSize: 13, lineHeight: 1.4, textAlign: "center", fontFamily: FONT_BODY, overflowWrap: "anywhere", flexShrink: 0 }}>{picture.caption}</div>}
+          </div>
+        )}
       </div>
     );
   }
@@ -7306,7 +7550,7 @@ function TrainingLesson({ token, item, siteId, onBack, t }) {
   return (
     <div data-lesson="done" data-lesson-waiting={outcome && outcome.waiting ? "1" : "0"} style={{ padding: "16px 16px 100px" }}>
       {head}
-      <div role="heading" aria-level={2} style={{ ...titleSt, marginTop: 14, color: outcome && outcome.waiting ? ink(t, BLUE) : ink(t, GREEN) }}>{outcome && outcome.waiting ? tr("Waiting for your trainer. Show them you can do it, and they sign it off.") : tr("Done. It is on your record.")}</div>
+      <div role="heading" aria-level={2} style={{ ...titleSt, marginTop: 14, color: outcome && outcome.waiting ? ink(t, BLUE) : ink(t, GREEN) }}>{outcome && outcome.waiting ? (item.signoffBy ? tr("Your trainer signs this off in the {name} checklist.", { name: item.signoffBy.name }) : tr("Waiting for your trainer. Show them you can do it, and they sign it off.")) : tr("Done. It is on your record.")}</div>
       {scoreLines}
       {backBtn}
     </div>
@@ -7670,8 +7914,10 @@ const NOTIF_TAB = {
   // An inspection finding (Step 255): Report, with that finding in view.
   inspection_finding: "issues",
   // A training record about to expire (Step 258): My training. A lesson
-  // failed on its last try (Step 261): My training too. A lesson waiting
-  // for a trainer: the field kit, on Sign off training.
+  // failed on its last try (Step 261): My training too. Since Step 267
+  // both open the training portal, on the topic's category page when the
+  // notice names a topic the list holds. A lesson waiting for a trainer:
+  // the field kit, on Sign off training.
   training_expiring: "training",
   training_reteach: "training",
   training_signoff: "fieldkit",
@@ -7679,6 +7925,9 @@ const NOTIF_TAB = {
   training_join: "training",
   // A document to read and sign (Step 264): My training, on its reader.
   document_to_sign: "training",
+  // A training category's page, /training/c/<key> (Step 267): the portal's
+  // own address, never a notice the API sends.
+  training_category: "training",
   chat: "chat",
   chat_mention: "chat",
   announcement: "announcement",
@@ -7698,6 +7947,10 @@ function notifPlace(subjectType, subjectId) {
   if (subjectType === "training_signoff") return { tab: tab, signoff: true };
   if (subjectType === "training_join") return id ? { tab: tab, join: id } : null;
   if (subjectType === "document_to_sign") return { tab: tab, doc: id };
+  if (subjectType === "training_category") return id ? { tab: tab, category: id } : null;
+  // A training notice naming a topic, or an attempt on one (Step 267):
+  // the portal, on that topic's category page when the item is known.
+  if (subjectType === "training_expiring" || subjectType === "training_reteach") return id ? { tab: tab, topic: id } : { tab: tab };
   return { tab: tab };
 }
 const NOTIF_PAGE = 30;

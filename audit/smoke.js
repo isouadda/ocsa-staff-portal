@@ -71,7 +71,20 @@
 //     the trainer; a supervisor's Home card counts it, Sign off training
 //     lists it, the tick is asked for, the API's refusal reads in the
 //     sheet, and the sign-off takes it off the list (English alone)
-//   - Step 264: Before you start at boot on a document to sign; a session
+//   - The training portal (Step 267): with categories in GET
+//     /api/training/me, My training draws the overall progress, Continue
+//     where you left off and the three category cards, two a row at 390
+//     and one at 320; the safety card opens its page at /training/c/safety
+//     with the modules in order and their chips; Start on the ladders
+//     lesson reads it with a drawing (an SVG src) and a photo (a PNG src
+//     from a signed address) both decoded, a tap opens the picture full
+//     screen and Close closes it, and in Spanish the held line shows over
+//     the English reading; Back returns to the category page and the
+//     phone's back to the portal; the old layout stays where categories
+//     is absent (the My training check above). English at 390, Spanish
+//     at 320.
+//   - Step 264: Your first trainings on Home, with the document to sign
+//     and the first-day training that has a lesson; a session
 //     joined from /join/<code> with the understood tick and a signature,
 //     the same code saying already signed in, a wrong code saying not
 //     open; a document read section by section with its contents list
@@ -98,7 +111,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, STAFF } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, STAFF } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -901,7 +914,7 @@ async function training(browser, language) {
   const offered = await tapMore(page, say(language, "My training"));
   const want = {
     groups: "todo|soon|done|history", items: "missing|expired|missing|refresherDue|dueSoon|current", records: "tr-6|tr-8",
-    words: [say(language, "To do"), say(language, "Coming due"), say(language, "Done"), say(language, "History"), say(language, "Your supervisor sets up these sessions. Ask them when the next one is."),
+    words: [say(language, "To do"), say(language, "Coming due"), say(language, "Done"), say(language, "History"), say(language, "Your trainer goes over this one with you."),
       say(language, "Not done yet"), say(language, "Refresher due at {site}", { site: "North Building" }), say(language, "Given in English"), say(language, "Given in Spanish"), "OCSA-HR-009 3", TRAINING_ME.items[0].name,
       say(language, "Take the course online"), say(language, "When you finish, give your certificate to the office.")],
     link: TRAINING_ME.items[1].linkUrl,
@@ -922,7 +935,7 @@ async function training(browser, language) {
   const offered2 = await tapMore(none.page, say(language, "My training"));
   const quiet = offered2 && await waitFor(none.page, (w) => { const c = document.querySelector('[data-training="1"]'); return !!c && c.innerText.indexOf(w) !== -1 && c.querySelectorAll("[data-training-group]").length === 0; }, say(language, "Nothing is required for your role yet."));
   await none.context.close();
-  check("My training under More draws To do with the safety-critical ones first and the supervisor line, Coming due, Done and History newest first with the language each was given in, from GET /api/training/me, one Take the course online link opening the item's linkUrl in a new tab with the certificate line under it, with no sideways scroll; a person with nothing required reads so (" + language + ")",
+  check("My training under More draws To do with the safety-critical ones first and the trainer line on a training with no lesson, Coming due, Done and History newest first with the language each was given in, from GET /api/training/me, one Take the course online link opening the item's linkUrl in a new tab with the certificate line under it, with no sideways scroll; a person with nothing required reads so (" + language + ")",
     offered && drawn && wide <= 1 && asked >= 1 && quiet && app.errors.length === 0 && none.errors.length === 0,
     !offered ? "no My training under More" : !drawn ? "the screen did not read as expected" : wide > 1 ? wide + " pixels sideways" : !asked ? "the route was not asked" : !quiet ? "the nothing-required line did not show alone" : (app.errors[0] || none.errors[0]));
 }
@@ -1028,19 +1041,34 @@ async function lessons(browser) {
 // title and a topic, shows its code and QR, reads one sign-in arriving,
 // and closes it with a signature; Watch and sign off picks a person and
 // their observation checklist, names an unticked step, ticks every step,
-// takes the person's signature, then the trainer's sign-off. Before you
-// start opens at boot on a document to sign, Read and sign opens the
+// takes the person's signature, then the trainer's sign-off. Your first
+// trainings (the owner's change of October 6, Step 267) is a card at the
+// top of Home with the document to sign and the first-day training that
+// has a lesson, and not the one without; the tab bar and Home's training
+// card answer taps while it shows. Read and sign on the card opens the
 // reader, Next walks its three sections, the signature is sent with the
-// version read, and My training no longer lists the document.
+// version read, and My training and the card no longer list the document.
 async function step264(browser) {
   const language = "en";
   const prefs = { language: language, textSize: "standard" };
   // Joining a session.
   const app = await open({ training: true, documents: true, accountPreferences: prefs }, { browser, language, signedIn: true, path: "/join/" + TRAINING_SESSION_SEED.joinCode });
   const page = app.page;
-  // Before you start opens first on a document to sign: Later goes on.
-  const before = await waitFor(page, () => !!document.querySelector('[data-before-you-start="1"]') && !!document.querySelector('[data-before-doc="' + "OCSA-HR-002" + '"]'));
-  if (before) await page.click('[data-before-later="1"]');
+  // Your first trainings on Home: the document and tp-1, never tp-3,
+  // which has no lesson; Tasks and Home answer taps under it, and so
+  // does Home's trainings-to-do card.
+  const card = await waitFor(page, () => { const c = document.querySelector('[data-first-trainings="2"]'); return !!c && !!c.querySelector('[data-first-doc="OCSA-HR-002"]') && !!c.querySelector('[data-first-item="tp-1:"]') && !c.querySelector('[data-first-item="tp-3:"]') && !document.querySelector('[role="dialog"]'); });
+  let under = false;
+  if (card) {
+    await tapBar(page, 2);
+    const tasks = await waitFor(page, (w) => !document.querySelector("[data-first-trainings]") && document.querySelector(".sp-content").innerText.indexOf(w) === -1, say(language, "Your first trainings"));
+    await tapBar(page, 0);
+    const home = await waitFor(page, () => !!document.querySelector('[data-first-trainings="2"]') && !!document.querySelector('[data-training-card="todo"]'));
+    if (home) await page.click('[data-training-card="todo"]');
+    const listed = home && await waitFor(page, () => !!document.querySelector('[data-training="1"]'));
+    under = tasks && home && listed;
+  }
+  const before = card && under;
   await page.goto(BASE + "/join/" + TRAINING_SESSION_SEED.joinCode, { waitUntil: "domcontentloaded" });
   const opened = await waitFor(page, (w) => { const c = document.querySelector('[data-join="open"]'); return !!c && window.location.pathname === "/" && c.innerText.indexOf(w.title) !== -1 && c.innerText.indexOf(w.trainer) !== -1 && !!c.querySelector('[data-join-topic="tp-2"]') && !!c.querySelector('[data-join-signature="1"] canvas'); }, { title: TRAINING_SESSION_SEED.title, trainer: say(language, "Trainer: {name}", { name: TRAINING_SESSION_SEED.trainerName }) });
   let held = false, signedIn = false, again = false, notOpen = false;
@@ -1059,18 +1087,18 @@ async function step264(browser) {
   const joins = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/training/join/" + TRAINING_SESSION_SEED.joinCode);
   const joinSent = joins.length === 1 && joins[0].body && joins[0].body.understood === true && joins[0].signature && joins[0].signature.bytes > 0;
   const wide = await sideways(page);
-  check("Join a session: Before you start opens first and Later goes on; /join/<code> opens the session with its title, trainer and topic, the understood tick is asked for, the signature drawn is sent once with understood true, the person reads that they are signed in, the same code says they already signed in, and a wrong code says the session is not open, with no sideways scroll (en)",
+  check("Join a session: Your first trainings on Home lists the document and the first-day training with a lesson, not the one without, and Tasks, Home and Home's trainings card answer taps under it; /join/<code> opens the session with its title, trainer and topic, the understood tick is asked for, the signature drawn is sent once with understood true, the person reads that they are signed in, the same code says they already signed in, and a wrong code says the session is not open, with no sideways scroll (en)",
     before && opened && held && signedIn && again && notOpen && joinSent && wide <= 1 && app.errors.length === 0,
-    !before ? "Before you start did not open on the document" : !opened ? "the join screen did not open as expected" : !held ? "the tick line did not show" : !signedIn ? "the signed-in line did not show" : !again ? "the already-signed line did not show" : !notOpen ? "the not-open line did not show" : !joinSent ? JSON.stringify(joins.map(c => c.body)) : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+    !card ? "Your first trainings did not show on Home as expected" : !under ? "the tabs or the trainings card did not answer under the card" : !opened ? "the join screen did not open as expected" : !held ? "the tick line did not show" : !signedIn ? "the signed-in line did not show" : !again ? "the already-signed line did not show" : !notOpen ? "the not-open line did not show" : !joinSent ? JSON.stringify(joins.map(c => c.body)) : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
   await app.context.close();
 
   // A document read and signed, from My training.
   const doc = await open({ training: true, documents: true, accountPreferences: prefs }, { browser, language, signedIn: true });
   const p2 = doc.page;
-  const sheet = await waitFor(p2, () => !!document.querySelector('[data-before-you-start="1"]'));
-  if (sheet) await p2.evaluate(() => { const r = document.querySelector('[data-before-doc="OCSA-HR-002"]'); const b = r && r.querySelector("button"); if (b) b.click(); });
-  const reading = sheet && await waitFor(p2, (w) => { const c = document.querySelector('[data-doc="read"]'); return !!c && c.getAttribute("data-doc-section") === "1" && c.innerText.indexOf(w.title) !== -1 && c.innerText.indexOf(w.first) !== -1 && !!c.querySelector('[data-doc-next="2"]') && !document.querySelector('[data-before-you-start="1"]'); }, { title: TRAINING_DOCUMENT.title, first: TRAINING_DOCUMENT.sections[0].title });
-  let contents = false, signedDoc = false, gone = false;
+  const sheet = await waitFor(p2, () => !!document.querySelector('[data-first-doc="OCSA-HR-002"] button'));
+  if (sheet) await p2.click('[data-first-doc="OCSA-HR-002"] button');
+  const reading = sheet && await waitFor(p2, (w) => { const c = document.querySelector('[data-doc="read"]'); return !!c && c.getAttribute("data-doc-section") === "1" && c.innerText.indexOf(w.title) !== -1 && c.innerText.indexOf(w.first) !== -1 && !!c.querySelector('[data-doc-next="2"]'); }, { title: TRAINING_DOCUMENT.title, first: TRAINING_DOCUMENT.sections[0].title });
+  let contents = false, signedDoc = false, gone = false, cardGone = false;
   if (reading) {
     await p2.click('[data-doc-contents="1"]');
     contents = await waitFor(p2, () => document.querySelectorAll("[data-doc-jump]").length === 3);
@@ -1085,13 +1113,15 @@ async function step264(browser) {
     signedDoc = await waitFor(p2, (w) => { const c = document.querySelector('[data-doc="done"]'); return !!c && c.innerText.indexOf(w) !== -1; }, say(language, "Signed. It is on your record."));
     await clickWord(p2, say(language, "Back to My training"));
     gone = await waitFor(p2, () => { const c = document.querySelector('[data-training="1"]'); return !!c && !c.querySelector("[data-training-doc]") && !!c.querySelector('[data-training-certificate="tr-6"]'); });
+    await tapBar(p2, 0);
+    cardGone = await waitFor(p2, () => !!document.querySelector('[data-first-trainings="1"]') && !document.querySelector("[data-first-doc]") && !!document.querySelector('[data-first-item="tp-1:"]'));
   }
   const acks = doc.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/documents/OCSA-HR-002/acknowledge");
   const ackSent = acks.length === 1 && acks[0].body && acks[0].body.version === TRAINING_DOCUMENT.version && acks[0].body.locale === "en" && acks[0].signature && acks[0].signature.bytes > 0;
   const wide2 = await sideways(p2);
-  check("Documents to sign: Read and sign from Before you start opens the reader on section 1, Contents lists the three sections and jumps to one, Next reaches the signature, Sign sends the version read and the signature drawn once, Signed. It is on your record. shows, and My training then lists no document and says Certificate on file on the record with one, with no sideways scroll (en)",
-    sheet && reading && contents && signedDoc && gone && ackSent && wide2 <= 1 && doc.errors.length === 0,
-    !sheet ? "Before you start did not open" : !reading ? "the reader did not open on section 1" : !contents ? "Contents did not list three sections" : !signedDoc ? "the signed line did not show" : !gone ? "My training still lists the document, or no Certificate on file" : !ackSent ? JSON.stringify(acks.map(c => c.body)) : wide2 > 1 ? wide2 + " pixels sideways" : doc.errors[0]);
+  check("Documents to sign: Read and sign on Home's Your first trainings card opens the reader on section 1, Contents lists the three sections and jumps to one, Next reaches the signature, Sign sends the version read and the signature drawn once, Signed. It is on your record. shows, My training then lists no document and says Certificate on file on the record with one, and the card keeps only the lesson, with no sideways scroll (en)",
+    sheet && reading && contents && signedDoc && gone && cardGone && ackSent && wide2 <= 1 && doc.errors.length === 0,
+    !sheet ? "Your first trainings did not list the document" : !reading ? "the reader did not open on section 1" : !contents ? "Contents did not list three sections" : !signedDoc ? "the signed line did not show" : !gone ? "My training still lists the document, or no Certificate on file" : !cardGone ? "the Home card still lists the document, or lost the lesson" : !ackSent ? JSON.stringify(acks.map(c => c.body)) : wide2 > 1 ? wide2 + " pixels sideways" : doc.errors[0]);
   await doc.context.close();
 
   // The supervisor: a session started and closed, and a checklist signed off.
@@ -1160,6 +1190,73 @@ async function step264(browser) {
     tiles && picked && named && handed && personSigned && signedOff && obsSent && wide3 <= 1 && sup.errors.length === 0,
     !tiles ? "the tiles did not show" : !picked ? "the checklist list did not read as expected" : !named ? "the unticked steps were not named" : !handed ? "the person's signature screen did not show" : !personSigned ? "the trainer's sheet did not open" : !signedOff ? "the signed-off line did not show" : !obsSent ? JSON.stringify({ obs, steps, pSign: pSign.length, offs: offs.length }) : wide3 > 1 ? wide3 + " pixels sideways" : sup.errors[0]);
   await sup.context.close();
+}
+
+// The training portal (Step 267): categories answered by the stub draw
+// the overall progress, Continue where you left off and three cards, two
+// a row at 390 wide and one at 320; the safety card opens its page with
+// its modules and chips at /training/c/safety; the ladders lesson draws
+// its drawing and its photo, both decoded, the photo from the signed
+// address; a tap opens the picture full screen; in Spanish the held line
+// shows over the English reading; Back returns to the category page and
+// the phone's back to the portal.
+async function trainingPortal(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const app = await open({ training: true, trainingPortal: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  const offered = await tapMore(page, say(language, "My training"));
+  const catName = (key) => TRAINING_CATEGORIES.find(c => c.key === key)[language];
+  const want = {
+    overall: say(language, "{done} of {required} trainings done", { done: 2, required: 6 }), go: say(language, "Continue where you left off"), goName: TRAINING_ME.items[0].name, goCat: catName("safety"), start: say(language, "Start the lesson"),
+    cards: "start_here|safety|other", dones: "1|0|0", safety: say(language, "{done} of {required} done", { done: 1, required: 3 }), next: say(language, "Up next: {name}", { name: TRAINING_ME.items[0].name }), names: [catName("start_here"), catName("safety"), catName("other")], twoARow: width >= 390,
+  };
+  const drawn = offered && await waitFor(page, (w) => {
+    const c = document.querySelector('[data-training="portal"]');
+    if (!c) return false;
+    const text = c.innerText;
+    const cards = Array.from(c.querySelectorAll("[data-training-category]"));
+    if (cards.length !== 3) return false;
+    const tops = cards.map(b => Math.round(b.getBoundingClientRect().top));
+    const rows = w.twoARow ? tops[0] === tops[1] && tops[2] > tops[0] : tops[0] < tops[1] && tops[1] < tops[2];
+    const go = c.querySelector('[data-training-continue="start"]');
+    // The label over Continue is drawn in capitals, so it is read that way.
+    return !!c.querySelector('[data-training-overall="2/6"]') && text.indexOf(w.overall) !== -1 && !!go && go.innerText.toUpperCase().indexOf(w.go.toUpperCase()) !== -1 && go.innerText.indexOf(w.goName) !== -1 && go.innerText.indexOf(w.goCat) !== -1 && !!go.querySelector("[data-training-continue-go]") && go.querySelector("[data-training-continue-go]").innerText.trim() === w.start
+      && cards.map(b => b.getAttribute("data-training-category")).join("|") === w.cards && cards.map(b => b.getAttribute("data-training-category-done")).join("|") === w.dones && rows && cards[1].innerText.indexOf(w.safety) !== -1 && cards[1].innerText.indexOf(w.next) !== -1 && w.names.every(n => text.indexOf(n) !== -1)
+      && !!c.querySelector('[data-training-join="1"]') && !!c.querySelector('[data-training-group="history"]') && !c.querySelector("[data-training-group='todo']");
+  }, want);
+  const wide = await sideways(page);
+  if (drawn) await page.click('[data-training-category="safety"]');
+  const pageDrawn = drawn && await waitFor(page, (w) => { const c = document.querySelector('[data-training-page="safety"]'); return !!c && window.location.pathname === "/training/c/safety" && Array.from(c.querySelectorAll("[data-training-chip]")).map(x => x.getAttribute("data-training-chip")).join("|") === "todo|todo|soon" && Array.from(c.querySelectorAll("[data-training-chip] span")).some(x => x.innerText.trim() === w.soon) && !!c.querySelector('[data-training-bar="1/3"]') && !!c.querySelector('[data-training-start="tp-2:"]'); }, { soon: say(language, "Expires soon") });
+  const wide2 = pageDrawn ? await sideways(page) : 0;
+  if (pageDrawn) await page.click('[data-training-start="tp-2:"]');
+  const reading = pageDrawn && await waitFor(page, (w) => {
+    const c = document.querySelector('[data-lesson="read"]');
+    if (!c) return false;
+    const blocks = Array.from(c.querySelectorAll("[data-lesson-block]")).map(x => x.getAttribute("data-lesson-block")).join("|");
+    const imgs = Array.from(c.querySelectorAll('[data-lesson-block="image"] img'));
+    const held = c.querySelector('[data-lesson-held="1"]');
+    return blocks === "text|warning|image|image" && imgs.length === 2 && imgs.every(i => i.complete && i.naturalWidth > 0 && i.getBoundingClientRect().width > 200 && i.alt.length > 0) && imgs[0].getAttribute("src").indexOf("data:image/svg+xml;base64,") === 0 && imgs[1].getAttribute("src").indexOf(w.host + "/api/lesson-images/signed/") === 0 && c.innerText.indexOf(w.caption) !== -1 && (w.held ? !!held && held.innerText.indexOf("se muestra en ingl") !== -1 : !held);
+  }, { host: LESSON_IMAGE_HOST, caption: TRAINING_LESSONS[1].blocks[2].caption.en, held: language === "es" });
+  const wide3 = reading ? await sideways(page) : 0;
+  let full = false, closed = false, backToPage = false, backToPortal = false;
+  if (reading) {
+    await page.click('[data-lesson-block="image"] button');
+    full = await waitFor(page, () => { const d = document.querySelector('[data-lesson-picture="1"]'); const i = d && d.querySelector("img"); return !!i && i.complete && i.naturalWidth > 0 && !!d.querySelector('[data-lesson-picture-close="1"]'); });
+    await page.click('[data-lesson-picture-close="1"]');
+    closed = await waitFor(page, () => !document.querySelector('[data-lesson-picture="1"]'));
+    await clickWord(page, catName("safety"));
+    backToPage = await waitFor(page, () => !!document.querySelector('[data-training-page="safety"]'));
+    await page.goBack();
+    backToPortal = await waitFor(page, () => !!document.querySelector('[data-training="portal"]') && window.location.pathname === "/");
+  }
+  const calls = app.stub.state.calls;
+  const reads = calls.filter(c => c.method === "GET" && c.path === "/api/training/lesson-versions/lv-2").map(c => c.search);
+  const photos = calls.filter(c => c.method === "GET" && c.path.indexOf("/api/lesson-images/signed/") === 0);
+  const sent = reads.length === 1 && reads[0] === "?locale=" + language && photos.length === 1;
+  check("The training portal: My training draws 2 of 6 trainings done, Continue where you left off on the first module with Start the lesson, and three category cards in order with their counts, bars, Up next and the check mark on the done one, " + (width >= 390 ? "two" : "one") + " a row; the safety card opens its page at /training/c/safety with its three modules and chips in order; Start on the ladders lesson draws its drawing and its photo, both decoded, the photo from the signed address, " + (language === "es" ? "with the held Spanish line over the English reading" : "with no held line") + "; a tap opens the picture full screen and Close closes it; Back returns to the category page and the phone's back to the portal, with no sideways scroll" + tag,
+    drawn && pageDrawn && reading && full && closed && backToPage && backToPortal && sent && wide <= 1 && wide2 <= 1 && wide3 <= 1 && app.errors.length === 0,
+    !offered ? "no My training under More" : !drawn ? "the portal did not draw as expected" : !pageDrawn ? "the category page did not draw as expected" : !reading ? "the lesson did not draw its pictures as expected" : !full ? "the picture did not open full screen" : !closed ? "Close did not close the picture" : !backToPage ? "Back did not return to the category page" : !backToPortal ? "the phone's back did not return to the portal" : !sent ? JSON.stringify({ reads, photos: photos.length }) : Math.max(wide, wide2, wide3) > 1 ? Math.max(wide, wide2, wide3) + " pixels sideways" : app.errors[0]);
+  await app.context.close();
 }
 
 // The supply page (Step 252): signed out, the sheet in the page and Sign
@@ -1232,6 +1329,8 @@ async function largest(browser) {
     await guard("My training", () => training(browser, "en"));
     await guard("Online lessons", () => lessons(browser));
     await guard("Step 264", () => step264(browser));
+    await guard("the training portal (en)", () => trainingPortal(browser, "en", 390));
+    await guard("the training portal (es)", () => trainingPortal(browser, "es", 320));
     await guard("the supply page", () => supplyPage(browser, "en"));
     await guard("French", () => french(browser));
     await guard("the Largest text size", () => largest(browser));
