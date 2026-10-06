@@ -563,6 +563,24 @@ const HELP_ANSWERS = {
   unknown: { pieces: ["I do not have a writ", "ten procedure for that. Ask your super", "visor."], noProcedure: true },
   // The first try at an answer the API throws away and writes again.
   firstTry: { pieces: ["Mop the spill right aw", "ay with any mop."] },
+  // A how-to answer drawn from the app guide (Step 276 in the API), with
+  // the pictures its cited entries name: the portal's own, and one of
+  // the dashboard's, which the portal leaves to the dashboard.
+  howTo: {
+    pieces: ["Open the staff po", "rtal and type your badge num", "ber and your PIN.\n1. Tap **Sig", "n In**."],
+    piecesEs: ["Abra el portal del per", "sonal y escriba su n\u00famero de empl", "eado y su PIN.\n1. Toque **Inic", "iar sesi\u00f3n**."],
+    citedDocs: ["APP-PORTAL", "APP-DASHBOARD"],
+    pictures: [
+      { app: "portal", name: "sign-in", entry: "Sign in to the staff portal (staff portal)" },
+      { app: "dashboard", name: "sign-in", entry: "Sign in to the dashboard (dashboard)" },
+    ],
+  },
+  // One whose picture has no file in any language, which is left out.
+  noFile: {
+    pieces: ["Open the staff po", "rtal and type your badge num", "ber and your PIN.\n1. Tap **Sig", "n In**."],
+    citedDocs: ["APP-PORTAL"],
+    pictures: [{ app: "portal", name: "no-such-picture", entry: "An entry whose picture was never taken (staff portal)" }],
+  },
 };
 const helpReply = (a) => a.pieces.join("");
 // The refusals a case can ask Help for, each a sentence the API writes.
@@ -1892,6 +1910,7 @@ const TWIN_PAIRS = [
   ["Take the pads from the second floor store room.", "Tome los pa\u00f1os del almac\u00e9n del segundo piso."],
   // Help's other answers, the procedure one cites, and its refusals.
   [helpReply(HELP_ANSWERS.spill), HELP_ANSWERS.spill.piecesEs.join("")],
+  [helpReply(HELP_ANSWERS.howTo), HELP_ANSWERS.howTo.piecesEs.join("")],
   ["I started an incident report for you. Tell me when it happened.", "Empec\u00e9 un reporte de incidente para usted. D\u00edgame cu\u00e1ndo pas\u00f3."],
   ["I do not have a written procedure for that. Ask your supervisor.", "No tengo un procedimiento escrito para eso. Pregunte a su supervisor."],
   ["Mop the spill right away with any mop.", "Trapee el derrame de inmediato con cualquier trapeador."],
@@ -2335,6 +2354,9 @@ function createStub(opts) {
     const done = Object.assign({
       messageId: messageId, reply: reply, conversationId: state.conversationId,
       citedDocs: next.citedDocs || answer.citedDocs || [], degraded: !!answer.degraded, noProcedure: !!answer.noProcedure,
+      // Step 276: the pictures of the guide entries the answer cites,
+      // none for an answer that cites none.
+      pictures: (answer.pictures || []).map(x => Object.assign({}, x)),
     }, next.citedNames ? { citedNames: next.citedNames } : {}, answer.formResponse ? { formResponse: answer.formResponse } : {});
     if (next.error) steps.push({ event: "error", data: { error: next.error.error, status: next.error.status } });
     else if (next.drop) steps.push({ drop: true });
@@ -2343,7 +2365,7 @@ function createStub(opts) {
     // dropped connection still finishes the answer and keeps it; an error
     // keeps nothing.
     state.stored.push({ role: "user", text: body && typeof body.text === "string" ? body.text : "", at: 0 });
-    const kept = { id: messageId, role: "assistant", text: reply, citedDocs: done.citedDocs, citedNames: next.citedNames || null, degraded: done.degraded, noProcedure: done.noProcedure, feedback: null, at: Infinity };
+    const kept = { id: messageId, role: "assistant", text: reply, citedDocs: done.citedDocs, citedNames: next.citedNames || null, pictures: done.pictures, degraded: done.degraded, noProcedure: done.noProcedure, feedback: null, at: Infinity };
     if (!next.error) state.stored.push(kept);
     state.help.holds = holds;
     return {
@@ -2967,7 +2989,7 @@ function createStub(opts) {
       const now = Date.now();
       const messages = pathname.split("/").pop() === state.conversationId
         ? state.stored.filter(m => m.at <= now).map(m => (m.role === "assistant"
-          ? Object.assign({ id: m.id, role: m.role, text: m.text, citedDocs: m.citedDocs, degraded: m.degraded, noProcedure: m.noProcedure, feedback: m.feedback ? Object.assign({}, m.feedback) : null }, m.citedNames ? { citedNames: m.citedNames } : {})
+          ? Object.assign({ id: m.id, role: m.role, text: m.text, citedDocs: m.citedDocs, pictures: (m.pictures || []).map(x => Object.assign({}, x)), degraded: m.degraded, noProcedure: m.noProcedure, feedback: m.feedback ? Object.assign({}, m.feedback) : null }, m.citedNames ? { citedNames: m.citedNames } : {})
           : { role: m.role, text: m.text }))
         : [];
       messages.forEach((m) => { if (m.role === "assistant") recordWord(m.text, "Help reply"); });

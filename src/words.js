@@ -458,6 +458,7 @@ export const WORDS = {
   // Help
   "Add a photo": "Agregar una foto",
   "Based on": "Seg\u00fan",
+  "Picture of the screen": "Imagen de la pantalla",
   "Describe what happened": "Describa lo que pas\u00f3",
   "Discard": "Descartar",
   "Discard this report? It will not be sent.": "\u00bfDescartar este reporte? No se enviar\u00e1.",
@@ -1688,6 +1689,7 @@ WORDS.fr = {
   // Help
   "Add a photo": "Ajouter une photo",
   "Based on": "D'apr\u00e8s",
+  "Picture of the screen": "Image de l'\u00e9cran",
   "Describe what happened": "D\u00e9crivez ce qui s'est pass\u00e9",
   "Discard": "Abandonner",
   "Discard this report? It will not be sent.": "Abandonner ce rapport\u00a0? Il ne sera pas envoy\u00e9.",

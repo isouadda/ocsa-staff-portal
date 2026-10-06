@@ -468,8 +468,12 @@ const SHOTS = [
     } },
 
   // Help.
+  // A how-to answer, with the picture of the screen Help draws under it.
   { name: "help-answer", entry: E("Ask Help a question"), o: { signedIn: true },
-    go: (s) => asked(s, s.language === "es" ? "\u00bfQu\u00e9 hago con un derrame?" : "What do I do about a spill?") },
+    go: async (s) => {
+      if (!(await asked(s, s.language === "es" ? "\u00bfC\u00f3mo inicio sesi\u00f3n?" : "How do I sign in?", "howTo"))) return false;
+      return s.waitFor(() => { const i = document.querySelector("[data-help-picture] img"); return !!i && i.complete && i.naturalWidth > 0; });
+    } },
   { name: "help-photo", entry: E("Send Help a photo"), o: { signedIn: true },
     go: async (s) => {
       if (!(await s.go("Help"))) return false;

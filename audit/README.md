@@ -12,7 +12,11 @@ build and the guide check. It builds nothing: it serves the `build/` that
 newer than that build. It drives the portal at 390 wide against the stub,
 in English and Spanish: a cleaner signs in, every bar tab and every More
 item opens with no page error and no sideways scroll, Start Shift's
-screen draws, a form opens, Help answers; `/sds` draws with no sign-in
+screen draws, a form opens, Help answers; under a how-to answer Help
+draws the picture of the screen from the screen's language's file, opens
+it full screen and closes it, draws none under an answer with none, leaves
+out a picture with no file, and draws it on an answer read back (Step 277);
+`/sds` draws with no sign-in
 (English alone, since that check reads the API's sheet names);
 the sign-in code screen appears when the stub answers `secondStep`; a
 cleaner never asks for `/api/workspace` and a supervisor sees Workspace;
@@ -77,7 +81,11 @@ off. Each check prints one line, PASS or FAIL, and the command exits
 non-zero on any failure or when the run takes three minutes or more.
 Since Step 258 it waits for each screen to be there rather than sleeping
 a fixed time after every load and tap, and a run takes about 100 seconds;
-the three-minute line stays where it was.
+the three-minute line stays where it was. Since Step 277 the training session's
+sign-in arrives by moving the phone's clock on rather than waiting out
+the screen's five-second reads, and Edit shortcuts, opened from More, is
+closed by its own Close, so the rest of a cleaner's run is not tapped
+through it.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
