@@ -7281,6 +7281,14 @@ function trainingLessonOf(d) {
   const locales = (Array.isArray(l.locales) ? l.locales : []).filter(x => typeof x === "string" && Object.prototype.hasOwnProperty.call(LANGUAGE_NAMES, x));
   const blocks = (Array.isArray(l.blocks) ? l.blocks : []).map((b, i) => {
     if (!b || typeof b !== "object") return null;
+    // A picture (Step 267, the Step 266 contract's section 4): its src, a
+    // signed address or a data URL, with alt and a caption in the
+    // lesson's language. The stored drawing or path never arrives.
+    if (b.kind === "image") {
+      const pic = typeof b.src === "string" ? b.src.trim() : "";
+      if (!/^(https:\/\/|data:image\/)/i.test(pic)) return null;
+      return { key: trainingId(b, ["key"]) || "b" + i, kind: "image", src: pic, alt: lessonText(b.alt, locale), caption: lessonText(b.caption, locale), text: "", items: [], source: "" };
+    }
     const items = (Array.isArray(b.items) ? b.items : []).map(x => lessonText(x, locale)).filter(Boolean);
     const text = lessonText(b.text, locale);
     if (!text && items.length === 0) return null;
@@ -7296,8 +7304,15 @@ function trainingLessonOf(d) {
   }).filter(Boolean);
   if (questions.length === 0) return null;
   const used = trainingNum(l.attemptsUsed), left = trainingNum(l.attemptsLeft), pass = trainingNum(l.passPercent);
-  return { versionId: trainingId(l, ["versionId"]), version: trainingNum(l.version), title: lessonText(l.title, locale), locale: locale, locales: locales.length > 0 ? locales : [locale], blocks: blocks, questions: questions, acknowledgement: lessonText(l.acknowledgement, locale), passPercent: pass === null ? 80 : pass, needsTrainer: l.needsTrainer === true, attemptsUsed: used === null ? 0 : Math.max(0, used), attemptsLeft: left === null ? 0 : Math.max(0, left) };
+  return { versionId: trainingId(l, ["versionId"]), version: trainingNum(l.version), title: lessonText(l.title, locale), locale: locale, locales: locales.length > 0 ? locales : [locale], blocks: blocks, questions: questions, acknowledgement: lessonText(l.acknowledgement, locale), passPercent: pass === null ? 80 : pass, needsTrainer: l.needsTrainer === true, attemptsUsed: used === null ? 0 : Math.max(0, used), attemptsLeft: left === null ? 0 : Math.max(0, left),
+    // A safety lesson read for a Spanish reader whose Spanish is not
+    // checked yet (the Step 266 contract's section 5): answered in
+    // English, with a fixed line in Spanish over the reading.
+    spanishHeld: l.spanishHeld === true };
 }
+// The line over a lesson answered with spanishHeld, in Spanish whatever
+// the screen's language, since it is written for the Spanish reader.
+const LESSON_SPANISH_HELD = "Esta lecci\u00f3n de seguridad se muestra en ingl\u00e9s. Su entrenador la repasa con usted en espa\u00f1ol.";
 
 // One lesson, from Start to Done. Start posts an attempt (an open one is
 // answered instead of a new one), the reading is drawn in the person's
@@ -7319,10 +7334,20 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
   const [outcome, setOutcome] = useState(null);
   // Bumped by Try again and by Read it again: a fresh attempt and reading.
   const [asked, setAsked] = useState(0);
+  // A picture open full screen (Step 267), and the pictures that did not
+  // load, which show their alt text in a box instead.
+  const [picture, setPicture] = useState(null);
+  const [broken, setBroken] = useState({});
   const live = useRef(true);
   useEffect(() => () => { live.current = false; }, []);
   useBusy("training lesson", phase === "ask" || phase === "sign" || busy);
   useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [phase, qi]);
+  useEffect(() => {
+    if (!picture) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setPicture(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [picture]);
   const readLesson = async (locale) => trainingLessonOf(await api("/api/training/lesson-versions/" + encodeURIComponent(item.lesson.versionId) + "?locale=" + encodeURIComponent(locale), { token }));
   useEffect(() => {
     let on = true;
@@ -7427,9 +7452,19 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
             </div>
           </div>
         )}
+        {les.spanishHeld && <div data-lesson-held="1" lang="es" style={{ ...fkRowSt(t), marginTop: 12, marginBottom: 0, border: "1px solid " + GOLD, background: t.goldBg, fontSize: 14, color: t.text, lineHeight: 1.45, fontFamily: FONT_BODY, overflowWrap: "anywhere" }}>{LESSON_SPANISH_HELD}</div>}
         {fault && <WsFault text={fault} t={t} />}
         <div style={{ marginTop: 14 }}>
-          {les.blocks.map(b => (
+          {les.blocks.map(b => (b.kind === "image" ? (
+            <figure key={b.key} data-lesson-block="image" data-lesson-picture-state={broken[b.key] ? "missing" : "shown"} style={{ margin: "0 0 14px" }}>
+              {broken[b.key]
+                ? <div role="img" aria-label={b.alt} style={{ ...wsQuiet(t), marginBottom: 0, textAlign: "left", color: t.text, fontFamily: FONT_BODY, fontSize: 14, lineHeight: 1.45, overflowWrap: "anywhere" }}>{b.alt}</div>
+                : <button type="button" aria-label={b.alt} onClick={() => setPicture(b)} style={{ display: "block", width: "100%", padding: 0, border: "none", background: "transparent", cursor: "zoom-in", borderRadius: R.md }}>
+                  <img src={b.src} alt={b.alt} onError={() => setBroken(x => ({ ...x, [b.key]: true }))} style={{ display: "block", width: "100%", maxWidth: "100%", height: "auto", borderRadius: R.md, border: "1px solid " + t.borderSolid }} />
+                </button>}
+              {b.caption && <figcaption style={{ ...smallSt, fontSize: 12, marginTop: 6 }}>{b.caption}</figcaption>}
+            </figure>
+          ) : (
             <div key={b.key} data-lesson-block={b.kind} style={b.kind === "warning"
               ? { display: "flex", gap: 10, alignItems: "flex-start", padding: "12px", marginBottom: 12, borderRadius: R.md, background: ORANGE + "18", border: "1px solid " + ORANGE + "60" }
               : { marginBottom: 14 }}>
@@ -7440,11 +7475,22 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
                 {b.source && <div style={{ ...smallSt, marginTop: 4 }}>{b.source}</div>}
               </div>
             </div>
-          ))}
+          )))}
         </div>
         <div style={{ display: "flex", marginTop: 8 }}>
           <button type="button" data-lesson-next="read" disabled={busy} onClick={() => { setQi(0); setPhase("ask"); }} style={wsMainBtn(t, busy)}>{tr("Next")}</button>
         </div>
+        {picture && (
+          <div data-lesson-picture="1" role="dialog" aria-modal="true" aria-label={picture.alt} onClick={() => setPicture(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 420, background: "rgba(0,0,0,0.92)", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", padding: "calc(10px + env(safe-area-inset-top, 0px)) 12px 6px", flexShrink: 0 }}>
+              <button type="button" data-lesson-picture-close="1" onClick={() => setPicture(null)} style={{ ...wsPlainBtn(t), flex: "none", color: "#FFFFFF", border: "1px solid rgba(255,255,255,0.6)" }}>{tr("Close")}</button>
+            </div>
+            <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 12px" }}>
+              <img src={picture.src} alt={picture.alt} onClick={e => e.stopPropagation()} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: R.sm }} />
+            </div>
+            {picture.caption && <div style={{ padding: "8px 16px calc(14px + env(safe-area-inset-bottom, 0px))", color: "#FFFFFF", fontSize: 13, lineHeight: 1.4, textAlign: "center", fontFamily: FONT_BODY, overflowWrap: "anywhere", flexShrink: 0 }}>{picture.caption}</div>}
+          </div>
+        )}
       </div>
     );
   }
@@ -7517,7 +7563,7 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
   return (
     <div data-lesson="done" data-lesson-waiting={outcome && outcome.waiting ? "1" : "0"} style={{ padding: "16px 16px 100px" }}>
       {head}
-      <div role="heading" aria-level={2} style={{ ...titleSt, marginTop: 14, color: outcome && outcome.waiting ? ink(t, BLUE) : ink(t, GREEN) }}>{outcome && outcome.waiting ? tr("Waiting for your trainer. Show them you can do it, and they sign it off.") : tr("Done. It is on your record.")}</div>
+      <div role="heading" aria-level={2} style={{ ...titleSt, marginTop: 14, color: outcome && outcome.waiting ? ink(t, BLUE) : ink(t, GREEN) }}>{outcome && outcome.waiting ? (item.signoffBy ? tr("Your trainer signs this off in the {name} checklist.", { name: item.signoffBy.name }) : tr("Waiting for your trainer. Show them you can do it, and they sign it off.")) : tr("Done. It is on your record.")}</div>
       {scoreLines}
       {backBtn}
     </div>
