@@ -45,6 +45,60 @@ French screen with since Step 241, read from ocsa-api's
 itself carries Spanish and French accents on purpose; it is the one file
 here, with the CSVs, written in real accented letters.
 
+## Pictures of the screen
+
+Help draws a picture of the screen under an answer that draws on an
+entry with one (Step 277; the API's Step 276). An entry names its
+pictures with up to two lines just before `Last checked:`:
+
+```
+Picture: sign-in
+Last checked: YYYY-MM-DD
+```
+
+Help's sync takes each `Picture:` line out of what Help reads and keeps
+the names beside the entry, so the line itself is never read as a step.
+
+The files live in `public/guide-shots/`, one in English and one in
+Spanish for every name, and the portal serves them from its own address
+as `/guide-shots/<name>.en.jpg` and `/guide-shots/<name>.es.jpg`. A
+screen in any other language shows the English one.
+
+**Taking a picture.** `audit/shots.js` holds one list: each picture's
+name, the entry it belongs to, and how to reach its screen against the
+audit stub. Build first, then take them all or only the ones named:
+
+```
+npm run build
+npm run shots
+npm run shots -- sign-in reset-pin-ask
+```
+
+Each is taken at 390 wide, in the light theme, in both languages, and
+written as a JPEG of at most 250 KB: one over that is written again at a
+lower quality, and only below the lowest is it cut shorter. Every name,
+site and number in a picture is the stub's, so all of it is invented.
+Nothing real ever goes in one. A small control the entry names, such as
+the sign out button, is ringed in red so the picture shows where to tap.
+
+**Naming a picture.** A name is 1 to 60 of `a-z`, `0-9` and `-`, says
+what the screen shows, such as `time-off-request`, and belongs to one
+entry. The script refuses a name twice in its list.
+
+**Every pull request that adds or changes an entry reruns
+`npm run shots` for that entry's pictures** in the same pull request, and
+adds a picture to a new entry with a screen of its own. `audit/shots.js`
+lists the entries left without one and why, and the pull request says
+so. Rebuild after taking pictures, since the smoke check serves a build
+older than `public/`.
+
+`npm run guide-check` fails on an entry naming more than two pictures, a
+line not written `Picture: <name>` with a name in that pattern, a
+`Picture:` line anywhere but just before `Last checked:`, a picture
+whose English or Spanish file is missing, not a JPEG or over 250 KB, two
+entries naming the same picture, and a file in `public/guide-shots/`
+that no entry names.
+
 ## How it reaches Help
 
 The file loads itself into Help on every merge to `main` that changes it.
@@ -75,8 +129,9 @@ What the API does with the file:
 
 `npm run guide-check` reads this file the way the API reads it and fails
 on a first line that does not read, two entries with one title, an entry
-with nothing in it, an email address or a phone number, or a bold pair
-with no matching row in the CSV. A pair the CSV cannot hold goes in
+with nothing in it, an email address or a phone number, a bold pair
+with no matching row in the CSV, or a picture that breaks a rule under
+Pictures of the screen above. A pair the CSV cannot hold goes in
 `check-allow.txt` under a comment line saying why: one the screen composes
 from parts, such as a line with a name filled in, or one the API sends in
 both languages, such as a form's own questions. The same check runs on

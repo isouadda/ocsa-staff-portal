@@ -13,6 +13,12 @@
 //     sideways scroll; every More item opens
 //   - Start Shift's screen draws; a form opens from Forms; Help sends a
 //     question and shows the stub's answer
+//   - Help's pictures of the screen (Step 277): an answer with none draws
+//     none; a how-to answer draws the portal's picture under it from
+//     /guide-shots/<name>.<lang>.jpg in the screen's language, leaves the
+//     dashboard's, opens it full screen and Close closes it; in English,
+//     a picture with no file in any language is left out, and an answer
+//     read back after its connection dropped draws its picture
 //   - /sds draws its list with no sign-in (English alone: the check reads
 //     the API's sheet names, which are the same in every language)
 //   - the sign-in code screen appears when the stub answers secondStep,
@@ -301,6 +307,10 @@ async function cleaner(browser, language) {
     else if (!sheet && !(await contentText(page)).trim()) badMore.push(name + ": nothing drawn");
     // A sheet, such as Edit shortcuts, is closed the way a person closes it.
     if (sheet) { await page.keyboard.press("Escape"); await page.evaluate((w) => { const b = Array.from(document.querySelectorAll('[role="dialog"] button')).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Cancel")); await pause(page, 400); }
+    // Edit shortcuts draws no dialog role, so it is closed by its own
+    // Close (Step 277: it stayed open over the rest of the run, and every
+    // tap after it went to the sheet).
+    else if (await page.evaluate((w) => { const o = Array.from(document.querySelectorAll("div")).find(d => { const c = getComputedStyle(d); return c.position === "fixed" && c.zIndex === "400"; }); const b = o && Array.from(o.querySelectorAll("button")).find(x => x.innerText.trim() === w); if (b) b.click(); return !!b; }, say(language, "Close"))) await pause(page, 300);
   }
   check("every More item opens" + tag + ": " + items.join(", "), items.length > 0 && badMore.length === 0, badMore.join("; ") || "More holds nothing");
   // Step 271: with the signature routes not answering, nothing new shows.
@@ -338,6 +348,7 @@ async function cleaner(browser, language) {
   const answer = HELP_ANSWERS.pads.pieces.join("");
   const answered = typed && await waitFor(page, (w) => document.querySelector(".sp-content").innerText.indexOf(w) !== -1, answer, 8000);
   check("Help sends a question and shows the stub's answer" + tag, answered, typed ? "the answer did not show" : "no box on Help");
+  await helpPictures(app, language, answered);
 
   // The workspace, never asked for by a cleaner.
   const asked = app.stub.state.calls.filter(c => c.path.indexOf("/api/workspace") === 0).map(c => c.method + " " + c.path);
@@ -347,6 +358,61 @@ async function cleaner(browser, language) {
   check("a cleaner sees no Field kit under More and never asks for one of its routes" + tag, items.indexOf(say(language, "Field kit")) === -1 && kitAsked.length === 0, kitAsked.length ? kitAsked.join(", ") : "Field kit is under More");
   check("no page error anywhere on the way" + tag, app.errors.length === 0, app.errors.slice(0, 3).join("; "));
   await app.context.close();
+}
+
+// One more question to Help, on the cleaner's own run, answered the way
+// the case set, written fast; true once the answer is done.
+async function askHelp(app, language, question, next) {
+  const page = app.page;
+  // The answer before it may still be arriving: its words show before it
+  // is done, and the composer waits until it is.
+  await waitFor(page, () => { const box = document.querySelector(".sp-content textarea"); return !!box && !box.disabled; }, null, 8000);
+  app.stub.state.served.add(question);
+  app.stub.state.help.next = Object.assign({ pauseMs: 20 }, next);
+  await page.evaluate((v) => {
+    const box = document.querySelector(".sp-content textarea");
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set.call(box, v);
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  }, question);
+  await pause(page, 100);
+  await page.evaluate((label) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.getAttribute("aria-label") === label && !x.disabled); if (b) b.click(); }, say(language, "Send"));
+  return waitFor(page, (q) => { const box = document.querySelector(".sp-content textarea"); return !!box && !box.disabled && box.value === "" && document.querySelector(".sp-content").innerText.split(q).length > 1; }, question, 8000);
+}
+
+// Pictures of the screen under Help's answer (Step 277), on the
+// cleaner's run: the stub's answer with none draws none; a how-to answer
+// draws the portal's picture under it from the screen's language's file
+// and leaves the dashboard's, the picture opens full screen and Close
+// closes it. In English, a picture with no file in any language is left
+// out, and an answer read back after its connection dropped draws its
+// picture the same way.
+async function helpPictures(app, language, answered) {
+  const page = app.page;
+  const tag = " (" + language + ")";
+  // The stub's answer is done once the composer takes words again.
+  const done = answered && await waitFor(page, () => { const box = document.querySelector(".sp-content textarea"); return !!box && !box.disabled; }, null, 8000);
+  const none = done && await page.evaluate(() => !document.querySelector("[data-help-pictures]"));
+  const one = await askHelp(app, language, language === "es" ? "\u00bfC\u00f3mo inicio sesi\u00f3n?" : "How do I sign in?", Object.assign({ answer: "howTo" }, language === "es" ? { language: "es" } : {}));
+  const file = "/guide-shots/sign-in." + language + ".jpg";
+  const drawn = one && await waitFor(page, (w) => {
+    const b = document.querySelectorAll("[data-help-picture]");
+    const i = b.length === 1 && b[0].getAttribute("data-help-picture") === "sign-in" ? b[0].querySelector("img") : null;
+    return !!i && i.complete && i.naturalWidth > 0 && i.getAttribute("src").slice(-w.file.length) === w.file && i.alt === w.alt && b[0].getAttribute("aria-label") === w.alt;
+  }, { file: file, alt: "Sign in to the staff portal" });
+  if (drawn) await page.click('[data-help-picture="sign-in"]');
+  const full = drawn && await waitFor(page, (w) => { const d = document.querySelector('[role="dialog"][data-help-picture-full="sign-in"]'); const i = d && d.querySelector("img"); return !!i && i.complete && i.naturalWidth > 0 && i.getAttribute("src").slice(-w.length) === w; }, file);
+  if (full) await page.click('[data-help-picture-close="1"]');
+  const closed = full && await waitFor(page, () => !document.querySelector("[data-help-picture-full]"));
+  check("Help draws a guide answer's picture under it from " + file + ", leaves the dashboard's, opens it full screen and Close closes it, and an answer with none draws none" + tag, none && drawn && full && closed && app.errors.length === 0,
+    !none ? "the answer with no pictures drew one" : !one ? "the how-to answer did not show" : !drawn ? "no picture drawn from " + file + " with its title, or more than one" : !full ? "the picture did not open full screen" : !closed ? "Close did not close it" : app.errors[0]);
+  if (language !== "en") return;
+  const missing = await askHelp(app, language, "And the other screen?", { answer: "noFile" });
+  await pause(page, 600);
+  const left = missing && await waitFor(page, () => !document.querySelector('[data-help-picture="no-such-picture"]') && document.querySelectorAll("[data-help-pictures]").length === 1);
+  const again = await askHelp(app, language, "How do I sign in again?", { answer: "howTo", drop: { after: 1 } });
+  const readBack = again && await waitFor(page, () => document.querySelectorAll('[data-help-picture="sign-in"] img').length === 2 && Array.from(document.querySelectorAll('[data-help-picture="sign-in"] img')).every(i => i.complete && i.naturalWidth > 0));
+  check("a picture with no file in any language is left out, and an answer read back after its connection dropped draws its picture" + tag, left && readBack && app.errors.length === 0,
+    !missing ? "the answer did not show" : !left ? "the picture with no file stayed" : !again ? "the dropped answer was not read back" : !readBack ? "the read-back answer drew no picture" : app.errors[0]);
 }
 
 // /sds, with no sign-in.
@@ -1158,6 +1224,10 @@ async function step264(browser) {
       await p3.click('[data-fk-session-start="1"]');
     }
     started = form && await waitFor(p3, () => { const c = document.querySelector('[data-fk-session="open"]'); return !!c && !!c.querySelector("[data-fk-session-code]") && !!c.querySelector("img"); });
+    // The screen reads the sign-ins every five seconds and the stub's
+    // arrives on its second read, so the phone's clock is moved on five
+    // seconds at a time rather than waited out (Step 277).
+    for (let i = 0; started && i < 4 && !(await p3.$('[data-fk-signin="si-arrived"]')); i += 1) { await p3.clock.runFor(5000); await pause(p3, 300); }
     arrived = started && await waitFor(p3, () => !!document.querySelector('[data-fk-signin="si-arrived"]'), null, 12000);
     if (arrived) {
       await p3.click('[data-fk-session-close="1"]');

@@ -8,6 +8,7 @@ Who can do this: anyone with an active account
 4. Tap **Sign In** (**Iniciar sesión**) (**Se connecter**). The first time, with the PIN from your sign-in slip, the app asks you to choose your own PIN (see Choose your own PIN the first time you sign in).
 If it does not work: the reason stays under the PIN box until you type again. "Invalid credentials" ("Los datos para iniciar sesión no son correctos") means the badge, phone or email and the PIN do not match: check both and try again. From the third wrong try in a row, the app adds **After too many wrong tries, sign-in stops for 15 minutes. Ask your trainer for help.** (**Después de demasiados intentos equivocados, el inicio de sesión se detiene por 15 minutos. Pídale ayuda a su capacitador.**) (**Après trop d'essais incorrects, la connexion est bloquée pendant 15 minutes. Demandez de l'aide à votre formateur.**). After ten wrong tries on one badge, phone or email, sign-in answers "Too many tries. Wait 15 minutes, then try again." ("Demasiados intentos. Espere 15 minutos y vuelva a intentarlo."): wait 15 minutes, or ask a supervisor to reset your PIN from the admin dashboard. **Could not reach OCSA. Check your connection and try again.** (**No se pudo conectar con OCSA. Revise su conexión e intente de nuevo.**) (**Impossible de joindre OCSA. Vérifiez votre connexion et réessayez.**) means the phone could not reach OCSA and your PIN is fine: check your signal or Wi-Fi. If your account is new and not yet active, ask your supervisor.
 Words people use for this: cannot log in, cannot get in, my pin does not work, locked out, too many tries, wait 15 minutes, invalid credentials, how do i get into the app, login, could not reach ocsa, no connection, no puedo entrar.
+Picture: sign-in
 Last checked: 2026-10-02
 
 ## Reset a forgotten PIN (staff portal)
@@ -19,6 +20,8 @@ Who can do this: anyone with an account and an email address on file
 5. **PIN saved. Signing you in...** (**PIN guardado. Iniciando su sesión...**) (**Code PIN enregistré. Connexion en cours...**) shows, and the app opens signed in.
 If it does not work: a PIN that is not 4 digits reads **PIN must be exactly 4 digits.** (**El PIN debe tener exactamente 4 dígitos.**) (**Le code PIN doit contenir exactement 4 chiffres.**) under New PIN. When the two boxes differ, **The two PINs do not match. Type the same 4 digits in both fields.** (**Los dos PIN no coinciden. Escriba los mismos 4 dígitos en las dos casillas.**) (**Les deux codes PIN ne correspondent pas. Tapez les mêmes 4 chiffres dans les deux champs.**) shows under **Confirm PIN** (**Confirmar PIN**) (**Confirmer le code PIN**): type the same PIN in both. With no email on file, no link can reach you, as the screen says under the box: **No email on file? A link cannot reach you. Ask your supervisor to reset your PIN.** (**¿No tiene correo registrado? No le puede llegar un enlace. Pida a su supervisor que restablezca su PIN.**) (**Pas de courriel enregistré ? Aucun lien ne peut vous parvenir. Demandez à votre superviseur de réinitialiser votre code PIN.**) Links expire and work only once. An old link reads **This link is no longer valid. Links expire, and each one can only be used once.** (**Este enlace ya no sirve. Los enlaces vencen y cada uno se puede usar una sola vez.**) (**Ce lien n'est plus valable. Les liens expirent et chacun ne peut servir qu'une fois.**) Tap **Request a New Link** (**Pedir un enlace nuevo**) (**Demander un nouveau lien**), or ask your supervisor to reset your PIN from the dashboard.
 Words people use for this: forgot my pin, lost my pin, i need a new pin, locked out, reset link, confirm pin, the pins do not match, no email.
+Picture: reset-pin-ask
+Picture: reset-pin-new
 Last checked: 2026-10-02
 
 ## Register as a new employee (staff portal)
@@ -29,6 +32,7 @@ Who can do this: a new employee without an account
 4. Tap **Register** (**Registrarse**) (**S'inscrire**).
 5. A manager approves your account before you can sign in.
 Words people use for this: i am new, how do i get an account, sign up, create an account.
+Picture: register
 Last checked: 2026-10-02
 
 ## Activate your account from the email (staff portal)
@@ -40,6 +44,7 @@ Who can do this: someone who received an activation email
 5. Tap **Activate Account** (**Activar cuenta**) (**Activer le compte**). **PIN set. Signing you in...** (**PIN guardado. Iniciando su sesión...**) (**Code PIN enregistré. Connexion en cours...**) shows, and the app opens signed in.
 If it does not work: a missing badge number reads **Enter the badge number from your email.** (**Escriba el número de empleado que aparece en su correo.**) (**Entrez le numéro de badge indiqué dans votre courriel.**) A badge number that does not match shows OCSA's reason under the box, and from the third try **Ask your supervisor to confirm your badge number.** (**Pida a su supervisor que confirme su número de empleado.**) (**Demandez à votre superviseur de confirmer votre numéro de badge.**) A PIN the rules turn away says why under it, and two PINs that differ read **The two PINs do not match. Type the same 4 digits in both fields.** (**Los dos PIN no coinciden. Escriba los mismos 4 dígitos en las dos casillas.**) (**Les deux codes PIN ne correspondent pas. Tapez les mêmes 4 chiffres dans les deux champs.**) A used or expired link reads **This link is no longer valid. Links expire, and each one can only be used once.** (**Este enlace ya no sirve. Los enlaces vencen y cada uno se puede usar una sola vez.**) (**Ce lien n'est plus valable. Les liens expirent et chacun ne peut servir qu'une fois.**): ask your supervisor to send a new one. **Your PIN has been saved. Signing in will work once your account is active.** (**Su PIN se guardó. Podrá iniciar sesión cuando su cuenta esté activa.**) (**Votre code PIN est enregistré. Vous pourrez vous connecter quand votre compte sera actif.**) means your supervisor still has to turn your account on.
 Words people use for this: activate my account, activation email, badge number does not match, set up my account, my link does not work, activar cuenta.
+Picture: activate
 Last checked: 2026-10-02
 
 ## Sign out (staff portal)
@@ -47,6 +52,7 @@ Who can do this: anyone signed in
 1. Tap the sign out button at the top right of the screen, next to the gear.
 2. Signing out clears your Help chat from this phone, so the next person to sign in on it starts fresh. Your saved reports stay in your account.
 Words people use for this: log out, sign off, someone else needs the phone, shared phone.
+Picture: sign-out
 Last checked: 2026-10-02
 
 ## Start your shift at a site (staff portal)
@@ -59,6 +65,7 @@ Who can do this: anyone signed in
 Starting a shift here opens your task list. Your hours for pay are recorded on the ADP tablet at the site, so clock in there too. See clocking in on the ADP tablet in the ADP guide.
 If it does not work: if Home says **Your sites did not load.** (**Sus sitios no se cargaron.**) (**Vos sites ne se sont pas chargés.**), check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**) under it. If it says **No sites available yet.** (**Todavía no hay sitios disponibles.**) (**Aucun site disponible pour le moment.**), ask your supervisor to assign you to the site. If a line says **A shift is still open at {site}. End it before starting another.** (**Todavía hay un turno abierto en {site}. Termínelo antes de comenzar otro.**) (**Un service est encore ouvert à {site}. Terminez-le avant d'en commencer un autre.**), a shift of yours is still open at that site: end it on Home first (see End your shift), then start this one. If the shift question says it could not reach OCSA, check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**).
 Words people use for this: clock in, punch in, start work, begin my shift, log my hours, which shift, day shift, night shift, my sites did not load, a shift is still open.
+Picture: start-shift
 Last checked: 2026-10-02
 
 ## Change your shift (staff portal)
@@ -67,6 +74,7 @@ Who can do this: anyone with a shift started at a site that has more than one sh
 2. Under the card at the top, next to your shift's name, tap **Change shift** (**Cambiar turno**) (**Changer de service**).
 3. Tap the shift you are working, then **Use this shift** (**Usar este turno**) (**Choisir ce service**). The list redraws for that shift.
 Words people use for this: wrong shift, switch shift, i am on nights, i am on days, change to night shift, the list shows the wrong shift.
+Picture: change-shift
 Last checked: 2026-10-02
 
 ## End your shift (staff portal)
@@ -78,6 +86,7 @@ Who can do this: anyone with a shift started
 Clock out on the ADP tablet at the site too, since that is where your hours for pay are recorded.
 If it does not work: **This shift was already ended** (**Este turno ya estaba terminado**) (**Ce service était déjà terminé**) means it was ended on another phone or by a supervisor. **Could not find your open shift. Reload and try again.** (**No se encontró su turno abierto. Recargue e intente de nuevo.**) (**Votre service ouvert est introuvable. Rechargez la page et réessayez.**) means the app lost track of it: close the app, open it again and tap **End Shift** (**Terminar turno**) (**Terminer le service**).
 Words people use for this: clock out, punch out, finish work, end my day, end shift question, it asks if i want to end.
+Picture: end-shift
 Last checked: 2026-10-02
 
 ## Check off a task on your checklist (staff portal)
@@ -90,6 +99,7 @@ Who can do this: anyone with a shift started
 How the list is laid out: the list opens on **Today** (**Hoy**) (**Aujourd'hui**), today's work, with each block of work titled with its time first, such as 7:00 PM Restroom Round 1, then each building and floor as before. The percentage on **Your Assignment** (**Su asignación**) (**Votre affectation**), and the count on Home, count only the work due today. Below it, when there is any, come **This week** (**Esta semana**) (**Cette semaine**), **Every two weeks** (**Cada dos semanas**) (**Toutes les deux semaines**), **This month** (**Este mes**) (**Ce mois-ci**), **This quarter** (**Este trimestre**) (**Ce trimestre**) and **This season** (**Esta temporada**) (**Cette saison**), each with its own count, such as 1 of 2 done (1 de 2 hechas). Each task there says how often it comes beside its name: **Weekly** (**Semanal**) (**Hebdomadaire**), **Every two weeks** (**Cada dos semanas**) (**Toutes les deux semaines**), **Monthly** (**Mensual**) (**Mensuel**), **Quarterly** (**Trimestral**) (**Trimestriel**) or **Seasonal** (**De temporada**) (**Saisonnier**). That work stays on the list until anyone at the site does it in its period, and then says who did it and when, such as Done Tuesday by Ana (Hecho el martes por Ana). Last comes **As needed** (**Según se necesite**) (**Selon les besoins**), which is never counted. A task done every other day that was done yesterday shows done and does not count today. A coworker's check today shows Checked by (Marcado por) and their first name. The day's list starts fresh at 4:00 AM, so a night shift's checks after midnight stay on that night's list, and work done before midnight still says Done today (Hecho hoy) until 4:00 AM. Task, zone, shift and block names show in Spanish on a Spanish screen.
 If it does not work: if the list says **Start your shift to see and check off your tasks.** (**Comience su turno para ver y marcar sus tareas.**) (**Commencez votre service pour voir et cocher vos tâches.**), start your shift first. If it says **Your tasks did not load.** (**Sus tareas no cargaron.**) (**Vos tâches ne se sont pas chargées.**), tap **Try again** (**Intentar de nuevo**) (**Réessayer**). With no signal, keep checking: the phone keeps your checks and sends them later (see Check off tasks with no signal).
 Words people use for this: my checklist, my tasks, my list, the list is empty, what do i clean today, whole site checklist, my coworker checked it, weekly tasks, monthly tasks, quarterly, seasonal, how often, weekly, monthly, the percentage is wrong, why is it not 100, it says done yesterday, blue dot, tap the name, task details, touchpoint, high touch, disinfect, critical touchpoint, what does the blue tag mean, what does the red tag mean, punto de contacto, point de contact.
+Picture: tasks
 Last checked: 2026-10-05
 
 ## Uncheck a task checked by mistake (staff portal)
@@ -98,6 +108,7 @@ Who can do this: the person who checked it, the same day
 2. Tap the green box next to the task to uncheck it, or open the task and tap **Uncheck Task** (**Desmarcar tarea**) (**Décocher la tâche**). **Task unchecked** (**Tarea desmarcada**) (**Tâche décochée**) says it was.
 Only a check you made today can be taken back. Tapping a coworker's check leaves it in place and shows **Only the person who checked this can uncheck it.** (**Solo la persona que marcó esta tarea puede desmarcarla.**) (**Seule la personne qui a coché cette tâche peut la décocher.**) under the task; ask them, or your supervisor. Weekly, monthly and other repeating work done on an earlier day cannot be unchecked here.
 Words people use for this: undo a check, i checked the wrong one, uncheck, take back a check.
+Picture: task-uncheck
 Last checked: 2026-10-02
 
 ## See your schedule (staff portal)
@@ -108,6 +119,7 @@ Who can do this: anyone signed in
 4. Tap a row to open it: a shift shows its site, building, floor and times, and a time off row opens the request. A row that also says requested is still waiting for a decision. Tap **Close** (**Cerrar**) (**Fermer**) to go back to the week. The same week on Home works the same way, except that a time off row there opens nothing; use **Schedule** (**Horario**) (**Planning**) for that.
 5. A shift you asked to drop says **Drop requested** (**Pidió dejarlo**) (**Retrait demandé**).
 Words people use for this: what are my hours, when do i work, am i working tomorrow, my shifts, my schedule this week, the boxes are too small, tap the day.
+Picture: schedule
 Last checked: 2026-10-02
 
 ## Request to drop a shift (staff portal)
@@ -120,6 +132,7 @@ Who can do this: anyone with a scheduled shift
 6. Your supervisor reviews it. You get a notice when it is approved or denied.
 7. Until it is decided, the shift says **Drop requested** (**Pidió dejarlo**) (**Retrait demandé**), and opening it says you asked to drop this shift and are waiting for a decision.
 Words people use for this: give away a shift, hand back a shift, swap a shift, need someone to cover a shift i am scheduled for.
+Picture: drop-shift
 Last checked: 2026-10-02
 
 ## Pick up an open shift (staff portal)
@@ -129,6 +142,7 @@ Who can do this: anyone assigned to the site where the shift is open
 3. Tap **Claim This Shift** (**Tomar este turno**) (**Prendre ce service**) on the one you want.
 4. A manager approves it. Claimed shifts show under **My Pickups** (**Los míos**) (**Mes services**), and you get a notice when it is approved.
 Words people use for this: extra hours, extra shift, more work, open shifts, cover a shift, overtime.
+Picture: pickup-available
 Last checked: 2026-10-02
 
 ## Release a shift you picked up (staff portal)
@@ -139,6 +153,7 @@ Who can do this: the person who claimed the shift, while it waits for a manager'
 4. The phone asks **Release this shift? It will go back to the open pool for someone else to claim.** (**¿Soltar este turno? Volverá a la lista abierta para que otra persona lo tome.**) (**Libérer ce service ? Il retournera dans la liste des services libres pour qu'une autre personne le prenne.**) Tap OK. **Shift released** (**Turno soltado**) (**Service libéré**) says it went back.
 Once a manager approves it, the shift says **Approved. You are scheduled for this shift.** (**Aprobado. Está programado para este turno.**) (**Approuvé. Ce service est prévu pour vous.**) and **Release Shift** (**Soltar turno**) (**Libérer le service**) is gone. To give up an approved shift, ask your supervisor.
 Words people use for this: give back a pickup, release a shift, i cannot work the shift i picked up, cancel a pickup, soltar turno.
+Picture: pickup-mine
 Last checked: 2026-10-02
 
 ## Finish a task assigned to you (staff portal)
@@ -149,6 +164,7 @@ Who can do this: the person the task is assigned to
 4. Describe what you did.
 5. Tap **Take Photo of Completed Task** (**Tomar foto de la tarea completada**) (**Prendre une photo de la tâche terminée**) and take the photo. The photo is required.
 6. Tap **Submit Resolution** (**Enviar resolución**) (**Envoyer la résolution**).
+Picture: assigned-task
 Last checked: 2026-10-02
 
 ## Say you cannot finish an assigned task (staff portal)
@@ -158,6 +174,7 @@ Who can do this: the person the task is assigned to
 3. Tap **Cannot Resolve** (**No se puede resolver**) (**Impossible de résoudre**).
 4. Explain why it cannot be completed.
 5. Tap **Submit** (**Enviar**) (**Envoyer**). Your supervisors are told.
+Picture: assigned-cannot
 Last checked: 2026-10-02
 
 ## Report a problem at a site (staff portal)
@@ -170,6 +187,7 @@ Who can do this: anyone signed in. Supervisors and admins also see the list of p
 6. Tap **Submit Issue** (**Enviar problema**) (**Envoyer le problème**). **Issue reported** (**Problema reportado**) (**Problème signalé**) says it went, and the people set to hear about problems are told.
 If it does not work: **Enter issue title** (**Escriba un título para el problema**) (**Entrez un titre pour le problème**) means the title is empty. **Select a site** (**Elija un sitio**) (**Choisissez un site**) means no shift is open and no site was chosen. **Photo must be under 10MB** (**La foto debe pesar menos de 10 MB**) (**La photo doit faire moins de 10 Mo**) means the picture is too large; choose a smaller one.
 Words people use for this: something is broken, report an issue, maintenance problem, report damage, something happened at my site, issues list, where do i pick the site.
+Picture: report-issue
 Last checked: 2026-10-02
 
 ## Request supplies or report damaged gear (staff portal)
@@ -182,6 +200,7 @@ Who can do this: anyone signed in, with or without a shift started
 6. Tap **Submit Request** (**Enviar solicitud**) (**Envoyer la demande**). The form closes, and **Request submitted** (**Solicitud enviada**) (**Demande envoyée**) says it went. You get a notice when it is approved or denied.
 If it does not work: **Select a request type** (**Elija un tipo de solicitud**) (**Choisissez un type de demande**) or **Enter the item name** (**Escriba el nombre del artículo**) (**Entrez le nom de l'article**) says what is missing. If OCSA turns the request away, the reason shows at the top of the screen and the form has closed: tap **+ Request** (**+ Solicitar**) (**+ Demander**) and fill it in again. **Cancel** (**Cancelar**) (**Annuler**) closes the form without sending.
 Words people use for this: i need supplies, out of trash bags, need gloves, order supplies, broken vacuum, need a mop, necesito suministros, pedir suministros.
+Picture: supply-request
 Last checked: 2026-10-02
 
 ## Log supplies you used (staff portal)
@@ -191,6 +210,7 @@ Who can do this: anyone with a shift started
 3. Tap the supply you used.
 4. Set the amount and tap **Log Usage** (**Registrar uso**) (**Noter l'utilisation**).
 5. What you logged this shift shows under **This Shift's Log** (**Registro de este turno**) (**Relevé de ce service**).
+Picture: supply-usage
 Last checked: 2026-10-02
 
 ## Do an inspection assigned to you (staff portal)
@@ -206,6 +226,7 @@ Cards you have scored fold into one group, **Scored** (**Calificados**) (**Noté
 8. Once it is in, the screen shows the score and its band in OCSA's words, for example **Meets the standard.** (**Cumple el estándar.**) (**Atteint la norme.**) or **Below standard. Corrected within three working days.** (**Por debajo del estándar. Se corrige en tres días hábiles.**) (**Sous la norme. Correction sous trois jours ouvrables.**), then each finding OCSA opened: the card, its score, its owner or **No owner yet** (**Sin responsable todavía**) (**Pas encore de responsable**), and when it is due. Below 80 percent it also says **A corrective action is required. The office has been told.** (**Se requiere una acción correctiva. Se avisó a la oficina.**) (**Une mesure corrective est requise. Le bureau a été prévenu.**). Each finding is a ticket with one owner and a due date: the owner is told and marks it **Fixed** (**Arreglado**) (**Réparé**) on their phone (see Fix an inspection finding assigned to you), and a second person checks the fix before it closes. Tap **Done** (**Listo**) (**Terminé**) to go back to the list. Until OCSA opens findings itself, each card marked **Needs a fix** (**Necesita arreglo**) (**À réparer**) is filed as a problem report with its note and first photo, the screen says how many were filed, and one that was not filed is listed with **Try again** (**Intentar de nuevo**) (**Réessayer**).
 If it does not work: **Say what needs fixing** (**Diga qué hay que arreglar**) (**Dites ce qu'il faut réparer**) under a card means it opens a finding and has no note; write one and send again. A reason OCSA gives about a card's finding or its owner shows under that card in OCSA's words.
 Words people use for this: do an inspection, score an inspection, weekly inspection, not due, needs a fix, inspection finding, finding owner, who fixes it, record a fix, scored items, long inspection, jump to a section, too many cards, sign an inspection, inspection photos, signature, firmar la inspección, fotos de la inspección, hallazgo, responsable del hallazgo.
+Picture: inspection-open
 Last checked: 2026-10-05
 
 ## Schedule an inspection from the portal (staff portal)
@@ -216,6 +237,7 @@ Who can do this: anyone an admin has given the permission to schedule inspection
 4. Tap **Schedule Inspection** (**Programar inspección**) (**Planifier une inspection**). **Inspection scheduled** (**Inspección programada**) (**Inspection planifiée**) says it is saved. The inspection is assigned to you and shows under **My Inspections** (**Mis inspecciones**) (**Mes inspections**).
 If it does not work: **Template, site, and date are required** (**Se necesitan la plantilla, el sitio y la fecha**) (**Le modèle, le site et la date sont obligatoires**) means one of the three is missing. If you should have **+ Schedule** (**+ Programar**) (**+ Planifier**) and do not, ask an admin to give you the permission.
 Words people use for this: schedule an inspection, plan an inspection, add an inspection, programar inspección.
+Picture: inspection-schedule
 Last checked: 2026-10-02
 
 ## Send a message in Chat (staff portal)
@@ -227,6 +249,7 @@ Who can do this: anyone signed in
 A number on **Chat** (**Mensajes**) (**Messages**) counts the messages you have not read; each chat shows its own number, and opening it clears it.
 If it does not work: if the arrow stays dim and a tap says **Pick a chat at the top first.** (**Primero elija un chat arriba.**) (**Choisissez d'abord une discussion en haut.**), pick a chat and tap the arrow again. Your words stay in the box. If the message does not go, a line under the box says why, with **Try again** (**Intentar de nuevo**) (**Réessayer**).
 Words people use for this: message my supervisor, text the office, send a message, group chat, site chat, private message, the send button is grey, unread messages, chat, mensajes.
+Picture: chat-site
 Last checked: 2026-10-02
 
 ## When a message in Chat does not go (staff portal)
@@ -236,6 +259,7 @@ Who can do this: anyone signed in
 3. The box holds up to 2,000 characters and takes no more. Split a longer message into two.
 If it does not work: if a chat keeps saying you do not have access to it, or that you cannot send messages in it, ask your supervisor.
 Words people use for this: message not sent, my message did not go, chat not working, message failed, sent twice, no signal in chat, message too long, no access to this chat, cannot send messages in this chat.
+Picture: chat-not-sent
 Last checked: 2026-10-05
 
 ## Find a chat (staff portal)
@@ -246,6 +270,7 @@ Who can do this: anyone signed in
 4. Private chats sit under **Private chats** (**Chats privados**) (**Discussions privées**) in a row you scroll sideways. Yours comes first, **Admin (Private)** (**Administración (privado)**) (**Administration (privé)**), where only you and management read the messages.
 5. At the larger text sizes the chats scroll inside the top of the screen and leave room for the messages and the box.
 Words people use for this: where is my site chat, i cannot find the chat, private chat, chat with the office, all my chats, more chats, direct messages, where is my dm, project chat.
+Picture: chat-list
 Last checked: 2026-10-02
 
 ## Answer a staff member privately in Chat (staff portal)
@@ -255,6 +280,7 @@ Who can do this: every admin and every supervisor, for every staff member
 3. Tap the name, type your reply in the box and tap the arrow beside it.
 To write to a staff member whose chat is not on the list yet, tap **New message** (**Nuevo mensaje**) (**Nouveau message**) (see Start a message to someone in the office or on staff).
 Words people use for this: reply to a staff member, answer a private message, message from a cleaner, staff messages, dm.
+Picture: chat-private
 Last checked: 2026-10-02
 
 ## When Chat shows no chats (staff portal)
@@ -262,6 +288,7 @@ Who can do this: anyone signed in
 1. If Chat says **Your chats did not load. Try again in a minute.** (**Sus chats no cargaron. Intente de nuevo en un minuto.**) (**Vos discussions ne se sont pas chargées. Réessayez dans une minute.**), check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**).
 2. If it says **No chats are set up for you yet. Ask your supervisor.** (**Todavía no hay chats para usted. Pregunte a su supervisor.**) (**Aucune discussion n'est encore prévue pour vous. Demandez à votre superviseur.**), ask your supervisor.
 Words people use for this: chat is empty, no chats, chat will not load, chat keeps loading.
+Picture: chat-none
 Last checked: 2026-10-02
 
 ## Ask Help a question (staff portal)
@@ -271,11 +298,13 @@ Who can do this: anyone signed in
 3. Tap the send arrow beside the box, whose spoken label is **Send** (**Enviar**) (**Envoyer**). Help answers from OCSA's written procedures.
 4. The answer starts to show as soon as Help has found what to go on, and the rest fills in as it is written. Bold words and numbered steps show once it is done. What you typed stays in the box, grayed, until the answer is finished.
 5. Under the answer, a line says what it is based on: **Based on the app guide** (**Según la guía de la aplicación**) (**D'après le guide de l'application**) for steps in the staff portal or the admin dashboard, **Based on the ADP guide** (**Según la guía de ADP**) (**D'après le guide ADP**) for the ADP time clock, **Based on general cleaning guidance** (**Según una guía general de limpieza**) (**D'après un guide général de nettoyage**) for general cleaning answers, and an OCSA document by its name.
-6. Under each answer, **Was this helpful?** (**¿Le sirvió?**) (**Cela vous a aidé ?**) with **Yes** (**Sí**) (**Oui**) and **No** (**No**) (**Non**). Tap Yes if it helped. Tap No, write **What was missing?** (**¿Qué faltó?**) (**Que manquait-il ?**) if you like, and tap **Send** (**Enviar**) (**Envoyer**). **Thanks. This helps Help get better.** (**Gracias. Esto ayuda a mejorar la Ayuda.**) (**Merci. Cela aide à améliorer l'Aide.**) Tap the other choice to change your answer.
+6. When the answer is about a screen of the app, a picture of that screen shows under it, up to two. Tap a picture to see it full screen, then tap **Close** (**Cerrar**) (**Fermer**), or anywhere beside the picture, to go back.
+7. Under each answer, **Was this helpful?** (**¿Le sirvió?**) (**Cela vous a aidé ?**) with **Yes** (**Sí**) (**Oui**) and **No** (**No**) (**Non**). Tap Yes if it helped. Tap No, write **What was missing?** (**¿Qué faltó?**) (**Que manquait-il ?**) if you like, and tap **Send** (**Enviar**) (**Envoyer**). **Thanks. This helps Help get better.** (**Gracias. Esto ayuda a mejorar la Ayuda.**) (**Merci. Cela aide à améliorer l'Aide.**) Tap the other choice to change your answer.
 Help also knows your own schedule: ask "when do I work next?" or "did my time off go through?" and it answers from your shifts and requests.
 If it does not work: if the signal drops while an answer is arriving, what came through stays with **The connection dropped. Your answer is saved.** (**Se perdió la conexión. La respuesta quedó guardada.**) (**La connexion a été coupée. Votre réponse est enregistrée.**) under it, and Help fetches the saved answer by itself. If it cannot yet, tap **Try again** (**Intentar de nuevo**) (**Réessayer**). If the question shows **Not sent.** (**No se envió.**) (**Non envoyé.**), tap **Retry** (**Reintentar**) (**Réessayer**) to ask it again. Retry sends the same question, so a question OCSA already has is answered only once.
-Words people use for this: ask a question, help me, chat with the assistant, ayuda, the answer stopped, lost signal, answered twice, what is the answer based on, where does this come from, rate an answer, when do i work, my schedule, did my time off go through.
-Last checked: 2026-10-02
+Words people use for this: ask a question, help me, chat with the assistant, ayuda, the answer stopped, lost signal, answered twice, what is the answer based on, where does this come from, rate an answer, when do i work, my schedule, did my time off go through, show me the screen, a picture of the screen, screenshot.
+Picture: help-answer
+Last checked: 2026-10-06
 
 ## Send Help a photo (staff portal)
 Who can do this: anyone signed in
@@ -286,6 +315,7 @@ Who can do this: anyone signed in
 5. Tap the send arrow. It lights up once every photo is ready, with or without words.
 If it does not work: a photo that did not go up shows why, such as **Photo upload failed** (**No se pudo subir la foto**) (**L'envoi de la photo a échoué**), with **Try again** (**Intentar de nuevo**) (**Réessayer**) on it. **This photo could not be read here. Choose a JPEG or PNG, or take a screenshot of it.** (**Esta foto no se pudo leer aquí. Elija un JPEG o PNG, o tome una captura de pantalla.**) (**Cette photo ne peut pas être lue ici. Choisissez un JPEG ou un PNG, ou faites une capture d'écran.**) means the phone could not open that picture.
 Words people use for this: send a photo, picture of a label, what is this product, photo did not upload, more than three photos, enviar foto.
+Picture: help-photo
 Last checked: 2026-10-02
 
 ## Fill in a safety incident or biohazard report as a form (staff portal)
@@ -298,6 +328,8 @@ Who can do this: anyone signed in
 6. Tap **Submit report** (**Enviar reporte**) (**Envoyer le rapport**), then **Send it** (**Enviarlo**) (**L'envoyer**). The people who handle these reports are told.
 If it does not work: if it says your answers are not saved yet, check your signal and tap **Next** (**Siguiente**) (**Suivant**) again. If a red line under the sites says that site cannot be used, pick another or ask your supervisor.
 Words people use for this: i got hurt, someone got hurt, injury, accident, blood, needle, spill report, incident, which site, no shift open.
+Picture: forms-list
+Picture: form-which-site
 Last checked: 2026-10-02
 
 ## Fill in the daily service log (staff portal)
@@ -310,6 +342,7 @@ Who can do this: anyone signed in. In practice the crew lead, at the end of ever
 6. Tap **Next** (**Siguiente**) (**Suivant**), check the answers, tap **Submit report** (**Enviar reporte**) (**Envoyer le rapport**), then **Send it** (**Enviarlo**) (**L'envoyer**).
 If it does not work: **Submit report** (**Enviar reporte**) (**Envoyer le rapport**) stays off until every required answer and the sign-off are in, and **These still need an answer** (**Estas todavía necesitan respuesta**) (**Ces questions attendent encore une réponse**) lists what is left.
 Words people use for this: daily log, service log, end of shift report, shift report, what we cleaned today, crew lead log.
+Picture: form-daily-log
 Last checked: 2026-10-05
 
 ## Fill in the monthly PPE check (staff portal)
@@ -322,6 +355,7 @@ Who can do this: supervisors and admins, once a month per site. Cleaners do not 
 6. Tap **Next** (**Siguiente**) (**Suivant**), check the answers, tap **Submit report** (**Enviar reporte**) (**Envoyer le rapport**), then **Send it** (**Enviarlo**) (**L'envoyer**).
 If it does not work: a red line under the sites says why that site cannot be named; pick another, or start your shift at the site.
 Words people use for this: ppe check, protective equipment, gloves check, goggles, monthly safety check, wear checks.
+Picture: form-ppe-monthly
 Last checked: 2026-10-05
 
 ## Fill in a table, a checklist or a sign-off on a report (staff portal)
@@ -333,6 +367,8 @@ Who can do this: anyone filling in a report that has one
 5. On **Review** (**Revisar**) (**Vérification**), **These still need an answer** (**Estas todavía necesitan respuesta**) (**Ces questions attendent encore une réponse**) names each question and the rows of a table or checklist still missing an answer.
 If it does not work: if the sign-off was not sent, the sheet says why and keeps your drawing. With no signal it says **Not signed yet. Check your signal and tap Sign again.** (**Todavía no se firmó. Revise su señal y toque Firmar otra vez.**) (**Pas encore signé. Vérifiez votre réseau et appuyez de nouveau sur « Signer ».**): check your signal and tap **Sign** (**Firmar**) (**Signer**) again.
 Words people use for this: add a row, table, checklist, sign the report, signature, sign off, remove a row, cannot remove a row, fila, firmar.
+Picture: form-checklist
+Picture: form-table
 Last checked: 2026-10-02
 
 ## Continue a report started in Help (staff portal)
@@ -342,6 +378,7 @@ Who can do this: the person who started the report
 3. To drop a report you do not want to send, tap **Discard** (**Descartar**) (**Abandonner**), then confirm **Discard this report? It will not be sent.** (**¿Descartar este reporte? No se enviará.**) (**Abandonner ce rapport ? Il ne sera pas envoyé.**). **Report discarded.** (**Reporte descartado.**) (**Rapport abandonné.**) confirms it; it is kept on record and never sent.
 If it does not work: **Unfinished reports did not load.** (**Los reportes sin terminar no se cargaron.**) (**Les rapports non terminés ne se sont pas chargés.**) means the list did not come; tap **Try again** (**Intentar de nuevo**) (**Réessayer**).
 Words people use for this: continue a report, unfinished report, resume, discard a report, delete a draft, started by mistake, descartar.
+Picture: help-unfinished
 Last checked: 2026-10-02
 
 ## Report a problem with someone at work (staff portal)
@@ -355,6 +392,7 @@ Who can do this: anyone signed in
 7. **We got your report.** (**Recibimos su reporte.**) (**Nous avons reçu votre signalement.**) shows. Keep the reference number shown under **Your reference** (**Su número de referencia**) (**Votre numéro de référence**). Someone responds within 72 hours.
 If it does not work: nothing you type is kept until it is sent. If the names do not appear, the screen says **The staff list did not load. Try again in a minute.** (**La lista del personal no cargó. Intente de nuevo en un minuto.**) (**La liste du personnel ne s'est pas chargée. Réessayez dans une minute.**), and **Try again** (**Intentar de nuevo**) (**Réessayer**) loads it again. If the report is turned away, a red line above **Send** (**Enviar**) (**Envoyer**) says why, and what you wrote stays in the box.
 Words people use for this: harassment, someone is bothering me, complaint about a coworker, speak up, my supervisor is unfair, discrimination, report my boss, who can see my report, name someone in my report.
+Picture: speak-up
 Last checked: 2026-10-02
 
 ## See your notifications (staff portal)
@@ -365,6 +403,7 @@ Who can do this: anyone signed in
 The bell keeps every notice, even the ones your phone does not buzz for.
 Notices show in the language the app is set to, and switch when you switch it. Some older notices stay in the language they were first written in.
 Words people use for this: notifications, the bell, unread notices, notices in the wrong language, notices in english, notificaciones.
+Picture: notifications
 Last checked: 2026-10-02
 
 ## Make the text bigger (staff portal)
@@ -374,6 +413,7 @@ Who can do this: anyone
 3. Under **Text size** (**Tamaño del texto**) (**Taille du texte**), tap **Standard** (**Normal**) (**Normal**), **Large** (**Grande**) (**Grand**), **Extra large** (**Más grande**) (**Très grand**) or **Largest** (**El más grande**) (**Le plus grand**). The whole app changes as you tap.
 4. Your choice follows you to any phone or computer you sign in on.
 Words people use for this: bigger letters, the words are too small, large text, zoom, i cannot read it, letra más grande.
+Picture: text-size
 Last checked: 2026-10-02
 
 ## Switch between light and dark (staff portal)
@@ -383,6 +423,7 @@ Who can do this: anyone
 3. Under **Appearance** (**Apariencia**) (**Apparence**), tap **Light** (**Claro**) (**Clair**) or **Dark** (**Oscuro**) (**Sombre**).
 4. Until you choose, the app opens the way your phone is set: light on a phone set to light, and dark on any other. Once you choose, your choice wins, and it follows you to any phone or computer you sign in on.
 Words people use for this: dark mode, light mode, turn on dark mode, turn off dark mode, night mode, the screen is too bright, the screen is too dark, change the colors.
+Picture: appearance
 Last checked: 2026-10-02
 
 ## Switch the app to Spanish or English (staff portal)
@@ -395,6 +436,7 @@ Who can do this: anyone
 6. French comes to the portal once OCSA offers it. From then, **Language** (**Idioma**) (**Langue**) lists **Français** too, and the button under **Sign In** (**Iniciar sesión**) (**Se connecter**) names the other two languages and opens a list of all three. A phone set to French opens the portal in French. Until French is offered, the portal shows English and Spanish only.
 If it does not work: if **Français** is not in the list, French is not offered yet. Choose English or Spanish for now.
 Words people use for this: espanol, change the language, put it in spanish, idioma, french, francais, put it in french, langue.
+Picture: language
 Last checked: 2026-10-02
 
 ## Change the shortcuts on your bottom bar (staff portal)
@@ -406,6 +448,7 @@ Who can do this: anyone signed in
 5. **Reset to default** (**Volver a lo original**) (**Revenir à l'original**) asks **Put the bar back the way it came?** (**¿Dejar la barra como estaba al principio?**) (**Remettre la barre comme au départ ?**). Tap **Reset** (**Restablecer**) (**Réinitialiser**), then **Done** (**Listo**) (**Terminé**) to save it.
 Your bar follows you to any phone or computer you sign in on.
 Words people use for this: change my bar, move chat, put supplies on my bar, shortcuts, reset my bar, done is grey, accesos directos.
+Picture: shortcuts
 Last checked: 2026-10-02
 
 ## Change your PIN (staff portal)
@@ -416,6 +459,7 @@ Who can do this: anyone signed in
 4. Tap **Update PIN** (**Actualizar PIN**) (**Mettre à jour le code PIN**). **PIN updated** (**PIN actualizado**) (**Code PIN mis à jour**) says it worked, and the three boxes empty.
 If it does not work: the reason shows under the box it is about. **Enter your current 4-digit PIN.** (**Escriba su PIN actual de 4 dígitos.**) (**Entrez votre code PIN actuel à 4 chiffres.**) means the current PIN box does not hold 4 digits. "Current PIN is incorrect" ("El PIN actual no es correcto"), under **Current PIN** (**PIN actual**) (**Code PIN actuel**), means the current PIN you typed is wrong. Under **New PIN** (**PIN nuevo**) (**Nouveau code PIN**): **PIN must be exactly 4 digits.** (**El PIN debe tener exactamente 4 dígitos.**) (**Le code PIN doit contenir exactement 4 chiffres.**) means it is not four digits; **Four of the same digit is too easy to guess. Use a mix of digits.** (**Cuatro dígitos iguales son muy fáciles de adivinar. Use dígitos distintos.**) (**Quatre chiffres identiques sont trop faciles à deviner. Utilisez des chiffres différents.**), **Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.** (**Los dígitos seguidos, como 1234 o 4321, son muy fáciles de adivinar. Use otro orden.**) (**Les chiffres à la suite, comme 1234 ou 4321, sont trop faciles à deviner. Utilisez un autre ordre.**) and **Your PIN cannot be your badge number or its last four digits.** (**Su PIN no puede ser su número de empleado ni sus últimos cuatro dígitos.**) (**Votre code PIN ne peut pas être votre numéro de badge ni ses quatre derniers chiffres.**) say what makes it too easy; **Your new PIN must be different from your current PIN.** (**Su PIN nuevo debe ser distinto de su PIN actual.**) (**Votre nouveau code PIN doit être différent de votre code PIN actuel.**) means the two match. Under **Confirm New PIN** (**Confirmar PIN nuevo**) (**Confirmer le nouveau code PIN**), **The two PINs do not match. Type the same 4 digits in both fields.** (**Los dos PIN no coinciden. Escriba los mismos 4 dígitos en las dos casillas.**) (**Les deux codes PIN ne correspondent pas. Tapez les mêmes 4 chiffres dans les deux champs.**) means the two new boxes differ.
 Words people use for this: change my password, new pin, update my pin, wrong pin, pin too easy, pins do not match.
+Picture: change-pin
 Last checked: 2026-10-02
 
 ## Update your personal information or photo (staff portal)
@@ -427,6 +471,7 @@ Who can do this: anyone signed in
 Your name, role, phone number, email, **Employee ID** (**ID de empleado**) (**Matricule**) and **Badge Number** (**Número de empleado**) (**Numéro de badge**) show on your profile and cannot be changed there. Ask your supervisor to change them.
 If it does not work: a photo over 20 MB is turned away with **Photo must be under 20MB** (**La foto debe pesar menos de 20 MB**) (**La photo doit faire moins de 20 Mo**); choose a smaller one.
 Words people use for this: change my address, change my phone number, emergency contact, update my info, my profile picture.
+Picture: profile
 Last checked: 2026-10-02
 
 ## Request time off (staff portal)
@@ -440,6 +485,7 @@ Who can do this: anyone signed in
 7. You get a notice in the app when it is decided.
 Words people use for this: schedule time off, book time off, ask for a day off, take a day off, vacation, PTO, personal day, sick day, leave.
 If it does not work: time off can start at most 30 days ago and at most one year ahead, and it cannot overlap time off you already asked for.
+Picture: time-off-request
 Last checked: 2026-10-02
 
 ## See or cancel your time off (staff portal)
@@ -450,6 +496,8 @@ Who can do this: anyone who has asked for time off
 4. While it still says Requested, tap **Cancel request** (**Cancelar solicitud**) (**Annuler la demande**) and confirm when it asks **Cancel this time off request?** (**¿Cancelar esta solicitud de tiempo libre?**) (**Annuler cette demande de congé ?**), or tap **Keep it** (**Conservarla**) (**La garder**) to leave it alone.
 Words people use for this: check my time off, did my day off get approved, cancel my vacation, cancel my leave.
 If it does not work: a request that is already approved or denied cannot be cancelled. Ask the HR Manager.
+Picture: time-off-mine
+Picture: time-off-cancel
 Last checked: 2026-10-02
 
 ## What the daily service log asks: the shift, the areas and the tasks (staff portal)
@@ -500,6 +548,7 @@ Who can do this: anyone signed in
 3. Help explains what the question is asking and what to put. If it cannot tell which form or question you mean, it asks, and offers the screenshot. You answer the daily service log, the monthly PPE check and the customer complaint log yourself on the **Forms** (**Formularios**) (**Formulaires**) screen. A safety incident or biohazard report can be done with Help right in the chat, one question at a time.
 4. Your answers are saved each time you tap **Next** (**Siguiente**) (**Suivant**), so you can leave the form, ask Help, and come back to it with **Continue** (**Continuar**) (**Continuer**).
 Words people use for this: i do not understand this question, what does this mean, help with the form, what do i put here, stuck on the form, send a screenshot, no entiendo la pregunta, qué pongo aquí, ayuda con el formulario.
+Picture: help-form-question
 Last checked: 2026-10-02
 
 ## Log a customer complaint (staff portal)
@@ -512,6 +561,7 @@ Who can do this: supervisors and admins, the same day the complaint comes in. Cl
 6. **What was done** (**Lo que se hizo**) (**Ce qui a été fait**) is the supervisor section. A supervisor or admin other than you fills it in on the admin dashboard and signs **Complaint closed** (**Queja cerrada**) (**Plainte clôturée**).
 If it does not work: **Submit report** (**Enviar reporte**) (**Envoyer le rapport**) stays off until every required answer is in, and **These still need an answer** (**Estas todavía necesitan respuesta**) (**Ces questions attendent encore une réponse**) lists what is left.
 Words people use for this: customer complaint, complaint log, a client complained, tenant complained, building management complained, log a complaint, queja de cliente, registro de quejas, cliente se quejó.
+Picture: form-customer-complaint
 Last checked: 2026-10-05
 
 ## Do a safety inspection (staff portal)
@@ -527,6 +577,7 @@ Who can do this: supervisors and admins, monthly at every site and once a quarte
 9. Tap **Next** (**Siguiente**) (**Suivant**), check the answers, tap **Submit report** (**Enviar reporte**) (**Envoyer le rapport**), then **Send it** (**Enviarlo**) (**L'envoyer**). Someone other than you verifies the findings in person on the admin dashboard and signs **Field Lead, reviewed** (**Encargado de campo, revisado**) (**Responsable de terrain, vérifié**).
 If it does not work: **Submit report** (**Enviar reporte**) (**Envoyer le rapport**) stays off until every area is answered, the crew table has two rows, and Inspected by is signed; **These still need an answer** (**Estas todavía necesitan respuesta**) (**Ces questions attendent encore une réponse**) lists what is left. A severity A finding is a phone call to the Field Lead during the shift, before the form is finished.
 Words people use for this: safety inspection, safety walk, monthly inspection, quarterly inspection, safety checklist, chemical storage, eyewash, spill kit, findings, inspección de seguridad, lista de seguridad.
+Picture: form-safety-inspection
 Last checked: 2026-10-05
 
 ## What the safety inspection asks (staff portal)
@@ -550,6 +601,7 @@ Who can do this: supervisors and admins, when the same defect keeps happening. C
 6. Tap **Next** (**Siguiente**) (**Suivant**), check the answers, tap **Submit report** (**Enviar reporte**) (**Envoyer le rapport**), then **Send it** (**Enviarlo**) (**L'envoyer**). The approval, completion, verification, effectiveness check and closure are done by another supervisor or admin on the admin dashboard over the following weeks.
 If it does not work: **Submit report** (**Enviar reporte**) (**Envoyer le rapport**) stays off until the first three whys, the cause, at least one action and Raised by are in; **These still need an answer** (**Estas todavía necesitan respuesta**) (**Ces questions attendent encore une réponse**) lists what is left.
 Words people use for this: corrective action, root cause, five whys, it keeps happening, repeat complaint, same problem again, acción correctiva, causa raíz.
+Picture: form-corrective-action
 Last checked: 2026-10-05
 
 ## What the corrective action report asks (staff portal)
@@ -574,6 +626,7 @@ Who can do this: supervisors and admins, twice a year at every site, with the si
 8. Tap **Next** (**Siguiente**) (**Suivant**), check the answers, tap **Submit report** (**Enviar reporte**) (**Envoyer le rapport**), then **Send it** (**Enviarlo**) (**L'envoyer**). Someone other than you verifies the findings in person on the admin dashboard and signs **Field Lead, reviewed** (**Encargado de campo, revisado**) (**Responsable de terrain, vérifié**).
 If it does not work: **Submit report** (**Enviar reporte**) (**Envoyer le rapport**) stays off until every area is answered and Performed by is signed; **These still need an answer** (**Estas todavía necesitan respuesta**) (**Ces questions attendent encore une réponse**) lists what is left. Anything involving a discharge to a drain, soil or water is a phone call during the shift, before the form is finished.
 Words people use for this: environmental audit, storm drain, where does the mop water go, discharge point, waste streams, universal waste, spill kit, auditoría ambiental, drenaje pluvial, agua de trapeador.
+Picture: form-environmental-audit
 Last checked: 2026-10-05
 
 ## What the environmental audit asks (staff portal)
@@ -599,6 +652,7 @@ Who can do this: supervisors and admins, once per site, again after any injury i
 8. Tap **Next** (**Siguiente**) (**Suivant**), check the answers, tap **Submit report** (**Enviar reporte**) (**Envoyer le rapport**), then **Send it** (**Enviarlo**) (**L'envoyer**). An admin approves it on the dashboard with the date of the next reassessment.
 If it does not work: **These still need an answer** (**Estas todavía necesitan respuesta**) (**Ces questions attendent encore une réponse**) lists what is left; the two tables need at least one row each and the shifts and the ways need at least one choice each.
 Words people use for this: PPE hazard assessment, hazard assessment, written verification, glove sizes, eyewash station, respirator, evaluación de riesgos para EPP, lavaojos.
+Picture: form-ppe-hazard
 Last checked: 2026-10-05
 
 ## What the PPE hazard assessment asks (staff portal)
@@ -628,6 +682,7 @@ Who can do this: supervisors and admins, the secretary of the safety committee, 
 8. Tap **Next** (**Siguiente**) (**Suivant**), check the answers, tap **Submit report** (**Enviar reporte**) (**Envoyer le rapport**), then **Send it** (**Enviarlo**) (**L'envoyer**). The chair confirms the minutes on the dashboard at the following meeting.
 If it does not work: **These still need an answer** (**Estas todavía necesitan respuesta**) (**Ces questions attendent encore une réponse**) lists what is left; the members table needs at least four rows, and every one of the nine standing items needs an answer, even none.
 Words people use for this: safety committee, committee minutes, meeting minutes, attendance, quorum, standing agenda, acta del comité, quórum, minuta.
+Picture: form-safety-committee
 Last checked: 2026-10-05
 
 ## What the safety committee minutes ask (staff portal)
@@ -654,6 +709,7 @@ Who can do this: anyone filling a form in the app
 iPhone photos are accepted: a HEIC photo is changed to a normal picture and made smaller on the phone before it is sent, so it never reaches the size limit. A photo question is never required.
 If it does not work: **This photo could not be read. Try another one.** (**No se pudo leer esta foto. Intente con otra.**) (**Cette photo n'a pas pu être lue. Essayez-en une autre.**) means the phone could not open that picture; choose another one.
 Words people use for this: add a picture, attach a photo, take a photo on a form, iPhone photo, HEIC, agregar foto, adjuntar foto, foto del iPhone.
+Picture: form-photos
 Last checked: 2026-10-02
 
 ## Sign a form with your finger (staff portal)
@@ -665,6 +721,7 @@ Who can do this: anyone the form asks to sign
 5. The sheet closes and the form shows your drawing above **Signed by** (**Firmado por**) (**Signé par**) with your name, the date and the time.
 If it does not work: the reason is shown in the sheet and your drawing stays for another try. A sign-off cannot be sent without a drawing.
 Words people use for this: sign a form, finger signature, draw my signature, sign with my finger, firmar con el dedo, firma dibujada.
+Picture: form-sign
 Last checked: 2026-10-02
 
 ## Enter a number on a form (staff portal)
@@ -674,6 +731,7 @@ Who can do this: anyone filling a form in the app
 3. **Next** (**Siguiente**) (**Suivant**) saves it. **Review** (**Revisar**) (**Vérification**) shows it, and an empty one reads **Not answered** (**Sin responder**) (**Sans réponse**).
 If it does not work: if OCSA turns the number away, the reason shows under the question in the form's own words and at the top of the page: change the number and tap **Next** (**Siguiente**) (**Suivant**) again. With no signal, **Not saved yet. Check your signal and tap Next again.** (**Todavía no se guardó. Revise su señal y toque Siguiente otra vez.**) (**Pas encore enregistré. Vérifiez votre réseau et appuyez de nouveau sur « Suivant ».**) shows at the top.
 Words people use for this: number box, how many, square feet, count, type a number, negative number, decimal, número, cuántos, pies cuadrados.
+Picture: form-number
 Last checked: 2026-10-02
 
 ## Have a customer sign a form you are filling (staff portal)
@@ -684,6 +742,7 @@ Who can do this: supervisors and admins filling a form that asks for a customer'
 4. To sign again while the form is still open, tap **Clear** (**Borrar**) (**Effacer**) and save a new one; it replaces the old one.
 If it does not work: the reason is shown under the card. A name and a drawing are both needed; a very large drawing is refused, so clear it and draw it again smaller.
 Words people use for this: customer signature, have the customer sign, employee signature, sign on my phone, acknowledgement, firma del cliente, que el cliente firme.
+Picture: form-customer-sign
 Last checked: 2026-10-02
 
 ## Do a site assessment (staff portal)
@@ -697,6 +756,7 @@ Who can do this: supervisors and admins, on a walk of a site before OCSA prices 
 7. Tap **Next** (**Siguiente**) (**Suivant**), check the answers, tap **Submit report** (**Enviar reporte**) (**Envoyer le rapport**), then **Send it** (**Enviarlo**) (**L'envoyer**). Someone other than you reviews it on the admin dashboard and signs **Field Lead, reviewed** (**Encargado de campo, revisado**) (**Responsable de terrain, vérifié**).
 If it does not work: **These still need an answer** (**Estas todavía necesitan respuesta**) (**Ces questions attendent encore une réponse**) lists what is left. A number question takes digits only, and **Areas** (**Áreas**) (**Zones**) takes at most sixty rows.
 Words people use for this: site assessment, site walk before a bid, walkthrough, survey a building, square footage, pre service, evaluación del sitio, recorrido del sitio.
+Picture: form-site-assessment
 Last checked: 2026-10-05
 
 ## Log a change of service request (staff portal)
@@ -708,6 +768,7 @@ Who can do this: supervisors and admins, the same day the request is taken. Clea
 5. Tap **Next** (**Siguiente**) (**Suivant**), check the answers, tap **Submit report** (**Enviar reporte**) (**Envoyer le rapport**), then **Send it** (**Enviarlo**) (**L'envoyer**). The assessment, pricing, approval and closing are done by others on the admin dashboard.
 If it does not work: **Route** (**Ruta**) (**Orientation**) is required; **These still need an answer** (**Estas todavía necesitan respuesta**) (**Ces questions attendent encore une réponse**) names what is left.
 Words people use for this: change of service, customer wants more cleaning, add a day, extra service, cut back service, scope change, cambio de servicio, más servicio.
+Picture: form-change-of-service
 Last checked: 2026-10-05
 
 ## Give a site orientation (staff portal)
@@ -723,6 +784,7 @@ Who can do this: supervisors and admins, before a new hire's first shift alone a
 9. Tap **Next** (**Siguiente**) (**Suivant**), check the answers on **Review** (**Revisar**) (**Vérification**), tap **Submit report** (**Enviar reporte**) (**Envoyer le rapport**), then **Send it** (**Enviarlo**) (**L'envoyer**). An admin files it in the personnel file from the admin dashboard.
 If it does not work: **Submit report** (**Enviar reporte**) (**Envoyer le rapport**) stays off until **These still need an answer** (**Estas todavía necesitan respuesta**) (**Ces questions attendent encore une réponse**) is empty; the orientation cannot be sent until **Employee signature** (**Firma del empleado**) (**Signature de l'employé**) and **Orientation delivered** (**Orientación impartida**) (**Formation d'accueil donnée**) are both signed.
 Words people use for this: site orientation, new hire orientation, first day at a site, show the new person around, orientation checklist, orientación del sitio, empleado nuevo.
+Picture: form-site-orientation
 Last checked: 2026-10-05
 
 ## Log a customer contact (staff portal)
@@ -734,6 +796,7 @@ Who can do this: supervisors and admins, the same shift the contact comes in. Cl
 5. Tap **Next** (**Siguiente**) (**Suivant**), check the answers, tap **Submit report** (**Enviar reporte**) (**Envoyer le rapport**), then **Send it** (**Enviarlo**) (**L'envoyer**). Someone other than you follows it up and closes it on the admin dashboard.
 If it does not work: **Where it went next** (**A dónde se envió después**) (**Où cela a été transmis ensuite**) needs at least one choice, and **Time** (**Hora**) (**Heure**) is written as hours and minutes, for example 14:05.
 Words people use for this: customer called, log a call, customer email, customer complaint by phone, call log, communication log, registro de llamadas, el cliente llamó.
+Picture: form-call-intake
 Last checked: 2026-10-05
 
 ## Fill in a performance review with the employee (staff portal)
@@ -751,6 +814,7 @@ Who can do this: anyone signing in for the first time with the PIN on their sign
 4. From then on, sign in with your own PIN. Nobody else knows it.
 If it does not work: the reason shows under the box. "Choose a PIN different from the one you were given" ("Elija un PIN distinto del que le dieron") means you typed the slip's PIN again. If this is not your account, tap **Not you? Sign out** (**¿No es usted? Cerrar sesión**) (**Ce n'est pas vous ? Se déconnecter**). Closing the app halfway is fine: the slip's PIN keeps working and the app asks again next time.
 Words people use for this: first time, first login, sign-in slip, temporary pin, new pin, set my pin, choose a pin, pin from my trainer, primera vez, elegir mi PIN.
+Picture: set-pin
 Last checked: 2026-10-02
 
 ## Add the app to your home screen (staff portal)
@@ -763,6 +827,7 @@ Who can do this: anyone signed in, on a phone or tablet
 6. **Not now** (**Ahora no**) (**Pas maintenant**) asks again in seven days, and a tap outside the sheet counts as Not now. **Don't show again** (**No mostrar más**) (**Ne plus afficher**) stops asking.
 Adding it to the home screen is needed on an iPhone before the app can send alerts to the phone.
 Words people use for this: install the app, add to home screen, app icon, download the app, where is share, i cannot find share, three dots, install button, opened in facebook, instalar la aplicación.
+Picture: home-screen
 Last checked: 2026-10-02
 
 ## Update the app (staff portal)
@@ -771,6 +836,7 @@ Who can do this: anyone
 2. While you are in the middle of something, such as a report with answers not yet saved, an open sheet or a box you are typing in, the app waits. A bar at the top then says **A new version is ready** (**Hay una versión nueva lista**) (**Une nouvelle version est prête**).
 3. Finish what you are doing and the app updates by itself, or tap **Update now** (**Actualizar ahora**) (**Mettre à jour**) to update at once. Anything typed and not yet saved is lost, so on a report tap **Next** (**Siguiente**) (**Suivant**) first.
 Words people use for this: update, new version, refresh the app, the app looks different, the bar at the top, actualizar.
+Picture: update-bar
 Last checked: 2026-10-02
 
 ## Tag someone in a chat (staff portal)
@@ -780,6 +846,7 @@ Who can do this: anyone signed in, in a site chat or the general chat
 3. Their name goes into your message. Send it; they get an alert that the message is for them, and their name shows highlighted.
 To untag someone, delete their name from the message before sending. A private chat and a direct message have no tag button.
 Words people use for this: tag someone, mention someone, @ someone, let someone know, etiquetar a alguien.
+Picture: chat-tag
 Last checked: 2026-10-02
 
 ## Turn on alerts on this phone (staff portal)
@@ -790,6 +857,7 @@ Who can do this: anyone signed in
 4. **Turn off on this phone** (**Desactivar en este teléfono**) (**Désactiver sur ce téléphone**) stops them. Signing out also stops them on that phone.
 After the first sign-in, the app may ask once, **Get an alert when someone messages you?** (**¿Quiere recibir una alerta cuando alguien le escriba?**) (**Recevoir une alerte quand quelqu'un vous écrit ?**), with **Turn on** (**Activar**) (**Activer**) and **Not now** (**Ahora no**) (**Pas maintenant**).
 Words people use for this: notifications, turn on notifications, i do not get alerts, push, my phone does not buzz, activar alertas.
+Picture: phone-alerts-on
 Last checked: 2026-10-02
 
 ## Choose what alerts your phone (staff portal)
@@ -799,6 +867,7 @@ Who can do this: anyone signed in
 3. Five switches cover **Schedule and time off** (**Horario y tiempo libre**) (**Planning et congés**), **Shift pickups and drops** (**Turnos libres y turnos soltados**) (**Services libres et retraits**), **Supply requests** (**Pedidos de suministros**) (**Demandes de fournitures**), **Problems reported** (**Problemas reportados**) (**Problèmes signalés**) and **Forms filed** (**Formularios presentados**) (**Formulaires envoyés**). Each choice saves as soon as you tap it.
 **Announcements from the office always come through.** (**Los anuncios de la oficina siempre llegan.**) (**Les annonces du bureau arrivent toujours.**) The bell keeps every notice whatever you choose.
 Words people use for this: too many alerts, mute the chat, stop notifications, only when tagged, notification settings, silenciar.
+Picture: phone-alerts-choose
 Last checked: 2026-10-02
 
 ## What Home shows (staff portal)
@@ -810,6 +879,7 @@ Who can do this: anyone signed in
 5. Last comes **My Schedule** (**Mi horario**) (**Mon planning**), your week. **Week** (**Semana**) (**Semaine**) and **Month** (**Mes**) (**Mois**) change the view, the arrows move a week or a month, and **Today** (**Hoy**) (**Aujourd'hui**) comes back to this week. Tap a day to see what is on it, and tap a shift there to open it. Time off shows here too and opens from **Schedule** (**Horario**) (**Planning**).
 6. The header at the top and the bar at the bottom are on every screen (see Use the bottom bar and More).
 Words people use for this: home screen, main screen, first screen, what is on home, where do i start, time on site, inicio, pantalla principal.
+Picture: home
 Last checked: 2026-10-05
 
 ## See a checklist task's details (staff portal)
@@ -820,6 +890,7 @@ Who can do this: anyone with a shift started
 4. **Back to checklist** (**Volver a la lista**) (**Retour à la liste**) at the top goes back without changing anything.
 Work done on an earlier day in its period shows its details with no button at the bottom. A coworker's check stays theirs: **Uncheck Task** (**Desmarcar tarea**) (**Décocher la tâche**) on it shows **Only the person who checked this can uncheck it.** (**Solo la persona que marcó esta tarea puede desmarcarla.**) (**Seule la personne qui a coché cette tâche peut la décocher.**)
 Words people use for this: task details, instructions, how do i do this task, reference photo, video, blue dot, what does the dot mean, touchpoint tag, critical touchpoint, instrucciones.
+Picture: task-detail
 Last checked: 2026-10-05
 
 ## Use Tasks before your shift starts (staff portal)
@@ -828,6 +899,7 @@ Who can do this: anyone signed in
 2. Go to **Home** (**Inicio**) (**Accueil**) and start your shift at the site (see Start your shift at a site). The app opens **Tasks** (**Tareas**) (**Tâches**) with that site's checklist, after asking which shift at a site with more than one.
 3. If a shift of yours was ended on another phone or by a supervisor, its list can still show here, dimmed, until you start again. Nothing on it can be checked. A task with a blue dot still opens its details to read.
 Words people use for this: tasks are empty, no tasks, why can i not see my list, checklist before my shift, start my shift first, no hay tareas.
+Picture: tasks-no-shift
 Last checked: 2026-10-02
 
 ## Use the bottom bar and More (staff portal)
@@ -838,6 +910,7 @@ Who can do this: anyone signed in
 4. A red number counts what is waiting: on **Chat** (**Mensajes**) (**Messages**), your unread messages; on **Assigned** (**Asignadas**) (**Assignées**), the tasks assigned to you; on **More** (**Más**) (**Plus**), what is waiting in the places under it. Past nine it reads 9+.
 5. At the top of every screen, your picture or initials open your profile, the bell opens your notifications, the gear opens **Settings** (**Ajustes**) (**Paramètres**), and the last button signs you out. While a shift is open, **ON SITE** (**EN SITIO**) (**SUR PLACE**) shows beside them.
 Words people use for this: bottom bar, menu, more button, where is supplies, where is pickup, i cannot find it, the red number, navigation, menú, más.
+Picture: bottom-bar-more
 Last checked: 2026-10-02
 
 ## Pick a person on a form (staff portal)
@@ -848,6 +921,7 @@ Who can do this: anyone filling a form with a question about a person
 4. **Next** (**Siguiente**) (**Suivant**) saves the pick with the rest of the page.
 If it does not work: **No one matches that name.** (**Nadie tiene ese nombre.**) (**Aucune personne ne correspond à ce nom.**) means nobody on the staff list has that name; check the spelling or type less of it. If the list does not come, the question says **The staff list did not load. Try again in a minute.** (**La lista del personal no cargó. Intente de nuevo en un minuto.**) (**La liste du personnel ne s'est pas chargée. Réessayez dans une minute.**) with **Try again** (**Intentar de nuevo**) (**Réessayer**).
 Words people use for this: pick a person, choose an employee, name on a form, who was involved, search for a name, buscar por nombre, elegir a una persona.
+Picture: form-person
 Last checked: 2026-10-02
 
 ## Leave a form before sending it (staff portal)
@@ -859,6 +933,7 @@ Who can do this: anyone filling a form in the app
 Answers save each time you tap **Next** (**Siguiente**) (**Suivant**) or **Back** (**Atrás**) (**Retour**), and when you leave with **Close** (**Cerrar**) (**Fermer**). Going to another screen from the bottom bar keeps what the last **Next** (**Siguiente**) (**Suivant**) or **Back** (**Atrás**) (**Retour**) saved, and nothing typed after it.
 If it does not work: to drop a draft you do not want, tap **Discard** (**Descartar**) (**Abandonner**) on it under **Unfinished reports** (**Reportes sin terminar**) (**Rapports non terminés**) in **Help** (**Ayuda**) (**Aide**).
 Words people use for this: close a form, leave a report, come back later, finish later, save a draft, did it save, salir del reporte, guardar borrador.
+Picture: form-leave
 Last checked: 2026-10-02
 
 ## Start a message to someone in the office or on staff (staff portal)
@@ -871,6 +946,7 @@ Who can do this: admins and supervisors
 Staff do not have **New message** (**Nuevo mensaje**) (**Nouveau message**); they write to the office in **Admin (Private)** (**Administración (privado)**) (**Administration (privé)**).
 If it does not work: **No one matches that name.** (**Nadie tiene ese nombre.**) (**Aucune personne ne correspond à ce nom.**) means nobody on the list has that name; check the spelling or type less of it. If a chat does not open, the list stays up with a line saying why, in OCSA's words or **That chat did not open. Try again.** (**Ese chat no se abrió. Intente de nuevo.**) (**Cette discussion ne s'est pas ouverte. Réessayez.**); tap the name again. **Close** (**Cerrar**) (**Fermer**) leaves the list. If **New message** (**Nuevo mensaje**) (**Nouveau message**) is not there, open another tab and come back to Chat; it shows once the list of people loads.
 Words people use for this: message another admin, message a supervisor, direct message, dm, new message, start a chat, write to a staff member first, find someone by name, message the office, nuevo mensaje, mensaje nuevo, mensaje directo.
+Picture: chat-new-message
 Last checked: 2026-10-02
 
 ## Find a safety data sheet (staff portal)
@@ -885,6 +961,7 @@ Who can do this: anyone, signed in or not
 **Every sheet is also in the printed binder at the site.** (**Todas las hojas también están en la carpeta impresa del sitio.**) (**Chaque fiche se trouve aussi dans le classeur imprimé du site.**)
 If it does not work: **Safety data sheets are not available here yet. The printed binder at the site holds every sheet.** (**Las hojas de datos de seguridad todavía no están disponibles aquí. La carpeta impresa del sitio tiene todas las hojas.**) (**Les fiches de données de sécurité ne sont pas encore disponibles ici. Le classeur imprimé du site contient toutes les fiches.**) means OCSA has no sheets to give yet; use the binder. **This sheet did not open. Check your signal, or use the printed binder at the site.** (**Esta hoja no se abrió. Revise su señal o use la carpeta impresa del sitio.**) (**Cette fiche ne s'est pas ouverte. Vérifiez votre réseau ou utilisez le classeur imprimé du site.**) means this phone has no copy of that sheet; use the binder, or open it again where there is signal. On a phone that has never opened the app or the page, with no signal at all, the page itself does not open; use the binder.
 Words people use for this: sds, msds, safety data sheet, chemical sheet, what is in this product, hazards of a product, first aid for a chemical, the binder, the closet poster, qr code, no signal, basement, offline, hoja de datos de seguridad, hoja de seguridad, fiche de données de sécurité.
+Picture: sds
 Last checked: 2026-10-02
 
 ## Sign in with a code on a new device (staff portal)
@@ -895,6 +972,7 @@ Who can do this: admins and supervisors
 4. No mail? Check the spam folder, then tap **Send a new code** (**Enviar un código nuevo**) (**Envoyer un nouveau code**). It waits 30 seconds between sends and counts them down. The newest code is the one that works. **Back** (**Atrás**) (**Retour**) returns to the PIN.
 If it does not work: a wrong code says so, with **{n} tries left** (**Le quedan {n} intentos**) (**Il vous reste {n} essais**). After the last try, or 10 minutes after the code was sent, it stops working and the app goes back to the PIN with the reason; sign in again for a new code. Nobody from OCSA will ever ask you for the code. Cleaners, leads and porters never see this screen.
 Words people use for this: code, verification, verification code, new phone, new computer, two step, two-step, email code, sign-in code, the code did not come, código, verificación, teléfono nuevo.
+Picture: sign-in-code
 Last checked: 2026-10-02
 
 ## Use the team workspace on your phone (staff portal)
@@ -911,6 +989,7 @@ Who can do this: admins and supervisors
 10. To add one, tap **Add a file** (**Agregar un archivo**) (**Ajouter un fichier**). **Take photo or choose from gallery** (**Tomar foto o elegir de la galería**) (**Prendre une photo ou choisir dans la galerie**) takes a new photo or one already on the phone; **Choose a document** (**Elegir un documento**) (**Choisir un document**) takes a PDF or another file. A photo is made smaller and its location is left off before it goes. Add a **Note (optional)** (**Nota (opcional)**) (**Note (facultative)**) and tap **Add file** (**Agregar archivo**) (**Ajouter le fichier**). The file shows at the top of the list at once, and everyone on the project can open it.
 If it does not work: no **Workspace** (**Espacio de trabajo**) (**Espace de travail**) under **More** (**Más**) (**Plus**) means the workspace is not on for your account yet. **{0} is over 25 MB. Files up to 25 MB can be added.** (**{0} pasa de 25 MB. Se pueden agregar archivos de hasta 25 MB.**) (**{0} dépasse 25 Mo. Les fichiers peuvent faire jusqu'à 25 Mo.**) means the file is too big to add; send a smaller one, or add it from the dashboard in parts. A to-do's page with no comments under it means OCSA does not list a to-do's comments yet. When something does not go, a line in red says why, in OCSA's words, for example a project that is archived, and your words stay where you typed them. If a project's chat does not open yet, wait a minute and tap **Chat** (**Mensajes**) (**Messages**) again.
 Words people use for this: workspace, project, projects, message board, post a message, to-do, todo, to do list, new list, start a list, my assignments, assigned to me, overdue, comment, comment on a to-do, tag, mention, files, add a file, upload, add a photo, photo of the problem, project chat, basecamp, espacio de trabajo, proyecto, pendientes, tablero de mensajes, subir un archivo, agregar una foto.
+Picture: workspace
 Last checked: 2026-10-02
 
 ## Check off tasks with no signal (staff portal)
@@ -921,6 +1000,7 @@ Who can do this: anyone with a shift started
 4. If the app was closed and you open it with no signal, it opens on the last checklist this phone had for your site, up to a day old, and keeps your checks the same way. A coworker's check there shows as checked with no name, since the phone keeps no names. The rest of the app waits for signal.
 If it does not work: a check OCSA turns down once it sends, for example one a coworker already checked, shows OCSA's reason, and the box then shows what OCSA has. Signing out sends what is waiting first, when there is signal; what cannot go within a few seconds is not kept for the next person on the phone. A phone that never had your checklist has nothing to open with no signal: wait for signal.
 Words people use for this: no signal, no service, no wifi, no internet, offline, basement, closet, elevator, it did not save, did my checks go through, saved on this phone, it sends when you have signal, sin señal, sin internet, sótano.
+Picture: tasks-no-signal
 Last checked: 2026-10-02
 
 ## Check or tag out equipment from its QR label (staff portal)
@@ -932,6 +1012,7 @@ Who can do this: anyone signed in who works at the item's site
 5. **Back** (**Atrás**) (**Retour**) goes to Home, or back to the field kit's equipment list when you opened the item from there (see Check a site's equipment from the field kit).
 If it does not work: **This item is tagged out. Do not use it until the office puts it back in service.** (**Este equipo está fuera de servicio. No lo use hasta que la oficina lo vuelva a poner en servicio.**) (**Cet équipement est hors service. Ne l'utilisez pas avant que le bureau le remette en service.**) means someone already tagged it out; only the office puts it back. **This item is retired. Nothing can be recorded on it.** (**Este equipo está dado de baja. No se puede registrar nada en él.**) (**Cet équipement est retiré. Rien ne peut y être enregistré.**) means it is no longer in use. A line saying the label was not found means OCSA does not know that label: tell your supervisor. **This item did not open. Try again.** (**Este equipo no se abrió. Intente de nuevo.**) (**Cet équipement ne s'est pas ouvert. Réessayez.**): check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**). **Say what is wrong before you tag it out.** (**Diga qué está mal antes de marcarlo fuera de servicio.**) (**Dites ce qui ne va pas avant de le mettre hors service.**) means the note is empty. A label scanned with no signal shows the phone's own page for no connection: scan it again once you have signal.
 Words people use for this: equipment, machine, tool, qr, qr code, label, sticker, scan, scanner, broken, not working, unsafe, tag out, lock out, out of service, do not use, checked, floor machine, vacuum, buffer, scrubber, equipo, máquina, etiqueta, código qr, fuera de servicio, no funciona.
+Picture: equipment-label
 Last checked: 2026-10-02
 
 ## What a client sees on the concern link (staff portal)
@@ -945,6 +1026,7 @@ Who can do this: a client, from a site's concern link or QR code, with no sign-i
 7. The site's supervisors, the Field Lead and the admins are told at once, and the office answers. If a client tells you about a problem in person instead, tell your supervisor the same shift.
 If it does not work: a line in red under a question says what is missing or wrong, in OCSA's words, for example when there is neither an email nor a phone number. A photo that is not a picture, or is too large, says so under the photo question. A link that says it is closed or not valid needs a new one from the office.
 Words people use for this: report a problem, concern, complaint, client complaint, customer complaint, the client wants to complain, how does a client report something, qr code, reference number, the client did not get an email, queja, reclamo, informar un problema, plainte.
+Picture: concern-link
 Last checked: 2026-10-02
 
 ## Open the field kit (staff portal)
@@ -955,6 +1037,7 @@ Who can do this: admins and supervisors
 4. The field kit keeps the site and the tile you were on while you use the rest of the app, until you sign out.
 If it does not work: no Field kit under More means your account is not an admin or a supervisor account. **You have no sites to work on.** (**No tiene sitios en los que trabajar.**) (**Vous n'avez aucun site sur lequel travailler.**) means OCSA lists no active site for you: ask the office. A list that did not load says so with **Try again** (**Intentar de nuevo**) (**Réessayer**): check your signal and tap it.
 Words people use for this: field kit, supervisor tools, on site tools, my sites, choose a site, switch site, change site, kit de campo, herramientas del supervisor, kit de terrain.
+Picture: field-kit
 Last checked: 2026-10-02
 
 ## Issue PPE and have the person sign for it (staff portal)
@@ -967,6 +1050,7 @@ Who can do this: admins and supervisors
 6. Tap **Issue PPE** (**Entregar EPP**) (**Remettre un EPI**). **PPE issued. The signature is kept with it.** (**EPP entregado. La firma queda guardada con la entrega.**) (**EPI remis. La signature est conservée avec la remise.**) shows, and the issue is at the top of **Issued at this site** (**Entregado en este sitio**) (**Remis sur ce site**), newest first, with who received it, the size, whether it fits, and who issued it and when. **Show more** (**Mostrar más**) (**Afficher plus**) shows older ones.
 If it does not work: the app asks for a person, an item and a signature before it sends: **Choose the person you are handing it to.** (**Elija a la persona a quien se lo entrega.**) (**Choisissez la personne à qui vous le remettez.**), **Choose an item, or type what you are handing out.** (**Elija un artículo o escriba lo que entrega.**) (**Choisissez un article ou saisissez ce que vous remettez.**) and **The person signs before you send.** (**La persona firma antes de enviar.**) (**La personne signe avant l'envoi.**) When OCSA turns it down, its reason shows in red under the field it is about, in OCSA's words, for example "Some details of the issue are missing or not valid", or "The employee must sign for the equipment" under the signature. **No one is assigned to this site.** (**Nadie está asignado a este sitio.**) (**Personne n'est affecté à ce site.**) means nobody is assigned there: ask the office. **This site has no PPE in stock. Type what you are handing out.** (**Este sitio no tiene EPP en existencia. Escriba lo que entrega.**) (**Ce site n'a pas d'EPI en stock. Saisissez ce que vous remettez.**) means the site has no PPE on its stock list: choose Something else and type it.
 Words people use for this: ppe, issue ppe, hand out ppe, give gloves, safety glasses, protective gear, protective equipment, sign for ppe, ppe log, ppe compliance log, ppe signature, epp, equipo de protección, entregar epp, epi, remettre un epi.
+Picture: field-kit-ppe
 Last checked: 2026-10-02
 
 ## See the periodic work at a site (staff portal)
@@ -977,6 +1061,7 @@ Who can do this: admins and supervisors
 4. **Read only. Work is checked off on the checklist.** (**Solo lectura. El trabajo se marca en la lista.**) (**Lecture seule. Le travail se coche sur la liste.**) The person on shift checks an item off on **Tasks** (**Tareas**) (**Tâches**), in its section.
 If it does not work: **This site has no periodic work.** (**Este sitio no tiene trabajo periódico.**) (**Ce site n'a aucun travail périodique.**) means the site's checklist has no weekly or longer items. A list that did not load says so with **Try again** (**Intentar de nuevo**) (**Réessayer**).
 Words people use for this: periodic work, what is overdue, overdue work, deep clean, weekly tasks, monthly tasks, quarterly tasks, seasonal tasks, what is due this week, trabajo periódico, tareas vencidas, travail périodique, en retard.
+Picture: field-kit-periodic
 Last checked: 2026-10-02
 
 ## Check a site's equipment from the field kit (staff portal)
@@ -987,6 +1072,7 @@ Who can do this: admins and supervisors
 4. **Back** (**Atrás**) (**Retour**) on the item's page comes back to this list.
 If it does not work: **This site has no equipment on the register.** (**Este sitio no tiene equipos en el registro.**) (**Ce site n'a aucun équipement au registre.**) means the office has not put any equipment on the site's register yet. A list that did not load says so with **Try again** (**Intentar de nuevo**) (**Réessayer**).
 Words people use for this: equipment list, site equipment, machines at the site, service due, next service, out of service, check a machine, tag out, equipo del sitio, mantenimiento, équipement du site, entretien.
+Picture: field-kit-equipment
 Last checked: 2026-10-02
 
 ## Sign an inspection's review line (staff portal)
@@ -998,6 +1084,7 @@ Who can do this: admins and supervisors
 5. **Awaiting review** (**Por revisar**) (**À vérifier**) at the top goes back to the list. An inspection whose review lines are all signed is no longer on it.
 If it does not work: **Waiting for the person who signs this line.** (**Espera a la persona que firma esta línea.**) (**En attente de la personne qui signe cette ligne.**) means the line is not yours to sign: the executive line is an admin's, and whoever inspected cannot sign the review. When OCSA turns a signature down, its reason shows in the sheet, in OCSA's words, for example "That line is already signed." when someone else signed it first. Tap **Cancel** (**Cancelar**) (**Annuler**), go back, and open the inspection again to see it as it is now. **No inspection at this site is waiting for review.** (**Ninguna inspección de este sitio espera revisión.**) (**Aucune inspection de ce site n'attend de vérification.**) means there is nothing to sign at that site.
 Words people use for this: inspection review, review an inspection, sign an inspection, sign off, reviewer signature, findings received, executive review, field lead review, awaiting review, inspection signature, revisar inspección, firmar inspección, vérifier une inspection, signer une inspection.
+Picture: field-kit-review
 Last checked: 2026-10-02
 
 ## Approve or decline a client request (staff portal)
@@ -1009,6 +1096,7 @@ Who can do this: admins, and supervisors at a site they are assigned to
 5. The first to approve or decline takes it. When someone else got there first, **{name} already took care of this.** (**{name} ya se encargó de esto.**) (**{name} s'en est déjà occupé.**) shows and the request leaves your list. A request you assign to yourself then shows under **Yours** (**Suyas**) (**Les vôtres**) (see Work a client request assigned to you).
 If it does not work: the section shows only when OCSA lists a request for you, so a tab with no section means nothing is waiting. When a tap does not go through, the reason shows in OCSA's words; check your signal and try again. **No one can be assigned at this site.** (**No hay nadie a quien asignar en este sitio.**) (**Personne ne peut être attribué sur ce site.**) means nobody is assigned to that site yet; ask the office. **Write a note first.** (**Primero escriba una nota.**) (**Écrivez d'abord une note.**) means Decline needs a reason.
 Words people use for this: client request, request from the building, approve a request, assign a request, decline a request, spill request, someone scanned the qr code, waiting for approval, solicitud de cliente, aprobar una solicitud, rechazar una solicitud, demande client, approuver une demande, refuser une demande.
+Picture: client-request-approve
 Last checked: 2026-10-05
 
 ## Work a client request assigned to you (staff portal)
@@ -1020,6 +1108,7 @@ Who can do this: anyone signed in who has a client request assigned to them
 5. When you cannot finish it, tap **Can't finish** (**No puedo terminar**) (**Impossible de terminer**), say what is in the way, and tap **Can't finish** (**No puedo terminar**) (**Impossible de terminer**) in the sheet. **Your supervisors have been told.** (**Se avisó a sus supervisores.**) (**Vos superviseurs ont été prévenus.**) shows and a supervisor takes it from there.
 If it does not work: **Write a note first.** (**Primero escriba una nota.**) (**Écrivez d'abord une note.**) means Can't finish needs a note. When a tap does not go through, the reason shows in OCSA's words; check your signal and try again. A request that is no longer yours leaves the list on its own the next time the list is read.
 Words people use for this: client request, request assigned to me, i'm on it, mark a request done, can't finish, spill request, restroom request, solicitud asignada, ya voy, no puedo terminar, demande attribuée, je m'en occupe, impossible de terminer.
+Picture: client-request-mine
 Last checked: 2026-10-05
 
 ## Record a supply from its label (staff portal)
@@ -1031,6 +1120,7 @@ Who can do this: anyone can read the label's page; recording use needs a sign-in
 5. Not signed in, the page shows **Sign in to record use** (**Iniciar sesión para registrar uso**) (**Se connecter pour enregistrer l'utilisation**). Tap it, sign in as usual, and the page comes back to the product.
 If it does not work: a label that says it matches no supply is one the office retired; ask the office for a new label. **None of your sites stocks this supply.** (**Ninguno de sus sitios tiene este suministro.**) (**Aucun de vos sites ne stocke cette fourniture.**) means use cannot be recorded for it from your sites; tell your supervisor. When a tap does not go through, the reason shows in OCSA's words; check your signal and try again.
 Words people use for this: supply label, supply qr code, scan a supply, used one, running low, refill, safety sheet from the label, chemical label, etiqueta de suministro, se está acabando, étiquette de fourniture, stock bas.
+Picture: supply-label
 Last checked: 2026-10-05
 
 ## Fix an inspection finding assigned to you (staff portal)
@@ -1041,6 +1131,7 @@ Who can do this: anyone signed in who is named the owner of an inspection findin
 4. The finding stays on your list as **Waiting for a check** (**Esperando verificación**) (**En attente de vérification**) until someone other than you checks the fix in person and closes it from the office. Then it leaves your list.
 If it does not work: the section shows only when OCSA lists a finding for you, so a tab with no section means nothing is assigned to you. When a tap does not go through, the reason shows in OCSA's words; check your signal and try again. **The photo did not upload. Try again, or send without it.** (**La foto no se subió. Intente de nuevo o envíe sin ella.**) (**La photo n'a pas été envoyée. Réessayez, ou envoyez sans elle.**) means a photo did not go; tap Fixed again, with or without it.
 Words people use for this: inspection finding, finding assigned to me, fix a finding, mark a finding fixed, waiting for a check, deficient item, inspection ticket, who checks my fix, hallazgo de inspección, marcar como arreglado, constat d'inspection, marquer comme réparé.
+Picture: finding-mine
 Last checked: 2026-10-05
 
 ## See your training (staff portal)
@@ -1053,6 +1144,7 @@ Who can do this: anyone signed in, once OCSA lists training for them
 6. **Nothing is required for your role yet.** (**Todavía no se requiere nada para su puesto.**) (**Rien n'est encore requis pour votre poste.**) means the office has not set any training for your role. When a training of yours is about to expire, or a lesson needs an in-person session, your phone gets an alert; tap it to open My training.
 If it does not work: **This list did not load.** (**Esta lista no se cargó.**) (**Cette liste ne s'est pas chargée.**) means the list could not be read again; check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**). A training you did that is not listed, or one listed as not done that you did, is a record the office needs to fix; tell your supervisor.
 Words people use for this: my training, what training do i need, training expired, training due, training history, orientation due again, safety training, trainings to do, capacitación, mi capacitación, qué capacitación necesito, formation, ma formation, formation expirée.
+Picture: my-training
 Last checked: 2026-10-06
 
 ## Take a training lesson (staff portal)
@@ -1064,6 +1156,8 @@ Who can do this: anyone signed in whose training has a lesson on the phone
 5. **You passed.** (**Aprobó.**) (**Vous avez réussi.**) comes with the line you are confirming. Sign under **Your signature** (**Su firma**) (**Votre signature**) with your finger and tap **Sign** (**Firmar**) (**Signer**). Then **Done. It is on your record.** (**Listo. Ya está en su expediente.**) (**Terminé. C'est dans votre dossier.**) shows, or, for a safety topic, **Waiting for your trainer. Show them you can do it, and they sign it off.** (**Esperando a su capacitador. Demuéstrele que sabe hacerlo y lo firmará.**) (**En attente de votre formateur. Montrez-lui que vous savez le faire et il signera.**): the training counts once a supervisor has watched you do it and signed it off. When a checklist signs this training off, **Your trainer signs this off in the {name} checklist.** (**Su capacitador lo firma en la lista {name}.**) (**Votre formateur le valide dans la liste {name}.**) shows instead: your trainer signs the checklist named, and this training is signed with it. Tap **Back to My training** (**Volver a Mi capacitación**) (**Retour à Ma formation**).
 If it does not work: **This lesson did not open. Try again.** (**Esta lección no se abrió. Intente de nuevo.**) (**Cette leçon ne s'est pas ouverte. Réessayez.**) means the lesson could not be read or started; check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**). **Your answers were not sent. Try again.** (**Sus respuestas no se enviaron. Intente de nuevo.**) (**Vos réponses n'ont pas été envoyées. Réessayez.**) means Submit did not go through; your answers stay on the screen, so tap Submit again. **Sign before you send.** (**Firme antes de enviar.**) (**Signez avant d'envoyer.**) means the signature box is empty. When OCSA refuses, the reason shows in its words, for example when a lesson is not required for you or has no tries left.
 Words people use for this: training lesson, take a training, online training, training quiz, training questions, how many tries, failed the quiz, read it again, sign the training, waiting for the trainer, lección de capacitación, cuestionario de capacitación, leçon de formation, questionnaire de formation.
+Picture: lesson
+Picture: lesson-question
 Last checked: 2026-10-06
 
 ## Sign off a training (staff portal)
@@ -1073,6 +1167,7 @@ Who can do this: supervisors and admins
 3. Watch the person do the task the lesson covers. Then tap **Sign off** (**Firmar**) (**Valider**), tick **I watched them do it** (**Lo vi hacerlo**) (**Je l'ai vu le faire**), add a **Note** (**Nota**) (**Note**) if you like, sign under **Your signature** (**Su firma**) (**Votre signature**) with your finger, and tap **Sign off** (**Firmar**) (**Valider**) in the sheet. **Signed off. It is on their record.** (**Firmado. Ya está en su expediente.**) (**Validé. C'est dans son dossier.**) shows and the lesson leaves the list; OCSA writes the training record with both signatures.
 If it does not work: **Tick I watched them do it first.** (**Primero marque Lo vi hacerlo.**) (**Cochez d'abord Je l'ai vu le faire.**) means the tick is missing; a sign-off needs the demonstration. **Sign before you send.** (**Firme antes de enviar.**) (**Signez avant d'envoyer.**) means the signature box is empty. **Nobody is waiting for a sign-off at this site.** (**Nadie está esperando una firma en este sitio.**) (**Personne n'attend de validation sur ce site.**) means there is nothing to sign at the site picked; try another site. When OCSA refuses, the reason shows in its words, for example when the attempt is your own or someone signed it off first. **This list did not load.** (**Esta lista no se cargó.**) (**Cette liste ne s'est pas chargée.**) means the list could not be read; check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**).
 Words people use for this: sign off training, sign off a lesson, trainer sign-off, watched them do it, demonstration, training waiting for a trainer, trainings to sign off, firmar capacitación, lo vi hacerlo, valider une formation, formation à valider.
+Picture: training-sign-off
 Last checked: 2026-10-05
 
 ## Join a training session
@@ -1082,6 +1177,7 @@ Who can do this: anyone signed in, at a session a trainer is running
 3. **You are signed in. Your trainer closes the session.** (**Ya firmó su entrada. Su capacitador cierra la sesión.**) (**Vous êtes inscrit. Votre formateur clôture la séance.**) shows. Your training record is written when the trainer closes the session with their own signature; it then shows under My training.
 If it does not work: **This session is not open.** (**Esta sesión no está abierta.**) (**Cette séance n'est pas ouverte.**) means the code is wrong, or the session is closed or cancelled; **Ask your trainer for the code on their screen.** (**Pídale a su capacitador el código en su pantalla.**) (**Demandez à votre formateur le code affiché sur son écran.**). **You already signed in to this session.** (**Ya firmó su entrada a esta sesión.**) (**Vous avez déjà signé votre présence à cette séance.**) means you are done. **Tick I understood this training first.** (**Primero marque Entendí esta capacitación.**) (**Cochez d'abord J'ai compris cette formation.**) and **Sign before you send.** (**Firme antes de enviar.**) (**Signez avant d'envoyer.**) name what is missing. When OCSA refuses, the reason shows in its words, for example when a trainer opens their own session.
 Words people use for this: join a session, session code, training qr code, sign in to a training, sign the attendance, i understood this training, unirse a una sesión, código de la sesión, rejoindre une séance, code de la séance.
+Picture: join-session
 Last checked: 2026-10-05
 
 ## Run a training session (staff portal)
@@ -1092,6 +1188,7 @@ Who can do this: supervisors and admins
 4. **Cancel the session** (**Cancelar la sesión**) (**Annuler la séance**) drops it: **Cancel this session? Nothing is written for it.** (**¿Cancelar esta sesión? No se registra nada.**) (**Annuler cette séance ? Rien n'est enregistré.**), then **Session cancelled. Nothing was written.** (**Sesión cancelada. No se registró nada.**) (**Séance annulée. Rien n'a été enregistré.**).
 If it does not work: **Type a title.** (**Escriba un título.**) (**Saisissez un titre.**) and **Choose at least one topic.** (**Elija al menos un tema.**) (**Choisissez au moins un sujet.**) name what is missing. **Nobody has signed in yet.** (**Nadie ha firmado todavía.**) (**Personne n'a encore signé.**) means nothing to close yet; a close with nobody signed in is refused in OCSA's words. **The training list did not load. Try again.** (**La lista de capacitaciones no se cargó. Intente de nuevo.**) (**La liste des formations ne s'est pas chargée. Réessayez.**) means the topics could not be read; check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**). A session you started and left open is there again when you come back to the tile.
 Words people use for this: training session, run a session, start a session, session qr code, sign-in sheet, attendance, close the session, cancel the session, sesión de capacitación, iniciar la sesión, cerrar la sesión, séance de formation, démarrer la séance, clôturer la séance.
+Picture: training-session-run
 Last checked: 2026-10-05
 
 ## Watch and sign off a task (staff portal)
@@ -1102,6 +1199,7 @@ Who can do this: supervisors and admins
 4. **Now you sign.** (**Ahora firma usted.**) (**À vous de signer.**): tick **I watched them do it** (**Lo vi hacerlo**) (**Je l'ai vu le faire**), add a **Note** (**Nota**) (**Note**) if you like, sign under **Your signature** (**Su firma**) (**Votre signature**), and tap **Sign off** (**Firmar**) (**Valider**). **Signed off. It is on their record.** (**Firmado. Ya está en su expediente.**) (**Validé. C'est dans son dossier.**) shows; tap **Watch another** (**Observar otra**) (**Observer une autre**) for the next one.
 If it does not work: **Tick I watched them do it first.** (**Primero marque Lo vi hacerlo.**) (**Cochez d'abord Je l'ai vu le faire.**) and **Sign before you send.** (**Firme antes de enviar.**) (**Signez avant d'envoyer.**) name what is missing. When OCSA refuses, the reason shows in its words, for example a checklist you cannot sign off for yourself. **This list did not load.** (**Esta lista no se cargó.**) (**Cette liste ne s'est pas chargée.**) means the people could not be read; check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**).
 Words people use for this: watch and sign off, observation checklist, watched them do it, on the job sign-off, tick each step, demonstration, observar y firmar, lista de pasos, observer et valider, liste d'étapes.
+Picture: watch-sign-off
 Last checked: 2026-10-05
 
 ## Read and sign a document (staff portal)
@@ -1112,6 +1210,7 @@ Who can do this: anyone signed in who has a document to sign
 4. When the office publishes a new version, the document comes back with **You signed version {n}. This one is new.** (**Firmó la versión {n}. Esta es nueva.**) (**Vous avez signé la version {n}. Celle-ci est nouvelle.**); read and sign it again.
 If it does not work: **Sign before you send.** (**Firme antes de enviar.**) (**Signez avant d'envoyer.**) means the signature box is empty. **This document changed while you read it. Read it again.** (**Este documento cambió mientras lo leía. Léalo de nuevo.**) (**Ce document a changé pendant votre lecture. Relisez-le.**) means a new version came while you read; the reader opens it again. When OCSA refuses, the reason shows in its words. **Try again** (**Intentar de nuevo**) (**Réessayer**) reads the document again after a lost signal.
 Words people use for this: sign the handbook, read and sign, document to sign, employee handbook, acknowledge a document, before you start, firmar el manual, documentos por firmar, signer le manuel, documents à signer.
+Picture: document-read
 Last checked: 2026-10-06
 
 ## Find and take your trainings (staff portal)
@@ -1122,6 +1221,8 @@ Who can do this: anyone signed in, once the office has sorted the trainings into
 4. **My training** (**Mi capacitación**) (**Ma formation**) at the top of the page, or your phone's back, returns to the cards. The page keeps its own address, so a link to it opens it once you are signed in.
 If it does not work: a More with no My training means the office has not set up training for your role yet. Cards that do not show, with the trainings listed under **To do** (**Pendiente**) (**À faire**) and the other groups instead, mean the office has not sorted them into categories yet; the list still works the same way. **This list did not load.** (**Esta lista no se cargó.**) (**Cette liste ne s'est pas chargée.**) means the list could not be read; check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**).
 Words people use for this: training portal, my trainings, training categories, which training first, training progress, trainings in order, up next, safety trainings, how many trainings left, portal de capacitación, categorías de capacitación, mis capacitaciones, portail de formation, catégories de formation.
+Picture: training-portal
+Picture: training-category
 Last checked: 2026-10-06
 
 ## Continue a training you started
@@ -1131,6 +1232,7 @@ Who can do this: anyone signed in with a lesson started or a training still to d
 3. When you finish, My training reads the list again and names the next training. The card is not there when nothing is open and nothing with a lesson is left to do.
 If it does not work: **This lesson did not open. Try again.** (**Esta lección no se abrió. Intente de nuevo.**) (**Cette leçon ne s'est pas ouverte. Réessayez.**) means the lesson could not be read or started; check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**). When OCSA refuses, the reason shows in its words, for example when the lesson has no tries left.
 Words people use for this: continue training, continue where i left off, resume a lesson, lesson i started, pick up a training, go back to the lesson, continuar la capacitación, continuar donde lo dejé, reprendre la formation, reprendre où j'en étais.
+Picture: training-continue
 Last checked: 2026-10-06
 
 ## Pictures in a lesson
@@ -1140,6 +1242,8 @@ Who can do this: anyone signed in who is reading a lesson
 3. A picture that could not load shows its description in a box in its place, so you still know what it showed; check your signal and tap **Back** (**Atrás**) (**Retour**) then the lesson again to load it.
 If it does not work: a picture that stays blank for a while is still loading on a slow signal; the reading and **Next** (**Siguiente**) (**Suivant**) work without it. A lesson with no picture simply has none.
 Words people use for this: picture in a lesson, photo in the training, see the picture bigger, image did not load, drawing in the lesson, foto en la lección, ver la imagen más grande, image dans la leçon, agrandir l'image.
+Picture: lesson-picture
+Picture: lesson-picture-full
 Last checked: 2026-10-06
 
 ## Your first trainings (staff portal)
@@ -1149,6 +1253,7 @@ Who can do this: anyone signed in who has a document to sign or a first training
 3. A first training with no lesson on the phone is not on the card. It is under **More** (**Más**) (**Plus**), then **My training** (**Mi capacitación**) (**Ma formation**), where it reads **Your trainer goes over this one with you.** (**Su capacitador repasa esta con usted.**) (**Votre formateur voit celle-ci avec vous.**).
 If it does not work: no card means nothing waits for you, or the office has not set up training for your role yet. The card reads the same list as My training, so a document signed on another phone leaves it the next time Home opens.
 Words people use for this: first trainings, first day, before you start, new hire training, what do i do first, documents to sign, sign the handbook, primeras capacitaciones, primer día, documentos por firmar, premières formations, premier jour, documents à signer.
+Picture: first-trainings
 Last checked: 2026-10-06
 
 ## Sign for something you received
@@ -1159,6 +1264,8 @@ Who can do this: anyone signed in whom the office asked to sign
 4. For a warning, signing confirms you received it. It does not mean you agree. If you choose not to sign, see If something is not right.
 If it does not work: **Sign before you send.** (**Firme antes de enviar.**) (**Signez avant d'envoyer.**) means the box is empty. **This request did not open. Try again.** (**Esta solicitud no se abrió. Intente de nuevo.**) (**Cette demande ne s'est pas ouverte. Réessayez.**) means the request could not be read; check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**). **This is already done.** (**Esto ya está resuelto.**) (**C'est déjà fait.**) means the office signed it on paper or cancelled it; nothing more is needed from you. **The warning did not open. Try again.** (**La amonestación no se abrió. Intente de nuevo.**) (**L'avertissement ne s'est pas ouvert. Réessayez.**) means the warning's document could not be read; check your signal and tap **Open the warning** (**Abrir la amonestación**) (**Ouvrir l'avertissement**) again. When OCSA refuses, the reason shows in its words.
 Words people use for this: sign for a key, sign for my badge, sign for the uniform, sign for ppe, sign a warning, signature request, something to sign, firmar por la llave, firmar por el uniforme, firmar la amonestación, signer pour une clé, signer un avertissement.
+Picture: sign-list
+Picture: sign-key
 Last checked: 2026-10-06
 
 ## My company property
@@ -1168,6 +1275,7 @@ Who can do this: anyone signed in, once the office has recorded property for the
 3. Under **Returned** (**Devuelto**) (**Rendu**) is what you gave back, each with **Returned {date}** (**Devuelto el {date}**) (**Rendu le {date}**). **You hold no company property.** (**No tiene propiedad de la empresa.**) (**Vous n'avez aucun bien de l'entreprise.**) means nothing is on file for you.
 If it does not work: an item you returned that is still under You hold, or one you never received, is a record the office needs to fix; tell your supervisor. When you leave OCSA, everything under You hold is returned to the office (OCSA-HR-002 9).
 Words people use for this: company property, my keys, my badge, my uniform, what do i have, return the key, returned items, propiedad de la empresa, mis llaves, mi gafete, biens de l'entreprise, mes clés, mon badge.
+Picture: company-property
 Last checked: 2026-10-06
 
 ## If something is not right
@@ -1177,4 +1285,5 @@ Who can do this: anyone signed in whom the office asked to sign
 3. **Cancel** (**Cancelar**) (**Annuler**) in either box goes back to the screen with nothing sent.
 If it does not work: **Write a note first.** (**Primero escriba una nota.**) (**Écrivez d'abord une note.**) means the note is empty; a warning's note is optional, a property or PPE note is required. **Your note was not sent. Try again.** (**Su nota no se envió. Intente de nuevo.**) (**Votre note n'a pas été envoyée. Réessayez.**) means the note did not go; check your signal and tap the button again. When OCSA refuses, the reason shows in its words, for example when the request was already closed by the office.
 Words people use for this: this is not right, wrong size, wrong item, i did not receive this, send it back, refuse to sign, i will not sign, decline a warning, esto no es correcto, no voy a firmar, talla equivocada, ce n'est pas correct, je ne signerai pas.
+Picture: sign-not-right
 Last checked: 2026-10-06

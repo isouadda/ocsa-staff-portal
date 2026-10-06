@@ -12,7 +12,11 @@ build and the guide check. It builds nothing: it serves the `build/` that
 newer than that build. It drives the portal at 390 wide against the stub,
 in English and Spanish: a cleaner signs in, every bar tab and every More
 item opens with no page error and no sideways scroll, Start Shift's
-screen draws, a form opens, Help answers; `/sds` draws with no sign-in
+screen draws, a form opens, Help answers; under a how-to answer Help
+draws the picture of the screen from the screen's language's file, opens
+it full screen and closes it, draws none under an answer with none, leaves
+out a picture with no file, and draws it on an answer read back (Step 277);
+`/sds` draws with no sign-in
 (English alone, since that check reads the API's sheet names);
 the sign-in code screen appears when the stub answers `secondStep`; a
 cleaner never asks for `/api/workspace` and a supervisor sees Workspace;
@@ -77,12 +81,42 @@ off. Each check prints one line, PASS or FAIL, and the command exits
 non-zero on any failure or when the run takes three minutes or more.
 Since Step 258 it waits for each screen to be there rather than sleeping
 a fixed time after every load and tap, and a run takes about 100 seconds;
-the three-minute line stays where it was.
+the three-minute line stays where it was. Since Step 277 the training session's
+sign-in arrives by moving the phone's clock on rather than waiting out
+the screen's five-second reads, and Edit shortcuts, opened from More, is
+closed by its own Close, so the rest of a cleaner's run is not tapped
+through it.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
 `concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`), off for every other case. The full suite below is separate
 and is not run by it.
+
+## Pictures for Help
+
+```
+npm run build && npm run shots
+```
+
+`audit/shots.js` (Step 277) takes the pictures of the screen Help draws
+under an answer. Like the smoke check it serves the `build/` that
+`npm run build` left and drives it against the stub, at 390 wide in the
+light theme, in English and in Spanish, and writes
+`public/guide-shots/<name>.en.jpg` and `<name>.es.jpg`, each a JPEG of at
+most 250 KB. One list in the file names each picture, the guide entry it
+belongs to and the taps that reach its screen, and the entries a picture
+cannot show, each with the reason. `npm run shots -- <name> <name>` takes
+only the pictures named. It prints a line for each file, and fails on a
+screen that did not come or a page error on the way, and with
+`SHOTS_DEBUG=<folder>` keeps what such a screen showed. Two stub switches
+serve it alone: `guideForms` lists the forms the guide names by title, so
+each of those entries shows its card on Forms, and `chatPeopleRoute`
+answers the people Chat's New message offers.
+
+The smoke check never runs it, and it takes about fifteen minutes for
+every picture. Taking pictures writes into `public/`, so build again
+before the smoke check. How the guide names a picture, and what
+`npm run guide-check` holds them to, is in `guide/README.md`.
 
 ## The full suite
 

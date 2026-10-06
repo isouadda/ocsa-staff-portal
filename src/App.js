@@ -5512,6 +5512,24 @@ const agentMessageId = (d) => { const v = agentField(d, ["messageId", "message_i
 // How long a note under a rating can be, the API's own limit.
 const RATE_NOTE_MAX = 500;
 
+// The pictures of the screen an answer carries (the API's Step 276):
+// { app, name, entry } each, at most two, in the order the API sent
+// them. The portal draws the portal's own and leaves the dashboard's to
+// the dashboard. A name outside the pattern the files are written in is
+// left out, so nothing but a picture in public/guide-shots/ is asked
+// for. The entry's title is what a screen reader hears, without the
+// "(staff portal)" the guide gives every title.
+const HELP_PICTURE_NAME = /^[a-z0-9-]{1,60}$/;
+const agentPictures = (list) => {
+  const out = [];
+  (Array.isArray(list) ? list : []).forEach((p) => {
+    if (!p || typeof p !== "object" || p.app !== "portal" || typeof p.name !== "string" || !HELP_PICTURE_NAME.test(p.name)) return;
+    if (out.length >= 2 || out.some(x => x.name === p.name)) return;
+    out.push({ name: p.name, entry: typeof p.entry === "string" ? p.entry.replace(/\s*\(staff portal\)\s*$/i, "").trim() : "" });
+  });
+  return out;
+};
+
 // One message of a conversation the API keeps, read the same way for
 // resuming a report and for an answer whose connection dropped.
 // A row that carries feedback (null, or the rating) is one the API
@@ -5526,6 +5544,7 @@ const agentStored = (m) => {
     text: String(agentField(m, ["text", "content", "reply"], "")),
     citedDocs: agentList(agentField(m, ["citedDocs", "cited_doc_codes", "citedDocCodes"], []), []),
     citedNames: agentList(agentField(m, ["citedNames", "cited_names"], []), []),
+    pictures: agentPictures(agentField(m, ["pictures"], [])),
     degraded: agentField(m, ["degraded"], false) === true,
     noProcedure: agentField(m, ["noProcedure", "no_procedure"], false) === true,
     messageId: rated ? agentMessageId({ messageId: agentField(m, ["id", "messageId", "message_id"], null) }) : null,
@@ -5596,6 +5615,53 @@ function RateAnswer({ messageId, feedback, onRated, onUnavailable, token, t }) {
       )}
       {feedback && !noteOpen && <div style={{ fontSize: 11, color: t.textMut, marginTop: 6, lineHeight: 1.4 }}>{tr("Thanks. This helps Help get better.")}</div>}
       {error && <div role="alert" style={{ fontSize: 11, color: ink(t, RED), marginTop: 6, lineHeight: 1.4 }}>{error}</div>}
+    </div>
+  );
+}
+
+// Pictures of the screen under one of Help's answers (Step 277), taken
+// by npm run shots and served from the portal's own address. Each is
+// drawn in the screen's language where a file was taken in it, and in
+// English otherwise. A file that does not load is asked for in English,
+// and one that does not load in English either is left out. A tap opens
+// the picture full screen with Close; Escape and a tap beside the
+// picture close it too. A screen reader hears each by its entry's title.
+const HELP_PICTURE_DIR = (process.env.PUBLIC_URL || "") + "/guide-shots/";
+const HELP_PICTURE_LANGUAGES = ["en", "es"];
+function AnswerPictures({ pictures, language, t }) {
+  const first = HELP_PICTURE_LANGUAGES.indexOf(language) !== -1 ? language : "en";
+  // The language each picture is drawn in, by name, or "gone".
+  const [drawnIn, setDrawnIn] = useState({});
+  const [open, setOpen] = useState(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setOpen(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+  const langOf = (p) => drawnIn[p.name] || first;
+  const srcOf = (p) => HELP_PICTURE_DIR + p.name + "." + langOf(p) + ".jpg";
+  const missed = (p) => setDrawnIn(prev => ({ ...prev, [p.name]: (prev[p.name] || first) === "en" ? "gone" : "en" }));
+  const said = (p) => p.entry || tr("Picture of the screen");
+  const shown = pictures.filter(p => langOf(p) !== "gone");
+  if (shown.length === 0) return null;
+  return (
+    <div data-help-pictures={shown.length} style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
+      {shown.map(p => (
+        <button key={p.name} type="button" data-help-picture={p.name} aria-label={said(p)} onClick={() => setOpen(p)} style={{ width: 128, flex: "none", padding: 0, border: "1px solid " + t.borderSolid, borderRadius: R.md, background: t.card, overflow: "hidden", cursor: "zoom-in" }}>
+          <img key={langOf(p)} src={srcOf(p)} alt={said(p)} data-help-picture-lang={langOf(p)} onError={() => missed(p)} style={{ display: "block", width: "100%", height: "auto", aspectRatio: "390 / 844", objectFit: "cover", objectPosition: "top" }} />
+        </button>
+      ))}
+      {open && langOf(open) !== "gone" && (
+        <div data-help-picture-full={open.name} role="dialog" aria-modal="true" aria-label={said(open)} onClick={() => setOpen(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 420, background: "rgba(0,0,0,0.92)", display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", padding: "calc(10px + env(safe-area-inset-top, 0px)) 12px 6px", flexShrink: 0 }}>
+            <button type="button" data-help-picture-close="1" onClick={() => setOpen(null)} style={{ ...wsPlainBtn(t), flex: "none", color: "#FFFFFF", border: "1px solid rgba(255,255,255,0.6)" }}>{tr("Close")}</button>
+          </div>
+          <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 12px calc(12px + env(safe-area-inset-bottom, 0px))" }}>
+            <img src={srcOf(open)} alt={said(open)} onClick={e => e.stopPropagation()} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: R.sm }} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -5807,7 +5873,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
       // The composer clears only now, and only if it still holds what was sent.
       setText(prev => prev.trim() === msgText ? "" : prev);
       setPhotos(prev => (prev.length > 0 && paths && paths.length > 0) ? [] : prev);
-      const answer = { id: answerId, role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], citedNames: Array.isArray(data.citedNames) ? data.citedNames : [], degraded: data.degraded === true, noProcedure: data.noProcedure === true, messageId: agentMessageId(data), feedback: null };
+      const answer = { id: answerId, role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], citedNames: Array.isArray(data.citedNames) ? data.citedNames : [], pictures: agentPictures(data.pictures), degraded: data.degraded === true, noProcedure: data.noProcedure === true, messageId: agentMessageId(data), feedback: null };
       place(answer);
       if (data.formResponse) { setFormResponse(data.formResponse); setMissing([]); setSubmitted(false); }
       hear(answer.text);
@@ -5943,6 +6009,7 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
             )}
             {isMe ? m.text : (m.arriving || m.dropped) ? agentArriving(m.text) : <AgentReply text={m.text} />}
           </div>}
+          {!isMe && !m.arriving && !m.dropped && m.pictures && m.pictures.length > 0 && <AnswerPictures pictures={m.pictures} language={locale} t={t} />}
           {!isMe && agentSourcesLine(m.citedDocs, m.citedNames) && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>{tr("Based on")} {agentSourcesLine(m.citedDocs, m.citedNames)}</div>}
           {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>{tr("Working from the written procedure only right now.")}</div>}
           {!isMe && m.messageId && !m.arriving && !m.dropped && !rateOff && <RateAnswer messageId={m.messageId} feedback={m.feedback || null} onRated={(f) => setThread(prev => prev.map(x => x.id === m.id ? { ...x, feedback: f } : x))} onUnavailable={() => setRateOff(true)} token={token} t={t} />}

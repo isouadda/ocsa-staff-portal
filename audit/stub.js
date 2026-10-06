@@ -563,6 +563,24 @@ const HELP_ANSWERS = {
   unknown: { pieces: ["I do not have a writ", "ten procedure for that. Ask your super", "visor."], noProcedure: true },
   // The first try at an answer the API throws away and writes again.
   firstTry: { pieces: ["Mop the spill right aw", "ay with any mop."] },
+  // A how-to answer drawn from the app guide (Step 276 in the API), with
+  // the pictures its cited entries name: the portal's own, and one of
+  // the dashboard's, which the portal leaves to the dashboard.
+  howTo: {
+    pieces: ["Open the staff po", "rtal and type your badge num", "ber and your PIN.\n1. Tap **Sig", "n In**."],
+    piecesEs: ["Abra el portal del per", "sonal y escriba su n\u00famero de empl", "eado y su PIN.\n1. Toque **Inic", "iar sesi\u00f3n**."],
+    citedDocs: ["APP-PORTAL", "APP-DASHBOARD"],
+    pictures: [
+      { app: "portal", name: "sign-in", entry: "Sign in to the staff portal (staff portal)" },
+      { app: "dashboard", name: "sign-in", entry: "Sign in to the dashboard (dashboard)" },
+    ],
+  },
+  // One whose picture has no file in any language, which is left out.
+  noFile: {
+    pieces: ["Open the staff po", "rtal and type your badge num", "ber and your PIN.\n1. Tap **Sig", "n In**."],
+    citedDocs: ["APP-PORTAL"],
+    pictures: [{ app: "portal", name: "no-such-picture", entry: "An entry whose picture was never taken (staff portal)" }],
+  },
 };
 const helpReply = (a) => a.pieces.join("");
 // The refusals a case can ask Help for, each a sentence the API writes.
@@ -654,6 +672,27 @@ const FORM = {
 // catalog lists this one, the latest, while a draft started on the first
 // is sent beside the first.
 const FORM_V2 = Object.assign({}, FORM, { version: 2, fields: FORM.fields.map(f => (f.key === "where" ? Object.assign({}, f, { label: "Which room was it in" }) : f)) });
+
+// The forms the Help guide names by title (Step 277), so npm run shots
+// can picture each one's card on Forms. Each is its title alone, in the
+// words the guide gives it, and none of them opens: the stub holds none
+// of their questions. Served with stubOptions.guideForms, after the two
+// every case lists.
+const GUIDE_FORMS = [
+  ["GUIDE-DSL", "Daily Service Log", "Registro diario de servicio"],
+  ["GUIDE-PPE", "PPE Compliance Log, monthly check", "Registro de cumplimiento de EPP, revisi\u00f3n mensual"],
+  ["GUIDE-CCL", "Customer Complaint Log", "Registro de quejas de clientes"],
+  ["GUIDE-SIC", "Safety Inspection Checklist", "Lista de inspecci\u00f3n de seguridad"],
+  ["GUIDE-CAR", "Corrective Action Report", "Reporte de acci\u00f3n correctiva"],
+  ["GUIDE-ECA", "Environmental Compliance Audit", "Auditor\u00eda de cumplimiento ambiental"],
+  ["GUIDE-PHA", "PPE Hazard Assessment Written Verification", "Verificaci\u00f3n escrita de la evaluaci\u00f3n de riesgos para EPP"],
+  ["GUIDE-SCM", "Safety Committee Minutes and Attendance", "Acta y asistencia del comit\u00e9 de seguridad"],
+  ["GUIDE-PSA", "Pre-Service Site Assessment", "Evaluaci\u00f3n del sitio antes del servicio"],
+  ["GUIDE-COS", "Change of Service Request", "Solicitud de cambio de servicio"],
+  ["GUIDE-SOC", "Site-Specific Orientation Checklist", "Lista de orientaci\u00f3n espec\u00edfica del sitio"],
+  ["GUIDE-CIL", "Call Intake and Communication Log", "Registro de llamadas y comunicaciones"],
+];
+const guideForms = (lang) => GUIDE_FORMS.map(([code, en, es]) => ({ code: code, title: lang === "es" ? es : en, fields: [] }));
 
 function makeState(opts) {
   const o = opts || {};
@@ -825,6 +864,12 @@ function makeState(opts) {
     formVersions: !!o.formVersions,
     // The form about one person, served when a case asks, and its answers.
     personForm: !!o.personForm,
+    // The forms the Help guide names, title only (Step 277).
+    guideForms: !!o.guideForms,
+    // GET /api/chat/people, the people Chat's New message offers an
+    // office person: the office first, then the staff (Step 277's
+    // picture of it). Off, the route is not answered, as before.
+    chatPeopleRoute: !!o.chatPeopleRoute,
     answersE: {},
     // Everyone Speak Up can name, and every report filed through it.
     staff: o.staff || STAFF.slice(),
@@ -1865,6 +1910,7 @@ const TWIN_PAIRS = [
   ["Take the pads from the second floor store room.", "Tome los pa\u00f1os del almac\u00e9n del segundo piso."],
   // Help's other answers, the procedure one cites, and its refusals.
   [helpReply(HELP_ANSWERS.spill), HELP_ANSWERS.spill.piecesEs.join("")],
+  [helpReply(HELP_ANSWERS.howTo), HELP_ANSWERS.howTo.piecesEs.join("")],
   ["I started an incident report for you. Tell me when it happened.", "Empec\u00e9 un reporte de incidente para usted. D\u00edgame cu\u00e1ndo pas\u00f3."],
   ["I do not have a written procedure for that. Ask your supervisor.", "No tengo un procedimiento escrito para eso. Pregunte a su supervisor."],
   ["Mop the spill right away with any mop.", "Trapee el derrame de inmediato con cualquier trapeador."],
@@ -1951,6 +1997,8 @@ const TWIN_PAIRS = [
   .concat([["Which room was it in", "En qu\u00e9 cuarto fue"]])
   // The form about one person.
   .concat(Object.keys(FORM_E_WORDS.en).map(k => [FORM_E_WORDS.en[k], FORM_E_WORDS.es[k]]))
+  // The forms the Help guide names (Step 277).
+  .concat(GUIDE_FORMS.map(([code, en, es]) => [en, es]))
   // The concern link's form (Step 244), and 006's client half (Step 249).
   .concat(Object.keys(FORM_N_WORDS.en).map(k => [FORM_N_WORDS.en[k], FORM_N_WORDS.es[k]]))
   .concat(Object.keys(FORM_W_WORDS.en).map(k => [FORM_W_WORDS.en[k], FORM_W_WORDS.es[k]]))
@@ -2306,6 +2354,9 @@ function createStub(opts) {
     const done = Object.assign({
       messageId: messageId, reply: reply, conversationId: state.conversationId,
       citedDocs: next.citedDocs || answer.citedDocs || [], degraded: !!answer.degraded, noProcedure: !!answer.noProcedure,
+      // Step 276: the pictures of the guide entries the answer cites,
+      // none for an answer that cites none.
+      pictures: (answer.pictures || []).map(x => Object.assign({}, x)),
     }, next.citedNames ? { citedNames: next.citedNames } : {}, answer.formResponse ? { formResponse: answer.formResponse } : {});
     if (next.error) steps.push({ event: "error", data: { error: next.error.error, status: next.error.status } });
     else if (next.drop) steps.push({ drop: true });
@@ -2314,7 +2365,7 @@ function createStub(opts) {
     // dropped connection still finishes the answer and keeps it; an error
     // keeps nothing.
     state.stored.push({ role: "user", text: body && typeof body.text === "string" ? body.text : "", at: 0 });
-    const kept = { id: messageId, role: "assistant", text: reply, citedDocs: done.citedDocs, citedNames: next.citedNames || null, degraded: done.degraded, noProcedure: done.noProcedure, feedback: null, at: Infinity };
+    const kept = { id: messageId, role: "assistant", text: reply, citedDocs: done.citedDocs, citedNames: next.citedNames || null, pictures: done.pictures, degraded: done.degraded, noProcedure: done.noProcedure, feedback: null, at: Infinity };
     if (!next.error) state.stored.push(kept);
     state.help.holds = holds;
     return {
@@ -2854,6 +2905,8 @@ function createStub(opts) {
     // --- chat, the three routes as Scout 138 read and ran them, and the
     // refusals as Step 132 writes them; and Step 179's read receipt, the
     // people a message may tag, and the tags on a message
+    if (state.chatPeopleRoute && key === "GET /api/chat/people") return json(200, { people: [{ userId: ADMIN_PERSON.id, name: ADMIN_PERSON.firstName + " " + ADMIN_PERSON.lastName, role: ADMIN_PERSON.role, kind: "office" }]
+      .concat(STAFF.slice(0, 8).map(x => ({ userId: x.id, name: x.firstName + " " + x.lastName, role: "custodian", kind: "staff" }))) });
     if (key === "GET /api/chat/channels") return json(200, state.chat.channels.map(ch => Object.assign({}, ch)));
     const chatRoute = /^\/api\/chat\/channels\/([^/]+)\/(messages|read|members)$/.exec(pathname);
     if (chatRoute && (chatRoute[2] === "messages" ? (method === "GET" || method === "POST") : chatRoute[2] === "read" ? method === "POST" : method === "GET")) {
@@ -2936,7 +2989,7 @@ function createStub(opts) {
       const now = Date.now();
       const messages = pathname.split("/").pop() === state.conversationId
         ? state.stored.filter(m => m.at <= now).map(m => (m.role === "assistant"
-          ? Object.assign({ id: m.id, role: m.role, text: m.text, citedDocs: m.citedDocs, degraded: m.degraded, noProcedure: m.noProcedure, feedback: m.feedback ? Object.assign({}, m.feedback) : null }, m.citedNames ? { citedNames: m.citedNames } : {})
+          ? Object.assign({ id: m.id, role: m.role, text: m.text, citedDocs: m.citedDocs, pictures: (m.pictures || []).map(x => Object.assign({}, x)), degraded: m.degraded, noProcedure: m.noProcedure, feedback: m.feedback ? Object.assign({}, m.feedback) : null }, m.citedNames ? { citedNames: m.citedNames } : {})
           : { role: m.role, text: m.text }))
         : [];
       messages.forEach((m) => { if (m.role === "assistant") recordWord(m.text, "Help reply"); });
@@ -3191,7 +3244,7 @@ function createStub(opts) {
     // send beside it; with formVersions the incident report has a second
     // version out.
     if (pathname === "/api/forms") {
-      return json(200, { forms: [state.formVersions ? FORM_V2 : FORM, formP(lang)].concat(state.sectionsForm ? [thirdForm()] : []).concat(state.personForm ? [formE(lang)] : []) });
+      return json(200, { forms: [state.formVersions ? FORM_V2 : FORM, formP(lang)].concat(state.sectionsForm ? [thirdForm()] : []).concat(state.personForm ? [formE(lang)] : []).concat(state.guideForms ? guideForms(lang) : []) });
     }
     if (fourth(pathname)) {
       if (method === "GET" && /^\/api\/forms\/drafts\//.test(pathname)) return json(200, { draft: draftE(state, lang), form: formE(lang) });

@@ -65,9 +65,12 @@ async function main() {
     const b = body && typeof body === "object" ? body : {};
     const said = typeof b.error === "string" ? b.error.trim() : "";
     process.stdout.write("HTTP " + res.status + (b.code ? " " + b.code : "") + (said ? ": " + said : "") + "\n");
-    if (Array.isArray(b.keys) && b.keys.length > 0) {
+    // The entries a refusal names: under keys, or under titles, the way
+    // Step 276 names the entries whose Picture: lines it refuses.
+    const titles = [].concat(Array.isArray(b.keys) ? b.keys : [], Array.isArray(b.titles) ? b.titles : []);
+    if (titles.length > 0) {
       process.stdout.write("titles:\n");
-      b.keys.forEach((k) => process.stdout.write("  " + k + "\n"));
+      titles.forEach((k) => process.stdout.write("  " + k + "\n"));
     }
     if (!body) process.stdout.write(text.slice(0, 2000) + "\n");
     fail("The guide sync was refused: HTTP " + res.status + (b.code ? " " + b.code : "") + ".");
@@ -83,6 +86,10 @@ async function main() {
     "  unchanged    " + count("unchanged") + "\n" +
     "  rows active  " + count("rowsActive") + "\n" +
     "  fingerprint  " + (a.fingerprint || "?") + "\n");
+  // Any other count the answer carries, such as how many entries carry
+  // pictures (Step 276), printed under the API's own name for it.
+  const known = ["updated", "inserted", "reactivated", "deactivated", "unchanged", "rowsActive"];
+  Object.keys(a).filter(k => typeof a[k] === "number" && known.indexOf(k) === -1).forEach((k) => process.stdout.write("  " + k + "  " + a[k] + "\n"));
   // The contract has the API count every row the document holds, so
   // the two can differ once an entry has been retired. Said, not failed.
   if (!a.dryRun && a.fingerprint && a.fingerprint !== local) {
