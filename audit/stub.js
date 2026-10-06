@@ -655,6 +655,27 @@ const FORM = {
 // is sent beside the first.
 const FORM_V2 = Object.assign({}, FORM, { version: 2, fields: FORM.fields.map(f => (f.key === "where" ? Object.assign({}, f, { label: "Which room was it in" }) : f)) });
 
+// The forms the Help guide names by title (Step 277), so npm run shots
+// can picture each one's card on Forms. Each is its title alone, in the
+// words the guide gives it, and none of them opens: the stub holds none
+// of their questions. Served with stubOptions.guideForms, after the two
+// every case lists.
+const GUIDE_FORMS = [
+  ["GUIDE-DSL", "Daily Service Log", "Registro diario de servicio"],
+  ["GUIDE-PPE", "PPE Compliance Log, monthly check", "Registro de cumplimiento de EPP, revisi\u00f3n mensual"],
+  ["GUIDE-CCL", "Customer Complaint Log", "Registro de quejas de clientes"],
+  ["GUIDE-SIC", "Safety Inspection Checklist", "Lista de inspecci\u00f3n de seguridad"],
+  ["GUIDE-CAR", "Corrective Action Report", "Reporte de acci\u00f3n correctiva"],
+  ["GUIDE-ECA", "Environmental Compliance Audit", "Auditor\u00eda de cumplimiento ambiental"],
+  ["GUIDE-PHA", "PPE Hazard Assessment Written Verification", "Verificaci\u00f3n escrita de la evaluaci\u00f3n de riesgos para EPP"],
+  ["GUIDE-SCM", "Safety Committee Minutes and Attendance", "Acta y asistencia del comit\u00e9 de seguridad"],
+  ["GUIDE-PSA", "Pre-Service Site Assessment", "Evaluaci\u00f3n del sitio antes del servicio"],
+  ["GUIDE-COS", "Change of Service Request", "Solicitud de cambio de servicio"],
+  ["GUIDE-SOC", "Site-Specific Orientation Checklist", "Lista de orientaci\u00f3n espec\u00edfica del sitio"],
+  ["GUIDE-CIL", "Call Intake and Communication Log", "Registro de llamadas y comunicaciones"],
+];
+const guideForms = (lang) => GUIDE_FORMS.map(([code, en, es]) => ({ code: code, title: lang === "es" ? es : en, fields: [] }));
+
 function makeState(opts) {
   const o = opts || {};
   return {
@@ -825,6 +846,12 @@ function makeState(opts) {
     formVersions: !!o.formVersions,
     // The form about one person, served when a case asks, and its answers.
     personForm: !!o.personForm,
+    // The forms the Help guide names, title only (Step 277).
+    guideForms: !!o.guideForms,
+    // GET /api/chat/people, the people Chat's New message offers an
+    // office person: the office first, then the staff (Step 277's
+    // picture of it). Off, the route is not answered, as before.
+    chatPeopleRoute: !!o.chatPeopleRoute,
     answersE: {},
     // Everyone Speak Up can name, and every report filed through it.
     staff: o.staff || STAFF.slice(),
@@ -1951,6 +1978,8 @@ const TWIN_PAIRS = [
   .concat([["Which room was it in", "En qu\u00e9 cuarto fue"]])
   // The form about one person.
   .concat(Object.keys(FORM_E_WORDS.en).map(k => [FORM_E_WORDS.en[k], FORM_E_WORDS.es[k]]))
+  // The forms the Help guide names (Step 277).
+  .concat(GUIDE_FORMS.map(([code, en, es]) => [en, es]))
   // The concern link's form (Step 244), and 006's client half (Step 249).
   .concat(Object.keys(FORM_N_WORDS.en).map(k => [FORM_N_WORDS.en[k], FORM_N_WORDS.es[k]]))
   .concat(Object.keys(FORM_W_WORDS.en).map(k => [FORM_W_WORDS.en[k], FORM_W_WORDS.es[k]]))
@@ -2854,6 +2883,8 @@ function createStub(opts) {
     // --- chat, the three routes as Scout 138 read and ran them, and the
     // refusals as Step 132 writes them; and Step 179's read receipt, the
     // people a message may tag, and the tags on a message
+    if (state.chatPeopleRoute && key === "GET /api/chat/people") return json(200, { people: [{ userId: ADMIN_PERSON.id, name: ADMIN_PERSON.firstName + " " + ADMIN_PERSON.lastName, role: ADMIN_PERSON.role, kind: "office" }]
+      .concat(STAFF.slice(0, 8).map(x => ({ userId: x.id, name: x.firstName + " " + x.lastName, role: "custodian", kind: "staff" }))) });
     if (key === "GET /api/chat/channels") return json(200, state.chat.channels.map(ch => Object.assign({}, ch)));
     const chatRoute = /^\/api\/chat\/channels\/([^/]+)\/(messages|read|members)$/.exec(pathname);
     if (chatRoute && (chatRoute[2] === "messages" ? (method === "GET" || method === "POST") : chatRoute[2] === "read" ? method === "POST" : method === "GET")) {
@@ -3191,7 +3222,7 @@ function createStub(opts) {
     // send beside it; with formVersions the incident report has a second
     // version out.
     if (pathname === "/api/forms") {
-      return json(200, { forms: [state.formVersions ? FORM_V2 : FORM, formP(lang)].concat(state.sectionsForm ? [thirdForm()] : []).concat(state.personForm ? [formE(lang)] : []) });
+      return json(200, { forms: [state.formVersions ? FORM_V2 : FORM, formP(lang)].concat(state.sectionsForm ? [thirdForm()] : []).concat(state.personForm ? [formE(lang)] : []).concat(state.guideForms ? guideForms(lang) : []) });
     }
     if (fourth(pathname)) {
       if (method === "GET" && /^\/api\/forms\/drafts\//.test(pathname)) return json(200, { draft: draftE(state, lang), form: formE(lang) });

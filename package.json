@@ -13,7 +13,8 @@
     "build": "node scripts/stamp.js && react-scripts build",
     "audit": "node audit/run.js",
     "guide-check": "node scripts/guide-check.js",
-    "smoke": "node audit/smoke.js"
+    "smoke": "node audit/smoke.js",
+    "shots": "node audit/shots.js"
   },
   "devDependencies": {
     "playwright": "1.56.1"

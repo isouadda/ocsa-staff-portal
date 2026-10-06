@@ -84,6 +84,32 @@ The stub routes it needs sit behind switches in `makeState` (`languages`,
 `concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`), off for every other case. The full suite below is separate
 and is not run by it.
 
+## Pictures for Help
+
+```
+npm run build && npm run shots
+```
+
+`audit/shots.js` (Step 277) takes the pictures of the screen Help draws
+under an answer. Like the smoke check it serves the `build/` that
+`npm run build` left and drives it against the stub, at 390 wide in the
+light theme, in English and in Spanish, and writes
+`public/guide-shots/<name>.en.jpg` and `<name>.es.jpg`, each a JPEG of at
+most 250 KB. One list in the file names each picture, the guide entry it
+belongs to and the taps that reach its screen, and the entries a picture
+cannot show, each with the reason. `npm run shots -- <name> <name>` takes
+only the pictures named. It prints a line for each file, and fails on a
+screen that did not come or a page error on the way, and with
+`SHOTS_DEBUG=<folder>` keeps what such a screen showed. Two stub switches
+serve it alone: `guideForms` lists the forms the guide names by title, so
+each of those entries shows its card on Forms, and `chatPeopleRoute`
+answers the people Chat's New message offers.
+
+The smoke check never runs it, and it takes about fifteen minutes for
+every picture. Taking pictures writes into `public/`, so build again
+before the smoke check. How the guide names a picture, and what
+`npm run guide-check` holds them to, is in `guide/README.md`.
+
 ## The full suite
 
 One command walks every screen the portal can show, in English and in
