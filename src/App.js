@@ -1051,6 +1051,23 @@ const inspectSafetyOf = (d) => {
   const form = [s.form, s.definition, draft && draft.form, draft && draft.definition].find(x => x && typeof x === "object" && Array.isArray(x.fields)) || null;
   return draft && typeof draft === "object" && draft.id && form ? { form: form, draft: draft } : null;
 };
+// What the complete route answers about the safety part: its overall
+// result, in the words the API gives or the form's own option, and each
+// finding with its severity, owner and due date. null with none.
+const inspectSafetyAnswerOf = (d, form) => {
+  const s = d && typeof d === "object" && d.safety && typeof d.safety === "object" ? d.safety : null;
+  if (!s) return null;
+  const code = fkText(s, ["result", "overallResult"]);
+  const field = form && Array.isArray(form.fields) ? form.fields.find(f => Array.isArray(f.options) && f.options.some(o => o && o.value === code)) : null;
+  const opt = field ? field.options.find(o => o.value === code) : null;
+  return {
+    result: fkText(s, ["resultLabel", "resultWords"]) || (opt ? String(opt.label || "") : ""),
+    findings: (Array.isArray(s.findings) ? s.findings : []).map((f, i) => (f && typeof f === "object" ? {
+      id: String(agentField(f, ["issueId", "id"], i)), label: fkText(f, ["where", "area", "label", "title"]), what: fkText(f, ["what", "description"]), severity: fkText(f, ["severity"]),
+      owner: f.owner && typeof f.owner === "object" ? fkText(f.owner, ["name"]) : fkText(f, ["owner", "ownerName"]), dueAt: f.dueAt || f.dueDate || f.due || null,
+    } : null)).filter(Boolean),
+  };
+};
 // A walk's site checklist, kept on this phone as it is scored, by person
 // and inspection (Step 313), so leaving and coming back continues it; the
 // safety part is kept by the API as the inspector's draft. Every read and
@@ -16667,9 +16684,10 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       // reports, one after another.
       const answer = owners ? inspectAnswerOf(d) : null;
       const reports = owners ? [] : (active.items || []).filter(item => needsFix[item.id]).map(reportFor);
+      const safetyAnswer = safety ? inspectSafetyAnswerOf(d, safety.form) : null;
       if (safety && user) forgetInspect(user.id, active.id);
-      if (answer) {
-        setSent({ name: active.template_name, reports: [], answer: answer });
+      if (answer || safetyAnswer) {
+        setSent({ name: active.template_name, reports: [], answer: answer, safety: safetyAnswer });
       } else if (!reports.length) {
         showToast(tr("Inspection submitted"));
       } else {
@@ -17075,6 +17093,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
             </div>
           )}
         </div>
+        {a && a.findings.length > 0 && sent.safety && <div role="heading" aria-level={3} style={{ fontSize: 13, fontWeight: 700, color: t.goldText, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 10, paddingBottom: 6, borderBottom: "2px solid " + GOLD }}>{tr("Site checklist")}</div>}
         {a && a.findings.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
             {a.findings.map((f, i) => (
@@ -17087,6 +17106,24 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
                 {f.dueAt && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4 }}>{tr("Due {when}", { when: requestWhen(f.dueAt) })}</div>}
               </div>
             ))}
+          </div>
+        )}
+        {sent.safety && (
+          <div data-inspect-sent-safety="1" style={{ marginBottom: 16 }}>
+            <div role="heading" aria-level={3} style={{ fontSize: 13, fontWeight: 700, color: t.goldText, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 10, paddingBottom: 6, borderBottom: "2px solid " + GOLD }}>{tr("Safety walk")}</div>
+            {sent.safety.result && <div data-inspect-safety-result="1" style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.4, marginBottom: 10, overflowWrap: "anywhere" }}>{sent.safety.result}</div>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {sent.safety.findings.map((f, i) => (
+                <div key={f.id || i} data-inspect-safety-found={f.id || i} style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "14px" }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                    <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{f.label || f.what}{f.label && f.what ? <span style={{ display: "block", fontSize: 12, fontWeight: 400, color: t.textSec, fontFamily: FONT_BODY }}>{f.what}</span> : null}</div>
+                    {f.severity && <span style={trainingChipSt(t, /^[AB]$/i.test(f.severity) ? RED : ORANGE)}>{tr("Severity {s}", { s: f.severity })}</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: t.textSec, marginTop: 6, lineHeight: 1.4, overflowWrap: "anywhere" }}>{f.owner ? tr("Owner: {name}", { name: f.owner }) : tr("No owner yet")}</div>
+                  {f.dueAt && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4 }}>{tr("Due {when}", { when: /^\d{4}-\d{2}-\d{2}$/.test(String(f.dueAt)) ? trainingDay(f.dueAt) : requestWhen(f.dueAt) })}</div>}
+                </div>
+              ))}
+            </div>
           </div>
         )}
         {failed.length > 0 && (
