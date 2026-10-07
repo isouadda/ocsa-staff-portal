@@ -498,14 +498,23 @@ const requestInit = (opts) => {
   if (opts.token) headers["Authorization"] = "Bearer " + opts.token;
   return { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined };
 };
-// A 401 signs the person out, the way it does on every route.
+// A 401 signs the person out, the way it does on every route, unless it
+// says the current PIN typed on Change PIN was wrong (Step 285): that one
+// turns away what was typed, is read under its box in the API's words,
+// and the session stays. A 403 auth.mustSetPin (the API's Step 283) asks
+// for Choose your PIN, wherever it comes from. Each says the token it was
+// sent with, so an answer to a request made before a PIN change gave
+// this phone a new token changes nothing.
+const TYPED_PIN_401 = ["PIN_INCORRECT", "auth.pinIncorrect"];
+const authEvent = (name, opts) => { try { return new CustomEvent(name, { detail: { token: opts.token || null } }); } catch (e) { return new Event(name); } };
 function refusalOf(status, err, opts) {
-  if (status === 401 && !opts.noAuthEvent) { window.dispatchEvent(new Event("ocsa-session-expired")); return new Error("Session expired"); }
-  const e = new Error(err.error || "Request failed"); e.status = status; e.code = err.code || null; e.body = err;
+  const code = err && err.code ? String(err.code) : null;
+  if (status === 401 && !opts.noAuthEvent && TYPED_PIN_401.indexOf(code) === -1) { window.dispatchEvent(authEvent("ocsa-session-expired", opts)); return new Error("Session expired"); }
+  if (status === 403 && code === "auth.mustSetPin" && !opts.noAuthEvent) window.dispatchEvent(authEvent("ocsa-must-set-pin", opts));
+  const e = new Error(err.error || "Request failed"); e.status = status; e.code = code; e.body = err;
   return e;
 }
 async function refuseUnlessOk(res, opts) {
-  if (res.status === 401 && !opts.noAuthEvent) throw refusalOf(401, {}, opts);
   if (!res.ok) throw refusalOf(res.status, await res.json().catch(() => ({ error: "Request failed" })), opts);
 }
 
@@ -1004,20 +1013,27 @@ const mkPrimaryBtn = (t, busy) => ({ width: "100%", padding: "14px", borderRadiu
 const mkGhostBtn = (t) => ({ width: "100%", minHeight: TAP, padding: "12px", marginTop: 12, borderRadius: 10, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, cursor: "pointer" });
 const mkCardText = (t) => ({ fontSize: 14, color: t.text, lineHeight: 1.55, marginBottom: 14 });
 
-// Weak PIN rules, client side. The API checks shape only. Returns a
-// message naming what is wrong, or null when the PIN is acceptable.
+// A PIN the phone turns away is one the API turns away, in the API's
+// words (Step 285). Every route that takes a PIN refuses one that is not
+// 4 digits. Change PIN alone, which is also Choose your PIN, refuses a
+// weak one, by isWeakPin in the API's routes/auth.js: four of one digit,
+// four digits running up or down by one with no wrap past 9 or 0, or the
+// person's badge number or its last four digits. Activation, a reset link
+// and registering take a weak PIN, so their screens ask only the shape.
+const PIN_WEAK_WORDS = "Choose a PIN that is not repeated digits, a sequence, or your badge number";
+const PIN_UNCHANGED_WORDS = "New PIN must be different from your current PIN";
+const pinShapeReason = (pin) => (PIN_RE.test(pin) ? null : tr("PIN must be exactly 4 digits."));
 function weakPinReason(pin, badgeNumber) {
   if (!PIN_RE.test(pin)) return tr("PIN must be exactly 4 digits.");
-  if (/^([0-9])\1{3}$/.test(pin)) return tr("Four of the same digit is too easy to guess. Use a mix of digits.");
   var d = pin.split("").map(Number);
-  var up = true, down = true;
+  var same = true, up = true, down = true;
   for (var i = 1; i < 4; i++) {
-    if ((d[i] - d[i - 1] + 10) % 10 !== 1) up = false;
-    if ((d[i - 1] - d[i] + 10) % 10 !== 1) down = false;
+    if (d[i] !== d[0]) same = false;
+    if (d[i] !== d[i - 1] + 1) up = false;
+    if (d[i] !== d[i - 1] - 1) down = false;
   }
-  if (up || down) return tr("Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.");
-  var badge = badgeNumber ? String(badgeNumber).trim() : "";
-  if (badge && (pin === badge || pin === badge.slice(-4))) return tr("Your PIN cannot be your badge number or its last four digits.");
+  var badge = badgeNumber ? String(badgeNumber) : "";
+  if (same || up || down || (badge && (pin === badge || pin === badge.slice(-4)))) return tr(PIN_WEAK_WORDS);
   return null;
 }
 
@@ -1027,14 +1043,28 @@ function weakPinReason(pin, badgeNumber) {
 // refusal a cleaner meets is shown.
 const PIN_REFUSALS = { PIN_INCORRECT: "current", PIN_UNCHANGED: "next", PIN_WEAK: "next", PIN_FORMAT: "next" };
 
+// An activation or reset link's token is taken off the address as soon as
+// it is read, so it is kept for this tab (Step 285): a reload, or the app
+// updating itself, opens the same link's screen again rather than the
+// incomplete-link card. Leaving the link's screen forgets it, and so does
+// closing the tab.
+const ENTRY_LINK_KEY = "ocsa-entry-link";
+function linkToken(screen, fromUrl) {
+  if (fromUrl) { sessionSet(ENTRY_LINK_KEY, JSON.stringify({ screen: screen, token: fromUrl })); return fromUrl; }
+  try {
+    const kept = JSON.parse(sessionGet(ENTRY_LINK_KEY) || "null");
+    return kept && kept.screen === screen && typeof kept.token === "string" && kept.token ? kept.token : null;
+  } catch (e) { return null; }
+}
+
 // Entry from an emailed link. Read once at module scope, before the
 // first render, so it stays out of the render path.
 function readEntryFromUrl() {
   try {
     var path = String(window.location.pathname || "").replace(/\/+$/, "").toLowerCase();
     var token = new URLSearchParams(window.location.search || "").get("token");
-    if (path === "/activate") return { screen: "activate", token: token || null };
-    if (path === "/reset-pin") return { screen: "reset", token: token || null };
+    if (path === "/activate") return { screen: "activate", token: linkToken("activate", token) };
+    if (path === "/reset-pin") return { screen: "reset", token: linkToken("reset", token) };
     // A customer's form, opened from a QR code: /c/<token>. The token is
     // read off the path as written, since its case matters.
     var link = /^\/c\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
@@ -1105,6 +1135,7 @@ if (ENTRY && ENTRY.token) {
 // incomplete-link card.
 function leaveEntryPath() {
   if (!ENTRY) return;
+  sessionDrop(ENTRY_LINK_KEY);
   try { window.history.replaceState({}, "", "/"); } catch (e) {}
 }
 
@@ -1204,6 +1235,27 @@ function keptToOpen() {
 const checkoffPath = (taskId) => "/api/clock/tasks/" + encodeURIComponent(taskId) + "/complete";
 // How long Send a new code waits after each send, the API's own spacing.
 const CODE_RESEND_MS = 30000;
+// The code screen is kept for this tab while its code works, ten minutes
+// from the last send (the API's CODE_TTL_MINUTES), so a reload or the app
+// updating itself opens it again (Step 285): the challenge, the address
+// hint and when the code went. Never the PIN or the code.
+const CODE_LIFE_MS = 10 * 60 * 1000;
+const STEP_KEY = "ocsa-second-step";
+// How often a stored session that OCSA did not answer at start is read
+// again (Step 285), beside when the phone says it is back.
+const BOOT_AGAIN_MS = 15000;
+function readKeptStep() {
+  try {
+    const v = JSON.parse(sessionGet(STEP_KEY) || "null");
+    if (v && typeof v.challengeId === "string" && v.challengeId && Number.isFinite(v.sentAt) && Date.now() - v.sentAt < CODE_LIFE_MS) {
+      return { challengeId: v.challengeId, emailHint: typeof v.emailHint === "string" ? v.emailHint : "", sentAt: v.sentAt };
+    }
+  } catch (e) {}
+  return null;
+}
+function keepStep(step) {
+  if (step) sessionSet(STEP_KEY, JSON.stringify(step)); else sessionDrop(STEP_KEY);
+}
 
 function saveAuth(tok) {
   try { window.localStorage.setItem(AUTH_KEY, JSON.stringify({ token: tok, savedAt: Date.now() })); } catch (e) {}
@@ -1842,11 +1894,17 @@ export default function OCSAStaffPortal() {
   // reload, starts the count over. No number is ever shown.
   const [loginFault, setLoginFault] = useState(null);
   const wrongTries = useRef(0);
+  // One sign-in in flight at a time (Step 285): Enter pressed twice, or
+  // Enter and a tap, sends the PIN or the code once.
+  const signingIn = useRef(false);
   // Step 225: when the sign-in answer carries secondStep, the code screen
   // in place of the PIN, with the challenge it answers, the address hint
   // and when the last code went, and what was said under the box. The
-  // PIN and the code are never kept anywhere.
-  const [secondStep, setSecondStep] = useState(null);
+  // PIN and the code are never kept anywhere. Since Step 285 the screen
+  // comes back after a reload while its code works, unless a session is
+  // stored, which boots instead.
+  const [secondStep, setSecondStep] = useState(() => (ENTRY || readAuth() ? null : readKeptStep()));
+  useEffect(() => { keepStep(secondStep); }, [secondStep]);
   const [codeFault, setCodeFault] = useState(null);
   const [lookups, setLookups] = useState([]);
   const queuePrefRef = useRef(null);
@@ -1999,7 +2057,40 @@ export default function OCSAStaffPortal() {
   useEffect(() => { if (token && lookupsLang && lookupsLang !== language) loadLookups(token, language); }, [language, lookupsLang]);
 
   // Boot from a stored session. An emailed link wins over a stored session.
+  // Only a 401 or a 403 ends the session (Step 285): a 403 auth.mustSetPin
+  // opens Choose your PIN, and any other 403 signs out with the API's
+  // words under the PIN box. No answer at all, or the server's own
+  // trouble, keeps it: a checklist this phone kept opens with no signal,
+  // and otherwise the splash says so and reads the session again when the
+  // phone is back, every BOOT_AGAIN_MS, and on Try again.
   const bootRan = useRef(false);
+  const booted = useRef(false);
+  const bootBusy = useRef(false);
+  const [bootFault, setBootFault] = useState(null);
+  const bootWith = useCallback((tok) => {
+    if (bootBusy.current || booted.current) return;
+    bootBusy.current = true;
+    // A then and a catch rather than finally, which Chrome 60 to 62 lacks:
+    // a phone on one of them with a stored session would otherwise never
+    // get past the splash.
+    hydrateSession(tok)
+      .then(() => { bootBusy.current = false; booted.current = true; setBootFault(null); setBooting(false); })
+      .catch((err) => {
+        bootBusy.current = false;
+        const status = err ? err.status : undefined;
+        if (status === 403 && err.code === "auth.mustSetPin") { booted.current = true; setBootFault(null); setScreen("setpin"); setBooting(false); return; }
+        if ((err && err.message === "Session expired") || status === 401 || status === 403) {
+          booted.current = true;
+          const said = status === 403 && err.body && typeof err.body.error === "string" ? err.body.error.trim() : "";
+          clearAuth(); setToken(null); setUser(null); setScreen("login"); setBootFault(null); setBooting(false);
+          if (said) setLoginFault({ text: tr(said), lock: false });
+          return;
+        }
+        const open = wentNowhere(err) ? keptToOpen() : null;
+        if (open) { booted.current = true; setBootFault(null); openKept(open); setBooting(false); return; }
+        setBootFault(wentNowhere(err) ? ERR_OFFLINE : ERR_GENERIC);
+      });
+  }, [hydrateSession]);
   useEffect(() => {
     if (bootRan.current) return;
     bootRan.current = true;
@@ -2007,19 +2098,15 @@ export default function OCSAStaffPortal() {
     const tok = readAuth();
     if (!tok) return;
     setToken(tok);
-    // A then and a catch rather than finally, which Chrome 60 to 62 lacks:
-    // a phone on one of them with a stored session would otherwise never
-    // get past the splash.
-    hydrateSession(tok)
-      .then(() => setBooting(false))
-      .catch((err) => {
-        // No signal at all, and a checklist this phone kept: it opens, and
-        // a tap goes into the queue. Everything else waits for signal.
-        const open = err && err.message === ERR_OFFLINE ? keptToOpen() : null;
-        if (open) { openKept(open); setBooting(false); return; }
-        clearAuth(); setToken(null); setUser(null); setScreen("login"); setBooting(false);
-      });
-  }, [hydrateSession]);
+    bootWith(tok);
+  }, [bootWith]);
+  useEffect(() => {
+    if (!bootFault || !token) return undefined;
+    const again = () => bootWith(token);
+    window.addEventListener("online", again);
+    const every = setInterval(again, BOOT_AGAIN_MS);
+    return () => { window.removeEventListener("online", again); clearInterval(every); };
+  }, [bootFault, token, bootWith]);
   // The kept status and list, drawn the way an answer is.
   const openKept = ({ kept, list }) => {
     setUser({ id: kept.userId, role: kept.role || undefined });
@@ -2034,13 +2121,17 @@ export default function OCSAStaffPortal() {
   // signal, when the phone says it is back and every minute until then.
   useEffect(() => {
     if (!offlineOpen || !token) return undefined;
-    const again = () => { hydrateSession(token).then(() => setOfflineOpen(false)).catch(() => {}); };
+    // A 401 signs out on its own; a 403 other than auth.mustSetPin, which
+    // opens Choose your PIN, ends the session the same way.
+    const again = () => { hydrateSession(token).then(() => setOfflineOpen(false)).catch((err) => { if (err && err.status === 403 && err.code !== "auth.mustSetPin") window.dispatchEvent(new Event("ocsa-session-expired")); }); };
     window.addEventListener("online", again);
     const every = setInterval(again, PENDING_EVERY_MS);
     return () => { window.removeEventListener("online", again); clearInterval(every); };
   }, [offlineOpen, token, hydrateSession]);
 
   const handleLogin = async (phone, pin) => {
+    if (signingIn.current) return;
+    signingIn.current = true;
     setLoading(true); setLoginFault(null);
     try {
       // noAuthEvent, so a refused PIN is not read as an expired session.
@@ -2052,7 +2143,6 @@ export default function OCSAStaffPortal() {
       if (data && data.secondStep === true && data.challengeId) {
         setCodeFault(null);
         setSecondStep({ challengeId: String(data.challengeId), emailHint: typeof data.emailHint === "string" ? data.emailHint : "", sentAt: Date.now() });
-        setLoading(false);
         return;
       }
       setToken(data.token); saveAuth(data.token);
@@ -2060,25 +2150,30 @@ export default function OCSAStaffPortal() {
       showToast(tr("Welcome, {name}", { name: me.firstName }));
     } catch (err) {
       // The refusal stays under the PIN box, in the API's words as sent,
-      // a locked account's among them, until the person types again.
+      // a locked account's and an account with no email for a code among
+      // them, until the person types again. From the third miss in a row,
+      // and on a lock, the portal's own line about the lock joins it.
       const said = err && err.body && err.body.error ? String(err.body.error) : "";
       const code = err && err.code ? String(err.code) : "";
       if (code === "auth.invalidCredentials") wrongTries.current += 1;
       const text = !said && wentNowhere(err) ? tr(ERR_OFFLINE) : said ? tr(said) : tr("That sign-in did not match. Check your badge, phone or email and your PIN.");
-      setLoginFault({ text: text, lock: code === "auth.invalidCredentials" && wrongTries.current >= 3 });
+      setLoginFault({ text: text, lock: (code === "auth.invalidCredentials" && wrongTries.current >= 3) || code === "auth.locked" });
+    } finally {
+      signingIn.current = false;
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   // The code screen. A code the API takes answers what sign-in answers, and
   // goes on exactly as a sign-in does. A refusal is told in the API's own
   // words, by its code: a wrong code under the box with the tries left; an
-  // expired or used-up challenge back at the PIN; a code that did not go
-  // or a new one asked for too soon under the box.
+  // expired or used-up challenge, or one that can send no more codes, back
+  // at the PIN; a code that did not go or a new one asked for too soon
+  // under the box.
   const codeRefused = (err) => {
     const said = err && err.body && typeof err.body.error === "string" ? err.body.error.trim() : "";
     const code = err && err.code ? String(err.code) : "";
-    if (code === "auth.codeExpired" || code === "auth.codeTooMany") {
+    if (code === "auth.codeExpired" || code === "auth.codeTooMany" || code === "auth.sendLimit") {
       setSecondStep(null); setCodeFault(null);
       setLoginFault({ text: said || tr(ERR_GENERIC), lock: false });
       return;
@@ -2087,7 +2182,8 @@ export default function OCSAStaffPortal() {
     setCodeFault({ text: !said && wentNowhere(err) ? tr(ERR_OFFLINE) : said || tr(ERR_GENERIC), left: Number.isFinite(left) ? left : null });
   };
   const handleCode = async (code, remember) => {
-    if (!secondStep || loading) return;
+    if (!secondStep || loading || signingIn.current) return;
+    signingIn.current = true;
     setLoading(true); setCodeFault(null);
     try {
       const data = await api(signedOut("/api/auth/second-step", language), { method: "POST", body: { challengeId: secondStep.challengeId, code: code, deviceId: deviceId(), rememberDevice: remember !== false }, noAuthEvent: true });
@@ -2096,15 +2192,18 @@ export default function OCSAStaffPortal() {
       const me = await hydrateSession(data.token);
       showToast(tr("Welcome, {name}", { name: me.firstName }));
     } catch (err) { codeRefused(err); }
+    signingIn.current = false;
     setLoading(false);
   };
   const handleResend = async () => {
-    if (!secondStep || loading) return;
+    if (!secondStep || loading || signingIn.current) return;
+    signingIn.current = true;
     setCodeFault(null);
     try {
       await api(signedOut("/api/auth/second-step/resend", language), { method: "POST", body: { challengeId: secondStep.challengeId }, noAuthEvent: true });
       setSecondStep(prev => (prev ? { ...prev, sentAt: Date.now() } : prev));
     } catch (err) { codeRefused(err); }
+    signingIn.current = false;
   };
   const backToPin = () => { setSecondStep(null); setCodeFault(null); };
 
@@ -2121,7 +2220,36 @@ export default function OCSAStaffPortal() {
     catch (err) { clearAuth(); setToken(null); setUser(null); setScreen("login"); showToast(tr(err.message), "error"); }
   };
 
-  const handlePinSet = () => { setScreen("main"); showToast(tr("PIN updated")); };
+  // A PIN change that answers a token (the API's Step 283, which ends
+  // every other session on a change) keeps it, so this phone stays signed
+  // in. Choose your PIN then reads the session again, so what a given PIN
+  // was turned away from loads, and comes back to the supply label's page
+  // when that is where it was asked for.
+  const adoptToken = (tok) => { if (typeof tok === "string" && tok) { setToken(tok); saveAuth(tok); } };
+  const handlePinSet = async (d) => {
+    const fresh = d && typeof d.token === "string" && d.token ? d.token : null;
+    const tok = fresh || token;
+    if (fresh) adoptToken(fresh);
+    showToast(tr("PIN updated"));
+    try { await hydrateSession(tok); }
+    catch (err) { const back = returnTo.current; returnTo.current = null; if (liveToken.current) setScreen(back || "main"); }
+  };
+  // Any 403 auth.mustSetPin from a route behind the token opens Choose your
+  // PIN, the offline open's reads and the queue's sends among them, with
+  // the session this phone holds. Met on the supply label's page, which
+  // reads a kept session on its own, Choose your PIN comes back to it.
+  const mustSetPinRef = useRef(null);
+  mustSetPinRef.current = (sentWith) => {
+    const tok = token || readAuth();
+    if (!tok || (sentWith && sentWith !== tok)) return;
+    if (screen === "supply") returnTo.current = "supply";
+    setToken(tok); setScreen("setpin");
+  };
+  useEffect(() => {
+    const ask = (e) => mustSetPinRef.current(e && e.detail ? e.detail.token : null);
+    window.addEventListener("ocsa-must-set-pin", ask);
+    return () => window.removeEventListener("ocsa-must-set-pin", ask);
+  }, []);
   const goLogin = () => { leaveEntryPath(); setScreen("login"); };
 
   const handleRegister = async (firstName, lastName, phone, email, pin) => {
@@ -2245,7 +2373,8 @@ export default function OCSAStaffPortal() {
       loadTasks(true);
     } catch (err) {
       // No signal: the tap is kept on this phone and the box stays as set.
-      if (err && err.message === ERR_OFFLINE) { putPending(pendingRef.current.concat([tap])); shown(); }
+      // So is one turned away until the person chooses their own PIN.
+      if (err && (err.message === ERR_OFFLINE || err.code === "auth.mustSetPin")) { putPending(pendingRef.current.concat([tap])); shown(); }
       else if (done && err.code === "NOT_YOUR_CHECK") { showRowNote(taskId, tr(err.message)); loadTasks(true); }
       else showToast(tr(err.message), "error");
     } finally { inFlightTaskIds.current.delete(taskId); }
@@ -2267,9 +2396,10 @@ export default function OCSAStaffPortal() {
             await api(checkoffPath(tap.taskId), { method: tap.done ? "POST" : "DELETE", body: { clientId: tap.clientId, completedAt: tap.completedAt }, token });
             sent += 1;
           } catch (err) {
-            // No signal, or a session that expired: the tap stays, for
-            // later or for this person's next sign-in.
-            if (err && (err.message === ERR_OFFLINE || err.message === "Session expired")) break;
+            // No signal, a session that expired, or a PIN still to be
+            // chosen: the tap stays, for later or for this person's next
+            // sign-in.
+            if (err && (err.message === ERR_OFFLINE || err.message === "Session expired" || err.code === "auth.mustSetPin")) break;
             showToast(tr(err.message), "error");
           }
         }
@@ -2713,9 +2843,11 @@ export default function OCSAStaffPortal() {
     tasksAsked.current = null; tasksReqAsked.current = null; inFlightTaskIds.current = new Set();
   }, []);
   // An expired session signs the person out and keeps what is waiting,
-  // which is theirs, for when they sign in again.
+  // which is theirs, for when they sign in again. A 401 to a request sent
+  // with a token this phone has since replaced, as a PIN change does, is
+  // not this session's.
   useEffect(() => {
-    const expired = () => forgetPerson({ keepQueue: true });
+    const expired = (e) => { const sentWith = e && e.detail ? e.detail.token : null; if (sentWith && liveToken.current && sentWith !== liveToken.current) return; forgetPerson({ keepQueue: true }); };
     window.addEventListener("ocsa-session-expired", expired);
     return () => window.removeEventListener("ocsa-session-expired", expired);
   }, [forgetPerson]);
@@ -2847,7 +2979,7 @@ export default function OCSAStaffPortal() {
         </div>
       )}
 
-      {booting && <BootSplash t={t} themeMode={themeMode} />}
+      {booting && <BootSplash t={t} themeMode={themeMode} fault={bootFault} onRetry={() => { if (token) bootWith(token); }} />}
       {!booting && screen === "login" && <LoginScreen onLogin={handleLogin} onGoRegister={() => { backToPin(); setScreen("register"); }} onGoForgot={() => { backToPin(); setScreen("forgot"); }} loading={loading} fault={loginFault} onTyped={() => { if (loginFault) setLoginFault(null); }} step={secondStep} codeFault={codeFault} onCode={handleCode} onResend={handleResend} onBackToPin={backToPin} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
       {screen === "register" && <RegisterScreen onRegister={handleRegister} onBack={() => setScreen("login")} loading={loading} t={t} />}
       {screen === "activate" && <ActivateScreen token={ENTRY ? ENTRY.token : null} onActivated={handleAuthSuccess} onGoLogin={goLogin} showToast={showToast} t={t} />}
@@ -2855,7 +2987,7 @@ export default function OCSAStaffPortal() {
       {screen === "forgot" && <ForgotScreen onGoLogin={goLogin} showToast={showToast} t={t} />}
       {screen === "customer" && <CustomerFormScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
       {screen === "request" && <ClientRequestScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
-      {screen === "supply" && <SupplyScreen code={ENTRY ? ENTRY.code : null} token={token} onSignIn={() => { returnTo.current = "supply"; setScreen("login"); }} showToast={showToast} t={t} themeMode={themeMode} />}
+      {screen === "supply" && <SupplyScreen code={ENTRY ? ENTRY.code : null} token={token} onSignIn={() => { returnTo.current = "supply"; setScreen("login"); }} onMustSetPin={() => mustSetPinRef.current()} showToast={showToast} t={t} themeMode={themeMode} />}
       {screen === "acknowledge" && <AcknowledgeScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
       {screen === "sds" && <SdsPublicScreen code={ENTRY ? ENTRY.code : null} t={t} themeMode={themeMode} />}
       {screen === "setpin" && <SetPinScreen token={token} user={user} onDone={handlePinSet} onSignOut={handleLogout} showToast={showToast} t={t} />}
@@ -2910,7 +3042,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "training" && (destCtx.training || !!trainingAt) && <TrainingView token={token} data={training} onData={setTraining} at={trainingAt} onAt={setTrainingAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} t={t} />}
               {activeTab === "fieldkit" && destCtx.isAdmin && <FieldKitView token={token} user={user} at={fieldKitAt} onAt={setFieldKitAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} assignedSites={sites} onOpenEquipment={(code) => { setEquipmentShown(code); setEquipmentBack("fieldkit"); setActiveTab("equipment"); }} showToast={showToast} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
-              {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
+              {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} onToken={adoptToken} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
               {activeTab === "phonealerts" && <PhoneAlertsView token={token} t={t} onBack={() => setActiveTab("settings")} />}
               {activeTab === "equipment" && equipmentShown && <EquipmentView token={token} code={equipmentShown} showToast={showToast} t={t} onBack={() => { const back = equipmentBack === "fieldkit" && destCtx.isAdmin ? "fieldkit" : "clock"; setEquipmentShown(null); setEquipmentBack(null); setActiveTab(back); }} />}
               {activeTab === "profile" && <MyProfileView token={token} user={user} showToast={showToast} t={t} setUser={setUser} setActiveTab={setActiveTab} />}
@@ -3108,8 +3240,8 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onType
         <div style={{ marginBottom: 16 }}><label style={labelSt}>{tr("Badge Number, Phone or Email")}</label><input value={phone} onChange={e => { setPhone(e.target.value); onTyped(); }} placeholder={tr("9001, 2155550101 or name@email.com")} autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
         {/* The refusal sits under the PIN box until the person types again:
             the API's own sentence as it was sent, then from the third wrong
-            PIN in a row the portal's own line about the lock. */}
-        <div style={{ marginBottom: 8 }}><label style={labelSt}>{tr("PIN")}</label><input value={pin} onChange={e => { setPin(e.target.value); onTyped(); }} placeholder={tr("4-digit PIN")} type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} />{fault && <div role="alert" style={errSt}>{fault.text}</div>}{fault && fault.lock && <div style={errSt}>{tr("After too many wrong tries, sign-in stops for 15 minutes. Ask your trainer for help.")}</div>}</div>
+            PIN in a row, or on a lock, the portal's own line about it. */}
+        <div style={{ marginBottom: 8 }}><label style={labelSt}>{tr("PIN")}</label><input value={pin} onChange={e => { setPin(e.target.value); onTyped(); }} placeholder={tr("4-digit PIN")} type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} />{fault && <div role="alert" style={errSt}>{fault.text}</div>}{fault && fault.lock && <div style={errSt}>{tr("After too many wrong tries, sign-in stops for a while. Ask your supervisor for help.")}</div>}</div>
         <div style={{ textAlign: "right", marginBottom: 24 }}><button onClick={onGoForgot} style={{ background: "none", border: "none", minHeight: TAP, padding: "4px 0", color: t.textSec, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>{tr("Forgot your PIN?")}</button></div>
         <button onClick={() => onLogin(phone, pin)} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Signing in...") : tr("Sign In")}</button>
         <button onClick={onGoRegister} style={mkGhostBtn(t)}>{tr("New Employee? Register Here")}</button>
@@ -3132,11 +3264,10 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
     const required = [["firstName", "First Name", fn], ["phone", "Phone Number", ph], ["email", "Email Address", em], ["pin", "PIN", pin], ["pin2", "Confirm PIN", pin2]];
     const empty = required.find(f => !String(f[2]).trim());
     if (empty) { setErrs({ [empty[0]]: tr("Fill in {field}.", { field: tr(empty[1]) }) }); return; }
-    // The same weak PIN rules the activation and reset screens apply,
-    // so a PIN the API would refuse is named here before it is sent.
-    // Nobody registering has a badge number yet.
-    const weak = weakPinReason(pin, null);
-    if (weak) { setErrs({ pin: weak }); return; }
+    // A PIN that is not 4 digits, the one PIN registering refuses, is
+    // named here before it is sent.
+    const shape = pinShapeReason(pin);
+    if (shape) { setErrs({ pin: shape }); return; }
     if (pin !== pin2) { setErrs({ pin2: tr(ERR_PIN_MISMATCH) }); return; }
     setErrs({});
     onRegister(fn, ln, ph, em, pin);
@@ -3179,13 +3310,23 @@ function AuthCard({ t, title, children, ownLanguage }) {
   );
 }
 
-function BootSplash({ t, themeMode }) {
+// The splash while a stored session is read. When OCSA gave no answer, or
+// answered with its own trouble, the session stays: the splash says so
+// with Try again, and the app reads it again on its own (Step 285).
+function BootSplash({ t, themeMode, fault, onRetry }) {
   return (
     <div style={{ width: "100%", minHeight: "var(--ocsa-vh, 100vh)", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
-      <div style={{ textAlign: "center" }}>
+      <div style={{ textAlign: "center", width: "100%", maxWidth: 420 }}>
         <div style={{ display: "inline-block", maxWidth: "100%", boxSizing: "border-box", padding: themeMode === "dark" ? "12px 20px" : "0", background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: 12 }}><img src={LOGO_LG} alt={clientConfig.company.shortName} style={{ height: 70, maxWidth: "100%", objectFit: "contain" }} /></div>
         <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 600 }}>{tr("Staff Operations Portal")}</div>
-        <div style={{ fontSize: 10, color: t.textMut, marginTop: 8, animation: "pulse 2s infinite" }}>{tr("Loading...")}</div>
+        {!fault && <div style={{ fontSize: 10, color: t.textMut, marginTop: 8, animation: "pulse 2s infinite" }}>{tr("Loading...")}</div>}
+        {fault && (
+          <div data-boot-fault style={{ marginTop: 20 }}>
+            <div role="alert" style={{ ...mkCardText(t), textAlign: "center" }}>{tr(fault)}</div>
+            <div style={{ fontSize: 12, color: t.textMut, lineHeight: 1.5, marginBottom: 14 }}>{tr("You are still signed in. The app tries again on its own.")}</div>
+            <button type="button" onClick={onRetry} style={mkPrimaryBtn(t, false)}>{tr("Try again")}</button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -3205,6 +3346,10 @@ function LangPicker({ value, onChange, t }) {
 // date and time.
 const fmtExpiry = (v) => { try { return new Date(v).toLocaleString(dateLocale(), { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; } };
 const wentNowhere = (err) => !!err && (err.status === undefined || err.status === null);
+// The API's own sentence on a refusal, or "" when it sent none. Each
+// screen of the way in shows it as sent (Step 285), and its own line only
+// for a refusal with no words or a request that never reached OCSA.
+const saidOf = (err) => (err && err.body && typeof err.body.error === "string" ? err.body.error.trim() : "");
 const ERR_PIN_MISMATCH = "The two PINs do not match. Type the same 4 digits in both fields.";
 const MSG_LINK_INVALID = "This link is no longer valid. Links expire, and each one can only be used once.";
 
@@ -3247,9 +3392,9 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
     const e = {};
     const b = badge.trim();
     if (needBadge && !b) e.badge = tr("Enter the badge number from your email.");
-    // The same rules Set Your PIN applies, so a PIN accepted here is never
-    // refused a moment later.
-    const why = weakPinReason(pin, b);
+    // Activation refuses a PIN that is not 4 digits and nothing more, so
+    // the phone asks the same.
+    const why = pinShapeReason(pin);
     if (why) e.pin = why;
     else if (pin2 !== pin) e.pin2 = tr(ERR_PIN_MISMATCH);
     setErrs(e);
@@ -3272,7 +3417,7 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
         setPhase("form"); return;
       }
       if (err.status === 400) { setErrs({ pin: tr(err.message) }); setPhase("form"); return; }
-      setFail({ from: "post", msg: tr(ERR_GENERIC) }); setPhase("error");
+      setFail({ from: "post", msg: saidOf(err) ? tr(saidOf(err)) : tr(wentNowhere(err) ? ERR_OFFLINE : ERR_GENERIC) }); setPhase("error");
     }
   };
   const retry = () => { setErrs({}); if (fail.from === "get") setAttempt(a => a + 1); else setPhase("form"); };
@@ -3370,7 +3515,7 @@ function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
     } catch (err) {
       if (err.code === "TOKEN_INVALID") { setPhase("invalid"); return; }
       if (err.status === 400) { setErrs({ pin: tr(err.message) }); setPhase("form"); return; }
-      setFail({ from: "post", msg: tr(wentNowhere(err) ? ERR_OFFLINE : ERR_GENERIC) }); setPhase("error");
+      setFail({ from: "post", msg: saidOf(err) ? tr(saidOf(err)) : tr(wentNowhere(err) ? ERR_OFFLINE : ERR_GENERIC) }); setPhase("error");
     }
   };
   const retry = () => { setErrs({}); if (fail.from === "get") setAttempt(a => a + 1); else setPhase("form"); };
@@ -3437,7 +3582,7 @@ function ForgotScreen({ onGoLogin, showToast, t }) {
     } catch (e) {
       setPhase("form");
       // A request that never reached OCSA says so, the way Activate does.
-      setErr(e.status === 400 ? tr(e.message) : tr(wentNowhere(e) ? ERR_OFFLINE : ERR_GENERIC));
+      setErr(saidOf(e) ? tr(saidOf(e)) : tr(wentNowhere(e) ? ERR_OFFLINE : ERR_GENERIC));
     }
   };
   const working = phase === "working";
@@ -3469,33 +3614,39 @@ function ForgotScreen({ onGoLogin, showToast, t }) {
   );
 }
 
-// Forced PIN set. Rendered as its own screen value with no tab bar, no
-// back affordance and no dismiss. The person typed the assigned PIN to
-// get here, so only the new PIN and its confirmation are asked for.
+// Choose your PIN, the forced PIN set. Rendered as its own screen value
+// with no tab bar, no back affordance and no dismiss. The person typed the
+// assigned PIN to get here, so only the new PIN and its confirmation are
+// asked for. The answer, with the token the API's Step 283 sends beside
+// it, goes to onDone. A refusal is the API's words under the box.
 function SetPinScreen({ token, user, onDone, onSignOut, showToast, t }) {
   const [pin, setPin] = useState("");
   const [pin2, setPin2] = useState("");
   const [errs, setErrs] = useState({});
   const [working, setWorking] = useState(false);
+  const sending = useRef(false);
   const labelSt = mkLabel(t); const pinSt = mkPinInput(t); const errSt = mkFieldErr(t); const helpSt = mkHelp(t); const textSt = mkCardText(t);
 
   const submit = async () => {
+    if (sending.current) return;
     const e = {};
     const why = weakPinReason(pin, user && user.badgeNumber);
     if (why) e.pin = why;
     else if (pin2 !== pin) e.pin2 = tr(ERR_PIN_MISMATCH);
     setErrs(e);
     if (Object.keys(e).length) return;
+    sending.current = true;
     setWorking(true);
     try {
       const d = await api("/api/auth/change-pin", { method: "POST", body: { newPin: pin }, token });
       onDone(d);
     } catch (err) { setErrs({ pin: tr(err.message) }); }
+    sending.current = false;
     setWorking(false);
   };
 
   return (
-    <AuthCard t={t} title={tr("Set Your PIN")}>
+    <AuthCard t={t} title={tr("Choose your PIN")}>
       <div style={textSt}>{tr("Set your own PIN. The PIN you were given is known to your supervisor. Choose a new one that only you know.")}</div>
       {/* The rules before anyone breaks one. The refusal, when there is
           one, sits between the box and the rules. */}
@@ -6485,7 +6636,10 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToa
 // office decides it, Approved {n} of {m} or Denied with the office's
 // note. GET /api/supplies/requests answers them (management's answer
 // holds everyone's, so only the person's own are kept), and until a row
-// there carries items the form and the screen are as they were.
+// there carries items the form and the screen are as they were. An empty
+// list says nothing either way, so a person's first request takes items
+// once GET /api, the API's own index, lists the decide route Step 280
+// added (Step 285).
 // ------------------------------------------------------------
 const SUPPLY_LINES_MAX = 30;
 const SUPPLY_QTY_MAX = 999;
@@ -6516,11 +6670,26 @@ function supplyRequestOf(x) {
 }
 // The person's own requests, newest first as the API sends them, or null
 // for an answer that is not a list or holds no row carrying items, which
-// is read as an API from before Step 280.
-function supplyMineOf(d, userId) {
+// is read as an API from before Step 280. An empty list is [] when the
+// API's index lists the decide route, and null otherwise.
+function supplyMineOf(d, userId, decideListed) {
   const rows = wsRows(d, "requests");
+  if (rows && rows.length === 0 && decideListed) return [];
   if (!rows || !rows.some(r => r && typeof r === "object" && Array.isArray(r.items))) return null;
   return rows.map(supplyRequestOf).filter(r => r && (r.requestedBy === null || userId === null || String(r.requestedBy) === String(userId)));
+}
+// Whether GET /api lists POST /api/supplies/requests/:reqId/decide, asked
+// once while the app is open and again only after an answer that did not
+// come. No token goes with it.
+const SUPPLY_DECIDE_ROUTE = "POST /api/supplies/requests/:reqId/decide";
+let supplyDecideAsk = null;
+function supplyDecideListed() {
+  if (!supplyDecideAsk) {
+    supplyDecideAsk = api("/api", { noAuthEvent: true })
+      .then(d => !!d && !!d.endpoints && typeof d.endpoints === "object" && Object.keys(d.endpoints).some(k => { const g = d.endpoints[k]; return !!g && typeof g === "object" && Object.prototype.hasOwnProperty.call(g, SUPPLY_DECIDE_ROUTE); }))
+      .catch(() => { supplyDecideAsk = null; return false; });
+  }
+  return supplyDecideAsk;
 }
 // A refusal's key, items.<n>.<field>, as the line and the box it is
 // drawn under; n counts from 0, the line's place in items.
@@ -6580,7 +6749,9 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
   const userId = user ? user.id : null;
   useEffect(() => {
     let live = true;
-    api("/api/supplies/requests", { token }).then(d => { if (live) setMine(supplyMineOf(d, userId)); }).catch(() => {});
+    api("/api/supplies/requests", { token })
+      .then(d => { const rows = wsRows(d, "requests"); return rows && rows.length === 0 ? supplyDecideListed().then(listed => supplyMineOf(d, userId, listed)) : supplyMineOf(d, userId, false); })
+      .then(mine => { if (live) setMine(mine); }).catch(() => {});
     return () => { live = false; };
   }, [token, userId, mineAsked]);
   const labelSt = mkLabel(t); const inputSt = mkInput(t); const qtyBtn = mkQtyBtn(t);
@@ -8810,26 +8981,34 @@ function AnnouncementSheet({ token, id, t, onClose }) {
 
 // Change PIN, lifted out of Profile unchanged so Settings can hold it.
 // The current PIN is required here. The threat on this screen is a handset
-// left unlocked, so the change has to prove it is the owner.
-function ChangePinCard({ token, user, showToast, t, cardSt }) {
+// left unlocked, so the change has to prove it is the owner. Since Step
+// 285 the new PIN is asked what the API asks, in its order and its words:
+// 4 digits, not the current PIN, not weak. A wrong current PIN is the
+// API's 401 PIN_INCORRECT, read under Current PIN with the person still
+// signed in, and a token in the answer (the API's Step 283) is kept.
+function ChangePinCard({ token, user, showToast, onToken, t, cardSt }) {
   const [pinForm, setPinForm] = useState({ current: "", next: "", confirm: "" });
   const [pinErrs, setPinErrs] = useState({});
   const [pinSaving, setPinSaving] = useState(false);
+  const sending = useRef(false);
   const labelSt = mkLabel(t);
   const inputSt = mkInput(t);
 
   const changePin = async () => {
+    if (sending.current) return;
     const e = {};
     if (!PIN_RE.test(pinForm.current)) e.current = tr("Enter your current 4-digit PIN.");
-    const why = weakPinReason(pinForm.next, user && user.badgeNumber);
-    if (why) e.next = why;
+    if (!PIN_RE.test(pinForm.next)) e.next = tr("PIN must be exactly 4 digits.");
+    else if (pinForm.next === pinForm.current) e.next = tr(PIN_UNCHANGED_WORDS);
+    else if (weakPinReason(pinForm.next, user && user.badgeNumber)) e.next = tr(PIN_WEAK_WORDS);
     else if (pinForm.confirm !== pinForm.next) e.confirm = tr(ERR_PIN_MISMATCH);
-    else if (pinForm.next === pinForm.current) e.next = tr("Your new PIN must be different from your current PIN.");
     setPinErrs(e);
     if (Object.keys(e).length) return;
+    sending.current = true;
     setPinSaving(true);
     try {
-      await api("/api/auth/change-pin", { method: "POST", body: { currentPin: pinForm.current, newPin: pinForm.next }, token });
+      const d = await api("/api/auth/change-pin", { method: "POST", body: { currentPin: pinForm.current, newPin: pinForm.next }, token });
+      if (d && typeof d.token === "string" && d.token && onToken) onToken(d.token);
       showToast(tr("PIN updated"));
       setPinForm({ current: "", next: "", confirm: "" });
     } catch (err) {
@@ -8839,6 +9018,7 @@ function ChangePinCard({ token, user, showToast, t, cardSt }) {
       const box = (err.code && PIN_REFUSALS[err.code]) || "current";
       setPinErrs({ [box]: tr(err.message || "Could not update your PIN.") });
     }
+    sending.current = false;
     setPinSaving(false);
   };
 
@@ -8859,7 +9039,7 @@ function ChangePinCard({ token, user, showToast, t, cardSt }) {
 // Settings, separate from Profile. Profile is who a person is; this is how
 // the app behaves for them. Every card here follows the account once the
 // API carries preferences.
-function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize, setTextSize, language, setLanguage, onEditShortcuts, onPhoneAlerts }) {
+function SettingsView({ token, user, showToast, onToken, t, themeMode, setTheme, textSize, setTextSize, language, setLanguage, onEditShortcuts, onPhoneAlerts }) {
   const { languages } = useContext(LanguageCtx);
   const cardSt = { background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 16, marginBottom: 12 };
   // The Phone alerts row shows once the API has answered its settings
@@ -8925,7 +9105,7 @@ function SettingsView({ token, user, showToast, t, themeMode, setTheme, textSize
         </button>
       )}
 
-      <ChangePinCard token={token} user={user} showToast={showToast} t={t} cardSt={cardSt} />
+      <ChangePinCard token={token} user={user} showToast={showToast} onToken={onToken} t={t} cardSt={cardSt} />
     </div>
   );
 }
@@ -9906,7 +10086,7 @@ function supplySiteOf(x) {
   return { siteId: String(id), siteName: typeof x.siteName === "string" ? x.siteName.trim() : (typeof x.site_name === "string" ? x.site_name.trim() : String(id)), currentStock: Number.isFinite(Number(x.currentStock)) ? Number(x.currentStock) : null, lowThreshold: Number.isFinite(Number(x.lowThreshold)) ? Number(x.lowThreshold) : null };
 }
 
-function SupplyScreen({ code, token: tokenProp, onSignIn, showToast, t, themeMode }) {
+function SupplyScreen({ code, token: tokenProp, onSignIn, onMustSetPin, showToast, t, themeMode }) {
   const { language, setLanguage } = useContext(LanguageCtx);
   const locale = languageToSend(language);
   // The session this phone holds: the one the app signed in with here,
@@ -9957,6 +10137,9 @@ function SupplyScreen({ code, token: tokenProp, onSignIn, showToast, t, themeMod
         setSiteId(prev => (sites.some(s => s.siteId === prev) ? prev : (sites.length === 1 ? sites[0].siteId : "")));
       } catch (err) {
         if (!live) return;
+        // A session on a PIN it was given (the API's Step 283) chooses its
+        // own before it records anything.
+        if (err && err.status === 403 && err.code === "auth.mustSetPin") { onMustSetPin(); return; }
         if (err && err.status === 401) setStaff({ state: "out" });
         else setStaff({ state: "failed", said: fkFaultWords(err, "This did not load. Try again.") });
       }
