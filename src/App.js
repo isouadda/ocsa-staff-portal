@@ -3176,7 +3176,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "clock" && signAt && <SignScreen key={signAt.id || "list"} token={token} id={signAt.id || null} requests={signList} onOpen={openSign} onBack={() => setSignAt(null)} onChanged={() => setSignAsked(n => n + 1)} t={t} />}
               {activeTab === "property" && destCtx.property && <MyPropertyView rows={property} onSign={(id) => openSign({ id: id })} t={t} />}
               {activeTab === "support" && destCtx.support && <SupportView token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} t={t} />}
-              {activeTab === "supplyorders" && (destCtx.supplyOrders || !!supplyAt) && <SupplyOrdersView token={token} user={user} rows={supplyOrders} onReload={() => loadSupplyOrders()} onRow={takeSupplyOrder} at={supplyAt} onAt={setSupplyAt} getOpts={getOpts} showToast={showToast} t={t} />}
+              {activeTab === "supplyorders" && (destCtx.supplyOrders || !!supplyAt) && <SupplyOrdersView token={token} user={user} holder={supplyHolder === true} rows={supplyOrders} onReload={() => loadSupplyOrders()} onRow={takeSupplyOrder} at={supplyAt} onAt={setSupplyAt} getOpts={getOpts} showToast={showToast} t={t} />}
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
@@ -7527,7 +7527,7 @@ const supplyVendorOf = (x) => {
   const str = (keys) => fkText(x, keys);
   const place = [str(["city"]), [str(["state"]), str(["zip_code", "zipCode", "zip"])].filter(Boolean).join(" ")].filter(Boolean).join(", ");
   return {
-    id: String(id), name: str(["name"]), contactName: str(["contactName", "contact_name"]), contactPhone: str(["contactPhone", "contact_phone"]), contactEmail: str(["contactEmail", "contact_email"]),
+    id: String(id), rawId: id, name: str(["name"]), contactName: str(["contactName", "contact_name"]), contactPhone: str(["contactPhone", "contact_phone"]), contactEmail: str(["contactEmail", "contact_email"]),
     address: str(["address"]) || [str(["address_line1", "addressLine1"]), place].filter(Boolean).join(", "),
     approval: str(["approvalStatus", "approval_status"]), active: x.is_active !== false && x.isActive !== false,
   };
@@ -7591,14 +7591,14 @@ const SUPPLY_ORDER_GROUPS = [
   { id: "ordered", word: "Ordered", stages: ["ordered"] },
 ];
 
-function SupplyOrdersView({ token, user, rows, onReload, onRow, at, onAt, getOpts, showToast, t }) {
+function SupplyOrdersView({ token, user, holder, rows, onReload, onRow, at, onAt, getOpts, showToast, t }) {
   // Read again each time the screen opens.
   useEffect(() => { onReload(); }, []);
   const list = Array.isArray(rows) ? rows : null;
   const smallSt = { fontSize: 12, color: t.textSec, marginTop: 3, lineHeight: 1.4, overflowWrap: "anywhere" };
   if (at && at.id) {
     const open = list ? list.find(r => r.id === at.id) || null : null;
-    if (open) return <SupplyOrder key={open.id} token={token} user={user} row={open} onBack={() => onAt(null)} onRow={onRow} onReload={onReload} getOpts={getOpts} showToast={showToast} t={t} />;
+    if (open) return <SupplyOrder key={open.id} token={token} user={user} holder={holder} row={open} onBack={() => onAt(null)} onRow={onRow} onReload={onReload} getOpts={getOpts} showToast={showToast} t={t} />;
     return (
       <div data-supply-order="none" style={{ padding: "14px 16px 100px" }}>
         <WsBack label={tr("Approve supplies")} onBack={() => onAt(null)} t={t} />
@@ -7640,6 +7640,174 @@ function SupplyOrdersView({ token, user, rows, onReload, onRow, at, onAt, getOpt
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// Sign and order (Step 311, the Step 308 contract's section 4.3), under
+// a request once every line is decided and one is approved: Vendor, a
+// dropdown of the approved vendors the vendor route answers, with the
+// chosen one's contact, phone, email and address under it, read only;
+// Deliver to, the site's address as the request answers it, editable;
+// the signature drawn with a finger, the way an inspection is signed;
+// and Sign. Once signed: the purchase order's number, who signed and
+// when, Open the purchase order behind the token, and Send to the
+// vendor's email, or to one typed where the vendor has none; once sent,
+// Ordered {date}, sent to {email}, with Send again.
+const SUPPLY_DELIVER_MAX = 500;
+function SupplyVendorFacts({ vendor, t }) {
+  if (!vendor) return null;
+  const facts = [[tr("Contact"), vendor.contactName], [tr("Phone"), vendor.contactPhone], [tr("Email"), vendor.contactEmail], [tr("Address"), vendor.address]].filter(x => x[1]);
+  if (facts.length === 0) return null;
+  return (
+    <div data-supply-vendor-facts={vendor.id} style={{ marginTop: 8, border: "1px solid " + t.borderSolid, borderRadius: R.sm, overflow: "hidden" }}>
+      {facts.map(([k, v], i) => (
+        <div key={k} style={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", padding: "8px 12px", background: i % 2 === 0 ? t.cardAlt : t.card }}>
+          <div style={{ flex: "1 1 90px", fontSize: 12, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{k}</div>
+          <div style={{ flex: "2 1 160px", minWidth: 0, fontSize: 13, color: t.text, overflowWrap: "anywhere" }}>{v}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+function SupplySignOrder({ token, row, holder, onRow, showToast, t }) {
+  const stage = supplyStage(row);
+  const signing = stage === "sign" && row.canDecide;
+  const [vendors, setVendors] = useState(null);
+  const [vendorsAsked, setVendorsAsked] = useState(0);
+  const [vendorId, setVendorId] = useState("");
+  const [deliverTo, setDeliverTo] = useState(row.deliverTo || row.siteAddress || "");
+  const [strokes, setStrokes] = useState([]);
+  const [png, setPng] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const [faults, setFaults] = useState({});
+  const [sendTo, setSendTo] = useState("");
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  useBusy("supply order signature", strokes.length > 0 && stage === "sign");
+  // The approved vendors, read once Sign and order shows: the route's own
+  // filter, then each row's status, so a vendor that is not approved is
+  // never offered.
+  useEffect(() => {
+    if (!signing) return undefined;
+    let on = true;
+    api("/api/vendors?approval_status=approved", { token })
+      .then(d => { if (on) setVendors((wsRows(d, "vendors") || []).map(supplyVendorOf).filter(v => v && v.active && (!v.approval || v.approval === "approved"))); })
+      .catch(err => { if (on) setVendors({ fault: fkFaultWords(err, "The vendor list did not load.") }); });
+    return () => { on = false; };
+  }, [signing, vendorsAsked]);
+  const listed = Array.isArray(vendors) ? vendors : [];
+  const chosen = listed.find(v => v.id === vendorId) || null;
+  const said = (err) => fkFaultWords(err, ERR_GENERIC);
+  // A refusal's keys put the API's words under the box each names.
+  const placeFault = (err, keysOf) => {
+    const keys = err && err.body && Array.isArray(err.body.keys) ? err.body.keys.map(String) : [];
+    const next = {};
+    keys.forEach(k => { if (keysOf.indexOf(k) !== -1) next[k] = said(err); });
+    if (Object.keys(next).length === 0) next.top = said(err);
+    setFaults(next);
+  };
+  const sign = async () => {
+    if (busy) return;
+    const missing = {};
+    if (!chosen) missing.vendorId = tr("Choose a vendor first.");
+    if (!png) missing.signature = tr("Sign before you send.");
+    if (Object.keys(missing).length > 0) { setFaults(missing); return; }
+    setBusy("sign"); setFaults({});
+    try {
+      const d = await api("/api/supplies/requests/" + encodeURIComponent(row.id) + "/sign", { method: "POST", body: { signature: png, vendorId: chosen.rawId, deliverTo: deliverTo.trim() }, token });
+      const next = supplyOrderOf(d && d.request ? d.request : d);
+      if (live.current && next) { setStrokes([]); setPng(null); onRow(next); }
+    } catch (err) { if (live.current) placeFault(err, ["vendorId", "deliverTo", "signature"]); }
+    if (live.current) setBusy(null);
+  };
+  const openPdf = async () => {
+    if (busy) return;
+    setBusy("pdf"); setFaults({});
+    try { await openApiPdf(row.poPdfUrl || "/api/supplies/requests/" + encodeURIComponent(row.id) + "/po.pdf", (row.poNumber || "purchase-order") + ".pdf", token); }
+    catch (err) { if (live.current) setFaults({ pdf: fkFaultWords(err, "The purchase order did not open. Try again.") }); }
+    if (live.current) setBusy(null);
+  };
+  const send = async (to) => {
+    if (busy) return;
+    if (to !== null && !SUPPORT_EMAIL_RE.test(to)) { setFaults({ to: tr("Enter a valid email address.") }); return; }
+    setBusy("send"); setFaults({});
+    try {
+      const d = await api("/api/supplies/requests/" + encodeURIComponent(row.id) + "/send", { method: "POST", body: to ? { to: to } : {}, token });
+      const next = supplyOrderOf(d && d.request ? d.request : d);
+      if (live.current && next) { onRow(next); if (showToast) showToast(tr("Sent to {email}", { email: next.orderedToEmail || to || "" })); }
+    } catch (err) { if (live.current) placeFault(err, ["to"]); }
+    if (live.current) setBusy(null);
+  };
+  const labelSt = { ...mkLabel(t), marginTop: 14 };
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const under = (k) => (faults[k] ? <div role="alert" style={mkFieldErr(t)}>{faults[k]}</div> : null);
+  if (stage === "sign") {
+    if (!row.canDecide) return null;
+    return (
+      <div data-supply-sign={row.id} style={{ marginTop: 18, padding: "14px 14px 16px", borderRadius: R.md, background: t.card, border: "1px solid " + t.goldBorder, boxShadow: t.shadow }}>
+        <div role="heading" aria-level={3} style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Sign and order")}</div>
+        <label htmlFor="ocsa-supply-vendor" style={labelSt}>{tr("Vendor")}</label>
+        {vendors === null && <div style={lineSt}>{tr("Loading...")}</div>}
+        {vendors && vendors.fault && <div><WsFault text={vendors.fault} t={t} /><div style={{ display: "flex", marginTop: 8 }}><button type="button" onClick={() => setVendorsAsked(n => n + 1)} style={wsPlainBtn(t)}>{tr("Try again")}</button></div></div>}
+        {Array.isArray(vendors) && vendors.length === 0 && <div data-supply-vendor-none="1" style={{ ...lineSt, color: t.text, fontWeight: 600 }}>{tr("Ask the office to add the vendor and set it to approved.")}</div>}
+        {listed.length > 0 && (
+          <select id="ocsa-supply-vendor" data-supply-vendor="1" value={vendorId} onChange={e => { setVendorId(e.target.value); setFaults(f => (f.vendorId ? Object.assign({}, f, { vendorId: null }) : f)); }} aria-invalid={!!faults.vendorId} style={{ ...mkInput(t), ...(faults.vendorId ? { border: "2px solid " + RED } : {}) }}>
+            <option value="">{tr("Choose a vendor")}</option>
+            {listed.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+        )}
+        {under("vendorId")}
+        <SupplyVendorFacts vendor={chosen} t={t} />
+        <label htmlFor="ocsa-supply-deliver" style={labelSt}>{tr("Deliver to")}</label>
+        <textarea id="ocsa-supply-deliver" data-supply-deliver="1" value={deliverTo} maxLength={SUPPLY_DELIVER_MAX} rows={2} onChange={e => setDeliverTo(e.target.value)} aria-invalid={!!faults.deliverTo} style={{ ...mkInput(t), resize: "vertical", ...(faults.deliverTo ? { border: "2px solid " + RED } : {}) }} />
+        <div style={mkHelp(t)}>{tr("Left blank, the site's address is used.")}</div>
+        {under("deliverTo")}
+        <div data-supply-signature="1">
+          <div style={labelSt}>{tr("Your signature")}</div>
+          <div style={{ borderRadius: R.md, border: faults.signature ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+            <SignatureBox strokes={strokes} onStroke={(stroke, size) => { const all = strokes.concat([stroke]); setStrokes(all); setPng(signaturePng(all, size.w, size.h)); setFaults(f => (f.signature ? Object.assign({}, f, { signature: null }) : f)); }} height={SIGN_BOX_HEIGHT} />
+          </div>
+          <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+          <button type="button" onClick={() => { setStrokes([]); setPng(null); }} disabled={strokes.length === 0 || !!busy} style={{ ...wsPlainBtn(t), width: "100%", marginTop: 8, opacity: strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+          {under("signature")}
+        </div>
+        {under("top")}
+        <div style={{ display: "flex", marginTop: 14 }}><button type="button" data-supply-sign-go="1" disabled={!!busy || listed.length === 0} onClick={sign} style={wsMainBtn(t, !!busy || listed.length === 0)}>{busy === "sign" ? tr("Sending...") : tr("Sign")}</button></div>
+      </div>
+    );
+  }
+  if (stage !== "send" && stage !== "ordered") return null;
+  const email = row.vendor && row.vendor.contactEmail ? row.vendor.contactEmail : "";
+  const sender = !!holder;
+  return (
+    <div data-supply-po={row.poNumber || row.id} style={{ marginTop: 18, padding: "14px 14px 16px", borderRadius: R.md, background: t.card, border: "1px solid " + t.goldBorder, boxShadow: t.shadow }}>
+      <div style={{ ...mkLabel(t), marginBottom: 2 }}>{tr("Purchase order")}</div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{row.poNumber}</div>
+      {row.approvedBy && <div style={lineSt}>{tr("Signed by {name}, {date}", { name: row.approvedBy, date: signedDay(row.approvedAt) })}</div>}
+      {row.vendor && <div style={{ ...labelSt, marginBottom: 0 }}>{tr("Vendor")}</div>}
+      {row.vendor && <div style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2, overflowWrap: "anywhere" }}>{row.vendor.name}</div>}
+      <SupplyVendorFacts vendor={row.vendor} t={t} />
+      {row.deliverTo && <div style={{ ...labelSt, marginBottom: 0 }}>{tr("Deliver to")}</div>}
+      {row.deliverTo && <div style={{ fontSize: 13, color: t.text, marginTop: 2, lineHeight: 1.45, whiteSpace: "pre-line", overflowWrap: "anywhere" }}>{row.deliverTo}</div>}
+      {row.orderedAt && <div data-supply-ordered="1" role="status" style={{ fontSize: 14, fontWeight: 600, color: ink(t, GREEN), marginTop: 12, lineHeight: 1.4, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{tr("Ordered {date}, sent to {email}", { date: signedDay(row.orderedAt), email: row.orderedToEmail })}</div>}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
+        <button type="button" data-supply-po-open="1" disabled={!!busy} onClick={openPdf} style={{ ...wsPlainBtn(t), opacity: busy === "pdf" ? 0.7 : 1 }}>{busy === "pdf" ? tr("Loading...") : tr("Open the purchase order")}</button>
+        {sender && stage === "send" && email && <button type="button" data-supply-send="1" disabled={!!busy} onClick={() => send(null)} style={wsMainBtn(t, !!busy)}>{busy === "send" ? tr("Sending...") : tr("Send to {email}", { email: email })}</button>}
+        {sender && stage === "ordered" && <button type="button" data-supply-send-again="1" disabled={!!busy} onClick={() => send(row.orderedToEmail || null)} style={wsPlainBtn(t)}>{busy === "send" ? tr("Sending...") : tr("Send again")}</button>}
+      </div>
+      {sender && stage === "send" && !email && (
+        <div style={{ marginTop: 12 }}>
+          <label htmlFor="ocsa-supply-send-to" style={mkLabel(t)}>{tr("Email to send it to")}</label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <input id="ocsa-supply-send-to" type="email" inputMode="email" autoComplete="off" data-supply-send-to="1" value={sendTo} onChange={e => { setSendTo(e.target.value); setFaults(f => (f.to ? Object.assign({}, f, { to: null }) : f)); }} style={{ ...mkInput(t), flex: "1 1 180px", minWidth: 0 }} />
+            <button type="button" data-supply-send="1" disabled={!!busy} onClick={() => send(sendTo.trim())} style={{ ...wsMainBtn(t, !!busy), flex: "none" }}>{busy === "send" ? tr("Sending...") : tr("Send")}</button>
+          </div>
+        </div>
+      )}
+      {under("to")}
+      {under("pdf")}
+      {under("top")}
     </div>
   );
 }
@@ -7691,7 +7859,7 @@ function SupplyOrderLine({ line, at, can, busy, draft, onDraft, onDecide, fault,
 // A request open: who asked and when, its urgency and details, each line
 // with its decision, Approve all and Deny all over the lines still
 // undecided, and, below, Sign and order once every line is decided.
-function SupplyOrder({ token, user, row, onBack, onRow, onReload, getOpts, showToast, t }) {
+function SupplyOrder({ token, user, holder, row, onBack, onRow, onReload, getOpts, showToast, t }) {
   const stage = supplyStage(row);
   const can = row.canDecide && stage !== "ordered";
   const [drafts, setDrafts] = useState({});
@@ -7761,6 +7929,7 @@ function SupplyOrder({ token, user, row, onBack, onRow, onReload, getOpts, showT
         </div>
       )}
       {fault && <WsFault text={fault} t={t} />}
+      <SupplySignOrder key={stage} token={token} row={row} holder={holder && !mine} onRow={onRow} showToast={showToast} t={t} />
     </div>
   );
 }
