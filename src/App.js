@@ -2756,8 +2756,12 @@ export default function OCSAStaffPortal() {
   // answers a list; More offers the Library then, an empty list included,
   // which the screen says is still loading.
   const [library, setLibrary] = useState(null);
+  // The document open in the Library, { doc, at, key }: from a row, a
+  // search result at the section it matched, or Help's Open button.
+  const [libraryAt, setLibraryAt] = useState(null);
+  const openLibraryDoc = (doc, at) => { setLibraryAt({ doc: doc, at: at || null, key: Date.now() }); setActiveTab("library"); setShowMore(false); };
   useEffect(() => {
-    if (!token || screen !== "main") { setLibrary(null); return undefined; }
+    if (!token || screen !== "main") { setLibrary(null); setLibraryAt(null); return undefined; }
     let live = true;
     readLibrary(token).then(l => { if (live && l) setLibrary(l); });
     return () => { live = false; };
@@ -3122,13 +3126,13 @@ export default function OCSAStaffPortal() {
               {activeTab === "clock" && signAt && <SignScreen key={signAt.id || "list"} token={token} id={signAt.id || null} requests={signList} onOpen={openSign} onBack={() => setSignAt(null)} onChanged={() => setSignAsked(n => n + 1)} t={t} />}
               {activeTab === "property" && destCtx.property && <MyPropertyView rows={property} onSign={(id) => openSign({ id: id })} t={t} />}
               {activeTab === "support" && destCtx.support && <SupportView token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} t={t} />}
-              {activeTab === "library" && destCtx.library && <LibraryView token={token} docs={library} onDocs={setLibrary} t={t} />}
+              {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
-              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} />}
+              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} onOpenDocument={(d) => openLibraryDoc(d, null)} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} findings={findings} onFindingsChanged={() => loadFindings()} openFinding={findingOpen} onOpenIssue={openIssue} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} token={token} user={user} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
@@ -5841,6 +5845,16 @@ const agentPictures = (list) => {
   return out;
 };
 
+// The document an answer says to open (Step 307, API Step 305's
+// openDocument): { docCode, title }, drawn as Open {docCode} under the
+// answer, which opens it in the Library. null on an answer with none.
+const agentOpenDocument = (v) => {
+  if (!v || typeof v !== "object") return null;
+  const docCode = typeof v.docCode === "string" ? v.docCode.trim() : "";
+  if (!docCode) return null;
+  return { docCode: docCode, title: typeof v.title === "string" && v.title.trim() ? v.title.trim() : docCode };
+};
+
 // One message of a conversation the API keeps, read the same way for
 // resuming a report and for an answer whose connection dropped.
 // A row that carries feedback (null, or the rating) is one the API
@@ -5856,6 +5870,7 @@ const agentStored = (m) => {
     citedDocs: agentList(agentField(m, ["citedDocs", "cited_doc_codes", "citedDocCodes"], []), []),
     citedNames: agentList(agentField(m, ["citedNames", "cited_names"], []), []),
     pictures: agentPictures(agentField(m, ["pictures"], [])),
+    openDocument: agentOpenDocument(agentField(m, ["openDocument", "open_document"], null)),
     degraded: agentField(m, ["degraded"], false) === true,
     noProcedure: agentField(m, ["noProcedure", "no_procedure"], false) === true,
     messageId: rated ? agentMessageId({ messageId: agentField(m, ["id", "messageId", "message_id"], null) }) : null,
@@ -5977,7 +5992,7 @@ function AnswerPictures({ pictures, language, t }) {
   );
 }
 
-function AgentView({ token, showToast, t, language, onFillForm, onTicket, conversationId, onConversation }) {
+function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpenDocument, conversationId, onConversation }) {
   // The same shape the Forms screen uses, so a Spanish screen never
   // lists English form names.
   const locale = languageToSend(language);
@@ -6189,7 +6204,7 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, conver
       // The composer clears only now, and only if it still holds what was sent.
       setText(prev => prev.trim() === msgText ? "" : prev);
       setPhotos(prev => (prev.length > 0 && paths && paths.length > 0) ? [] : prev);
-      const answer = { id: answerId, role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], citedNames: Array.isArray(data.citedNames) ? data.citedNames : [], pictures: agentPictures(data.pictures), degraded: data.degraded === true, noProcedure: data.noProcedure === true, messageId: agentMessageId(data), feedback: null };
+      const answer = { id: answerId, role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], citedNames: Array.isArray(data.citedNames) ? data.citedNames : [], pictures: agentPictures(data.pictures), openDocument: agentOpenDocument(data.openDocument), degraded: data.degraded === true, noProcedure: data.noProcedure === true, messageId: agentMessageId(data), feedback: null };
       place(answer);
       if (data.formResponse) { setFormResponse(data.formResponse); setMissing([]); setSubmitted(false); }
       const drafted = supportDraftOf(data.ticketDraft);
@@ -6340,6 +6355,7 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, conver
             {isMe ? m.text : (m.arriving || m.dropped) ? agentArriving(m.text) : <AgentReply text={m.text} />}
           </div>}
           {!isMe && !m.arriving && !m.dropped && m.pictures && m.pictures.length > 0 && <AnswerPictures pictures={m.pictures} language={locale} t={t} />}
+          {!isMe && !m.arriving && !m.dropped && m.openDocument && onOpenDocument && <div style={{ display: "flex", marginTop: 6 }}><button type="button" data-help-open-doc={m.openDocument.docCode} onClick={() => onOpenDocument(m.openDocument)} style={{ ...trainingGoldBtn, display: "inline-flex", gap: 8 }}><LibIco sz={16} c={NAVY} style={{ flexShrink: 0 }} /><span style={{ overflowWrap: "anywhere" }}>{tr("Open {docCode}", { docCode: m.openDocument.docCode })}</span></button></div>}
           {!isMe && agentSourcesLine(m.citedDocs, m.citedNames) && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>{tr("Based on")} {agentSourcesLine(m.citedDocs, m.citedNames)}</div>}
           {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>{tr("Working from the written procedure only right now.")}</div>}
           {!isMe && m.messageId && !m.arriving && !m.dropped && !rateOff && <RateAnswer messageId={m.messageId} feedback={m.feedback || null} onRated={(f) => setThread(prev => prev.map(x => x.id === m.id ? { ...x, feedback: f } : x))} onUnavailable={() => setRateOff(true)} token={token} t={t} />}
@@ -8143,7 +8159,37 @@ function docParagraphs(content) {
   return String(content || "").split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
 }
 
-function DocumentReader({ token, doc, signed, onBack, onSigned, t }) {
+// The Library's reader (Step 307, the Step 305 contract's section 2.2):
+// library is { at, waiting, onSign } when the reader is opened from the
+// Library, at being the section a search matched, and absent otherwise.
+// It reads every section with no signature box, Back goes to the
+// Library, See the designed version opens the PDF behind the token, and
+// a document waiting for the person's signature says so with a button
+// that opens it under Documents to sign.
+// The section a search matched, as a place in the list: the section of
+// that number, else the first inside it, else the first.
+const docSectionAt = (sections, ref) => {
+  if (!ref) return 0;
+  const want = String(ref).trim();
+  const exact = sections.findIndex(s => s.ref === want);
+  if (exact !== -1) return exact;
+  const inside = sections.findIndex(s => s.ref.indexOf(want + ".") === 0);
+  return inside === -1 ? 0 : inside;
+};
+// The designed version's path: the read's own, or the PDF route when the
+// Library says the document has one.
+const docPdfOf = (d, doc) => (d && d.pdfUrl ? d.pdfUrl : doc && doc.hasPdf ? "/api/documents/" + encodeURIComponent(doc.docCode) + "/pdf" : "");
+function DocWaiting({ library, t }) {
+  if (!library || !library.waiting) return null;
+  return (
+    <div data-doc-waiting="1" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 8, marginBottom: 6, padding: "10px 12px", borderRadius: R.md, background: t.goldSubtle, border: "1px solid " + t.goldBorder }}>
+      <div style={{ flex: "1 1 160px", minWidth: 0, fontSize: 13, fontWeight: 600, color: t.text, lineHeight: 1.4, fontFamily: FONT_HEAD }}>{tr("This document is waiting for your signature.")}</div>
+      <button type="button" data-doc-waiting-open="1" onClick={library.onSign} style={{ ...trainingGoldBtn, flex: "none" }}>{tr("Open in Documents to sign")}</button>
+    </div>
+  );
+}
+
+function DocumentReader({ token, doc, signed, onBack, onSigned, t, library }) {
   // loading, fault, read (at a section, or the contents), sign, done
   const [state, setState] = useState({ kind: "loading" });
   const [asked, setAsked] = useState(0);
@@ -8167,7 +8213,7 @@ function DocumentReader({ token, doc, signed, onBack, onSigned, t }) {
       try {
         const d = documentReadOf(await api("/api/documents/" + encodeURIComponent(doc.docCode) + "/read?locale=" + encodeURIComponent(languageToSend()), { token }));
         if (!d) throw new Error(ERR_GENERIC);
-        if (on) setState({ kind: "read", d: d });
+        if (on) { setState({ kind: "read", d: d }); if (library && library.at) setAt(docSectionAt(d.sections, library.at)); }
       } catch (err) {
         if (on) setState({ kind: "fault", said: fkFaultWords(err, "This document did not open. Try again.") });
       }
@@ -8188,7 +8234,7 @@ function DocumentReader({ token, doc, signed, onBack, onSigned, t }) {
       else setFault(fkFaultWords(err, "This was not signed. Try again."));
     } finally { if (live.current) setBusy(false); }
   };
-  const back = <WsBack label={tr("My training")} onBack={onBack} t={t} />;
+  const back = <WsBack label={library ? tr("Library") : tr("My training")} onBack={onBack} t={t} />;
   const titleSt = { fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
   const smallSt = { fontSize: 11, color: t.textMut, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
   const bodySt = { fontSize: 15, color: t.text, lineHeight: 1.55, overflowWrap: "anywhere", fontFamily: FONT_BODY, whiteSpace: "pre-wrap" };
@@ -8196,6 +8242,7 @@ function DocumentReader({ token, doc, signed, onBack, onSigned, t }) {
   const head = (
     <div>
       {back}
+      <DocWaiting library={library} t={t} />
       <div role="heading" aria-level={1} style={titleSt}>{d && d.title ? d.title : doc.title}</div>
       <div style={smallSt}>{[doc.docCode, d && d.version ? tr("Version {n}", { n: d.version }) : ""].filter(Boolean).join(", ")}</div>
       {d && d.locale !== languageToSend() && d.locale === "en" && <div data-doc-english="1" style={{ ...smallSt, fontSize: 12, marginTop: 6 }}>{tr("This document is shown in English.")}</div>}
@@ -8203,7 +8250,7 @@ function DocumentReader({ token, doc, signed, onBack, onSigned, t }) {
   );
   // An answer with parts (Step 289) reads in the handbook's look.
   if (state.kind === "read" && d && d.parts) {
-    return <HandbookReader key={d.version + ":" + d.locale} token={token} doc={doc} d={d} signed={signed} changed={again} onBack={onBack} onSigned={onSigned} onAgain={() => { setAgain(true); setAsked(n => n + 1); }} t={t} />;
+    return <HandbookReader key={d.version + ":" + d.locale} token={token} doc={doc} d={d} signed={signed} changed={again} onBack={onBack} onSigned={onSigned} onAgain={() => { setAgain(true); setAsked(n => n + 1); }} library={library} t={t} />;
   }
   if (state.kind === "loading" || state.kind === "fault") {
     return (
@@ -8258,7 +8305,7 @@ function DocumentReader({ token, doc, signed, onBack, onSigned, t }) {
   const n = d.sections.length;
   const sec = d.sections[Math.min(at, n - 1)];
   return (
-    <div data-doc={contents ? "contents" : "read"} data-doc-section={at + 1} style={{ padding: "16px 16px 100px" }}>
+    <div data-doc={contents ? "contents" : "read"} data-doc-section={at + 1} data-doc-ref={sec.ref} style={{ padding: "16px 16px 100px" }}>
       {head}
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
         <button type="button" data-doc-contents="1" aria-pressed={contents} onClick={() => setContents(v => !v)} style={{ ...wsPlainBtn(t), flex: "none" }}>{tr("Contents")}</button>
@@ -8281,10 +8328,36 @@ function DocumentReader({ token, doc, signed, onBack, onSigned, t }) {
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
             <button type="button" data-doc-back="1" disabled={at === 0} onClick={() => setAt(a => Math.max(0, a - 1))} style={{ ...wsPlainBtn(t), opacity: at === 0 ? 0.6 : 1 }}>{tr("Back")}</button>
             {at < n - 1 && <button type="button" data-doc-next={at + 2} onClick={() => setAt(a => a + 1)} style={wsMainBtn(t, false)}>{tr("Next")}</button>}
-            {at === n - 1 && <button type="button" data-doc-next="sign" onClick={() => setState({ kind: "sign", d: d })} style={wsMainBtn(t, false)}>{tr("Next")}</button>}
+            {at === n - 1 && !library && <button type="button" data-doc-next="sign" onClick={() => setState({ kind: "sign", d: d })} style={wsMainBtn(t, false)}>{tr("Next")}</button>}
           </div>
         </div>
       )}
+      {library && <DocDesigned token={token} path={docPdfOf(d, doc)} name={(d.docCode || doc.docCode) + ".pdf"} locale={d.locale} t={t} />}
+    </div>
+  );
+}
+// See the designed version in the Library's plain reader, for a document
+// read with no parts: the PDF behind the token, the way the handbook's
+// look opens it.
+function DocDesigned({ token, path, name, locale, t }) {
+  const [busy, setBusy] = useState(false);
+  const [fault, setFault] = useState(null);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  if (!path) return null;
+  const open = async () => {
+    if (busy) return;
+    setBusy(true); setFault(null);
+    try { await openApiPdf(withLocale(path, locale), name, token); }
+    catch (err) { if (live.current) setFault(fkFaultWords(err, "The designed version did not open. Try again.")); }
+    finally { if (live.current) setBusy(false); }
+  };
+  return (
+    <div style={{ marginTop: 12 }}>
+      {/^https:\/\//i.test(path)
+        ? <a href={path} target="_blank" rel="noopener noreferrer" data-doc-designed="1" style={{ ...wsPlainBtn(t), display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>{tr("See the designed version")}</a>
+        : <button type="button" data-doc-designed="1" disabled={busy} onClick={open} style={{ ...wsPlainBtn(t), width: "100%", opacity: busy ? 0.7 : 1 }}>{busy ? tr("Loading...") : tr("See the designed version")}</button>}
+      {fault && <WsFault text={fault} t={t} />}
     </div>
   );
 }
@@ -8417,9 +8490,10 @@ function DocSignedEnd({ token, doc, signed, onBack, t }) {
   );
 }
 
-function HandbookReader({ token, doc, d, signed, changed, onBack, onSigned, onAgain, t }) {
-  // cover, contents, page (at), done
-  const [view, setView] = useState({ kind: "cover", at: 0 });
+function HandbookReader({ token, doc, d, signed, changed, onBack, onSigned, onAgain, t, library }) {
+  // cover, contents, page (at), done. From the Library, a search's
+  // section opens its page rather than the cover.
+  const [view, setView] = useState(() => (library && library.at ? { kind: "page", at: docSectionAt(d.sections, library.at) } : { kind: "cover", at: 0 }));
   const [strokes, setStrokes] = useState([]);
   const [png, setPng] = useState(null);
   const [fault, setFault] = useState(null);
@@ -8433,17 +8507,20 @@ function HandbookReader({ token, doc, d, signed, changed, onBack, onSigned, onAg
   useBusy("handbook reader", busy || strokes.length > 0);
   useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [view.kind, view.at]);
   // The pages in reading order, the signed page last; with no section
-  // named for signing, a page of its own comes after the last.
-  const ack = d.ackSectionRef ? d.sections.find(s => s.ref === d.ackSectionRef) || null : null;
+  // named for signing, a page of its own comes after the last. From the
+  // Library every section is a page in its own place and nothing is
+  // signed, so the signing step is never reached.
+  const ack = !library && d.ackSectionRef ? d.sections.find(s => s.ref === d.ackSectionRef) || null : null;
   const pages = d.sections.filter(s => s !== ack).concat(ack ? [ack] : []);
   const n = pages.length;
-  const signAt = ack ? n - 1 : n;
+  const signAt = library ? n : ack ? n - 1 : n;
+  const pdfPath = docPdfOf(d, doc);
   const english = d.shownInEnglish || (d.locale !== languageToSend() && d.locale === "en");
   const openPdf = async (which) => {
     if (pdfBusy) return;
     setPdfBusy(which); setPdfFault(null);
     try {
-      if (which === "designed") await openApiPdf(withLocale(d.pdfUrl, d.locale), (d.docCode || doc.docCode) + ".pdf", token);
+      if (which === "designed") await openApiPdf(withLocale(pdfPath, d.locale), (d.docCode || doc.docCode) + ".pdf", token);
       else await openApiPdf(withLocale("/api/documents/" + encodeURIComponent(doc.docCode) + "/my-signed-page", languageToSend()), "signed-page.pdf", token);
     } catch (err) {
       if (live.current) setPdfFault({ which: which, said: fkFaultWords(err, which === "designed" ? "The designed version did not open. Try again." : "Your signed page did not open. Try again.") });
@@ -8463,8 +8540,8 @@ function HandbookReader({ token, doc, d, signed, changed, onBack, onSigned, onAg
       else setFault(fkFaultWords(err, "This was not signed. Try again."));
     } finally { if (live.current) setBusy(false); }
   };
-  const go = (at) => { setView({ kind: "page", at: Math.max(0, Math.min(at, signAt)) }); setFault(null); };
-  const back = <WsBack label={tr("My training")} onBack={onBack} t={t} />;
+  const go = (at) => { setView({ kind: "page", at: Math.max(0, Math.min(at, library ? n - 1 : signAt)) }); setFault(null); };
+  const back = <><WsBack label={library ? tr("Library") : tr("My training")} onBack={onBack} t={t} /><DocWaiting library={library} t={t} /></>;
   const ruleSt = { borderBottom: "2px solid " + GOLD, paddingBottom: 6 };
   const smallSt = { fontSize: 12, color: t.textMut, lineHeight: 1.4, overflowWrap: "anywhere" };
   const bodySt = { fontSize: 15, color: t.text, lineHeight: 1.55, overflowWrap: "anywhere", fontFamily: FONT_BODY };
@@ -8479,10 +8556,10 @@ function HandbookReader({ token, doc, d, signed, changed, onBack, onSigned, onAg
     </div>
   ));
   const pdfLine = (which) => (pdfFault && pdfFault.which === which ? <WsFault text={pdfFault.said} t={t} /> : null);
-  const designed = d.pdfUrl && (
+  const designed = pdfPath && (
     <div style={{ marginTop: 12 }}>
-      {/^https:\/\//i.test(d.pdfUrl)
-        ? <a href={d.pdfUrl} target="_blank" rel="noopener noreferrer" data-doc-designed="1" style={{ ...wsPlainBtn(t), display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>{tr("See the designed version")}</a>
+      {/^https:\/\//i.test(pdfPath)
+        ? <a href={pdfPath} target="_blank" rel="noopener noreferrer" data-doc-designed="1" style={{ ...wsPlainBtn(t), display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>{tr("See the designed version")}</a>
         : <button type="button" data-doc-designed="1" disabled={!!pdfBusy} onClick={() => openPdf("designed")} style={{ ...wsPlainBtn(t), width: "100%", opacity: pdfBusy ? 0.7 : 1 }}>{pdfBusy === "designed" ? tr("Loading...") : tr("See the designed version")}</button>}
       {pdfLine("designed")}
     </div>
@@ -8685,10 +8762,11 @@ function HandbookReader({ token, doc, d, signed, changed, onBack, onSigned, onAg
       {blocksOf(s)}
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
         <button type="button" data-doc-back="1" onClick={() => (at === 0 ? setView({ kind: "cover", at: 0 }) : go(at - 1))} style={wsPlainBtn(t)}>{tr("Back")}</button>
-        <button type="button" data-doc-next={at + 1 === signAt ? "sign" : at + 2} onClick={() => go(at + 1)} style={wsMainBtn(t, false)}>{tr("Next")}</button>
+        {(!library || at + 1 < n) && <button type="button" data-doc-next={at + 1 === signAt ? "sign" : at + 2} onClick={() => go(at + 1)} style={wsMainBtn(t, false)}>{tr("Next")}</button>}
       </div>
+      {library && designed}
     </>
-  ), { "data-doc-section": at + 1 });
+  ), { "data-doc-section": at + 1, "data-doc-ref": s.ref });
 }
 
 // ------------------------------------------------------------
@@ -8746,7 +8824,7 @@ function libraryFolders(docs) {
 // The line under a document about its languages.
 const libraryLanguageLine = (d) => (languageToSend() === "es" ? (d.locales.length > 0 && d.locales.indexOf("es") === -1 ? tr("In English only") : "") : d.locales.indexOf("es") !== -1 ? tr("Also in Spanish") : "");
 
-function LibraryView({ token, docs, onDocs, onOpen, t }) {
+function LibraryView({ token, docs, onDocs, onOpen, at, onAt, toSign, onSign, t }) {
   const [folder, setFolder] = useState(null);
   const [q, setQ] = useState("");
   // The search's answer for the words it was asked: { q, rows } or
@@ -8793,6 +8871,13 @@ function LibraryView({ token, docs, onDocs, onOpen, t }) {
     return <button key={d.docCode} type="button" data-library-doc={d.docCode} onClick={() => onOpen(d)} style={{ ...rowSt, cursor: "pointer", fontFamily: FONT_BODY }}>{inside}</button>;
   };
   const results = searching && found && found.q === needle ? found : null;
+  // A document open: the reader, with no signature box. One waiting for
+  // the person's signature says so, and its button opens it under
+  // Documents to sign.
+  if (at && at.doc) {
+    const waiting = (toSign || []).find(x => x.docCode === at.doc.docCode) || null;
+    return <DocumentReader key={at.doc.docCode + ":" + (at.at || "") + ":" + (at.key || "")} token={token} doc={at.doc} signed={null} onBack={() => onAt(null)} onSigned={() => {}} library={{ at: at.at, waiting: !!waiting, onSign: () => onSign(waiting) }} t={t} />;
+  }
   return (
     <div data-library={openFolder ? "folder" : searching ? "search" : "folders"} style={{ padding: "14px 16px 100px" }}>
       <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>{tr("Library")}</div>
