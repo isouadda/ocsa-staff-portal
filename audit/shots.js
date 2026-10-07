@@ -658,6 +658,10 @@ const SHOTS = [
     } },
   { name: "tasks-no-shift", entry: E("Use Tasks before your shift starts"), o: { signedIn: true, stub: { clockedIn: false } },
     go: async (s) => { if (!(await s.go("Tasks"))) return false; return s.waitText(s.say("Start your shift to see and check off your tasks.")); } },
+  // Step 316: East Building's timed schedule at 10:00 AM on a Monday, the
+  // kitchen floor Now and the sleeping area Next at the top.
+  { name: "tasks-schedule", entry: E("Read your site's schedule"), o: { signedIn: true, stub: { site: "site-east", now: "2026-10-05T14:00:00Z" }, phone: { now: "2026-10-05T14:00:00Z" } },
+    go: async (s) => { if (!(await s.go("Tasks"))) return false; return s.waitFor(() => !!document.querySelector("[data-block-now]") && !!document.querySelector("[data-block-next]")); } },
   { name: "tasks-no-signal", entry: E("Check off tasks with no signal"), o: { signedIn: true },
     go: async (s) => {
       if (!(await s.go("Tasks"))) return false;

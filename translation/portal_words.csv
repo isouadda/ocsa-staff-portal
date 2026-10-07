@@ -1296,3 +1296,10 @@ Next: Safety walk,Siguiente: recorrido de seguridad,Suivant : tournée de sécu
 Sign and send,Firmar y enviar,Signer et envoyer,"Inspect, the last part of an inspection with the safety walk"
 This signature signs the site checklist and the safety walk.,Esta firma firma la lista del sitio y el recorrido de seguridad.,Cette signature signe la liste du site et la tournée de sécurité.,"Inspect, over the signature of an inspection with the safety walk"
 Severity {s},Gravedad {s},Gravité {s},"Inspect, a safety finding on the result"
+Now,Ahora,Maintenant,Tasks: the block whose window holds the time now
+Residents' meal,Comida de los residentes,Repas des résidents,"Tasks: a block's kind, a meal when the space is in use"
+"Empty, full access","Vacío, acceso completo","Vide, accès complet","Tasks: a block's kind, nobody in the space and full access to clean it"
+When there is free time,Cuando haya tiempo libre,Quand il y a du temps libre,"Tasks: a block's kind, work done at any free time on its days"
+Start of shift,Inicio del turno,Début du service,"Tasks: a block's kind, the check-in at the start of the shift"
+End of shift,Fin del turno,Fin du service,"Tasks: a block's kind, the check-out at the end of the shift"
+The space is in use. No steps in this time.,El espacio está en uso. No hay pasos en este horario.,L'espace est occupé. Aucune étape pendant ce créneau.,"Tasks: under a residents' meal block, which holds no steps"

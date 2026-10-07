@@ -1467,6 +1467,13 @@ export const WORDS = {
   "Sign and send": "Firmar y enviar",
   "This signature signs the site checklist and the safety walk.": "Esta firma firma la lista del sitio y el recorrido de seguridad.",
   "Severity {s}": "Gravedad {s}",
+  "Now": "Ahora",
+  "Residents' meal": "Comida de los residentes",
+  "Empty, full access": "Vacío, acceso completo",
+  "When there is free time": "Cuando haya tiempo libre",
+  "Start of shift": "Inicio del turno",
+  "End of shift": "Fin del turno",
+  "The space is in use. No steps in this time.": "El espacio está en uso. No hay pasos en este horario.",
   },
 };
 
@@ -2812,6 +2819,13 @@ WORDS.fr = {
   "Sign and send": "Signer et envoyer",
   "This signature signs the site checklist and the safety walk.": "Cette signature signe la liste du site et la tourn\u00e9e de s\u00e9curit\u00e9.",
   "Severity {s}": "Gravit\u00e9 {s}",
+  "Now": "Maintenant",
+  "Residents' meal": "Repas des résidents",
+  "Empty, full access": "Vide, accès complet",
+  "When there is free time": "Quand il y a du temps libre",
+  "Start of shift": "Début du service",
+  "End of shift": "Fin du service",
+  "The space is in use. No steps in this time.": "L'espace est occupé. Aucune étape pendant ce créneau.",
 };
 
 // {name} is replaced after the language is chosen, so the

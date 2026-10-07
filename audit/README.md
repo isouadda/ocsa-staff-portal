@@ -154,7 +154,14 @@ first part filled in, a Fail with no finding listed as missing and
 nothing sent, leaving and coming back with the scored cards and the
 safety answers kept, one signature and one Submit carrying both parts,
 the result with the band, the safety result and its finding, and an
-inspection without the safety part drawn as before;
+inspection without the safety part drawn as before; timed site schedules
+(Step 316), against API Step 315 as its contract gives it, in English at
+390 and Spanish at 320, at the stub's invented two-shift site with every
+kind: each block's window drawn, a meal block with no steps, a
+full-access block marked, Now and Next first at 10:00 AM on a Monday, an
+overdue critical block, check-in and check-out as the shift's start and
+end, a Wednesday to Sunday block absent on the Monday, and an anytime
+block on a Saturday with no window and its weekly step;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
@@ -193,6 +200,20 @@ approved vendors on GET /api/vendors; approve_supplies on the
 permissions route; and, for a holder, the bell's notice about the
 request waiting. `orderVendorsNone` answers the vendor list with none
 approved.
+East Building (Step 316), opened with `site: "site-east"` and a `now`
+for the stub and the phone, is an invented two-shift site whose blocks
+carry API Step 315's end, kind and days: First shift 7:00 AM to 3:30 PM
+and Second shift 2:00 PM to 10:00 PM, with check-in, work, critical,
+meal, full-access, anytime and check-out blocks (`EAST_BLOCKS`). Every
+block comes on the session's shifts with `endTime`, `kind` and
+`daysOfWeek`, the meals, check-in and check-out among them though they
+hold no step; each checklist row carries its block's `end_time` and
+`kind` and the block's days as `block_days_of_week`; a block's days hide
+its rows on other days, as the API does; the stairway block's step is
+weekly work; the rows, shifts and blocks answer in the language asked;
+and two of the day's steps are checked by coworkers, one of the dining
+room reset's two. No other site carries any of it, so every other case
+reads a list from before Step 315.
 `inspectionWalk` (Step 313) answers API Step 312 as its contract gives
 it: a scheduled inspection with `with_safety`, two cards, the photos and
 the signature it takes, and `safety` carrying an invented safety

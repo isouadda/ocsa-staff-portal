@@ -79,8 +79,39 @@ const lookupsIn = (lang) => LOOKUPS.map(c => Object.assign({}, c, { values: c.va
 // not show today. Every row carries touchpoint (Step 238) and critical
 // (Step 247), false unless the item says otherwise; the API stores
 // critical only on a touchpoint.
+// Step 316: East Building's shifts and every block in them, as Step 315
+// stores them: the start, the end, the kind and the days, and the order.
+// First shift runs 7:00 AM to 3:30 PM and Second shift 2:00 PM to 10:00
+// PM. At 10:00 AM on a Monday the kitchen floor is Now, the sleeping area
+// is Next, the dining room reset is past with a step left, the laundry
+// room (Wednesday to Sunday) is absent, and the stairways (any free time
+// on Saturday) are too. Every name here is invented.
+const EAST_BLOCKS = [
+  { shift: "First shift", label: "Check in", time: "07:00:00", end: "07:15:00", kind: "check_in", order: 1 },
+  { shift: "First shift", label: "Lobby opening", time: "07:15:00", end: "08:00:00", kind: "work", order: 2 },
+  { shift: "First shift", label: "Dining room reset", time: "08:00:00", end: "09:00:00", kind: "critical", order: 3 },
+  { shift: "First shift", label: "Breakfast", time: "09:00:00", end: "09:30:00", kind: "meal", order: 4 },
+  { shift: "First shift", label: "Kitchen floor", time: "09:30:00", end: "11:00:00", kind: "critical", order: 5 },
+  { shift: "First shift", label: "Sleeping area", time: "10:30:00", end: "12:00:00", kind: "full_access", order: 6 },
+  { shift: "First shift", label: "Laundry room", time: "12:00:00", end: "13:00:00", kind: "full_access", days: "wed,thu,fri,sat,sun", order: 7 },
+  { shift: "First shift", label: "Lunch", time: "12:00:00", end: "13:00:00", kind: "meal", order: 8 },
+  { shift: "First shift", label: "Restroom round", time: "13:00:00", end: "14:30:00", kind: "work", order: 9 },
+  { shift: "First shift", label: "Stairway maintenance", time: null, end: null, kind: "anytime", days: "sat", order: 10 },
+  { shift: "First shift", label: "Check out", time: "15:15:00", end: "15:30:00", kind: "check_out", order: 11 },
+  { shift: "Second shift", label: "Check in", time: "14:00:00", end: "14:15:00", kind: "check_in", order: 1 },
+  { shift: "Second shift", label: "Evening round", time: "14:15:00", end: "16:00:00", kind: "work", order: 2 },
+  { shift: "Second shift", label: "Dinner", time: "17:00:00", end: "18:00:00", kind: "meal", order: 3 },
+  { shift: "Second shift", label: "Dining room reset", time: "18:00:00", end: "19:00:00", kind: "critical", order: 4 },
+  { shift: "Second shift", label: "Check out", time: "21:45:00", end: "22:00:00", kind: "check_out", order: 5 },
+];
+const SITE_BLOCKS = { "site-east": EAST_BLOCKS };
 const TASK_ROW = { building_name: null, floor_number: null, zone: null, task_type: "standard", shift_label: null, block_label: null, anchor_time: null, block_sort_order: null, cims_category: "SD", period: "today", every: "daily", touchpoint: false, critical: false };
 const taskRow = (o) => Object.assign({}, TASK_ROW, o);
+// A row of East Building's, carrying its block's time, end, kind and days.
+const eastRow = (id, label, zone, shift, block, more) => {
+  const b = EAST_BLOCKS.find(x => x.shift === shift && x.label === block);
+  return taskRow(Object.assign({ id: id, label: label, zone: zone, shift_label: shift, block_label: block, anchor_time: b.time, block_sort_order: b.order, end_time: b.end, kind: b.kind, block_days_of_week: b.days || null }, more || {}));
+};
 const SITE_TASKS = {
   // Some people here are linked to particular items and most are not.
   // The open shift puts this person on Main Hall's second floor; the rest
@@ -146,6 +177,27 @@ const SITE_TASKS = {
     taskRow({ id: "w-13", label: "Wipe the air vents", zone: "Office", shift_label: "Night shift", block_label: "Deep clean", block_sort_order: 10, period: "quarter" }),
     taskRow({ id: "w-3", label: "Empty the office bins", zone: "Office", shift_label: "Night shift", block_label: "Office sweep", anchor_time: "21:00:00", block_sort_order: 7 }),
   ],
+  // Step 316: an invented two-shift site whose blocks carry Step 315's
+  // window, kind and days, every kind among them (see EAST_BLOCKS below).
+  // Each row carries its block's end_time and kind, and the block's days
+  // as block_days_of_week, beside the task's own. Blocks that hold no
+  // step, the meals, check-in and check-out, come only on the session's
+  // shifts. The stairway block's step is weekly work, counted once a week.
+  "site-east": [
+    eastRow("e-6", "Mop the kitchen floor", "Kitchen", "First shift", "Kitchen floor"),
+    eastRow("e-1", "Wipe the lobby glass", "Lobby", "First shift", "Lobby opening"),
+    eastRow("e-12", "Wipe the hallway rails", "Hallway", "Second shift", "Evening round"),
+    eastRow("e-3", "Sanitize the dining tables", "Dining room", "First shift", "Dining room reset"),
+    eastRow("e-9", "Clean the laundry lint traps", "Laundry room", "First shift", "Laundry room"),
+    eastRow("e-7", "Vacuum the sleeping area", "Sleeping area", "First shift", "Sleeping area"),
+    eastRow("e-2", "Empty the lobby bins", "Lobby", "First shift", "Lobby opening"),
+    eastRow("e-11", "Sweep the stairways", "Stairway", "First shift", "Stairway maintenance", { period: "week" }),
+    eastRow("e-4", "Wipe the dining chairs", "Dining room", "First shift", "Dining room reset"),
+    eastRow("e-10", "Refill the restroom soap", "Restroom", "First shift", "Restroom round"),
+    eastRow("e-5", "Scrub the kitchen floor drains", "Kitchen", "First shift", "Kitchen floor"),
+    eastRow("e-8", "Wipe the bed frames", "Sleeping area", "First shift", "Sleeping area"),
+    eastRow("e-13", "Sanitize the dining tables", "Dining room", "Second shift", "Dining room reset"),
+  ],
 };
 // The order a person on the morning shift reads South Building's list in,
 // written out by hand: the shift, each block under it, each item under its
@@ -160,12 +212,13 @@ const OPEN_SHIFT = {
   "site-north": { siteId: "site-north", siteName: "North Building", buildingName: "Main Hall", floorNumber: "2" },
   "site-south": { siteId: "site-south", siteName: "South Building", buildingName: null, floorNumber: null },
   "site-west": { siteId: "site-west", siteName: "West Building", buildingName: null, floorNumber: null },
+  "site-east": { siteId: "site-east", siteName: "East Building", buildingName: null, floorNumber: null },
 };
 // The shift an open session carries when a case says nothing. North
 // Building has no shifts. The session at South Building was started on
 // the morning shift. The one at West Building carries none yet, which is
 // what the screen asks about.
-const SESSION_SHIFT = { "site-north": null, "site-south": "Morning", "site-west": null };
+const SESSION_SHIFT = { "site-north": null, "site-south": "Morning", "site-west": null, "site-east": "First shift" };
 // The person a case signs in as is linked to six items at North
 // Building, one of them with no building or floor. Nobody else is.
 const LINKS = { "u-one": ["task-1", "task-2", "task-3", "task-4", "task-5", "task-8"] };
@@ -173,7 +226,7 @@ const LINKS = { "u-one": ["task-1", "task-2", "task-3", "task-4", "task-5", "tas
 // { label, description, zone }, in the language the request asks for.
 // The stub sends them on these two and leaves them off the rest, so a
 // screen is seen drawing both.
-const DISPLAYED = new Set(["task-1", "task-8"]);
+const DISPLAYED = new Set(["task-1", "task-8"].concat(SITE_TASKS["site-east"].map(r => r.id)));
 const inLanguage = (en, lang) => (en && lang === "es" && TWIN_ES.has(en) ? TWIN_ES.get(en) : en);
 const displayOf = (row, lang) => ({ label: inLanguage(row.label, lang), description: row.description ? inLanguage(row.description, lang) : null, zone: row.zone ? inLanguage(row.zone, lang) : null });
 // An item's words as a screen in one language should draw them.
@@ -189,6 +242,10 @@ const FIRST_NAMES = { "u-one": "Alex", "u-two": "Sam", "u-three": "Robin" };
 // stub's clock. The rest are at West Building on the days they name, on
 // the company's clock: Monday September 28, Tuesday September 29,
 // Wednesday September 30, which is yesterday, and September 3.
+const EAST_COMPLETIONS = [
+  { taskId: "e-1", userId: "u-three" },
+  { taskId: "e-3", userId: "u-two" },
+];
 const COMPLETIONS = [
   { taskId: "task-1", userId: "u-one" },
   { taskId: "task-2", userId: "u-three" },
@@ -229,6 +286,10 @@ const zoneParts = (ms) => {
 };
 // The checklist day an instant falls on, counted in days since 1970.
 const checklistDay = (ms) => { const p = zoneParts(ms - DAY_STARTS_HOUR * 3600 * 1000); return Math.round(Date.UTC(p.year, p.month - 1, p.day) / DAY); };
+// Whether a block's days, 'wed,thu' form, take in a checklist day. A
+// block with none runs every day (Step 315).
+const WEEK_DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const blockDayHolds = (days, day) => !days || String(days).split(",").map(x => x.trim()).indexOf(WEEK_DAYS[new Date(day * DAY).getUTCDay()]) !== -1;
 // A day's period, as a number that is the same for every day in it.
 // Weeks start on Monday; every two weeks is counted from a Monday; the
 // seasons are the three month ones, winter taking December.
@@ -251,11 +312,21 @@ const clockOf = (s) => { const x = ((s % 86400) + 86400) % 86400; return [Math.f
 // and ends at the last; a shift with no timed block has none. The shift
 // suggested is the one whose window holds the session's start, or opens
 // next after it, and none when no shift has a time.
-function shiftsFor(siteId, startMs) {
+function shiftsFor(siteId, startMs, lang) {
   const rows = SITE_TASKS[siteId] || [];
   const labels = Array.from(new Set(rows.map(r => r.shift_label).filter(Boolean))).sort();
   if (labels.length < 2) return [];
-  const list = labels.map((label) => {
+  // Step 315: a site whose blocks carry a window answers every block of
+  // each shift, the ones holding no step among them, with its end, kind
+  // and days, and its own words in the language asked. Its hours open an
+  // hour before the first block and end at the last block's end.
+  const table = SITE_BLOCKS[siteId];
+  const list = table ? labels.map((label) => {
+    const blocks = table.filter(b => b.shift === label).map(b => ({ label: b.label, displayLabel: inLanguage(b.label, lang), time: b.time, order: b.order, endTime: b.end, kind: b.kind, daysOfWeek: b.days || null }));
+    const timed = blocks.filter(b => b.time !== null);
+    const last = timed.reduce((m, b) => (secondsOf(b.endTime || b.time) > secondsOf(m) ? b.endTime || b.time : m), timed[0].time);
+    return { label: label, displayLabel: inLanguage(label, lang), suggested: false, window: { opensAt: clockOf(secondsOf(timed[0].time) - 3600), startsAt: timed[0].time, endsAt: last, crossesMidnight: false }, blocks: blocks };
+  }) : labels.map((label) => {
     const blocks = [];
     rows.filter(r => r.shift_label === label && r.block_label).forEach((r) => {
       let b = blocks.find(x => x.label === r.block_label && x.order === r.block_sort_order);
@@ -1155,7 +1226,7 @@ function makeState(opts) {
     // today. A check made on one phone is seen on another through here.
     site: o.site || "site-north",
     links: o.links || LINKS,
-    completions: (o.completions || COMPLETIONS).map(c => Object.assign({}, c)),
+    completions: (o.completions || COMPLETIONS.concat(o.site === "site-east" ? EAST_COMPLETIONS : [])).map(c => Object.assign({}, c)),
     // Step 124: the stub's own clock, which a case can move, the shift the
     // open session carries, and when that session started. It started
     // three hours before the clock unless a case says otherwise.
@@ -2298,6 +2369,37 @@ const TWIN_PAIRS = [
   ["Office", "Oficina"],
   ["Elevator", "Elevador"],
   ["Outside", "Afuera"],
+  // East Building's list (Step 316): its items, zones, shifts and blocks.
+  ["Wipe the lobby glass", "Limpie los vidrios del vest\u00edbulo"],
+  ["Empty the lobby bins", "Vac\u00ede los botes del vest\u00edbulo"],
+  ["Sanitize the dining tables", "Desinfecte las mesas del comedor"],
+  ["Wipe the dining chairs", "Limpie las sillas del comedor"],
+  ["Scrub the kitchen floor drains", "Talle las coladeras del piso de la cocina"],
+  ["Mop the kitchen floor", "Trapee el piso de la cocina"],
+  ["Vacuum the sleeping area", "Aspire el dormitorio"],
+  ["Wipe the bed frames", "Limpie las estructuras de las camas"],
+  ["Clean the laundry lint traps", "Limpie los filtros de pelusa de la lavander\u00eda"],
+  ["Refill the restroom soap", "Rellene el jab\u00f3n de los ba\u00f1os"],
+  ["Sweep the stairways", "Barra las escaleras"],
+  ["Wipe the hallway rails", "Limpie los pasamanos del pasillo"],
+  ["Hallway", "Pasillo"],
+  ["Kitchen", "Cocina"],
+  ["Dining room", "Comedor"],
+  ["Sleeping area", "Dormitorio"],
+  ["Laundry room", "Lavander\u00eda"],
+  ["Stairway", "Escalera"],
+  ["First shift", "Primer turno"],
+  ["Second shift", "Segundo turno"],
+  ["Check in", "Registro de entrada"],
+  ["Check out", "Registro de salida"],
+  ["Lobby opening", "Apertura del vest\u00edbulo"],
+  ["Dining room reset", "Repaso del comedor"],
+  ["Breakfast", "Desayuno"],
+  ["Kitchen floor", "Piso de la cocina"],
+  ["Lunch", "Almuerzo"],
+  ["Stairway maintenance", "Mantenimiento de las escaleras"],
+  ["Evening round", "Ronda de la tarde"],
+  ["Dinner", "Cena"],
   ...WEST_SHIFTS,
   ["Opening checks", "Revisi\u00f3n de apertura"],
   ["Lobby reset", "Repaso del vest\u00edbulo"],
@@ -2853,7 +2955,7 @@ function createStub(opts) {
       const checks = state.completions.filter(c => c.taskId === row.id && checklistDay(atOf(c)) <= today);
       const on = (day) => checks.filter(c => checklistDay(atOf(c)) === day);
       const todays = on(today), yesterdays = on(today - 1);
-      const shown = row.shown !== false;
+      const shown = row.shown !== false && blockDayHolds(row.block_days_of_week, today);
       const every = row.every || "daily";
       const due = row.period === "today" && shown && !(every === "every_other_day" && yesterdays.length > 0);
       let done = null;
@@ -2907,15 +3009,15 @@ function createStub(opts) {
   };
 
   // The open session, the way every session answer carries it.
-  const sessionOf = () => {
-    const shifts = shiftsFor(state.site, state.sessionStartedAt);
+  const sessionOf = (lang) => {
+    const shifts = shiftsFor(state.site, state.sessionStartedAt, lang);
     return { id: "sess-1", siteId: state.site, startedAt: iso(state.sessionStartedAt), shiftLabel: shifts.length > 0 ? state.shiftLabel : null, shifts: shifts };
   };
 
-  const clockStatus = () => (state.clockedIn ? {
+  const clockStatus = (lang) => (state.clockedIn ? {
     clockedIn: true,
     shift: Object.assign({ sessionId: "sess-1", id: "sess-1" }, OPEN_SHIFT[state.site], { clockInTime: iso(state.sessionStartedAt) }),
-    session: sessionOf(),
+    session: sessionOf(lang),
     tasks: progress(),
   } : { clockedIn: false, shift: null, session: null, tasks: null });
 
@@ -2941,9 +3043,10 @@ function createStub(opts) {
     if (q.has("floor_number")) rows = rows.filter(x => x.row.floor_number === q.get("floor_number"));
     return rows.map((x) => {
       const { every: often, shown, ...row } = x.row;
+      const twin = !!SITE_BLOCKS[siteId];
       const display = Object.assign(DISPLAYED.has(row.id) ? displayOf(row, lang) : {}, {
-        shift: row.block_label ? row.shift_label : null,
-        block: row.block_label || null,
+        shift: row.block_label ? (twin ? inLanguage(row.shift_label, lang) : row.shift_label) : null,
+        block: row.block_label ? (twin ? inLanguage(row.block_label, lang) : row.block_label) : null,
       });
       return Object.assign(row, { period: x.period, dueToday: x.due, doneThisPeriod: x.done, shownToday: x.shown, checkedToday: x.checked, display: display });
     });
@@ -3420,7 +3523,7 @@ function createStub(opts) {
     if (key === "POST /api/users/profile/photo") return json(200, { ok: true });
 
     // --- the shift
-    if (key === "GET /api/clock/status") return json(200, clockStatus());
+    if (key === "GET /api/clock/status") return json(200, clockStatus(languageOf(search, state)));
     if (key === "GET /api/clock/tasks/assigned") return json(200, [
       Object.assign({ task_id: "at-1", label: "Replace the cracked light cover", description: "Second floor corridor.", site_name: "North Building", building_name: "Main Hall", floor_number: "2", zone: "Corridor", priority: "high", cims_category: "SD", created_by_name: "A supervisor", task_created_at: iso(NOW.getTime() - DAY) },
         state.assignedDue ? { due_date: state.assignedDue } : {}),
@@ -4930,7 +5033,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

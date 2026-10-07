@@ -170,7 +170,13 @@
 //     parts drawn, a Fail with no finding listed as missing with nothing
 //     sent, leaving and coming back with both parts kept, one signature
 //     and one Submit, the result with both parts, and an inspection
-//     without the safety part as before
+//     without the safety part as before; timed site schedules (Step
+//     316), against API Step 315 as its contract gives it, at an invented
+//     two-shift site with every kind: each block's window drawn, a meal
+//     block with no steps, a full-access block marked, Now and Next at
+//     10:00 AM on a Monday, an overdue critical block, a Wednesday to
+//     Sunday block absent on the Monday, and an anytime block on a
+//     Saturday
 //
 // The checks run in two lanes side by side (Step 290), each check on its
 // own phone and stub. SMOKE_ONLY=<words> runs only the checks whose name
@@ -185,7 +191,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_NOTICE, DRAFT_NOTICE, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, ORDER_HOLDER, ORDER_NOTICE, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_NOTICE, DRAFT_NOTICE, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, ORDER_HOLDER, ORDER_NOTICE, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, EAST_BLOCKS, taskWords } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -296,7 +302,7 @@ async function pickIn(page, scope, id, typed) {
 
 async function open(stubOptions, o) {
   const stub = createStub(stubOptions);
-  const app = await openApp(o.browser, BASE, { stub, language: o.language, textSize: o.textSize || "standard", signedIn: !!o.signedIn, path: o.path, buildStamp: stampOf() });
+  const app = await openApp(o.browser, BASE, { stub, language: o.language, textSize: o.textSize || "standard", signedIn: !!o.signedIn, path: o.path, buildStamp: stampOf(), now: o.now });
   const errors = [];
   app.page.on("pageerror", (e) => errors.push(String(e && e.message || e).split("\n")[0]));
   await app.page.setViewportSize({ width: o.width || 390, height: 780 });
@@ -1726,15 +1732,34 @@ async function supplyLines(browser, language, width) {
 // A PDF opened in a new tab from a tap, read behind the token. A phone
 // shows it in the tab; headless Chromium has no viewer, so the tab hands
 // the blob address over as a download, and either counts.
+// A PDF read behind the token opens in a new tab, which shows the blob
+// or, in a browser with no PDF viewer, downloads it. The tab's download
+// and navigation are listened for in the same turn as its page event,
+// before anything the tab does next can arrive, so a download the tab
+// starts before the click returns is never missed (Step 316: the final
+// head's third run once read a purchase order as not opened).
 async function pdfTab(page, selector) {
-  const [popup] = await Promise.all([page.context().waitForEvent("page", { timeout: 6000 }).catch(() => null), page.click(selector)]);
-  if (!popup) return false;
-  const download = popup.waitForEvent("download", { timeout: 6000 }).then(d => d.url().indexOf("blob:") === 0, () => false);
-  const shown = popup.waitForURL(/^blob:/, { timeout: 6000 }).then(() => true, () => null);
-  const first = await Promise.race([shown, download]);
-  const ok = first === null ? await download : first;
-  await popup.close().catch(() => {});
-  return ok;
+  const context = page.context();
+  const isBlob = (u) => String(u || "").indexOf("blob:") === 0;
+  const opened = new Promise((resolve) => {
+    let popup = null, over = false;
+    const done = (ok) => {
+      if (over) return;
+      over = true; clearTimeout(timer); context.off("page", onPage);
+      if (popup) popup.close().catch(() => {});
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(false), 12000);
+    function onPage(p) {
+      popup = p; context.off("page", onPage);
+      p.on("download", (d) => done(isBlob(d.url())));
+      p.on("framenavigated", (f) => { if (f === p.mainFrame() && isBlob(f.url())) done(true); });
+      if (isBlob(p.url())) done(true);
+    }
+    context.on("page", onPage);
+  });
+  await page.click(selector);
+  return opened;
 }
 // The words of a line before its first placeholder, for a line whose
 // value ends it.
@@ -2368,6 +2393,63 @@ async function inspectionWalk(browser, language, width) {
   await app.context.close();
 }
 
+// Timed site schedules (Step 316): East Building, the stub's invented
+// two-shift site whose blocks carry Step 315's window, kind and days, on
+// First shift. At 10:00 AM on Monday, October 5, 2026, in New York, the
+// kitchen floor (9:30 to 11:00, critical) is Now and the sleeping area
+// (10:30, empty with full access) is Next, ahead of the rest; the dining
+// room reset (8:00 to 9:00, critical) is past its end with a step left;
+// breakfast and lunch are residents' meals holding no step; check-in and
+// check-out read as the shift's start and end; the laundry room, Wednesday
+// to Sunday, is absent. At 10:00 AM on Saturday, October 3, the laundry
+// room is there, and so is the stairway maintenance, any free time on
+// Saturday, with no window and its weekly step.
+const EAST_MONDAY = "2026-10-05T14:00:00Z";
+const EAST_SATURDAY = "2026-10-03T14:00:00Z";
+async function timedSchedule(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const blocksOf = () => Array.from(document.querySelectorAll("[data-block]")).map((b) => {
+    const box = b.parentElement;
+    const tagEl = b.querySelector("[data-block-tag]");
+    return { key: b.getAttribute("data-block"), kind: b.getAttribute("data-block-kind"), text: b.innerText.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim(), tag: tagEl ? tagEl.innerText.trim() : null, now: b.querySelector("[data-block-now]") ? b.querySelector("[data-block-now]").innerText.trim() : null, next: b.querySelector("[data-block-next]") ? b.querySelector("[data-block-next]").innerText.trim() : null, overdue: b.querySelector("[data-block-overdue]") ? b.querySelector("[data-block-overdue]").innerText.trim() : null, meal: box.querySelector("[data-block-meal]") ? box.querySelector("[data-block-meal]").innerText.trim() : null, rows: box.children.length - 1 - (box.querySelector("[data-block-meal]") ? 1 : 0), box: box.innerText };
+  });
+  const day = async (now) => {
+    const app = await open({ site: "site-east", now: now, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width, now: now });
+    await waitFor(app.page, BAR_JS + ".length >= 5");
+    await tapBar(app.page, 2);
+    const drawn = await waitFor(app.page, () => document.querySelectorAll("[data-block]").length >= 5);
+    const blocks = drawn ? await app.page.evaluate("(" + blocksOf.toString() + ")()") : [];
+    const wide = await sideways(app.page);
+    const text = await contentText(app.page);
+    return { app, blocks, wide, text };
+  };
+  const find = (list, key) => list.find(b => b.key === key) || null;
+  const to = say(language, "{start} to {end}", { start: "\u0001", end: "\u0002" });
+  const between = to.split("\u0001")[1].split("\u0002")[0].trim();
+  const windowRe = (from, until) => new RegExp(from.replace(":", "\\:") + "\\s*\\S*\\s*\\S*\\s+" + between + "\\s+" + until.replace(":", "\\:"));
+  const mon = await day(EAST_MONDAY);
+  const m = mon.blocks;
+  const kitchen = find(m, "Kitchen floor"), sleeping = find(m, "Sleeping area"), dining = find(m, "Dining room reset"), breakfast = find(m, "Breakfast"), lunch = find(m, "Lunch"), checkIn = find(m, "Check in"), checkOut = find(m, "Check out");
+  const windows = !!kitchen && windowRe("9:30", "11:00").test(kitchen.text) && !!sleeping && windowRe("10:30", "12:00").test(sleeping.text) && !!checkOut && windowRe("3:15", "3:30").test(checkOut.text);
+  const meals = [breakfast, lunch].every(b => !!b && b.kind === "meal" && b.tag === say(language, "Residents' meal") && b.meal === say(language, "The space is in use. No steps in this time.") && b.rows === 0);
+  const fullAccess = !!sleeping && sleeping.kind === "full_access" && sleeping.tag === say(language, "Empty, full access");
+  const nowNext = m.length > 1 && m[0] === kitchen && kitchen.now === say(language, "Now") && kitchen.tag === say(language, "Critical") && !kitchen.overdue && m[1] === sleeping && sleeping.next === say(language, "Next") && m.filter(b => b.now).length === 1 && m.filter(b => b.next).length === 1;
+  const overdue = !!dining && dining.kind === "critical" && dining.overdue === say(language, "Overdue") && dining.tag === say(language, "Critical");
+  const ends = !!checkIn && checkIn.tag === say(language, "Start of shift") && !!checkOut && checkOut.tag === say(language, "End of shift");
+  const mondayGone = !find(m, "Laundry room") && !find(m, "Stairway maintenance") && mon.text.indexOf(taskWords("e-9", language).label) === -1 && mon.text.indexOf(taskWords("e-11", language).label) === -1;
+  const monErrors = mon.app.errors.slice();
+  await mon.app.context.close();
+  const sat = await day(EAST_SATURDAY);
+  const stairs = find(sat.blocks, "Stairway maintenance"), laundry = find(sat.blocks, "Laundry room");
+  const saturday = !!stairs && stairs.kind === "anytime" && stairs.tag === say(language, "When there is free time") && !/\d:\d\d/.test(stairs.text) && !stairs.now && !stairs.next && stairs.box.indexOf(taskWords("e-11", language).label) !== -1 && !!laundry && laundry.kind === "full_access" && laundry.box.indexOf(taskWords("e-9", language).label) !== -1;
+  const errors = monErrors.concat(sat.app.errors);
+  const wide = Math.max(mon.wide, sat.wide);
+  await sat.app.context.close();
+  check("Timed site schedules: each block's window drawn, a meal block with no steps, a full-access block marked, Now and Next first at a fixed time, an overdue critical block, check-in and check-out as the shift's start and end, a Wednesday to Sunday block absent on a Monday, and an anytime block on a Saturday, each kind in words, with no sideways scroll" + tag,
+    windows && meals && fullAccess && nowNext && overdue && ends && mondayGone && saturday && wide <= 1 && errors.length === 0,
+    !windows ? "the windows read " + JSON.stringify([kitchen, sleeping, checkOut].map(b => b && b.text)) : !meals ? "the meals read " + JSON.stringify([breakfast, lunch].map(b => b && [b.tag, b.meal, b.rows])) : !fullAccess ? "the full-access block read " + JSON.stringify(sleeping && sleeping.text) : !nowNext ? "the order was " + JSON.stringify(m.map(b => b.key + (b.now ? " now" : "") + (b.next ? " next" : ""))) : !overdue ? "the dining room reset read " + JSON.stringify(dining && dining.text) : !ends ? "check-in and check-out read " + JSON.stringify([checkIn, checkOut].map(b => b && b.text)) : !mondayGone ? "the laundry room or the stairways showed on the Monday" : !saturday ? "on the Saturday the stairways read " + JSON.stringify(stairs && stairs.text) + " and the laundry room " + JSON.stringify(laundry && laundry.text) : wide > 1 ? wide + " pixels sideways" : errors[0]);
+}
+
 // The Largest text size on a narrow phone: no control cut off or covered.
 async function largest(browser) {
   const app = await open({ accountPreferences: { language: "en", textSize: "largest" } }, { browser, language: "en", textSize: "largest", signedIn: true, width: 360 });
@@ -2416,6 +2498,7 @@ async function largest(browser) {
       await guard("the Library (es)", () => library(browser, "es", 320));
       await guard("one inspection walk (en)", () => inspectionWalk(browser, "en", 390));
       await guard("one inspection walk (es)", () => inspectionWalk(browser, "es", 320));
+      await guard("timed site schedules (en)", () => timedSchedule(browser, "en", 390));
     };
     const laneB = async () => {
       for (const language of ["en", "es"]) await guard("the request page (" + language + ")", () => requestPage(browser, language));
@@ -2442,6 +2525,7 @@ async function largest(browser) {
       await guard("inspections on the schedule (es)", () => scheduleInspections(browser, "es", 320));
       await guard("supply orders on the phone (en)", () => supplyOrders(browser, "en", 390));
       await guard("supply orders on the phone (es)", () => supplyOrders(browser, "es", 320));
+      await guard("timed site schedules (es)", () => timedSchedule(browser, "es", 320));
     };
     await Promise.all([laneA(), laneB()]);
   } finally {
