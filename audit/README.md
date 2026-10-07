@@ -147,6 +147,14 @@ when no vendor is approved, Sign with a vendor whose details show, the
 purchase order read behind the token, Send to the vendor's email then
 Ordered with its date, the bell's notice opening the request, and
 someone without the capability seeing no card and no Approve supplies;
+one inspection walk (Step 313), against API Step 312 as its contract
+gives it, in English at 390 and Spanish at 320: the inspection opening
+on its site checklist, the safety walk drawn by the form engine with its
+first part filled in, a Fail with no finding listed as missing and
+nothing sent, leaving and coming back with the scored cards and the
+safety answers kept, one signature and one Submit carrying both parts,
+the result with the band, the safety result and its finding, and an
+inspection without the safety part drawn as before;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
@@ -165,7 +173,7 @@ through it.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`, `handbook`, `handbookSigned`, `support`, `pto`, `scheduleInspections`, `issueSheet`, `unfinishedForms`, `library`, `libraryEmpty`, `supplyOrders`, `orderVendorsNone`), off for every other case.
+`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`, `handbook`, `handbookSigned`, `support`, `pto`, `scheduleInspections`, `issueSheet`, `unfinishedForms`, `library`, `libraryEmpty`, `supplyOrders`, `orderVendorsNone`, `inspectionWalk`), off for every other case.
 `library` (Step 307) answers GET /api/library as API Step 305's contract
 gives it: five invented documents in four folders, each folder's name in
 the request's language, the quality manual with a Spanish edition, Parts
@@ -185,6 +193,18 @@ approved vendors on GET /api/vendors; approve_supplies on the
 permissions route; and, for a holder, the bell's notice about the
 request waiting. `orderVendorsNone` answers the vendor list with none
 approved.
+`inspectionWalk` (Step 313) answers API Step 312 as its contract gives
+it: a scheduled inspection with `with_safety`, two cards, the photos and
+the signature it takes, and `safety` carrying an invented safety
+inspection form (its sections, an areas checklist, a crew table of two
+rows at least, a findings table, the overall result and an Inspected by
+sign-off) with the inspector's own draft, its site and kind filled in;
+the draft saved through the forms route, with what is missing by the
+form's rules (every area, two crew rows, a finding for every Fail);
+the one completion carrying both parts and the signature, refused with
+the safety part's missing fields until both are complete, and answered
+with the band and the safety result and findings; and beside it an
+inspection without the safety part.
 `scheduleInspections` (Step 296) gives the person signed in an inspection
 on the day of their shift, one of theirs cancelled and one of someone
 else's, dated as the API sends a date column, with API Step 295's notice

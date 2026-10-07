@@ -165,7 +165,12 @@
 //     line asking the office for a vendor, Sign with a vendor whose
 //     details show, the purchase order behind the token, Send then
 //     Ordered with its date, the bell's notice opening the request, and
-//     someone without the capability seeing none of it
+//     someone without the capability seeing none of it; one inspection
+//     walk (Step 313), against API Step 312 as its contract gives it: both
+//     parts drawn, a Fail with no finding listed as missing with nothing
+//     sent, leaving and coming back with both parts kept, one signature
+//     and one Submit, the result with both parts, and an inspection
+//     without the safety part as before
 //
 // The checks run in two lanes side by side (Step 290), each check on its
 // own phone and stub. SMOKE_ONLY=<words> runs only the checks whose name
@@ -180,7 +185,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_NOTICE, DRAFT_NOTICE, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, ORDER_HOLDER, ORDER_NOTICE } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_NOTICE, DRAFT_NOTICE, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, ORDER_HOLDER, ORDER_NOTICE, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -2275,6 +2280,94 @@ async function supplyOrders(browser, language, width) {
     !card ? "Home showed no card" : !listed ? "the list was not in its three groups" : !decided ? "the decisions did not go as sent: " + JSON.stringify(app.stub.state.orderCalls) : !noVendor ? "no line asking the office for a vendor" : !facts ? "the vendor's details did not show" : !signed ? "Sign did not go as sent: " + JSON.stringify(app.stub.state.orderCalls.filter(c => c.route === "sign").map(c => [c.body.vendorId, c.body.deliverTo])) : !pdf ? "the purchase order did not open behind the token" : !ordered ? "Send did not read Ordered" : !belled ? "the notice did not open the request" : !none ? "someone without the capability saw it" : wide > 1 ? wide + " pixels sideways" : (holderErrors[0] || otherErrors[0]));
 }
 
+// One inspection walk with the safety part in it (Step 313), against API
+// Step 312 as its contract gives it and the stub answers it: both parts
+// drawn, the safety part by the form engine with its first part filled
+// in; a Fail with no finding listed as missing before anything is sent;
+// leaving and coming back with both parts kept; one signature and one
+// Submit carrying both; the result with both parts; and an inspection
+// without the safety part drawn as before.
+async function inspectionWalk(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const app = await open({ inspectionWalk: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  const w = WALK_WORDS[language];
+  const openWalk = async (name) => {
+    if (!(await openPlace(page, say(language, "Inspect")))) return false;
+    if (!(await waitFor(page, (n) => Array.from(document.querySelectorAll(".sp-content button")).some(b => b.innerText.indexOf(n) !== -1), name))) return false;
+    await page.evaluate((n) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.indexOf(n) !== -1); if (b) b.click(); }, name);
+    return waitFor(page, () => !!document.querySelector("[data-inspect-item]") || !!document.querySelector("[data-inspect-walk]"));
+  };
+  const next = async () => { await page.click("[data-walk-next]"); await pause(page, 250); };
+  const pickIn = async (field, row, label) => page.evaluate((x) => { const cards = Array.from(document.querySelectorAll('[data-walk-field="' + x.field + '"] > div')).filter(d => d.querySelectorAll("button").length >= 2); const scope = x.row === null ? document.querySelector('[data-walk-field="' + x.field + '"]') : cards[x.row]; const b = scope && Array.from(scope.querySelectorAll("button")).find(y => y.innerText.trim() === x.label); if (b) b.click(); return !!b; }, { field, row, label });
+  let both = false, missingFail = false, kept = false, signedOnce = false, result = false, plain = false;
+  let wide = 0;
+  if (await waitFor(page, BAR_JS + ".length >= 5") && await openWalk(INSPECTION_W.template_name)) {
+    // The site checklist, then the safety walk drawn by the form engine
+    // with its first part filled in.
+    const cards = await waitFor(page, (h) => { const p = document.querySelector('[data-inspect-walk="cards"]'); return !!p && p.querySelectorAll("[data-inspect-item]").length === 2 && p.querySelector("[data-walk-part]").innerText.toUpperCase() === h.toUpperCase() && !!p.querySelector("[data-walk-to-safety]") && !p.querySelector("[data-inspect-signature]"); }, say(language, "Site checklist"));
+    await page.evaluate(() => Array.from(document.querySelectorAll("[data-inspect-item] button[aria-pressed]")).forEach(b => b.click()));
+    await pause(page, 200);
+    await page.click("[data-walk-to-safety]");
+    both = cards && await waitFor(page, (x) => { const p = document.querySelector('[data-inspect-walk="safety"] [data-walk-safety="1"]'); const i = p && p.querySelector('[data-walk-field="site"] input'); return !!i && i.value === "North Building" && p.innerText.indexOf(x) !== -1; }, w.s1);
+    wide = await sideways(page);
+    if (both) {
+      await next();
+      for (const [row, label] of [[0, w.pass], [1, w.fail], [2, w.pass]]) { await pickIn("areas", row, label); await pause(page, 120); }
+      await next();
+      await waitFor(page, () => document.querySelectorAll('[data-walk-field="crew"] input[type="text"]').length >= 6);
+      const crew = await page.$$('[data-walk-field="crew"] input[type="text"]');
+      await crew[0].fill("Invented cleaner"); await crew[1].fill("Invented: more gloves."); await crew[3].fill("Invented lead"); await crew[4].fill("Invented: brighter signs.");
+      await next(); await next();
+      await pickIn("result", null, w.recorded); await pause(page, 120);
+      await next();
+      missingFail = await waitFor(page, () => { const m = document.querySelector('[data-inspect-walk="sign"] [data-walk-missing="1"]'); return !!m && !!m.querySelector('[data-walk-missing-safety="findings"]'); }) && app.stub.state.walkSent.length === 0;
+      if (missingFail) { await page.click("[data-inspect-submit]"); await pause(page, 300); missingFail = app.stub.state.walkSent.length === 0; }
+    }
+    // Leaving and coming back: the cards kept on the phone, the safety
+    // answers kept as the draft.
+    if (missingFail) {
+      await page.evaluate((l) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.getAttribute("aria-label") === l); if (b) b.click(); }, say(language, "Back"));
+      await waitFor(page, () => !document.querySelector("[data-inspect-walk]"));
+      if (await openWalk(INSPECTION_W.template_name)) {
+        await page.click("[data-inspect-sections]");
+        kept = await waitFor(page, (x) => { const c = document.querySelector('[data-walk-sections-part="cards"]'); return !!document.querySelector('[data-inspect-walk="sign"]') && !!c && c.innerText.indexOf(x) !== -1 && !!document.querySelector('[data-walk-missing-safety="findings"]') && !document.querySelector('[data-walk-missing-safety="areas"]') && !document.querySelector('[data-walk-missing-safety="crew"]'); }, say(language, "{scored} of {total} scored", { scored: 2, total: 2 }));
+        await page.keyboard.press("Escape");
+        await page.evaluate((l) => { const b = Array.from(document.querySelectorAll("[data-walk-sections] button")).find(x => x.getAttribute("aria-label") === l); if (b) b.click(); }, say(language, "Close"));
+        await pause(page, 200);
+      }
+    }
+    // The finding the Fail needs, then one signature and one Submit.
+    if (kept) {
+      await page.click('[data-walk-missing-safety="findings"]');
+      await waitFor(page, () => !!document.querySelector('[data-walk-safety="4"]'));
+      await page.evaluate((l) => { const b = Array.from(document.querySelectorAll('[data-walk-field="findings"] button')).find(x => x.innerText.trim() === l); if (b) b.click(); }, say(language, "Add row"));
+      await waitFor(page, () => document.querySelectorAll('[data-walk-field="findings"] input').length >= 3);
+      const f = await page.$$('[data-walk-field="findings"] input');
+      await f[0].fill("Invented: an exit sign is out."); await f[1].fill("Invented Owner"); await f[2].fill("2026-10-09");
+      await pickIn("findings", null, "B"); await pause(page, 120);
+      await next(); await next();
+      if (await waitFor(page, () => !!document.querySelector('[data-inspect-walk="sign"]') && !document.querySelector("[data-walk-missing]"))) {
+        await sign(page, "[data-inspect-signature] canvas");
+        await page.click("[data-inspect-submit]");
+        result = await waitFor(page, (x) => { const r = document.querySelector("[data-inspect-sent]"); const sf = r && r.querySelector("[data-inspect-sent-safety]"); return !!sf && !!r.querySelector('[data-inspect-safety-result="1"]') && sf.innerText.indexOf(x.result) !== -1 && sf.innerText.indexOf("Invented: an exit sign is out.") !== -1 && sf.innerText.indexOf(x.sev) !== -1 && r.innerText.indexOf(x.band) !== -1; }, { result: w.recorded, sev: say(language, "Severity {s}", { s: "B" }), band: say(language, "Meets the standard.") });
+        const sent = app.stub.state.walkSent;
+        signedOnce = sent.length === 1 && /^data:image\/png;base64,/.test(sent[0].signature || "") && !!sent[0].safety && sent[0].safety.responseId === "draft-safety" && Array.isArray(sent[0].safety.answers.findings) && sent[0].safety.answers.findings.length === 1 && sent[0].scores.length === 2 && !Object.prototype.hasOwnProperty.call(sent[0].safety.answers, "inspectedBy");
+        wide = Math.max(wide, await sideways(page));
+      }
+    }
+    // An inspection without the safety part, as before.
+    if (result) {
+      await tapWord(page, say(language, "Done"));
+      if (await openWalk(INSPECTION_PLAIN.template_name)) plain = await waitFor(page, () => !document.querySelector("[data-inspect-walk]") && !!document.querySelector("[data-inspect-item]") && !!document.querySelector("[data-inspect-signature]") && !!document.querySelector("[data-inspect-submit]") && !document.querySelector("[data-walk-to-safety]"));
+    }
+  }
+  check("One inspection walk: the inspection opens on the site checklist, and the safety walk is drawn by the form engine with its first part filled in; a Fail with no finding is listed as missing and nothing is sent; leaving and coming back keeps the scored cards and the safety answers; one signature and one Submit carry both parts, the sign-off left to the signature; the result shows the band, the safety result and its finding; an inspection without the safety part reads as before; with no sideways scroll" + tag,
+    both && missingFail && kept && signedOnce && result && plain && wide <= 1 && app.errors.length === 0,
+    !both ? "the two parts were not drawn" : !missingFail ? "the Fail with no finding was not listed, or something was sent" : !kept ? "coming back did not keep both parts" : !result ? "the result did not show both parts" : !signedOnce ? "the send was not one, with both parts and one signature: " + JSON.stringify(app.stub.state.walkSent.map(b => [!!b.signature, b.safety && b.safety.responseId])) : !plain ? "the inspection without the safety part was not drawn as before" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+  await app.context.close();
+}
+
 // The Largest text size on a narrow phone: no control cut off or covered.
 async function largest(browser) {
   const app = await open({ accountPreferences: { language: "en", textSize: "largest" } }, { browser, language: "en", textSize: "largest", signedIn: true, width: 360 });
@@ -2321,6 +2414,8 @@ async function largest(browser) {
       await guard("the handbook reader (es)", () => handbook(browser, "es", 320));
       await guard("the Library (en)", () => library(browser, "en", 390));
       await guard("the Library (es)", () => library(browser, "es", 320));
+      await guard("one inspection walk (en)", () => inspectionWalk(browser, "en", 390));
+      await guard("one inspection walk (es)", () => inspectionWalk(browser, "es", 320));
     };
     const laneB = async () => {
       for (const language of ["en", "es"]) await guard("the request page (" + language + ")", () => requestPage(browser, language));

@@ -32,7 +32,7 @@ const fs = require("fs");
 const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp, letSheetOffer, ANDROID } = require("./browser");
-const { ORDER_HOLDER, ADMIN_PERSON, TWIN_ES, SECOND_STEP_CODE, EQ_CODE, SUP_CODE, TRAINING_SESSION_SEED, SIGN_SEED, INSPECTION, INSPECTION_F, timeOffRow, formP, ANNOUNCEMENT } = require("./stub");
+const { INSPECTION_W, ORDER_HOLDER, ADMIN_PERSON, TWIN_ES, SECOND_STEP_CODE, EQ_CODE, SUP_CODE, TRAINING_SESSION_SEED, SIGN_SEED, INSPECTION, INSPECTION_F, timeOffRow, formP, ANNOUNCEMENT } = require("./stub");
 
 const { execFileSync } = require("child_process");
 const ROOT = path.join(__dirname, "..");
@@ -713,8 +713,23 @@ const SHOTS = [
     go: async (s) => { if (!(await s.go("Supplies"))) return false; return s.waitFor(() => !!document.querySelector('[data-supply-req="sreq-1"] [data-supply-decision="denied"]')); } },
   { name: "supply-usage", entry: E("Log supplies you used"), o: { signedIn: true },
     go: async (s) => { if (!(await s.go("Supplies"))) return false; return s.waitText(s.say("Supply Tracking")); } },
-  { name: "inspection-open", entry: E("Do an inspection assigned to you"), o: { signedIn: true, stub: { inspections: [INSPECTION] } },
-    go: async (s) => { if (!(await s.go("Inspect"))) return false; if (!(await s.waitText(INSPECTION.template_name))) return false; await s.tap(INSPECTION.template_name); return s.waitFor(() => !!document.querySelector("[data-inspect-item]")); } },
+  // Since Step 313 the inspection carries the safety walk: it opens on
+  // its site checklist, and its second part is the safety walk.
+  { name: "inspection-open", entry: E("Do an inspection assigned to you"), o: { signedIn: true, stub: { inspectionWalk: true } },
+    go: async (s) => { if (!(await s.go("Inspect"))) return false; if (!(await s.waitText(INSPECTION_W.template_name))) return false; await s.tap(INSPECTION_W.template_name); return s.waitFor(() => !!document.querySelector('[data-inspect-walk="cards"] [data-inspect-item]')); } },
+  { name: "inspection-walk", entry: E("Do an inspection assigned to you"), o: { signedIn: true, stub: { inspectionWalk: true } },
+    go: async (s) => {
+      if (!(await s.go("Inspect"))) return false;
+      if (!(await s.waitText(INSPECTION_W.template_name))) return false;
+      await s.tap(INSPECTION_W.template_name);
+      if (!(await s.waitFor(() => !!document.querySelector("[data-walk-to-safety]")))) return false;
+      await s.page.click("[data-walk-to-safety]");
+      if (!(await s.waitFor(() => !!document.querySelector('[data-walk-safety="1"]')))) return false;
+      await s.page.click("[data-walk-next]");
+      if (!(await s.waitFor(() => !!document.querySelector('[data-walk-safety="2"]')))) return false;
+      await s.top();
+      return true;
+    } },
   // The stub gives a supervisor the permission to schedule one.
   { name: "inspection-schedule", entry: E("Schedule an inspection from the portal"), o: { signedIn: true, stub: { person: SUPERVISOR } },
     go: async (s) => { if (!(await s.go("Inspect"))) return false; await s.pause(600); await s.tap(s.say("+ Schedule")); return s.waitText(s.say("Schedule Inspection")); } },

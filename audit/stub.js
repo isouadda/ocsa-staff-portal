@@ -708,6 +708,101 @@ const FINDING_REFUSALS = {
   "inspections.findingNoteRequired": { status: 400, en: "Say what needs fixing on this card.", es: "Diga qu\u00e9 hay que arreglar en esta tarjeta." },
   "inspections.badOwner": { status: 400, en: "Choose an owner from the list.", es: "Elija un responsable de la lista." },
 };
+// One inspection walk with the safety part in it (Step 313), as API Step
+// 312's contract gives it, behind inspectionWalk: a scheduled inspection
+// carrying with_safety, its two cards, the photos and the signature it
+// takes, and the safety part: an invented safety inspection form, drawn
+// by the portal's form engine, with the inspector's own draft of it, its
+// first part filled in. Beside it, one without the safety part, which
+// reads as before. Every word invented, in both languages.
+const WALK_FORM_CODE = "TEST-FORM-SAFETY";
+const WALK_WORDS = {
+  en: {
+    title: "Invented safety inspection", s1: "The inspection", s2: "The checklist", s3: "What the crew said", s4: "Findings", s5: "Result",
+    site: "Site", kind: "What kind of inspection is this", monthly: "Monthly", quarterly: "Quarterly unannounced", came: "Who came with you",
+    areas: "Check each area", result: "Result", pass: "Pass", fail: "Fail", na: "Not applicable", chemical: "Chemical storage", exits: "Exits and corridors", eyewash: "First aid and eyewash",
+    crew: "Ask two people on shift", role: "Their role", said: "What they said", done: "What was done",
+    findings: "Findings", where: "Where and what", severity: "Severity", owner: "Who owns it", due: "Due date", everyFail: "A finding for every Fail",
+    overall: "Overall result", none: "No findings", recorded: "Findings recorded", stopped: "Work stopped", closed: "Site not accessible", by: "Inspected by",
+  },
+  es: {
+    title: "Inspecci\u00f3n de seguridad inventada", s1: "La inspecci\u00f3n", s2: "La lista", s3: "Lo que dijo el equipo", s4: "Hallazgos", s5: "Resultado",
+    site: "Sitio", kind: "\u00bfQu\u00e9 tipo de inspecci\u00f3n es?", monthly: "Mensual", quarterly: "Trimestral sin aviso", came: "Qui\u00e9n vino con usted",
+    areas: "Revise cada \u00e1rea", result: "Resultado", pass: "Cumple", fail: "No cumple", na: "No aplica", chemical: "Almac\u00e9n de qu\u00edmicos", exits: "Salidas y pasillos", eyewash: "Primeros auxilios y lavaojos",
+    crew: "Pregunte a dos personas del turno", role: "Su puesto", said: "Lo que dijeron", done: "Lo que se hizo",
+    findings: "Hallazgos", where: "D\u00f3nde y qu\u00e9", severity: "Gravedad", owner: "Responsable", due: "Fecha l\u00edmite", everyFail: "Un hallazgo por cada No cumple",
+    overall: "Resultado general", none: "Sin hallazgos", recorded: "Hallazgos registrados", stopped: "Trabajo detenido", closed: "Sitio sin acceso", by: "Inspeccionado por",
+  },
+};
+const WALK_AREAS = ["chemical", "exits", "eyewash"];
+function walkForm(lang) {
+  const w = WALK_WORDS[lang === "es" ? "es" : "en"];
+  const opt = (v) => ({ value: v, label: w[v] });
+  return {
+    code: WALK_FORM_CODE, title: w.title, version: 1,
+    sections: [1, 2, 3, 4, 5].map(n => ({ key: String(n), title: w["s" + n] })),
+    fields: [
+      { key: "site", label: w.site, type: "text", section: "1", required: true },
+      { key: "kind", label: w.kind, type: "select", section: "1", required: true, options: [opt("monthly"), opt("quarterly")] },
+      { key: "came", label: w.came, type: "text", section: "1", required: false },
+      { key: "areas", label: w.areas, type: "grid", section: "2", required: true,
+        columns: [{ key: "result", label: w.result, type: "select", required: true, options: [{ value: "pass", label: w.pass }, { value: "fail", label: w.fail }, { value: "na", label: w.na }] }],
+        rows: WALK_AREAS.map(k => ({ key: k, label: w[k] })) },
+      { key: "crew", label: w.crew, type: "grid", section: "3", required: true, rows: null, minRows: 2, maxRows: 4,
+        columns: [{ key: "role", label: w.role, type: "text", required: true }, { key: "said", label: w.said, type: "text", required: true }, { key: "done", label: w.done, type: "text", required: false }] },
+      { key: "findings", label: w.findings, type: "grid", section: "4", required: false, rows: null, minRows: 0, maxRows: 4,
+        columns: [{ key: "where", label: w.where, type: "text", required: true }, { key: "severity", label: w.severity, type: "select", required: true, options: ["A", "B", "C", "D"].map(v => ({ value: v, label: v })) }, { key: "owner", label: w.owner, type: "text", required: true }, { key: "due", label: w.due, type: "date", required: true }] },
+      { key: "result", label: w.overall, type: "select", section: "5", required: true, options: [{ value: "no_findings", label: w.none }, { value: "findings_recorded", label: w.recorded }, { value: "work_stopped", label: w.stopped }, { value: "not_accessible", label: w.closed }] },
+      { key: "inspectedBy", label: w.by, type: "signoff", section: "5", signer: "filer", required: true },
+    ],
+  };
+}
+// What the safety part is short, as the form engine's rules say it: every
+// area answered, two crew rows, a finding for every Fail, the result, and
+// the signature, which the walk's one signature makes.
+function walkMissing(answers, lang, signed) {
+  const w = WALK_WORDS[lang === "es" ? "es" : "en"];
+  const out = [];
+  const empty = (v) => v === undefined || v === null || v === "";
+  if (empty(answers.site)) out.push({ key: "site", label: w.site });
+  if (empty(answers.kind)) out.push({ key: "kind", label: w.kind });
+  const areas = answers.areas && typeof answers.areas === "object" ? answers.areas : {};
+  const open = WALK_AREAS.filter(k => !(areas[k] && areas[k].result)).map(k => w[k]);
+  if (open.length > 0) out.push({ key: "areas", label: w.areas, rows: open });
+  const crew = Array.isArray(answers.crew) ? answers.crew.filter(r => r && r.role && r.said) : [];
+  if (crew.length < 2) out.push({ key: "crew", label: w.crew, rows: [ROW_WORD[lang === "es" ? "es" : "en"] + " " + (crew.length + 1)] });
+  const fails = WALK_AREAS.filter(k => areas[k] && areas[k].result === "fail").length;
+  const found = Array.isArray(answers.findings) ? answers.findings.filter(r => r && r.where && r.severity && r.owner && r.due).length : 0;
+  if (found < fails) out.push({ key: "findings", label: w.findings, rows: [w.everyFail] });
+  if (empty(answers.result)) out.push({ key: "result", label: w.overall });
+  if (!signed && !answers.inspectedBy) out.push({ key: "inspectedBy", label: w.by });
+  return out;
+}
+function walkDraft(state, lang) {
+  const form = walkForm(lang);
+  const answers = state.walkAnswers;
+  const missingFields = walkMissing(answers, lang, false);
+  const answered = form.fields.filter(f => answers[f.key] !== undefined && answers[f.key] !== null && answers[f.key] !== "").length;
+  return { id: "draft-safety", formCode: WALK_FORM_CODE, formName: form.title, answers: JSON.parse(JSON.stringify(answers)), status: "draft", answered: answered, remaining: form.fields.length - answered, missing: missingFields.map(m => m.key), missingFields: missingFields };
+}
+const WALK_SEED = () => ({ site: "North Building", kind: "monthly" });
+const INSPECTION_W = {
+  id: "in-walk", template_name: "Invented monthly walk", site_id: "site-north", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled", with_safety: true,
+  capture: { photosPerItem: 6, photosOverall: 10, signatureRequired: true },
+  items: [
+    { id: "iw-1", label: "Restroom mirrors are free of streaks", zone: "Restroom", max_score: 5 },
+    { id: "iw-2", label: "Exit signs are lit", zone: "Corridor", max_score: 5 },
+  ],
+};
+const INSPECTION_PLAIN = {
+  id: "in-plain", template_name: "Invented quick walk", site_id: "site-north", site_name: "North Building", scheduled_date: "2026-10-03", status: "scheduled", with_safety: false,
+  capture: { photosPerItem: 6, photosOverall: 10, signatureRequired: true },
+  items: [{ id: "ip-1", label: "Lobby floor is dry", zone: "Lobby", max_score: 5 }],
+};
+const WALK_REFUSALS = {
+  "inspections.safetyIncomplete": { status: 400, en: "Finish the safety walk before you send.", es: "Termine el recorrido de seguridad antes de enviar." },
+  "inspections.signatureRequired": { status: 400, en: "Sign the inspection before sending it.", es: "Firme la inspecci\u00f3n antes de enviarla." },
+};
 // The band a score lands in (QMS-014 5.2), its due date from the
 // completion, and the severity of each finding, as the contract's rule 2.
 const findingBandOf = (pct) => (pct >= 90 ? "meets" : pct >= 80 ? "below" : pct >= 70 ? "failed" : "serious");
@@ -1081,7 +1176,13 @@ function makeState(opts) {
     sheetTasks: o.issueSheet === true ? SHEET_TASKS.map(x => Object.assign({}, x)) : [],
     sheetCalls: [],
     // Copied, since /complete marks one completed and the fixture is shared.
-    inspections: (o.inspections || []).concat(o.scheduleInspections ? SCHED_INSPECTIONS(o.person || PERSON) : []).map(i => Object.assign({}, i)),
+    inspections: (o.inspections || []).concat(o.scheduleInspections ? SCHED_INSPECTIONS(o.person || PERSON) : []).concat(o.inspectionWalk ? [INSPECTION_W, INSPECTION_PLAIN] : []).map(i => Object.assign({}, i)),
+    // Step 313: the inspection walk (API Step 312), its safety draft's
+    // answers, every safety part sent with a completion, and every
+    // completion's body.
+    inspectionWalk: o.inspectionWalk === true,
+    walkAnswers: WALK_SEED(),
+    walkSent: [],
     // Step 145: every problem filed through POST /api/issues, in order.
     issues: [],
     // Step 255: an API with Step 253 built, which answers owners on the
@@ -1089,7 +1190,7 @@ function makeState(opts) {
     // and lists them as source inspection. The first completion is turned
     // away once with findingNoteRequired on its first deficient card, laid
     // over the stub, so a check sees the refusal under the card.
-    findings: o.findings === true,
+    findings: o.findings === true || o.inspectionWalk === true,
     findingRows: [],
     findingRefusals: o.findings === true ? 1 : 0,
     // Step 258: an API with Step 256 built, which answers GET
@@ -3783,6 +3884,15 @@ function createStub(opts) {
     // draft keeps the version it was started on, which the draft routes
     // send beside it; with formVersions the incident report has a second
     // version out.
+    // Step 313: the walk's safety draft, saved the way any draft is.
+    if (state.inspectionWalk && /^\/api\/forms\/drafts\/draft-safety$/.test(pathname)) {
+      if (method === "PATCH") {
+        const written = (body && body.answers) || {};
+        if (Object.keys(written).some(k => k === "inspectedBy")) return json(400, { error: "A sign-off is made with its own button" });
+        Object.keys(written).forEach((k) => { if (written[k] === null) delete state.walkAnswers[k]; else state.walkAnswers[k] = written[k]; });
+      }
+      return json(200, { draft: walkDraft(state, lang), form: walkForm(lang) });
+    }
     if (pathname === "/api/forms") {
       return json(200, { forms: [state.formVersions ? FORM_V2 : FORM, formP(lang)].concat(state.sectionsForm ? [thirdForm()] : []).concat(state.personForm ? [formE(lang)] : []).concat(state.guideForms ? guideForms(lang) : []) });
     }
@@ -4574,6 +4684,22 @@ function createStub(opts) {
       const one = state.inspections.find(i => i.id === completing[1] && !i.gone);
       if (!one) return json(404, { error: INSPECTION_NOT_FOUND[0] });
       if (one.status === "completed") return json(400, { error: "This inspection was already completed" });
+      // Step 313: a walk's completion carries the safety part's answers and
+      // the one signature, and both parts are checked before anything is
+      // written, all or nothing.
+      if (state.inspectionWalk && one.with_safety) {
+        state.walkSent.push(JSON.parse(JSON.stringify(body)));
+        const walkRefuse = (k, extra) => { const r = WALK_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
+        const sf = body.safety && typeof body.safety === "object" ? body.safety : null;
+        const answers = Object.assign({}, state.walkAnswers, sf && sf.answers && typeof sf.answers === "object" ? sf.answers : {});
+        const short = walkMissing(answers, lang, true);
+        if (!sf || sf.responseId !== "draft-safety" || short.length > 0) return walkRefuse("inspections.safetyIncomplete", { safety: { missing: short.map(m => m.key), missingFields: short } });
+        const raw = typeof body.signature === "string" ? body.signature.trim() : "";
+        const drawn = raw ? /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw) : null;
+        const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
+        if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") return walkRefuse("inspections.signatureRequired");
+        state.walkAnswers = answers;
+      }
       const total = body.scores.reduce((s, x) => s + (parseInt(x.score) || 0), 0);
       if (state.findings) {
         // Step 255, as the Step 253 contract's section 3 item 2: a card
@@ -4602,14 +4728,18 @@ function createStub(opts) {
           state.findingRows.push(row);
           return { issueId: row.id, templateItemId: r.x.template_item_id, label: r.item.label, zone: r.item.zone || null, score: r.score, maxScore: r.item.max_score, severity: row.severity, dueAt: row.due_at, owner: owner ? { id: owner.id, name: owner.name } : null };
         });
-        return json(200, { success: true, result: { id: "res-" + one.id, scheduled_inspection_id: one.id, total_score: total, max_possible_score: max }, scorePct: pct, band: band, correctiveActionRequired: pct < 80, findings: opened });
+        const walked = state.inspectionWalk && one.with_safety ? { safety: {
+          responseId: "draft-safety", result: state.walkAnswers.result, resultLabel: (walkForm(lang).fields.find(f => f.key === "result").options.find(o => o.value === state.walkAnswers.result) || {}).label || null,
+          findings: (Array.isArray(state.walkAnswers.findings) ? state.walkAnswers.findings : []).map((r, i) => ({ id: "sf-" + (i + 1), where: r.where, severity: r.severity, owner: { name: r.owner }, dueDate: r.due })),
+        } } : {};
+        return json(200, Object.assign({ success: true, result: { id: "res-" + one.id, scheduled_inspection_id: one.id, total_score: total, max_possible_score: max }, scorePct: pct, band: band, correctiveActionRequired: pct < 80, findings: opened }, walked));
       }
       one.status = "completed";
       return json(200, { success: true, result: { id: "res-" + one.id, scheduled_inspection_id: one.id, total_score: total } });
     }
     if (method === "GET" && /^\/api\/inspections\/scheduled\/[^/]+$/.test(pathname)) {
       const one = state.inspections.find(i => pathname.endsWith("/" + i.id) && !i.gone);
-      if (one && state.findings) return json(200, Object.assign({}, one, { owners: findingOwners() }));
+      if (one && state.findings) return json(200, Object.assign({}, one, { owners: findingOwners() }, state.inspectionWalk && one.with_safety ? { safety: { form: walkForm(lang), draft: walkDraft(state, lang) } } : {}));
       return one ? json(200, one) : json(404, { error: INSPECTION_NOT_FOUND[0] });
     }
     if (pathname === "/api/inspections/scheduled") return json(200, []);
@@ -4800,7 +4930,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

@@ -1461,6 +1461,12 @@ export const WORDS = {
   "Sent to {email}": "Enviada a {email}",
   "Ordered {date}, sent to {email}": "Pedida el {date}, enviada a {email}",
   "Send again": "Enviar de nuevo",
+  "Site checklist": "Lista del sitio",
+  "Safety walk": "Recorrido de seguridad",
+  "Next: Safety walk": "Siguiente: recorrido de seguridad",
+  "Sign and send": "Firmar y enviar",
+  "This signature signs the site checklist and the safety walk.": "Esta firma firma la lista del sitio y el recorrido de seguridad.",
+  "Severity {s}": "Gravedad {s}",
   },
 };
 
@@ -2800,6 +2806,12 @@ WORDS.fr = {
   "Sent to {email}": "Envoy\u00e9 \u00e0 {email}",
   "Ordered {date}, sent to {email}": "Command\u00e9 le {date}, envoy\u00e9 \u00e0 {email}",
   "Send again": "Renvoyer",
+  "Site checklist": "Liste du site",
+  "Safety walk": "Tourn\u00e9e de s\u00e9curit\u00e9",
+  "Next: Safety walk": "Suivant\u00a0: tourn\u00e9e de s\u00e9curit\u00e9",
+  "Sign and send": "Signer et envoyer",
+  "This signature signs the site checklist and the safety walk.": "Cette signature signe la liste du site et la tourn\u00e9e de s\u00e9curit\u00e9.",
+  "Severity {s}": "Gravit\u00e9 {s}",
 };
 
 // {name} is replaced after the language is chosen, so the
