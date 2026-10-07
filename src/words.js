@@ -113,7 +113,7 @@ export const WORDS = {
   "Account Activation": "Activaci\u00f3n de cuenta",
   "Activate Account": "Activar cuenta",
   "Activating...": "Activando...",
-  "After too many wrong tries, sign-in stops for 15 minutes. Ask your trainer for help.": "Despu\u00e9s de demasiados intentos equivocados, el inicio de sesi\u00f3n se detiene por 15 minutos. P\u00eddale ayuda a su capacitador.",
+  "After too many wrong tries, sign-in stops for a while. Ask your supervisor for help.": "Despu\u00e9s de demasiados intentos equivocados, el inicio de sesi\u00f3n se detiene por un tiempo. P\u00eddale ayuda a su supervisor.",
   "and can be used once.": "y se puede usar una sola vez.",
   "Ask your supervisor to confirm your badge number.": "Pida a su supervisor que confirme su n\u00famero de empleado.",
   "Back to Login": "Volver al inicio de sesi\u00f3n",
@@ -169,7 +169,7 @@ export const WORDS = {
   "Send Reset Link": "Enviar enlace",
   "Sending...": "Enviando...",
   "Set your own PIN. The PIN you were given is known to your supervisor. Choose a new one that only you know.": "Elija su propio PIN. Su supervisor conoce el PIN que le dieron. Elija uno nuevo que solo usted sepa.",
-  "Set Your PIN": "Elija su PIN",
+  "Choose your PIN": "Elija su PIN",
   "Sign In": "Iniciar sesi\u00f3n",
   "Signing in will work once your account is active.": "Podr\u00e1 iniciar sesi\u00f3n cuando su cuenta est\u00e9 activa.",
   "Signing in...": "Iniciando sesi\u00f3n...",
@@ -194,9 +194,6 @@ export const WORDS = {
   "Your PIN has been changed. Contact your supervisor about your account status.": "Su PIN fue cambiado. Hable con su supervisor sobre el estado de su cuenta.",
   "Your PIN has been saved. Signing in will work once your account is active.": "Su PIN se guard\u00f3. Podr\u00e1 iniciar sesi\u00f3n cuando su cuenta est\u00e9 activa.",
   "PIN must be exactly 4 digits.": "El PIN debe tener exactamente 4 d\u00edgitos.",
-  "Four of the same digit is too easy to guess. Use a mix of digits.": "Cuatro d\u00edgitos iguales son muy f\u00e1ciles de adivinar. Use d\u00edgitos distintos.",
-  "Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.": "Los d\u00edgitos seguidos, como 1234 o 4321, son muy f\u00e1ciles de adivinar. Use otro orden.",
-  "Your PIN cannot be your badge number or its last four digits.": "Su PIN no puede ser su n\u00famero de empleado ni sus \u00faltimos cuatro d\u00edgitos.",
   "Enter the badge number from your email.": "Escriba el n\u00famero de empleado que aparece en su correo.",
 
   // App wide
@@ -802,7 +799,6 @@ export const WORDS = {
   "Update PIN": "Actualizar PIN",
   "Your PIN is 4 digits. Choose one that only you know.": "Su PIN es de 4 d\u00edgitos. Elija uno que solo usted sepa.",
   "Enter your current 4-digit PIN.": "Escriba su PIN actual de 4 d\u00edgitos.",
-  "Your new PIN must be different from your current PIN.": "Su PIN nuevo debe ser distinto de su PIN actual.",
 
   // Phone alerts
   "Phone alerts": "Alertas en el tel\u00e9fono",
@@ -1344,6 +1340,12 @@ export const WORDS = {
   "Choose a supply": "Elija un art\u00edculo",
   "Enter a quantity from 1 to 999.": "Escriba una cantidad de 1 a 999.",
   "A request holds up to 30 items.": "Una solicitud lleva hasta 30 art\u00edculos.",
+  // Step 285: sign-in made simple and closed. The two PIN rules are the
+  // API's own sentences (helpers/words.js, auth.pinWeak and
+  // auth.pinUnchanged), so the phone and the API say the same.
+  "Choose a PIN that is not repeated digits, a sequence, or your badge number": "Elija un PIN que no sea un mismo d\u00edgito repetido, una secuencia ni su n\u00famero de empleado",
+  "New PIN must be different from your current PIN": "El PIN nuevo debe ser distinto de su PIN actual",
+  "You are still signed in. The app tries again on its own.": "Su sesi\u00f3n sigue abierta. La aplicaci\u00f3n vuelve a intentarlo por su cuenta.",
   },
 };
 
@@ -1362,7 +1364,7 @@ WORDS.fr = {
   "Account Activation": "Activation du compte",
   "Activate Account": "Activer le compte",
   "Activating...": "Activation...",
-  "After too many wrong tries, sign-in stops for 15 minutes. Ask your trainer for help.": "Apr\u00e8s trop d'essais incorrects, la connexion est bloqu\u00e9e pendant 15 minutes. Demandez de l'aide \u00e0 votre formateur.",
+  "After too many wrong tries, sign-in stops for a while. Ask your supervisor for help.": "Apr\u00e8s trop d'essais incorrects, la connexion est bloqu\u00e9e pendant un moment. Demandez de l'aide \u00e0 votre superviseur.",
   "and can be used once.": "et ne peut servir qu'une fois.",
   "Ask your supervisor to confirm your badge number.": "Demandez \u00e0 votre superviseur de confirmer votre num\u00e9ro de badge.",
   "Back to Login": "Retour \u00e0 la connexion",
@@ -1418,7 +1420,7 @@ WORDS.fr = {
   "Send Reset Link": "Envoyer le lien",
   "Sending...": "Envoi...",
   "Set your own PIN. The PIN you were given is known to your supervisor. Choose a new one that only you know.": "Choisissez votre propre code PIN. Votre superviseur conna\u00eet le code PIN qu'on vous a donn\u00e9. Choisissez-en un nouveau que personne d'autre ne conna\u00eet.",
-  "Set Your PIN": "Choisissez votre code PIN",
+  "Choose your PIN": "Choisissez votre code PIN",
   "Sign In": "Se connecter",
   "Signing in will work once your account is active.": "Vous pourrez vous connecter quand votre compte sera actif.",
   "Signing in...": "Connexion...",
@@ -1443,9 +1445,6 @@ WORDS.fr = {
   "Your PIN has been changed. Contact your supervisor about your account status.": "Votre code PIN a \u00e9t\u00e9 chang\u00e9. Contactez votre superviseur au sujet de l'\u00e9tat de votre compte.",
   "Your PIN has been saved. Signing in will work once your account is active.": "Votre code PIN est enregistr\u00e9. Vous pourrez vous connecter quand votre compte sera actif.",
   "PIN must be exactly 4 digits.": "Le code PIN doit contenir exactement 4 chiffres.",
-  "Four of the same digit is too easy to guess. Use a mix of digits.": "Quatre chiffres identiques sont trop faciles \u00e0 deviner. Utilisez des chiffres diff\u00e9rents.",
-  "Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.": "Les chiffres \u00e0 la suite, comme 1234 ou 4321, sont trop faciles \u00e0 deviner. Utilisez un autre ordre.",
-  "Your PIN cannot be your badge number or its last four digits.": "Votre code PIN ne peut pas \u00eatre votre num\u00e9ro de badge ni ses quatre derniers chiffres.",
   "Enter the badge number from your email.": "Entrez le num\u00e9ro de badge indiqu\u00e9 dans votre courriel.",
   // App wide
   "A new version is ready": "Une nouvelle version est pr\u00eate",
@@ -2034,7 +2033,6 @@ WORDS.fr = {
   "Update PIN": "Mettre \u00e0 jour le code PIN",
   "Your PIN is 4 digits. Choose one that only you know.": "Votre code PIN a 4 chiffres. Choisissez-en un que personne d'autre ne conna\u00eet.",
   "Enter your current 4-digit PIN.": "Entrez votre code PIN actuel \u00e0 4 chiffres.",
-  "Your new PIN must be different from your current PIN.": "Votre nouveau code PIN doit \u00eatre diff\u00e9rent de votre code PIN actuel.",
   // Phone alerts
   "Phone alerts": "Alertes sur le t\u00e9l\u00e9phone",
   "Turn on alerts on this phone": "Activer les alertes sur ce t\u00e9l\u00e9phone",
@@ -2569,6 +2567,10 @@ WORDS.fr = {
   "Choose a supply": "Choisissez un article",
   "Enter a quantity from 1 to 999.": "Entrez une quantit\u00e9 de 1 \u00e0 999.",
   "A request holds up to 30 items.": "Une demande compte au plus 30 articles.",
+  // Step 285: sign-in made simple and closed
+  "Choose a PIN that is not repeated digits, a sequence, or your badge number": "Choisissez un code PIN qui ne soit pas un chiffre r\u00e9p\u00e9t\u00e9, une suite ou votre num\u00e9ro de badge",
+  "New PIN must be different from your current PIN": "Le nouveau code PIN doit \u00eatre diff\u00e9rent de votre code PIN actuel",
+  "You are still signed in. The app tries again on its own.": "Votre session reste ouverte. L'application r\u00e9essaie d'elle-m\u00eame.",
 };
 
 // {name} is replaced after the language is chosen, so the

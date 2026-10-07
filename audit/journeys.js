@@ -874,7 +874,7 @@ const JOURNEYS = [
       }, n || 0);
       const sheetUp = (page) => page.evaluate(() => !!document.getElementById("ocsa-a2hs-title"));
       const refusal = LOGIN_REFUSAL[language === "es" ? 1 : 0];
-      const lockLine = spanishOf("After too many wrong tries, sign-in stops for 15 minutes. Ask your trainer for help.", language);
+      const lockLine = spanishOf("After too many wrong tries, sign-in stops for a while. Ask your supervisor for help.", language);
       const locked = refusalIn(API_REFUSALS["auth.locked"], language, API_REFUSALS["auth.locked"].vars);
 
       // Three wrong PINs in a row, each turned away the way the API turns
@@ -4356,17 +4356,18 @@ const JOURNEYS = [
         expect("the fold opens on the two scored cards", ["il-1", "il-2", "il-3", "il-4", "il-5"].every(id => all.indexOf(id) !== -1), JSON.stringify(all));
       } finally { await long.context.close(); }
 
-      // Register with 1234: the weak PIN is named before anything is sent.
+      // Register with 12: a PIN that is not 4 digits, the one PIN the API
+      // refuses there (Step 285), is named before anything is sent.
       const reg = await open({ signedIn: false });
       try {
         await clickText(reg.page, say("New Employee? Register Here", language));
         await pause(reg.page, 700);
-        const person = ["Riley", "Invented", "0000000009", "nine@example.invalid", "1234", "1234"];
+        const person = ["Riley", "Invented", "0000000009", "nine@example.invalid", "12", "12"];
         for (let i = 0; i < person.length; i += 1) await typeNth(reg.page, "input", i, person[i]);
         await clickText(reg.page, say("Register", language));
         await pause(reg.page, 900);
         const text = await bodyText(reg.page);
-        expect("Register names a PIN in a row before anything is sent", has(text, spanishOf("Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.", language)) && sent(reg.stub, "POST", "/api/auth/register").length === 0, text.slice(0, 260));
+        expect("Register names a PIN that is not 4 digits before anything is sent", has(text, spanishOf("PIN must be exactly 4 digits.", language)) && sent(reg.stub, "POST", "/api/auth/register").length === 0, text.slice(0, 260));
         await spokenHere(reg, language, expect);
       } finally { await reg.context.close(); }
     },
@@ -4504,11 +4505,13 @@ const JOURNEYS = [
     id: "pinrules",
     label: "Every PIN rule and PIN error, in the person's language: Set your PIN, Change PIN, an activation link and a reset link",
     run: async (open, language, expect) => {
+      // The API's own rules and words (Step 285): four of one digit, a
+      // run up or down with no wrap, and the badge number.
       const RULES = [
         ["12", "PIN must be exactly 4 digits."],
-        ["1111", "Four of the same digit is too easy to guess. Use a mix of digits."],
-        ["1234", "Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order."],
-        ["4821", "Your PIN cannot be your badge number or its last four digits."],
+        ["1111", "Choose a PIN that is not repeated digits, a sequence, or your badge number"],
+        ["1234", "Choose a PIN that is not repeated digits, a sequence, or your badge number"],
+        ["4821", "Choose a PIN that is not repeated digits, a sequence, or your badge number"],
       ];
       const said = async (app, what, line) => {
         const text = await bodyText(app.page);
@@ -4544,7 +4547,7 @@ const JOURNEYS = [
         await three("", "5739");
         await said(settings, "Change PIN", "Enter your current 4-digit PIN.");
         await three("5739", "5739");
-        await said(settings, "Change PIN", "Your new PIN must be different from your current PIN.");
+        await said(settings, "Change PIN", "New PIN must be different from your current PIN");
         // The API turning it away with no sentence of its own.
         settings.stub.state.refuse["POST /api/auth/change-pin"] = { status: 400, body: {}, once: true };
         await three("2468", "5739");

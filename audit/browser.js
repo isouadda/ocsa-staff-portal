@@ -87,7 +87,10 @@ async function openApp(browser, base, opts) {
     colorScheme: "dark",
   }, o.userAgent ? { userAgent: o.userAgent } : {}));
 
-  await context.route("**/api/**", async (route) => {
+  // Every route under /api, and the API's own index at /api itself, which
+  // the supply request form reads (Step 285), so nothing reaches the
+  // network.
+  await context.route((url) => /\/api(\/|$)/.test(url.pathname), async (route) => {
     const req = route.request();
     const url = new URL(req.url());
     let body = null;

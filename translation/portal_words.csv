@@ -6,7 +6,7 @@ English,Spanish,French,Where it appears
 Account Activation,Activación de cuenta,Activation du compte,Sign in
 Activate Account,Activar cuenta,Activer le compte,Sign in
 Activating...,Activando...,Activation...,Sign in
-"After too many wrong tries, sign-in stops for 15 minutes. Ask your trainer for help.","Después de demasiados intentos equivocados, el inicio de sesión se detiene por 15 minutos. Pídale ayuda a su capacitador.","Après trop d'essais incorrects, la connexion est bloquée pendant 15 minutes. Demandez de l'aide à votre formateur.","Sign in, under the PIN box from the third wrong try"
+"After too many wrong tries, sign-in stops for a while. Ask your supervisor for help.","Después de demasiados intentos equivocados, el inicio de sesión se detiene por un tiempo. Pídale ayuda a su supervisor.","Après trop d'essais incorrects, la connexion est bloquée pendant un moment. Demandez de l'aide à votre superviseur.","Sign in, under the PIN box from the third wrong try in a row and on a lock"
 and can be used once.,y se puede usar una sola vez.,et ne peut servir qu'une fois.,Sign in
 Ask your supervisor to confirm your badge number.,Pida a su supervisor que confirme su número de empleado.,Demandez à votre superviseur de confirmer votre numéro de badge.,Sign in
 Back to Login,Volver al inicio de sesión,Retour à la connexion,Sign in
@@ -62,7 +62,7 @@ Saving...,Guardando...,Enregistrement...,"Sign in, Settings, Profile"
 Send Reset Link,Enviar enlace,Envoyer le lien,Sign in
 Sending...,Enviando...,Envoi...,"Sign in, Speak Up"
 Set your own PIN. The PIN you were given is known to your supervisor. Choose a new one that only you know.,Elija su propio PIN. Su supervisor conoce el PIN que le dieron. Elija uno nuevo que solo usted sepa.,Choisissez votre propre code PIN. Votre superviseur connaît le code PIN qu'on vous a donné. Choisissez-en un nouveau que personne d'autre ne connaît.,Sign in
-Set Your PIN,Elija su PIN,Choisissez votre code PIN,Sign in
+Choose your PIN,Elija su PIN,Choisissez votre code PIN,Sign in
 Sign In,Iniciar sesión,Se connecter,Sign in
 Signing in will work once your account is active.,Podrá iniciar sesión cuando su cuenta esté activa.,Vous pourrez vous connecter quand votre compte sera actif.,Sign in
 Signing in...,Iniciando sesión...,Connexion...,Sign in
@@ -87,9 +87,6 @@ Your account is activated but not currently active. Contact your supervisor.,Su 
 Your PIN has been changed. Contact your supervisor about your account status.,Su PIN fue cambiado. Hable con su supervisor sobre el estado de su cuenta.,Votre code PIN a été changé. Contactez votre superviseur au sujet de l'état de votre compte.,Sign in
 Your PIN has been saved. Signing in will work once your account is active.,Su PIN se guardó. Podrá iniciar sesión cuando su cuenta esté activa.,Votre code PIN est enregistré. Vous pourrez vous connecter quand votre compte sera actif.,Sign in
 PIN must be exactly 4 digits.,El PIN debe tener exactamente 4 dígitos.,Le code PIN doit contenir exactement 4 chiffres.,"Sign in, Settings"
-Four of the same digit is too easy to guess. Use a mix of digits.,Cuatro dígitos iguales son muy fáciles de adivinar. Use dígitos distintos.,Quatre chiffres identiques sont trop faciles à deviner. Utilisez des chiffres différents.,"Sign in, Settings"
-"Digits in a row, like 1234 or 4321, are too easy to guess. Use a different order.","Los dígitos seguidos, como 1234 o 4321, son muy fáciles de adivinar. Use otro orden.","Les chiffres à la suite, comme 1234 ou 4321, sont trop faciles à deviner. Utilisez un autre ordre.","Sign in, Settings"
-Your PIN cannot be your badge number or its last four digits.,Su PIN no puede ser su número de empleado ni sus últimos cuatro dígitos.,Votre code PIN ne peut pas être votre numéro de badge ni ses quatre derniers chiffres.,"Sign in, Settings"
 Enter the badge number from your email.,Escriba el número de empleado que aparece en su correo.,Entrez le numéro de badge indiqué dans votre courriel.,Sign in
 A new version is ready,Hay una versión nueva lista,Une nouvelle version est prête,"App wide, the update bar"
 Add {app} to your home screen,Agregue {app} a su pantalla de inicio,Ajoutez {app} à votre écran d'accueil,"App wide, the install sheet"
@@ -680,7 +677,6 @@ Get an alert when someone messages you?,¿Quiere recibir una alerta cuando algui
 Turn on,Activar,Activer,The card after sign-in
 Your settings did not save.,Sus ajustes no se guardaron.,Vos paramètres n'ont pas été enregistrés.,"Phone alerts, a save that failed"
 Enter your current 4-digit PIN.,Escriba su PIN actual de 4 dígitos.,Entrez votre code PIN actuel à 4 chiffres.,Settings
-Your new PIN must be different from your current PIN.,Su PIN nuevo debe ser distinto de su PIN actual.,Votre nouveau code PIN doit être différent de votre code PIN actuel.,Settings
 Address,Dirección,Adresse,Profile
 Address Line 1,Dirección línea 1,"Adresse, ligne 1",Profile
 Address Line 2,Dirección línea 2,"Adresse, ligne 2",Profile
@@ -1178,3 +1174,6 @@ Add item,Agregar artículo,Ajouter un article,"Supplies, Supply/Gear Request, un
 Choose a supply,Elija un artículo,Choisissez un article,"Supplies, Supply/Gear Request, under an item with no supply chosen"
 Enter a quantity from 1 to 999.,Escriba una cantidad de 1 a 999.,Entrez une quantité de 1 à 999.,"Supplies, Supply/Gear Request, under a quantity"
 A request holds up to 30 items.,Una solicitud lleva hasta 30 artículos.,Une demande compte au plus 30 articles.,"Supplies, Supply/Gear Request, under Add item at 30 items"
+"Choose a PIN that is not repeated digits, a sequence, or your badge number","Elija un PIN que no sea un mismo dígito repetido, una secuencia ni su número de empleado","Choisissez un code PIN qui ne soit pas un chiffre répété, une suite ou votre numéro de badge","Choose your PIN and Settings, Change PIN, under New PIN; the API's own words"
+New PIN must be different from your current PIN,El PIN nuevo debe ser distinto de su PIN actual,Le nouveau code PIN doit être différent de votre code PIN actuel,"Settings, Change PIN, under New PIN; the API's own words"
+You are still signed in. The app tries again on its own.,Su sesión sigue abierta. La aplicación vuelve a intentarlo por su cuenta.,Votre session reste ouverte. L'application réessaie d'elle-même.,"Opening the app, when OCSA does not answer"
