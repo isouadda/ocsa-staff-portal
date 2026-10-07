@@ -636,11 +636,34 @@ const PIN_REFUSALS = {
   PIN_WEAK: ["Choose a PIN that is not repeated digits, a sequence, or your badge number", "Elija un PIN que no sea un mismo d\u00edgito repetido, una secuencia ni su n\u00famero de empleado"],
   PIN_FORMAT: ["PIN must be exactly 4 digits", "El PIN debe tener exactamente 4 d\u00edgitos"],
 };
-// A sign-in the API turns away, auth.invalidCredentials in
-// helpers/words.js, an inspection it no longer has,
-// inspections.notFound, and an activation whose badge number does not
-// match, BADGE_MISMATCH, each quoted byte for byte in both languages.
-const LOGIN_REFUSAL = ["Invalid credentials", "Los datos para iniciar sesi\u00f3n no son correctos"];
+// A sign-in the API turns away, auth.invalidCredentials, in the words the
+// Step 283 contract gives it (section 1.6; the API has not built them
+// yet, so the Spanish is the portal's until the API's is written), an
+// inspection the API no longer has, inspections.notFound, and an
+// activation whose badge number does not match, BADGE_MISMATCH, the last
+// two quoted byte for byte from helpers/words.js in both languages.
+const LOGIN_REFUSAL = ["That badge number, phone, email or PIN is not right.", "Ese n\u00famero de empleado, tel\u00e9fono, correo o PIN no es correcto."];
+// The rest of the sign-in the API's Step 283 answers (Step 285), written
+// the same way: the 403 every route behind the token answers a person on
+// a PIN they were given, and the 409 an office account with no email for
+// a code meets at sign-in, from the contract's sections 1.1 and 1.7; and
+// the three refusals of the code routes that send a person back to the
+// PIN, quoted from helpers/words.js byte for byte.
+const MUST_SET_PIN = { status: 403, en: "Choose your own PIN to go on.", es: "Elija su propio PIN para continuar." };
+const NO_EMAIL_FOR_CODE = { status: 409, en: "Your account has no email we can send a code to. Ask the office to fix your email.", es: "Su cuenta no tiene un correo al que podamos enviar un c\u00f3digo. Pida a la oficina que corrija su correo." };
+const CODE_EXPIRED = { status: 410, en: "This sign-in code has expired. Start again with your PIN.", es: "Este c\u00f3digo de inicio de sesi\u00f3n venci\u00f3. Empiece de nuevo con su PIN." };
+const CODE_TOO_MANY = { status: 429, en: "Too many wrong codes. Start again with your PIN.", es: "Demasiados c\u00f3digos incorrectos. Empiece de nuevo con su PIN." };
+const SEND_LIMIT = { status: 429, en: "No more codes for this sign-in. Start again with your PIN.", es: "No se pueden enviar m\u00e1s c\u00f3digos para este inicio de sesi\u00f3n. Empiece de nuevo con su PIN." };
+// What signs in: the PIN every case types, and an office account's badge
+// with no email for a code. A typed identifier misses five times in a row
+// and the sixth try is locked, 429 auth.locked with the minutes, until a
+// sign-in gets in.
+const LOGIN_PIN = "4907";
+const NO_EMAIL_BADGE = "9019";
+const LOGIN_MISSES_LOCK = 5;
+// The routes a person on a given PIN may still reach behind the token,
+// the contract's section 1.1.
+const MUST_SET_PIN_OPEN = ["GET /api/auth/me", "POST /api/auth/change-pin", "GET /api/languages/status", "GET /api/push/key"];
 const INSPECTION_NOT_FOUND = ["Not found", "No se encontr\u00f3 la inspecci\u00f3n"];
 const BADGE_MISMATCH = ["The badge number does not match this account.", "El n\u00famero de empleado no coincide con esta cuenta."];
 
@@ -737,6 +760,16 @@ function makeState(opts) {
     // The account asks for a new PIN before anything else, and an
     // activation link whose row carries a badge number.
     mustSetPin: !!o.mustSetPin,
+    // pinGate (Step 285): the API as its Step 283 builds it. While
+    // mustSetPin is true, every route behind the token answers 403
+    // auth.mustSetPin but the four MUST_SET_PIN_OPEN names, and change-pin
+    // answers a new token beside its message.
+    pinGate: !!o.pinGate,
+    // Misses at sign-in by what was typed, counted until one gets in, and
+    // the second step's challenge: the codes sent, the wrong codes, and
+    // whether it still works (Step 285).
+    loginMisses: {},
+    challenge: null,
     activationBadge: !!o.activationBadge,
     // The smoke check's switches (Step 237, audit/smoke.js), each off
     // unless a case turns it on, so every other case is answered as
@@ -840,7 +873,8 @@ function makeState(opts) {
     // Step 281: an API with Step 280 built, whose supply requests take
     // and answer items, with the person's requests seeded.
     supplyItems: o.supplyItems === true,
-    supplyRequests: o.supplyItems === true ? SUPPLY_REQ_SEED() : [],
+    // supplyEmpty (Step 285): the same API, with no request yet.
+    supplyRequests: o.supplyItems === true && !o.supplyEmpty ? SUPPLY_REQ_SEED() : [],
     // The supplies at the open shift's site, which a case can answer
     // with none. null answers the one supply every case has always had.
     supplies: Array.isArray(o.supplies) ? o.supplies : o.supplyItems === true ? SUPPLY_CATALOG.map(x => Object.assign({}, x)) : null,
@@ -1995,6 +2029,8 @@ const TWIN_PAIRS = [
   .concat(HR_CASE_REFUSALS.map(tableTwin))
   .concat(Object.keys(PIN_REFUSALS).map(k => PIN_REFUSALS[k]))
   .concat([LOGIN_REFUSAL])
+  .concat([MUST_SET_PIN, NO_EMAIL_FOR_CODE, CODE_EXPIRED, CODE_TOO_MANY, SEND_LIMIT].map(r => [r.en, r.es]))
+  .concat([["Your PIN has been changed.", "Su PIN fue cambiado."]])
   .concat(["Session expired", "Request failed",
     "Photo upload failed", "A sign-off is made with its own button", "That is not a sign-off on this form",
     "You cannot sign this part of the form", "This part is already signed"].map(tableTwin))
@@ -2765,6 +2801,9 @@ function createStub(opts) {
     if (state.offline) return { abort: true };
     const dropped = state.drop[key];
     if (dropped) { if (dropped.once) delete state.drop[key]; return { abort: true }; }
+    if (state.pinGate && state.mustSetPin && /^Bearer /.test(String((headers || {}).authorization || "")) && MUST_SET_PIN_OPEN.indexOf(key) === -1 && !SIGNED_OUT.some(re => re.test(key))) {
+      return json(MUST_SET_PIN.status, { error: refusalIn(MUST_SET_PIN, languageOf(search, state)), code: "auth.mustSetPin" });
+    }
     const refused = refusalFor(key, search);
     if (refused) return refused;
     if (state.holdMs[key] > 0) {
@@ -2781,15 +2820,41 @@ function createStub(opts) {
     if (key === "POST /api/auth/login") {
       // A wrong PIN carries its key as its code, the way the API's
       // errorBody sends every refusal; the portal counts the ones in a
-      // row by it.
-      if (body && body.pin !== "4907") return json(401, { error: LOGIN_REFUSAL[0], code: "auth.invalidCredentials" });
-      if (state.secondStep) return json(200, { secondStep: true, challengeId: "challenge-smoke", emailHint: SECOND_STEP_HINT });
-      return json(200, { token: "token-one" });
+      // row by it. Five misses in a row on what was typed lock it, and a
+      // sign-in that gets in clears them (Step 285, the API's Step 283).
+      const typed = String((body && (body.identifier || body.phone)) || "").trim().toLowerCase();
+      if ((state.loginMisses[typed] || 0) >= LOGIN_MISSES_LOCK) return apiRefusal("auth.locked", search);
+      if (!body || body.pin !== LOGIN_PIN) {
+        state.loginMisses[typed] = (state.loginMisses[typed] || 0) + 1;
+        return json(401, { error: LOGIN_REFUSAL[0], code: "auth.invalidCredentials" });
+      }
+      delete state.loginMisses[typed];
+      if (typed === NO_EMAIL_BADGE) return json(NO_EMAIL_FOR_CODE.status, { error: refusalIn(NO_EMAIL_FOR_CODE, lang), code: "auth.noEmailForCode" });
+      if (state.secondStep) {
+        state.challenge = { id: "challenge-smoke", sends: 1, wrong: 0, dead: false };
+        return json(200, { secondStep: true, challengeId: state.challenge.id, emailHint: SECOND_STEP_HINT });
+      }
+      return json(200, Object.assign({ token: "token-one" }, state.mustSetPin ? { mustSetPin: true } : {}));
     }
-    // The smoke check's routes, each behind its switch.
+    // The smoke check's routes, each behind its switch. The code routes
+    // answer the way helpers/secondStep.js does: five wrong codes end the
+    // challenge, 429 auth.codeTooMany; a fourth send is 429
+    // auth.sendLimit; and a challenge that ended, or that this stub never
+    // started (a reload the API restarted under), is 410 auth.codeExpired.
     if (state.secondStep && key === "POST /api/auth/second-step") {
-      if (body && body.code === SECOND_STEP_CODE) return json(200, { token: "token-one" });
-      return json(CODE_WRONG.status, { error: refusalIn(CODE_WRONG, lang), code: "auth.codeWrong", attemptsLeft: 4 });
+      const ch = state.challenge;
+      if (!ch || ch.dead || !body || body.challengeId !== ch.id) return json(CODE_EXPIRED.status, { error: refusalIn(CODE_EXPIRED, lang), code: "auth.codeExpired" });
+      if (body.code === SECOND_STEP_CODE) { ch.dead = true; return json(200, { token: "token-one" }); }
+      ch.wrong += 1;
+      if (ch.wrong >= 5) { ch.dead = true; return json(CODE_TOO_MANY.status, { error: refusalIn(CODE_TOO_MANY, lang), code: "auth.codeTooMany" }); }
+      return json(CODE_WRONG.status, { error: refusalIn(CODE_WRONG, lang), code: "auth.codeWrong", attemptsLeft: 5 - ch.wrong });
+    }
+    if (state.secondStep && key === "POST /api/auth/second-step/resend") {
+      const ch = state.challenge;
+      if (!ch || ch.dead || !body || body.challengeId !== ch.id) return json(CODE_EXPIRED.status, { error: refusalIn(CODE_EXPIRED, lang), code: "auth.codeExpired" });
+      if (ch.sends >= 3) { ch.dead = true; return json(SEND_LIMIT.status, { error: refusalIn(SEND_LIMIT, lang), code: "auth.sendLimit" }); }
+      ch.sends += 1;
+      return json(200, { secondStep: true, challengeId: ch.id, emailHint: SECOND_STEP_HINT });
     }
     if (state.languages && key === "GET /api/languages") return json(200, { languages: state.languages });
     if (state.sds && key === "GET /api/sds") return json(200, { sheets: SDS_SHEETS });
@@ -2824,12 +2889,17 @@ function createStub(opts) {
       // A refusal a case asked for: its code, and its sentence in the
       // request's language, ?locale= first and the account's after it,
       // the way Step 137 answers.
+      // A wrong current PIN is a 401, the way the API answers it; every
+      // other refusal is a 400.
       if (state.pinRefusal) {
         const code = state.pinRefusal;
         state.pinRefusal = null;
-        return json(400, { error: PIN_REFUSALS[code][languageOf(search, state) === "es" ? 1 : 0], code: code });
+        return json(code === "PIN_INCORRECT" ? 401 : 400, { error: PIN_REFUSALS[code][languageOf(search, state) === "es" ? 1 : 0], code: code });
       }
       state.mustSetPin = false;
+      // The API's Step 283 ends every other session on a change and
+      // answers this device a new one.
+      if (state.pinGate) return json(200, { message: "Your PIN has been changed.", code: "auth.pinChanged", mustSetPin: false, token: "token-two" });
       return json(200, { ok: true });
     }
     // A link is good for twelve hours from the suite's clock. The account's
@@ -3996,6 +4066,9 @@ function createStub(opts) {
     if (key === "GET /api/supplies") return json(200, state.supplies || [{ id: "sup-1", name: "Paper towels", qr_code: "QR-0001", unit: "rolls", is_low: true }]);
     if (key === "POST /api/supplies/log-usage") return json(200, { message: "Usage logged", log: { id: "log-1", supply_name: "Paper towels", quantity: 1 }, lowStockAlert: false });
     if (state.supplyItems && (key === "GET /api/supplies/requests" || key === "POST /api/supplies/requests")) return supplyRequestAnswer(method, search, body, lang);
+    // The API's own index with Step 280 built, the route the office
+    // decides items through among its supply routes (Step 285).
+    if (state.supplyItems && key === "GET /api") return json(200, { name: "Invented API", endpoints: { supplies: { "GET /api/supplies/requests": "The supply requests", "POST /api/supplies/requests/:reqId/decide": "Decide a request's items" } } });
     if (key === "POST /api/supplies/requests") return json(200, { ok: true });
 
     // --- inspections

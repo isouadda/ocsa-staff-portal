@@ -331,7 +331,7 @@ const SHOTS = [
   { name: "reset-pin-new", entry: E("Reset a forgotten PIN"), o: { path: "/reset-pin?token=fixture" },
     go: (s) => s.waitText(s.say("Save PIN")) },
   { name: "set-pin", entry: E("Choose your own PIN the first time you sign in"), o: { signedIn: true, stub: { mustSetPin: true } },
-    go: (s) => s.waitText(s.say("Set Your PIN")) },
+    go: (s) => s.waitText(s.say("Choose your PIN")) },
   { name: "sign-in-code", entry: E("Sign in with a code on a new device"), o: { stub: { person: ADMIN_PERSON, secondStep: true } },
     go: async (s) => {
       await s.waitFor(() => !!document.querySelector('input[type="password"]'));

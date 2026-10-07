@@ -18,7 +18,17 @@ it full screen and closes it, draws none under an answer with none, leaves
 out a picture with no file, and draws it on an answer read back (Step 277);
 `/sds` draws with no sign-in
 (English alone, since that check reads the API's sheet names);
-the sign-in code screen appears when the stub answers `secondStep`; a
+the sign-in code screen appears when the stub answers `secondStep`;
+sign-in made simple and closed (Step 285), against the API's Step 283 as
+the stub answers it, in English at 390 and Spanish at 320: Enter pressed
+twice on the PIN sends one sign-in, the code screen is still there after
+a reload and its code signs in, Change PIN with a wrong current PIN reads
+the API's words under Current PIN and stays signed in, a first supply
+request on an empty list takes items once `GET /api` lists the decide
+route, a 502 from `/api/auth/me` at boot keeps the session with Try again,
+and the supply label's page met with a 403 `auth.mustSetPin` lands on
+Choose your PIN, keeps the token change-pin answers and comes back to the
+page signed in; a
 cleaner never asks for `/api/workspace` and a supervisor sees Workspace;
 a cleaner sees no Field kit and asks for none of its routes, and a
 supervisor's Field kit issues PPE with a signature drawn, reads periodic
@@ -96,7 +106,20 @@ through it.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`), off for every other case. The full suite below is separate
+`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`), off for every other case.
+`pinGate` (Step 285) answers as the API's Step 283 builds it: while
+`mustSetPin` is true, every route behind the token but `GET /api/auth/me`,
+`POST /api/auth/change-pin`, `GET /api/languages/status` and
+`GET /api/push/key` answers 403 `auth.mustSetPin`, and change-pin answers
+a new token. With every switch off, sign-in answers the way Step 283 does
+too: the contract's words for a miss, five misses in a row on what was
+typed locked with 429 `auth.locked` and its minutes until a sign-in gets
+in, 409 `auth.noEmailForCode` for an invented office badge, change-pin's
+`PIN_INCORRECT` as a 401, and, behind `secondStep`, the code routes with
+five wrong codes, a fourth send and an ended challenge answered as
+`helpers/secondStep.js` answers them. `supplyEmpty` is `supplyItems` with
+no request yet, and `supplyItems` answers `GET /api` with the decide
+route listed. The full suite below is separate
 and is not run by it.
 
 ## Pictures for Help

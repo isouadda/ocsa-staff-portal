@@ -23,6 +23,18 @@
 //     the API's sheet names, which are the same in every language)
 //   - the sign-in code screen appears when the stub answers secondStep,
 //     and the right code signs in; without it, sign-in goes straight in
+//   - Sign-in made simple and closed (Step 285), against the API's Step
+//     283 as the stub answers it: Enter pressed twice on the PIN sends
+//     one sign-in; the code screen is still there after a reload, and the
+//     right code signs in; Change PIN with a wrong current PIN reads the
+//     API's words under Current PIN and stays signed in; a first supply
+//     request, on an empty list, takes items once GET /api lists the
+//     decide route; a 502 from /api/auth/me at boot keeps the session,
+//     says so with Try again, and Try again gets in; and the supply
+//     label's page, met with a 403 auth.mustSetPin, lands on Choose your
+//     PIN, keeps the new token change-pin answers and comes back to the
+//     page signed in (English at 390, Spanish at 320, which also carry the
+//     code screen line above)
 //   - a cleaner never asks for /api/workspace, even where the API would
 //     answer; a supervisor sees Workspace and My assignments
 //   - a cleaner sees no Field kit under More and never asks for one of
@@ -140,7 +152,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -433,21 +445,119 @@ async function sds(browser, language) {
   await app.context.close();
 }
 
-// The second sign-in step, when the stub answers secondStep.
-async function secondStep(browser, language) {
-  const app = await open({ person: ADMIN_PERSON, secondStep: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language });
+// Sign-in made simple and closed (Step 285), against the API's Step 283
+// as the stub answers it. Signed out first, as an office account on a
+// device the API has not seen: Enter twice, the code screen through a
+// reload, Change PIN with a wrong current PIN, and a first supply request
+// on an empty list. Then with a stored session: a 502 at boot, and the
+// supply label's page on a PIN the person was given.
+async function signInClosed(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const app = await open({ person: ADMIN_PERSON, secondStep: true, supplyItems: true, supplyEmpty: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, width });
   const page = app.page;
-  await signIn(page, language);
+  const calls = (method, p) => app.stub.state.calls.filter(c => c.method === method && c.path === p);
+  await waitFor(page, () => !!document.querySelector('input[type="password"]'));
+  await page.fill('input[autocomplete="username"]', ADMIN_PERSON.badgeNumber);
+  await page.fill('input[type="password"]', "4907");
+  // The sign-in is held a moment, so the second Enter lands while the
+  // first is still on its way.
+  app.stub.state.holdMs["POST /api/auth/login"] = 700;
+  await page.focus('input[type="password"]');
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
   const sentence = say(language, "Enter the code we emailed to {0}", { 0: SECOND_STEP_HINT });
-  const shown = await waitFor(page, (w) => !!document.querySelector("#ocsa-code") && document.body.innerText.indexOf(w) !== -1, sentence);
-  check("the sign-in code screen appears when the stub answers secondStep (" + language + ")", shown, "no code box saying " + JSON.stringify(sentence));
+  const codeUp = () => waitFor(page, (w) => !!document.querySelector("#ocsa-code") && document.body.innerText.indexOf(w) !== -1, sentence);
+  const shown = await codeUp();
+  const logins = calls("POST", "/api/auth/login").length;
+  check("the sign-in code screen appears when the stub answers secondStep" + tag, shown, "no code box saying " + JSON.stringify(sentence));
+  check("Enter pressed twice on the PIN sends one sign-in" + tag, shown && logins === 1, logins + " sign-ins sent");
+  let kept = false, inNow = false;
   if (shown) {
-    await page.fill("#ocsa-code", SECOND_STEP_CODE);
-    const inNow = await waitFor(page, BAR_JS + ".length >= 5");
-    check("the right code signs in (" + language + ")", inNow && app.errors.length === 0, inNow ? app.errors[0] : "no bottom bar after the code");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    kept = await codeUp();
+    if (kept) { await page.fill("#ocsa-code", SECOND_STEP_CODE); inNow = await waitFor(page, BAR_JS + ".length >= 5"); }
   }
+  check("the code screen is still there after a reload, and the right code signs in" + tag, kept && inNow && app.errors.length === 0, !kept ? "the reload lost the code screen" : !inNow ? "no bottom bar after the code" : app.errors[0]);
+
+  // Change PIN with a wrong current PIN: the API's 401 PIN_INCORRECT.
+  const said = PIN_REFUSALS.PIN_INCORRECT[language === "es" ? 1 : 0];
+  let words = false, stayed = false;
+  if (inNow) {
+    await page.click('button[aria-label="' + say(language, "Settings") + '"]');
+    const boxes = '.sp-content input[type="password"]';
+    if (await waitFor(page, (sel) => document.querySelectorAll(sel).length === 3, boxes)) {
+      app.stub.state.pinRefusal = "PIN_INCORRECT";
+      const pins = ["1357", "5739", "5739"];
+      for (let i = 0; i < 3; i += 1) await page.locator(boxes).nth(i).fill(pins[i]);
+      await tapWord(page, say(language, "Update PIN"));
+      words = await waitFor(page, ([sel, w]) => { const box = document.querySelectorAll(sel)[0]; const n = box && box.nextElementSibling; return !!n && n.innerText.trim() === w; }, [boxes, said]);
+      await pause(page, TAP_SETTLE);
+      stayed = (await hasBar(page)) && !(await page.$('input[autocomplete="username"]')) && !!(await page.evaluate(() => window.localStorage.getItem("ocsa_auth")));
+    }
+  }
+  check("Change PIN with a wrong current PIN reads the API's words under Current PIN and stays signed in" + tag, words && stayed && calls("POST", "/api/auth/change-pin").length === 1,
+    !words ? "no " + JSON.stringify(said) + " under Current PIN" : !stayed ? "the person was signed out" : calls("POST", "/api/auth/change-pin").length + " changes sent");
+
+  // A first supply request on an empty list takes items.
+  let lines = false, sent = false;
+  if (stayed) {
+    await openPlace(page, say(language, "Supplies"));
+    await clickWord(page, say(language, "+ Request"));
+    await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Supply/Gear Request"));
+    await clickWord(page, say(language, "Refill"));
+    lines = await waitFor(page, () => !!document.querySelector('[data-supply-lines="1"] [data-supply-line-supply="0"]'));
+    if (lines) {
+      await page.selectOption('[data-supply-line-supply="0"]', "sup-1");
+      await page.click("[data-supply-send]");
+      sent = await waitFor(page, () => !document.querySelector("[data-supply-lines]"));
+    }
+  }
+  const asks = calls("POST", "/api/supplies/requests").map(c => c.body);
+  const first = asks.length === 1 && asks[0].requestType === "refill" && JSON.stringify(asks[0].items) === JSON.stringify([{ supplyId: "sup-1", quantity: 1 }]);
+  check("a first supply request, on an empty list, takes items once GET /api lists the decide route" + tag, lines && sent && first && calls("GET", "/api").length === 1 && app.errors.length === 0,
+    !lines ? "Refill offered no items" : !first ? JSON.stringify(asks) : calls("GET", "/api").length !== 1 ? calls("GET", "/api").length + " reads of GET /api" : app.errors[0]);
   await app.context.close();
+
+  // A stored session meets a 502 at boot, then the supply label's page on
+  // a PIN the person was given.
+  const boot = await open({ supplyQr: true, pinGate: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, width, signedIn: true });
+  const p2 = boot.page;
+  await waitFor(p2, BAR_JS + ".length >= 5");
+  boot.stub.state.refuse["GET /api/auth/me"] = { status: 502, body: { error: "Bad gateway" }, once: true };
+  await p2.reload({ waitUntil: "domcontentloaded" });
+  const fault = await waitFor(p2, (w) => { const f = document.querySelector("[data-boot-fault]"); return !!f && f.innerText.indexOf(w) !== -1; }, say(language, "Try again"));
+  const held = fault && !!(await p2.evaluate(() => window.localStorage.getItem("ocsa_auth"))) && !(await p2.$('input[autocomplete="username"]'));
+  let back = false;
+  if (held) { await clickWord(p2, say(language, "Try again")); back = await waitFor(p2, BAR_JS + ".length >= 5"); }
+  check("a 502 from /api/auth/me at boot keeps the session and says so with Try again, and Try again gets in" + tag, fault && held && back,
+    !fault ? "no line with Try again on the splash" : !held ? "the session was dropped" : "Try again did not get in");
+
+  boot.stub.state.mustSetPin = true;
+  await p2.goto(BASE + "/sup/" + SUP_CODE, { waitUntil: "domcontentloaded" });
+  // The card's title is drawn in capitals.
+  const choose = await waitFor(p2, (w) => document.body.innerText.toUpperCase().indexOf(w.toUpperCase()) !== -1 && document.querySelectorAll('input[type="password"]').length === 2, say(language, "Choose your PIN"));
+  let recorded = false;
+  if (choose) {
+    await p2.locator('input[type="password"]').nth(0).fill("5739");
+    await p2.locator('input[type="password"]').nth(1).fill("5739");
+    await clickWord(p2, say(language, "Save PIN"));
+    recorded = await waitFor(p2, () => !!document.querySelector('[data-supply="used"]'));
+  }
+  const tokenNow = await p2.evaluate(() => { try { return JSON.parse(window.localStorage.getItem("ocsa_auth")).token; } catch (e) { return null; } });
+  const refused = boot.stub.state.calls.filter(c => c.path.indexOf("/api/supplies/by-qr/") === 0).length;
+  check("the supply label's page, met with a 403 auth.mustSetPin, lands on Choose your PIN, keeps the token change-pin answers, and comes back to the page signed in" + tag,
+    choose && recorded && tokenNow === "token-two" && refused === 2 && boot.errors.length === 0,
+    !choose ? "no Choose your PIN" : !recorded ? "the page's staff part did not come back" : tokenNow !== "token-two" ? "the stored token is " + JSON.stringify(tokenNow) : refused !== 2 ? refused + " reads of by-qr" : boot.errors[0]);
+  await boot.context.close();
 }
+// A bar tab by its name, or else the More item.
+async function openPlace(page, name) {
+  const i = (await barNames(page)).indexOf(name);
+  if (i !== -1) { await tapBar(page, i); return true; }
+  return tapMore(page, name);
+}
+// A button by its words as drawn, capitals or not.
+const tapWord = (page, label) => page.evaluate((l) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.trim().toUpperCase() === l.toUpperCase()); if (b) b.click(); return !!b; }, label);
 
 // A supervisor, with the workspace and the field kit answering.
 async function supervisor(browser, language) {
@@ -1574,7 +1684,8 @@ async function largest(browser) {
     for (const language of ["en", "es"]) await guard("a cleaner's run (" + language + ")", () => cleaner(browser, language));
     // /sds reads the API's sheet names alone, the same in every language.
     await guard("/sds (en)", () => sds(browser, "en"));
-    for (const language of ["en", "es"]) await guard("the second sign-in step (" + language + ")", () => secondStep(browser, language));
+    await guard("sign-in made simple and closed (en)", () => signInClosed(browser, "en", 390));
+    await guard("sign-in made simple and closed (es)", () => signInClosed(browser, "es", 320));
     for (const language of ["en", "es"]) await guard("the workspace (" + language + ")", () => supervisor(browser, language));
     for (const language of ["en", "es"]) await guard("007 on the customer page (" + language + ")", () => customerAsks(browser, language));
     for (const language of ["en", "es"]) await guard("006 on the customer page (" + language + ")", () => customerWalk(browser, language));
