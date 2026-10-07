@@ -1152,10 +1152,10 @@ function readOpenFromUrl() {
   try {
     var v = new URLSearchParams(window.location.search || "").get("open");
     if (!v) {
-      var m = /^\/(requests|issues|join|training\/c|sign|inspect)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+      var m = /^\/(requests|issues|join|training\/c|sign|inspect|drafts)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
       if (!m) return null;
       try { window.history.replaceState({}, "", "/"); } catch (e) {}
-      var types = { requests: "client_request", issues: "inspection_finding", join: "training_join", "training/c": "training_category", sign: "signature_request", inspect: "inspection" };
+      var types = { requests: "client_request", issues: "inspection_finding", join: "training_join", "training/c": "training_category", sign: "signature_request", inspect: "inspection", drafts: "form_draft" };
       return { subjectType: types[m[1]], subjectId: m[2] };
     }
     try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
@@ -2608,6 +2608,7 @@ export default function OCSAStaffPortal() {
     }
     if (place.tab === "training") setTrainingAt(place.join ? { join: String(place.join) } : place.doc ? { doc: { docCode: String(place.doc), title: String(place.doc) } } : place.category ? { category: String(place.category) } : place.topic ? { topic: String(place.topic) } : null);
     if (place.tab === "inspect") setInspectAt(place.inspection ? { id: String(place.inspection), at: Date.now() } : null);
+    if (place.tab === "forms" && place.draft) setFormsDraft(String(place.draft));
     setActiveTab(place.tab); setShowMore(false);
     if (place.tab === "issues") { setRequestOpen(place.request || null); setFindingOpen(place.finding || null); loadClientRequests(); loadFindings(); }
     if (place.tab === "chat" && place.chat) { if (activeChannelRef.current === place.chat) loadMessages(place.chat); else chooseChat(place.chat); }
@@ -3106,7 +3107,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "clock" && signAt && <SignScreen key={signAt.id || "list"} token={token} id={signAt.id || null} requests={signList} onOpen={openSign} onBack={() => setSignAt(null)} onChanged={() => setSignAsked(n => n + 1)} t={t} />}
               {activeTab === "property" && destCtx.property && <MyPropertyView rows={property} onSign={(id) => openSign({ id: id })} t={t} />}
               {activeTab === "support" && destCtx.support && <SupportView token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} t={t} />}
-              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
+              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -6856,6 +6857,45 @@ function RequestTarget({ label, at, state, t }) {
   );
 }
 
+// Unfinished forms (Step 297, the contract's section 2.5): Home names the
+// person's own drafts, from GET /api/agent/drafts, the read Forms and
+// Help already make, each row opening its draft on Forms. The read
+// answers whoever may read reports everyone's drafts, so only the
+// person's own are kept. Nothing shows while there are none, or when the
+// read fails.
+function UnfinishedFormsCard({ token, user, language, onOpen, t }) {
+  const [rows, setRows] = useState(null);
+  const uid = user && user.id !== undefined ? String(user.id) : "";
+  useEffect(() => {
+    if (!token || !uid) return undefined;
+    let alive = true;
+    api("/api/agent/drafts?locale=" + languageToSend(language), { token })
+      .then(d => { if (alive) setRows(agentList(d, ["drafts", "items", "rows"]).filter(r => agentDraftId(r) !== null && (r.userId === undefined || r.userId === null || String(r.userId) === uid) && (!r.status || r.status === "draft"))); })
+      .catch(() => { if (alive) setRows(null); });
+    return () => { alive = false; };
+  }, [token, uid, language]);
+  if (!rows || rows.length === 0) return null;
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      <div data-unfinished-card="home" style={{ background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.md, boxShadow: t.shadow, padding: "12px 12px 4px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
+          <DocIco sz={20} c={t.goldText} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{tr("Unfinished forms ({n})", { n: rows.length })}</span>
+        </div>
+        {rows.map(r => (
+          <button type="button" key={String(agentDraftId(r))} data-unfinished-row={String(agentDraftId(r))} onClick={() => onOpen(String(agentDraftId(r)))} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, padding: "8px 0", background: "transparent", border: "none", borderTop: "1px solid " + t.border, cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY }}>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{agentName(r) || tr(FORMS_UNTITLED)}</span>
+              {agentCount(r) && <span style={{ display: "block", fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(r)}</span>}
+            </span>
+            <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0 }} />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Home's one card: how many client requests need this person.
 // Home's training cards (Step 261): the lessons the person can do on the
 // phone right now, which open My training; and, for a supervisor or an
@@ -9717,7 +9757,13 @@ const inspectionSubject = (s) => typeof s === "string" && s !== "inspection_find
 // the person's site, escalated, and those API Step 298 adds: assigned to
 // them, its status changed), an inspection finding, and /issues/<id>.
 const issueSubject = (s) => typeof s === "string" && (s === "inspection_finding" || /^issues?(_|$)/.test(s));
+// A reminder about an unfinished form (Step 297, API Step 298): Forms, on
+// that draft. The contract names the reminder and not its subject type,
+// so any draft or reminder subject of a form opens it, and so does the
+// portal's own address for one, /drafts/<id>.
+const draftSubject = (s) => typeof s === "string" && /^(form_)?(draft|drafts|reminder)(_|$)|^form_(draft|reminder)|^draft_reminder$|^unfinished_form$/.test(s);
 function notifPlace(subjectType, subjectId) {
+  if (draftSubject(subjectType) && subjectId !== null && subjectId !== undefined && subjectId !== "") return { tab: "forms", draft: String(subjectId) };
   if (issueSubject(subjectType) && subjectId !== null && subjectId !== undefined && subjectId !== "") return { issue: String(subjectId) };
   if (inspectionSubject(subjectType)) return subjectId === null || subjectId === undefined ? { tab: "inspect" } : { tab: "inspect", inspection: String(subjectId) };
   const tab = NOTIF_TAB[subjectType];
@@ -11598,7 +11644,7 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
 
   if (open) {
     const form = open.form || (forms || []).find(f => String(f.code) === String(open.draft.formCode)) || null;
-    return <FormFiller token={token} t={t} locale={locale} form={form} draft={open.draft} user={user} onLeave={() => { setOpen(null); load(); }} />;
+    return <FormFiller token={token} t={t} locale={locale} form={form} draft={open.draft} user={user} showToast={showToast} onLeave={() => { setOpen(null); load(); }} />;
   }
 
   // The form's first screen when no shift is open: which site the report
@@ -11672,7 +11718,7 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
 // request to the public route, photos ride in the body as data URLs, a
 // customer signature is drawn in its section, and the API's refusal is
 // drawn under the question it names or at the top.
-function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) {
+function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, showToast }) {
   const isCustomer = !!customer;
   const [current, setCurrent] = useState(draft);
   // A person question: the staff list, read once the form asks for a
@@ -12223,6 +12269,16 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
   // either way: a refusal here would strand them on a report they
   // asked to close.
   const leave = async () => { setConfirmLeave(false); await save(); onLeave(); };
+  // Save and finish later (Step 297): the answers are saved as Next saves
+  // them, the form closes, and the person is told it waits for them.
+  // A save that does not go keeps the form open with its own line.
+  const later = async () => {
+    if (saving) return;
+    const after = await save();
+    if (!after) return;
+    if (showToast) showToast(tr("Saved. You will get a reminder until it is sent."));
+    onLeave();
+  };
 
   const qSt = { marginBottom: 20 };
   const labelSt = { fontSize: 14, fontWeight: 600, color: t.text, lineHeight: 1.45, fontFamily: FONT_HEAD, overflowWrap: "anywhere" };
@@ -12771,7 +12827,8 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user }) 
         ))}
       </div>
 
-      <div style={{ display: "flex", gap: 10, padding: "12px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, padding: "12px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0 }}>
+        {!isCustomer && <button type="button" data-form-later="1" onClick={later} disabled={saving || sending} style={{ ...footBtn(false, saving || sending), flex: "1 1 100%" }}>{tr("Save and finish later")}</button>}
         {(review || at > 0) && <button onClick={goBack} disabled={saving || sending} style={footBtn(false, saving || sending)}>{saving ? tr("Saving") : tr("Back")}</button>}
         {review
           ? <button onClick={() => (isCustomer ? submit() : setConfirmSend(true))} disabled={sending || missing.length > 0} style={footBtn(true, sending || missing.length > 0)}>{sending ? tr("Sending") : tr(isCustomer ? "Send" : "Submit report")}</button>
