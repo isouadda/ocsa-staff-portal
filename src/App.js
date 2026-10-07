@@ -486,7 +486,7 @@ const washInk = (th, color) => (th === LIGHT ? th.text : (color === RED ? RED_ON
 // colors themselves at 1.76 to 3.82 there). Dark mode draws every color
 // as it always has, and so does light mode for any color not here, such
 // as one a lookup list sends. Washes, fills and dots keep their colors.
-const LIGHT_INK = { "#24A4F4": "#0A5C9E", "#2ECC71": "#186534", "#F39C12": "#8A4706", "#E74C3C": "#B3261E", "#8E6FD8": "#6E3B8F" };
+const LIGHT_INK = { "#24A4F4": "#0A5C9E", "#2ECC71": "#186534", "#F39C12": "#8A4706", "#E74C3C": "#B3261E", "#8E6FD8": "#6E3B8F", "#13A89E": "#0B6B65" };
 const ink = (th, color) => (th === LIGHT && typeof color === "string" && LIGHT_INK[color.toUpperCase()]) || color;
 
 // What every request to OCSA carries, and what every refusal becomes.
@@ -998,6 +998,21 @@ const inspectDeficient = (score, max, marked) => !!marked || (max > 0 && score *
 // API's words under the card its keys name: a deficient card with no
 // note, and an owner who is not on the list.
 const INSPECT_FINDING_CODES = ["inspections.findingNoteRequired", "inspections.badOwner"];
+// The scheduled inspections, as My Inspections reads them: the one load
+// Inspect and My Schedule share (Step 296). The API answers an admin and
+// a supervisor every site's, and anyone else the ones assigned to them,
+// so the schedule keeps only the person's own.
+const SCHEDULED_INSPECTIONS = "/api/inspections/scheduled?status=scheduled";
+const loadScheduledInspections = (token) => api(SCHEDULED_INSPECTIONS, { token });
+// Its day as YYYY-MM-DD. The API sends a date column as midnight UTC.
+const inspectionDay = (v) => (typeof v === "string" ? v.slice(0, 10) : "");
+// The ones on a person's schedule: assigned to them and still scheduled,
+// so a cancelled or completed one is never drawn.
+const inspectionsForMe = (d, user) => (Array.isArray(d) ? d : []).filter(i => i && i.id !== undefined && i.id !== null && i.status === "scheduled" && !!user && String(i.assigned_to) === String(user.id) && /^\d{4}-\d{2}-\d{2}$/.test(inspectionDay(i.scheduled_date)));
+// A colour the calendar does not already use, apart from the gold of a
+// shift: teal, drawn in light mode in a darker ink of its own, which
+// reads at 6.4 to 1 on white (LIGHT_INK).
+const INSPECTION_COLOR = "#13A89E";
 // What the complete route answers once it opens the findings: the score,
 // the band (meets, below, failed, serious), whether a corrective action
 // is required (below 80), and each finding with its owner and due date.
@@ -1137,10 +1152,10 @@ function readOpenFromUrl() {
   try {
     var v = new URLSearchParams(window.location.search || "").get("open");
     if (!v) {
-      var m = /^\/(requests|issues|join|training\/c|sign)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+      var m = /^\/(requests|issues|join|training\/c|sign|inspect)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
       if (!m) return null;
       try { window.history.replaceState({}, "", "/"); } catch (e) {}
-      var types = { requests: "client_request", issues: "inspection_finding", join: "training_join", "training/c": "training_category", sign: "signature_request" };
+      var types = { requests: "client_request", issues: "inspection_finding", join: "training_join", "training/c": "training_category", sign: "signature_request", inspect: "inspection" };
       return { subjectType: types[m[1]], subjectId: m[2] };
     }
     try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
@@ -2591,6 +2606,7 @@ export default function OCSAStaffPortal() {
       setFieldKitAt(at => ({ siteId: at && at.siteId ? at.siteId : null, tile: place.signoff ? "signoff" : null }));
     }
     if (place.tab === "training") setTrainingAt(place.join ? { join: String(place.join) } : place.doc ? { doc: { docCode: String(place.doc), title: String(place.doc) } } : place.category ? { category: String(place.category) } : place.topic ? { topic: String(place.topic) } : null);
+    if (place.tab === "inspect") setInspectAt(place.inspection ? { id: String(place.inspection), at: Date.now() } : null);
     setActiveTab(place.tab); setShowMore(false);
     if (place.tab === "issues") { setRequestOpen(place.request || null); setFindingOpen(place.finding || null); loadClientRequests(); loadFindings(); }
     if (place.tab === "chat" && place.chat) { if (activeChannelRef.current === place.chat) loadMessages(place.chat); else chooseChat(place.chat); }
@@ -2676,6 +2692,11 @@ export default function OCSAStaffPortal() {
   // Where My training is (Step 264): a session's join screen for a code,
   // from /join/<code> or a code typed in. Dropped at sign out.
   const [trainingAt, setTrainingAt] = useState(null);
+  // The scheduled inspection to open on Inspect (Step 296), from a row on
+  // My Schedule or Home's week, a notice or /inspect/<id>: { id, at },
+  // at telling two taps on the same one apart. Dropped once opened.
+  const [inspectAt, setInspectAt] = useState(null);
+  const openInspection = (id) => { setInspectAt({ id: String(id), at: Date.now() }); setActiveTab("inspect"); setShowMore(false); };
   // Sign on your own phone (Step 271): the signing screen open in Home's
   // place, { id } for one request or { list: true } for what waits; and
   // the open requests GET /api/signatures/mine answers, null until it
@@ -2883,7 +2904,7 @@ export default function OCSAStaffPortal() {
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
     setChannels(null); setChannelsFailed(false); setMessages([]); setMessagesOf(null); setActiveChannel(null);
-    setAgentConversation(null); setFormsDraft(null); setFieldKitAt(null); setEquipmentShown(null); setEquipmentBack(null);
+    setAgentConversation(null); setFormsDraft(null); setFieldKitAt(null); setEquipmentShown(null); setEquipmentBack(null); setInspectAt(null);
     setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
     setLookups([]); setLookupsLang(null); toastsRef.current.clear(); setLoading(false);
     setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false); setAnnouncementOpen(null); setOpenAsk(null); setAlertsCard(null); setAlertsCardBusy(false);
@@ -3076,8 +3097,8 @@ export default function OCSAStaffPortal() {
               {activeTab === "clock" && signAt && <SignScreen key={signAt.id || "list"} token={token} id={signAt.id || null} requests={signList} onOpen={openSign} onBack={() => setSignAt(null)} onChanged={() => setSignAsked(n => n + 1)} t={t} />}
               {activeTab === "property" && destCtx.property && <MyPropertyView rows={property} onSign={(id) => openSign({ id: id })} t={t} />}
               {activeTab === "support" && destCtx.support && <SupportView token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} t={t} />}
-              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
-              {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
+              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
+              {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
@@ -3085,7 +3106,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} findings={findings} onFindingsChanged={() => loadFindings()} openFinding={findingOpen} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} token={token} user={user} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
-              {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} />}
+              {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} openAt={inspectAt} onOpened={() => setInspectAt(null)} />}
               {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
               {activeTab === "sds" && <div style={{ padding: 16 }}><SdsBrowser initial={sdsList} onList={setSdsList} code={sdsCode} onCode={setSdsCode} t={t} /></div>}
               {activeTab === "workspace" && destCtx.workspace && <WorkspaceView token={token} user={user} projects={wsProjects} onProjects={setWsProjects} at={wsAt} onAt={setWsAt} channels={channels} onOpenChat={(id) => { chooseChat(id); setActiveTab("chat"); setShowMore(false); }} showToast={showToast} t={t} />}
@@ -3176,7 +3197,7 @@ export default function OCSAStaffPortal() {
           <div role="dialog" aria-modal="true" aria-labelledby="ocsa-alerts-card-title" onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, borderRadius: R.lg + "px " + R.lg + "px 0 0", border: "1px solid " + t.borderSolid, borderBottom: "none", padding: "18px 16px calc(16px + env(safe-area-inset-bottom, 0px))" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
               <div style={{ width: 44, height: 44, borderRadius: "50%", background: t.goldBg, border: "1px solid " + t.goldBorder, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><BellIco sz={20} c={t.goldText} /></div>
-              <div id="ocsa-alerts-card-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3 }}>{tr("Get an alert when someone messages you?")}</div>
+              <div id="ocsa-alerts-card-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3 }}>{tr("Get an alert when someone messages you or assigns you an inspection?")}</div>
             </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button type="button" onClick={() => answerAlertsCard(false)} disabled={alertsCardBusy} style={{ flex: 1, minHeight: TAP, padding: "0 12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Not now")}</button>
@@ -3736,9 +3757,20 @@ function SetPinScreen({ token, user, onDone, onSignOut, showToast, t }) {
 const LEAVE_WORDS = { pto: "PTO (paid time off)" };
 const leaveWord = (value, label) => tr(label || LEAVE_WORDS[value] || value || "");
 
-function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }) {
+function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasOther, onOpenInspection }) {
   const [view, setView] = useState("week");
   const [data, setData] = useState({ scheduled: [], actual: [], pickups: [] });
+  // The scheduled inspections assigned to this person (Step 296), read
+  // once with My Inspections' own load and drawn on their day beside the
+  // shifts. A read that fails, or answers nothing, draws nothing.
+  const [inspections, setInspections] = useState([]);
+  useEffect(() => {
+    if (!token || !user) return undefined;
+    let gone = false;
+    loadScheduledInspections(token).then(d => { if (!gone) setInspections(inspectionsForMe(d, user)); }).catch(() => { if (!gone) setInspections([]); });
+    return () => { gone = true; };
+  }, [token, user && user.id]);
+  const getInspectionsForDay = (ds) => inspections.filter(i => inspectionDay(i.scheduled_date) === ds);
   const [detail, setDetail] = useState(null);
   // The day tapped on the week strip, as YYYY-MM-DD, whose sheet lists
   // everything on it. null while no day is open.
@@ -3893,6 +3925,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
   const workedLook = { background: GREEN + "15", color: ink(t, GREEN), border: "1px solid " + GREEN + "30" };
   const pickupLook = (p) => { const pc = p.status === "approved" ? GREEN : BLUE; return { background: pc + "15", color: ink(t, pc), border: "1px solid " + pc + "30" }; };
   const offLook = (r) => { const waiting = r.status !== "approved"; return { background: TIME_OFF_COLOR + (waiting ? "14" : "22"), color: ink(t, TIME_OFF_COLOR), border: waiting ? "1px dashed " + TIME_OFF_COLOR : "1px solid " + TIME_OFF_COLOR }; };
+  const inspectLook = { background: INSPECTION_COLOR + "15", color: ink(t, INSPECTION_COLOR), border: "1px solid " + INSPECTION_COLOR + "40" };
   const offLabel = { fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 3, fontFamily: FONT_HEAD };
   const offValue = { fontSize: 13, color: t.text, fontWeight: 500, overflowWrap: "anywhere" };
   // Both limits are local calendar days, so the pickers agree with
@@ -4010,7 +4043,8 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
             const today = isToday(ds);
             const dt = new Date(ds + "T00:00:00");
             const dayOff = getTimeOffForDay(ds);
-            const hasAny = sched.length > 0 || actual.length > 0 || pickups.length > 0 || dayOff.length > 0;
+            const inspects = getInspectionsForDay(ds);
+            const hasAny = sched.length > 0 || actual.length > 0 || pickups.length > 0 || dayOff.length > 0 || inspects.length > 0;
             return (
               <button type="button" key={ds} onClick={() => setDayOpen(ds)} style={mkTapFrame({ display: "flex", alignItems: "stretch", width: "100%", padding: "0 2px", textAlign: "left", fontFamily: FONT_BODY })}>
                 <div style={{ flex: 1, minWidth: 0, background: today ? t.goldBg : t.card, border: "1px solid " + (today ? t.goldBorder : t.borderSolid), borderRadius: R.md, padding: 6, minHeight: compact ? 80 : 120, boxShadow: t.shadow }}>
@@ -4032,6 +4066,11 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                     <div key={p.id} style={{ ...chipSt, ...pickupLook(p) }}>
                       <div>{fmtTm(p.start_time)} <span style={{ fontSize: 9, textTransform: "uppercase" }}>{p.status === "approved" ? tr("approved") : tr("claimed")}</span></div>
                       {p.site_name && <div style={{ fontSize: 9, opacity: 0.8 }}>{p.site_name}</div>}
+                    </div>
+                  ))}
+                  {inspects.map(i => (
+                    <div key={"i-" + i.id} data-schedule-inspection={i.id} aria-label={tr("Inspection")} style={{ ...chipSt, ...inspectLook, alignItems: "center" }}>
+                      <ClipIco sz={14} c={ink(t, INSPECTION_COLOR)} />
                     </div>
                   ))}
                   {dayOff.map(r => (
@@ -4084,6 +4123,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
                       {actual.length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: GREEN }} />}
                       {pickups.length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: BLUE }} />}
                       {getTimeOffForDay(ds).length > 0 && <div style={{ width: 6, height: 6, borderRadius: "50%", background: TIME_OFF_COLOR }} />}
+                      {getInspectionsForDay(ds).length > 0 && <div data-schedule-inspection-dot={ds} style={{ width: 6, height: 6, borderRadius: "50%", background: INSPECTION_COLOR }} />}
                     </div>
                   </button>
                 );
@@ -4093,7 +4133,9 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
               {[{ c: GOLD, l: tr("Scheduled") }, { c: GREEN, l: tr("Worked") }, { c: BLUE, l: tr("Pickup") }]
                 // The fourth reads off the same key the dots do, so the
                 // legend stays as it is until the API sends timeOff.
-                .concat(Array.isArray(data.timeOff) ? [{ c: TIME_OFF_COLOR, l: tr("Time off") }] : []).map(lg => (
+                .concat(Array.isArray(data.timeOff) ? [{ c: TIME_OFF_COLOR, l: tr("Time off") }] : [])
+                // An inspection's, once the person has one scheduled.
+                .concat(inspections.length > 0 ? [{ c: INSPECTION_COLOR, l: tr("Inspection") }] : []).map(lg => (
                 <div key={lg.l} style={{ display: "flex", alignItems: "center", gap: 3 }}>
                   <div style={{ width: 6, height: 6, borderRadius: "50%", background: lg.c }} />
                   <span style={{ fontSize: 8, color: t.textMut }}>{lg.l}</span>
@@ -4139,7 +4181,8 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
         const actual = getActualForDay(dayOpen);
         const pickups = getPickupsForDay(dayOpen);
         const dayOff = getTimeOffForDay(dayOpen);
-        const none = sched.length === 0 && actual.length === 0 && pickups.length === 0 && dayOff.length === 0;
+        const inspects = getInspectionsForDay(dayOpen);
+        const none = sched.length === 0 && actual.length === 0 && pickups.length === 0 && dayOff.length === 0 && inspects.length === 0;
         const rowSt = (look) => ({ display: "block", width: "100%", minHeight: TAP, marginBottom: 8, padding: "10px 12px", borderRadius: R.md, background: look.background, border: look.border, textAlign: "left", cursor: "pointer", fontFamily: FONT_BODY });
         const rowBody = (look, kind, time, site) => (<>
           <span style={{ display: "block", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", color: look.color, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{kind}</span>
@@ -4167,6 +4210,13 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
               {pickups.map(p => (
                 <button type="button" key={"p-" + p.id} onClick={then(() => setDetail({ type: "pickup", ...p }))} style={rowSt(pickupLook(p))}>
                   {rowBody(pickupLook(p), kindWith(tr("Pickup Shift"), p.status === "approved" ? tr("approved") : tr("claimed")), fmtTm(p.start_time) + (p.end_time ? " - " + fmtTm(p.end_time) : ""), p.site_name)}
+                </button>
+              ))}
+              {/* An inspection opens on Inspect, as My Inspections opens
+                  it, from Home's week too. */}
+              {inspects.map(i => (
+                <button type="button" key={"i-" + i.id} data-schedule-inspection-row={i.id} onClick={then(() => onOpenInspection && onOpenInspection(i.id))} style={rowSt(inspectLook)}>
+                  {rowBody(inspectLook, tr("Inspection"), i.template_name || tr("Inspection"), i.site_name)}
                 </button>
               ))}
               {dayOff.map(r => {
@@ -9298,7 +9348,14 @@ const NOTIF_TAB = {
 // notice names; or the announcement sheet. The bell and a tap on a phone
 // alert both go through this, so they open the same place. null for a
 // subject the portal has no place for.
+// A scheduled inspection assigned to the person (Step 296, API Step 295):
+// Inspect, with that inspection open. The contract names the notices
+// (assigned, moved to someone else, a new date, cancelled) and not their
+// subject type, so every inspection subject but a finding opens it, and
+// so does the portal's own address for one, /inspect/<id>.
+const inspectionSubject = (s) => typeof s === "string" && s !== "inspection_finding" && /^(scheduled_)?inspections?(_|$)/.test(s);
 function notifPlace(subjectType, subjectId) {
+  if (inspectionSubject(subjectType)) return subjectId === null || subjectId === undefined ? { tab: "inspect" } : { tab: "inspect", inspection: String(subjectId) };
   const tab = NOTIF_TAB[subjectType];
   if (!tab) return null;
   const id = subjectId === null || subjectId === undefined ? null : String(subjectId);
@@ -15015,7 +15072,7 @@ function PickupView({ token, user, showToast, t }) {
   );
 }
 
-function InspectView({ token, user, showToast, t }) {
+function InspectView({ token, user, showToast, t, openAt, onOpened }) {
   const STATUS_C = { scheduled: "#24A4F4", in_progress: "#F39C12", completed: "#2ECC71" };
   const fmtDate = (d) => d ? new Date(d.slice(0, 10) + "T00:00:00").toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" }) : "--";
 
@@ -15105,13 +15162,22 @@ function InspectView({ token, user, showToast, t }) {
   const loadList = async () => {
     setLoading(true);
     try {
-      const d = await api("/api/inspections/scheduled?status=scheduled", { token });
+      const d = await loadScheduledInspections(token);
       setList(d); setListFailed(false);
     } catch (e) { setListFailed(true); }
     setLoading(false);
   };
 
   useEffect(() => { loadList(); }, []);
+  // An inspection asked for by name (Step 296): a row on My Schedule or
+  // Home's week, a notice from the bell or a phone alert, or
+  // /inspect/<id>. It opens the way a tap on My Inspections opens it.
+  // One already open and being scored stays, so nothing is lost.
+  useEffect(() => {
+    if (!openAt || !openAt.id) return;
+    if (onOpened) onOpened();
+    if (!active && !sent) openInspection(openAt.id, true);
+  }, [openAt]);
 
   const openScheduleModal = async () => {
     try {
@@ -15138,9 +15204,17 @@ function InspectView({ token, user, showToast, t }) {
     setScheduling(false);
   };
 
-  const openInspection = async (id) => {
+  // asked: opened from outside My Inspections (Step 296), where one that
+  // is cancelled, done or no longer the person's is said rather than
+  // opened.
+  const openInspection = async (id, asked) => {
     try {
       const d = await api("/api/inspections/scheduled/" + id, { token });
+      if (asked) {
+        const mine = !d || d.assigned_to === undefined || d.assigned_to === null || !user || String(d.assigned_to) === String(user.id);
+        const why = d && d.status === "cancelled" ? "This inspection was cancelled." : d && d.status === "completed" ? "This inspection is already done." : !mine ? "This inspection is not on your list anymore." : null;
+        if (why) { showToast(tr(why), "notice"); return; }
+      }
       setActive(d);
       const initScores = {};
       const initNotes = {};
