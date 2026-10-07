@@ -5317,6 +5317,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
               {membersHere && membersHere.state === "loading" && <div style={{ padding: "20px 4px", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
               {membersHere && membersHere.state === "failed" && <ListFault icon={PersonIco} text={tr("This list did not load.")} onRetry={() => loadMembers(activeChannel)} t={t} />}
               {membersHere && membersHere.state === "ok" && membersHere.list.length === 0 && <div style={{ padding: "20px 4px", textAlign: "center", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("No one else can read this chat.")}</div>}
+              {membersHere && membersHere.state === "ok" && membersHere.list.length > 0 && tagRows.length === 0 && q !== "" && <div style={{ padding: "20px 4px", textAlign: "center", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("No one matches that name.")}</div>}
               {tagRows.map(m => {
                 const already = picked.some(x => x.id === m.id) && text.indexOf("@" + m.name) !== -1;
                 const off = tagFull && !already;
@@ -6529,7 +6530,6 @@ function RequestApproveSheet({ token, user, row, onClose, onSend, t }) {
     setSending(false);
     if (ok) onClose();
   };
-  const rowSt = (on) => ({ width: "100%", minHeight: TAP, marginBottom: 8, padding: "10px 12px", borderRadius: R.md, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: on ? t.goldBg : t.card, border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text });
   const chip = (text, color) => <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: R.pill, background: color + "20", color: ink(t, color), fontFamily: FONT_HEAD, flexShrink: 0 }}>{text}</span>;
   const footer = (
     <>
@@ -6543,16 +6543,7 @@ function RequestApproveSheet({ token, user, row, onClose, onSend, t }) {
       {!list && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
       {list && list.state === "failed" && <div style={{ marginBottom: 12 }}><ListFault icon={PersonIco} text={list.said} onRetry={() => setAsked(n => n + 1)} t={t} /></div>}
       {list && list.state === "ok" && list.rows.length === 0 && <div style={wsQuiet(t)}>{tr("No one can be assigned at this site.")}</div>}
-      {list && list.state === "ok" && list.rows.map(a => { const on = picked === a.id; const me = user && String(user.id) === a.id; return (
-        <button key={a.id} type="button" data-request-assignee={a.id} onClick={() => setPicked(a.id)} aria-pressed={on} style={rowSt(on)}>
-          <span style={{ width: 16, height: 16, flexShrink: 0, borderRadius: "50%", background: on ? GOLD : "transparent", border: on ? "none" : "2px solid " + t.borderSolid }} />
-          <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ display: "block", fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{a.name}{me ? " (" + tr("Me") + ")" : ""}</span>
-            {a.role && <span style={{ display: "block", fontSize: 11, color: t.textMut, marginTop: 2 }}>{roleWord(a.role)}</span>}
-          </span>
-          {a.onShift && chip(tr("On shift"), GREEN)}
-        </button>
-      ); })}
+      {list && list.state === "ok" && list.rows.length > 0 && <SearchPick name="request-assignee" rows={list.rows.map(a => ({ id: a.id, name: a.name, note: user && String(user.id) === a.id ? " (" + tr("Me") + ")" : "", sub: a.role ? roleWord(a.role) : "", tag: a.onShift ? chip(tr("On shift"), GREEN) : null }))} value={picked || ""} onPick={(v) => setPicked(v || null)} rowAttr={(r) => ({ "data-request-assignee": r.id })} noMatch={tr("No one matches that name.")} disabled={sending} t={t} />}
     </WsSheet>
   );
 }
@@ -6829,6 +6820,8 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
   };
   const lineErr = (k) => (lineFaults[k] ? <div role="alert" style={mkFieldErr(t)}>{lineFaults[k]}</div> : null);
   const lineRing = (k) => (lineFaults[k] ? { border: "2px solid " + RED } : {});
+  // The site's supplies as the searchable picker lists them.
+  const supplyRows = supplies.map(x => ({ id: String(x.id), name: x.name }));
   const linesUI = () => (
     <div data-supply-lines={reqForm.lines.length} style={{ marginBottom: 10 }}>
       {reqForm.lines.map((ln, i) => (
@@ -6839,7 +6832,7 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
           </div>
           {typedLines
             ? <input data-supply-line-name={i} aria-label={tr("Item Name")} value={ln.itemName} maxLength={SUPPLY_NAME_MAX} onChange={e => editLine(i, "itemName", e.target.value, "item")} placeholder={tr("What do you need?")} style={{ ...inputSt, ...lineRing(i + ".item") }} />
-            : <select data-supply-line-supply={i} aria-label={tr("Supply Item")} value={ln.supplyId} onChange={e => editLine(i, "supplyId", e.target.value, "item")} style={{ ...inputSt, ...lineRing(i + ".item") }}><option value="">{tr("Select supply...")}</option>{supplies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
+            : <div data-supply-line-supply={i}><SearchPick name={"supply-line-" + i} rows={supplyRows} value={ln.supplyId} onPick={(v) => editLine(i, "supplyId", v, "item")} none={tr("Choose a supply")} empty={tr("Choose a supply")} noMatch={tr("No supply matches that name.")} invalid={!!lineFaults[i + ".item"]} t={t} /></div>}
           {lineErr(i + ".item")}
           <div id={"ocsa-supply-qty-" + ln.key} style={{ ...labelSt, marginTop: 10 }}>{tr("Quantity")}</div>
           <div role="group" aria-labelledby={"ocsa-supply-qty-" + ln.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -6862,7 +6855,7 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
     <div style={{ padding: 14, marginBottom: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, boxShadow: t.popShadow }}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supply/Gear Request")}</div>
       <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Request Type")}</label><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{typeOpts.map(tp => (<button key={tp.v} onClick={() => { setReqForm({ ...reqForm, type: tp.v }); setLineFaults({}); }} style={{ minHeight: TAP, padding: "7px 11px", borderRadius: R.sm, border: reqForm.type === tp.v ? "2px solid " + GOLD : "1px solid " + t.borderSolid, background: reqForm.type === tp.v ? t.goldBg : "transparent", color: reqForm.type === tp.v ? t.goldText : t.textSec, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tp.l}</button>))}</div></div>
-      {!linesOn && (reqForm.type === "refill" || reqForm.type === "damage_report") && supplies.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Supply Item")}</label><select value={reqForm.supplyId || ""} onChange={e => setReqForm({ ...reqForm, supplyId: e.target.value || null, itemName: supplies.find(s => s.id === e.target.value)?.name || "" })} style={inputSt}><option value="">{tr("Select supply...")}</option>{supplies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>)}
+      {!linesOn && (reqForm.type === "refill" || reqForm.type === "damage_report") && supplies.length > 0 && (<div data-supply-one="1" style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Supply Item")}</label><SearchPick name="supply-one" rows={supplyRows} value={reqForm.supplyId || ""} onPick={(v) => setReqForm(f => ({ ...f, supplyId: v || null, itemName: supplies.find(s => String(s.id) === v)?.name || "" }))} none={tr("Choose a supply")} empty={tr("Choose a supply")} noMatch={tr("No supply matches that name.")} t={t} /></div>)}
       {!linesOn && (reqForm.type === "new_gear" || reqForm.type === "new_supply") && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Item Name")}</label><input value={reqForm.itemName} onChange={e => setReqForm({ ...reqForm, itemName: e.target.value })} placeholder={tr("What do you need?")} style={inputSt} /></div>)}
       {linesOn && linesUI()}
       <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Details")}</label><textarea value={reqForm.description} onChange={e => setReqForm({ ...reqForm, description: e.target.value })} placeholder={tr("Describe the request...")} rows={2} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
@@ -9000,13 +8993,13 @@ function SpeakUpView({ token, t }) {
               {offered.length > 0 && (
                 <div style={{ maxHeight: 264, overflowY: "auto", marginTop: 2 }}>
                   {offered.map(p => (
-                    <button key={p.id} type="button" onClick={() => setPicked(ids => ids.indexOf(p.id) === -1 ? ids.concat([p.id]) : ids)} disabled={sending} style={optRow(false)}>
+                    <button key={p.id} type="button" onClick={() => { setPicked(ids => ids.indexOf(p.id) === -1 ? ids.concat([p.id]) : ids); setSearch(""); }} disabled={sending} style={optRow(false)}>
                       <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{whole(p).trim()}</span>
                     </button>
                   ))}
                 </div>
               )}
-              {people !== null && offered.length === 0 && needle !== "" && (<div style={{ ...helpSt, marginTop: 10 }}>{tr("No one matches that name.")}</div>)}
+              {people !== null && needle !== "" && !staff.some(p => whole(p).toLowerCase().indexOf(needle) !== -1) && (<div style={{ ...helpSt, marginTop: 10 }}>{tr("No one matches that name.")}</div>)}
             </>
           )}
         </div>
@@ -12340,6 +12333,74 @@ function ListFault({ icon: Icon, text, onRetry, t }) {
 }
 
 // ------------------------------------------------------------
+// Searchable pickers (Step 290, the Step 289 contract's section 2.2).
+// Every list a person is chosen from, and a Refill item's supply, picks
+// the way a form's person question does: the one picked reads as a chip,
+// tapped to choose again; until then Search by name sits over the list,
+// the names scroll in a box of their own, so a long list leaves the
+// buttons below where a thumb can reach them, and the no match line shows
+// only when what was typed matches nothing in the whole list. What was
+// typed is dropped at a pick, and a picker opened again starts empty.
+// rows: [{ id, name, note, sub, tag }], note drawn after the name and
+// never searched, sub the line under it, tag a chip at its end.
+// ------------------------------------------------------------
+const pickMatches = (name, needle) => needle === "" || String(name || "").toLowerCase().indexOf(needle) !== -1;
+function SearchPick({ id, name, rows, value, onPick, noMatch, empty, none, disabled, invalid, rowAttr, t }) {
+  const [q, setQ] = useState("");
+  const needle = q.trim().toLowerCase();
+  const has = value !== "" && value !== null && value !== undefined;
+  const picked = has ? rows.find(r => String(r.id) === String(value)) || null : null;
+  const pick = (r) => { setQ(""); onPick(r ? String(r.id) : ""); };
+  const offered = rows.filter(r => pickMatches(r.name, needle));
+  const rowSt = {
+    width: "100%", minHeight: TAP, marginTop: 8, padding: "10px 12px", borderRadius: R.md, cursor: disabled ? "default" : "pointer",
+    display: "flex", alignItems: "center", gap: 10, textAlign: "left", fontSize: 14, fontFamily: FONT_BODY, lineHeight: 1.4,
+    background: t.card, border: "1px solid " + t.borderSolid, color: t.text,
+  };
+  const chipSt = {
+    display: "inline-flex", alignItems: "center", gap: 8, maxWidth: "100%", minWidth: TAP, minHeight: TAP,
+    padding: "8px 12px", borderRadius: R.pill, cursor: disabled ? "default" : "pointer",
+    background: t.goldBg, border: "1px solid " + (invalid ? RED : t.goldBorder), color: t.text,
+    fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, textAlign: "left", lineHeight: 1.35,
+  };
+  const words = (r) => (
+    <span style={{ flex: 1, minWidth: 0 }}>
+      <span style={{ display: "block", overflowWrap: "anywhere" }}>{r.name}{r.note || ""}</span>
+      {r.sub && <span style={{ display: "block", fontSize: 11, fontWeight: 400, color: t.textMut, marginTop: 2 }}>{r.sub}</span>}
+    </span>
+  );
+  if (picked) {
+    return (
+      <div data-pick={name}>
+        <button type="button" data-pick-chip={picked.id} disabled={disabled} onClick={() => pick(null)} aria-label={tr("Remove {name}", { name: picked.name })} style={chipSt}>
+          {words(picked)}
+          {picked.tag || null}
+          <span aria-hidden="true" style={{ flexShrink: 0, fontSize: 14, lineHeight: 1, color: t.textSec }}>{tr("x")}</span>
+        </button>
+      </div>
+    );
+  }
+  if (rows.length === 0) return <div data-pick={name} style={{ ...mkHelp(t), marginTop: 0 }}>{empty}</div>;
+  return (
+    <div data-pick={name}>
+      {none && <div style={{ ...mkHelp(t), marginTop: 0, marginBottom: 6 }}>{none}</div>}
+      <input id={id} type="text" data-pick-search={name} value={q} onChange={e => setQ(e.target.value.slice(0, 80))} disabled={disabled} placeholder={tr("Search by name")} aria-label={tr("Search by name")} aria-invalid={!!invalid} style={{ ...mkInput(t), ...(invalid ? { border: "2px solid " + RED } : {}) }} />
+      {offered.length > 0 && (
+        <div style={{ maxHeight: 264, overflowY: "auto", marginTop: 2 }}>
+          {offered.map(r => (
+            <button key={r.id} type="button" data-pick-row={r.id} {...(rowAttr ? rowAttr(r) : {})} disabled={disabled} onClick={() => pick(r)} style={rowSt}>
+              {words(r)}
+              {r.tag || null}
+            </button>
+          ))}
+        </div>
+      )}
+      {offered.length === 0 && needle !== "" && <div data-pick-none="1" style={{ ...mkHelp(t), marginTop: 10 }}>{noMatch}</div>}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
 // The team workspace (Step 234), for office people on their phones
 //
 // Each office project's message board, to-dos, chat and files, and the
@@ -13034,10 +13095,9 @@ function WsTodos({ token, user, projectId, members, openId, onOpenId, showToast,
           <label htmlFor="ocsa-ws-todo-title" style={mkLabel(t)}>{tr("Title")}</label>
           <input id="ocsa-ws-todo-title" type="text" value={draft.title} maxLength={WS_TITLE_MAX} onChange={e => setDraft({ ...draft, title: e.target.value.slice(0, WS_TITLE_MAX), fault: null })} style={{ ...mkInput(t), marginBottom: 12 }} />
           <label htmlFor="ocsa-ws-todo-who" style={mkLabel(t)}>{tr("Assigned to")}</label>
-          <select id="ocsa-ws-todo-who" value={draft.who} onChange={e => setDraft({ ...draft, who: e.target.value, fault: null })} style={{ ...mkInput(t), marginBottom: 12 }}>
-            <option value="">{tr("Nobody yet")}</option>
-            {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
+          <div style={{ marginBottom: 12 }}>
+            <SearchPick id="ocsa-ws-todo-who" name="todo-who" rows={members.map(m => ({ id: String(m.id), name: m.name }))} value={draft.who} onPick={(v) => setDraft(d => (d ? { ...d, who: v, fault: null } : d))} none={tr("Nobody yet")} empty={tr("Nobody yet")} noMatch={tr("No one matches that name.")} disabled={draft.saving} t={t} />
+          </div>
           <label htmlFor="ocsa-ws-todo-due" style={mkLabel(t)}>{tr("Due date")}</label>
           <input id="ocsa-ws-todo-due" type="date" value={draft.due} onChange={e => setDraft({ ...draft, due: e.target.value, fault: null })} style={mkInput(t)} />
           {draft.fault && <WsFault text={draft.fault} t={t} />}
@@ -13585,11 +13645,7 @@ function FkPpe({ token, site, showToast, t }) {
         <div data-fk-ppe="form">
           <div style={fieldSt}>
             <label htmlFor="ocsa-ppe-person" style={labelSt}>{tr("Person")}</label>
-            <select id="ocsa-ppe-person" value={draft.person} onChange={e => edit("person", e.target.value)} style={{ ...mkInput(t), ...ring("person") }}>
-              <option value="">{tr("Choose a person")}</option>
-              {form.people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-            {form.people.length === 0 && <div style={{ fontSize: 12, color: t.textMut, marginTop: 6 }}>{tr("No one is assigned to this site.")}</div>}
+            <SearchPick id="ocsa-ppe-person" name="ppe-person" rows={form.people.map(p => ({ id: String(p.id), name: p.name }))} value={draft.person} onPick={(v) => edit("person", v)} none={tr("Choose a person")} empty={tr("No one is assigned to this site.")} noMatch={tr("No one matches that name.")} disabled={sending} invalid={!!faults.person} t={t} />
             {errOf("person")}
           </div>
           <div style={fieldSt}>
@@ -14507,11 +14563,7 @@ function FkObserve({ token, site, user, showToast, t }) {
       {people && people.state === "ok" && (
         <div style={{ marginBottom: 14 }}>
           <label htmlFor="ocsa-observe-person" style={labelSt}>{tr("Person")}</label>
-          <select id="ocsa-observe-person" value={person} onChange={e => { setPerson(e.target.value); setFault(null); }} style={mkInput(t)}>
-            <option value="">{tr("Choose a person")}</option>
-            {people.list.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          {people.list.length === 0 && <div style={mkHelp(t)}>{tr("No one is assigned to this site.")}</div>}
+          <SearchPick id="ocsa-observe-person" name="observe-person" rows={people.list.map(p => ({ id: String(p.id), name: p.name }))} value={person} onPick={(v) => { setPerson(v); setFault(null); }} none={tr("Choose a person")} empty={tr("No one is assigned to this site.")} noMatch={tr("No one matches that name.")} t={t} />
         </div>
       )}
       {person && !lists && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
@@ -15222,10 +15274,7 @@ function InspectView({ token, user, showToast, t }) {
           {finding && (
             <div data-inspect-owner={item.id} style={{ marginBottom: 8 }}>
               <label htmlFor={"ocsa-inspect-owner-" + item.id} style={labelSt}>{tr("Owner")}</label>
-              <select id={"ocsa-inspect-owner-" + item.id} value={ownerOf[item.id] || ""} onChange={e => { const v = e.target.value; setOwnerOf(prev => ({ ...prev, [item.id]: v })); setCardFault(prev => (prev[item.id] ? { ...prev, [item.id]: null } : prev)); }} disabled={submitting} style={{ ...inputSt, fontSize: 12 }}>
-                <option value="">{tr("No owner yet")}</option>
-                {owners.map(o => <option key={o.id} value={o.id}>{o.name}{o.role ? ", " + roleWord(o.role) : ""}</option>)}
-              </select>
+              <SearchPick id={"ocsa-inspect-owner-" + item.id} name={"inspect-owner-" + item.id} rows={owners.map(o => ({ id: o.id, name: o.name, sub: o.role ? roleWord(o.role) : "" }))} value={ownerOf[item.id] || ""} onPick={(v) => { setOwnerOf(prev => ({ ...prev, [item.id]: v })); setCardFault(prev => (prev[item.id] ? { ...prev, [item.id]: null } : prev)); }} none={tr("No owner yet")} empty={tr("No owner yet")} noMatch={tr("No one matches that name.")} disabled={submitting} t={t} />
             </div>
           )}
           <input value={notes[item.id] || ""} onChange={e => { const v = e.target.value; setNotes(prev => ({ ...prev, [item.id]: v })); if (missingNote[item.id] && v.trim()) setMissingNote(prev => ({ ...prev, [item.id]: false })); if (cardFault[item.id] && v.trim()) setCardFault(prev => ({ ...prev, [item.id]: null })); }} placeholder={fix || finding ? tr("Say what needs fixing") : tr("Notes for this item (optional)")} aria-invalid={!!missingNote[item.id] || !!cardFault[item.id]} style={{ ...inputSt, fontSize: 12, marginBottom: 8, ...(missingNote[item.id] || cardFault[item.id] ? { border: "1px solid " + RED } : {}) }} />
