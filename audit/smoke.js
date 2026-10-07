@@ -165,8 +165,8 @@ const fs = require("fs");
 const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
-const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT } = require("./stub");
+const { createStub, servedFor, ADMIN_PERSON, PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_NOTICE, DRAFT_NOTICE } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -475,6 +475,42 @@ async function sds(browser, language) {
 // reload, Change PIN with a wrong current PIN, and a first supply request
 // on an empty list. Then with a stored session: a 502 at boot, and the
 // supply label's page on a PIN the person was given.
+// Activating from the welcome email (Step 294), against API Step 292 as
+// its contract gives it and the stub answers it: the link answers
+// badgeAssigned false, so no badge box; a weak PIN is refused on the
+// phone in Change PIN's words with nothing sent; a good PIN activates
+// once, with no badge number, and signs in.
+async function activateWelcome(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const app = await open({ accountPreferences: { language: language, textSize: "standard" } }, { browser, language, width, path: "/activate?token=fixture" });
+  const page = app.page;
+  const up = await waitFor(page, (w) => !!document.querySelectorAll('input[type="password"]')[1] && document.body.innerText.indexOf(w) !== -1, say(language, "Choose your 4-digit PIN and pick your language."));
+  const noBadge = up && await page.evaluate((w) => !Array.from(document.querySelectorAll("input")).some(i => i.placeholder === w.box) && !Array.from(document.querySelectorAll("label")).some(l => l.innerText.trim().toUpperCase() === w.label.toUpperCase()), { box: say(language, "Badge number"), label: say(language, "Badge Number") });
+  const pins = async (pin) => { const boxes = await page.$$('input[type="password"]'); await boxes[0].fill(pin); await boxes[1].fill(pin); };
+  let weak = false, weakNotSent = false, inNow = false;
+  if (up) {
+    await pins("1234");
+    await clickWord(page, say(language, "Activate Account"));
+    weak = await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Choose a PIN that is not repeated digits, a sequence, or your badge number"));
+    // The badge number the link's GET answers, refused the same way.
+    await pins(PERSON.badgeNumber);
+    await clickWord(page, say(language, "Activate Account"));
+    await pause(page, TAP_SETTLE);
+    weak = weak && await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Choose a PIN that is not repeated digits, a sequence, or your badge number"));
+    weakNotSent = weak && app.stub.state.activations.length === 0;
+    await pins("4907");
+    await clickWord(page, say(language, "Activate Account"));
+    inNow = await waitFor(page, BAR_JS + ".length >= 5", null, 10000);
+  }
+  const sent = app.stub.state.activations;
+  const once = sent.length === 1 && sent[0].pin === "4907" && sent[0].token === "fixture" && !("badgeNumber" in sent[0]) && sent[0].locale === language;
+  const wide = await sideways(page);
+  check("activating from the welcome email: the link opens with no badge box, a weak PIN and the badge number are refused on the phone in Change PIN's words with nothing sent, and a good PIN activates once with no badge number and signs in" + tag,
+    up && noBadge && weak && weakNotSent && inNow && once && wide <= 1 && app.errors.length === 0,
+    !up ? "the activation screen did not read its welcome line" : !noBadge ? "a badge box showed" : !weak ? "the weak PIN was not refused on the phone" : !weakNotSent ? "the weak PIN was sent" : !inNow ? "the good PIN did not sign in" : !once ? JSON.stringify(sent) : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+  await app.context.close();
+}
+
 async function signInClosed(browser, language, width) {
   const tag = " (" + language + ", " + width + " wide)";
   const app = await open({ person: ADMIN_PERSON, secondStep: true, supplyItems: true, supplyEmpty: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, width });
@@ -1596,18 +1632,29 @@ async function supplyLines(browser, language, width) {
   }, { approved: say(language, "Approved {n} of {m}", { n: 3, m: 5 }), denied: say(language, "Denied"), note: say(language, "Note: {note}", { note: SUPPLY_DENY_NOTE }), qty: say(language, "Quantity: {n}", { n: 5 }) + " rolls" });
   let lines = false, three = false, listed = false, refused = false, capped = false, damage = false, wide = 0;
   if (decided) { await formOpen("Refill"); lines = await waitFor(page, () => !!document.querySelector('[data-supply-lines="1"] [data-supply-line-supply="0"]') && !!document.querySelector("[data-supply-add]")); }
+  // Each item's supply is picked once its picker draws all four of the
+  // list's rows, as the searchable pickers check waits (Step 294): on a
+  // slow phone with both lanes running, a tap made before the list had
+  // drawn picked nothing, and Submit Request posted no refill.
+  let picked = 0;
+  const pickSupply = async (i, id) => {
+    const scope = '[data-supply-line-supply="' + i + '"]';
+    await waitFor(page, (s) => document.querySelectorAll(s + " [data-pick-row]").length === 4, scope);
+    if (await pickIn(page, scope, id)) picked += 1;
+  };
   if (lines) {
     for (let i = 0; i < 3; i += 1) await page.click("[data-supply-add]");
+    await waitFor(page, () => !!document.querySelector('[data-supply-lines="4"]'));
     const more = say(language, "One more");
-    await pickIn(page, '[data-supply-line-supply="0"]', "sup-1");
+    await pickSupply(0, "sup-1");
     await page.click('[data-supply-line="0"] [aria-label="' + more + '"]');
     await page.click('[data-supply-line="0"] [aria-label="' + more + '"]');
-    await pickIn(page, '[data-supply-line-supply="1"]', "sup-2");
+    await pickSupply(1, "sup-2");
     await page.fill('[data-supply-line-qty="1"]', "7");
-    await pickIn(page, '[data-supply-line-supply="2"]', "sup-3");
+    await pickSupply(2, "sup-3");
     await page.fill('[data-supply-line-qty="2"]', "12");
     await page.fill('[data-supply-line-note="2"]', "Invented: the large ones.");
-    await pickIn(page, '[data-supply-line-supply="3"]', "sup-4");
+    await pickSupply(3, "sup-4");
     wide = await sideways(page);
     await page.click('[data-supply-line-remove="1"]');
     three = await waitFor(page, () => !!document.querySelector('[data-supply-lines="3"]'));
@@ -1648,8 +1695,8 @@ async function supplyLines(browser, language, width) {
   const damageSent = dmg.length === 1 && dmg[0].supplyId === "sup-2" && dmg[0].itemName === "Invented hand soap" && !("items" in dmg[0]);
   await app.context.close();
   check("A supply request with many items: My requests reads Approved 3 of 5 and Denied with the office's note; Refill takes four items, one is removed, and Submit Request posts the three once as items in order with their quantities and note, which My requests then lists; New Gear's refusal naming items.0.itemName reads under that item's name; the 31st item is refused on the phone; Damage Report posts one supply and no items, as before; with no sideways scroll" + tag,
-    decided && lines && three && listed && sentOnce && refused && capped && damage && damageSent && all.length === 3 && wide <= 1 && app.errors.length === 0,
-    !decided ? "My requests did not read the decided request" : !lines ? "Refill did not offer items" : !three ? "removing an item did not leave three" : !listed ? "My requests did not list the new request's three items" : !sentOnce ? JSON.stringify(refill) : !refused ? "the refusal did not read under the item's name" : !capped ? "the 31st item was not refused on the phone" : !damage ? "the damage report did not go" : !damageSent ? JSON.stringify(dmg) : all.length !== 3 ? all.length + " posts" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+    decided && lines && picked === 4 && three && listed && sentOnce && refused && capped && damage && damageSent && all.length === 3 && wide <= 1 && app.errors.length === 0,
+    !decided ? "My requests did not read the decided request" : !lines ? "Refill did not offer items" : picked !== 4 ? "only " + picked + " of the four supplies were picked" : !three ? "removing an item did not leave three" : !listed ? "My requests did not list the new request's three items" : !sentOnce ? JSON.stringify(refill) : !refused ? "the refusal did not read under the item's name" : !capped ? "the 31st item was not refused on the phone" : !damage ? "the damage report did not go" : !damageSent ? JSON.stringify(dmg) : all.length !== 3 ? all.length + " posts" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
 }
 
 // The supply page (Step 252): signed out, the sheet in the page and Sign
@@ -1902,6 +1949,153 @@ async function supplyPage(browser, language) {
   await app.context.close();
 }
 
+// Inspections on the schedule (Step 296), against API Step 295 as its
+// contract gives it and the stub answers it, for a supervisor, whom the
+// API answers every site's inspections: their own on the day of their
+// shift is drawn on the week and the month, and as a row on the day's
+// sheet beside the shift, which opens it on Inspect; their cancelled one
+// and someone else's are not drawn; the bell's notice opens it too.
+async function scheduleInspections(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const person = Object.assign({}, ADMIN_PERSON, { id: "u-smoke-sup", firstName: "Riley", lastName: "Example", role: "supervisor", badgeNumber: "4801", phone: "0000000008", email: "riley@example.invalid" });
+  const app = await open({ person: person, scheduleInspections: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  const name = SCHED_INSPECTIONS(person)[0].template_name;
+  const opened = () => waitFor(page, () => !!document.querySelector('[data-inspect-item="is-1"]') && !!document.querySelector('[data-inspect-item="is-2"]'));
+  const inBar = await waitFor(page, BAR_JS + ".length >= 5");
+  if (inBar) await openPlace(page, say(language, "Schedule"));
+  const week = inBar && await waitFor(page, () => !!document.querySelector('[data-schedule-inspection="in-s1"]'));
+  const notDrawn = week && await page.evaluate(() => !document.querySelector('[data-schedule-inspection="in-s2"]') && !document.querySelector('[data-schedule-inspection="in-s3"]'));
+  let month = false, sheet = false, rowOpens = false, belled = false;
+  if (week) {
+    await tapWord(page, say(language, "Month"));
+    month = await waitFor(page, () => !!document.querySelector('[data-schedule-inspection-dot="2026-10-02"]') && !document.querySelector('[data-schedule-inspection-dot="2026-10-03"]'));
+    // Week keeps the month's first week; Today comes back to this one.
+    await tapWord(page, say(language, "Week"));
+    await tapWord(page, say(language, "Today"));
+    await waitFor(page, () => !!document.querySelector('[data-schedule-inspection="in-s1"]'));
+    await page.evaluate(() => { const c = document.querySelector('[data-schedule-inspection="in-s1"]'); const b = c && c.closest("button"); if (b) b.click(); });
+    sheet = await waitFor(page, (w) => {
+      const d = document.querySelector('[role="dialog"]');
+      const r = d && d.querySelector('[data-schedule-inspection-row="in-s1"]');
+      const up = (x) => x.innerText.toUpperCase();
+      return !!r && r.innerText.indexOf(w.name) !== -1 && up(r).indexOf(w.kind.toUpperCase()) !== -1 && up(d).indexOf(w.shift.toUpperCase()) !== -1 && !d.querySelector('[data-schedule-inspection-row="in-s2"]') && !d.querySelector('[data-schedule-inspection-row="in-s3"]');
+    }, { name: name, kind: say(language, "Inspection"), shift: say(language, "Scheduled Shift") });
+    if (sheet) { await page.click('[data-schedule-inspection-row="in-s1"]'); rowOpens = await opened(); }
+  }
+  if (inBar) {
+    // Home, then the bell's notice about the same inspection.
+    await tapBar(page, 0);
+    await page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
+    if (await waitFor(page, (w) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.indexOf(w) !== -1), SCHED_NOTICE.title)) {
+      await page.evaluate((w) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.indexOf(w) !== -1); if (b) b.click(); }, SCHED_NOTICE.title);
+      belled = await opened();
+    }
+  }
+  const wide = await sideways(page);
+  check("Inspections on the schedule: a supervisor's own inspection is drawn on the week and the month, and as an Inspection row on the day's sheet beside the shift, which opens it on Inspect; a cancelled one and someone else's are not drawn; the bell's notice opens it too; with no sideways scroll" + tag,
+    week && notDrawn && month && sheet && rowOpens && belled && wide <= 1 && app.errors.length === 0,
+    !week ? "no Inspection chip on the week" : !notDrawn ? "the cancelled one or someone else's was drawn" : !month ? "the month did not mark the day, or marked someone else's" : !sheet ? "the day's sheet did not hold the Inspection row beside the shift" : !rowOpens ? "the row did not open the inspection" : !belled ? "the notice did not open the inspection" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+  await app.context.close();
+}
+
+// One place to work an issue (Step 297), against API Step 298 as its
+// contract gives it and the stub answers it. A supervisor's Issues: a row
+// opens its sheet, and the one assigned to them reads Assigned to you. A
+// cleaner's Assigned: a task, an issue assigned as a task and a finding
+// that is also a task, each listed once; the issue resolved from its
+// sheet with a note and a photo through its task, and gone from Assigned;
+// and the bell's notice about an issue opening its sheet.
+const sheetOpen = (page, id) => waitFor(page, (i) => { const d = document.querySelector('[data-issue-sheet="' + i + '"]'); return !!d && !!d.querySelector("#ocsa-issue-sheet-title") && d.querySelector("#ocsa-issue-sheet-title").innerText.trim() !== ""; }, id);
+async function issueSheet(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const sup = Object.assign({}, ADMIN_PERSON, { id: "u-smoke-sup", firstName: "Riley", lastName: "Example", role: "supervisor", badgeNumber: "4801", phone: "0000000008", email: "riley@example.invalid" });
+  const boss = await open({ person: sup, issueSheet: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  let rowOpens = false, marked = false;
+  if (await waitFor(boss.page, BAR_JS + ".length >= 5")) {
+    await openPlace(boss.page, say(language, "Issues"));
+    marked = await waitFor(boss.page, (w) => { const r = document.querySelector('[data-issue-row="iss-a1"] [data-issue-mine]'); return !!r && r.innerText.toUpperCase() === w.toUpperCase() && !document.querySelector('[data-issue-row="iss-b2"] [data-issue-mine]'); }, say(language, "Assigned to you"));
+    if (marked) { await boss.page.click('[data-issue-row="iss-b2"]'); rowOpens = await sheetOpen(boss.page, "iss-b2"); }
+  }
+  const bossErrors = boss.errors.slice();
+  await boss.context.close();
+
+  const app = await open({ issueSheet: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  let once = false, resolved = false, gone = false, belled = false;
+  if (await waitFor(page, BAR_JS + ".length >= 5")) {
+    await tapMore(page, say(language, "Assigned"));
+    once = await waitFor(page, () => {
+      const keys = Array.from(document.querySelectorAll("[data-work-row]")).map(r => r.getAttribute("data-work-row"));
+      return keys.length === 3 && keys.filter(k => k === "issue:fnd-9").length === 1 && keys.indexOf("issue:iss-a1") !== -1 && keys.indexOf("task:at-1") !== -1 && document.querySelector('[data-work-row="issue:fnd-9"]').getAttribute("data-work-kind") === "finding";
+    });
+    if (once) {
+      await page.click('[data-work-row="issue:iss-a1"]');
+      if (await sheetOpen(page, "iss-a1") && await waitFor(page, () => !!document.querySelector('[data-issue-sheet="iss-a1"] [data-issue-action="resolve"]'))) {
+        await page.click('[data-issue-sheet="iss-a1"] [data-issue-action="resolve"]');
+        await waitFor(page, () => !!document.querySelector('[data-issue-sheet="iss-a1"] textarea'));
+        await page.fill('[data-issue-sheet="iss-a1"] textarea', "Tightened the trap and dried the floor, invented.");
+        const jpg = await page.evaluate(async () => { const c = document.createElement("canvas"); c.width = 400; c.height = 300; const x = c.getContext("2d"); x.fillStyle = "#3a7"; x.fillRect(0, 0, 400, 300); const b = await new Promise(r => c.toBlob(r, "image/jpeg", 0.9)); const a = new Uint8Array(await b.arrayBuffer()); let s = ""; a.forEach(v => { s += String.fromCharCode(v); }); return btoa(s); });
+        await page.setInputFiles('[data-issue-sheet="iss-a1"] input[type="file"]', { name: "fixed.jpg", mimeType: "image/jpeg", buffer: Buffer.from(jpg, "base64") });
+        await waitFor(page, () => !!document.querySelector('[data-issue-sheet="iss-a1"] img'));
+        await page.click('[data-issue-send="resolve"]');
+        resolved = await waitFor(page, () => !document.querySelector("[data-issue-sheet]"));
+        gone = resolved && await waitFor(page, () => !document.querySelector('[data-work-row="issue:iss-a1"]') && !!document.querySelector('[data-work-row="task:at-1"]'));
+      }
+    }
+    // The bell's notice about an issue reported at the site.
+    await page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
+    if (await waitFor(page, (w) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.indexOf(w) !== -1), SHEET_NOTICE.title)) {
+      await page.evaluate((w) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.indexOf(w) !== -1); if (b) b.click(); }, SHEET_NOTICE.title);
+      belled = await sheetOpen(page, "iss-b2");
+    }
+  }
+  const calls = app.stub.state.sheetCalls;
+  const sent = calls.length === 1 && calls[0].route === "task" && calls[0].taskId === "at-iss-a1" && calls[0].body.resolutionStatus === "resolved" && calls[0].body.resolutionNote === "Tightened the trap and dried the floor, invented." && !!calls[0].body.photoUrl;
+  const wide = await sideways(page);
+  check("One place to work an issue: a supervisor's Issues row opens its sheet and the one assigned to them reads Assigned to you; Assigned lists a task, an issue and a finding each once; the issue resolved from its sheet with a note and a photo through its task is gone from Assigned; the bell's notice opens the issue's sheet; with no sideways scroll" + tag,
+    marked && rowOpens && once && resolved && gone && sent && belled && wide <= 1 && app.errors.length === 0 && bossErrors.length === 0,
+    !marked ? "Issues did not mark the supervisor's own" : !rowOpens ? "the Issues row did not open its sheet" : !once ? "Assigned did not list each once" : !resolved ? "the sheet did not resolve" : !gone ? "the resolved issue stayed on Assigned" : !sent ? JSON.stringify(calls) : !belled ? "the notice did not open the sheet" : wide > 1 ? wide + " pixels sideways" : (app.errors[0] || bossErrors[0]));
+  await app.context.close();
+}
+
+// Unfinished forms you can see (Step 297): Home's card names the
+// person's draft and opens it; Save and finish later saves the answer,
+// closes the form and says a reminder comes; and the reminder's notice
+// opens the draft.
+async function unfinishedForms(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const app = await open({ unfinishedForms: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  const patches = () => app.stub.state.calls.filter(c => c.method === "PATCH" && c.path === "/api/forms/drafts/draft-one");
+  let card = false, opened = false, saved = false, closed = false, said = false, reminded = false;
+  if (await waitFor(page, BAR_JS + ".length >= 5")) {
+    card = await waitFor(page, (w) => { const c = document.querySelector('[data-unfinished-card="home"]'); return !!c && c.innerText.indexOf(w) !== -1 && !!c.querySelector('[data-unfinished-row="draft-one"]'); }, say(language, "Unfinished forms ({n})", { n: 1 }));
+    if (card) {
+      await page.click('[data-unfinished-row="draft-one"]');
+      opened = await waitFor(page, () => !!document.querySelector("[data-form-later]") && !!document.querySelector('.sp-content input[type="text"]'));
+    }
+    if (opened) {
+      await page.fill('.sp-content input[type="text"]', "The loading dock, invented.");
+      await page.click("[data-form-later]");
+      closed = await waitFor(page, () => !document.querySelector("[data-form-later]"));
+      said = await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Saved. You will get a reminder until it is sent."));
+      saved = patches().length === 1 && !!patches()[0].body && !!patches()[0].body.answers && patches()[0].body.answers.where === "The loading dock, invented.";
+    }
+    await tapBar(page, 0);
+    await page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
+    if (await waitFor(page, (w) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.indexOf(w) !== -1), DRAFT_NOTICE.title)) {
+      await page.evaluate((w) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.indexOf(w) !== -1); if (b) b.click(); }, DRAFT_NOTICE.title);
+      reminded = await waitFor(page, () => !!document.querySelector("[data-form-later]"));
+    }
+  }
+  const wide = await sideways(page);
+  check("Unfinished forms you can see: Home's card names the person's draft and opens it; Save and finish later saves the answer once, closes the form and says a reminder comes; the reminder's notice opens the draft; with no sideways scroll" + tag,
+    card && opened && saved && closed && said && reminded && wide <= 1 && app.errors.length === 0,
+    !card ? "Home did not show Unfinished forms (1)" : !opened ? "the row did not open the draft" : !closed ? "the form did not close" : !saved ? JSON.stringify(patches().map(c => c.body)) : !said ? "the reminder line was not said" : !reminded ? "the notice did not open the draft" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+  await app.context.close();
+}
+
 // The Largest text size on a narrow phone: no control cut off or covered.
 async function largest(browser) {
   const app = await open({ accountPreferences: { language: "en", textSize: "largest" } }, { browser, language: "en", textSize: "largest", signedIn: true, width: 360 });
@@ -1930,6 +2124,11 @@ async function largest(browser) {
       await guard("/sds (en)", () => sds(browser, "en"));
       await guard("sign-in made simple and closed (en)", () => signInClosed(browser, "en", 390));
       await guard("sign-in made simple and closed (es)", () => signInClosed(browser, "es", 320));
+      for (const language of ["en", "es"]) await guard("activating from the welcome email (" + language + ")", () => activateWelcome(browser, language, 390));
+      await guard("one place to work an issue (en)", () => issueSheet(browser, "en", 390));
+      await guard("one place to work an issue (es)", () => issueSheet(browser, "es", 320));
+      await guard("unfinished forms (en)", () => unfinishedForms(browser, "en", 390));
+      await guard("unfinished forms (es)", () => unfinishedForms(browser, "es", 320));
       for (const language of ["en", "es"]) await guard("the workspace (" + language + ")", () => supervisor(browser, language));
       for (const language of ["en", "es"]) await guard("007 on the customer page (" + language + ")", () => customerAsks(browser, language));
       for (const language of ["en", "es"]) await guard("006 on the customer page (" + language + ")", () => customerWalk(browser, language));
@@ -1963,6 +2162,8 @@ async function largest(browser) {
       await guard("searchable pickers (es)", () => pickers(browser, "es", 320));
       await guard("App support (en)", () => appSupport(browser, "en", 390));
       await guard("App support (es)", () => appSupport(browser, "es", 320));
+      await guard("inspections on the schedule (en)", () => scheduleInspections(browser, "en", 390));
+      await guard("inspections on the schedule (es)", () => scheduleInspections(browser, "es", 320));
     };
     await Promise.all([laneA(), laneB()]);
   } finally {

@@ -82,7 +82,6 @@
 **Customer Complaint Log** (**Registro de quejas de clientes**) (**Registre des plaintes des clients**)
 **The complaint** (**La queja**) (**La plainte**)
 **Type and urgency** (**Tipo y urgencia**) (**Type et urgence**)
-**What was done** (**Lo que se hizo**) (**Ce qui a \u00e9t\u00e9 fait**)
 **Complaint closed** (**Queja cerrada**) (**Plainte cl\u00f4tur\u00e9e**)
 
 # Served by the API: the words of the form Safety Inspection Checklist, drawn as the

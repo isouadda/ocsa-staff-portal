@@ -400,8 +400,6 @@ Take Photo of Completed Task,Tomar foto de la tarea completada,Prendre une photo
 Task,Tarea,Tâche,Assigned
 What did you do to complete this? *,¿Qué hizo para completarla? *,Qu'avez-vous fait pour la terminer ? *,Assigned
 "When a supervisor assigns a task to you, it will appear here.","Cuando un supervisor le asigne una tarea, aparecerá aquí.","Quand un superviseur vous assigne une tâche, elle apparaît ici.",Assigned
-{n} task assigned to you,{n} tarea asignada a usted,{n} tâche vous est assignée,Assigned
-{n} tasks assigned to you,{n} tareas asignadas a usted,{n} tâches vous sont assignées,Assigned
 Unable to resolve,Sin resolver,Non résolue,Assigned
 Medium,Media,Moyenne,"Assigned, Report"
 Critical,Crítica,Critique,Assigned
@@ -672,7 +670,6 @@ Supply requests,Pedidos de suministros,Demandes de fournitures,"Phone alerts, a 
 Problems reported,Problemas reportados,Problèmes signalés,"Phone alerts, a switch"
 Forms filed,Formularios presentados,Formulaires envoyés,"Phone alerts, a switch"
 Announcements from the office always come through.,Los anuncios de la oficina siempre llegan.,Les annonces du bureau arrivent toujours.,"Phone alerts, under the switches"
-Get an alert when someone messages you?,¿Quiere recibir una alerta cuando alguien le escriba?,Recevoir une alerte quand quelqu'un vous écrit ?,The card after sign-in
 Turn on,Activar,Activer,The card after sign-in
 Your settings did not save.,Sus ajustes no se guardaron.,Vos paramètres n'ont pas été enregistrés.,"Phone alerts, a save that failed"
 Enter your current 4-digit PIN.,Escriba su PIN actual de 4 dígitos.,Entrez votre code PIN actuel à 4 chiffres.,Settings
@@ -930,7 +927,7 @@ Next service {date},Próximo mantenimiento el {date},Prochain entretien le {date
 No service date,Sin fecha de mantenimiento,Aucune date d'entretien,"Field kit, Equipment"
 "Last: {what}, {when}","Último: {what}, {when}","Dernier : {what}, {when}","Field kit, Awaiting review"
 No inspection at this site is waiting for review.,Ninguna inspección de este sitio espera revisión.,Aucune inspection de ce site n'attend de vérification.,"Field kit, Awaiting review"
-Inspection,Inspección,Inspection,"Field kit, Awaiting review"
+Inspection,Inspección,Inspection,"Field kit, Awaiting review; My Schedule and Home's week, an inspection assigned to you"
 "{score} of {max}, {pct}%","{score} de {max}, {pct} %","{score} sur {max}, {pct} %","Field kit, Awaiting review"
 This inspection did not open. Try again.,Esta inspección no se abrió. Intente de nuevo.,Cette inspection ne s'est pas ouverte. Réessayez.,"Field kit, Awaiting review"
 Read only. Only the review lines can be signed here.,Solo lectura. Aquí solo se pueden firmar las líneas de revisión.,Lecture seule. Seules les lignes de vérification peuvent être signées ici.,"Field kit, Awaiting review"
@@ -1226,3 +1223,23 @@ Ticket for App support,Reporte para Soporte de la aplicación,Ticket pour l'assi
 Sent to App support. You can follow it under My tickets.,Enviado a Soporte de la aplicación. Puede seguirlo en Mis reportes.,Envoyé à l'assistance de l'application. Suivez-le dans Mes tickets.,"Help, the ticket card after it is sent"
 Can't sign in? Email {email},¿No puede iniciar sesión? Escriba a {email},Impossible de vous connecter ? Écrivez à {email},"Sign in, under Sign In; the email is App support's contact"
 PTO (paid time off),PTO (tiempo libre pagado),PTO (congé payé),"Schedule, Request time off, a type; My time off"
+Choose your 4-digit PIN and pick your language.,Elija su PIN de 4 dígitos y su idioma.,Choisissez votre code PIN à 4 chiffres et votre langue.,"Account Activation, from the welcome email, when no badge is asked"
+"4 digits. Not all the same, not in a row like 1234, and not your badge number.","4 dígitos. No todos iguales, no seguidos como 1234 y no su número de empleado.","4 chiffres. Pas tous identiques, pas à la suite comme 1234, et pas votre numéro de badge.","Account Activation, under PIN (4 digits)"
+Get an alert when someone messages you or assigns you an inspection?,¿Quiere recibir una alerta cuando alguien le escriba o le asigne una inspección?,Recevoir une alerte quand quelqu'un vous écrit ou vous attribue une inspection ?,The card after sign-in
+This inspection was cancelled.,Esta inspección se canceló.,Cette inspection a été annulée.,"Inspect, an inspection opened from the schedule or a notice"
+This inspection is already done.,Esta inspección ya está hecha.,Cette inspection est déjà faite.,"Inspect, an inspection opened from the schedule or a notice"
+This inspection is not on your list anymore.,Esta inspección ya no está en su lista.,Cette inspection n'est plus dans votre liste.,"Inspect, an inspection opened from the schedule or a notice"
+Assigned to you,Asignado a usted,Assigné à vous,"An issue's sheet, and Issues, on one assigned to you"
+{n} assigned to you,Asignados a usted: {n},Assignés à vous : {n},"Assigned, under its heading"
+Issue,Problema,Problème,"Assigned, the kind of a row"
+Inspection finding,Hallazgo de inspección,Constat d'inspection,"Assigned, the kind of a row; an issue's sheet"
+Client request,Solicitud de cliente,Demande de client,"Assigned, the kind of a row"
+Not assigned yet,Sin asignar todavía,Pas encore assigné,"An issue's sheet, under Assigned to"
+What was done,Lo que se hizo,Ce qui a été fait,"An issue's sheet, once it has a resolution"
+Reassign,Reasignar,Réattribuer,"An issue's sheet, for an admin or a supervisor"
+Assigned to {name}.,Asignado a {name}.,Attribué à {name}.,"An issue's sheet, after Assign"
+Escalated,Escalado,Remonté,An issue's status
+This issue did not load.,Este problema no se cargó.,Ce problème ne s'est pas chargé.,"An issue's sheet, when it does not load"
+Unfinished forms ({n}),Formularios sin terminar ({n}),Formulaires non terminés ({n}),"Home, the card of your unfinished forms"
+Save and finish later,Guardar y terminar después,Enregistrer et terminer plus tard,"Forms, a form, above Next"
+Saved. You will get a reminder until it is sent.,Guardado. Recibirá un recordatorio hasta que lo envíe.,Enregistré. Vous recevrez un rappel jusqu'à son envoi.,"Forms, after Save and finish later"

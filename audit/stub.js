@@ -622,6 +622,47 @@ const INSPECTION_LONG = {
 };
 // One on the list that the API no longer has when it is opened.
 const INSPECTION_GONE = { id: "in-gone", template_name: "Stairwell walk", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled", gone: true };
+// Step 296, against API Step 295 as its contract gives it, behind the
+// scheduleInspections switch: the person's own inspection on the day of
+// their shift, dated as the API sends a date column; one of theirs that
+// was cancelled; and one on the next day assigned to someone else, which
+// the API answers a supervisor too. Only the first is the person's to do.
+const SCHED_INSPECTIONS = (person) => [
+  { id: "in-s1", template_id: "tpl-s1", template_name: "Invented restroom walk", site_id: "site-north", site_name: "North Building", assigned_to: person.id, assigned_name: person.firstName + " " + person.lastName, scheduled_date: "2026-10-02T00:00:00.000Z", status: "scheduled", kind: "supervisor", formCode: "OCSA-FRM-001",
+    items: [
+      { id: "is-1", label: "Mirrors are free of streaks", zone: "Restroom", max_score: 5, cims_category: "SD" },
+      { id: "is-2", label: "Soap dispensers are full", zone: "Restroom", max_score: 5, cims_category: "SD" },
+    ] },
+  { id: "in-s2", template_id: "tpl-s2", template_name: "Invented lobby check", site_id: "site-north", site_name: "North Building", assigned_to: person.id, assigned_name: person.firstName + " " + person.lastName, scheduled_date: "2026-10-02T00:00:00.000Z", status: "cancelled", kind: "supervisor", formCode: "OCSA-FRM-001", items: [] },
+  { id: "in-s3", template_id: "tpl-s3", template_name: "Invented stairwell walk", site_id: "site-north", site_name: "North Building", assigned_to: "s-05", assigned_name: "Eve Everett", scheduled_date: "2026-10-03T00:00:00.000Z", status: "scheduled", kind: "supervisor", formCode: "OCSA-FRM-001", items: [] },
+];
+// The notice API Step 295 sends the person assigned, as the bell reads it.
+const SCHED_NOTICE = { id: "n-insp", subjectType: "inspection_assigned", subjectId: "in-s1", title: "Inspection at North Building on Oct 2", body: "You are assigned the Invented restroom walk. Scheduled by Jordan Office.", link: null, createdAt: "2026-10-01T20:10:00.000Z", readAt: null };
+// Step 297, against API Step 298 as its contract gives it, behind the
+// issueSheet switch: issues as GET /api/issues answers them (snake case),
+// for the person signed in: one reported at their site and assigned to
+// them as a task, one nobody has yet, and an inspection finding they own,
+// which the API also made a task. The tasks the assignments made sit on
+// GET /api/clock/tasks/assigned beside the plain one.
+const SHEET_ISSUES = (person) => [
+  { id: "iss-a1", site_id: "site-north", site_name: "North Building", title: "Invented leak under the sink", description: "Water on the floor by the second sink, invented.", zone: "Restroom", severity: "high", status: "in_progress", source: "staff",
+    reported_by: "s-02", reported_by_name: "Ben Brooks", reported_at: "2026-10-01T19:40:00.000Z", assigned_to: person.id, assigned_to_name: person.firstName + " " + person.lastName, linked_task_id: "at-iss-a1", due_at: null, due_state: null, resolution_notes: null },
+  { id: "iss-b2", site_id: "site-north", site_name: "North Building", title: "Invented loose handrail on the stairs", description: "The handrail on the east stairs moves, invented.", zone: "Stairwell", severity: "medium", status: "open", source: "staff",
+    reported_by: "s-05", reported_by_name: "Eve Everett", reported_at: "2026-10-01T21:05:00.000Z", assigned_to: null, assigned_to_name: null, linked_task_id: null, due_at: null, due_state: null, resolution_notes: null },
+  { id: "fnd-9", site_id: "site-north", site_name: "North Building", title: "Mirrors are free of streaks", description: "Streaks on the second mirror, invented.", zone: "Restroom", severity: "medium", status: "open", source: "inspection",
+    reported_by: "s-05", reported_by_name: "Eve Everett", reported_at: "2026-10-01T18:00:00.000Z", assigned_to: person.id, assigned_to_name: person.firstName + " " + person.lastName, linked_task_id: "at-fnd-9", due_at: "2026-10-04T18:00:00.000Z", due_state: "onTime", resolution_notes: null },
+];
+const SHEET_TASKS = [
+  { task_id: "at-iss-a1", label: "Issue: Invented leak under the sink", description: null, site_name: "North Building", site_id: "site-north", zone: null, priority: "standard", resolution_status: "pending", source_issue_id: "iss-a1", issue_id: "iss-a1", issue_title: "Invented leak under the sink", issue_description: "Water on the floor by the second sink, invented.", issue_zone: "Restroom", severity: "high", reported_by_name: "Ben Brooks", created_by_name: "Eve Everett", task_created_at: "2026-10-01T20:00:00.000Z" },
+  { task_id: "at-fnd-9", label: "Issue: Mirrors are free of streaks", description: null, site_name: "North Building", site_id: "site-north", zone: null, priority: "standard", resolution_status: "pending", source_issue_id: "fnd-9", issue_id: "fnd-9", issue_title: "Mirrors are free of streaks", issue_description: "Streaks on the second mirror, invented.", issue_zone: "Restroom", severity: "medium", reported_by_name: "Eve Everett", created_by_name: "Eve Everett", task_created_at: "2026-10-01T18:00:00.000Z" },
+];
+// Step 297, behind the unfinishedForms switch: the person's own draft of
+// the incident report, as GET /api/agent/drafts answers it, and the
+// reminder API Step 298 sends about it each morning.
+const DRAFT_MINE = (person) => ({ id: "draft-one", formCode: "OCSA-FIX-101", formName: "Incident report", status: "draft", answered: 0, remaining: 5, userId: person.id, createdAt: "2026-10-01T14:00:00.000Z" });
+const DRAFT_NOTICE = { id: "n-draft", subjectType: "form_draft", subjectId: "draft-one", title: "You have an unfinished Incident report", body: "Started Oct 1. Tap to pick up where you left off.", link: null, createdAt: "2026-10-01T12:00:00.000Z", readAt: null };
+// The notices about them: an issue reported at the person's site.
+const SHEET_NOTICE = { id: "n-iss", subjectType: "issue", subjectId: "iss-b2", title: "Issue reported at North Building", body: "Invented loose handrail on the stairs.", link: null, createdAt: "2026-10-01T21:06:00.000Z", readAt: null };
 
 // --- Help ----------------------------------------------------------------
 //
@@ -700,6 +741,16 @@ const cutInto = (text, n) => {
 // byte: auth.pinIncorrect, auth.pinUnchanged, auth.pinWeak and
 // auth.pinFormat. The API also answers PIN_UNCHANGED with
 // auth.pinSameAsGiven on a first PIN, which the portal never sends.
+// isWeakPin in the API's routes/auth.js: four of one digit, four digits
+// running up or down by one, or the badge number or its last four.
+function weakPin(pin, badge) {
+  const d = String(pin).split("").map(Number);
+  const same = d.every(x => x === d[0]);
+  const up = d.every((x, i) => i === 0 || x === d[i - 1] + 1);
+  const down = d.every((x, i) => i === 0 || x === d[i - 1] - 1);
+  const b = badge ? String(badge) : "";
+  return same || up || down || (!!b && (pin === b || pin === b.slice(-4)));
+}
 const PIN_REFUSALS = {
   PIN_INCORRECT: ["Current PIN is incorrect", "El PIN actual no es correcto"],
   PIN_UNCHANGED: ["New PIN must be different from your current PIN", "El PIN nuevo debe ser distinto de su PIN actual"],
@@ -841,6 +892,8 @@ function makeState(opts) {
     loginMisses: {},
     challenge: null,
     activationBadge: !!o.activationBadge,
+    // Step 294: every POST /api/auth/activate body, in order.
+    activations: [],
     // The smoke check's switches (Step 237, audit/smoke.js), each off
     // unless a case turns it on, so every other case is answered as
     // before. languages: the list GET /api/languages answers, and a call
@@ -903,12 +956,18 @@ function makeState(opts) {
     schedule: o.schedule || null,
     timeOffTypesLive: o.timeOffTypesLive !== false,
     myTimeOff: o.myTimeOff || [],
-    drafts: o.drafts || [],
+    drafts: o.drafts || (o.unfinishedForms ? [DRAFT_MINE(o.person || PERSON)] : []),
     // Every draft discarded, by id.
     discarded: [],
-    notifications: o.notifications || [],
+    notifications: o.notifications || [].concat(o.scheduleInspections ? [Object.assign({}, SCHED_NOTICE)] : []).concat(o.issueSheet ? [Object.assign({}, SHEET_NOTICE)] : []).concat(o.unfinishedForms ? [Object.assign({}, DRAFT_NOTICE)] : []),
+    // Step 297: the issues, the tasks they made, every resolve and assign
+    // sent, behind issueSheet.
+    issueSheet: o.issueSheet === true,
+    sheetIssues: o.issueSheet === true ? SHEET_ISSUES(o.person || PERSON) : [],
+    sheetTasks: o.issueSheet === true ? SHEET_TASKS.map(x => Object.assign({}, x)) : [],
+    sheetCalls: [],
     // Copied, since /complete marks one completed and the fixture is shared.
-    inspections: (o.inspections || []).map(i => Object.assign({}, i)),
+    inspections: (o.inspections || []).concat(o.scheduleInspections ? SCHED_INSPECTIONS(o.person || PERSON) : []).map(i => Object.assign({}, i)),
     // Step 145: every problem filed through POST /api/issues, in order.
     issues: [],
     // Step 255: an API with Step 253 built, which answers owners on the
@@ -2991,13 +3050,21 @@ function createStub(opts) {
     // saved language rides along when the account has one.
     const linkInfo = () => Object.assign({ firstName: state.person.firstName, expiresAt: iso(NOW.getTime() + 12 * 60 * 60 * 1000) },
       (state.accountPreferences && (state.accountPreferences.language === "en" || state.accountPreferences.language === "es")) ? { preferredLanguage: state.accountPreferences.language } : {});
-    if (method === "GET" && /^\/api\/auth\/activate\//.test(pathname)) return json(200, Object.assign(linkInfo(), { badgeAssigned: state.activationBadge }));
+    // API Step 292 answers badgeAssigned false for every link from the
+    // welcome email; activationBadge stands in for a link from before it.
+    if (method === "GET" && /^\/api\/auth\/activate\//.test(pathname)) return json(200, Object.assign(linkInfo(), { badgeNumber: state.person.badgeNumber, badgeAssigned: state.activationBadge }));
     // A link whose row carries a badge number turns away one that does
     // not match, with a code the screen reads and a sentence it does not.
+    // Since Step 292 the PIN passes change-pin's weak-PIN rule, refused
+    // in the same words, and every activation is kept to be read back.
     if (key === "POST /api/auth/activate") {
+      state.activations.push(body);
       if (state.activationBadge && body && body.badgeNumber && body.badgeNumber !== state.person.badgeNumber) {
         return json(400, { error: BADGE_MISMATCH[0], code: "BADGE_MISMATCH" });
       }
+      const pin = String((body && body.pin) || "");
+      if (!/^[0-9]{4}$/.test(pin)) return json(400, { error: PIN_REFUSALS.PIN_FORMAT[languageOf(search, state) === "es" ? 1 : 0], code: "PIN_FORMAT" });
+      if (weakPin(pin, state.person.badgeNumber)) return json(400, { error: PIN_REFUSALS.PIN_WEAK[languageOf(search, state) === "es" ? 1 : 0], code: "PIN_WEAK" });
       return json(200, { token: "token-one" });
     }
     if (method === "GET" && /^\/api\/auth\/reset\//.test(pathname)) return json(200, { firstName: state.person.firstName, expiresAt: linkInfo().expiresAt });
@@ -3034,7 +3101,7 @@ function createStub(opts) {
     if (key === "GET /api/clock/tasks/assigned") return json(200, [
       Object.assign({ task_id: "at-1", label: "Replace the cracked light cover", description: "Second floor corridor.", site_name: "North Building", building_name: "Main Hall", floor_number: "2", zone: "Corridor", priority: "high", cims_category: "SD", created_by_name: "A supervisor", task_created_at: iso(NOW.getTime() - DAY) },
         state.assignedDue ? { due_date: state.assignedDue } : {}),
-    ]);
+    ].concat(state.sheetTasks.filter(x => x.resolution_status === "pending" || x.resolution_status === "in_progress").map(x => Object.assign({}, x))));
     // A check needs no link, only an open session at the item's site, and
     // counts once a checklist day for each person. An uncheck takes back
     // this person's own check today and no one else's: with none of their
@@ -3056,7 +3123,23 @@ function createStub(opts) {
       state.completions = state.completions.filter(c => !(c.taskId === id && c.userId === state.person.id && checklistDay(atOf(c)) === today));
       return json(200, { message: "Task uncompleted" });
     }
-    if (method === "PATCH" && /^\/api\/clock\/tasks\/resolve\//.test(pathname)) return json(200, { ok: true });
+    // Step 297: resolving a task an issue made settles the issue too, as
+    // the API's route does; unable to resolve escalates it.
+    if (method === "PATCH" && /^\/api\/clock\/tasks\/resolve\//.test(pathname)) {
+      const task = state.sheetTasks.find(x => pathname === "/api/clock/tasks/resolve/" + x.task_id);
+      if (task) {
+        const b = body && typeof body === "object" ? body : {};
+        if (b.resolutionStatus === "resolved" && (!b.resolutionNote || !b.photoUrl)) return json(400, { error: "A note and a photo are required", code: "tasks.resolve.noteAndPhoto" });
+        state.sheetCalls.push({ route: "task", taskId: task.task_id, body: b });
+        task.resolution_status = b.resolutionStatus;
+        const issue = state.sheetIssues.find(i => i.id === task.source_issue_id);
+        if (issue) {
+          issue.status = b.resolutionStatus === "resolved" ? "resolved" : b.resolutionStatus === "unable_to_resolve" ? "escalated" : "in_progress";
+          if (b.resolutionNote) issue.resolution_notes = b.resolutionNote;
+        }
+      }
+      return json(200, { ok: true });
+    }
     if (key === "GET /api/shift-sessions/sites") return json(200, {
       scheduled: [{ siteId: "site-north", siteName: "North Building", address: "1 Example Way", city: "Philadelphia", buildingName: "Main Hall", floorNumber: "2" }],
       assigned: [{ siteId: "site-south", siteName: "South Building", address: "2 Example Way", city: "Philadelphia" }, { siteId: "site-west", siteName: "West Building", address: "3 Example Way", city: "Philadelphia" }],
@@ -4148,6 +4231,41 @@ function createStub(opts) {
     // Step 255: the findings the stub opened, listed as source inspection
     // to the person signed in, and resolved by their owner with the PATCH
     // the API as built takes ({ status, resolutionNotes }).
+    // Step 297, behind issueSheet: the list (source= as the API reads it),
+    // the single read with the actions the caller may take, the issue's
+    // own PATCH, and assign-as-task.
+    if (state.issueSheet && key === "GET /api/issues") {
+      const src = new URLSearchParams(search || "").get("source");
+      return json(200, state.sheetIssues.filter(i => !src || i.source === src).map(i => Object.assign({}, i)));
+    }
+    const sheetOne = state.issueSheet ? state.sheetIssues.find(i => pathname === "/api/issues/" + i.id) : null;
+    if (sheetOne && method === "GET") {
+      const i = sheetOne;
+      const mine = i.assigned_to === state.person.id;
+      const management = FK_MANAGEMENT.indexOf(state.person.role) !== -1;
+      const open = ["open", "in_progress", "escalated"].indexOf(i.status) !== -1;
+      const actions = [].concat(mine && open ? ["resolve", "cannotFinish"] : []).concat(management && open ? [i.assigned_to ? "reassign" : "assign"] : []);
+      return json(200, { issue: { id: i.id, siteId: i.site_id, siteName: i.site_name, title: i.title, description: i.description, zone: i.zone, severity: i.severity, status: i.status, source: i.source, reference: null,
+        reportedAt: i.reported_at, reportedBy: { id: i.reported_by, name: i.reported_by_name }, assignedTo: i.assigned_to ? { id: i.assigned_to, name: i.assigned_to_name } : null, dueAt: i.due_at, dueState: i.due_state,
+        resolutionNotes: i.resolution_notes, photos: [], canAssign: management, actions: actions } });
+    }
+    if (sheetOne && method === "PATCH") {
+      const b = body && typeof body === "object" ? body : {};
+      state.sheetCalls.push({ route: "issue", id: sheetOne.id, body: b });
+      if (b.status) sheetOne.status = b.status;
+      if (b.resolutionNotes) sheetOne.resolution_notes = b.resolutionNotes;
+      return json(200, { message: "Issue updated", code: "issues.updated" });
+    }
+    const assigning = state.issueSheet && method === "POST" ? /^\/api\/issues\/([^/]+)\/assign-as-task$/.exec(pathname) : null;
+    if (assigning) {
+      const i = state.sheetIssues.find(x => x.id === assigning[1]);
+      if (!i) return json(404, { error: "Issue not found", code: "issues.notFound" });
+      const b = body && typeof body === "object" ? body : {};
+      state.sheetCalls.push({ route: "assign", id: i.id, body: b });
+      const who = state.staff.concat([state.person]).find(p => String(p.id) === String(b.userId));
+      i.assigned_to = String(b.userId); i.assigned_to_name = who ? who.firstName + " " + who.lastName : "Someone"; i.status = "in_progress";
+      return json(200, { message: "Assigned", reassigned: false });
+    }
     if (state.findings && key === "GET /api/issues") {
       const q = new URLSearchParams(search || "");
       return json(200, q.get("source") === "inspection" ? state.findingRows.map(r => Object.assign({}, r)) : []);
@@ -4173,6 +4291,8 @@ function createStub(opts) {
     if (method === "POST" && /^\/api\/issues\/[^/]+\/photos$/.test(pathname)) {
       const finding = state.findings ? state.findingRows.find(r => pathname === "/api/issues/" + r.id + "/photos") : null;
       if (finding) { if (!body || !body.photoUrl) return json(400, { error: "Photo URL is required" }); finding.photos.push({ id: "fph-" + (finding.photos.length + 1), url: String(body.photoUrl) }); return json(201, { photo: { id: "fph-" + finding.photos.length, url: String(body.photoUrl) } }); }
+      const sheetIssue = state.sheetIssues.find(i => pathname === "/api/issues/" + i.id + "/photos");
+      if (sheetIssue) { state.sheetCalls.push({ route: "photo", id: sheetIssue.id, body: body }); return json(201, { photo: { id: "sph-1", url: String((body && body.photoUrl) || "") } }); }
       const issue = state.issues.find(i => pathname === "/api/issues/" + i.id + "/photos");
       if (!issue) return json(404, { error: "Issue not found" });
       if (!body || !body.photoUrl) return json(400, { error: "Photo URL is required" });
@@ -4188,7 +4308,14 @@ function createStub(opts) {
     if (key === "POST /api/supplies/requests") return json(200, { ok: true });
 
     // --- inspections
-    if (pathname === "/api/inspections/scheduled" && method === "GET") return json(200, state.inspections.filter(i => i.status !== "completed").map(i => Object.assign({}, i, { items: undefined, gone: undefined })));
+    // As the API answers it: ?status= is matched exactly, and anyone but
+    // an admin or a supervisor is answered only what is assigned to them
+    // (a row with no assignee stands in for the person's own).
+    if (pathname === "/api/inspections/scheduled" && method === "GET") {
+      const want = new URLSearchParams(search || "").get("status");
+      const everyone = state.person.role === "admin" || state.person.role === "supervisor";
+      return json(200, state.inspections.filter(i => i.status !== "completed" && (!want || i.status === want) && (everyone || i.assigned_to === undefined || i.assigned_to === state.person.id)).map(i => Object.assign({}, i, { items: undefined, gone: undefined })));
+    }
     // Step 145. Completing one the way the API does: scores required, a
     // second completion turned away, and the row marked completed.
     const completing = pathname.match(/^\/api\/inspections\/scheduled\/([^/]+)\/complete$/);
@@ -4423,7 +4550,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

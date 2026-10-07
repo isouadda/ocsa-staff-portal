@@ -14,6 +14,14 @@
 //
 //   npm run shots                     every picture
 //   npm run shots -- sign-in home     the pictures named
+//   npm run shots -- "<entry title>"  every picture of that entry
+//   npm run shots -- --seed           fills guide/shots-taken.json from git
+//
+// Each picture taken in both languages has the day it was taken written
+// to guide/shots-taken.json (Step 294), which npm run guide-check holds
+// each entry's Last checked: against. --seed gives every picture the file
+// does not have yet the day its older file was last committed, and takes
+// none: it seeded the file once, for the pictures already taken.
 //
 // A JPEG is at most 250 KB. One over it is written again at a lower
 // quality, and only below the lowest quality is it cut shorter from the
@@ -26,7 +34,10 @@ const { serve } = require("./serve");
 const { launch, openApp, letSheetOffer, ANDROID } = require("./browser");
 const { ADMIN_PERSON, TWIN_ES, SECOND_STEP_CODE, EQ_CODE, SUP_CODE, TRAINING_SESSION_SEED, SIGN_SEED, INSPECTION, INSPECTION_F, timeOffRow, formP, ANNOUNCEMENT } = require("./stub");
 
+const { execFileSync } = require("child_process");
 const ROOT = path.join(__dirname, "..");
+const TAKEN = path.join(ROOT, "guide", "shots-taken.json");
+const NO_PICTURE = path.join(ROOT, "guide", "no-picture.txt");
 const BUILD = path.join(ROOT, "build");
 const OUT = path.join(ROOT, "public", "guide-shots");
 const PORT = Number(process.env.SHOTS_PORT || 4797);
@@ -342,12 +353,13 @@ const SHOTS = [
     } },
   { name: "register", entry: E("Register as a new employee"), o: {},
     go: async (s) => { await s.waitText(s.say("Sign In")); await s.tap(s.say("New Employee? Register Here")); return s.waitText(s.say("Register")); } },
-  { name: "activate", entry: E("Activate your account from the email"), o: { path: "/activate?token=fixture", stub: { activationBadge: true } },
-    go: (s) => s.waitText(s.say("Activate Account")) },
+  // The link from the welcome email, which asks no badge (Step 294).
+  { name: "activate", entry: E("Activate your account from the email"), o: { path: "/activate?token=fixture" },
+    go: (s) => s.waitText([s.say("Activate Account"), s.say("Choose your 4-digit PIN and pick your language.")]) },
 
   // Home, and the shift.
-  { name: "home", entry: E("What Home shows"), o: { signedIn: true, stub: { requests: true, signatures: true } },
-    go: async (s) => { await s.hasBar(); return s.waitFor(() => !!document.querySelector("[data-request-card], [data-sign-card]")); } },
+  { name: "home", entry: E("What Home shows"), o: { signedIn: true, stub: { requests: true, signatures: true, unfinishedForms: true } },
+    go: async (s) => { await s.hasBar(); return s.waitFor(() => !!document.querySelector("[data-request-card], [data-sign-card]") && !!document.querySelector("[data-unfinished-card]")); } },
   { name: "start-shift", entry: E("Start your shift at a site"), o: { signedIn: true, stub: { clockedIn: false } },
     go: async (s) => { await s.hasBar(); return s.waitText(s.say("Choose a Site to Start")); } },
   { name: "end-shift", entry: E("End your shift"), o: { signedIn: true },
@@ -562,8 +574,18 @@ const SHOTS = [
     go: async (s) => { if (!(await s.go("Speak Up"))) return false; return s.waitText(s.say("What happened")); } },
 
   // The schedule and time off.
-  { name: "schedule", entry: E("See your schedule"), o: { signedIn: true },
-    go: async (s) => { if (!(await s.go("Schedule"))) return false; return s.waitText(s.say("My Schedule")); } },
+  // The week with an inspection assigned to the person on the day of
+  // their shift (Step 296), and that day's sheet with its row ringed.
+  { name: "schedule", entry: E("See your schedule"), o: { signedIn: true, stub: { scheduleInspections: true } },
+    go: async (s) => { if (!(await s.go("Schedule"))) return false; if (!(await s.waitText(s.say("My Schedule")))) return false; return s.waitFor(() => !!document.querySelector('[data-schedule-inspection="in-s1"]')); } },
+  { name: "schedule-inspection", entry: E("See your schedule"), o: { signedIn: true, stub: { scheduleInspections: true } },
+    go: async (s) => {
+      if (!(await s.go("Schedule"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-schedule-inspection="in-s1"]')))) return false;
+      await s.page.evaluate(() => { const c = document.querySelector('[data-schedule-inspection="in-s1"]'); const b = c && c.closest("button"); if (b) b.click(); });
+      if (!(await s.waitFor(() => !!document.querySelector('[role="dialog"] [data-schedule-inspection-row="in-s1"]')))) return false;
+      return s.mark('[data-schedule-inspection-row="in-s1"]');
+    } },
   { name: "drop-shift", entry: E("Request to drop a shift"), o: { signedIn: true },
     go: async (s) => {
       if (!(await s.go("Schedule"))) return false;
@@ -649,6 +671,19 @@ const SHOTS = [
     go: async (s) => { if (!(await openAssigned(s))) return false; await s.tap(s.say("Cannot Resolve")); return s.waitText(s.say("Submit")); } },
   // Step 281: a refill with two items, against an API that takes items,
   // and the person's own requests with the office's decisions.
+  // Step 297: Assigned with a task, an issue and a finding, each once;
+  // an issue's sheet opened from it; and Issues for a supervisor.
+  { name: "assigned-list", entry: E("See everything assigned to you"), o: { signedIn: true, stub: { issueSheet: true } },
+    go: async (s) => { if (!(await s.go("Assigned"))) return false; return s.waitFor(() => document.querySelectorAll("[data-work-row]").length === 3); } },
+  { name: "issue-sheet", entry: E("Work an issue from its sheet"), o: { signedIn: true, stub: { issueSheet: true } },
+    go: async (s) => {
+      if (!(await s.go("Assigned"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-work-row="issue:iss-a1"]')))) return false;
+      await s.page.click('[data-work-row="issue:iss-a1"]');
+      return s.waitFor(() => !!document.querySelector('[data-issue-sheet="iss-a1"] [data-issue-action="resolve"]'));
+    } },
+  { name: "issues-list", entry: E("See the issues reported at your sites"), o: { signedIn: true, stub: { issueSheet: true, person: SUPERVISOR } },
+    go: async (s) => { if (!(await s.go("Issues"))) return false; if (!(await s.waitFor(() => !!document.querySelector('[data-issue-row="iss-a1"] [data-issue-mine]')))) return false; await s.show(s.say("Issues")); return true; } },
   { name: "supply-request", entry: E("Request supplies or report damaged gear"), o: { signedIn: true, stub: { clockedIn: false, supplyItems: true } },
     go: async (s) => {
       if (!(await s.go("Supplies"))) return false;
@@ -807,6 +842,16 @@ const SHOTS = [
     } },
   { name: "form-leave", entry: E("Leave a form before sending it"), o: { signedIn: true },
     go: async (s) => { if (!(await sitePage(s, 1))) return false; await s.tap(s.say("Close")); return s.waitText(s.say("Keep filling")); } },
+  // Save and finish later at the foot of a form (Step 297), ringed.
+  { name: "form-save-later", entry: E("Leave a form before sending it"), o: { signedIn: true },
+    go: async (s) => { if (!(await sitePage(s, 1))) return false; if (!(await s.waitFor(() => !!document.querySelector("[data-form-later]")))) return false; return s.mark("[data-form-later]"); } },
+  // The morning reminder about an unfinished form, in the bell (Step 297).
+  { name: "form-reminder", entry: E("Get reminded to finish a form"), o: { signedIn: true, stub: { unfinishedForms: true } },
+    go: async (s) => {
+      await s.hasBar();
+      await s.page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
+      return s.waitText("You have an unfinished Incident report");
+    } },
 
   // The forms the guide names, each by its card on Forms.
   guideForm("form-daily-log", E("Fill in the daily service log"), "Daily Service Log", "Registro diario de servicio"),
@@ -831,19 +876,25 @@ async function openLadders(s) {
   return s.waitFor(() => { const i = document.querySelector('[data-lesson-block="image"] img'); return !!i && i.complete && i.naturalWidth > 0; });
 }
 
-// The guide's entries a picture cannot show, and why. The pull request
-// lists them, and npm run guide-check reads none of this.
-const LEFT_OUT = [
-  [E("What the daily service log asks: the shift, the areas and the tasks"), "the questions come from the API's form, which the stub does not hold, so a picture would show invented questions"],
-  [E("What the daily service log asks: equipment, work left, safety and site notes"), "the same"],
-  [E("What the monthly PPE check asks"), "the same"],
-  [E("What the safety inspection asks"), "the same"],
-  [E("What the corrective action report asks"), "the same"],
-  [E("What the environmental audit asks"), "the same"],
-  [E("What the PPE hazard assessment asks"), "the same"],
-  [E("What the safety committee minutes ask"), "the same"],
-  [E("Fill in a performance review with the employee"), "the review is filled on the admin dashboard, and the portal has no screen for it"],
-];
+// The guide's entries a picture cannot show, and why, from
+// guide/no-picture.txt (Step 294), one "<entry title> | <reason>" a line.
+// npm run guide-check holds the file to the guide.
+const LEFT_OUT = fs.readFileSync(NO_PICTURE, "utf8").split(/\r\n|\n/).map(l => l.trim()).filter(l => l && l[0] !== "#").map(l => { const at = l.indexOf(" | "); return [at === -1 ? l : l.slice(0, at).trim(), at === -1 ? "" : l.slice(at + 3).trim()]; });
+
+// The day each picture was taken, as YYYY-MM-DD on this machine's clock.
+const today = () => { const d = new Date(); const two = (n) => String(n).padStart(2, "0"); return d.getFullYear() + "-" + two(d.getMonth() + 1) + "-" + two(d.getDate()); };
+function readTaken() { try { const d = JSON.parse(fs.readFileSync(TAKEN, "utf8")); return d && typeof d === "object" && !Array.isArray(d) ? d : {}; } catch (e) { return {}; } }
+// Written in name order, keeping only the pictures the list still has.
+function writeTaken(days) {
+  const out = {};
+  Object.keys(days).filter(k => SHOTS.some(x => x.name === k)).sort().forEach((k) => { out[k] = days[k]; });
+  fs.writeFileSync(TAKEN, JSON.stringify(out, null, 2) + "\n");
+}
+// The day a picture's older file was last committed, or null.
+function committedDay(name) {
+  const days = LANGUAGES.map((lang) => { try { return execFileSync("git", ["log", "-1", "--format=%cs", "--", path.join("public", "guide-shots", name + "." + lang + ".jpg")], { cwd: ROOT, encoding: "utf8" }).trim(); } catch (e) { return ""; } });
+  return days.every(Boolean) ? days.sort()[0] : null;
+}
 
 // --- taking them
 
@@ -894,32 +945,48 @@ async function main() {
   if (strays.length > 0) { console.error("not an entry in the guide: " + strays.join("; ")); process.exit(1); }
   const bare = titles.filter(t => !SHOTS.some(x => x.entry === t) && !LEFT_OUT.some(x => x[0] === t));
   if (bare.length > 0) console.log("warning: no picture and no reason for: " + bare.join("; "));
+  if (process.argv.indexOf("--seed") !== -1) {
+    const days = readTaken();
+    let seeded = 0;
+    SHOTS.forEach((x) => { if (days[x.name]) return; const d = committedDay(x.name); if (d) { days[x.name] = d; seeded += 1; } });
+    writeTaken(days);
+    console.log("seeded " + seeded + " pictures in " + path.relative(ROOT, TAKEN));
+    return;
+  }
+  // A name, or an entry's title as the guide writes it (with or without
+  // " (staff portal)"), which takes every picture of that entry.
   const asked = process.argv.slice(2).filter(a => a && a[0] !== "-");
-  const unknown = asked.filter(a => !seen.has(a));
-  if (unknown.length > 0) { console.error("no picture named " + unknown.join(", ")); process.exit(1); }
-  const todo = asked.length > 0 ? SHOTS.filter(x => asked.indexOf(x.name) !== -1) : SHOTS;
+  const wanted = (x) => asked.indexOf(x.name) !== -1 || asked.indexOf(x.entry) !== -1 || asked.some(a => E(a) === x.entry);
+  const unknown = asked.filter(a => !seen.has(a) && !SHOTS.some(x => x.entry === a || x.entry === E(a)));
+  if (unknown.length > 0) { console.error("no picture or entry named " + unknown.join(", ")); process.exit(1); }
+  const todo = asked.length > 0 ? SHOTS.filter(wanted) : SHOTS;
   if (!fs.existsSync(path.join(BUILD, "index.html"))) { console.error("there is no build/: run npm run build first"); process.exit(1); }
   fs.mkdirSync(OUT, { recursive: true });
   const server = await serve(BUILD, PORT);
   const browser = await launch();
   let failed = 0;
   const started = Date.now();
+  const days = readTaken();
   try {
     for (const shot of todo) {
+      let both = true;
       for (const language of LANGUAGES) {
         try {
           const r = await takeOne(browser, shot, language);
           console.log("ok   " + shot.name + "." + language + ".jpg  " + r.kb + " KB, quality " + r.quality + (r.cut ? ", cut to " + r.cut + " high" : "") + (r.errors.length ? "  page error: " + r.errors[0] : ""));
-          if (r.errors.length) failed += 1;
+          if (r.errors.length) { failed += 1; both = false; }
         } catch (e) {
-          failed += 1;
+          failed += 1; both = false;
           console.log("FAIL " + shot.name + "." + language + ".jpg  " + String(e && e.message || e).split("\n")[0]);
         }
       }
+      // The day is written only for a picture taken whole, in both.
+      if (both) days[shot.name] = today();
     }
   } finally {
     await browser.close();
     server.close();
+    writeTaken(days);
   }
   console.log("\n" + todo.length + " pictures in " + LANGUAGES.length + " languages, " + failed + " failed, " + Math.round((Date.now() - started) / 1000) + " seconds");
   process.exit(failed ? 1 : 0);

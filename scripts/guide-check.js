@@ -21,6 +21,14 @@
 //     whose English or Spanish JPEG in public/guide-shots/ is missing,
 //     not a JPEG or over 250 KB, two entries naming the same picture,
 //     or a file in public/guide-shots/ that no entry names
+//   an entry's pictures are older than the entry (Step 294): its
+//     Last checked: is later than the day guide/shots-taken.json gives
+//     any of its pictures, or a picture it names has no day there; the
+//     failure names the command that takes the entry's pictures again,
+//     npm run shots -- "<entry title>"
+//   an entry names no picture and guide/no-picture.txt does not list its
+//     title with a reason, or that file lists a title the guide does not
+//     have, one with no reason, or one whose entry names a picture
 //
 // It warns, and does not fail, when a row in the CSV has no French.
 //
@@ -49,6 +57,12 @@ const PICTURE_LINE_RE = /^Picture:/;
 const PICTURE_RE = /^Picture: ([a-z0-9-]{1,60})$/;
 const SHOT_FILE_RE = /^([a-z0-9-]{1,60})\.([a-z]+)\.jpg$/;
 const ALLOW_FILE = path.join(root, "guide", "check-allow.txt");
+// The day each picture was taken (Step 294), written by npm run shots,
+// and the entries that have no picture, each with the reason.
+const TAKEN_FILE = path.join(root, "guide", "shots-taken.json");
+const NO_PICTURE_FILE = path.join(root, "guide", "no-picture.txt");
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const CHECKED_RE = /^Last checked: (\S+)/;
 const rel = (f) => path.relative(root, f).split(path.sep).join("/");
 const inActions = process.env.GITHUB_ACTIONS === "true";
 
@@ -172,7 +186,77 @@ function pictureFailures(guide, failures) {
       failures.push({ file: path.join(SHOTS_DIR, f), line: 1, text: m && SHOT_LANGUAGES.indexOf(m[2]) !== -1 ? "No entry names the picture " + m[1] + ". Add Picture: " + m[1] + " to its entry, or take the file off." : "Not a picture file. Each is " + SHOT_LANGUAGES.map(l => "<name>." + l + ".jpg").join(" or ") + "." });
     });
   }
+  pictureAge(guide, starts, failures);
   return named.size;
+}
+
+// The days npm run shots wrote, by picture name, or null when the file is
+// missing or does not read, which is a failure of its own.
+function takenDays(failures) {
+  if (!fs.existsSync(TAKEN_FILE)) { failures.push({ file: TAKEN_FILE, line: 1, text: rel(TAKEN_FILE) + " is missing. npm run shots writes it." }); return null; }
+  let days = null;
+  try { days = JSON.parse(fs.readFileSync(TAKEN_FILE, "utf8")); } catch (e) { days = null; }
+  if (!days || typeof days !== "object" || Array.isArray(days)) { failures.push({ file: TAKEN_FILE, line: 1, text: rel(TAKEN_FILE) + " does not read as one object of picture names and days." }); return null; }
+  Object.keys(days).forEach((k) => { if (!DAY_RE.test(String(days[k]))) failures.push({ file: TAKEN_FILE, line: 1, text: k + " has no day written YYYY-MM-DD." }); });
+  return days;
+}
+
+// The titles guide/no-picture.txt excuses, one a line, written
+// "<entry title> | <reason>"; a line starting # is a comment.
+function noPictureTitles(failures) {
+  const out = new Map();
+  if (!fs.existsSync(NO_PICTURE_FILE)) return out;
+  fs.readFileSync(NO_PICTURE_FILE, "utf8").split(/\r\n|\n/).forEach((raw, i) => {
+    const line = raw.trim();
+    if (!line || line[0] === "#") return;
+    const at = line.indexOf(" | ");
+    const title = at === -1 ? line : line.slice(0, at).trim();
+    const why = at === -1 ? "" : line.slice(at + 3).trim();
+    if (!why) { failures.push({ file: NO_PICTURE_FILE, line: i + 1, text: "Write the reason after the title: <entry title> | <reason>." }); return; }
+    if (out.has(title)) { failures.push({ file: NO_PICTURE_FILE, line: i + 1, text: "\"" + title + "\" is listed twice." }); return; }
+    out.set(title, i + 1);
+  });
+  return out;
+}
+
+// Step 294: every entry's pictures are at least as new as the entry, and
+// every entry has a picture or a reason it has none.
+function pictureAge(guide, starts, failures) {
+  const lines = guide.lines;
+  const days = takenDays(failures);
+  const excused = noPictureTitles(failures);
+  const titles = new Set();
+  starts.forEach((at, k) => {
+    const end = k + 1 < starts.length ? starts[k + 1] : lines.length;
+    const title = lines[at].replace(/^## /, "").trim();
+    titles.add(title);
+    const names = [];
+    let checked = null, checkedAt = at;
+    for (let i = at + 1; i < end; i += 1) {
+      const m = PICTURE_RE.exec(lines[i]);
+      if (m) names.push(m[1]);
+      const c = CHECKED_RE.exec(lines[i]);
+      if (c) { checked = c[1]; checkedAt = i; }
+    }
+    const retake = "npm run shots -- \"" + title + "\"";
+    if (names.length === 0) {
+      if (!excused.has(title)) failures.push({ file: GUIDE_FILE, line: at + 1, text: "The entry \"" + title + "\" names no picture. Take one with npm run shots, or list the title in " + rel(NO_PICTURE_FILE) + " with the reason." });
+      return;
+    }
+    if (excused.has(title)) failures.push({ file: NO_PICTURE_FILE, line: excused.get(title), text: "\"" + title + "\" names a picture now. Take it off this list." });
+    if (!days) return;
+    names.forEach((name) => {
+      const day = days[name];
+      if (!day) { failures.push({ file: GUIDE_FILE, line: checkedAt + 1, text: "The picture " + name + " has no day in " + rel(TAKEN_FILE) + ". Take it with " + retake + "." }); return; }
+      if (checked && DAY_RE.test(checked) && checked > day) failures.push({ file: GUIDE_FILE, line: checkedAt + 1, text: "The entry \"" + title + "\" was last checked " + checked + ", after its picture " + name + " was taken on " + day + ". Take it again with " + retake + "." });
+    });
+  });
+  excused.forEach((line, title) => { if (!titles.has(title)) failures.push({ file: NO_PICTURE_FILE, line: line, text: "\"" + title + "\" is not an entry in the guide." }); });
+  if (days) {
+    const named = new Set();
+    starts.forEach((at, k) => { const end = k + 1 < starts.length ? starts[k + 1] : lines.length; for (let i = at + 1; i < end; i += 1) { const m = PICTURE_RE.exec(lines[i]); if (m) named.add(m[1]); } });
+    Object.keys(days).forEach((name) => { if (!named.has(name)) failures.push({ file: TAKEN_FILE, line: 1, text: "No entry names the picture " + name + ". Take it off " + rel(TAKEN_FILE) + "." }); });
+  }
 }
 
 // The files the pull request changes, or null when there is nothing to

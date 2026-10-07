@@ -88,7 +88,8 @@ no More item, in English at 390 and Spanish at 320; a supply request
 with many items (Step 281), against an API that answers items: My
 requests reading a decided request, Approved 3 of 5 and Denied with the
 office's note, a refill of four items with one removed posted once as
-three items in order with their quantities and note, a refusal naming
+three items in order with their quantities and note (each supply picked
+once its picker has drawn all four rows, since Step 294), a refusal naming
 items.0.itemName under that item's name, the 31st item refused on the
 phone, and a damage report posted as before, one supply and no items, in
 English at 390 and Spanish at 320;
@@ -108,6 +109,27 @@ Can't sign in? Email from GET /api/support/contact asked with no token,
 a bug filed from App support with its details and listed first in My
 tickets, Help's drafted ticket filed only once sent from its card, and a
 PTO request;
+activating from the welcome email (Step 294), against API Step 292 as
+its contract gives it, in English and Spanish at 390: the link opens
+with no badge box, a weak PIN is refused on the phone in Change PIN's
+words with nothing sent, and a good PIN activates once, with no badge
+number, and signs in;
+inspections on the schedule (Step 296), against API Step 295 as its
+contract gives it, in English at 390 and Spanish at 320: a supervisor's
+own inspection drawn on the week and the month, and as an Inspection row
+on the day's sheet beside the shift, the row opening it on Inspect, a
+cancelled one and someone else's not drawn, and the bell's notice
+opening it;
+one place to work an issue (Step 297), against API Step 298 as its
+contract gives it, in English at 390 and Spanish at 320: a supervisor's
+Issues row opening its sheet and the one assigned to them reading
+Assigned to you, a cleaner's Assigned listing a task, an issue and a
+finding each once, the issue resolved from its sheet with a note and a
+photo through its task and gone from Assigned, and the bell's notice
+opening the issue's sheet; and unfinished forms you can see: Home's
+card opening the person's draft, Save and finish later saving the
+answer once and closing the form, and the reminder's notice opening the
+draft;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
@@ -126,7 +148,20 @@ through it.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`, `handbook`, `handbookSigned`, `support`, `pto`), off for every other case.
+`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`, `handbook`, `handbookSigned`, `support`, `pto`, `scheduleInspections`, `issueSheet`, `unfinishedForms`), off for every other case.
+`scheduleInspections` (Step 296) gives the person signed in an inspection
+on the day of their shift, one of theirs cancelled and one of someone
+else's, dated as the API sends a date column, with API Step 295's notice
+about the first in the bell; `GET /api/inspections/scheduled` matches
+`?status=` and answers anyone but an admin or a supervisor only their own,
+as the API does.
+`issueSheet` (Step 297) answers GET /api/issues with an issue assigned to
+the person as a task, one nobody has, and a finding they own that is
+also a task, GET /api/issues/:id with the actions the caller may take,
+the task route settling the issue it carries, the issue's own PATCH and
+assign-as-task, and the bell's notice about the issue nobody has;
+`unfinishedForms` gives the person their own draft of the incident
+report on GET /api/agent/drafts and the morning reminder about it.
 `handbook` (Step 290) answers the document to sign as API Step 289 does:
 the invented handbook in English and Spanish with parts, ackSectionRef,
 pdfUrl and the signed page's ackFields, the designed version and
@@ -158,14 +193,17 @@ npm run build && npm run shots
 ```
 
 `audit/shots.js` (Step 277) takes the pictures of the screen Help draws
-under an answer. Like the smoke check it serves the `build/` that
+under an answer, and since Step 294 writes the day it took each one to
+`guide/shots-taken.json`, which `npm run guide-check` holds every
+entry's `Last checked:` against. Like the smoke check it serves the `build/` that
 `npm run build` left and drives it against the stub, at 390 wide in the
 light theme, in English and in Spanish, and writes
 `public/guide-shots/<name>.en.jpg` and `<name>.es.jpg`, each a JPEG of at
 most 250 KB. One list in the file names each picture, the guide entry it
-belongs to and the taps that reach its screen, and the entries a picture
-cannot show, each with the reason. `npm run shots -- <name> <name>` takes
-only the pictures named. It prints a line for each file, and fails on a
+belongs to and the taps that reach its screen; the entries a picture
+cannot show are in `guide/no-picture.txt`, each with the reason.
+`npm run shots -- <name> <name>` takes only the pictures named, and
+`npm run shots -- "<entry title>"` every picture of that entry. It prints a line for each file, and fails on a
 screen that did not come or a page error on the way, and with
 `SHOTS_DEBUG=<folder>` keeps what such a screen showed. Two stub switches
 serve it alone: `guideForms` lists the forms the guide names by title, so

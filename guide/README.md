@@ -72,7 +72,11 @@ audit stub. Build first, then take them all or only the ones named:
 npm run build
 npm run shots
 npm run shots -- sign-in reset-pin-ask
+npm run shots -- "Reset a forgotten PIN (staff portal)"
 ```
+
+A name takes that picture, and an entry's title, as the guide writes
+it, takes every picture of that entry.
 
 Each is taken at 390 wide, in the light theme, in both languages, and
 written as a JPEG of at most 250 KB: one over that is written again at a
@@ -87,17 +91,57 @@ entry. The script refuses a name twice in its list.
 
 **Every pull request that adds or changes an entry reruns
 `npm run shots` for that entry's pictures** in the same pull request, and
-adds a picture to a new entry with a screen of its own. `audit/shots.js`
-lists the entries left without one and why, and the pull request says
-so. Rebuild after taking pictures, since the smoke check serves a build
-older than `public/`.
+adds a picture to a new entry with a screen of its own. Rebuild after
+taking pictures, since the smoke check serves a build older than
+`public/`.
+
+**Every picture keeps the day it was taken** (Step 294, the owner's ask
+of October 7: every build saves its screens for Help). `npm run shots`
+writes each picture it takes whole, in both languages, to
+`guide/shots-taken.json` with that day, `YYYY-MM-DD` on the machine's
+clock, and keeps only the names its list still has:
+
+```
+{
+  "activate": "2026-10-07",
+  "appearance": "2026-10-06"
+}
+```
+
+The file was seeded once, for the pictures already in
+`public/guide-shots/`, from the day each picture's older file was last
+committed (`git log -1 --format=%cs -- <file>`), with
+`npm run shots -- --seed`, which fills in only names the file does not
+have and takes no picture. So an entry whose `Last checked:` moves on
+needs its pictures taken again the same day or later.
+
+**An entry with no picture says why.** `guide/no-picture.txt` lists each
+entry that names no picture, one a line, its title as the guide writes
+it, then ` | `, then the reason:
+
+```
+Fill in a performance review with the employee (staff portal) | The review is filled on the admin dashboard, and the portal has no screen for it.
+```
+
+A new entry with a screen of its own gets a picture instead. When the
+file was made (Step 294) the nine entries with no picture went into it:
+the eight on what a form asks, whose screen is the picture of the entry
+for filling that form in and whose questions the stub does not hold,
+and filling in a performance review, which has no screen in the portal.
 
 `npm run guide-check` fails on an entry naming more than two pictures, a
 line not written `Picture: <name>` with a name in that pattern, a
 `Picture:` line anywhere but just before `Last checked:`, a picture
 whose English or Spanish file is missing, not a JPEG or over 250 KB, two
 entries naming the same picture, and a file in `public/guide-shots/`
-that no entry names.
+that no entry names. Since Step 294 it also fails on an entry whose
+`Last checked:` is later than the day `guide/shots-taken.json` gives any
+of its pictures, naming the entry and the command that takes them again,
+`npm run shots -- "<entry title>"`; on a picture with no day in that
+file, and a day there for a picture no entry names; and on an entry
+with no picture that `guide/no-picture.txt` does not list with a reason,
+a title there the guide does not have, and one whose entry names a
+picture.
 
 ## How it reaches Help
 
@@ -134,8 +178,9 @@ with no matching row in the CSV, or a picture that breaks a rule under
 Pictures of the screen above. A pair the CSV cannot hold goes in
 `check-allow.txt` under a comment line saying why: one the screen composes
 from parts, such as a line with a name filled in, or one the API sends in
-both languages, such as a form's own questions. The same check runs on
-every pull request. A pull request that changes `src/` and not `guide/`
+both languages, such as a form's own questions, or a picture that breaks
+a rule under Pictures of the screen above, its age among them. The same
+check runs on every pull request. A pull request that changes `src/` and not `guide/`
 gets a warning that the guide may need an entry.
 
 This repository is public. Nothing in this folder may name a person, a
