@@ -559,6 +559,34 @@ async function apiBlob(path, opts = {}) {
   return res.blob();
 }
 
+// A PDF from the API's own path, read behind the token: a new tab is
+// opened in the tap itself, which an iPhone allows, and pointed at the
+// file once it is read. With no tab, the file is saved under the name
+// given, the way a streamed file is. A refusal closes the tab and is
+// thrown to the caller. Open the warning (Step 271), See the designed
+// version and Download my signed page (Step 290) all open this way, so
+// call it straight from the tap, before anything waits.
+async function openApiPdf(path, name, token) {
+  let tab = null;
+  try { tab = window.open("", "_blank"); } catch (e) { tab = null; }
+  try {
+    const blob = await apiBlob(path, { token });
+    const href = URL.createObjectURL(blob);
+    if (tab) tab.location.href = href;
+    else {
+      const a = document.createElement("a");
+      a.href = href; a.rel = "noopener"; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+    setTimeout(() => URL.revokeObjectURL(href), 60000);
+  } catch (err) {
+    if (tab) { try { tab.close(); } catch (e) {} }
+    throw err;
+  }
+}
+// A path with the language it is read in, unless it already names one.
+const withLocale = (path, locale) => (/[?&]locale=/.test(path) ? path : path + (path.indexOf("?") === -1 ? "?" : "&") + "locale=" + encodeURIComponent(locale));
+
 // One event off a stream, read the way a browser's EventSource reads one:
 // its name, and its data, which is JSON. Data that is not JSON reads as
 // nothing.
@@ -7045,6 +7073,9 @@ function trainingOf(d) {
     // Step 264: the first-day path and the documents to sign (the Step
     // 262 contract, sections 5 and 6); empty until the API answers them.
     firstDay: trainingInOrder((wsRows(d, "firstDay") || []).map(trainingItemOf).filter(Boolean)), documentsToSign: (wsRows(d, "documentsToSign") || []).map(trainingDocumentOf).filter(Boolean),
+    // Step 290: the documents the person signed (API Step 289), null
+    // until the API answers the key, and Signed documents stays hidden.
+    documentsSigned: Array.isArray(d.documentsSigned) ? d.documentsSigned.map(trainingSignedOf).filter(Boolean) : null,
     // The training portal (Step 267): the categories and Continue where
     // you left off. categories is null until the API answers it, and My
     // training then stays as it was.
@@ -7157,7 +7188,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
     return <TrainingJoin key={at.join} token={token} code={at.join} onBack={() => { onAt(null); setAsked(n => n + 1); }} t={t} />;
   }
   if (at && at.doc) {
-    return <DocumentReader key={at.doc.docCode} token={token} doc={at.doc} onBack={() => { onAt(null); setAsked(n => n + 1); }} onSigned={() => setAsked(n => n + 1)} t={t} />;
+    return <DocumentReader key={at.doc.docCode + (at.signed ? ":signed" : "")} token={token} doc={at.doc} signed={at.signed || null} onBack={() => { onAt(null); setAsked(n => n + 1); }} onSigned={() => setAsked(n => n + 1)} t={t} />;
   }
   const items = data ? data.items : [];
   const cats = portal ? data.categories : [];
@@ -7244,6 +7275,23 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
           {x.signedVersion && <div style={lineSt}>{tr("You signed version {n}. This one is new.", { n: x.signedVersion })}</div>}
           <div style={{ display: "flex", marginTop: 10 }}><button type="button" data-training-doc-read={x.docCode} onClick={() => onAt({ doc: x })} style={goldBtn}>{tr("Read and sign")}</button></div>
         </div>
+      ))}
+    </div>
+  );
+  // Signed documents (Step 290): each document signed, to read again,
+  // with the day, and the language it was signed in where that is not
+  // the screen's.
+  const signedDocs = data && Array.isArray(data.documentsSigned) ? data.documentsSigned : [];
+  const signedPart = signedDocs.length > 0 && (
+    <div>
+      {head("Signed documents", "signed")}
+      {signedDocs.map(x => (
+        <button key={x.docCode + ":" + x.version} type="button" data-training-signed={x.docCode} onClick={() => onAt({ doc: x, signed: x })} style={{ ...fkRowSt(t), display: "block", width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", color: t.text }}>
+          <div style={nameSt}>{x.title}</div>
+          <div style={smallSt}>{x.docCode}</div>
+          {x.signedAt && <div style={{ ...lineSt, color: ink(t, GREEN), fontWeight: 600 }}>{tr("Signed {date}", { date: signedDay(x.signedAt) })}</div>}
+          {x.locale && x.locale !== languageToSend() && DOC_SIGNED_IN[x.locale] && <div style={lineSt}>{DOC_SIGNED_IN[x.locale]()}</div>}
+        </button>
       ))}
     </div>
   );
@@ -7353,6 +7401,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
         )}
         {items.length === 0 && docs.length === 0 && <div style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("Nothing is required for your role yet.")}</div>}
         {docsPart}
+        {signedPart}
         <div style={{ marginTop: 12 }}>{joinPart}</div>
         {historyPart}
       </div>
@@ -7364,6 +7413,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
       {faultPart}
       {joinPart}
       {docsPart}
+      {signedPart}
       {items.length === 0 && docs.length === 0 && <div style={wsQuiet(t)}>{tr("Nothing is required for your role yet.")}</div>}
       {todo.length > 0 && (
         <div>
@@ -7520,14 +7570,33 @@ function trainingDocumentOf(x) {
   const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
   return { docCode: docCode, title: str("title") || docCode, version: str("version"), locales: (Array.isArray(x.locales) ? x.locales : []).filter(v => typeof v === "string"), signedVersion: str("signedVersion") };
 }
+// A document the person signed (Step 290, documentsSigned in API Step
+// 289's /api/training/me): the version signed and the current one, the
+// language and the time it was signed in, and whether the signed page is
+// there to download.
+function trainingSignedOf(x) {
+  const base = trainingDocumentOf(x);
+  if (!base) return null;
+  const str = (k) => (typeof x[k] === "string" ? x[k].trim() : typeof x[k] === "number" ? String(x[k]) : "");
+  return Object.assign(base, { version: str("version"), currentVersion: str("currentVersion"), locale: str("locale"), signedAt: str("signedAt"), signedPage: x.signedPage === true });
+}
+// The day a document was signed, on the phone's own calendar.
+const signedDay = (at) => { const d = new Date(at); return at && !isNaN(d.getTime()) ? trainingDay(ymdLocal(d)) : trainingDay(at); };
+const DOC_SIGNED_IN = { en: () => tr("Signed in English"), es: () => tr("Signed in Spanish"), fr: () => tr("Signed in French") };
 function documentReadOf(d) {
   const doc = d && typeof d === "object" && d.document && typeof d.document === "object" ? d.document : null;
   if (!doc) return null;
   const str = (k) => (typeof doc[k] === "string" ? doc[k].trim() : "");
   const locale = str("locale") || "en";
-  const sections = (Array.isArray(doc.sections) ? doc.sections : []).map((x, i) => (x && typeof x === "object" ? { ref: typeof x.ref === "string" && x.ref.trim() ? x.ref.trim() : String(i + 1), title: typeof x.title === "string" ? x.title.trim() : "", content: typeof x.content === "string" ? x.content.trim() : "" } : null)).filter(x => x && (x.title || x.content));
+  const sections = (Array.isArray(doc.sections) ? doc.sections : []).map((x, i) => (x && typeof x === "object" ? { ref: typeof x.ref === "string" && x.ref.trim() ? x.ref.trim() : String(i + 1), title: typeof x.title === "string" ? x.title.trim() : "", content: typeof x.content === "string" ? x.content.trim() : "", ackFields: x.ackFields } : null)).filter(x => x && (x.title || x.content));
   if (sections.length === 0) return null;
-  return { docCode: str("docCode"), title: str("title"), version: str("version"), locale: locale, locales: (Array.isArray(doc.locales) ? doc.locales : []).filter(v => typeof v === "string"), sections: sections, acknowledgement: lessonText(doc.acknowledgement, locale) };
+  // Step 289: parts, the section that is the signed page, the designed
+  // version's path and whether the language asked for was missing. With
+  // no parts the reader is the one Step 264 drew.
+  const pdf = str("pdfUrl");
+  return { docCode: str("docCode"), title: str("title"), version: str("version"), locale: locale, locales: (Array.isArray(doc.locales) ? doc.locales : []).filter(v => typeof v === "string"), sections: sections, acknowledgement: lessonText(doc.acknowledgement, locale),
+    parts: docPartsOf(doc.parts), ackSectionRef: typeof doc.ackSectionRef === "string" || typeof doc.ackSectionRef === "number" ? String(doc.ackSectionRef).trim() : "",
+    pdfUrl: /^(https:\/\/|\/api\/)/i.test(pdf) ? pdf : "", shownInEnglish: doc.shownInEnglish === true || d.shownInEnglish === true, ackFields: doc.ackFields };
 }
 // A section's content as paragraphs: blank lines split them, and a line
 // starting with a dash or a bullet reads as a list item.
@@ -7535,7 +7604,7 @@ function docParagraphs(content) {
   return String(content || "").split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
 }
 
-function DocumentReader({ token, doc, onBack, onSigned, t }) {
+function DocumentReader({ token, doc, signed, onBack, onSigned, t }) {
   // loading, fault, read (at a section, or the contents), sign, done
   const [state, setState] = useState({ kind: "loading" });
   const [asked, setAsked] = useState(0);
@@ -7545,6 +7614,9 @@ function DocumentReader({ token, doc, onBack, onSigned, t }) {
   const [png, setPng] = useState(null);
   const [fault, setFault] = useState(null);
   const [busy, setBusy] = useState(false);
+  // The handbook's look read the document again after a version changed
+  // under the person, which its cover says.
+  const [again, setAgain] = useState(false);
   const live = useRef(true);
   useEffect(() => () => { live.current = false; }, []);
   useBusy("document reader", busy || strokes.length > 0);
@@ -7590,6 +7662,10 @@ function DocumentReader({ token, doc, onBack, onSigned, t }) {
       {d && d.locale !== languageToSend() && d.locale === "en" && <div data-doc-english="1" style={{ ...smallSt, fontSize: 12, marginTop: 6 }}>{tr("This document is shown in English.")}</div>}
     </div>
   );
+  // An answer with parts (Step 289) reads in the handbook's look.
+  if (state.kind === "read" && d && d.parts) {
+    return <HandbookReader key={d.version + ":" + d.locale} token={token} doc={doc} d={d} signed={signed} changed={again} onBack={onBack} onSigned={onSigned} onAgain={() => { setAgain(true); setAsked(n => n + 1); }} t={t} />;
+  }
   if (state.kind === "loading" || state.kind === "fault") {
     return (
       <div data-doc={state.kind} style={{ padding: "16px 16px 100px" }}>
@@ -7605,6 +7681,16 @@ function DocumentReader({ token, doc, onBack, onSigned, t }) {
         {head}
         <div role="status" style={{ ...titleSt, marginTop: 14, color: ink(t, GREEN) }}>{tr("Signed. It is on your record.")}</div>
         <div style={{ display: "flex", marginTop: 12 }}><button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Back to My training")}</button></div>
+      </div>
+    );
+  }
+  if (state.kind === "sign" && signed) {
+    return (
+      <div data-doc="signed" style={{ padding: "16px 16px 100px" }}>
+        {head}
+        {d.acknowledgement && <div style={{ ...bodySt, marginTop: 14, fontWeight: 600 }}>{d.acknowledgement}</div>}
+        <DocSignedEnd token={token} doc={doc} signed={signed} onBack={onBack} t={t} />
+        <div style={{ display: "flex", marginTop: 8 }}><button type="button" onClick={() => { setState({ kind: "read", d: d }); setAt(d.sections.length - 1); }} style={wsPlainBtn(t)}>{tr("Back")}</button></div>
       </div>
     );
   }
@@ -7662,6 +7748,408 @@ function DocumentReader({ token, doc, onBack, onSigned, t }) {
       )}
     </div>
   );
+}
+
+// ------------------------------------------------------------
+// The handbook reader (Step 290, the Step 289 contract's section 2.1,
+// option C). Once GET /api/documents/:docCode/read answers parts, a
+// document reads the way its designed version looks: a cover with the
+// title on a navy band over a gold rule, then its number, version and
+// language; Contents by Part; each section under its Part's heading with
+// a gold rule, a small Part and section label and the section's own
+// name; Read First and every callout in a pale gold box with a gold
+// edge; and "Table columns:" lines drawn as a table with a navy header
+// row. See the designed version opens pdfUrl behind the token, the way
+// Open the warning opens its PDF. The section ackSectionRef names is the
+// signing step: the statements, the fields the API knows filled in, and
+// the signature; after signing, Download my signed page. Opened again
+// from Signed documents, it reads the same and ends with the version
+// signed in place of the signing step. Every size here is the screen's
+// own, so the text size setting enlarges all of it, and a wide table
+// scrolls inside its own box.
+// ------------------------------------------------------------
+const docPartsOf = (v) => (Array.isArray(v) ? v.map(p => (p && typeof p === "object" && (typeof p.ref === "string" || typeof p.ref === "number") && String(p.ref).trim() ? { ref: String(p.ref).trim(), title: typeof p.title === "string" ? p.title.trim() : "" } : null)).filter(Boolean) : null);
+// The Part a section is in: the one whose number is the section's, or
+// begins it, 8 for 8.2. Read First, at 0, is in none.
+const docPartOf = (parts, ref) => parts.find(p => ref === p.ref || ref.indexOf(p.ref + ".") === 0) || null;
+const docPartWords = (p) => (p.title ? tr("Part {n}: {title}", { n: p.ref, title: p.title }) : tr("Part {n}", { n: p.ref }));
+// Read First is the section at 0, the way ocsa-mis cuts the handbook.
+const docIsReadFirst = (s) => s.ref === "0";
+// A table's head as the chunker writes it, in any of the three languages.
+const DOC_TABLE_HEAD = /^(Table columns|Columnas de la tabla|Colonnes du tableau)\s*:\s*(.+)$/i;
+const docItem = (line) => /^\s*-\s+/.test(line);
+const docItemText = (line) => line.replace(/^\s*-\s+/, "").trim();
+// A section's text as blocks, read the way ocsa-mis's chunker writes
+// them: a table head and the "- a | b" rows under it; a short line
+// ending in a colon with "- " lines under it, which is how a callout is
+// written (one starting with a number is a subheading over a list
+// instead); other "- " lines, a list; and every other line, a paragraph.
+function docBlocks(content) {
+  const lines = String(content || "").split("\n").map(l => l.trim());
+  const out = [];
+  let i = 0;
+  const items = () => { const list = []; while (i < lines.length && docItem(lines[i])) { list.push(docItemText(lines[i])); i += 1; } return list; };
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line) { i += 1; continue; }
+    const head = DOC_TABLE_HEAD.exec(line);
+    if (head) {
+      const cols = head[2].split("|").map(c => c.trim());
+      const rows = [];
+      i += 1;
+      while (i < lines.length && docItem(lines[i]) && docItemText(lines[i]).indexOf("|") !== -1) {
+        const cells = docItemText(lines[i]).split("|").map(c => c.trim());
+        while (cells.length < cols.length) cells.push("");
+        rows.push(cells);
+        i += 1;
+      }
+      out.push({ kind: "table", head: cols, rows: rows });
+      continue;
+    }
+    if (!docItem(line) && /:$/.test(line) && line.length <= 90 && i + 1 < lines.length && docItem(lines[i + 1])) {
+      const title = line.slice(0, -1).trim();
+      i += 1;
+      const list = items();
+      if (/^\d+(\.\d+)*\.?\s/.test(title)) out.push({ kind: "subhead", text: title }, { kind: "list", items: list });
+      else out.push({ kind: "box", title: title, items: list });
+      continue;
+    }
+    if (docItem(line)) { out.push({ kind: "list", items: items() }); continue; }
+    out.push({ kind: "p", text: line });
+    i += 1;
+  }
+  return out;
+}
+// On the signed page a statement is a whole sentence; the lines of the
+// paper form's fields (a name to print, a label and its hint after a
+// colon) are left for the fields the API fills in.
+const docIsStatement = (s) => /\.$/.test(s) && s.indexOf(": ") === -1;
+// The signing step's fields as the API knows them (Step 289): a list of
+// { label, value } in the language answered, or one object of named
+// values the portal labels itself. A field with no value is left out.
+const ACK_FIELD_WORDS = { name: "Name", employeeId: "Employee ID", position: "Position and job class", sites: "Assigned sites", language: "Language", date: "Date" };
+function ackFieldValue(v) {
+  if (Array.isArray(v)) return v.map(x => (x && typeof x === "object" ? x.name : x)).filter(x => typeof x === "string" && x.trim()).map(x => x.trim()).join(", ");
+  return typeof v === "string" || typeof v === "number" ? String(v).trim() : "";
+}
+function ackFieldsOf(v) {
+  if (Array.isArray(v)) return v.map((x, i) => (x && typeof x === "object" && typeof x.label === "string" && x.label.trim() ? { key: typeof x.key === "string" && x.key ? x.key : "f" + i, label: x.label.trim(), value: ackFieldValue(x.value) } : null)).filter(x => x && x.value);
+  if (!v || typeof v !== "object") return [];
+  const pick = (keys) => { for (const k of keys) { const s = ackFieldValue(v[k]); if (s) return s; } return ""; };
+  const lang = pick(["language", "locale"]);
+  const day = pick(["date", "today"]);
+  const values = {
+    name: pick(["name", "fullName"]),
+    employeeId: pick(["employeeId", "employeeNumber"]),
+    position: pick(["positionAndJobClass"]) || [pick(["position"]), pick(["jobClass"])].filter(Boolean).join(", "),
+    sites: pick(["sites", "assignedSites", "siteNames"]),
+    language: LANGUAGE_NAMES[lang] || lang,
+    date: /^\d{4}-\d{2}-\d{2}/.test(day) ? trainingDay(day.slice(0, 10)) : day,
+  };
+  return Object.keys(ACK_FIELD_WORDS).filter(k => values[k]).map(k => ({ key: k, label: tr(ACK_FIELD_WORDS[k]), value: values[k] }));
+}
+
+// The end of a document read again from Signed documents (Step 290):
+// the version signed and the day, a line when a newer version waits to be
+// signed, and Download my signed page when the API holds one. Nothing is
+// signed here.
+function DocSignedEnd({ token, doc, signed, onBack, t }) {
+  const [busy, setBusy] = useState(false);
+  const [fault, setFault] = useState(null);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  const download = async () => {
+    if (busy) return;
+    setBusy(true); setFault(null);
+    try { await openApiPdf(withLocale("/api/documents/" + encodeURIComponent(doc.docCode) + "/my-signed-page", languageToSend()), "signed-page.pdf", token); }
+    catch (err) { if (live.current) setFault(fkFaultWords(err, "Your signed page did not open. Try again.")); }
+    finally { if (live.current) setBusy(false); }
+  };
+  return (
+    <div data-doc-signed-end="1" style={{ marginTop: 14 }}>
+      <div role="status" style={{ fontSize: 16, fontWeight: 700, color: ink(t, GREEN), fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{tr("You signed version {version} on {date}.", { version: signed.version, date: signedDay(signed.signedAt) })}</div>
+      {signed.currentVersion && signed.currentVersion !== signed.version && <div data-doc-newer="1" style={{ fontSize: 13, color: t.text, marginTop: 6, lineHeight: 1.45 }}>{tr("A new version is waiting for you under Documents to sign.")}</div>}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+        {signed.signedPage && <button type="button" data-doc-signed-page="1" disabled={busy} onClick={download} style={{ ...wsMainBtn(t, false), opacity: busy ? 0.7 : 1 }}>{busy ? tr("Loading...") : tr("Download my signed page")}</button>}
+        <button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Back to My training")}</button>
+      </div>
+      {fault && <WsFault text={fault} t={t} />}
+    </div>
+  );
+}
+
+function HandbookReader({ token, doc, d, signed, changed, onBack, onSigned, onAgain, t }) {
+  // cover, contents, page (at), done
+  const [view, setView] = useState({ kind: "cover", at: 0 });
+  const [strokes, setStrokes] = useState([]);
+  const [png, setPng] = useState(null);
+  const [fault, setFault] = useState(null);
+  const [busy, setBusy] = useState(false);
+  // A PDF on its way ("designed" or "signed") and what was said when one
+  // did not open.
+  const [pdfBusy, setPdfBusy] = useState(null);
+  const [pdfFault, setPdfFault] = useState(null);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  useBusy("handbook reader", busy || strokes.length > 0);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [view.kind, view.at]);
+  // The pages in reading order, the signed page last; with no section
+  // named for signing, a page of its own comes after the last.
+  const ack = d.ackSectionRef ? d.sections.find(s => s.ref === d.ackSectionRef) || null : null;
+  const pages = d.sections.filter(s => s !== ack).concat(ack ? [ack] : []);
+  const n = pages.length;
+  const signAt = ack ? n - 1 : n;
+  const english = d.shownInEnglish || (d.locale !== languageToSend() && d.locale === "en");
+  const openPdf = async (which) => {
+    if (pdfBusy) return;
+    setPdfBusy(which); setPdfFault(null);
+    try {
+      if (which === "designed") await openApiPdf(withLocale(d.pdfUrl, d.locale), (d.docCode || doc.docCode) + ".pdf", token);
+      else await openApiPdf(withLocale("/api/documents/" + encodeURIComponent(doc.docCode) + "/my-signed-page", languageToSend()), "signed-page.pdf", token);
+    } catch (err) {
+      if (live.current) setPdfFault({ which: which, said: fkFaultWords(err, which === "designed" ? "The designed version did not open. Try again." : "Your signed page did not open. Try again.") });
+    } finally { if (live.current) setPdfBusy(null); }
+  };
+  const sign = async () => {
+    if (busy) return;
+    if (!png) { setFault(tr("Sign before you send.")); return; }
+    setBusy(true); setFault(null);
+    try {
+      await api("/api/documents/" + encodeURIComponent(doc.docCode) + "/acknowledge", { method: "POST", body: { version: d.version, locale: d.locale, signature: png }, token });
+      if (live.current) { setView({ kind: "done", at: 0 }); onSigned(doc); }
+    } catch (err) {
+      if (!live.current) return;
+      if (err && err.code === "documents.versionChanged") onAgain();
+      else if (err && err.code === "documents.alreadySigned") { setView({ kind: "done", at: 0 }); onSigned(doc); }
+      else setFault(fkFaultWords(err, "This was not signed. Try again."));
+    } finally { if (live.current) setBusy(false); }
+  };
+  const go = (at) => { setView({ kind: "page", at: Math.max(0, Math.min(at, signAt)) }); setFault(null); };
+  const back = <WsBack label={tr("My training")} onBack={onBack} t={t} />;
+  const ruleSt = { borderBottom: "2px solid " + GOLD, paddingBottom: 6 };
+  const smallSt = { fontSize: 12, color: t.textMut, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const bodySt = { fontSize: 15, color: t.text, lineHeight: 1.55, overflowWrap: "anywhere", fontFamily: FONT_BODY };
+  const partSt = { fontSize: 13, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.8px", lineHeight: 1.4, overflowWrap: "anywhere", ...ruleSt };
+  const titleSt = { fontSize: 19, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" };
+  const boxSt = { marginTop: 12, padding: "12px 14px", borderRadius: R.sm, background: t.goldBg, border: "1px solid " + t.goldBorder, borderLeft: "4px solid " + GOLD };
+  const boxHeadSt = { fontSize: 12, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 6, overflowWrap: "anywhere" };
+  const dashList = (list, key) => list.map((s, i) => (
+    <div key={key + i} style={{ display: "flex", gap: 8, marginTop: 6 }}>
+      <span aria-hidden="true" style={{ color: GOLD, fontWeight: 700, flexShrink: 0 }}>-</span>
+      <span style={{ ...bodySt, minWidth: 0 }}>{s}</span>
+    </div>
+  ));
+  const pdfLine = (which) => (pdfFault && pdfFault.which === which ? <WsFault text={pdfFault.said} t={t} /> : null);
+  const designed = d.pdfUrl && (
+    <div style={{ marginTop: 12 }}>
+      {/^https:\/\//i.test(d.pdfUrl)
+        ? <a href={d.pdfUrl} target="_blank" rel="noopener noreferrer" data-doc-designed="1" style={{ ...wsPlainBtn(t), display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>{tr("See the designed version")}</a>
+        : <button type="button" data-doc-designed="1" disabled={!!pdfBusy} onClick={() => openPdf("designed")} style={{ ...wsPlainBtn(t), width: "100%", opacity: pdfBusy ? 0.7 : 1 }}>{pdfBusy === "designed" ? tr("Loading...") : tr("See the designed version")}</button>}
+      {pdfLine("designed")}
+    </div>
+  );
+  // A page's blocks, Read First drawn whole in its box.
+  const blocksOf = (s) => {
+    const blocks = docBlocks(s.content);
+    if (docIsReadFirst(s)) {
+      return (
+        <div data-doc-box="read-first" style={{ ...boxSt, marginTop: 14 }}>
+          <div style={boxHeadSt}>{s.title}</div>
+          {blocks.map((b, i) => (b.kind === "p" ? <div key={i} style={{ ...bodySt, marginTop: i ? 8 : 0 }}>{b.text}</div> : drawBlock(b, i)))}
+        </div>
+      );
+    }
+    return blocks.map(drawBlock);
+  };
+  const drawBlock = (b, i) => {
+    if (b.kind === "p") return <div key={i} style={{ ...bodySt, marginTop: 10 }}>{b.text}</div>;
+    if (b.kind === "subhead") return <div key={i} role="heading" aria-level={3} style={{ ...bodySt, fontWeight: 700, fontFamily: FONT_HEAD, marginTop: 14 }}>{b.text}</div>;
+    if (b.kind === "list") return <div key={i} style={{ marginTop: 6 }}>{dashList(b.items, "l" + i)}</div>;
+    if (b.kind === "box") return <div key={i} data-doc-box="callout" style={boxSt}><div style={boxHeadSt}>{b.title}</div>{dashList(b.items, "b" + i)}</div>;
+    return (
+      <div key={i} data-doc-table={b.head.length} style={{ marginTop: 12, overflowX: "auto", borderRadius: R.sm, border: "1px solid " + t.borderSolid }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: Math.min(b.head.length, 4) * 120, fontSize: 13, lineHeight: 1.45, fontFamily: FONT_BODY }}>
+          <thead><tr>{b.head.map((h, j) => <th key={j} scope="col" style={{ background: NAVY, color: "#F8F7F4", fontWeight: 700, textAlign: "left", verticalAlign: "top", padding: "8px 10px", fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{h}</th>)}</tr></thead>
+          <tbody>{b.rows.map((r, ri) => <tr key={ri} style={{ background: ri % 2 === 1 ? t.cardAlt : t.card }}>{r.map((c, j) => <td key={j} style={{ color: t.text, verticalAlign: "top", padding: "8px 10px", borderTop: "1px solid " + t.borderSolid, overflowWrap: "anywhere" }}>{c}</td>)}</tr>)}</tbody>
+        </table>
+      </div>
+    );
+  };
+  // Where a page sits: its Part's heading with the gold rule, then the
+  // small section label and the section's own name.
+  const pageHead = (s) => {
+    const part = d.parts.length > 0 ? docPartOf(d.parts, s.ref) : null;
+    return (
+      <div style={{ marginTop: 14 }}>
+        {part && <div data-doc-part={part.ref} style={partSt}>{docPartWords(part)}</div>}
+        {part && s.ref !== part.ref && <div data-doc-label="1" style={{ ...smallSt, marginTop: 8 }}>{tr("Section {n}", { n: s.ref })}</div>}
+        {!docIsReadFirst(s) && <div role="heading" aria-level={2} style={{ ...titleSt, marginTop: part ? 4 : 0 }}>{s.title || docPartWords(part || { ref: s.ref, title: "" })}</div>}
+      </div>
+    );
+  };
+  const toolbar = (at) => (
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 10 }}>
+      <button type="button" data-doc-contents="1" onClick={() => setView({ kind: "contents", at: at })} style={{ ...wsPlainBtn(t), flex: "none" }}>{tr("Contents")}</button>
+      {at < n && <div style={{ ...smallSt, flex: "1 1 120px" }}>{tr("Section {n} of {count}", { n: at + 1, count: n })}</div>}
+    </div>
+  );
+  const docLine = <div style={{ ...smallSt, fontWeight: 600 }}>{d.title || doc.title}</div>;
+  const wrap = (kind, body, extra) => <div data-doc={kind} data-doc-look="handbook" {...(extra || {})} style={{ padding: "16px 16px 100px" }}>{body}</div>;
+
+  if (view.kind === "cover") {
+    const facts = [[tr("Document number"), d.docCode || doc.docCode], [tr("Version"), d.version], [tr("Language"), LANGUAGE_NAMES[d.locale] || d.locale]].filter(x => x[1]);
+    return wrap("cover", (
+      <>
+        {back}
+        <div data-doc-cover="1" style={{ background: NAVY, border: "1px solid " + t.borderSolid, borderBottom: "4px solid " + GOLD, borderRadius: R.md + "px " + R.md + "px 0 0", padding: "22px 16px 18px", textAlign: "center" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.5px", textTransform: "uppercase", color: GOLD, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{clientConfig.company.name}</div>
+          <div role="heading" aria-level={1} style={{ fontSize: 22, fontWeight: 700, color: "#F8F7F4", fontFamily: FONT_HEAD, lineHeight: 1.3, marginTop: 10, overflowWrap: "anywhere" }}>{d.title || doc.title}</div>
+        </div>
+        <div style={{ border: "1px solid " + t.borderSolid, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px", overflow: "hidden" }}>
+          {facts.map(([k, v], i) => (
+            <div key={k} data-doc-fact={i} style={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", padding: "10px 12px", background: i % 2 === 0 ? t.cardAlt : t.card }}>
+              <div style={{ flex: "1 1 120px", fontSize: 13, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{k}</div>
+              <div style={{ flex: "1 1 120px", fontSize: 13, color: t.text, overflowWrap: "anywhere" }}>{v}</div>
+            </div>
+          ))}
+        </div>
+        {english && <div data-doc-english="1" style={{ ...smallSt, marginTop: 10 }}>{tr("This document is shown in English.")}</div>}
+        {changed && <div role="status" style={{ ...smallSt, marginTop: 10, color: t.text }}>{tr("This document changed while you read it. Read it again.")}</div>}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
+          <button type="button" data-doc-contents="1" onClick={() => setView({ kind: "contents", at: -1 })} style={wsPlainBtn(t)}>{tr("Contents")}</button>
+          <button type="button" data-doc-start="1" onClick={() => go(0)} style={wsMainBtn(t, false)}>{tr("Start reading")}</button>
+        </div>
+        {designed}
+      </>
+    ));
+  }
+  if (view.kind === "contents") {
+    // Read First, then each Part with its sections under it, then any
+    // section no Part holds.
+    const row = (s) => {
+      const i = pages.indexOf(s);
+      const part = docPartOf(d.parts, s.ref);
+      const label = docIsReadFirst(s) ? "" : part && s.ref === part.ref ? tr("Part {n}", { n: part.ref }) : tr("Section {n}", { n: s.ref });
+      return (
+        <button key={s.ref + ":" + i} type="button" data-doc-jump={i + 1} onClick={() => go(i)} style={{ display: "block", width: "100%", minHeight: TAP, padding: "8px 12px", marginTop: 6, borderRadius: R.md, background: i === view.at ? t.goldBg : t.card, border: "1px solid " + (i === view.at ? GOLD : t.borderSolid), color: t.text, textAlign: "left", cursor: "pointer", fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>
+          {label && <span style={{ display: "block", fontSize: 11, color: t.textMut }}>{label}</span>}
+          <span style={{ display: "block", fontSize: 14, fontWeight: 600 }}>{s.title || label}</span>
+        </button>
+      );
+    };
+    const free = pages.filter(s => !docIsReadFirst(s) && !docPartOf(d.parts, s.ref));
+    return wrap("contents", (
+      <>
+        {back}
+        {docLine}
+        <div role="heading" aria-level={1} style={{ ...titleSt, marginTop: 8 }}>{tr("Contents")}</div>
+        {pages.filter(docIsReadFirst).map(row)}
+        {d.parts.map(p => {
+          const inPart = pages.filter(s => !docIsReadFirst(s) && docPartOf(d.parts, s.ref) === p);
+          if (inPart.length === 0) return null;
+          return (
+            <div key={p.ref} data-doc-contents-part={p.ref} style={{ marginTop: 16 }}>
+              <div style={partSt}>{docPartWords(p)}</div>
+              {inPart.map(row)}
+            </div>
+          );
+        })}
+        {free.length > 0 && <div style={{ marginTop: 16 }}>{free.map(row)}</div>}
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button type="button" onClick={() => setView({ kind: "cover", at: 0 })} style={wsPlainBtn(t)}>{tr("Back")}</button>
+        </div>
+        {designed}
+      </>
+    ));
+  }
+  if (view.kind === "done") {
+    return wrap("done", (
+      <>
+        {back}
+        {docLine}
+        <div role="status" style={{ ...titleSt, fontSize: 16, marginTop: 14, color: ink(t, GREEN) }}>{tr("Signed. It is on your record.")}</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+          <button type="button" data-doc-signed-page="1" disabled={!!pdfBusy} onClick={() => openPdf("signed")} style={{ ...wsMainBtn(t, false), opacity: pdfBusy ? 0.7 : 1 }}>{pdfBusy === "signed" ? tr("Loading...") : tr("Download my signed page")}</button>
+          <button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Back to My training")}</button>
+        </div>
+        {pdfLine("signed")}
+      </>
+    ));
+  }
+  const at = Math.min(view.at, signAt);
+  if (at === signAt) {
+    // The signing step: the signed page's own words and statements, the
+    // fields filled in, and the signature. Read again from Signed
+    // documents, the words and statements end with the version signed,
+    // and nothing is signed.
+    const blocks = ack ? docBlocks(ack.content) : [];
+    const box = blocks.find(b => b.kind === "box") || null;
+    const said = blocks.filter(b => b.kind === "box" || b.kind === "list").reduce((all, b) => all.concat(b.items), []).filter(docIsStatement);
+    const fields = signed ? [] : ackFieldsOf(ack && ack.ackFields !== undefined ? ack.ackFields : d.ackFields);
+    const words = (
+      <>
+        {back}
+        {docLine}
+        {toolbar(at)}
+        {ack && pageHead(ack)}
+        {blocks.filter(b => b.kind === "p").map((b, i) => <div key={i} style={{ ...bodySt, marginTop: 10 }}>{b.text}</div>)}
+        {said.length > 0
+          ? <div data-doc-box="statements" style={boxSt}>{box && box.title && <div style={boxHeadSt}>{box.title}</div>}{dashList(said, "st")}</div>
+          : d.acknowledgement && <div data-doc-box="statements" style={boxSt}><div style={{ ...bodySt, fontWeight: 600 }}>{d.acknowledgement}</div></div>}
+      </>
+    );
+    if (signed) {
+      return wrap("signed", (
+        <>
+          {words}
+          <DocSignedEnd token={token} doc={doc} signed={signed} onBack={onBack} t={t} />
+          <div style={{ display: "flex", marginTop: 8 }}><button type="button" onClick={() => go(at - 1)} style={wsPlainBtn(t)}>{tr("Back")}</button></div>
+        </>
+      ), { "data-doc-section": at + 1 });
+    }
+    return wrap("sign", (
+      <>
+        {words}
+        {fields.length > 0 && (
+          <div data-doc-ack-fields={fields.length} style={{ marginTop: 12, border: "1px solid " + t.borderSolid, borderRadius: R.sm, overflow: "hidden" }}>
+            {fields.map((f, i) => (
+              <div key={f.key} data-doc-ack-field={f.key} style={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", padding: "10px 12px", background: i % 2 === 0 ? t.cardAlt : t.card }}>
+                <div style={{ flex: "1 1 120px", fontSize: 13, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{f.label}</div>
+                <div style={{ flex: "1 1 140px", fontSize: 13, color: t.text, overflowWrap: "anywhere" }}>{f.value}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div data-doc-signature="1" style={{ marginTop: 14 }}>
+          <div style={mkLabel(t)}>{tr("Your signature")}</div>
+          <div style={{ borderRadius: R.md, border: fault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+            <SignatureBox strokes={strokes} onStroke={(stroke, size) => { const all = strokes.concat([stroke]); setStrokes(all); setPng(signaturePng(all, size.w, size.h)); setFault(null); }} height={SIGN_BOX_HEIGHT} />
+          </div>
+          <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+          <button type="button" onClick={() => { setStrokes([]); setPng(null); }} disabled={strokes.length === 0 || busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+        </div>
+        {fault && <WsFault text={fault} t={t} />}
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button type="button" disabled={busy} onClick={() => go(at - 1)} style={wsPlainBtn(t)}>{tr("Back")}</button>
+          <button type="button" data-doc-sign="1" disabled={busy} onClick={sign} style={wsMainBtn(t, busy)}>{busy ? tr("Sending...") : tr("Sign")}</button>
+        </div>
+      </>
+    ), { "data-doc-section": at + 1 });
+  }
+  const s = pages[at];
+  return wrap("read", (
+    <>
+      {back}
+      {docLine}
+      {toolbar(at)}
+      {pageHead(s)}
+      {blocksOf(s)}
+      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+        <button type="button" data-doc-back="1" onClick={() => (at === 0 ? setView({ kind: "cover", at: 0 }) : go(at - 1))} style={wsPlainBtn(t)}>{tr("Back")}</button>
+        <button type="button" data-doc-next={at + 1 === signAt ? "sign" : at + 2} onClick={() => go(at + 1)} style={wsMainBtn(t, false)}>{tr("Next")}</button>
+      </div>
+    </>
+  ), { "data-doc-section": at + 1 });
 }
 
 // Your first trainings (Step 264, the Step 262 contract's section 5, and
@@ -8192,28 +8680,15 @@ function SignScreen({ token, id, requests, onOpen, onBack, onChanged, t }) {
   const r = req;
   const warning = r.kind === "warning";
   const open = SIGN_OPEN.indexOf(r.state) !== -1;
-  // The warning's document from the API's own path: a new tab is opened
-  // in the tap itself, which an iPhone allows, the PDF is read behind the
-  // token in the screen's language, and the tab is pointed at it. With no
-  // tab, the file is saved as warning.pdf the way a streamed file is. A
-  // refusal closes the tab and reads under the button.
+  // The warning's document from the API's own path, read behind the
+  // token in the screen's language and opened in a new tab, or saved as
+  // warning.pdf with no tab. A refusal reads under the button.
   const openWarning = async () => {
     if (pdfBusy || !r.warning || !r.warning.pdfUrl) return;
-    let tab = null;
-    try { tab = window.open("", "_blank"); } catch (e) { tab = null; }
     setPdfBusy(true); setPdfFault(null);
     try {
-      const blob = await apiBlob(r.warning.pdfUrl + (r.warning.pdfUrl.indexOf("?") === -1 ? "?" : "&") + "locale=" + encodeURIComponent(languageToSend()), { token });
-      const href = URL.createObjectURL(blob);
-      if (tab) tab.location.href = href;
-      else {
-        const a = document.createElement("a");
-        a.href = href; a.rel = "noopener"; a.download = "warning.pdf";
-        document.body.appendChild(a); a.click(); a.remove();
-      }
-      setTimeout(() => URL.revokeObjectURL(href), 60000);
+      await openApiPdf(r.warning.pdfUrl + (r.warning.pdfUrl.indexOf("?") === -1 ? "?" : "&") + "locale=" + encodeURIComponent(languageToSend()), "warning.pdf", token);
     } catch (err) {
-      if (tab) { try { tab.close(); } catch (e) {} }
       if (live.current) setPdfFault(fkFaultWords(err, "The warning did not open. Try again."));
     } finally { if (live.current) setPdfBusy(false); }
   };
