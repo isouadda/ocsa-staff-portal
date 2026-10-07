@@ -784,7 +784,7 @@ const STATUS_WORDS = {
   scheduled: () => tr("Scheduled"), completed: () => tr("Completed"), pending: () => tr("Pending"),
   claimed: () => tr("Claimed"), filled: () => tr("Filled"), approved: () => tr("Approved"), denied: () => tr("Denied"),
   cancelled: () => tr("Cancelled"), in_progress: () => tr("In Progress"), resolved: () => tr("Resolved"),
-  unable_to_resolve: () => tr("Unable to resolve"), open: () => tr("Open"), closed: () => tr("Closed"),
+  unable_to_resolve: () => tr("Unable to resolve"), open: () => tr("Open"), closed: () => tr("Closed"), escalated: () => tr("Escalated"),
   fulfilled: () => tr("Fulfilled"),
 };
 const statusWord = (code) => (STATUS_WORDS[code] ? STATUS_WORDS[code]() : titleCase(code));
@@ -2553,7 +2553,7 @@ export default function OCSAStaffPortal() {
   // answer is drawn once, matched by its id or by that clientId.
   const sendMessage = async (channelId, text, mentions, clientId) => { const body = { text }; if (Array.isArray(mentions) && mentions.length > 0) body.mentions = mentions; if (clientId) body.clientId = clientId; const data = await api(chatPath("/api/chat/channels/" + channelId + "/messages"), { method: "POST", body: body, token }); const msg = data && data.message && typeof data.message === "object" ? data.message : null; if (!msg) { await readMessages(channelId).catch(e => console.error(e)); } else if (activeChannelRef.current === channelId) setMessages(prev => (prev.some(m => (msg.id && m.id === msg.id) || isClientSend(m, msg.senderId, msg.clientId)) ? prev : [...prev, msg])); loadChannels(); };
 
-  useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "issues") { loadIssues(); loadClientRequests(); loadFindings(); } if (activeTab === "issuetasks") loadAssignedTasks(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId]);
+  useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "issues") { loadIssues(); loadClientRequests(); loadFindings(); } if (activeTab === "issuetasks") { loadAssignedTasks(); loadIssues(); loadClientRequests(); loadFindings(); } if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId]);
   // The task list is fetched as soon as a session is seen open, whichever
   // tab the person is standing on, so the Home card has its bar at boot.
   // Once per request: opening Tasks afterwards fires nothing new, and a
@@ -2598,6 +2598,7 @@ export default function OCSAStaffPortal() {
   const openPlace = (place) => {
     if (!place) return;
     if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
+    if (place.issue) { openIssue(place.issue, null); return; }
     if (place.sign) { setSignAt({ id: String(place.sign) }); setActiveTab("clock"); setShowMore(false); return; }
     // Sign off training is a supervisor's place; anyone else lands on My
     // training. The field kit keeps its site and opens on the tile.
@@ -2665,7 +2666,10 @@ export default function OCSAStaffPortal() {
   useEffect(() => { if (activeTab !== "chat" || !activeChannel) return; const iv = setInterval(() => loadMessages(activeChannel), 12000); return () => clearInterval(iv); }, [activeTab, activeChannel]);
 
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
-  const assignedCount = assignedTasks.length;
+  // Assigned's count is everything on it, each once (Step 297).
+  const myWork = myWorkOf(assignedTasks, findings, clientRequests, issues, user);
+  const assignedCount = myWork.length;
+  const workChanged = () => { loadAssignedTasks(); loadIssues(); loadClientRequests(); loadFindings(); };
   const [showMore, setShowMore] = useState(false);
 
   // The person's own four places between Home and More. Read on the first
@@ -2697,6 +2701,11 @@ export default function OCSAStaffPortal() {
   // at telling two taps on the same one apart. Dropped once opened.
   const [inspectAt, setInspectAt] = useState(null);
   const openInspection = (id) => { setInspectAt({ id: String(id), at: Date.now() }); setActiveTab("inspect"); setShowMore(false); };
+  // The issue whose sheet is open (Step 297), over whatever is on the
+  // screen: { id, row, at }, row being what it was opened from, if
+  // anything, so the sheet draws before the single read answers.
+  const [issueAt, setIssueAt] = useState(null);
+  const openIssue = (id, row) => { setIssueAt({ id: String(id), row: row || null, at: Date.now() }); setShowMore(false); };
   // Sign on your own phone (Step 271): the signing screen open in Home's
   // place, { id } for one request or { list: true } for what waits; and
   // the open requests GET /api/signatures/mine answers, null until it
@@ -2904,7 +2913,7 @@ export default function OCSAStaffPortal() {
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
     setChannels(null); setChannelsFailed(false); setMessages([]); setMessagesOf(null); setActiveChannel(null);
-    setAgentConversation(null); setFormsDraft(null); setFieldKitAt(null); setEquipmentShown(null); setEquipmentBack(null); setInspectAt(null);
+    setAgentConversation(null); setFormsDraft(null); setFieldKitAt(null); setEquipmentShown(null); setEquipmentBack(null); setInspectAt(null); setIssueAt(null);
     setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
     setLookups([]); setLookupsLang(null); toastsRef.current.clear(); setLoading(false);
     setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false); setAnnouncementOpen(null); setOpenAsk(null); setAlertsCard(null); setAlertsCardBusy(false);
@@ -3100,10 +3109,10 @@ export default function OCSAStaffPortal() {
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
-              {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
+              {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} />}
-              {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} findings={findings} onFindingsChanged={() => loadFindings()} openFinding={findingOpen} />}
+              {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} findings={findings} onFindingsChanged={() => loadFindings()} openFinding={findingOpen} onOpenIssue={openIssue} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} token={token} user={user} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} openAt={inspectAt} onOpened={() => setInspectAt(null)} />}
@@ -3190,6 +3199,10 @@ export default function OCSAStaffPortal() {
 
       {announcementOpen && (
         <AnnouncementSheet token={token} id={announcementOpen} t={t} onClose={() => setAnnouncementOpen(null)} />
+      )}
+
+      {!booting && screen === "main" && issueAt && (
+        <IssueSheet key={issueAt.id + ":" + issueAt.at} token={token} user={user} at={issueAt} tasks={assignedTasks} onClose={() => setIssueAt(null)} onChanged={workChanged} showToast={showToast} lkColorMap={lkColorMap} t={t} />
       )}
 
       {!booting && screen === "main" && alertsCard && alertsCard !== "done" && (
@@ -6372,7 +6385,331 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, conver
   );
 }
 
-function AssignedTasksView({ assignedTasks, failed, onRetry, resolveTask, showToast, t, token, lkColorMap }) {
+// ------------------------------------------------------------
+// One sheet for an issue (Step 297, the Step 297 contract's section 2).
+// Every issue opens here: a row on Issues, an issue or an inspection
+// finding on Assigned, and a notice about one, from the bell or a phone
+// alert. It reads GET /api/issues/:id and draws from the row it was
+// opened from until that answers. It offers what the answer's actions
+// allows (API Step 298); until the answer carries actions, the person it
+// is assigned to may resolve it or say they cannot finish it, and an
+// admin or a supervisor may assign it, as the routes allow today. Someone
+// whose task it is works it through the task, PATCH
+// /api/clock/tasks/resolve/:taskId, which settles the issue too, with the
+// note and the photo Assigned has always asked for; one assigned with no
+// task goes through PATCH /api/issues/:id.
+// ------------------------------------------------------------
+const ISSUE_OPEN_STATES = ["open", "in_progress", "escalated"];
+const ISSUE_DONE_STATES = ["resolved", "closed"];
+const issueText = (x, keys) => { for (let i = 0; i < keys.length; i++) { const v = x[keys[i]]; if (typeof v === "string" && v.trim()) return v.trim(); } return ""; };
+const issuePersonOf = (v, name) => {
+  if (v && typeof v === "object") return v.id === undefined || v.id === null ? null : { id: String(v.id), name: typeof v.name === "string" ? v.name.trim() : "" };
+  return v === undefined || v === null || v === "" ? null : { id: String(v), name: name || "" };
+};
+// What the caller may do, read off actions whatever its shape: a list of
+// names or an object of flags, a name in any case, with or without a
+// space or an underscore. null when the answer carries none.
+const ISSUE_ACTION_NAMES = { resolve: "resolve", resolved: "resolve", cannotfinish: "cannot", cannotresolve: "cannot", unabletoresolve: "cannot", cantfinish: "cannot", assign: "assign", reassign: "reassign", start: "start", inprogress: "start" };
+function issueActionsOf(v) {
+  let names = null;
+  if (Array.isArray(v)) names = v.map(a => (typeof a === "string" ? a : a && typeof a === "object" ? String(a.action || a.name || a.key || "") : ""));
+  else if (v && typeof v === "object") names = Object.keys(v).filter(k => v[k] === true);
+  if (!names) return null;
+  const out = {};
+  names.forEach(n => { const k = ISSUE_ACTION_NAMES[String(n).replace(/[^a-z]/gi, "").toLowerCase()]; if (k) out[k] = true; });
+  return out;
+}
+// One issue as the sheet draws it, from the single read's issue
+// (camelCase), a row of GET /api/issues (snake case), or a task on
+// Assigned that carries one (source_issue_id).
+function issueViewOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const fromTask = x.task_id !== undefined && !!(x.source_issue_id || x.issue_id);
+  const id = fromTask ? (x.source_issue_id || x.issue_id) : x.id;
+  if (id === undefined || id === null || id === "") return null;
+  const photos = [];
+  (Array.isArray(x.photos) ? x.photos : []).forEach((p, i) => {
+    const url = typeof p === "string" ? p : p && typeof p === "object" ? String(p.url || p.photo_url || "") : "";
+    if (url) photos.push({ id: String((p && typeof p === "object" && p.id) || url || i), url: url });
+  });
+  const one = issueText(x, ["photo_url", "issue_photo_url"]);
+  if (photos.length === 0 && one) photos.push({ id: one, url: one });
+  const linked = fromTask ? x.task_id : (x.linkedTaskId || x.linked_task_id);
+  return {
+    id: String(id),
+    title: fromTask ? issueText(x, ["issue_title", "label"]) : issueText(x, ["title"]),
+    description: issueText(x, fromTask ? ["issue_description", "description"] : ["description"]),
+    zone: issueText(x, fromTask ? ["issue_zone", "zone"] : ["zone"]),
+    severity: issueText(x, ["severity"]),
+    status: fromTask ? (x.resolution_status === "in_progress" ? "in_progress" : "open") : issueText(x, ["status"]),
+    source: issueText(x, ["source"]),
+    siteId: x.siteId !== undefined && x.siteId !== null ? String(x.siteId) : x.site_id !== undefined && x.site_id !== null ? String(x.site_id) : "",
+    siteName: issueText(x, ["siteName", "site_name"]),
+    reportedAt: x.reportedAt || x.reported_at || null,
+    reportedBy: issuePersonOf(x.reportedBy !== undefined ? x.reportedBy : x.reported_by, issueText(x, ["reported_by_name"])),
+    assignedTo: fromTask ? null : issuePersonOf(x.assignedTo !== undefined ? x.assignedTo : x.assigned_to, issueText(x, ["assigned_to_name"])),
+    dueAt: x.dueAt || x.due_at || null,
+    dueState: issueText(x, ["dueState", "due_state"]),
+    photos: photos,
+    resolutionNote: issueText(x, ["resolutionNotes", "resolutionNote", "resolution_notes", "resolution_note"]),
+    resolutionPhoto: issueText(x, ["resolutionPhotoUrl", "resolutionPhoto", "resolution_photo_url"]),
+    linkedTaskId: linked === undefined || linked === null || linked === "" ? null : String(linked),
+    actions: issueActionsOf(x.actions),
+    canAssign: x.canAssign === undefined ? null : x.canAssign === true,
+    mineByTask: fromTask,
+  };
+}
+// The single read laid over the row it was opened from: what the read
+// answers wins, and what it leaves out keeps the row's.
+const issueMerged = (row, read) => {
+  if (!read) return row;
+  if (!row) return read;
+  const out = Object.assign({}, row);
+  Object.keys(read).forEach(k => {
+    const v = read[k];
+    const empty = v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0);
+    if (!empty || k === "actions") out[k] = v === null && k === "actions" ? row.actions : v;
+  });
+  out.mineByTask = row.mineByTask;
+  return out;
+};
+// The task on Assigned that carries this issue, when it is the person's.
+const issueTaskOf = (view, tasks) => (!view ? null : (Array.isArray(tasks) ? tasks : []).find(tk => tk && (String(tk.source_issue_id || tk.issue_id || "") === view.id || (!!view.linkedTaskId && String(tk.task_id) === view.linkedTaskId))) || null);
+const issueIsManager = (user) => !!user && (user.role === "admin" || user.role === "supervisor");
+
+function IssueSheet({ token, user, at, tasks, onClose, onChanged, showToast, lkColorMap, t }) {
+  const [read, setRead] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [panel, setPanel] = useState(null);
+  const [note, setNote] = useState("");
+  const [photo, setPhoto] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [people, setPeople] = useState(null);
+  const [who, setWho] = useState("");
+  const fileRef = useRef(null);
+  useBusy("issue sheet", note.trim().length > 0 || !!photo || busy);
+  const row = issueViewOf(at && at.row);
+  const id = at ? String(at.id) : "";
+  useEffect(() => {
+    let alive = true;
+    setFailed(false);
+    api("/api/issues/" + encodeURIComponent(id), { token })
+      .then(d => { if (alive) setRead(issueViewOf(d && d.issue ? d.issue : d)); })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, [id, token, attempt]);
+  const view = issueMerged(row, read);
+  const myTask = issueTaskOf(view, tasks);
+  const me = user && user.id !== undefined ? String(user.id) : "";
+  const mine = !!view && (view.mineByTask || !!myTask || (!!view.assignedTo && view.assignedTo.id === me));
+  // What the read allows, or until it says, what the routes allow today.
+  const can = (() => {
+    if (!view) return {};
+    if (view.actions) return view.actions;
+    const out = {};
+    if (mine && ISSUE_OPEN_STATES.indexOf(view.status) !== -1) {
+      out.resolve = true;
+      if (view.status !== "escalated") out.cannot = true;
+      if (view.status === "open") out.start = true;
+    }
+    if (issueIsManager(user) && view.canAssign !== false && view.source !== "client_request" && ISSUE_DONE_STATES.indexOf(view.status) === -1 && view.siteId) out[view.assignedTo ? "reassign" : "assign"] = true;
+    return out;
+  })();
+  const sevColors = lkColorMap ? lkColorMap("issue_severities") : {};
+  const sevC = Object.keys(sevColors).length > 0 ? sevColors : { low: GREEN, medium: ORANGE, high: RED };
+  const sc = sevC[view && view.severity] || ORANGE;
+  const inputSt = mkInput(t);
+  const labelSt = { fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 };
+  const valueSt = { fontSize: 13, color: t.text, fontWeight: 500, overflowWrap: "anywhere" };
+  const btn = (c) => ({ flex: "1 1 120px", minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + c, background: "transparent", color: ink(t, c), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD });
+
+  const clear = () => { setPanel(null); setNote(""); setPhoto(null); setPreview(null); setWho(""); if (fileRef.current) fileRef.current.value = ""; };
+  const takePhoto = (e) => { const file = e.target.files && e.target.files[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { showToast(tr("Photo must be under 10MB"), "error"); return; } setPhoto(file); const r = new FileReader(); r.onload = (ev) => setPreview(ev.target.result); r.readAsDataURL(file); };
+  const done = (status) => { showToast(tr("Task updated to {status}", { status: taskStatusWord(status) })); clear(); onChanged(); onClose(); };
+  const fault = (err) => showToast(requestFaultOf(err, "That did not go through. Try again."), "error");
+  const viaTask = (status, noteText, photoUrl) => api("/api/clock/tasks/resolve/" + encodeURIComponent(myTask.task_id), { method: "PATCH", body: { resolutionStatus: status, resolutionNote: noteText || undefined, photoUrl: photoUrl || undefined }, token });
+  const viaIssue = (status, noteText) => api("/api/issues/" + encodeURIComponent(view.id), { method: "PATCH", body: Object.assign({ status: status }, noteText ? { resolutionNotes: noteText } : {}), token });
+  const start = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { if (myTask) await viaTask("in_progress"); else await viaIssue("in_progress"); done("in_progress"); } catch (err) { fault(err); }
+    setBusy(false);
+  };
+  const resolve = async () => {
+    if (busy) return;
+    if (!note.trim()) { showToast(tr("Describe what you did to complete this task"), "error"); return; }
+    if (!photo) { showToast(tr("A photo of the completed task is required"), "error"); return; }
+    setBusy(true);
+    try {
+      const photoUrl = await uploadPhoto(photo, token);
+      if (myTask) await viaTask("resolved", note.trim(), photoUrl);
+      else {
+        await viaIssue("resolved", note.trim());
+        await api("/api/issues/" + encodeURIComponent(view.id) + "/photos", { method: "POST", body: { photoUrl: photoUrl }, token }).catch(() => {});
+      }
+      done("resolved");
+    } catch (err) { fault(err); }
+    setBusy(false);
+  };
+  const cannot = async () => {
+    if (busy) return;
+    if (!note.trim()) { showToast(tr("Please provide a reason"), "error"); return; }
+    setBusy(true);
+    try { if (myTask) await viaTask("unable_to_resolve", note.trim()); else await viaIssue("escalated", note.trim()); done("unable_to_resolve"); } catch (err) { fault(err); }
+    setBusy(false);
+  };
+  // Assign: the people at the issue's site, from the site's own read, as
+  // the field kit lists them; the route checks who may take it.
+  const openAssign = async () => {
+    clear(); setPanel("assign"); setPeople(null);
+    try {
+      const staff = wsRows(await api("/api/sites/" + encodeURIComponent(view.siteId), { token }), "staff");
+      const list = [];
+      (staff || []).map(ppePersonOf).filter(Boolean).forEach(p => { if (!list.some(x => x.id === p.id)) list.push(p); });
+      list.sort((a, b) => a.name.localeCompare(b.name));
+      setPeople({ state: "ok", list: list });
+    } catch (err) { setPeople({ state: "failed" }); }
+  };
+  const assign = async () => {
+    if (busy || !who) return;
+    const person = people && people.list ? people.list.find(p => p.id === who) : null;
+    setBusy(true);
+    try {
+      await api("/api/issues/" + encodeURIComponent(view.id) + "/assign-as-task", { method: "POST", body: Object.assign({ userId: who }, note.trim() ? { note: note.trim() } : {}), token });
+      showToast(tr("Assigned to {name}.", { name: person ? person.name : "" }));
+      clear(); onChanged(); setAttempt(a => a + 1);
+    } catch (err) { fault(err); }
+    setBusy(false);
+  };
+
+  const field = (label, value, extra) => (value ? <div style={{ minWidth: 0 }}><div style={labelSt}>{label}</div><div style={{ ...valueSt, ...(extra || {}) }}>{value}</div></div> : null);
+  return (
+    <div onClick={() => { if (!busy) onClose(); }} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 300, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div role="dialog" aria-modal="true" aria-labelledby="ocsa-issue-sheet-title" data-issue-sheet={id} onClick={e => e.stopPropagation()} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, borderTop: "3px solid " + sc, width: "100%", maxWidth: 960, padding: "20px 20px 30px", boxShadow: t.popShadow, maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 40px)", overflowY: "auto" }}>
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={takePhoto} style={{ display: "none" }} />
+        <div style={{ width: 40, height: 4, borderRadius: 2, background: t.textMut, margin: "0 auto 16px", opacity: 0.3 }} />
+        {!view && failed && <ListFault icon={AlertIco} text={tr("This issue did not load.")} onRetry={() => setAttempt(a => a + 1)} t={t} />}
+        {!view && !failed && <div style={{ fontSize: 12, color: t.textMut, padding: "10px 0" }}>{tr("Loading...")}</div>}
+        {view && <>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
+            <div id="ocsa-issue-sheet-title" style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{view.title}</div>
+            {view.severity && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "3px 7px", borderRadius: R.sm, background: sc + "20", color: ink(t, sc), fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{levelWord(view.severity)}</span>}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: 12 }}>
+            {view.status && <span data-issue-status={view.status} style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "3px 8px", borderRadius: R.sm, background: (ISSUE_DONE_STATES.indexOf(view.status) !== -1 ? GREEN : ORANGE) + "18", color: ink(t, ISSUE_DONE_STATES.indexOf(view.status) !== -1 ? GREEN : ORANGE), fontFamily: FONT_HEAD }}>{statusWord(view.status)}</span>}
+            {mine && <span data-issue-mine="1" style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "3px 8px", borderRadius: R.sm, background: t.goldBg, border: "1px solid " + t.goldBorder, color: t.goldText, fontFamily: FONT_HEAD }}>{tr("Assigned to you")}</span>}
+            {view.source === "inspection" && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "3px 8px", borderRadius: R.sm, background: t.hover, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("Inspection finding")}</span>}
+          </div>
+          <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontFamily: FONT_HEAD, fontWeight: 600, overflowWrap: "anywhere" }}>{[view.siteName, view.zone].filter(Boolean).join(" > ")}</div>
+          {view.description && <div style={{ marginBottom: 14 }}><div style={labelSt}>{tr("Details")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{view.description}</div></div>}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 12 }}>
+            {field(tr("Reported by"), view.reportedBy && view.reportedBy.name ? view.reportedBy.name + (view.reportedAt ? ", " + requestWhen(view.reportedAt) : "") : view.reportedAt ? requestWhen(view.reportedAt) : "")}
+            {field(tr("Assigned to"), view.assignedTo ? (view.assignedTo.name || (mine ? tr("Me") : "")) : mine ? tr("Me") : tr("Not assigned yet"))}
+          </div>
+          <RequestTarget label="Due {when}" at={view.dueAt} state={ISSUE_DONE_STATES.indexOf(view.status) !== -1 ? "answered" : view.dueState} t={t} />
+          {view.photos.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={labelSt}>{tr("Photos")}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
+                {view.photos.map(p => <a key={p.id} href={p.url} target="_blank" rel="noopener noreferrer"><img src={p.url} alt="" style={{ width: 72, height: 72, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt }} /></a>)}
+              </div>
+            </div>
+          )}
+          {(view.resolutionNote || view.resolutionPhoto) && (
+            <div data-issue-resolution="1" style={{ marginTop: 14, padding: "10px 12px", borderRadius: R.md, background: t.greenSubtle, border: "1px solid " + GREEN + "40" }}>
+              <div style={{ ...labelSt, color: ink(t, GREEN) }}>{tr("What was done")}</div>
+              {view.resolutionNote && <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{view.resolutionNote}</div>}
+              {view.resolutionPhoto && <a href={view.resolutionPhoto} target="_blank" rel="noopener noreferrer"><img src={view.resolutionPhoto} alt="" style={{ width: 72, height: 72, marginTop: 8, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} /></a>}
+            </div>
+          )}
+          {view.source === "inspection" && view.status === "resolved" && <div style={{ marginTop: 12, fontSize: 12, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD }}>{tr("Waiting for a check")}</div>}
+
+          {!panel && (can.start || can.resolve || can.cannot || can.assign || can.reassign) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 16 }}>
+              {can.start && <button type="button" onClick={start} disabled={busy} style={btn(ORANGE)}>{tr("In Progress")}</button>}
+              {can.resolve && <button type="button" data-issue-action="resolve" onClick={() => { clear(); setPanel("resolve"); }} disabled={busy} style={btn(GREEN)}>{tr("Resolved")}</button>}
+              {can.cannot && <button type="button" data-issue-action="cannot" onClick={() => { clear(); setPanel("cannot"); }} disabled={busy} style={btn(RED)}>{tr("Cannot Resolve")}</button>}
+              {(can.assign || can.reassign) && <button type="button" data-issue-action="assign" onClick={openAssign} disabled={busy} style={btn(BLUE)}>{can.reassign ? tr("Reassign") : tr("Assign")}</button>}
+            </div>
+          )}
+          {panel === "resolve" && (
+            <div style={{ marginTop: 16, padding: "12px 14px", borderRadius: R.md, background: t.greenSubtle, border: "1px solid " + t.borderSolid }}>
+              <div style={{ fontSize: 10, color: ink(t, GREEN), fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Mark as Resolved")}</div>
+              <div style={{ marginBottom: 8 }}><div style={{ ...labelSt, fontSize: 10 }}>{tr("What did you do to complete this? *")}</div><textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the steps you took...")} rows={3} style={{ ...inputSt, resize: "vertical" }} /></div>
+              <div style={{ marginBottom: 10 }}><div style={{ ...labelSt, fontSize: 10 }}>{tr("Photo of completed task *")}</div>{!preview ? (<button type="button" onClick={() => fileRef.current && fileRef.current.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, minHeight: TAP, padding: "12px", background: t.hover, border: "1px dashed " + GREEN, borderRadius: R.md, cursor: "pointer", color: ink(t, GREEN), fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={ink(t, GREEN)} /><span style={{ textAlign: "left" }}><span style={{ display: "block" }}>{tr("Take Photo of Completed Task")}</span><span style={{ display: "block", fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("Required to verify completion")}</span></span></button>) : (<div style={{ position: "relative" }}><img src={preview} alt={tr("Preview")} style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: R.md, border: "1px solid " + t.borderSolid }} /><button type="button" onClick={() => { setPhoto(null); setPreview(null); if (fileRef.current) fileRef.current.value = ""; }} aria-label={tr("Remove photo")} style={mkTapFrame({ position: "absolute", top: -2, right: -2 })}><span style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", color: "#F8F7F4", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</span></button></div>)}</div>
+              <div style={{ display: "flex", gap: 8 }}><button type="button" onClick={clear} disabled={busy} style={{ ...btn(t.borderSolid), color: t.textSec }}>{tr("Cancel")}</button><button type="button" data-issue-send="resolve" onClick={resolve} disabled={busy} style={{ flex: "1 1 120px", minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: GREEN_FILL, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: busy ? 0.6 : 1 }}>{busy ? tr("Uploading...") : tr("Submit Resolution")}</button></div>
+            </div>
+          )}
+          {panel === "cannot" && (
+            <div style={{ marginTop: 16, padding: "12px 14px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.borderSolid }}>
+              <div style={{ fontSize: 10, color: ink(t, RED), fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Explain why this cannot be completed *")}</div>
+              <textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the issue preventing completion...")} rows={3} style={{ ...inputSt, resize: "vertical", marginBottom: 8 }} />
+              <div style={{ display: "flex", gap: 8 }}><button type="button" onClick={clear} disabled={busy} style={{ ...btn(t.borderSolid), color: t.textSec }}>{tr("Cancel")}</button><button type="button" data-issue-send="cannot" onClick={cannot} disabled={busy} style={{ flex: "1 1 120px", minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: RED_FILL, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: busy ? 0.6 : 1 }}>{tr("Submit")}</button></div>
+            </div>
+          )}
+          {panel === "assign" && (
+            <div style={{ marginTop: 16, padding: "12px 14px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid }}>
+              <label htmlFor="ocsa-issue-assignee" style={mkLabel(t)}>{tr("Assigned to")}</label>
+              {!people && <div style={{ fontSize: 12, color: t.textMut, padding: "8px 0" }}>{tr("Loading...")}</div>}
+              {people && people.state === "failed" && <div role="alert" style={mkFieldErr(t)}>{tr("This list did not load.")}</div>}
+              {people && people.state === "ok" && <SearchPick id="ocsa-issue-assignee" name="issue-assignee" rows={people.list} value={who} onPick={setWho} none={tr("Not assigned yet")} noMatch={tr("No one matches that name.")} t={t} />}
+              <label htmlFor="ocsa-issue-assign-note" style={{ ...mkLabel(t), marginTop: 12 }}>{tr("Note")}</label>
+              <textarea id="ocsa-issue-assign-note" value={note} onChange={e => setNote(e.target.value)} rows={2} style={{ ...inputSt, resize: "vertical", marginBottom: 8 }} />
+              <div style={{ display: "flex", gap: 8 }}><button type="button" onClick={clear} disabled={busy} style={{ ...btn(t.borderSolid), color: t.textSec }}>{tr("Cancel")}</button><button type="button" data-issue-send="assign" onClick={assign} disabled={busy || !who} style={{ flex: "1 1 120px", minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: busy || !who ? "default" : "pointer", fontFamily: FONT_HEAD, opacity: busy || !who ? 0.6 : 1 }}>{can.reassign ? tr("Reassign") : tr("Assign")}</button></div>
+            </div>
+          )}
+        </>}
+        <button type="button" onClick={() => { if (!busy) onClose(); }} style={{ width: "100%", minHeight: TAP, padding: "12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 16, fontFamily: FONT_HEAD }}>{tr("Close")}</button>
+      </div>
+    </div>
+  );
+}
+
+// Assigned (Step 297, the contract's section 2.2): everything assigned to
+// the person, each once: their tasks from GET /api/clock/tasks/assigned,
+// the issues and inspection findings assigned to them, and the client
+// requests assigned to them. An issue assigned as a task is both a task
+// and an issue to the API, and a finding with an owner is a finding and
+// a task, so each is listed once, by the issue it carries: a client
+// request as a request, a finding as a finding, then an issue. A task
+// whose finding is fixed already is left off, since its finding is.
+function myWorkOf(tasks, findings, requests, issues, user) {
+  const me = user && user.id !== undefined ? String(user.id) : "";
+  const mineReq = requestsForMe(requests, user).mine;
+  const reqById = {};
+  mineReq.forEach(r => { reqById[r.id] = r; });
+  const findById = {};
+  (Array.isArray(findings) ? findings : []).forEach(f => { if (f && f.source === "inspection") findById[f.id] = f; });
+  const seen = {};
+  const out = [];
+  const push = (key, item) => { if (seen[key]) return; seen[key] = true; out.push(Object.assign({ key: key }, item)); };
+  const asFinding = (f, task) => ({ kind: "finding", id: f.id, title: f.title, line: [f.zone, f.siteName].filter(Boolean).join(" · "), dueAt: f.dueAt, dueState: f.dueState, status: f.status, row: task ? Object.assign({}, task, { source: "inspection", due_at: f.dueAt, due_state: f.dueState }) : { id: f.id, title: f.title, description: f.description, zone: f.zone, site_name: f.siteName, severity: f.severity, status: f.status, source: "inspection", assigned_to: f.assignedTo, reported_at: f.reportedAt, due_at: f.dueAt, due_state: f.dueState } });
+  const asRequest = (r) => ({ kind: "request", id: r.id, title: r.categoryTitle, line: [r.area, r.siteName].filter(Boolean).join(" · "), dueAt: r.dueAt, dueState: r.dueState, status: r.status });
+  (Array.isArray(tasks) ? tasks : []).forEach(task => {
+    if (!task || task.task_id === undefined) return;
+    const issueId = task.source_issue_id || task.issue_id;
+    if (!issueId) { push("task:" + task.task_id, { kind: "task", id: String(task.task_id), task: task }); return; }
+    const key = "issue:" + issueId;
+    const f = findById[String(issueId)];
+    if (reqById[String(issueId)]) { push(key, asRequest(reqById[String(issueId)])); return; }
+    if (f) { if (ISSUE_DONE_STATES.indexOf(f.status) === -1) push(key, asFinding(f, task)); else seen[key] = true; return; }
+    const v = issueViewOf(task);
+    push(key, { kind: "issue", id: String(issueId), title: v.title, line: [v.zone, task.site_name].filter(Boolean).join(" · "), status: v.status, dueAt: null, task: task, row: task });
+  });
+  findingsForMe(findings, user).forEach(f => { if (ISSUE_DONE_STATES.indexOf(f.status) === -1) push("issue:" + f.id, asFinding(f, null)); });
+  mineReq.forEach(r => push("issue:" + r.id, asRequest(r)));
+  (Array.isArray(issues) ? issues : []).forEach(x => {
+    const v = issueViewOf(x);
+    if (!v || !v.assignedTo || v.assignedTo.id !== me || v.source === "client_request" || ISSUE_OPEN_STATES.indexOf(v.status) === -1) return;
+    push("issue:" + v.id, { kind: v.source === "inspection" ? "finding" : "issue", id: v.id, title: v.title, line: [v.zone, v.siteName].filter(Boolean).join(" · "), dueAt: v.dueAt, dueState: v.dueState, status: v.status, row: x });
+  });
+  return out;
+}
+const WORK_KIND_WORDS = { task: "Task", issue: "Issue", finding: "Inspection finding", request: "Client request" };
+
+function AssignedTasksView({ assignedTasks, work, onOpenIssue, onOpenRequest, failed, onRetry, resolveTask, showToast, t, token, lkColorMap }) {
   const [detail, setDetail] = useState(null); const [activePanel, setActivePanel] = useState(null);
   const [note, setNote] = useState(""); const [photo, setPhoto] = useState(null); const [photoPreview, setPhotoPreview] = useState(null); const [uploading, setUploading] = useState(false);
   useBusy("assigned task resolution", note.trim().length > 0 || !!photo || uploading);
@@ -6386,8 +6723,9 @@ function AssignedTasksView({ assignedTasks, failed, onRetry, resolveTask, showTo
   const handleCantResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Please provide a reason"), "error"); return; } await resolveTask(taskId, "unable_to_resolve", note.trim(), null); clearForm(); setDetail(null); };
   const getTaskInfo = (task) => { const isIssueLinked = !!task.source_issue_id; const title = isIssueLinked ? (task.issue_title || task.label) : task.label; const desc = isIssueLinked ? task.issue_description : task.description; const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD); const photoUrl = isIssueLinked ? task.issue_photo_url : (task.media_url || null); const mediaType = isIssueLinked ? "image" : (task.media_type || "image"); const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name; const assignedByLabel = isIssueLinked ? tr("Reported by") : tr("Assigned by"); const locationParts = [task.site_name]; if (task.building_name) locationParts.push(task.building_name); if (task.floor_number) locationParts.push(tr("Floor {n}", { n: task.floor_number })); locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || tr("General")); const locationStr = locationParts.filter(Boolean).join(" > "); return { isIssueLinked, title, desc, borderColor, photoUrl, mediaType, assignedBy, assignedByLabel, locationStr }; };
 
-  if (assignedTasks.length === 0 && failed) return (<div style={{ padding: "16px" }}><ListFault icon={AlertIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} /></div>);
-  if (assignedTasks.length === 0) return (<div style={{ padding: "16px" }}><div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><AlertIco sz={40} c={t.borderSolid} /><div style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{tr("No assigned tasks right now.")}</div><div style={{ fontSize: 12, color: t.textMut, marginTop: 4 }}>{tr("When a supervisor assigns a task to you, it will appear here.")}</div></div></div>);
+  const items = Array.isArray(work) ? work : assignedTasks.map(task => ({ key: "task:" + task.task_id, kind: "task", id: String(task.task_id), task: task }));
+  if (items.length === 0 && failed) return (<div style={{ padding: "16px" }}><ListFault icon={AlertIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} /></div>);
+  if (items.length === 0) return (<div style={{ padding: "16px" }}><div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><AlertIco sz={40} c={t.borderSolid} /><div style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{tr("No assigned tasks right now.")}</div><div style={{ fontSize: 12, color: t.textMut, marginTop: 4 }}>{tr("When a supervisor assigns a task to you, it will appear here.")}</div></div></div>);
 
   if (detail) {
     const info = getTaskInfo(detail); const isResolving = activePanel === "resolve"; const isCantResolve = activePanel === "cantresolve";
@@ -6424,8 +6762,26 @@ function AssignedTasksView({ assignedTasks, failed, onRetry, resolveTask, showTo
   return (
     <div style={{ padding: "16px" }}>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />
-      <div style={{ marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Assigned Tasks")}</div><div style={{ fontSize: 11, color: t.textSec }}>{assignedTasks.length === 1 ? tr("{n} task assigned to you", { n: assignedTasks.length }) : tr("{n} tasks assigned to you", { n: assignedTasks.length })}</div></div>
-      {assignedTasks.map(task => { const info = getTaskInfo(task); return (<button type="button" key={task.task_id} onClick={() => setDetail(task)} style={{ display: "block", width: "100%", minHeight: TAP, padding: 0, textAlign: "left", color: t.text, fontFamily: FONT_BODY, marginBottom: 10, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", cursor: "pointer", boxShadow: t.shadow }}><div style={{ padding: "12px 14px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div>{info.desc && <div style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{info.desc}</div>}</div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8, alignItems: "center" }}>{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: ink(t, RED), fontFamily: FONT_HEAD }}>{tr("ISSUE")}</span>}{!info.isIssueLinked && task.priority && task.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[task.priority] || GOLD) + "18", color: ink(t, priC[task.priority] || t.goldText), fontFamily: FONT_HEAD }}>{levelWord(task.priority)}</span>}<Ico d="M9 18l6-6-6-6" sz={14} c={t.textMut} /></div></div><div style={{ display: "flex", gap: 8, marginTop: 8, fontSize: 10, color: t.textMut, flexWrap: "wrap", alignItems: "center" }}><span>{info.locationStr}</span><span>{info.assignedByLabel} {info.assignedBy}</span>{task.resolution_status === "in_progress" && <span style={{ fontSize: 9, fontWeight: 600, color: ink(t, ORANGE), textTransform: "uppercase" }}>{tr("In Progress")}</span>}</div>{task.due_date && (<div style={{ marginTop: 6, fontSize: 10, color: ink(t, ORANGE), fontVariantNumeric: "tabular-nums" }}>{tr("Due:")} {dueDayText(task.due_date, { month: "short", day: "numeric" })}{task.due_time ? " " + tr("at {time}", { time: clockTime(task.due_time) }) : ""}</div>)}</div></button>); })}
+      <div style={{ marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Assigned Tasks")}</div><div style={{ fontSize: 11, color: t.textSec }}>{tr("{n} assigned to you", { n: items.length })}</div></div>
+      {items.map(item => {
+        // An issue, a finding or a client request opens its own sheet; a
+        // task opens its detail below, as it always has.
+        if (item.kind !== "task") {
+          const c = item.kind === "request" ? BLUE : item.kind === "finding" ? INSPECTION_COLOR : RED;
+          return (
+            <button type="button" key={item.key} data-work-row={item.key} data-work-kind={item.kind} onClick={() => (item.kind === "request" ? onOpenRequest(item.id) : onOpenIssue(item.id, item.row))} style={{ display: "block", width: "100%", minHeight: TAP, padding: "12px 14px", textAlign: "left", color: t.text, fontFamily: FONT_BODY, marginBottom: 10, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + c, cursor: "pointer", boxShadow: t.shadow }}>
+              <span style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{item.title}</span>
+                <span style={{ display: "flex", gap: 4, flexShrink: 0, alignItems: "center" }}><span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: c + "18", color: ink(t, c), fontFamily: FONT_HEAD, textTransform: "uppercase" }}>{tr(WORK_KIND_WORDS[item.kind])}</span><Ico d="M9 18l6-6-6-6" sz={14} c={t.textMut} /></span>
+              </span>
+              {item.line && <span style={{ display: "block", marginTop: 6, fontSize: 10, color: t.textMut, overflowWrap: "anywhere" }}>{item.line}</span>}
+              {item.status === "in_progress" && <span style={{ display: "block", marginTop: 4, fontSize: 9, fontWeight: 600, color: ink(t, ORANGE), textTransform: "uppercase" }}>{tr("In Progress")}</span>}
+              <RequestTarget label="Due {when}" at={item.dueAt} state={item.dueState} t={t} />
+            </button>
+          );
+        }
+        const task = item.task;
+        const info = getTaskInfo(task); return (<button type="button" key={item.key} data-work-row={item.key} data-work-kind="task" onClick={() => setDetail(task)} style={{ display: "block", width: "100%", minHeight: TAP, padding: 0, textAlign: "left", color: t.text, fontFamily: FONT_BODY, marginBottom: 10, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + info.borderColor, overflow: "hidden", cursor: "pointer", boxShadow: t.shadow }}><div style={{ padding: "12px 14px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{info.title}</div>{info.desc && <div style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{info.desc}</div>}</div><div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8, alignItems: "center" }}>{info.isIssueLinked && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: "rgba(231,76,60,0.1)", color: ink(t, RED), fontFamily: FONT_HEAD }}>{tr("ISSUE")}</span>}{!info.isIssueLinked && task.priority && task.priority !== "standard" && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "2px 7px", borderRadius: R.sm, background: (priC[task.priority] || GOLD) + "18", color: ink(t, priC[task.priority] || t.goldText), fontFamily: FONT_HEAD }}>{levelWord(task.priority)}</span>}<Ico d="M9 18l6-6-6-6" sz={14} c={t.textMut} /></div></div><div style={{ display: "flex", gap: 8, marginTop: 8, fontSize: 10, color: t.textMut, flexWrap: "wrap", alignItems: "center" }}><span>{info.locationStr}</span><span>{info.assignedByLabel} {info.assignedBy}</span>{task.resolution_status === "in_progress" && <span style={{ fontSize: 9, fontWeight: 600, color: ink(t, ORANGE), textTransform: "uppercase" }}>{tr("In Progress")}</span>}</div>{task.due_date && (<div style={{ marginTop: 6, fontSize: 10, color: ink(t, ORANGE), fontVariantNumeric: "tabular-nums" }}>{tr("Due:")} {dueDayText(task.due_date, { month: "short", day: "numeric" })}{task.due_time ? " " + tr("at {time}", { time: clockTime(task.due_time) }) : ""}</div>)}</div></button>); })}
     </div>
   );
 }
@@ -6738,7 +7094,7 @@ function RequestNoteSheet({ id, title, line, label, required, button, photos, to
   );
 }
 
-function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToast, user, sites, t, token, getOpts, lkColorMap, requests, onRequestsChanged, openRequest, findings, onFindingsChanged, openFinding }) {
+function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToast, user, sites, t, token, getOpts, lkColorMap, requests, onRequestsChanged, openRequest, findings, onFindingsChanged, openFinding, onOpenIssue }) {
   const [showForm, setShowForm] = useState(false); const [title, setTitle] = useState(""); const [desc, setDesc] = useState("");
   const [sev, setSev] = useState("medium"); const [zone, setZone] = useState(""); const [selSite, setSelSite] = useState("");
   const [photo, setPhoto] = useState(null); const [photoPreview, setPhotoPreview] = useState(null); const [uploading, setUploading] = useState(false);
@@ -6770,7 +7126,10 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToa
       </div>)}
       {isAdmin && failed && visibleIssues.length === 0 && !showForm && <ListFault icon={AlertIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} />}
       {isAdmin && !failed && visibleIssues.length === 0 && !showForm && <div style={{ padding: "32px 20px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontSize: 13, color: t.textMut, boxShadow: t.shadow }}>{tr("No issues reported yet.")}</div>}
-      {isAdmin && visibleIssues.map(issue => { const sc = sevC[issue.severity] || ORANGE; return (<div key={issue.id} style={{ padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + sc, boxShadow: t.shadow }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><div style={{ fontSize: 13, fontWeight: 600, flex: 1, color: t.text, fontFamily: FONT_HEAD }}>{issue.title}</div><span style={{ fontSize: 9, color: ink(t, sc), background: sc + "20", padding: "3px 7px", borderRadius: R.sm, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{levelWord(issue.severity)}</span></div><div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 9, color: t.textMut }}><span>{issue.zone}</span><span>{issue.site_name}</span><span style={{ color: ink(t, issue.status === "open" ? ORANGE : GREEN), fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{statusWord(issue.status)}</span></div></div>); })}
+      {/* What was reported at the person's sites (Step 297), each row
+          opening the issue's sheet, with Assigned to you on what is
+          theirs. */}
+      {isAdmin && visibleIssues.map(issue => { const sc = sevC[issue.severity] || ORANGE; const mine = !!user && issue.assigned_to !== undefined && issue.assigned_to !== null && String(issue.assigned_to) === String(user.id); return (<button type="button" key={issue.id} data-issue-row={issue.id} onClick={() => onOpenIssue && onOpenIssue(issue.id, issue)} style={{ display: "block", width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", fontFamily: FONT_BODY, padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + sc, boxShadow: t.shadow }}><span style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><span style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{issue.title}</span><span style={{ fontSize: 9, color: ink(t, sc), background: sc + "20", padding: "3px 7px", borderRadius: R.sm, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{levelWord(issue.severity)}</span></span><span style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 6, fontSize: 9, color: t.textMut }}><span>{issue.zone}</span><span>{issue.site_name}</span><span style={{ color: ink(t, issue.status === "open" ? ORANGE : GREEN), fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{statusWord(issue.status)}</span>{mine && <span data-issue-mine="1" style={{ color: t.goldText, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{tr("Assigned to you")}</span>}</span></button>); })}
     </div>
   );
 }
@@ -9354,7 +9713,12 @@ const NOTIF_TAB = {
 // subject type, so every inspection subject but a finding opens it, and
 // so does the portal's own address for one, /inspect/<id>.
 const inspectionSubject = (s) => typeof s === "string" && s !== "inspection_finding" && /^(scheduled_)?inspections?(_|$)/.test(s);
+// An issue (Step 297): its sheet, from any notice about one (reported at
+// the person's site, escalated, and those API Step 298 adds: assigned to
+// them, its status changed), an inspection finding, and /issues/<id>.
+const issueSubject = (s) => typeof s === "string" && (s === "inspection_finding" || /^issues?(_|$)/.test(s));
 function notifPlace(subjectType, subjectId) {
+  if (issueSubject(subjectType) && subjectId !== null && subjectId !== undefined && subjectId !== "") return { issue: String(subjectId) };
   if (inspectionSubject(subjectType)) return subjectId === null || subjectId === undefined ? { tab: "inspect" } : { tab: "inspect", inspection: String(subjectId) };
   const tab = NOTIF_TAB[subjectType];
   if (!tab) return null;
