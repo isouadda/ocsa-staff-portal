@@ -400,8 +400,6 @@ Take Photo of Completed Task,Tomar foto de la tarea completada,Prendre une photo
 Task,Tarea,Tâche,Assigned
 What did you do to complete this? *,¿Qué hizo para completarla? *,Qu'avez-vous fait pour la terminer ? *,Assigned
 "When a supervisor assigns a task to you, it will appear here.","Cuando un supervisor le asigne una tarea, aparecerá aquí.","Quand un superviseur vous assigne une tâche, elle apparaît ici.",Assigned
-{n} task assigned to you,{n} tarea asignada a usted,{n} tâche vous est assignée,Assigned
-{n} tasks assigned to you,{n} tareas asignadas a usted,{n} tâches vous sont assignées,Assigned
 Unable to resolve,Sin resolver,Non résolue,Assigned
 Medium,Media,Moyenne,"Assigned, Report"
 Critical,Crítica,Critique,Assigned
@@ -1231,3 +1229,17 @@ Get an alert when someone messages you or assigns you an inspection?,¿Quiere re
 This inspection was cancelled.,Esta inspección se canceló.,Cette inspection a été annulée.,"Inspect, an inspection opened from the schedule or a notice"
 This inspection is already done.,Esta inspección ya está hecha.,Cette inspection est déjà faite.,"Inspect, an inspection opened from the schedule or a notice"
 This inspection is not on your list anymore.,Esta inspección ya no está en su lista.,Cette inspection n'est plus dans votre liste.,"Inspect, an inspection opened from the schedule or a notice"
+Assigned to you,Asignado a usted,Assigné à vous,"An issue's sheet, and Issues, on one assigned to you"
+{n} assigned to you,Asignados a usted: {n},Assignés à vous : {n},"Assigned, under its heading"
+Issue,Problema,Problème,"Assigned, the kind of a row"
+Inspection finding,Hallazgo de inspección,Constat d'inspection,"Assigned, the kind of a row; an issue's sheet"
+Client request,Solicitud de cliente,Demande de client,"Assigned, the kind of a row"
+Not assigned yet,Sin asignar todavía,Pas encore assigné,"An issue's sheet, under Assigned to"
+What was done,Lo que se hizo,Ce qui a été fait,"An issue's sheet, once it has a resolution"
+Reassign,Reasignar,Réattribuer,"An issue's sheet, for an admin or a supervisor"
+Assigned to {name}.,Asignado a {name}.,Attribué à {name}.,"An issue's sheet, after Assign"
+Escalated,Escalado,Remonté,An issue's status
+This issue did not load.,Este problema no se cargó.,Ce problème ne s'est pas chargé.,"An issue's sheet, when it does not load"
+Unfinished forms ({n}),Formularios sin terminar ({n}),Formulaires non terminés ({n}),"Home, the card of your unfinished forms"
+Save and finish later,Guardar y terminar después,Enregistrer et terminer plus tard,"Forms, a form, above Next"
+Saved. You will get a reminder until it is sent.,Guardado. Recibirá un recordatorio hasta que lo envíe.,Enregistré. Vous recevrez un rappel jusqu'à son envoi.,"Forms, after Save and finish later"

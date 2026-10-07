@@ -166,7 +166,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_NOTICE, DRAFT_NOTICE } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -1999,6 +1999,103 @@ async function scheduleInspections(browser, language, width) {
   await app.context.close();
 }
 
+// One place to work an issue (Step 297), against API Step 298 as its
+// contract gives it and the stub answers it. A supervisor's Issues: a row
+// opens its sheet, and the one assigned to them reads Assigned to you. A
+// cleaner's Assigned: a task, an issue assigned as a task and a finding
+// that is also a task, each listed once; the issue resolved from its
+// sheet with a note and a photo through its task, and gone from Assigned;
+// and the bell's notice about an issue opening its sheet.
+const sheetOpen = (page, id) => waitFor(page, (i) => { const d = document.querySelector('[data-issue-sheet="' + i + '"]'); return !!d && !!d.querySelector("#ocsa-issue-sheet-title") && d.querySelector("#ocsa-issue-sheet-title").innerText.trim() !== ""; }, id);
+async function issueSheet(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const sup = Object.assign({}, ADMIN_PERSON, { id: "u-smoke-sup", firstName: "Riley", lastName: "Example", role: "supervisor", badgeNumber: "4801", phone: "0000000008", email: "riley@example.invalid" });
+  const boss = await open({ person: sup, issueSheet: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  let rowOpens = false, marked = false;
+  if (await waitFor(boss.page, BAR_JS + ".length >= 5")) {
+    await openPlace(boss.page, say(language, "Issues"));
+    marked = await waitFor(boss.page, (w) => { const r = document.querySelector('[data-issue-row="iss-a1"] [data-issue-mine]'); return !!r && r.innerText.toUpperCase() === w.toUpperCase() && !document.querySelector('[data-issue-row="iss-b2"] [data-issue-mine]'); }, say(language, "Assigned to you"));
+    if (marked) { await boss.page.click('[data-issue-row="iss-b2"]'); rowOpens = await sheetOpen(boss.page, "iss-b2"); }
+  }
+  const bossErrors = boss.errors.slice();
+  await boss.context.close();
+
+  const app = await open({ issueSheet: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  let once = false, resolved = false, gone = false, belled = false;
+  if (await waitFor(page, BAR_JS + ".length >= 5")) {
+    await tapMore(page, say(language, "Assigned"));
+    once = await waitFor(page, () => {
+      const keys = Array.from(document.querySelectorAll("[data-work-row]")).map(r => r.getAttribute("data-work-row"));
+      return keys.length === 3 && keys.filter(k => k === "issue:fnd-9").length === 1 && keys.indexOf("issue:iss-a1") !== -1 && keys.indexOf("task:at-1") !== -1 && document.querySelector('[data-work-row="issue:fnd-9"]').getAttribute("data-work-kind") === "finding";
+    });
+    if (once) {
+      await page.click('[data-work-row="issue:iss-a1"]');
+      if (await sheetOpen(page, "iss-a1") && await waitFor(page, () => !!document.querySelector('[data-issue-sheet="iss-a1"] [data-issue-action="resolve"]'))) {
+        await page.click('[data-issue-sheet="iss-a1"] [data-issue-action="resolve"]');
+        await waitFor(page, () => !!document.querySelector('[data-issue-sheet="iss-a1"] textarea'));
+        await page.fill('[data-issue-sheet="iss-a1"] textarea', "Tightened the trap and dried the floor, invented.");
+        const jpg = await page.evaluate(async () => { const c = document.createElement("canvas"); c.width = 400; c.height = 300; const x = c.getContext("2d"); x.fillStyle = "#3a7"; x.fillRect(0, 0, 400, 300); const b = await new Promise(r => c.toBlob(r, "image/jpeg", 0.9)); const a = new Uint8Array(await b.arrayBuffer()); let s = ""; a.forEach(v => { s += String.fromCharCode(v); }); return btoa(s); });
+        await page.setInputFiles('[data-issue-sheet="iss-a1"] input[type="file"]', { name: "fixed.jpg", mimeType: "image/jpeg", buffer: Buffer.from(jpg, "base64") });
+        await waitFor(page, () => !!document.querySelector('[data-issue-sheet="iss-a1"] img'));
+        await page.click('[data-issue-send="resolve"]');
+        resolved = await waitFor(page, () => !document.querySelector("[data-issue-sheet]"));
+        gone = resolved && await waitFor(page, () => !document.querySelector('[data-work-row="issue:iss-a1"]') && !!document.querySelector('[data-work-row="task:at-1"]'));
+      }
+    }
+    // The bell's notice about an issue reported at the site.
+    await page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
+    if (await waitFor(page, (w) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.indexOf(w) !== -1), SHEET_NOTICE.title)) {
+      await page.evaluate((w) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.indexOf(w) !== -1); if (b) b.click(); }, SHEET_NOTICE.title);
+      belled = await sheetOpen(page, "iss-b2");
+    }
+  }
+  const calls = app.stub.state.sheetCalls;
+  const sent = calls.length === 1 && calls[0].route === "task" && calls[0].taskId === "at-iss-a1" && calls[0].body.resolutionStatus === "resolved" && calls[0].body.resolutionNote === "Tightened the trap and dried the floor, invented." && !!calls[0].body.photoUrl;
+  const wide = await sideways(page);
+  check("One place to work an issue: a supervisor's Issues row opens its sheet and the one assigned to them reads Assigned to you; Assigned lists a task, an issue and a finding each once; the issue resolved from its sheet with a note and a photo through its task is gone from Assigned; the bell's notice opens the issue's sheet; with no sideways scroll" + tag,
+    marked && rowOpens && once && resolved && gone && sent && belled && wide <= 1 && app.errors.length === 0 && bossErrors.length === 0,
+    !marked ? "Issues did not mark the supervisor's own" : !rowOpens ? "the Issues row did not open its sheet" : !once ? "Assigned did not list each once" : !resolved ? "the sheet did not resolve" : !gone ? "the resolved issue stayed on Assigned" : !sent ? JSON.stringify(calls) : !belled ? "the notice did not open the sheet" : wide > 1 ? wide + " pixels sideways" : (app.errors[0] || bossErrors[0]));
+  await app.context.close();
+}
+
+// Unfinished forms you can see (Step 297): Home's card names the
+// person's draft and opens it; Save and finish later saves the answer,
+// closes the form and says a reminder comes; and the reminder's notice
+// opens the draft.
+async function unfinishedForms(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const app = await open({ unfinishedForms: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  const patches = () => app.stub.state.calls.filter(c => c.method === "PATCH" && c.path === "/api/forms/drafts/draft-one");
+  let card = false, opened = false, saved = false, closed = false, said = false, reminded = false;
+  if (await waitFor(page, BAR_JS + ".length >= 5")) {
+    card = await waitFor(page, (w) => { const c = document.querySelector('[data-unfinished-card="home"]'); return !!c && c.innerText.indexOf(w) !== -1 && !!c.querySelector('[data-unfinished-row="draft-one"]'); }, say(language, "Unfinished forms ({n})", { n: 1 }));
+    if (card) {
+      await page.click('[data-unfinished-row="draft-one"]');
+      opened = await waitFor(page, () => !!document.querySelector("[data-form-later]") && !!document.querySelector('.sp-content input[type="text"]'));
+    }
+    if (opened) {
+      await page.fill('.sp-content input[type="text"]', "The loading dock, invented.");
+      await page.click("[data-form-later]");
+      closed = await waitFor(page, () => !document.querySelector("[data-form-later]"));
+      said = await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Saved. You will get a reminder until it is sent."));
+      saved = patches().length === 1 && !!patches()[0].body && !!patches()[0].body.answers && patches()[0].body.answers.where === "The loading dock, invented.";
+    }
+    await tapBar(page, 0);
+    await page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
+    if (await waitFor(page, (w) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.indexOf(w) !== -1), DRAFT_NOTICE.title)) {
+      await page.evaluate((w) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.indexOf(w) !== -1); if (b) b.click(); }, DRAFT_NOTICE.title);
+      reminded = await waitFor(page, () => !!document.querySelector("[data-form-later]"));
+    }
+  }
+  const wide = await sideways(page);
+  check("Unfinished forms you can see: Home's card names the person's draft and opens it; Save and finish later saves the answer once, closes the form and says a reminder comes; the reminder's notice opens the draft; with no sideways scroll" + tag,
+    card && opened && saved && closed && said && reminded && wide <= 1 && app.errors.length === 0,
+    !card ? "Home did not show Unfinished forms (1)" : !opened ? "the row did not open the draft" : !closed ? "the form did not close" : !saved ? JSON.stringify(patches().map(c => c.body)) : !said ? "the reminder line was not said" : !reminded ? "the notice did not open the draft" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+  await app.context.close();
+}
+
 // The Largest text size on a narrow phone: no control cut off or covered.
 async function largest(browser) {
   const app = await open({ accountPreferences: { language: "en", textSize: "largest" } }, { browser, language: "en", textSize: "largest", signedIn: true, width: 360 });
@@ -2028,6 +2125,10 @@ async function largest(browser) {
       await guard("sign-in made simple and closed (en)", () => signInClosed(browser, "en", 390));
       await guard("sign-in made simple and closed (es)", () => signInClosed(browser, "es", 320));
       for (const language of ["en", "es"]) await guard("activating from the welcome email (" + language + ")", () => activateWelcome(browser, language, 390));
+      await guard("one place to work an issue (en)", () => issueSheet(browser, "en", 390));
+      await guard("one place to work an issue (es)", () => issueSheet(browser, "es", 320));
+      await guard("unfinished forms (en)", () => unfinishedForms(browser, "en", 390));
+      await guard("unfinished forms (es)", () => unfinishedForms(browser, "es", 320));
       for (const language of ["en", "es"]) await guard("the workspace (" + language + ")", () => supervisor(browser, language));
       for (const language of ["en", "es"]) await guard("007 on the customer page (" + language + ")", () => customerAsks(browser, language));
       for (const language of ["en", "es"]) await guard("006 on the customer page (" + language + ")", () => customerWalk(browser, language));

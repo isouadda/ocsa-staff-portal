@@ -162,27 +162,29 @@ Last checked: 2026-10-02
 
 ## Finish a task assigned to you (staff portal)
 Who can do this: the person the task is assigned to
-1. Tap **More** (**Más**) (**Plus**), then **Assigned** (**Asignadas**) (**Assignées**).
-2. Tap the task.
+1. Tap **More** (**Más**) (**Plus**), then **Assigned** (**Asignadas**) (**Assignées**). **Assigned Tasks** (**Tareas asignadas**) (**Tâches assignées**) lists everything assigned to you, each once (see See everything assigned to you).
+2. Tap the task. A task opens its own page; an issue or an inspection finding opens its sheet, which has the same buttons (see Work an issue from its sheet).
 3. Tap **Resolved** (**Resuelta**) (**Résolue**). The panel that opens says **Mark as Resolved** (**Marcar como resuelta**) (**Marquer comme résolue**).
 4. Describe what you did.
 5. Tap **Take Photo of Completed Task** (**Tomar foto de la tarea completada**) (**Prendre une photo de la tâche terminée**) and take the photo. The photo is required.
-6. Tap **Submit Resolution** (**Enviar resolución**) (**Envoyer la résolution**).
+6. Tap **Submit Resolution** (**Enviar resolución**) (**Envoyer la résolution**). The task leaves the list. When it came from a reported issue, the issue is resolved too.
+Words people use for this: finish my task, mark a task done, task assigned to me, resolve a task, photo of the work.
 Picture: assigned-task
-Last checked: 2026-10-02
+Last checked: 2026-10-07
 
 ## Say you cannot finish an assigned task (staff portal)
 Who can do this: the person the task is assigned to
 1. Tap **More** (**Más**) (**Plus**), then **Assigned** (**Asignadas**) (**Assignées**).
-2. Tap the task.
+2. Tap the task, the issue or the finding. An issue or a finding opens its sheet, with the same buttons.
 3. Tap **Cannot Resolve** (**No se puede resolver**) (**Impossible de résoudre**).
 4. Explain why it cannot be completed.
 5. Tap **Submit** (**Enviar**) (**Envoyer**). Your supervisors are told.
+Words people use for this: i cannot finish, cannot resolve, blocked task, something is in the way, no puedo terminar.
 Picture: assigned-cannot
-Last checked: 2026-10-02
+Last checked: 2026-10-07
 
 ## Report a problem at a site (staff portal)
-Who can do this: anyone signed in. Supervisors and admins also see the list of problems reported.
+Who can do this: anyone signed in. Supervisors and admins also see the list of problems reported (see See the issues reported at your sites).
 1. Tap **More** (**Más**) (**Plus**), then **Report** (**Reportar**) (**Signaler**). The form **Report an Issue** (**Reportar un problema**) (**Signaler un problème**) is open. Supervisors and admins tap **Issues** (**Problemas**) (**Problèmes**) instead, which lists the problems reported, then **+ Report** (**+ Reportar**) (**+ Signaler**) to open the form; **Cancel** (**Cancelar**) (**Annuler**) closes it.
 2. With no shift open, choose the site under **Site** (**Sitio**) (**Site**). With a shift open, the report goes to that shift's site and no site is asked.
 3. Give it a short title under **Title** (**Título**) (**Titre**). It is required. Add more under **Details** (**Detalles**) (**Détails**).
@@ -190,9 +192,10 @@ Who can do this: anyone signed in. Supervisors and admins also see the list of p
 5. To add a picture, tap **Take Photo or Choose from Gallery** (**Tomar foto o elegir de la galería**) (**Prendre une photo ou choisir dans la galerie**). A JPG or PNG up to 10 MB is taken.
 6. Tap **Submit Issue** (**Enviar problema**) (**Envoyer le problème**). **Issue reported** (**Problema reportado**) (**Problème signalé**) says it went, and the people set to hear about problems are told.
 If it does not work: **Enter issue title** (**Escriba un título para el problema**) (**Entrez un titre pour le problème**) means the title is empty. **Select a site** (**Elija un sitio**) (**Choisissez un site**) means no shift is open and no site was chosen. **Photo must be under 10MB** (**La foto debe pesar menos de 10 MB**) (**La photo doit faire moins de 10 Mo**) means the picture is too large; choose a smaller one.
+7. Once someone is assigned your problem, it is on their **Assigned** (**Asignadas**) (**Assignées**) list, and it opens on its sheet from there and from a notice (see Work an issue from its sheet).
 Words people use for this: something is broken, report an issue, maintenance problem, report damage, something happened at my site, issues list, where do i pick the site.
 Picture: report-issue
-Last checked: 2026-10-02
+Last checked: 2026-10-07
 
 ## Request supplies or report damaged gear (staff portal)
 Who can do this: anyone signed in, with or without a shift started
@@ -380,13 +383,13 @@ Last checked: 2026-10-02
 
 ## Continue a report started in Help (staff portal)
 Who can do this: the person who started the report
-1. Tap **Help** (**Ayuda**) (**Aide**).
+1. Tap **Help** (**Ayuda**) (**Aide**). The same reports are on **Home** (**Inicio**) (**Accueil**) under **Unfinished forms ({n})** (**Formularios sin terminar ({n})**) (**Formulaires non terminés ({n})**); tapping one there opens it as a form.
 2. Under **Unfinished reports** (**Reportes sin terminar**) (**Rapports non terminés**), tap **Resume** (**Continuar**) (**Reprendre**) to keep going in the chat, or **Fill in form** (**Llenar formulario**) (**Remplir le formulaire**) to finish it as a form.
 3. To drop a report you do not want to send, tap **Discard** (**Descartar**) (**Abandonner**), then confirm **Discard this report? It will not be sent.** (**¿Descartar este reporte? No se enviará.**) (**Abandonner ce rapport ? Il ne sera pas envoyé.**). **Report discarded.** (**Reporte descartado.**) (**Rapport abandonné.**) confirms it; it is kept on record and never sent.
 If it does not work: **Unfinished reports did not load.** (**Los reportes sin terminar no se cargaron.**) (**Les rapports non terminés ne se sont pas chargés.**) means the list did not come; tap **Try again** (**Intentar de nuevo**) (**Réessayer**).
-Words people use for this: continue a report, unfinished report, resume, discard a report, delete a draft, started by mistake, descartar.
+Words people use for this: continue a report, unfinished report, unfinished form, resume, discard a report, delete a draft, started by mistake, descartar.
 Picture: help-unfinished
-Last checked: 2026-10-02
+Last checked: 2026-10-07
 
 ## Report a problem with someone at work (staff portal)
 Who can do this: anyone signed in
@@ -405,13 +408,13 @@ Last checked: 2026-10-07
 ## See your notifications (staff portal)
 Who can do this: anyone signed in
 1. Tap the bell at the top of the screen. A number on it means you have unread notices.
-2. Tap a notice to open what it is about. A chat notice opens that chat; an announcement opens the **Announcement** (**Anuncio**) (**Annonce**) with the title, the message, **From {name}** (**De {name}**) (**Envoyé par {name}**) and when it was sent.
+2. Tap a notice to open what it is about. A chat notice opens that chat; a notice about an issue or an inspection finding opens its sheet (see Work an issue from its sheet); one about an inspection assigned to you opens the inspection; a reminder about an unfinished form opens the form; an announcement opens the **Announcement** (**Anuncio**) (**Annonce**) with the title, the message, **From {name}** (**De {name}**) (**Envoyé par {name}**) and when it was sent.
 3. Tap **Mark all read** (**Marcar todas como leídas**) (**Tout marquer comme lu**) to clear the number.
 The bell keeps every notice, even the ones your phone does not buzz for.
 Notices show in the language the app is set to, and switch when you switch it. Some older notices stay in the language they were first written in.
 Words people use for this: notifications, the bell, unread notices, notices in the wrong language, notices in english, notificaciones.
 Picture: notifications
-Last checked: 2026-10-02
+Last checked: 2026-10-07
 
 ## Make the text bigger (staff portal)
 Who can do this: anyone
@@ -881,13 +884,14 @@ Last checked: 2026-10-02
 Who can do this: anyone signed in
 1. **Home** (**Inicio**) (**Accueil**) is the first place on the bottom bar and the screen the app opens on. At the top are today's date and the time.
 2. When a client request waits for your approval or is assigned to you, one card at the top reads **{n} client requests need you** (**{n} solicitudes de clientes lo necesitan**) (**{n} demandes clients vous attendent**) (or **1 client request needs you** (**1 solicitud de cliente lo necesita**) (**1 demande client vous attend**)). Tap it to open Report (see Work a client request assigned to you, and Approve or decline a client request).
-3. With a shift open, the **Time on Site** (**Tiempo en el sitio**) (**Temps sur place**) card shows how long you have been on site, when you started, the site, building and floor, and a bar with today's tasks done out of the total, such as 3/12. **End Shift** (**Terminar turno**) (**Terminer le service**) on it ends the shift (see End your shift).
-4. Under it, **Choose a Site to Start** (**Elija un sitio para comenzar**) (**Choisissez un site pour commencer**) lists your sites, grouped under **Scheduled Today** (**Programado para hoy**) (**Prévu aujourd'hui**), **Your Assigned Sites** (**Sus sitios asignados**) (**Vos sites attribués**) and **All Other Sites** (**Todos los demás sitios**) (**Tous les autres sites**). Tap one, then **Start Shift at** (**Comenzar turno en**) (**Commencer le service à**) and its name (see Start your shift at a site). With a shift open, the heading reads **Shift Open at {site}** (**Turno abierto en {site}**) (**Service ouvert à {site}**) and the list is dimmed until the shift ends.
-5. Last comes **My Schedule** (**Mi horario**) (**Mon planning**), your week. **Week** (**Semana**) (**Semaine**) and **Month** (**Mes**) (**Mois**) change the view, the arrows move a week or a month, and **Today** (**Hoy**) (**Aujourd'hui**) comes back to this week. Tap a day to see what is on it, and tap a shift there to open it. Time off shows here too and opens from **Schedule** (**Horario**) (**Planning**).
-6. The header at the top and the bar at the bottom are on every screen (see Use the bottom bar and More).
-Words people use for this: home screen, main screen, first screen, what is on home, where do i start, time on site, inicio, pantalla principal.
+3. When you have forms started and not sent, a card above that one reads **Unfinished forms ({n})** (**Formularios sin terminar ({n})**) (**Formulaires non terminés ({n})**) with each form's name and how much is answered. Tap one to pick up where you left off (see Get reminded to finish a form).
+4. With a shift open, the **Time on Site** (**Tiempo en el sitio**) (**Temps sur place**) card shows how long you have been on site, when you started, the site, building and floor, and a bar with today's tasks done out of the total, such as 3/12. **End Shift** (**Terminar turno**) (**Terminer le service**) on it ends the shift (see End your shift).
+5. Under it, **Choose a Site to Start** (**Elija un sitio para comenzar**) (**Choisissez un site pour commencer**) lists your sites, grouped under **Scheduled Today** (**Programado para hoy**) (**Prévu aujourd'hui**), **Your Assigned Sites** (**Sus sitios asignados**) (**Vos sites attribués**) and **All Other Sites** (**Todos los demás sitios**) (**Tous les autres sites**). Tap one, then **Start Shift at** (**Comenzar turno en**) (**Commencer le service à**) and its name (see Start your shift at a site). With a shift open, the heading reads **Shift Open at {site}** (**Turno abierto en {site}**) (**Service ouvert à {site}**) and the list is dimmed until the shift ends.
+6. Last comes **My Schedule** (**Mi horario**) (**Mon planning**), your week. **Week** (**Semana**) (**Semaine**) and **Month** (**Mes**) (**Mois**) change the view, the arrows move a week or a month, and **Today** (**Hoy**) (**Aujourd'hui**) comes back to this week. Tap a day to see what is on it, and tap a shift or an inspection there to open it. Time off shows here too and opens from **Schedule** (**Horario**) (**Planning**).
+7. The header at the top and the bar at the bottom are on every screen (see Use the bottom bar and More).
+Words people use for this: home screen, main screen, first screen, what is on home, where do i start, time on site, unfinished forms on home, inicio, pantalla principal.
 Picture: home
-Last checked: 2026-10-05
+Last checked: 2026-10-07
 
 ## See a checklist task's details (staff portal)
 Who can do this: anyone with a shift started
@@ -933,15 +937,16 @@ Last checked: 2026-10-02
 
 ## Leave a form before sending it (staff portal)
 Who can do this: anyone filling a form in the app
-1. Tap **Close** (**Cerrar**) (**Fermer**) at the top of the form.
+1. To stop and come back later, tap **Save and finish later** (**Guardar y terminar después**) (**Enregistrer et terminer plus tard**) at the bottom, above **Next** (**Siguiente**) (**Suivant**). It saves your answers, closes the form and says **Saved. You will get a reminder until it is sent.** (**Guardado. Recibirá un recordatorio hasta que lo envíe.**) (**Enregistré. Vous recevrez un rappel jusqu'à son envoi.**) Every morning until you send it or discard it, OCSA reminds you (see Get reminded to finish a form). Or tap **Close** (**Cerrar**) (**Fermer**) at the top of the form.
 2. The app asks **Leave this report? Your saved answers stay, and you can continue from Forms or Help.** (**¿Salir de este reporte? Sus respuestas guardadas se quedan y puede continuar desde Formularios o Ayuda.**) (**Quitter ce rapport ? Vos réponses enregistrées sont gardées et vous pourrez continuer depuis Formulaires ou Aide.**) Tap **Leave** (**Salir**) (**Quitter**) to go, or **Keep filling** (**Seguir llenando**) (**Continuer à remplir**) to stay.
 3. Leaving saves what is on the page first, then goes back to **Forms** (**Formularios**) (**Formulaires**). The report is kept as a draft and is not sent.
-4. To finish it later, tap **Continue** (**Continuar**) (**Continuer**) on its card in **Forms** (**Formularios**) (**Formulaires**), or find it under **Unfinished reports** (**Reportes sin terminar**) (**Rapports non terminés**) in **Help** (**Ayuda**) (**Aide**) (see Continue a report started in Help).
+4. To finish it later, tap it under **Unfinished forms ({n})** (**Formularios sin terminar ({n})**) (**Formulaires non terminés ({n})**) on **Home** (**Inicio**) (**Accueil**), tap **Continue** (**Continuar**) (**Continuer**) on its card in **Forms** (**Formularios**) (**Formulaires**), or find it under **Unfinished reports** (**Reportes sin terminar**) (**Rapports non terminés**) in **Help** (**Ayuda**) (**Aide**) (see Continue a report started in Help).
 Answers save each time you tap **Next** (**Siguiente**) (**Suivant**) or **Back** (**Atrás**) (**Retour**), and when you leave with **Close** (**Cerrar**) (**Fermer**). Going to another screen from the bottom bar keeps what the last **Next** (**Siguiente**) (**Suivant**) or **Back** (**Atrás**) (**Retour**) saved, and nothing typed after it.
 If it does not work: to drop a draft you do not want, tap **Discard** (**Descartar**) (**Abandonner**) on it under **Unfinished reports** (**Reportes sin terminar**) (**Rapports non terminés**) in **Help** (**Ayuda**) (**Aide**).
-Words people use for this: close a form, leave a report, come back later, finish later, save a draft, did it save, salir del reporte, guardar borrador.
+Words people use for this: close a form, leave a report, come back later, finish later, save and finish later, save a draft, did it save, unfinished form, salir del reporte, guardar borrador, terminar después.
 Picture: form-leave
-Last checked: 2026-10-02
+Picture: form-save-later
+Last checked: 2026-10-07
 
 ## Start a message to someone in the office or on staff (staff portal)
 Who can do this: admins and supervisors
@@ -1108,7 +1113,7 @@ Last checked: 2026-10-07
 
 ## Work a client request assigned to you (staff portal)
 Who can do this: anyone signed in who has a client request assigned to them
-1. When a supervisor or the office assigns you a client request, your phone gets an alert and **Home** (**Inicio**) (**Accueil**) shows **1 client request needs you** (**1 solicitud de cliente lo necesita**) (**1 demande client vous attend**) (or the count when there are more). Tap the card, the alert, or **Report** (**Reportar**) (**Signaler**) on the bar or under More.
+1. When a supervisor or the office assigns you a client request, your phone gets an alert and **Home** (**Inicio**) (**Accueil**) shows **1 client request needs you** (**1 solicitud de cliente lo necesita**) (**1 demande client vous attend**) (or the count when there are more). Each one assigned to you is also on **Assigned** (**Asignadas**) (**Assignées**) under **More** (**Más**) (**Plus**), with **Client request** (**Solicitud de cliente**) (**Demande de client**) on it; tapping it there opens it here. Tap the card, the alert, **Assigned** (**Asignadas**) (**Assignées**)'s row, or **Report** (**Reportar**) (**Signaler**) on the bar or under More.
 2. Under **Client requests** (**Solicitudes de clientes**) (**Demandes des clients**), the heading **Yours** (**Suyas**) (**Les vôtres**) lists each request assigned to you: what was asked, where, the site, how long ago it came in, the note and photos the person left, **Respond by {when}** (**Responder antes de {when}**) (**Répondre avant {when}**) and **Due {when}** (**Vence {when}**) (**Échéance : {when}**), with **Overdue** (**Vencido**) (**En retard**) or **Due soon** (**Vence pronto**) (**Bientôt à échéance**) beside a time that is past or close.
 3. Tap **I'm on it** (**Ya voy**) (**Je m'en occupe**) when you start. **Started.** (**Iniciada.**) (**Commencée.**) shows, and the response time is met.
 4. When the work is done, tap **Done** (**Listo**) (**Terminé**). Add a **Note** (**Nota**) (**Note**) and photos if you like, with **Take photo or choose from gallery** (**Tomar foto o elegir de la galería**) (**Prendre une photo ou choisir dans la galerie**), and tap **Done** (**Listo**) (**Terminé**) in the sheet. **Done. The person who asked is told if they left an email.** (**Listo. Se avisa a la persona que lo pidió si dejó un correo.**) (**Terminé. La personne qui a demandé est prévenue si elle a laissé un e-mail.**) shows and the request leaves your list.
@@ -1116,7 +1121,7 @@ Who can do this: anyone signed in who has a client request assigned to them
 If it does not work: **Write a note first.** (**Primero escriba una nota.**) (**Écrivez d'abord une note.**) means Can't finish needs a note. When a tap does not go through, the reason shows in OCSA's words; check your signal and try again. A request that is no longer yours leaves the list on its own the next time the list is read.
 Words people use for this: client request, request assigned to me, i'm on it, mark a request done, can't finish, spill request, restroom request, solicitud asignada, ya voy, no puedo terminar, demande attribuée, je m'en occupe, impossible de terminer.
 Picture: client-request-mine
-Last checked: 2026-10-05
+Last checked: 2026-10-07
 
 ## Record a supply from its label (staff portal)
 Who can do this: anyone can read the label's page; recording use needs a sign-in
@@ -1132,14 +1137,14 @@ Last checked: 2026-10-05
 
 ## Fix an inspection finding assigned to you (staff portal)
 Who can do this: anyone signed in who is named the owner of an inspection finding
-1. When an inspector marks a card **Needs a fix** (**Necesita arreglo**) (**À réparer**) and names you as its owner, OCSA opens a finding with a due date and your phone gets an alert. Tap the alert, or open **Report** (**Reportar**) (**Signaler**) on the bar or under More (**Issues** (**Problemas**) (**Problèmes**) for supervisors and admins).
-2. Under **Inspection findings** (**Hallazgos de inspección**) (**Constats d'inspection**), each finding assigned to you shows what the card asked, where, the site, how long ago it was opened, the inspector's note, and **Due {when}** (**Vence {when}**) (**Échéance : {when}**) with **Overdue** (**Vencido**) (**En retard**) or **Due soon** (**Vence pronto**) (**Bientôt à échéance**) beside a date that is past or close. The alert's link opens Report on that finding.
+1. When an inspector marks a card **Needs a fix** (**Necesita arreglo**) (**À réparer**) and names you as its owner, OCSA opens a finding with a due date and your phone gets an alert. Tap the alert and the finding opens on its sheet (see Work an issue from its sheet). It is also on **Assigned** (**Asignadas**) (**Assignées**) under **More** (**Más**) (**Plus**), once, with **Inspection finding** (**Hallazgo de inspección**) (**Constat d'inspection**) on it. Or open **Report** (**Reportar**) (**Signaler**) on the bar or under More (**Issues** (**Problemas**) (**Problèmes**) for supervisors and admins).
+2. Under **Inspection findings** (**Hallazgos de inspección**) (**Constats d'inspection**), each finding assigned to you shows what the card asked, where, the site, how long ago it was opened, the inspector's note, and **Due {when}** (**Vence {when}**) (**Échéance : {when}**) with **Overdue** (**Vencido**) (**En retard**) or **Due soon** (**Vence pronto**) (**Bientôt à échéance**) beside a date that is past or close. A finding owned by you is also on your list of tasks, and shows there once.
 3. When the work is done, tap **Fixed** (**Arreglado**) (**Réparé**). On **Mark this finding fixed** (**Marcar este hallazgo como arreglado**) (**Marquer ce constat comme réparé**), add a **Note** (**Nota**) (**Note**) and photos if you like, with **Take photo or choose from gallery** (**Tomar foto o elegir de la galería**) (**Prendre une photo ou choisir dans la galerie**), and tap **Fixed** (**Arreglado**) (**Réparé**) in the sheet. **Fixed. A second person checks it.** (**Arreglado. Otra persona lo verifica.**) (**Réparé. Une autre personne le vérifie.**) shows.
 4. The finding stays on your list as **Waiting for a check** (**Esperando verificación**) (**En attente de vérification**) until someone other than you checks the fix in person and closes it from the office. Then it leaves your list.
 If it does not work: the section shows only when OCSA lists a finding for you, so a tab with no section means nothing is assigned to you. When a tap does not go through, the reason shows in OCSA's words; check your signal and try again. **The photo did not upload. Try again, or send without it.** (**La foto no se subió. Intente de nuevo o envíe sin ella.**) (**La photo n'a pas été envoyée. Réessayez, ou envoyez sans elle.**) means a photo did not go; tap Fixed again, with or without it.
 Words people use for this: inspection finding, finding assigned to me, fix a finding, mark a finding fixed, waiting for a check, deficient item, inspection ticket, who checks my fix, hallazgo de inspección, marcar como arreglado, constat d'inspection, marquer comme réparé.
 Picture: finding-mine
-Last checked: 2026-10-05
+Last checked: 2026-10-07
 
 ## See your training (staff portal)
 Who can do this: anyone signed in, once OCSA lists training for them
@@ -1340,4 +1345,48 @@ Who can do this: anyone signed in
 If it does not work: **Your ticket was not sent. Try again.** (**Su reporte no se envió. Intente de nuevo.**) (**Votre ticket n'a pas été envoyé. Réessayez.**) means it did not go; tap **Send to App support** (**Enviar a Soporte de la aplicación**) (**Envoyer à l'assistance de l'application**) again. Ask Help who App support is and it names them. To change your own phone, address or emergency contact, Help points you to Update your personal information or photo, or the HR Manager, and writes no ticket.
 Words people use for this: help cannot answer, tell the office the app is broken, report it through help, ticket from help, send it to support, reporte desde ayuda, ticket depuis l'aide.
 Picture: help-ticket
+Last checked: 2026-10-07
+
+## See everything assigned to you (staff portal)
+Who can do this: anyone signed in
+1. Tap **More** (**Más**) (**Plus**), then **Assigned** (**Asignadas**) (**Assignées**). The number on it counts what is on the list.
+2. **Assigned Tasks** (**Tareas asignadas**) (**Tâches assignées**) lists everything assigned to you, each once, and says how many: **{n} assigned to you** (**Asignados a usted: {n}**) (**Assignés à vous : {n}**). A task shows as it always has. The others say what they are: **Issue** (**Problema**) (**Problème**) for a problem someone reported, **Inspection finding** (**Hallazgo de inspección**) (**Constat d'inspection**) for a card an inspector marked, and **Client request** (**Solicitud de cliente**) (**Demande de client**) for something a client asked for.
+3. An issue assigned to you as a task, or a finding you own, is one row, never two.
+4. Tap a row to open it: a task opens its own page, an issue or a finding opens its sheet (see Work an issue from its sheet), and a client request opens on **Report** (**Reportar**) (**Signaler**) with that request marked (see Work a client request assigned to you).
+5. When you finish something, it leaves the list.
+If it does not work: **No assigned tasks right now.** (**No hay tareas asignadas en este momento.**) (**Aucune tâche assignée pour le moment.**) means nothing is assigned to you. **This list did not load.** (**Esta lista no se cargó.**) (**Cette liste ne s'est pas chargée.**) means the list did not come; tap **Try again** (**Intentar de nuevo**) (**Réessayer**).
+Words people use for this: my work, what is assigned to me, assigned list, issues and tasks, the same thing twice, my assigned issues, mis tareas asignadas, lo que me asignaron.
+Picture: assigned-list
+Last checked: 2026-10-07
+
+## Work an issue from its sheet (staff portal)
+Who can do this: anyone who can see the issue: the person it is assigned to, the person who reported it, and supervisors and admins
+1. An issue opens on its own sheet from wherever you see it: a row on **Assigned** (**Asignadas**) (**Assignées**), a row on **Issues** (**Problemas**) (**Problèmes**), or a notice about it in the bell or on your phone.
+2. The sheet shows the title, how serious it is, its status, **Assigned to you** (**Asignado a usted**) (**Assigné à vous**) when it is yours, the site and the area, the **Details** (**Detalles**) (**Détails**), the **Photos** (**Fotos**) (**Photos**), **Reported by** (**Reportada por**) (**Signalée par**) with when, **Assigned to** (**Asignado a**) (**Assignée à**) or **Not assigned yet** (**Sin asignar todavía**) (**Pas encore assigné**), and **Due {when}** (**Vence {when}**) (**Échéance : {when}**) when it has a due date. Once someone resolves it, **What was done** (**Lo que se hizo**) (**Ce qui a été fait**) shows the note. A fixed finding says **Waiting for a check** (**Esperando verificación**) (**En attente de vérification**).
+3. When it is yours, tap **Resolved** (**Resuelta**) (**Résolue**), describe what you did, tap **Take Photo of Completed Task** (**Tomar foto de la tarea completada**) (**Prendre une photo de la tâche terminée**), take the photo, and tap **Submit Resolution** (**Enviar resolución**) (**Envoyer la résolution**). The note and the photo are required. Or tap **Cannot Resolve** (**No se puede resolver**) (**Impossible de résoudre**), explain why, and tap **Submit** (**Enviar**) (**Envoyer**); your supervisors are told. **In Progress** (**En proceso**) (**En cours**) marks that you started.
+4. A supervisor or an admin taps **Assign** (**Asignar**) (**Attribuer**), or **Reassign** (**Reasignar**) (**Réattribuer**) when someone has it, picks the person under **Assigned to** (**Asignado a**) (**Assignée à**) (type part of a name in **Search by name** (**Buscar por nombre**) (**Rechercher par nom**)), adds a **Note** (**Nota**) (**Note**) if they like, and taps **Assign** (**Asignar**) (**Attribuer**) again. **Assigned to {name}.** (**Asignado a {name}.**) (**Attribué à {name}.**) shows, and the issue goes on that person's **Assigned** (**Asignadas**) (**Assignées**) list.
+5. Tap **Close** (**Cerrar**) (**Fermer**) to go back.
+If it does not work: **This issue did not load.** (**Este problema no se cargó.**) (**Ce problème ne s'est pas chargé.**) means the sheet could not read it; tap **Try again** (**Intentar de nuevo**) (**Réessayer**). When a tap does not go through, the reason shows in OCSA's words.
+Words people use for this: issue sheet, open an issue, issues are not clickable, work an issue, resolve an issue, assign an issue, the notice opened the issue, ver el problema, resolver un problema.
+Picture: issue-sheet
+Last checked: 2026-10-07
+
+## See the issues reported at your sites (staff portal)
+Who can do this: supervisors and admins
+1. Tap **More** (**Más**) (**Plus**), then **Issues** (**Problemas**) (**Problèmes**).
+2. Under **Issues** (**Problemas**) (**Problèmes**), each problem reported shows its title, how serious it is, the area, the site and its status. One assigned to you also reads **Assigned to you** (**Asignado a usted**) (**Assigné à vous**).
+3. Tap a row to open its sheet, where you can see everything about it and assign it (see Work an issue from its sheet). The same sheet opens from **Assigned** (**Asignadas**) (**Assignées**) and from a notice.
+4. **+ Report** (**+ Reportar**) (**+ Signaler**) opens the form to report a new one (see Report a problem at a site).
+Words people use for this: issues list, problems at my sites, reported issues, open an issue, assign an issue, lista de problemas.
+Picture: issues-list
+Last checked: 2026-10-07
+
+## Get reminded to finish a form (staff portal)
+Who can do this: anyone who started a form and has not sent it
+1. A form you start and do not send is kept for you as a draft, whether you left it with **Save and finish later** (**Guardar y terminar después**) (**Enregistrer et terminer plus tard**), with **Close** (**Cerrar**) (**Fermer**), or started it in **Help** (**Ayuda**) (**Aide**).
+2. Every morning at 8:00 AM until you send it or discard it, OCSA reminds you that you have an unfinished form, in the bell and on your phone if alerts are on.
+3. Tap the reminder and the form opens where you left off. It is also on **Home** (**Inicio**) (**Accueil**) under **Unfinished forms ({n})** (**Formularios sin terminar ({n})**) (**Formulaires non terminés ({n})**), and in **Forms** (**Formularios**) (**Formulaires**) with **Continue** (**Continuar**) (**Continuer**) on its card.
+4. To stop the reminders, send the form, or discard it under **Unfinished reports** (**Reportes sin terminar**) (**Rapports non terminés**) in **Help** (**Ayuda**) (**Aide**).
+Words people use for this: reminder to finish a form, unfinished form, finish later, pick up where i left off, form reminder, recordatorio, formulario sin terminar.
+Picture: form-reminder
 Last checked: 2026-10-07

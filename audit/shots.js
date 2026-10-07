@@ -347,8 +347,8 @@ const SHOTS = [
     go: (s) => s.waitText([s.say("Activate Account"), s.say("Choose your 4-digit PIN and pick your language.")]) },
 
   // Home, and the shift.
-  { name: "home", entry: E("What Home shows"), o: { signedIn: true, stub: { requests: true, signatures: true } },
-    go: async (s) => { await s.hasBar(); return s.waitFor(() => !!document.querySelector("[data-request-card], [data-sign-card]")); } },
+  { name: "home", entry: E("What Home shows"), o: { signedIn: true, stub: { requests: true, signatures: true, unfinishedForms: true } },
+    go: async (s) => { await s.hasBar(); return s.waitFor(() => !!document.querySelector("[data-request-card], [data-sign-card]") && !!document.querySelector("[data-unfinished-card]")); } },
   { name: "start-shift", entry: E("Start your shift at a site"), o: { signedIn: true, stub: { clockedIn: false } },
     go: async (s) => { await s.hasBar(); return s.waitText(s.say("Choose a Site to Start")); } },
   { name: "end-shift", entry: E("End your shift"), o: { signedIn: true },
@@ -660,6 +660,19 @@ const SHOTS = [
     go: async (s) => { if (!(await openAssigned(s))) return false; await s.tap(s.say("Cannot Resolve")); return s.waitText(s.say("Submit")); } },
   // Step 281: a refill with two items, against an API that takes items,
   // and the person's own requests with the office's decisions.
+  // Step 297: Assigned with a task, an issue and a finding, each once;
+  // an issue's sheet opened from it; and Issues for a supervisor.
+  { name: "assigned-list", entry: E("See everything assigned to you"), o: { signedIn: true, stub: { issueSheet: true } },
+    go: async (s) => { if (!(await s.go("Assigned"))) return false; return s.waitFor(() => document.querySelectorAll("[data-work-row]").length === 3); } },
+  { name: "issue-sheet", entry: E("Work an issue from its sheet"), o: { signedIn: true, stub: { issueSheet: true } },
+    go: async (s) => {
+      if (!(await s.go("Assigned"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-work-row="issue:iss-a1"]')))) return false;
+      await s.page.click('[data-work-row="issue:iss-a1"]');
+      return s.waitFor(() => !!document.querySelector('[data-issue-sheet="iss-a1"] [data-issue-action="resolve"]'));
+    } },
+  { name: "issues-list", entry: E("See the issues reported at your sites"), o: { signedIn: true, stub: { issueSheet: true, person: SUPERVISOR } },
+    go: async (s) => { if (!(await s.go("Issues"))) return false; if (!(await s.waitFor(() => !!document.querySelector('[data-issue-row="iss-a1"] [data-issue-mine]')))) return false; await s.show(s.say("Issues")); return true; } },
   { name: "supply-request", entry: E("Request supplies or report damaged gear"), o: { signedIn: true, stub: { clockedIn: false, supplyItems: true } },
     go: async (s) => {
       if (!(await s.go("Supplies"))) return false;
@@ -818,6 +831,16 @@ const SHOTS = [
     } },
   { name: "form-leave", entry: E("Leave a form before sending it"), o: { signedIn: true },
     go: async (s) => { if (!(await sitePage(s, 1))) return false; await s.tap(s.say("Close")); return s.waitText(s.say("Keep filling")); } },
+  // Save and finish later at the foot of a form (Step 297), ringed.
+  { name: "form-save-later", entry: E("Leave a form before sending it"), o: { signedIn: true },
+    go: async (s) => { if (!(await sitePage(s, 1))) return false; if (!(await s.waitFor(() => !!document.querySelector("[data-form-later]")))) return false; return s.mark("[data-form-later]"); } },
+  // The morning reminder about an unfinished form, in the bell (Step 297).
+  { name: "form-reminder", entry: E("Get reminded to finish a form"), o: { signedIn: true, stub: { unfinishedForms: true } },
+    go: async (s) => {
+      await s.hasBar();
+      await s.page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
+      return s.waitText("You have an unfinished Incident report");
+    } },
 
   // The forms the guide names, each by its card on Forms.
   guideForm("form-daily-log", E("Fill in the daily service log"), "Daily Service Log", "Registro diario de servicio"),
