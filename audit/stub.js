@@ -700,6 +700,16 @@ const cutInto = (text, n) => {
 // byte: auth.pinIncorrect, auth.pinUnchanged, auth.pinWeak and
 // auth.pinFormat. The API also answers PIN_UNCHANGED with
 // auth.pinSameAsGiven on a first PIN, which the portal never sends.
+// isWeakPin in the API's routes/auth.js: four of one digit, four digits
+// running up or down by one, or the badge number or its last four.
+function weakPin(pin, badge) {
+  const d = String(pin).split("").map(Number);
+  const same = d.every(x => x === d[0]);
+  const up = d.every((x, i) => i === 0 || x === d[i - 1] + 1);
+  const down = d.every((x, i) => i === 0 || x === d[i - 1] - 1);
+  const b = badge ? String(badge) : "";
+  return same || up || down || (!!b && (pin === b || pin === b.slice(-4)));
+}
 const PIN_REFUSALS = {
   PIN_INCORRECT: ["Current PIN is incorrect", "El PIN actual no es correcto"],
   PIN_UNCHANGED: ["New PIN must be different from your current PIN", "El PIN nuevo debe ser distinto de su PIN actual"],
@@ -841,6 +851,8 @@ function makeState(opts) {
     loginMisses: {},
     challenge: null,
     activationBadge: !!o.activationBadge,
+    // Step 294: every POST /api/auth/activate body, in order.
+    activations: [],
     // The smoke check's switches (Step 237, audit/smoke.js), each off
     // unless a case turns it on, so every other case is answered as
     // before. languages: the list GET /api/languages answers, and a call
@@ -2991,13 +3003,21 @@ function createStub(opts) {
     // saved language rides along when the account has one.
     const linkInfo = () => Object.assign({ firstName: state.person.firstName, expiresAt: iso(NOW.getTime() + 12 * 60 * 60 * 1000) },
       (state.accountPreferences && (state.accountPreferences.language === "en" || state.accountPreferences.language === "es")) ? { preferredLanguage: state.accountPreferences.language } : {});
-    if (method === "GET" && /^\/api\/auth\/activate\//.test(pathname)) return json(200, Object.assign(linkInfo(), { badgeAssigned: state.activationBadge }));
+    // API Step 292 answers badgeAssigned false for every link from the
+    // welcome email; activationBadge stands in for a link from before it.
+    if (method === "GET" && /^\/api\/auth\/activate\//.test(pathname)) return json(200, Object.assign(linkInfo(), { badgeNumber: state.person.badgeNumber, badgeAssigned: state.activationBadge }));
     // A link whose row carries a badge number turns away one that does
     // not match, with a code the screen reads and a sentence it does not.
+    // Since Step 292 the PIN passes change-pin's weak-PIN rule, refused
+    // in the same words, and every activation is kept to be read back.
     if (key === "POST /api/auth/activate") {
+      state.activations.push(body);
       if (state.activationBadge && body && body.badgeNumber && body.badgeNumber !== state.person.badgeNumber) {
         return json(400, { error: BADGE_MISMATCH[0], code: "BADGE_MISMATCH" });
       }
+      const pin = String((body && body.pin) || "");
+      if (!/^[0-9]{4}$/.test(pin)) return json(400, { error: PIN_REFUSALS.PIN_FORMAT[languageOf(search, state) === "es" ? 1 : 0], code: "PIN_FORMAT" });
+      if (weakPin(pin, state.person.badgeNumber)) return json(400, { error: PIN_REFUSALS.PIN_WEAK[languageOf(search, state) === "es" ? 1 : 0], code: "PIN_WEAK" });
       return json(200, { token: "token-one" });
     }
     if (method === "GET" && /^\/api\/auth\/reset\//.test(pathname)) return json(200, { firstName: state.person.firstName, expiresAt: linkInfo().expiresAt });

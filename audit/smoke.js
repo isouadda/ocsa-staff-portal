@@ -165,7 +165,7 @@ const fs = require("fs");
 const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
-const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
+const { createStub, servedFor, ADMIN_PERSON, PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
@@ -475,6 +475,42 @@ async function sds(browser, language) {
 // reload, Change PIN with a wrong current PIN, and a first supply request
 // on an empty list. Then with a stored session: a 502 at boot, and the
 // supply label's page on a PIN the person was given.
+// Activating from the welcome email (Step 294), against API Step 292 as
+// its contract gives it and the stub answers it: the link answers
+// badgeAssigned false, so no badge box; a weak PIN is refused on the
+// phone in Change PIN's words with nothing sent; a good PIN activates
+// once, with no badge number, and signs in.
+async function activateWelcome(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const app = await open({ accountPreferences: { language: language, textSize: "standard" } }, { browser, language, width, path: "/activate?token=fixture" });
+  const page = app.page;
+  const up = await waitFor(page, (w) => !!document.querySelectorAll('input[type="password"]')[1] && document.body.innerText.indexOf(w) !== -1, say(language, "Choose your 4-digit PIN and pick your language."));
+  const noBadge = up && await page.evaluate((w) => !Array.from(document.querySelectorAll("input")).some(i => i.placeholder === w.box) && !Array.from(document.querySelectorAll("label")).some(l => l.innerText.trim().toUpperCase() === w.label.toUpperCase()), { box: say(language, "Badge number"), label: say(language, "Badge Number") });
+  const pins = async (pin) => { const boxes = await page.$$('input[type="password"]'); await boxes[0].fill(pin); await boxes[1].fill(pin); };
+  let weak = false, weakNotSent = false, inNow = false;
+  if (up) {
+    await pins("1234");
+    await clickWord(page, say(language, "Activate Account"));
+    weak = await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Choose a PIN that is not repeated digits, a sequence, or your badge number"));
+    // The badge number the link's GET answers, refused the same way.
+    await pins(PERSON.badgeNumber);
+    await clickWord(page, say(language, "Activate Account"));
+    await pause(page, TAP_SETTLE);
+    weak = weak && await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Choose a PIN that is not repeated digits, a sequence, or your badge number"));
+    weakNotSent = weak && app.stub.state.activations.length === 0;
+    await pins("4907");
+    await clickWord(page, say(language, "Activate Account"));
+    inNow = await waitFor(page, BAR_JS + ".length >= 5", null, 10000);
+  }
+  const sent = app.stub.state.activations;
+  const once = sent.length === 1 && sent[0].pin === "4907" && sent[0].token === "fixture" && !("badgeNumber" in sent[0]) && sent[0].locale === language;
+  const wide = await sideways(page);
+  check("activating from the welcome email: the link opens with no badge box, a weak PIN and the badge number are refused on the phone in Change PIN's words with nothing sent, and a good PIN activates once with no badge number and signs in" + tag,
+    up && noBadge && weak && weakNotSent && inNow && once && wide <= 1 && app.errors.length === 0,
+    !up ? "the activation screen did not read its welcome line" : !noBadge ? "a badge box showed" : !weak ? "the weak PIN was not refused on the phone" : !weakNotSent ? "the weak PIN was sent" : !inNow ? "the good PIN did not sign in" : !once ? JSON.stringify(sent) : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+  await app.context.close();
+}
+
 async function signInClosed(browser, language, width) {
   const tag = " (" + language + ", " + width + " wide)";
   const app = await open({ person: ADMIN_PERSON, secondStep: true, supplyItems: true, supplyEmpty: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, width });
@@ -1596,18 +1632,29 @@ async function supplyLines(browser, language, width) {
   }, { approved: say(language, "Approved {n} of {m}", { n: 3, m: 5 }), denied: say(language, "Denied"), note: say(language, "Note: {note}", { note: SUPPLY_DENY_NOTE }), qty: say(language, "Quantity: {n}", { n: 5 }) + " rolls" });
   let lines = false, three = false, listed = false, refused = false, capped = false, damage = false, wide = 0;
   if (decided) { await formOpen("Refill"); lines = await waitFor(page, () => !!document.querySelector('[data-supply-lines="1"] [data-supply-line-supply="0"]') && !!document.querySelector("[data-supply-add]")); }
+  // Each item's supply is picked once its picker draws all four of the
+  // list's rows, as the searchable pickers check waits (Step 294): on a
+  // slow phone with both lanes running, a tap made before the list had
+  // drawn picked nothing, and Submit Request posted no refill.
+  let picked = 0;
+  const pickSupply = async (i, id) => {
+    const scope = '[data-supply-line-supply="' + i + '"]';
+    await waitFor(page, (s) => document.querySelectorAll(s + " [data-pick-row]").length === 4, scope);
+    if (await pickIn(page, scope, id)) picked += 1;
+  };
   if (lines) {
     for (let i = 0; i < 3; i += 1) await page.click("[data-supply-add]");
+    await waitFor(page, () => !!document.querySelector('[data-supply-lines="4"]'));
     const more = say(language, "One more");
-    await pickIn(page, '[data-supply-line-supply="0"]', "sup-1");
+    await pickSupply(0, "sup-1");
     await page.click('[data-supply-line="0"] [aria-label="' + more + '"]');
     await page.click('[data-supply-line="0"] [aria-label="' + more + '"]');
-    await pickIn(page, '[data-supply-line-supply="1"]', "sup-2");
+    await pickSupply(1, "sup-2");
     await page.fill('[data-supply-line-qty="1"]', "7");
-    await pickIn(page, '[data-supply-line-supply="2"]', "sup-3");
+    await pickSupply(2, "sup-3");
     await page.fill('[data-supply-line-qty="2"]', "12");
     await page.fill('[data-supply-line-note="2"]', "Invented: the large ones.");
-    await pickIn(page, '[data-supply-line-supply="3"]', "sup-4");
+    await pickSupply(3, "sup-4");
     wide = await sideways(page);
     await page.click('[data-supply-line-remove="1"]');
     three = await waitFor(page, () => !!document.querySelector('[data-supply-lines="3"]'));
@@ -1648,8 +1695,8 @@ async function supplyLines(browser, language, width) {
   const damageSent = dmg.length === 1 && dmg[0].supplyId === "sup-2" && dmg[0].itemName === "Invented hand soap" && !("items" in dmg[0]);
   await app.context.close();
   check("A supply request with many items: My requests reads Approved 3 of 5 and Denied with the office's note; Refill takes four items, one is removed, and Submit Request posts the three once as items in order with their quantities and note, which My requests then lists; New Gear's refusal naming items.0.itemName reads under that item's name; the 31st item is refused on the phone; Damage Report posts one supply and no items, as before; with no sideways scroll" + tag,
-    decided && lines && three && listed && sentOnce && refused && capped && damage && damageSent && all.length === 3 && wide <= 1 && app.errors.length === 0,
-    !decided ? "My requests did not read the decided request" : !lines ? "Refill did not offer items" : !three ? "removing an item did not leave three" : !listed ? "My requests did not list the new request's three items" : !sentOnce ? JSON.stringify(refill) : !refused ? "the refusal did not read under the item's name" : !capped ? "the 31st item was not refused on the phone" : !damage ? "the damage report did not go" : !damageSent ? JSON.stringify(dmg) : all.length !== 3 ? all.length + " posts" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+    decided && lines && picked === 4 && three && listed && sentOnce && refused && capped && damage && damageSent && all.length === 3 && wide <= 1 && app.errors.length === 0,
+    !decided ? "My requests did not read the decided request" : !lines ? "Refill did not offer items" : picked !== 4 ? "only " + picked + " of the four supplies were picked" : !three ? "removing an item did not leave three" : !listed ? "My requests did not list the new request's three items" : !sentOnce ? JSON.stringify(refill) : !refused ? "the refusal did not read under the item's name" : !capped ? "the 31st item was not refused on the phone" : !damage ? "the damage report did not go" : !damageSent ? JSON.stringify(dmg) : all.length !== 3 ? all.length + " posts" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
 }
 
 // The supply page (Step 252): signed out, the sheet in the page and Sign
@@ -1930,6 +1977,7 @@ async function largest(browser) {
       await guard("/sds (en)", () => sds(browser, "en"));
       await guard("sign-in made simple and closed (en)", () => signInClosed(browser, "en", 390));
       await guard("sign-in made simple and closed (es)", () => signInClosed(browser, "es", 320));
+      for (const language of ["en", "es"]) await guard("activating from the welcome email (" + language + ")", () => activateWelcome(browser, language, 390));
       for (const language of ["en", "es"]) await guard("the workspace (" + language + ")", () => supervisor(browser, language));
       for (const language of ["en", "es"]) await guard("007 on the customer page (" + language + ")", () => customerAsks(browser, language));
       for (const language of ["en", "es"]) await guard("006 on the customer page (" + language + ")", () => customerWalk(browser, language));

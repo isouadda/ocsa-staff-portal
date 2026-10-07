@@ -342,8 +342,9 @@ const SHOTS = [
     } },
   { name: "register", entry: E("Register as a new employee"), o: {},
     go: async (s) => { await s.waitText(s.say("Sign In")); await s.tap(s.say("New Employee? Register Here")); return s.waitText(s.say("Register")); } },
-  { name: "activate", entry: E("Activate your account from the email"), o: { path: "/activate?token=fixture", stub: { activationBadge: true } },
-    go: (s) => s.waitText(s.say("Activate Account")) },
+  // The link from the welcome email, which asks no badge (Step 294).
+  { name: "activate", entry: E("Activate your account from the email"), o: { path: "/activate?token=fixture" },
+    go: (s) => s.waitText([s.say("Activate Account"), s.say("Choose your 4-digit PIN and pick your language.")]) },
 
   // Home, and the shift.
   { name: "home", entry: E("What Home shows"), o: { signedIn: true, stub: { requests: true, signatures: true } },

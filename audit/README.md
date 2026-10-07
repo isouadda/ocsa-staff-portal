@@ -88,7 +88,8 @@ no More item, in English at 390 and Spanish at 320; a supply request
 with many items (Step 281), against an API that answers items: My
 requests reading a decided request, Approved 3 of 5 and Denied with the
 office's note, a refill of four items with one removed posted once as
-three items in order with their quantities and note, a refusal naming
+three items in order with their quantities and note (each supply picked
+once its picker has drawn all four rows, since Step 294), a refusal naming
 items.0.itemName under that item's name, the 31st item refused on the
 phone, and a damage report posted as before, one supply and no items, in
 English at 390 and Spanish at 320;
@@ -108,6 +109,11 @@ Can't sign in? Email from GET /api/support/contact asked with no token,
 a bug filed from App support with its details and listed first in My
 tickets, Help's drafted ticket filed only once sent from its card, and a
 PTO request;
+activating from the welcome email (Step 294), against API Step 292 as
+its contract gives it, in English and Spanish at 390: the link opens
+with no badge box, a weak PIN is refused on the phone in Change PIN's
+words with nothing sent, and a good PIN activates once, with no badge
+number, and signs in;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
