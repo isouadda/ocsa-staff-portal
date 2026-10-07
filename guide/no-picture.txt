@@ -1,0 +1,15 @@
+# The guide's entries that name no picture, and why (Step 294). One line
+# each: the entry's title as guide/APP-PORTAL.md writes it, then " | ",
+# then the reason. npm run guide-check fails on an entry with no picture
+# that is not listed here, on a title here the guide does not have, and
+# on one whose entry names a picture. npm run shots reads it too.
+
+What the daily service log asks: the shift, the areas and the tasks (staff portal) | It describes the questions on the daily service log, whose screen is the picture of Fill in the daily service log, and the questions come from the API's form, which the stub does not hold, so a picture would show invented questions.
+What the daily service log asks: equipment, work left, safety and site notes (staff portal) | The same as the first part of the daily service log.
+What the monthly PPE check asks (staff portal) | It describes the questions of the monthly PPE check, whose screen is the picture of Fill in the monthly PPE check; the stub does not hold the API's questions.
+What the safety inspection asks (staff portal) | It describes the questions of the safety inspection, whose screen is the picture of Do a safety inspection; the stub does not hold the API's questions.
+What the corrective action report asks (staff portal) | It describes the questions of the corrective action report, whose screen is the picture of Raise a corrective action; the stub does not hold the API's questions.
+What the environmental audit asks (staff portal) | It describes the questions of the environmental audit, whose screen is the picture of Do an environmental audit; the stub does not hold the API's questions.
+What the PPE hazard assessment asks (staff portal) | It describes the questions of the PPE hazard assessment, whose screen is the picture of Do a PPE hazard assessment; the stub does not hold the API's questions.
+What the safety committee minutes ask (staff portal) | It describes the questions of the safety committee minutes, whose screen is the picture of Record safety committee minutes; the stub does not hold the API's questions.
+Fill in a performance review with the employee (staff portal) | The review is filled on the admin dashboard, and the portal has no screen for it.
