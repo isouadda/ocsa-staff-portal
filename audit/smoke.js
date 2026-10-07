@@ -158,7 +158,14 @@
 //     folder's documents with the language line, a search by a word in
 //     the text opening the document at the section it matched, the
 //     reader with no signature box, See the designed version behind the
-//     token, Help's Open button, and the empty list's line
+//     token, Help's Open button, and the empty list's line; supply
+//     orders on the phone (Step 311), against API Step 308 as its
+//     contract gives it: a holder's Home card opening the list, one item
+//     approved at a lower quantity and another denied with a note, the
+//     line asking the office for a vendor, Sign with a vendor whose
+//     details show, the purchase order behind the token, Send then
+//     Ordered with its date, the bell's notice opening the request, and
+//     someone without the capability seeing none of it
 //
 // The checks run in two lanes side by side (Step 290), each check on its
 // own phone and stub. SMOKE_ONLY=<words> runs only the checks whose name
@@ -173,7 +180,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_NOTICE, DRAFT_NOTICE, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_NOTICE, DRAFT_NOTICE, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, ORDER_HOLDER, ORDER_NOTICE } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -2176,6 +2183,98 @@ async function library(browser, language, width) {
   await app.context.close();
 }
 
+// Supply orders on the phone (Step 311), against API Step 308 as its
+// contract gives it and the stub answers it: a holder's Home card opening
+// the list; one item approved at a lower quantity and another denied with
+// a note; with no approved vendor, the line asking the office; Sign with a
+// vendor whose details show; the purchase order behind the token; Send,
+// then Ordered with its date; the bell's notice opening the request; and a
+// person without the capability seeing none of it.
+async function supplyOrders(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const app = await open({ supplyOrders: true, person: ORDER_HOLDER, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  const calls = (route) => app.stub.state.orderCalls.filter(c => c.route === route);
+  let card = false, listed = false, decided = false, noVendor = false, facts = false, signed = false, pdf = false, ordered = false, belled = false;
+  let wide = 0;
+  if (await waitFor(page, BAR_JS + ".length >= 5")) {
+    card = await waitFor(page, (w) => { const c = document.querySelector('[data-supply-orders-card="1"]'); return !!c && c.innerText.indexOf(w) !== -1; }, say(language, "Supply requests to approve ({n})", { n: 1 }));
+    if (card) {
+      await page.click("[data-supply-orders-card]");
+      listed = await waitFor(page, () => { const g = (id) => Array.from(document.querySelectorAll('[data-supply-orders-group="' + id + '"] [data-supply-order]')).map(b => b.getAttribute("data-supply-order")).join(","); return g("waiting") === "so-1,so-4" && g("send") === "so-2" && g("ordered") === "so-3"; });
+      wide = await sideways(page);
+    }
+    if (listed) {
+      await page.click('[data-supply-order="so-1"]');
+      await waitFor(page, () => !!document.querySelector('[data-supply-line-less="so-1-1"]'));
+      await page.click('[data-supply-line-less="so-1-1"]');
+      await page.click('[data-supply-line-approve="so-1-1"]');
+      await waitFor(page, () => !!document.querySelector('[data-supply-line="so-1-1"] [data-supply-line-decision="approved"]'));
+      // No approved vendor yet, for the line that asks the office.
+      app.stub.state.orderVendorsNone = true;
+      await page.fill('[data-supply-line-note="so-1-2"]', "Invented: the closet holds six.");
+      await page.click('[data-supply-line-deny="so-1-2"]');
+      decided = await waitFor(page, (w) => { const a = document.querySelector('[data-supply-line="so-1-1"] [data-supply-line-decision="approved"]'); const n = document.querySelector('[data-supply-line="so-1-2"] [data-supply-line-decision="denied"]'); return !!a && a.innerText.indexOf(w) !== -1 && !!n && document.querySelector('[data-supply-line="so-1-2"]').innerText.indexOf("Invented: the closet holds six.") !== -1; }, say(language, "Approved {n} of {m}", { n: 5, m: 6 }))
+        && calls("decide").length === 2 && JSON.stringify(calls("decide")[0].body.items) === JSON.stringify([{ id: "so-1-1", decision: "approved", approvedQuantity: 5 }]) && JSON.stringify(calls("decide")[1].body.items) === JSON.stringify([{ id: "so-1-2", decision: "denied", note: "Invented: the closet holds six." }]);
+      noVendor = decided && await waitFor(page, (w) => { const e = document.querySelector("[data-supply-vendor-none]"); return !!e && e.innerText.indexOf(w) !== -1 && !document.querySelector("[data-supply-vendor]"); }, say(language, "Ask the office to add the vendor and set it to approved."));
+    }
+    if (noVendor) {
+      // The office approves one: the request opened again lists it.
+      app.stub.state.orderVendorsNone = false;
+      await clickWord(page, say(language, "Approve supplies"));
+      await waitFor(page, () => !!document.querySelector('[data-supply-order="so-1"]'));
+      await page.click('[data-supply-order="so-1"]');
+      if (await waitFor(page, () => !!document.querySelector('[data-supply-vendor] option[value="41"]'))) {
+        await page.selectOption("[data-supply-vendor]", "41");
+        facts = await waitFor(page, () => { const f = document.querySelector('[data-supply-vendor-facts="41"]'); return !!f && f.innerText.indexOf("Pat Example") !== -1 && f.innerText.indexOf("orders@vendor.example.invalid") !== -1 && f.innerText.indexOf("1 Invented Way") !== -1; });
+        wide = Math.max(wide, await sideways(page));
+      }
+    }
+    if (facts) {
+      await sign(page, "[data-supply-signature] canvas");
+      await page.click("[data-supply-sign-go]");
+      signed = await waitFor(page, () => { const p = document.querySelector('[data-supply-po="PO-2026-0008"]'); return !!p && !document.querySelector("[data-supply-sign]"); })
+        && calls("sign").length === 1 && calls("sign")[0].body.vendorId === 41 && calls("sign")[0].body.deliverTo === "10 Invented Street, Exampletown, PA 00000" && /^data:image\/png;base64,/.test(calls("sign")[0].body.signature || "");
+    }
+    if (signed) {
+      pdf = await pdfTab(page, "[data-supply-po-open]") && app.stub.state.pdfReads.some(r => r.which === "po:so-1" && r.token);
+      await page.click("[data-supply-send]");
+      ordered = await waitFor(page, (w) => { const o = document.querySelector("[data-supply-ordered]"); return !!o && o.innerText.indexOf(w) !== -1 && o.innerText.indexOf("orders@vendor.example.invalid") !== -1 && !!document.querySelector("[data-supply-send-again]"); }, sayLead(language, "Ordered {date}, sent to {email}"))
+        && app.stub.state.orderSends.length === 1 && app.stub.state.orderSends[0].to === "orders@vendor.example.invalid";
+      wide = Math.max(wide, await sideways(page));
+    }
+    // The bell's notice about the new request opens it.
+    await tapBar(page, 0);
+    await page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
+    if (await waitFor(page, (w) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.indexOf(w) !== -1), ORDER_NOTICE.title)) {
+      await page.evaluate((w) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.indexOf(w) !== -1); if (b) b.click(); }, ORDER_NOTICE.title);
+      belled = await waitFor(page, () => !!document.querySelector('[data-supply-order="so-1"][data-supply-order-stage]') && !!document.querySelector("[data-supply-line]"));
+    }
+  }
+  const holderErrors = app.errors.slice();
+  await app.context.close();
+
+  // Someone without the capability: no card, no More item, and nothing
+  // decided, signed or sent.
+  const other = await open({ supplyOrders: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  let none = false;
+  if (await waitFor(other.page, BAR_JS + ".length >= 5")) {
+    // The list is read, and, since it says canDecide of none, the
+    // permissions after it.
+    for (let i = 0; i < 60 && !other.stub.state.calls.some(c => c.path === "/api/users/me/permissions"); i += 1) await pause(other.page, 100);
+    const asked = other.stub.state.calls.some(c => c.path === "/api/supplies/requests") && other.stub.state.calls.some(c => c.path === "/api/users/me/permissions");
+    await pause(other.page, 200);
+    const items = await openMore(other.page);
+    await other.page.mouse.click(5, 5);
+    none = asked && items.indexOf(say(language, "Approve supplies")) === -1 && !(await other.page.$("[data-supply-orders-card]")) && other.stub.state.orderCalls.length === 0 && !other.stub.state.calls.some(c => c.path === "/api/vendors");
+  }
+  const otherErrors = other.errors.slice();
+  await other.context.close();
+  check("Supply orders on the phone: a holder's Home card reads 1 to approve and opens the list in its three groups; one item approved at a lower quantity and another denied with a note, each sent once; with no approved vendor the line asks the office; with one, its contact, email and address show under the dropdown; Sign sends the vendor, the site's address and the signature once and shows the purchase order; Open the purchase order reads it behind the token; Send sends it to the vendor's email and reads Ordered with its date; the bell's notice opens the request; someone without the capability sees no card and no Approve supplies; with no sideways scroll" + tag,
+    card && listed && decided && noVendor && facts && signed && pdf && ordered && belled && none && wide <= 1 && holderErrors.length === 0 && otherErrors.length === 0,
+    !card ? "Home showed no card" : !listed ? "the list was not in its three groups" : !decided ? "the decisions did not go as sent: " + JSON.stringify(app.stub.state.orderCalls) : !noVendor ? "no line asking the office for a vendor" : !facts ? "the vendor's details did not show" : !signed ? "Sign did not go as sent: " + JSON.stringify(app.stub.state.orderCalls.filter(c => c.route === "sign").map(c => [c.body.vendorId, c.body.deliverTo])) : !pdf ? "the purchase order did not open behind the token" : !ordered ? "Send did not read Ordered" : !belled ? "the notice did not open the request" : !none ? "someone without the capability saw it" : wide > 1 ? wide + " pixels sideways" : (holderErrors[0] || otherErrors[0]));
+}
+
 // The Largest text size on a narrow phone: no control cut off or covered.
 async function largest(browser) {
   const app = await open({ accountPreferences: { language: "en", textSize: "largest" } }, { browser, language: "en", textSize: "largest", signedIn: true, width: 360 });
@@ -2246,6 +2345,8 @@ async function largest(browser) {
       await guard("App support (es)", () => appSupport(browser, "es", 320));
       await guard("inspections on the schedule (en)", () => scheduleInspections(browser, "en", 390));
       await guard("inspections on the schedule (es)", () => scheduleInspections(browser, "es", 320));
+      await guard("supply orders on the phone (en)", () => supplyOrders(browser, "en", 390));
+      await guard("supply orders on the phone (es)", () => supplyOrders(browser, "es", 320));
     };
     await Promise.all([laneA(), laneB()]);
   } finally {

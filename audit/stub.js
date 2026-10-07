@@ -435,6 +435,44 @@ const SUPPLY_REQ_SEED = () => [
     ] },
 ];
 const SUPPLY_TYPES = ["refill", "damage_report", "new_gear", "new_supply"];
+// Supply orders (Step 311), as API Step 308's contract gives them, behind
+// supplyOrders. The person who holds approve_supplies here is a custodian
+// by role, since the capability, not the role, decides (contract 1.7).
+// Every request, vendor and address invented: one waiting for a decision,
+// the holder's own, one signed and not sent, and one ordered.
+const ORDER_HOLDER = { id: "u-holder", firstName: "Drew", lastName: "Example", role: "custodian", badgeNumber: "4831", phone: "0000000011", email: "holder@example.invalid", approveSupplies: true };
+const ORDER_SITE_ADDRESS = { "site-north": "10 Invented Street, Exampletown, PA 00000", "site-south": "20 Invented Avenue, Exampletown, PA 00000" };
+const ORDER_VENDORS = [
+  { id: 41, name: "Invented Supply Co.", contact_name: "Pat Example", contact_phone: "0000000041", contact_email: "orders@vendor.example.invalid", address_line1: "1 Invented Way", city: "Exampletown", state: "PA", zip_code: "00000", approval_status: "approved", is_active: true },
+  { id: 42, name: "Invented Paper House", contact_name: "Lee Example", contact_phone: "0000000042", contact_email: null, address_line1: "2 Invented Road", city: "Exampletown", state: "PA", zip_code: "00000", approval_status: "approved", is_active: true },
+  { id: 43, name: "Invented Vendor Under Review", contact_name: "Kim Example", contact_phone: "0000000043", contact_email: "review@vendor.example.invalid", address_line1: "3 Invented Lane", city: "Exampletown", state: "PA", zip_code: "00000", approval_status: "pending", is_active: true },
+];
+const orderVendorOf = (v) => (v ? { id: v.id, name: v.name, contactName: v.contact_name, contactPhone: v.contact_phone, contactEmail: v.contact_email, address: [v.address_line1, v.city + ", " + v.state + " " + v.zip_code].join(", ") } : null);
+const ORDER_SEED = () => [
+  { id: "so-1", requested_by: SECOND_PERSON.id, requested_by_name: "Sam Second", site_id: "site-north", site_name: "North Building", request_type: "refill", description: "Invented: the second floor closet is nearly out.", urgency: "urgent", status: "pending", created_at: "2026-10-01T19:00:00Z",
+    items: [supplyLine("so-1-1", SUPPLY_CATALOG[2], 6), supplyLine("so-1-2", SUPPLY_CATALOG[3], 3, { note: "Invented: the blue bottles." })] },
+  { id: "so-4", requested_by: ORDER_HOLDER.id, requested_by_name: "Drew Example", site_id: "site-south", site_name: "South Building", request_type: "refill", description: null, urgency: "normal", status: "pending", created_at: "2026-10-01T17:30:00Z",
+    items: [supplyLine("so-4-1", SUPPLY_CATALOG[1], 2)] },
+  { id: "so-2", requested_by: SECOND_PERSON.id, requested_by_name: "Sam Second", site_id: "site-south", site_name: "South Building", request_type: "refill", description: null, urgency: "normal", status: "approved", created_at: "2026-09-30T14:00:00Z",
+    items: [supplyLine("so-2-1", SUPPLY_CATALOG[0], 8, { decision: "approved", approvedQuantity: 8, decidedAt: "2026-09-30T18:00:00Z", decidedBy: { name: "Drew Example" } })],
+    signed: { by: ORDER_HOLDER.id, at: "2026-09-30T18:05:00Z", vendorId: 41, deliverTo: ORDER_SITE_ADDRESS["site-south"], po: "PO-2026-0007" } },
+  { id: "so-3", requested_by: PERSON.id, requested_by_name: "Alex Tester", site_id: "site-north", site_name: "North Building", request_type: "refill", description: null, urgency: "normal", status: "approved", created_at: "2026-09-27T14:00:00Z",
+    items: [supplyLine("so-3-1", SUPPLY_CATALOG[1], 4, { decision: "approved", approvedQuantity: 4, decidedAt: "2026-09-27T18:00:00Z", decidedBy: { name: "Drew Example" } })],
+    signed: { by: ORDER_HOLDER.id, at: "2026-09-27T18:05:00Z", vendorId: 41, deliverTo: ORDER_SITE_ADDRESS["site-north"], po: "PO-2026-0006" },
+    ordered: { at: "2026-09-28T13:00:00Z", by: ORDER_HOLDER.id, to: "orders@vendor.example.invalid" } },
+];
+const ORDER_NOTICE = { id: "n-supply", subjectType: "supply_request", subjectId: "so-1", title: "New supply request at North Building", body: "Sam Second asked for 2 items.", link: null, createdAt: "2026-10-01T19:00:05.000Z", readAt: null };
+// The refusals the contract gives the routes (section 1), each in both
+// languages, keyed the way the API keys them.
+const ORDER_REFUSALS = {
+  "supplies.cannotDecide": { status: 403, en: "Only the people who approve supply requests can do this.", es: "Solo las personas que aprueban las solicitudes de suministros pueden hacer esto." },
+  "supplies.ownRequest": { status: 403, en: "You cannot decide or sign your own request.", es: "No puede decidir ni firmar su propia solicitud." },
+  "supplies.notReadyToSign": { status: 409, en: "Decide every item, and approve at least one, before signing.", es: "Decida cada art\u00edculo, y apruebe al menos uno, antes de firmar." },
+  "supplies.badDetails": { status: 400, en: "Check the details and try again.", es: "Revise los datos e intente de nuevo." },
+  "supplies.notSigned": { status: 409, en: "Sign the order before sending it.", es: "Firme el pedido antes de enviarlo." },
+  "supplies.noAddress": { status: 400, en: "There is no email address to send the order to.", es: "No hay un correo al cual enviar el pedido." },
+  "supplies.requestNotFound": { status: 404, en: "Supply request not found", es: "No se encontr\u00f3 la solicitud de suministros" },
+};
 
 // The warning's document, served at the API's own path behind the token
 // (Step 270 as built): a one-page PDF with one line, invented.
@@ -614,6 +652,8 @@ const LIBRARY_DOCS = [
 ];
 const LIBRARY_SEARCH_WORD = "eyewash";
 const LIBRARY_PDF = pdfWith("Invented quality manual");
+// Supply orders' purchase order (Step 311), read behind the token.
+const ORDER_PDF = pdfWith("Invented purchase order");
 const libraryIn = (x, k, lang) => (x[k][lang] !== undefined ? x[k][lang] : x[k].en);
 const libraryRow = (x, lang) => {
   const folder = x.docCode.split("-")[1];
@@ -1033,7 +1073,7 @@ function makeState(opts) {
     drafts: o.drafts || (o.unfinishedForms ? [DRAFT_MINE(o.person || PERSON)] : []),
     // Every draft discarded, by id.
     discarded: [],
-    notifications: o.notifications || [].concat(o.scheduleInspections ? [Object.assign({}, SCHED_NOTICE)] : []).concat(o.issueSheet ? [Object.assign({}, SHEET_NOTICE)] : []).concat(o.unfinishedForms ? [Object.assign({}, DRAFT_NOTICE)] : []),
+    notifications: o.notifications || [].concat(o.scheduleInspections ? [Object.assign({}, SCHED_NOTICE)] : []).concat(o.issueSheet ? [Object.assign({}, SHEET_NOTICE)] : []).concat(o.unfinishedForms ? [Object.assign({}, DRAFT_NOTICE)] : []).concat(o.supplyOrders && o.person && o.person.approveSupplies ? [Object.assign({}, ORDER_NOTICE)] : []),
     // Step 297: the issues, the tasks they made, every resolve and assign
     // sent, behind issueSheet.
     issueSheet: o.issueSheet === true,
@@ -1092,6 +1132,16 @@ function makeState(opts) {
     // Step 281: an API with Step 280 built, whose supply requests take
     // and answer items, with the person's requests seeded.
     supplyItems: o.supplyItems === true,
+    // Step 311: supply orders (API Step 308), the requests a holder of
+    // approve_supplies reads and decides, signs and sends; every decide,
+    // sign and send call, every send made, the next PO number, and
+    // orderVendorsNone for a vendor list with none approved.
+    supplyOrders: o.supplyOrders === true,
+    orderRequests: o.supplyOrders === true ? ORDER_SEED() : [],
+    orderCalls: [],
+    orderSends: [],
+    orderPoSeq: 7,
+    orderVendorsNone: o.orderVendorsNone === true,
     // supplyEmpty (Step 285): the same API, with no request yet.
     supplyRequests: o.supplyItems === true && !o.supplyEmpty ? SUPPLY_REQ_SEED() : [],
     // The supplies at the open shift's site, which a case can answer
@@ -2867,6 +2917,96 @@ function createStub(opts) {
     return json(201, { message: "Request submitted", code: "supplies.requestSubmitted", request: copy(row) });
   }
 
+  // --- Supply orders (Step 311), behind state.supplyOrders, as API Step
+  // 308's contract gives the routes (section 1): the list and each
+  // request with canDecide and the order's fields, the item decisions,
+  // the approved vendors, Sign, the purchase order behind the token and
+  // Send, with their refusals. A holder is a person with approveSupplies;
+  // nobody decides or signs their own request.
+  function supplyOrderAnswer(method, pathname, search, body, key, lang, headers) {
+    const holder = state.person.approveSupplies === true;
+    const refuse = (k, extra) => { const r = ORDER_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
+    const stageOf = (r) => (r.ordered ? "ordered" : r.signed ? "send" : r.items.some(l => !l.decision) ? "decide" : r.items.some(l => l.decision === "approved") ? "sign" : "done");
+    const rowOf = (r) => {
+      const v = r.signed ? ORDER_VENDORS.find(x => x.id === r.signed.vendorId) : null;
+      const signer = r.signed ? (r.signed.by === ORDER_HOLDER.id ? ORDER_HOLDER : state.person) : null;
+      const out = JSON.parse(JSON.stringify(Object.assign({}, r, { signed: undefined, ordered: undefined })));
+      return Object.assign(out, {
+        canDecide: holder && r.requested_by !== state.person.id && stageOf(r) !== "ordered",
+        approvedBy: signer ? { id: signer.id, name: signer.firstName + " " + signer.lastName } : null, approvedAt: r.signed ? r.signed.at : null, signed: !!r.signed,
+        vendor: orderVendorOf(v), deliverTo: r.signed ? r.signed.deliverTo : (ORDER_SITE_ADDRESS[r.site_id] || null), poNumber: r.signed ? r.signed.po : null,
+        poPdfUrl: r.signed ? "/api/supplies/requests/" + r.id + "/po.pdf" : null, orderedAt: r.ordered ? r.ordered.at : null, orderedToEmail: r.ordered ? r.ordered.to : null,
+      });
+    };
+    if (key === "GET /api/supplies/requests") {
+      return json(200, state.orderRequests.filter(r => holder || r.requested_by === state.person.id).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).map(rowOf));
+    }
+    if (key === "GET /api/vendors") {
+      if (!holder) return json(403, { error: refusalIn(ORDER_REFUSALS["supplies.cannotDecide"], lang), code: "supplies.cannotDecide" });
+      const q = new URLSearchParams(search || "");
+      const list = state.orderVendorsNone ? [] : ORDER_VENDORS.filter(v => v.is_active && (!q.get("approval_status") || v.approval_status === q.get("approval_status")));
+      return json(200, list.map(v => Object.assign({}, v)));
+    }
+    const m = /^(GET|POST) \/api\/supplies\/requests\/([^/]+)\/(decide|sign|send|po\.pdf)$/.exec(key);
+    if (!m) return null;
+    const r = state.orderRequests.find(x => x.id === decodeURIComponent(m[2]));
+    if (!r) return refuse("supplies.requestNotFound");
+    const b = body && typeof body === "object" ? body : {};
+    if (m[3] === "po.pdf") {
+      const tokened = /^Bearer /.test(String((headers || {}).authorization || ""));
+      state.pdfReads.push({ which: "po:" + r.id, locale: new URLSearchParams(search || "").get("locale"), token: tokened });
+      if (!tokened) return json(401, { error: "Sign in first", code: "auth.required" });
+      return r.signed ? image("application/pdf", ORDER_PDF) : refuse("supplies.notSigned");
+    }
+    state.orderCalls.push({ route: m[3], id: r.id, body: JSON.parse(JSON.stringify(b)) });
+    if (!holder) return refuse("supplies.cannotDecide");
+    if (r.requested_by === state.person.id) return refuse("supplies.ownRequest");
+    if (m[3] === "decide") {
+      if (r.ordered) return json(409, { error: "This request was already ordered.", code: "supplies.requestFulfilled" });
+      const items = Array.isArray(b.items) ? b.items : [];
+      const keys = [];
+      if (items.length < 1 || items.length > 30) keys.push("items");
+      items.forEach((x, i) => {
+        const line = x && r.items.find(l => l.id === x.id);
+        if (!line) { keys.push("items." + i + ".id"); return; }
+        if (x.decision !== "approved" && x.decision !== "denied") keys.push("items." + i + ".decision");
+        if (x.decision === "approved" && x.approvedQuantity !== undefined && (!Number.isInteger(x.approvedQuantity) || x.approvedQuantity < 1 || x.approvedQuantity > line.quantity)) keys.push("items." + i + ".approvedQuantity");
+        if (x.note !== undefined && x.note !== null && (typeof x.note !== "string" || x.note.length > 500)) keys.push("items." + i + ".note");
+      });
+      if (keys.length > 0) return refuse("supplies.badDetails", { keys: keys });
+      items.forEach((x) => {
+        const line = r.items.find(l => l.id === x.id);
+        Object.assign(line, { decision: x.decision, approvedQuantity: x.decision === "approved" ? (x.approvedQuantity !== undefined ? x.approvedQuantity : line.quantity) : null, decisionNote: x.note || null, decidedAt: new Date(clockNow()).toISOString(), decidedBy: { name: state.person.firstName + " " + state.person.lastName } });
+      });
+      if (r.items.every(l => l.decision)) r.status = r.items.some(l => l.decision === "approved") ? "approved" : "denied";
+      return json(200, { request: rowOf(r) });
+    }
+    if (m[3] === "sign") {
+      if (stageOf(r) !== "sign") return refuse(r.signed ? "supplies.notReadyToSign" : "supplies.notReadyToSign");
+      const keys = [];
+      const v = ORDER_VENDORS.find(x => String(x.id) === String(b.vendorId) && x.approval_status === "approved" && x.is_active);
+      if (!v || state.orderVendorsNone) keys.push("vendorId");
+      const deliverTo = typeof b.deliverTo === "string" ? b.deliverTo.trim() : "";
+      if (deliverTo.length > 500) keys.push("deliverTo");
+      const raw = typeof b.signature === "string" ? b.signature.trim() : "";
+      const drawn = raw ? /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw) : null;
+      const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
+      if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") keys.push("signature");
+      if (keys.length > 0) return refuse("supplies.badDetails", { keys: keys });
+      state.orderPoSeq += 1;
+      r.signed = { by: state.person.id, at: new Date(clockNow()).toISOString(), vendorId: v.id, deliverTo: deliverTo || ORDER_SITE_ADDRESS[r.site_id] || "", po: "PO-2026-" + String(state.orderPoSeq).padStart(4, "0") };
+      return json(200, { request: rowOf(r) });
+    }
+    // send
+    if (!r.signed) return refuse("supplies.notSigned");
+    const v = ORDER_VENDORS.find(x => x.id === r.signed.vendorId);
+    const to = typeof b.to === "string" && b.to.trim() ? b.to.trim() : (v && v.contact_email) || "";
+    if (!to) return refuse("supplies.noAddress");
+    state.orderSends.push({ id: r.id, to: to, at: new Date(clockNow()).toISOString() });
+    if (!r.ordered) r.ordered = { at: new Date(clockNow()).toISOString(), by: state.person.id, to: to };
+    return json(200, { request: rowOf(r) });
+  }
+
   // --- The supervisor's field kit (Step 246), behind state.fieldKit
   //
   // Answers its routes in the shapes the API answers them, or nothing,
@@ -3166,6 +3306,9 @@ function createStub(opts) {
       const tier = state.person.role === "admin" || state.person.role === "supervisor" ? state.person.role : "staff";
       const capabilities = {};
       Object.keys(CAPABILITIES).forEach((k) => { capabilities[k] = CAPABILITIES[k].indexOf(tier) !== -1; });
+      // Step 311: approve_supplies is held by name, as on live, never by
+      // a role.
+      capabilities.approve_supplies = state.person.approveSupplies === true;
       return json(200, { role: state.person.role, capabilities: capabilities });
     }
     if (key === "GET /api/users/profile/me") return json(200, {
@@ -4407,6 +4550,7 @@ function createStub(opts) {
     }
     if (key === "GET /api/supplies") return json(200, state.supplies || [{ id: "sup-1", name: "Paper towels", qr_code: "QR-0001", unit: "rolls", is_low: true }]);
     if (key === "POST /api/supplies/log-usage") return json(200, { message: "Usage logged", log: { id: "log-1", supply_name: "Paper towels", quantity: 1 }, lowStockAlert: false });
+    if (state.supplyOrders) { const answered = supplyOrderAnswer(method, pathname, search, body, key, lang, headers); if (answered) return answered; }
     if (state.supplyItems && (key === "GET /api/supplies/requests" || key === "POST /api/supplies/requests")) return supplyRequestAnswer(method, search, body, lang);
     // The API's own index with Step 280 built, the route the office
     // decides items through among its supply routes (Step 285).
@@ -4656,7 +4800,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

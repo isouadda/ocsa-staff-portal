@@ -32,7 +32,7 @@ const fs = require("fs");
 const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp, letSheetOffer, ANDROID } = require("./browser");
-const { ADMIN_PERSON, TWIN_ES, SECOND_STEP_CODE, EQ_CODE, SUP_CODE, TRAINING_SESSION_SEED, SIGN_SEED, INSPECTION, INSPECTION_F, timeOffRow, formP, ANNOUNCEMENT } = require("./stub");
+const { ORDER_HOLDER, ADMIN_PERSON, TWIN_ES, SECOND_STEP_CODE, EQ_CODE, SUP_CODE, TRAINING_SESSION_SEED, SIGN_SEED, INSPECTION, INSPECTION_F, timeOffRow, formP, ANNOUNCEMENT } = require("./stub");
 
 const { execFileSync } = require("child_process");
 const ROOT = path.join(__dirname, "..");
@@ -321,6 +321,14 @@ async function asked(s, question, answer) {
   await s.type(".sp-content textarea", question);
   await s.tapLabel(s.say("Send"));
   return s.waitFor(() => { const box = document.querySelector(".sp-content textarea"); return !!box && !box.disabled && box.value === ""; }, null, 12000);
+}
+
+// A supply request open under Approve supplies (Step 311).
+async function openOrder(s, id) {
+  if (!(await s.go("Approve supplies"))) return false;
+  if (!(await s.waitFor((x) => !!document.querySelector('[data-supply-order="' + x + '"]'), id))) return false;
+  await s.page.click('[data-supply-order="' + id + '"]');
+  return s.waitFor((x) => !!document.querySelector('[data-supply-order="' + x + '"][data-supply-order-stage] [data-supply-line]'), id);
 }
 
 // Assigned, with its one task open. The task's name comes as the API
@@ -869,6 +877,43 @@ const SHOTS = [
     go: async (s) => {
       if (!(await asked(s, s.language === "es" ? "\u00bfQu\u00e9 dice el manual de calidad?" : "What is in the quality manual?", "covers"))) return false;
       return s.waitFor(() => !!document.querySelector('[data-help-open-doc="OCSA-QMS-901"]'));
+    } },
+
+  // Supply orders on the phone (Step 311), as a holder of approve_supplies
+  // sees them: the list, a request decided, Sign and order with a vendor
+  // chosen, and an order sent.
+  { name: "supply-orders", entry: E("Approve a supply request on your phone"), o: { signedIn: true, stub: { supplyOrders: true, person: ORDER_HOLDER } },
+    go: async (s) => { if (!(await s.go("Approve supplies"))) return false; return s.waitFor(() => !!document.querySelector('[data-supply-orders-group="ordered"]')); } },
+  { name: "supply-order-decide", entry: E("Approve a supply request on your phone"), o: { signedIn: true, stub: { supplyOrders: true, person: ORDER_HOLDER } },
+    go: async (s) => {
+      if (!(await openOrder(s, "so-1"))) return false;
+      await s.page.click('[data-supply-line-less="so-1-1"]');
+      await s.page.click('[data-supply-line-approve="so-1-1"]');
+      if (!(await s.waitFor(() => !!document.querySelector('[data-supply-line="so-1-1"] [data-supply-line-decision]')))) return false;
+      await s.type('[data-supply-line-note="so-1-2"]', s.language === "es" ? "Inventado: el cuarto tiene seis." : "Invented: the closet holds six.");
+      await s.pause(200);
+      await s.top();
+      return true;
+    } },
+  { name: "supply-order-sign", entry: E("Sign a supply order and send it to the vendor"), o: { signedIn: true, stub: { supplyOrders: true, person: ORDER_HOLDER } },
+    go: async (s) => {
+      if (!(await openOrder(s, "so-1"))) return false;
+      await s.page.click("[data-supply-approve-all]");
+      if (!(await s.waitFor(() => !!document.querySelector('[data-supply-vendor] option[value="41"]')))) return false;
+      await s.page.selectOption("[data-supply-vendor]", "41");
+      if (!(await s.waitFor(() => !!document.querySelector('[data-supply-vendor-facts="41"]')))) return false;
+      await s.sign("[data-supply-signature] canvas");
+      await s.page.evaluate(() => { document.querySelector("[data-supply-sign]").scrollIntoView({ block: "start" }); window.scrollBy(0, -96); });
+      await s.pause(300);
+      return true;
+    } },
+  { name: "supply-order-sent", entry: E("Sign a supply order and send it to the vendor"), o: { signedIn: true, stub: { supplyOrders: true, person: ORDER_HOLDER } },
+    go: async (s) => {
+      if (!(await openOrder(s, "so-3"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector("[data-supply-ordered]")))) return false;
+      await s.page.evaluate(() => { document.querySelector("[data-supply-po]").scrollIntoView({ block: "start" }); window.scrollBy(0, -96); });
+      await s.pause(300);
+      return true;
     } },
 
   // The forms the guide names, each by its card on Forms.

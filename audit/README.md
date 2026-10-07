@@ -138,7 +138,15 @@ finding the document with the section it matched and opening it at that
 section, the quality manual's cover in the screen's language with See
 the designed version read behind the token, its last page with no
 signature box and no Next, Help's Open button opening it in the Library,
-and an empty list saying the library is loading;
+and an empty list saying the library is loading; supply orders on the
+phone (Step 311), against API Step 308 as its contract gives it, in
+English at 390 and Spanish at 320: a holder's Home card opening Approve
+supplies in its three groups, one item approved at a lower quantity and
+another denied with a note, each sent once, the line asking the office
+when no vendor is approved, Sign with a vendor whose details show, the
+purchase order read behind the token, Send to the vendor's email then
+Ordered with its date, the bell's notice opening the request, and
+someone without the capability seeing no card and no Approve supplies;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
@@ -157,7 +165,7 @@ through it.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`, `handbook`, `handbookSigned`, `support`, `pto`, `scheduleInspections`, `issueSheet`, `unfinishedForms`, `library`, `libraryEmpty`), off for every other case.
+`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`, `handbook`, `handbookSigned`, `support`, `pto`, `scheduleInspections`, `issueSheet`, `unfinishedForms`, `library`, `libraryEmpty`, `supplyOrders`, `orderVendorsNone`), off for every other case.
 `library` (Step 307) answers GET /api/library as API Step 305's contract
 gives it: five invented documents in four folders, each folder's name in
 the request's language, the quality manual with a Spanish edition, Parts
@@ -166,6 +174,17 @@ and a PDF, and the word "eyewash" in the first aid procedure's section
 section; each document's read for everyone, its PDF behind the token,
 and Help's `covers` answer carrying `openDocument`. `libraryEmpty`
 answers the list with nothing yet.
+`supplyOrders` (Step 311) answers API Step 308's routes as its contract
+gives them: GET /api/supplies/requests with canDecide and the order's
+fields (every request to a holder, a person with `approveSupplies`, such
+as `ORDER_HOLDER`, a custodian by role), one waiting for a decision, the
+holder's own, one signed and not sent and one ordered; the decide, sign
+and send routes with their refusals keyed as the API keys them, nobody
+deciding or signing their own; the purchase order behind the token; the
+approved vendors on GET /api/vendors; approve_supplies on the
+permissions route; and, for a holder, the bell's notice about the
+request waiting. `orderVendorsNone` answers the vendor list with none
+approved.
 `scheduleInspections` (Step 296) gives the person signed in an inspection
 on the day of their shift, one of theirs cancelled and one of someone
 else's, dated as the API sends a date column, with API Step 295's notice
