@@ -92,13 +92,33 @@ three items in order with their quantities and note, a refusal naming
 items.0.itemName under that item's name, the 31st item refused on the
 phone, and a damage report posted as before, one supply and no items, in
 English at 390 and Spanish at 320;
+the round of Step 290, against API Step 289 as its contract gives it and
+the stub answers it, in English at 390 and Spanish at 320: the handbook
+reader's cover with the title on its navy band, See the designed version
+read behind the token in the language answered, Contents by Part, section
+1.2's Table columns lines drawn as a table, a callout in its box, the
+signing step with its six fields filled in and the paper form's lines
+left out, Sign sent once, Download my signed page behind the token, and
+the handbook found under Signed documents and read again to its end with
+no signature box, a Spanish phone reading the Spanish edition; Issue
+PPE's person and Watch and sign off's narrowed by typing, No one matches
+that name., a chip tapped opening the search again empty, and a Refill
+item's supply narrowed to one and posted; the sign-in screen reading
+Can't sign in? Email from GET /api/support/contact asked with no token,
+a bug filed from App support with its details and listed first in My
+tickets, Help's drafted ticket filed only once sent from its card, and a
+PTO request;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
 non-zero on any failure or when the run takes three minutes or more.
 Since Step 258 it waits for each screen to be there rather than sleeping
-a fixed time after every load and tap, and a run takes about 100 seconds;
-the three-minute line stays where it was. Since Step 277 the training session's
+a fixed time after every load and tap, and since Step 290 its checks run
+in two lanes side by side on the one browser, each check on its own phone
+and stub, so a run takes about 100 seconds with the round's six checks
+added; the three-minute line stays where it was. `SMOKE_ONLY=<words>`
+runs only the checks whose name holds them, for working on one; every
+build runs them all. Since Step 277 the training session's
 sign-in arrives by moving the phone's clock on rather than waiting out
 the screen's five-second reads, and Edit shortcuts, opened from More, is
 closed by its own Close, so the rest of a cleaner's run is not tapped
@@ -106,7 +126,16 @@ through it.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`), off for every other case.
+`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`, `handbook`, `handbookSigned`, `support`, `pto`), off for every other case.
+`handbook` (Step 290) answers the document to sign as API Step 289 does:
+the invented handbook in English and Spanish with parts, ackSectionRef,
+pdfUrl and the signed page's ackFields, the designed version and
+`my-signed-page` as PDFs read with the token, and `documentsSigned` on
+`GET /api/training/me`; `handbookSigned` starts it signed. `support`
+answers App support's contact, the person's tickets with one the office
+is working on, `POST /api/support/tickets` with its refusal keyed by
+field, and Help's `ticket` answer carrying `ticketDraft`; `pto` puts PTO
+first among the leave types.
 `pinGate` (Step 285) answers as the API's Step 283 builds it: while
 `mustSetPin` is true, every route behind the token but `GET /api/auth/me`,
 `POST /api/auth/change-pin`, `GET /api/languages/status` and

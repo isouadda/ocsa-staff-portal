@@ -142,6 +142,20 @@
 //     screen shows no English the portal drew (French alone)
 //   - one page at the Largest text size, 360 wide, with no control cut
 //     off or covered (English alone)
+//   - the round (Step 290), against API Step 289 as the stub answers it:
+//     the handbook reader's cover, See the designed version behind the
+//     token, Contents by Part, a table drawn as a table, a callout, the
+//     signing step with its fields filled in, Download my signed page,
+//     and the handbook read again from Signed documents with nothing to
+//     sign; two person pickers and a Refill supply narrowed by typing;
+//     the sign-in line reading the contact from the API, a bug filed
+//     from App support and listed in My tickets, Help's drafted ticket
+//     sent from its card, and a PTO request (English at 390, Spanish at
+//     320)
+//
+// The checks run in two lanes side by side (Step 290), each check on its
+// own phone and stub. SMOKE_ONLY=<words> runs only the checks whose name
+// holds them.
 //
 // The full suite, npm run audit, is a separate command and this file
 // changes nothing in it. The stub's switches this check uses are off for
@@ -152,7 +166,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -250,6 +264,16 @@ async function tapMore(page, name) {
 }
 const contentText = (page) => page.evaluate(() => { const c = document.querySelector(".sp-content"); return c ? c.innerText : document.body.innerText; });
 const sideways = (page) => page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth);
+// A searchable picker (Step 290) inside scope: what is typed, if anything,
+// goes in its Search by name box, then the row for id is tapped, or the
+// first row when id is null, and the chip it becomes is waited for.
+async function pickIn(page, scope, id, typed) {
+  if (typed) await page.fill(scope + " [data-pick-search]", typed);
+  const row = scope + " " + (id ? '[data-pick-row="' + id + '"]' : "[data-pick-row]");
+  if (!(await waitFor(page, (sel) => !!document.querySelector(sel), row))) return false;
+  await page.click(row);
+  return waitFor(page, (w) => !!document.querySelector(w.scope + (w.id ? ' [data-pick-chip="' + w.id + '"]' : " [data-pick-chip]")), { scope, id });
+}
 
 async function open(stubOptions, o) {
   const stub = createStub(stubOptions);
@@ -507,7 +531,7 @@ async function signInClosed(browser, language, width) {
     await clickWord(page, say(language, "Refill"));
     lines = await waitFor(page, () => !!document.querySelector('[data-supply-lines="1"] [data-supply-line-supply="0"]'));
     if (lines) {
-      await page.selectOption('[data-supply-line-supply="0"]', "sup-1");
+      await pickIn(page, '[data-supply-line-supply="0"]', "sup-1");
       await page.click("[data-supply-send]");
       sent = await waitFor(page, () => !document.querySelector("[data-supply-lines]"));
     }
@@ -590,10 +614,10 @@ async function fieldKit(app, language) {
   // Issue PPE: a person, an item from the stock, a signature drawn, sent,
   // and the issue at the top of the site's list.
   await openTile(page, tiles[0]);
-  const form = await waitFor(page, () => !!document.querySelector("#ocsa-ppe-person option[value]:not([value=''])") && !!document.querySelector('[data-fk-ppe="signature"] canvas'));
+  const form = await waitFor(page, () => !!document.querySelector('[data-pick="ppe-person"] [data-pick-row]') && !!document.querySelector('[data-fk-ppe="signature"] canvas'));
   let issued = false;
   if (form) {
-    await page.selectOption("#ocsa-ppe-person", { index: 1 });
+    await pickIn(page, '[data-pick="ppe-person"]', null);
     await page.selectOption("#ocsa-ppe-item", { index: 1 });
     await sign(page, '[data-fk-ppe="signature"] canvas');
     await page.evaluate((w) => { const b = Array.from(document.querySelectorAll('[data-fk-ppe="form"] button')).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Issue PPE"));
@@ -986,15 +1010,13 @@ async function requestsApprover(browser, language) {
   if (section) {
     await approve("cr-1");
     picker = await page.evaluate((w) => { const rows = Array.from(document.querySelectorAll("[data-request-assignee]")); return rows.length === 3 && rows[0].getAttribute("data-request-assignee") === "u-two" && rows[0].innerText.indexOf(w.onShift) !== -1 && rows[1].innerText.indexOf("(" + w.me + ")") !== -1; }, { onShift: say(language, "On shift"), me: say(language, "Me") });
-    await page.click('[data-request-assignee="u-two"]');
-    await waitFor(page, () => !!document.querySelector('[data-request-assignee="u-two"][aria-pressed="true"]'));
+    await pickIn(page, '[data-pick="request-assignee"]', "u-two");
     await page.evaluate((w) => { const b = Array.from(document.querySelectorAll('[role="dialog"] button')).find(x => x.innerText.trim() === w && !x.disabled); if (b) b.click(); }, say(language, "Assign"));
     assigned = await waitFor(page, () => !document.querySelector('[role="dialog"]') && !document.querySelector('[data-request-row="cr-1"]') && !!document.querySelector('[data-request-row="cr-2"]'));
     // Someone else decides cr-2 first.
     app.stub.state.requestsTaken.push("cr-2");
     await approve("cr-2");
-    await page.click('[data-request-assignee="u-two"]');
-    await waitFor(page, () => !!document.querySelector('[data-request-assignee="u-two"][aria-pressed="true"]'));
+    await pickIn(page, '[data-pick="request-assignee"]', "u-two");
     await page.evaluate((w) => { const b = Array.from(document.querySelectorAll('[role="dialog"] button')).find(x => x.innerText.trim() === w && !x.disabled); if (b) b.click(); }, say(language, "Assign"));
     taken = await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1 && !document.querySelector('[data-request-row="cr-2"]'), say(language, "{name} already took care of this.", { name: "Jordan Office" }));
   }
@@ -1057,7 +1079,7 @@ async function findings(browser, language) {
   // A slider moved the way a finger moves it: the value set through the
   // element's own setter, so React hears the input event.
   const slide = (id, v) => page.evaluate((a) => { const r = document.querySelector('[data-inspect-item="' + a.id + '"] input[type="range"]'); if (!r) return false; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(r, String(a.v)); r.dispatchEvent(new Event("input", { bubbles: true })); r.dispatchEvent(new Event("change", { bubbles: true })); return true; }, { id, v });
-  const note = (id, text) => page.fill('[data-inspect-item="' + id + '"] input[placeholder]', text);
+  const note = (id, text) => page.fill('[data-inspect-item="' + id + '"] input[placeholder]:not([data-pick-search])', text);
   await tapMore(page, say(language, "Inspect"));
   const listed = await waitFor(page, (w) => Array.from(document.querySelectorAll(".sp-content button")).some(b => b.innerText.indexOf(w) !== -1), INSPECTION_F.template_name);
   if (listed) await page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.indexOf(w) !== -1); if (b) b.click(); }, INSPECTION_F.template_name);
@@ -1067,8 +1089,8 @@ async function findings(browser, language) {
     // Card 1: scored 3 of 5, Needs a fix, the person signed in as owner.
     await slide("if-1", 3);
     await page.click('[data-inspect-item="if-1"] [role="switch"]');
-    marked = await waitFor(page, (w) => { const s = document.querySelector('#ocsa-inspect-owner-if-1'); return !!s && s.options[0].text === w.none && Array.from(s.options).some(o => o.value === w.me); }, { none: say(language, "No owner yet"), me: "u-one" });
-    if (marked) await page.selectOption("#ocsa-inspect-owner-if-1", "u-one");
+    marked = await waitFor(page, (w) => { const s = document.querySelector('[data-pick="inspect-owner-if-1"]'); return !!s && s.innerText.indexOf(w.none) !== -1 && !!s.querySelector('[data-pick-row="' + w.me + '"]'); }, { none: say(language, "No owner yet"), me: "u-one" });
+    if (marked) await pickIn(page, '[data-pick="inspect-owner-if-1"]', "u-one");
     await note("if-1", "Smudges on both doors, invented.");
     // Card 2: scored 3 of 5, which says it will open a finding.
     await slide("if-2", 3);
@@ -1367,8 +1389,7 @@ async function step264(browser) {
   if (tiles) {
     await backToKit(p3, language);
     await openTile(p3, say(language, "Watch and sign off"));
-    await waitFor(p3, () => !!document.querySelector("#ocsa-observe-person option[value]:not([value=''])"));
-    await p3.selectOption("#ocsa-observe-person", { index: 1 });
+    await pickIn(p3, '[data-pick="observe-person"]', null);
     picked = await waitFor(p3, () => !!document.querySelector('[data-fk-checklist="tp-4"]') && !document.querySelector('[data-fk-checklist="tp-1"]'));
     if (picked) await p3.evaluate(() => { const b = document.querySelector('[data-fk-checklist="tp-4"] button'); if (b) b.click(); });
     await waitFor(p3, () => !!document.querySelector('[data-fk-observe="steps"]') && document.querySelectorAll("[data-fk-step]").length === 3);
@@ -1578,15 +1599,15 @@ async function supplyLines(browser, language, width) {
   if (lines) {
     for (let i = 0; i < 3; i += 1) await page.click("[data-supply-add]");
     const more = say(language, "One more");
-    await page.selectOption('[data-supply-line-supply="0"]', "sup-1");
+    await pickIn(page, '[data-supply-line-supply="0"]', "sup-1");
     await page.click('[data-supply-line="0"] [aria-label="' + more + '"]');
     await page.click('[data-supply-line="0"] [aria-label="' + more + '"]');
-    await page.selectOption('[data-supply-line-supply="1"]', "sup-2");
+    await pickIn(page, '[data-supply-line-supply="1"]', "sup-2");
     await page.fill('[data-supply-line-qty="1"]', "7");
-    await page.selectOption('[data-supply-line-supply="2"]', "sup-3");
+    await pickIn(page, '[data-supply-line-supply="2"]', "sup-3");
     await page.fill('[data-supply-line-qty="2"]', "12");
     await page.fill('[data-supply-line-note="2"]', "Invented: the large ones.");
-    await page.selectOption('[data-supply-line-supply="3"]', "sup-4");
+    await pickIn(page, '[data-supply-line-supply="3"]', "sup-4");
     wide = await sideways(page);
     await page.click('[data-supply-line-remove="1"]');
     three = await waitFor(page, () => !!document.querySelector('[data-supply-lines="3"]'));
@@ -1615,9 +1636,9 @@ async function supplyLines(browser, language, width) {
     await clickWord(page, say(language, "Cancel"));
     // Damage Report: one supply and no items, as before.
     await formOpen("Damage Report");
-    const plain = await waitFor(page, () => !document.querySelector("[data-supply-lines]") && !document.querySelector("[data-supply-add]") && !!document.querySelector('select option[value="sup-2"]'));
+    const plain = await waitFor(page, () => !document.querySelector("[data-supply-lines]") && !document.querySelector("[data-supply-add]") && !!document.querySelector('[data-supply-one] [data-pick-row="sup-2"]'));
     if (plain) {
-      await page.selectOption('select:has(option[value="sup-2"])', "sup-2");
+      await pickIn(page, "[data-supply-one]", "sup-2");
       await page.click("[data-supply-send]");
       damage = await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1 && !document.querySelector("[data-supply-send]"), say(language, "Request submitted"));
     }
@@ -1633,6 +1654,222 @@ async function supplyLines(browser, language, width) {
 
 // The supply page (Step 252): signed out, the sheet in the page and Sign
 // in to record use; signed in, Used one and Running low.
+// --- Step 290, the round, against API Step 289 as the Step 289 contract
+// gives it and the stub answers it, in English at 390 and Spanish at 320.
+
+// A PDF opened in a new tab from a tap, read behind the token. A phone
+// shows it in the tab; headless Chromium has no viewer, so the tab hands
+// the blob address over as a download, and either counts.
+async function pdfTab(page, selector) {
+  const [popup] = await Promise.all([page.context().waitForEvent("page", { timeout: 6000 }).catch(() => null), page.click(selector)]);
+  if (!popup) return false;
+  const download = popup.waitForEvent("download", { timeout: 6000 }).then(d => d.url().indexOf("blob:") === 0, () => false);
+  const shown = popup.waitForURL(/^blob:/, { timeout: 6000 }).then(() => true, () => null);
+  const first = await Promise.race([shown, download]);
+  const ok = first === null ? await download : first;
+  await popup.close().catch(() => {});
+  return ok;
+}
+// The words of a line before its first placeholder, for a line whose
+// value ends it.
+const sayLead = (language, en) => say(language, en, { date: "\u0001" }).split("\u0001")[0].trim();
+const LANGUAGE_WORD = { en: "English", es: "Espa\u00f1ol" };
+
+// The handbook reader (option C) and Signed documents: the cover, Contents
+// by Part, a table drawn as a table, See the designed version, the signing
+// step with its fields, Download my signed page, and the handbook read
+// again from Signed documents with nothing to sign.
+async function handbook(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const app = await open({ training: true, documents: true, handbook: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  const parts = HANDBOOK.parts[language];
+  const partWord = (p) => say(language, "Part {n}: {title}", { n: p.ref, title: p.title });
+  const card = await waitFor(page, () => !!document.querySelector('[data-first-doc="OCSA-HR-002"] button'));
+  if (card) await page.click('[data-first-doc="OCSA-HR-002"] button');
+  // A Spanish phone reads the handbook in Spanish, with no English line.
+  const cover = card && await waitFor(page, (w) => { const c = document.querySelector('[data-doc="cover"]'); const b = c && c.querySelector('[data-doc-cover="1"]'); return !!b && b.innerText.indexOf(w.title) !== -1 && [w.code, w.version, w.lang].every(x => c.innerText.indexOf(x) !== -1) && !!c.querySelector('[data-doc-designed="1"]') && !c.querySelector("[data-doc-english]"); }, { title: HANDBOOK.title[language], code: HANDBOOK.docCode, version: HANDBOOK.version, lang: LANGUAGE_WORD[language] });
+  let wide = await sideways(page);
+  const designed = cover && await pdfTab(page, '[data-doc-designed="1"]');
+  const designedRead = app.stub.state.pdfReads.some(r => r.which === "pdf" && r.token && r.locale === language);
+  if (cover) await page.click('[data-doc="cover"] [data-doc-contents="1"]');
+  const contents = cover && await waitFor(page, (w) => { const c = document.querySelector('[data-doc="contents"]'); return !!c && c.querySelectorAll("[data-doc-contents-part]").length === 3 && w.every(x => c.innerText.toUpperCase().indexOf(x.toUpperCase()) !== -1) && c.querySelectorAll("[data-doc-jump]").length === 6; }, parts.map(partWord));
+  // Section 1.2's "Table columns:" lines, drawn as a table under Part 1.
+  if (contents) await page.click('[data-doc-jump="3"]');
+  const table = contents && await waitFor(page, (w) => { const c = document.querySelector('[data-doc="read"][data-doc-section="3"]'); const tb = c && c.querySelector('[data-doc-table="3"] table'); return !!tb && tb.querySelectorAll("thead th").length === 3 && tb.querySelectorAll("tbody tr").length === 3 && tb.querySelector("thead th").innerText.trim() === w.head && c.innerText.indexOf(w.label) !== -1 && c.querySelector("[data-doc-part]").innerText.toUpperCase() === w.part.toUpperCase() && c.innerText.indexOf("Table columns") === -1; }, { head: language === "es" ? "Para" : "For", label: say(language, "Section {n}", { n: "1.2" }), part: partWord(parts[0]) });
+  wide = Math.max(wide, await sideways(page));
+  if (table) await page.click('[data-doc-next="4"]');
+  const callout = table && await waitFor(page, () => !!document.querySelector('[data-doc="read"][data-doc-section="4"] [data-doc-box="callout"]'));
+  if (callout) { await page.click('[data-doc-next="5"]'); await waitFor(page, () => !!document.querySelector('[data-doc-next="sign"]')); await page.click('[data-doc-next="sign"]'); }
+  // The signing step: the statements, and the fields the API knows filled
+  // in, the paper form's own lines left out.
+  const fields = callout && await waitFor(page, (w) => {
+    const c = document.querySelector('[data-doc="sign"]');
+    if (!c) return false;
+    const f = (k) => { const r = c.querySelector('[data-doc-ack-field="' + k + '"]'); return r ? r.innerText : ""; };
+    const box = c.querySelector('[data-doc-box="statements"]');
+    return c.querySelectorAll("[data-doc-ack-field]").length === 6 && f("name").indexOf("Alex Tester") !== -1 && f("employeeId").indexOf("E-0000") !== -1 && f("sites").indexOf("North Building") !== -1 && f("language").indexOf(w.lang) !== -1
+      && !!box && box.innerText.indexOf(w.said) !== -1 && box.innerText.indexOf(w.form) === -1 && !!c.querySelector('[data-doc-signature="1"] canvas');
+  }, { lang: LANGUAGE_WORD[language], said: HANDBOOK.sections[language][5].content.split("\n")[2].slice(2), form: HANDBOOK.sections[language][5].content.split("\n")[4].slice(2) });
+  wide = Math.max(wide, await sideways(page));
+  let done = false, signedPage = false, listed = false, again = false;
+  if (fields) {
+    await sign(page, '[data-doc-signature="1"] canvas');
+    await page.click('[data-doc-sign="1"]');
+    done = await waitFor(page, (w) => { const c = document.querySelector('[data-doc="done"]'); return !!c && c.innerText.indexOf(w) !== -1 && !!c.querySelector('[data-doc-signed-page="1"]'); }, say(language, "Signed. It is on your record."));
+  }
+  const acks = app.stub.state.calls.filter(c => c.method === "POST" && /\/api\/documents\/[^/]+\/acknowledge$/.test(c.path)).map(c => c.body);
+  const sentOnce = acks.length === 1 && acks[0].version === HANDBOOK.version && acks[0].locale === language && /^data:image\/png;base64,/.test(acks[0].signature || "");
+  if (done) signedPage = await pdfTab(page, '[data-doc="done"] [data-doc-signed-page="1"]');
+  const pageRead = app.stub.state.pdfReads.some(r => r.which === "my-signed-page" && r.token);
+  // Signed documents: the handbook again, ending with the version signed.
+  if (done) {
+    await clickWord(page, say(language, "Back to My training"));
+    listed = await waitFor(page, (w) => { const r = document.querySelector('[data-training-signed="OCSA-HR-002"]'); return !!r && r.innerText.indexOf(w.title) !== -1 && r.innerText.indexOf(w.signed) !== -1 && !document.querySelector('[data-training-doc="OCSA-HR-002"]'); }, { title: HANDBOOK.title[language], signed: sayLead(language, "Signed {date}") });
+  }
+  if (listed) {
+    await page.click('[data-training-signed="OCSA-HR-002"]');
+    await waitFor(page, () => !!document.querySelector('[data-doc="cover"]'));
+    await page.click('[data-doc="cover"] [data-doc-contents="1"]');
+    await waitFor(page, () => !!document.querySelector('[data-doc-jump="6"]'));
+    await page.click('[data-doc-jump="6"]');
+    again = await waitFor(page, (w) => { const c = document.querySelector('[data-doc="signed"]'); return !!c && c.innerText.indexOf(w) !== -1 && !c.querySelector("canvas") && !c.querySelector("[data-doc-sign]") && !!c.querySelector('[data-doc-signed-page="1"]'); }, say(language, "You signed version {version} on {date}.", { version: HANDBOOK.version, date: "\u0001" }).split("\u0001")[0].trim());
+    wide = Math.max(wide, await sideways(page));
+  }
+  await app.context.close();
+  check("The handbook reader: Home's card opens the cover with the title on the navy band, the number, the version and the language, in the phone's language; See the designed version opens the PDF read behind the token in the language answered; Contents lists the three Parts; section 1.2 draws its Table columns lines as a table with its header row under Part 1's heading and its section label; a callout draws in its box; the signing step lists the statements and fills the six fields the API knows, leaving the paper form's lines out; Sign sends the version, the language and the signature once; Download my signed page opens it behind the token; My training lists it under Signed documents, which opens the reader again and ends with the version signed and Download my signed page, with no signature box and no Sign; with no sideways scroll" + tag,
+    cover && designed && designedRead && contents && table && callout && fields && done && sentOnce && signedPage && pageRead && listed && again && wide <= 1 && app.errors.length === 0,
+    !cover ? "the cover did not read as expected" : !designed || !designedRead ? "See the designed version did not open the PDF behind the token: " + JSON.stringify(app.stub.state.pdfReads) : !contents ? "Contents did not list the three Parts" : !table ? "section 1.2 did not draw its table" : !callout ? "no callout box" : !fields ? "the signing step did not fill its fields" : !done ? "Sign did not land" : !sentOnce ? JSON.stringify(acks.map(a => [a.version, a.locale])) : !signedPage || !pageRead ? "Download my signed page did not open it" : !listed ? "Signed documents did not list the handbook" : !again ? "the handbook read again did not end with the version signed" : wide > 1 ? "the page scrolls sideways by " + wide : app.errors[0]);
+}
+
+// Two pickers and a Refill supply narrowed by typing: Issue PPE's person
+// and Watch and sign off's, on the field kit's site, then a Refill item's
+// supply.
+async function pickers(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const person = Object.assign({}, ADMIN_PERSON, { id: "u-smoke-sup", firstName: "Riley", lastName: "Example", role: "supervisor", badgeNumber: "4801", phone: "0000000008", email: "riley@example.invalid" });
+  const app = await open({ person: person, training: true, fieldKit: true, supplyItems: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  const rows = (scope) => page.evaluate((s) => Array.from(document.querySelectorAll(s + " [data-pick-row]")).map(b => b.getAttribute("data-pick-row")), scope);
+  const none = say(language, "No one matches that name.");
+  const kit = await tapMore(page, say(language, "Field kit"));
+  await waitFor(page, () => !!document.querySelector("#ocsa-fk-site"));
+  // Issue PPE: three on the site, one for "car", none for "zzz", then a
+  // pick, and the chip tapped opens the search again, empty.
+  await openTile(page, say(language, "Issue PPE"));
+  const ppe = '[data-pick="ppe-person"]';
+  const all = kit && await waitFor(page, (s) => document.querySelectorAll(s + " [data-pick-row]").length === 3, ppe);
+  let narrowed = false, said = false, cleared = false, observe = false;
+  if (all) {
+    await page.fill(ppe + " [data-pick-search]", "car");
+    narrowed = await waitFor(page, (s) => { const r = document.querySelectorAll(s + " [data-pick-row]"); return r.length === 1 && r[0].getAttribute("data-pick-row") === "s-03"; }, ppe);
+    await page.fill(ppe + " [data-pick-search]", "zzz");
+    said = await waitFor(page, (w) => { const n = document.querySelector(w.s + " [data-pick-none]"); return !!n && n.innerText.trim() === w.none && document.querySelectorAll(w.s + " [data-pick-row]").length === 0; }, { s: ppe, none: none });
+    await page.fill(ppe + " [data-pick-search]", "BEN");
+    const picked = await pickIn(page, ppe, "s-02");
+    if (picked) await page.click(ppe + ' [data-pick-chip="s-02"]');
+    cleared = picked && await waitFor(page, (s) => { const box = document.querySelector(s + " [data-pick-search]"); return !!box && box.value === "" && document.querySelectorAll(s + " [data-pick-row]").length === 3; }, ppe);
+  }
+  // Watch and sign off: "ana" leaves Ana Alvarez, and the pick reads her
+  // checklists.
+  if (cleared) {
+    await backToKit(page, language);
+    await openTile(page, say(language, "Watch and sign off"));
+    const ob = '[data-pick="observe-person"]';
+    await waitFor(page, (s) => document.querySelectorAll(s + " [data-pick-row]").length === 3, ob);
+    await page.fill(ob + " [data-pick-search]", "ana");
+    const one = await waitFor(page, (s) => { const r = document.querySelectorAll(s + " [data-pick-row]"); return r.length === 1 && r[0].getAttribute("data-pick-row") === "s-01"; }, ob);
+    observe = one && await pickIn(page, ob, "s-01");
+  }
+  // A Refill item's supply: "liner" leaves the trash liners.
+  let refill = false, sentRefill = false;
+  if (observe) {
+    await openPlace(page, say(language, "Supplies"));
+    await clickWord(page, say(language, "+ Request"));
+    await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Supply/Gear Request"));
+    await clickWord(page, say(language, "Refill"));
+    const line = '[data-supply-line-supply="0"]';
+    await waitFor(page, (s) => document.querySelectorAll(s + " [data-pick-row]").length === 4, line);
+    await page.fill(line + " [data-pick-search]", "liner");
+    refill = await waitFor(page, (s) => { const r = document.querySelectorAll(s + " [data-pick-row]"); return r.length === 1 && r[0].getAttribute("data-pick-row") === "sup-3"; }, line);
+    if (refill && await pickIn(page, line, "sup-3")) {
+      await page.click("[data-supply-send]");
+      await waitFor(page, () => !document.querySelector("[data-supply-lines]"));
+      const posts = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/supplies/requests").map(c => c.body);
+      sentRefill = posts.length === 1 && JSON.stringify(posts[0].items) === JSON.stringify([{ supplyId: "sup-3", quantity: 1 }]);
+    }
+  }
+  const wide = await sideways(page);
+  await app.context.close();
+  check("Searchable pickers: Issue PPE's person lists the site's three, narrows to one by typing part of a name in any case, says No one matches that name. for a name nobody has, takes a pick as a chip, and opens empty again when the chip is tapped; Watch and sign off's person narrows the same way and picks; a Refill item's supply narrows to one by typing and posts it; with no sideways scroll" + tag,
+    all && narrowed && said && cleared && observe && refill && sentRefill && wide <= 1 && app.errors.length === 0,
+    !all ? "Issue PPE's picker did not list three" : !narrowed ? "typing did not narrow Issue PPE's list" : !said ? "no match line missing" : !cleared ? "the chip did not open the search again empty" : !observe ? "Watch and sign off's picker did not narrow and pick" : !refill ? "the Refill supply did not narrow" : !sentRefill ? "the refill did not post the supply picked" : wide > 1 ? "the page scrolls sideways by " + wide : app.errors[0]);
+}
+
+// App support, Help's ticket, the sign-in line and PTO, on one phone: the
+// sign-in screen reads the contact from the API with no token; a bug is
+// filed with its details and shown in My tickets; Help's draft becomes a
+// ticket only once it is sent from its card; and a PTO request goes.
+async function appSupport(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const app = await open({ support: true, pto: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, width: width });
+  const page = app.page;
+  const lead = say(language, "Can't sign in? Email {email}").split("{email}")[0].trim();
+  const line = await waitFor(page, (w) => { const l = document.querySelector('[data-support-contact="1"]'); const a = l && l.querySelector("a"); return !!a && a.getAttribute("href") === "mailto:" + w.email && a.innerText.trim() === w.email && l.innerText.indexOf(w.lead) !== -1; }, { email: SUPPORT_CONTACT.email, lead: lead });
+  const asked = app.stub.state.calls.filter(c => c.path === "/api/support/contact");
+  const noToken = asked.length > 0 && asked.every(c => !(c.headers && c.headers.authorization));
+  let wide = await sideways(page);
+  await signIn(page, language);
+  const inNow = await waitFor(page, BAR_JS + ".length >= 5");
+  const posts = () => app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/support/tickets").map(c => c.body);
+  let offered = false, held = false, filed = false, mine = false;
+  if (inNow) offered = await tapMore(page, say(language, "App support"));
+  if (offered && await waitFor(page, () => !!document.querySelector('[data-support="1"]'))) {
+    await page.click('[data-support-send="1"]');
+    held = await waitFor(page, (w) => document.body.innerText.indexOf(w.kind) !== -1 && document.body.innerText.indexOf(w.text) !== -1, { kind: say(language, "Choose what it is about."), text: say(language, "Write what happened.") }) && posts().length === 0;
+    await page.click('[data-support-kind="bug"]');
+    await page.fill('[data-support-text="1"]', "Invented: the map on Home does not load.");
+    await page.click('[data-support-send="1"]');
+    filed = await waitFor(page, () => !!document.querySelector('[data-support-sent="1"]') && !!document.querySelector('[data-support-mine="2"]'));
+    mine = filed && await waitFor(page, (w) => { const r = Array.from(document.querySelectorAll("[data-support-ticket]")); return r.length === 2 && r[0].innerText.indexOf(w.kind) !== -1 && r[0].querySelector('[data-support-status="new"]').innerText.trim() === w.status && r[0].innerText.indexOf("the map on Home") !== -1 && r[1].innerText.indexOf(w.note) !== -1; }, { kind: say(language, "Something is not working"), status: say(language, "New"), note: say(language, "Note from the office: {note}", { note: "Invented: we are trying it this month." }) });
+    wide = Math.max(wide, await sideways(page));
+  }
+  const bug = posts()[0] || {};
+  const details = bug.kind === "bug" && bug.description === "Invented: the map on Home does not load." && bug.source === "form" && bug.app === "portal" && bug.screen === "Home" && typeof bug.appVersion === "string" && bug.appVersion !== "" && typeof bug.device === "string" && bug.device !== "" && bug.locale === language && !("screenshot" in bug);
+  // Help drafts a ticket; nothing is filed until Send to App support.
+  let card = false, helpSent = false;
+  if (mine) {
+    await openPlace(page, say(language, "Help"));
+    await askHelp(app, language, "Invented: the schedule page is blank.", { answer: "ticket", language: language });
+    card = await waitFor(page, (w) => { const c = document.querySelector('[data-help-ticket="draft"]'); return !!c && c.innerText.indexOf(w.kind) !== -1 && c.innerText.indexOf(w.text) !== -1; }, { kind: say(language, "Something is not working"), text: SUPPORT_DRAFT[language].description }) && posts().length === 1;
+    if (card) {
+      await page.click('[data-help-ticket-send="1"]');
+      helpSent = await waitFor(page, (w) => { const c = document.querySelector('[data-help-ticket="sent"]'); return !!c && c.innerText.indexOf(w) !== -1; }, say(language, "Sent to App support. You can follow it under My tickets."));
+    }
+  }
+  const fromHelp = posts()[1] || {};
+  const helpTicket = helpSent && posts().length === 2 && fromHelp.kind === "bug" && fromHelp.source === "help" && fromHelp.description === SUPPORT_DRAFT[language].description && fromHelp.screen === "Help" && fromHelp.locale === language;
+  // PTO on the time-off request.
+  let pto = false, ptoSent = false;
+  if (helpTicket) {
+    await openPlace(page, say(language, "Schedule"));
+    await waitFor(page, (w) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.trim() === w), say(language, "Request time off"));
+    await clickWord(page, say(language, "Request time off"));
+    pto = await waitFor(page, (w) => { const o = document.querySelector('select option[value="pto"]'); return !!o && o.innerText.trim() === w; }, say(language, "PTO (paid time off)"));
+    if (pto) {
+      await page.selectOption('select:has(option[value="pto"])', "pto");
+      await clickWord(page, say(language, "Send request"));
+      ptoSent = await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Time off requested. You get a notice when it is decided."));
+    }
+  }
+  const offs = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/time-off").map(c => c.body);
+  const ptoOnce = offs.length === 1 && offs[0].leaveType === "pto";
+  await app.context.close();
+  check("App support: the sign-in screen reads Can't sign in? Email with the contact from GET /api/support/contact, asked with no token; App support under More holds a ticket with no kind and no words on the phone, files a bug once with its details (the screen, the app version, the phone, the language) and lists it first in My tickets as New, beside the office's note on the one before; Help's drafted ticket shows on its card, files nothing until Send to App support, then posts it with source help; and Request time off offers PTO (paid time off) and posts leaveType pto once; with no sideways scroll" + tag,
+    line && noToken && inNow && offered && held && filed && mine && details && card && helpSent && helpTicket && pto && ptoSent && ptoOnce && wide <= 1 && app.errors.length === 0,
+    !line ? "the sign-in line did not read the contact" : !noToken ? "the contact was not asked for, or went with a token" : !inNow ? "no portal after Sign In" : !offered ? "no App support under More" : !held ? "an empty ticket was not held on the phone" : !filed || !mine ? "My tickets did not read as expected" : !details ? JSON.stringify(Object.assign({}, bug, { device: bug.device ? "set" : bug.device })) : !card ? "Help's card did not show, or Help filed it" : !helpSent || !helpTicket ? JSON.stringify(fromHelp) : !pto ? "no PTO among the types" : !ptoSent || !ptoOnce ? JSON.stringify(offs) : wide > 1 ? "the page scrolls sideways by " + wide : app.errors[0]);
+}
+
 async function supplyPage(browser, language) {
   const out = await open({ supplyQr: true, sds: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: false, path: "/sup/" + SUP_CODE });
   const page = out.page;
@@ -1679,38 +1916,55 @@ async function largest(browser) {
   if (stale) { check("the build is current", false, stale); process.exit(1); }
   const server = await serve(BUILD, PORT);
   const browser = await launch();
-  const guard = async (name, fn) => { try { await fn(); } catch (e) { check(name, false, "threw " + String(e && e.message || e).split("\n")[0]); } };
+  // SMOKE_ONLY=<words> runs only the checks whose name holds them, for
+  // working on one; every build runs them all.
+  const only = process.env.SMOKE_ONLY || "";
+  const guard = async (name, fn) => { if (only && name.indexOf(only) === -1) return; try { await fn(); } catch (e) { check(name, false, "threw " + String(e && e.message || e).split("\n")[0]); } };
   try {
-    for (const language of ["en", "es"]) await guard("a cleaner's run (" + language + ")", () => cleaner(browser, language));
-    // /sds reads the API's sheet names alone, the same in every language.
-    await guard("/sds (en)", () => sds(browser, "en"));
-    await guard("sign-in made simple and closed (en)", () => signInClosed(browser, "en", 390));
-    await guard("sign-in made simple and closed (es)", () => signInClosed(browser, "es", 320));
-    for (const language of ["en", "es"]) await guard("the workspace (" + language + ")", () => supervisor(browser, language));
-    for (const language of ["en", "es"]) await guard("007 on the customer page (" + language + ")", () => customerAsks(browser, language));
-    for (const language of ["en", "es"]) await guard("006 on the customer page (" + language + ")", () => customerWalk(browser, language));
-    for (const language of ["en", "es"]) await guard("the page's own name and role (" + language + ")", () => customerOwn(browser, language));
-    await guard("a check-off with no signal", () => noSignal(browser));
-    for (const language of ["en", "es"]) await guard("an equipment label (" + language + ")", () => equipment(browser, language));
-    for (const language of ["en", "es"]) await guard("periodic work (" + language + ")", () => periodic(browser, language));
-    for (const language of ["en", "es"]) await guard("a concern link (" + language + ")", () => concern(browser, language));
-    for (const language of ["en", "es"]) await guard("touchpoint chips (" + language + ")", () => touchpoints(browser, language));
-    for (const language of ["en", "es"]) await guard("the request page (" + language + ")", () => requestPage(browser, language));
-    await guard("Client requests for an approver", () => requestsApprover(browser, "en"));
-    await guard("Client requests for an assignee", () => requestsAssignee(browser, "en"));
-    await guard("Inspection findings", () => findings(browser, "en"));
-    await guard("My training", () => training(browser, "en"));
-    await guard("Online lessons", () => lessons(browser));
-    await guard("Step 264", () => step264(browser));
-    await guard("the training portal (en)", () => trainingPortal(browser, "en", 390));
-    await guard("the training portal (es)", () => trainingPortal(browser, "es", 320));
-    await guard("sign on your own phone (en)", () => signOnPhone(browser, "en", 390));
-    await guard("sign on your own phone (es)", () => signOnPhone(browser, "es", 320));
-    await guard("a supply request with many items (en)", () => supplyLines(browser, "en", 390));
-    await guard("a supply request with many items (es)", () => supplyLines(browser, "es", 320));
-    await guard("the supply page", () => supplyPage(browser, "en"));
-    await guard("French", () => french(browser));
-    await guard("the Largest text size", () => largest(browser));
+    // Two lanes side by side (Step 290), each running its checks one
+    // after another on the one browser, every check on its own phone and
+    // stub, so the run stays under three minutes as checks are added.
+    const laneA = async () => {
+      for (const language of ["en", "es"]) await guard("a cleaner's run (" + language + ")", () => cleaner(browser, language));
+      // /sds reads the API's sheet names alone, the same in every language.
+      await guard("/sds (en)", () => sds(browser, "en"));
+      await guard("sign-in made simple and closed (en)", () => signInClosed(browser, "en", 390));
+      await guard("sign-in made simple and closed (es)", () => signInClosed(browser, "es", 320));
+      for (const language of ["en", "es"]) await guard("the workspace (" + language + ")", () => supervisor(browser, language));
+      for (const language of ["en", "es"]) await guard("007 on the customer page (" + language + ")", () => customerAsks(browser, language));
+      for (const language of ["en", "es"]) await guard("006 on the customer page (" + language + ")", () => customerWalk(browser, language));
+      for (const language of ["en", "es"]) await guard("the page's own name and role (" + language + ")", () => customerOwn(browser, language));
+      await guard("a check-off with no signal", () => noSignal(browser));
+      for (const language of ["en", "es"]) await guard("an equipment label (" + language + ")", () => equipment(browser, language));
+      for (const language of ["en", "es"]) await guard("periodic work (" + language + ")", () => periodic(browser, language));
+      for (const language of ["en", "es"]) await guard("a concern link (" + language + ")", () => concern(browser, language));
+      for (const language of ["en", "es"]) await guard("touchpoint chips (" + language + ")", () => touchpoints(browser, language));
+      await guard("the handbook reader (en)", () => handbook(browser, "en", 390));
+      await guard("the handbook reader (es)", () => handbook(browser, "es", 320));
+    };
+    const laneB = async () => {
+      for (const language of ["en", "es"]) await guard("the request page (" + language + ")", () => requestPage(browser, language));
+      await guard("Client requests for an approver", () => requestsApprover(browser, "en"));
+      await guard("Client requests for an assignee", () => requestsAssignee(browser, "en"));
+      await guard("Inspection findings", () => findings(browser, "en"));
+      await guard("My training", () => training(browser, "en"));
+      await guard("Online lessons", () => lessons(browser));
+      await guard("Step 264", () => step264(browser));
+      await guard("the training portal (en)", () => trainingPortal(browser, "en", 390));
+      await guard("the training portal (es)", () => trainingPortal(browser, "es", 320));
+      await guard("sign on your own phone (en)", () => signOnPhone(browser, "en", 390));
+      await guard("sign on your own phone (es)", () => signOnPhone(browser, "es", 320));
+      await guard("a supply request with many items (en)", () => supplyLines(browser, "en", 390));
+      await guard("a supply request with many items (es)", () => supplyLines(browser, "es", 320));
+      await guard("the supply page", () => supplyPage(browser, "en"));
+      await guard("French", () => french(browser));
+      await guard("the Largest text size", () => largest(browser));
+      await guard("searchable pickers (en)", () => pickers(browser, "en", 390));
+      await guard("searchable pickers (es)", () => pickers(browser, "es", 320));
+      await guard("App support (en)", () => appSupport(browser, "en", 390));
+      await guard("App support (es)", () => appSupport(browser, "es", 320));
+    };
+    await Promise.all([laneA(), laneB()]);
   } finally {
     await browser.close();
     server.close();

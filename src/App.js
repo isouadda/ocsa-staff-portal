@@ -559,6 +559,34 @@ async function apiBlob(path, opts = {}) {
   return res.blob();
 }
 
+// A PDF from the API's own path, read behind the token: a new tab is
+// opened in the tap itself, which an iPhone allows, and pointed at the
+// file once it is read. With no tab, the file is saved under the name
+// given, the way a streamed file is. A refusal closes the tab and is
+// thrown to the caller. Open the warning (Step 271), See the designed
+// version and Download my signed page (Step 290) all open this way, so
+// call it straight from the tap, before anything waits.
+async function openApiPdf(path, name, token) {
+  let tab = null;
+  try { tab = window.open("", "_blank"); } catch (e) { tab = null; }
+  try {
+    const blob = await apiBlob(path, { token });
+    const href = URL.createObjectURL(blob);
+    if (tab) tab.location.href = href;
+    else {
+      const a = document.createElement("a");
+      a.href = href; a.rel = "noopener"; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+    setTimeout(() => URL.revokeObjectURL(href), 60000);
+  } catch (err) {
+    if (tab) { try { tab.close(); } catch (e) {} }
+    throw err;
+  }
+}
+// A path with the language it is read in, unless it already names one.
+const withLocale = (path, locale) => (/[?&]locale=/.test(path) ? path : path + (path.indexOf("?") === -1 ? "?" : "&") + "locale=" + encodeURIComponent(locale));
+
 // One event off a stream, read the way a browser's EventSource reads one:
 // its name, and its data, which is JSON. Data that is not JSON reads as
 // nothing.
@@ -801,6 +829,7 @@ const ClipIco = (p) => <Ico d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 
 const SwapIco = (p) => <Ico d="M16 3l4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" {...p} />;
 const CalIco = (p) => <Ico d="M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM16 2v4M8 2v4M3 10h18" {...p} />;
 const HomeIco = (p) => <Ico d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" {...p} />;
+const SupportIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM4.9 4.9l4.3 4.3M14.8 14.8l4.3 4.3M14.8 9.2l4.3-4.3M9.2 14.8l-4.3 4.3" {...p} />;
 const HelpIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01" {...p} />;
 const GlobeIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" {...p} />;
 const PersonIco = (p) => <Ico d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" {...p} />;
@@ -852,6 +881,9 @@ const DESTINATIONS = [
   // Under More alone, for everyone, and only once GET /api/hr/property/mine
   // has answered a list (Step 271).
   { id: "property", label: () => "My company property", icon: BoxIco, moreOnly: true, role: (ctx) => !!ctx.property },
+  // Under More alone, for everyone, and only once GET
+  // /api/support/tickets/mine has answered a list (Step 290).
+  { id: "support", label: () => "App support", icon: SupportIco, moreOnly: true, role: (ctx) => !!ctx.support },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
 
@@ -2667,6 +2699,21 @@ export default function OCSAStaffPortal() {
     readPropertyMine(token).then(l => { if (live && l) setProperty(l); });
     return () => { live = false; };
   }, [token, screen, signAsked]);
+  // App support (Step 290): the person's own tickets, what GET
+  // /api/support/tickets/mine answers, null until it answers a list; More
+  // offers App support then. Read again after a ticket goes, from the
+  // screen or from Help. The screen the person was on before it is the
+  // one a ticket names.
+  const [support, setSupport] = useState(null);
+  const [supportAsked, setSupportAsked] = useState(0);
+  useEffect(() => {
+    if (!token || screen !== "main") { setSupport(null); return undefined; }
+    let live = true;
+    readSupportMine(token).then(l => { if (live && l) setSupport(l); });
+    return () => { live = false; };
+  }, [token, screen, supportAsked]);
+  const supportFrom = useRef("clock");
+  useEffect(() => { if (activeTab !== "support") supportFrom.current = activeTab; }, [activeTab]);
   useEffect(() => {
     if (!token || screen !== "main") { setTraining(null); setTrainingAt(null); return undefined; }
     let live = true;
@@ -2691,7 +2738,7 @@ export default function OCSAStaffPortal() {
     readWorkspaceProjects(token).then(list => { if (live) setWsProjects(list); });
     return () => { live = false; };
   }, [wsAsks, token, user && user.id]);
-  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training, property: Array.isArray(property) };
+  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training, property: Array.isArray(property), support: Array.isArray(support) };
   const shortcutChoices = shortcutChoicesFor(destCtx);
   const allowedShortcutIds = shortcutChoices.map(d => d.id);
   const uid = user && user.id ? user.id : null;
@@ -3026,12 +3073,13 @@ export default function OCSAStaffPortal() {
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
               {activeTab === "clock" && signAt && <SignScreen key={signAt.id || "list"} token={token} id={signAt.id || null} requests={signList} onOpen={openSign} onBack={() => setSignAt(null)} onChanged={() => setSignAsked(n => n + 1)} t={t} />}
               {activeTab === "property" && destCtx.property && <MyPropertyView rows={property} onSign={(id) => openSign({ id: id })} t={t} />}
+              {activeTab === "support" && destCtx.support && <SupportView token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} t={t} />}
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
-              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
+              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} findings={findings} onFindingsChanged={() => loadFindings()} openFinding={findingOpen} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} token={token} user={user} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
@@ -3203,6 +3251,20 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onType
     return () => clearInterval(iv);
   }, [step ? step.sentAt : null]);
   const verify = (v) => { const c = String(v || "").replace(/\D/g, "").slice(0, 6); if (c.length === 6 && !loading) onCode(c, remember); };
+  // App support's contact (Step 290), read with no token from GET
+  // /api/support/contact; the line under Sign In shows only once it
+  // answers an email.
+  const [contact, setContact] = useState(null);
+  useEffect(() => {
+    let live = true;
+    api("/api/support/contact").then(d => { const email = d && typeof d.email === "string" ? d.email.trim() : ""; if (live && SUPPORT_EMAIL_RE.test(email)) setContact({ email: email }); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const cantSignIn = contact && (() => { const parts = tr("Can't sign in? Email {email}").split("{email}"); return (
+    <div data-support-contact="1" style={{ marginTop: 16, textAlign: "center", fontSize: 12, color: t.textSec, lineHeight: 1.5, overflowWrap: "anywhere" }}>
+      {parts[0]}<a href={"mailto:" + contact.email} style={{ display: "inline-flex", alignItems: "center", minHeight: TAP, color: t.goldText, fontWeight: 600 }}>{contact.email}</a>{parts.slice(1).join("")}
+    </div>
+  ); })();
   const logo = (
     <div style={{ textAlign: "center", marginBottom: step ? 24 : 40 }}>
       <div style={{ display: "inline-block", maxWidth: "100%", boxSizing: "border-box", padding: themeMode === "dark" ? "12px 20px" : "0", background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: 12 }}><img src={LOGO_LG} alt={clientConfig.company.shortName} style={{ height: 70, maxWidth: "100%", objectFit: "contain" }} /></div>
@@ -3245,6 +3307,7 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onType
         <div style={{ textAlign: "right", marginBottom: 24 }}><button onClick={onGoForgot} style={{ background: "none", border: "none", minHeight: TAP, padding: "4px 0", color: t.textSec, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>{tr("Forgot your PIN?")}</button></div>
         <button onClick={() => onLogin(phone, pin)} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Signing in...") : tr("Sign In")}</button>
         <button onClick={onGoRegister} style={mkGhostBtn(t)}>{tr("New Employee? Register Here")}</button>
+        {cantSignIn}
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><button onClick={toggleTheme} style={mkTapFrame()}><span style={mkSmallPill(t)}>{themeMode === "dark" ? <SunIco sz={14} c={t.textMut} /> : <MoonIco sz={14} c={t.textMut} />}{themeMode === "dark" ? tr("Light Mode") : tr("Dark Mode")}</span></button><TextSizeButton t={t} /><LanguageButton t={t} /></div>
       </div>
     </div>
@@ -3658,6 +3721,13 @@ function SetPinScreen({ token, user, onDone, onSignOut, showToast, t }) {
   );
 }
 
+// A leave type as the screen says it: the label the API sends, in the
+// screen's words, or for PTO (Step 290, which every time-off route takes
+// and answers once API Step 289 is live) the portal's own word when the
+// API sends none. A type the list does not answer is never shown.
+const LEAVE_WORDS = { pto: "PTO (paid time off)" };
+const leaveWord = (value, label) => tr(label || LEAVE_WORDS[value] || value || "");
+
 function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }) {
   const [view, setView] = useState("week");
   const [data, setData] = useState({ scheduled: [], actual: [], pickups: [] });
@@ -4036,7 +4106,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
               <button key={r.id} onClick={() => openOffDetail(r)} style={{ width: "100%", textAlign: "left", minHeight: 44, marginBottom: 8, padding: "10px 12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.card, cursor: "pointer", fontFamily: FONT_BODY, display: "block" }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
                   <div style={{ flex: "1 1 140px", minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{tr(r.leaveTypeLabel || r.leaveType || "")}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{leaveWord(r.leaveType, r.leaveTypeLabel)}</div>
                     <div style={{ fontSize: 11, color: t.textSec, marginTop: 3, overflowWrap: "anywhere" }}>{timeOffDates(r.startsOn, r.endsOn)}</div>
                     {r.partDay && r.startTime && r.endTime && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{fmtTm(r.startTime)} - {fmtTm(r.endTime)}</div>}
                     {hrs && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{hrs}</div>}
@@ -4117,7 +4187,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
               <label style={mkLabel(t)}>{tr("Type")}</label>
               <select value={reqForm.leaveType} onChange={e => setReqForm({ ...reqForm, leaveType: e.target.value })} style={{ ...mkInput(t), minHeight: 44 }}>
                 <option value="">{tr("Choose a type")}</option>
-                {offTypes.map(ty => <option key={ty.value} value={ty.value}>{tr(ty.label || ty.value)}</option>)}
+                {offTypes.map(ty => <option key={ty.value} value={ty.value}>{leaveWord(ty.value, ty.label)}</option>)}
               </select>
             </div>
 
@@ -4187,7 +4257,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
             {offErr && <div style={{ padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text, fontSize: 12, lineHeight: 1.5, overflowWrap: "anywhere" }}>{offErr}</div>}
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-              <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Type")}</div><div style={offValue}>{tr(offDetail.leaveTypeLabel || offDetail.leaveType || "")}</div></div>
+              <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Type")}</div><div style={offValue}>{leaveWord(offDetail.leaveType, offDetail.leaveTypeLabel)}</div></div>
               <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Status")}</div><div style={{ ...offValue, color: timeOffStatusColor(offDetail.status, t) }}>{timeOffStatusWord(offDetail.status)}</div></div>
               <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Dates")}</div><div style={offValue}>{timeOffDates(offDetail.startsOn, offDetail.endsOn)}</div></div>
               {offDetail.partDay && offDetail.startTime && offDetail.endTime && <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Time")}</div><div style={offValue}>{fmtTm(offDetail.startTime)} - {fmtTm(offDetail.endTime)}</div></div>}
@@ -5289,6 +5359,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
               {membersHere && membersHere.state === "loading" && <div style={{ padding: "20px 4px", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
               {membersHere && membersHere.state === "failed" && <ListFault icon={PersonIco} text={tr("This list did not load.")} onRetry={() => loadMembers(activeChannel)} t={t} />}
               {membersHere && membersHere.state === "ok" && membersHere.list.length === 0 && <div style={{ padding: "20px 4px", textAlign: "center", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("No one else can read this chat.")}</div>}
+              {membersHere && membersHere.state === "ok" && membersHere.list.length > 0 && tagRows.length === 0 && q !== "" && <div style={{ padding: "20px 4px", textAlign: "center", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("No one matches that name.")}</div>}
               {tagRows.map(m => {
                 const already = picked.some(x => x.id === m.id) && text.indexOf("@" + m.name) !== -1;
                 const off = tagFull && !already;
@@ -5818,7 +5889,7 @@ function AnswerPictures({ pictures, language, t }) {
   );
 }
 
-function AgentView({ token, showToast, t, language, onFillForm, conversationId, onConversation }) {
+function AgentView({ token, showToast, t, language, onFillForm, onTicket, conversationId, onConversation }) {
   // The same shape the Forms screen uses, so a Spanish screen never
   // lists English form names.
   const locale = languageToSend(language);
@@ -5834,6 +5905,11 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
   const [submitBusy, setSubmitBusy] = useState(false);
   const [missing, setMissing] = useState([]);
   const [submitted, setSubmitted] = useState(false);
+  // A ticket Help drafted (Step 290): { kind, description, sending,
+  // faults }, sent to App support only from its card. A new draft takes
+  // its place; Not now puts it away; sent, the card says so until the
+  // next answer.
+  const [ticket, setTicket] = useState(null);
   const endRef = useRef(null); const taRef = useRef(null); const seqRef = useRef(0);
   const inputSt = mkInput(t);
   // What a screen reader says by itself: each answer once, when it is
@@ -6028,6 +6104,8 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
       const answer = { id: answerId, role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], citedNames: Array.isArray(data.citedNames) ? data.citedNames : [], pictures: agentPictures(data.pictures), degraded: data.degraded === true, noProcedure: data.noProcedure === true, messageId: agentMessageId(data), feedback: null };
       place(answer);
       if (data.formResponse) { setFormResponse(data.formResponse); setMissing([]); setSubmitted(false); }
+      const drafted = supportDraftOf(data.ticketDraft);
+      setTicket(prev => (drafted ? Object.assign(drafted, { sending: false, faults: {} }) : prev && !prev.sent ? prev : null));
       hear(answer.text);
     } catch (err) {
       // A Retry of a question the API holds with no answer yet is refused
@@ -6118,6 +6196,18 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
     setSubmitBusy(false);
   };
 
+  // The person sends the ticket Help drafted, as it reads on the card.
+  const sendTicket = async () => {
+    if (!ticket || ticket.sending || ticket.sent) return;
+    setTicket(x => (x ? { ...x, sending: true, faults: {} } : x));
+    try {
+      await api("/api/support/tickets", { method: "POST", body: Object.assign({ kind: ticket.kind, description: ticket.description, source: "help" }, supportDetails(destById("agent").label({}))), token });
+      setTicket(x => (x ? { ...x, sending: false, sent: true } : x));
+      if (onTicket) onTicket();
+    } catch (err) {
+      setTicket(x => (x ? { ...x, sending: false, faults: supportFaults(err) } : x));
+    }
+  };
   const remaining = formResponse ? Number(formResponse.remaining) : 0;
   // A count the API sends as a word reads as NaN, and "not greater than
   // zero" let that through with answers still missing.
@@ -6176,6 +6266,18 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
         {!discardOff && formResponse.id && <button onClick={() => discard(formResponse.id)} disabled={discarding !== null || submitBusy} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, opacity: discarding !== null || submitBusy ? 0.6 : 1 }}>{tr("Discard")}</button>}
         <button onClick={submit} disabled={!canSubmit} style={{ padding: "10px 14px", minHeight: TAP, flexShrink: 0, borderRadius: R.sm, border: "none", background: canSubmit ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : t.cardAlt, color: canSubmit ? NAVY : t.textSec, fontSize: 12, fontWeight: 600, cursor: canSubmit ? "pointer" : "default", fontFamily: FONT_HEAD, boxShadow: canSubmit ? "0 6px 18px rgba(231,176,23,0.30)" : "none" }}>{submitBusy ? tr("Submitting...") : tr("Submit report")}</button></div>
         {missing.length > 0 && <div style={{ marginTop: 8, fontSize: 11, color: t.textSec, lineHeight: 1.5 }}><div style={{ fontWeight: 600 }}>{tr("Still needed before you can submit:")}</div>{missing.map((k, i) => <div key={i}>{k}</div>)}</div>}
+      </div>)}
+      {ticket && (<div data-help-ticket={ticket.sent ? "sent" : "draft"} style={{ margin: "0 12px 8px", padding: "10px 12px", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.md, boxShadow: t.shadow, flexShrink: 1, minHeight: 0, overflowY: "auto" }}>
+        <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Ticket for App support")}</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2 }}>{supportKindWord(ticket.kind)}</div>
+        <div data-help-ticket-text="1" style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.45, whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 96, overflowY: "auto" }}>{ticket.description}</div>
+        {ticket.sent
+          ? <div role="status" style={{ fontSize: 12, fontWeight: 600, color: ink(t, GREEN), marginTop: 8, lineHeight: 1.4 }}>{tr("Sent to App support. You can follow it under My tickets.")}</div>
+          : <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+              <button type="button" onClick={() => setTicket(null)} disabled={ticket.sending} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Not now")}</button>
+              <button type="button" data-help-ticket-send="1" onClick={sendTicket} disabled={ticket.sending} style={{ ...smallBtn, flex: "1 1 auto", opacity: ticket.sending ? 0.6 : 1 }}>{ticket.sending ? tr("Sending...") : tr("Send to App support")}</button>
+            </div>}
+        {ticket.faults && Object.keys(ticket.faults).filter(k => ticket.faults[k]).map(k => <div key={k} role="alert" style={{ ...mkFieldErr(t), marginTop: 6 }}>{ticket.faults[k]}</div>)}
       </div>)}
       {photos.length > 0 && (
         <div style={{ padding: "8px 12px 0", display: "flex", flexWrap: "wrap", gap: 10, flexShrink: 0 }}>
@@ -6501,7 +6603,6 @@ function RequestApproveSheet({ token, user, row, onClose, onSend, t }) {
     setSending(false);
     if (ok) onClose();
   };
-  const rowSt = (on) => ({ width: "100%", minHeight: TAP, marginBottom: 8, padding: "10px 12px", borderRadius: R.md, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: on ? t.goldBg : t.card, border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text });
   const chip = (text, color) => <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: R.pill, background: color + "20", color: ink(t, color), fontFamily: FONT_HEAD, flexShrink: 0 }}>{text}</span>;
   const footer = (
     <>
@@ -6515,16 +6616,7 @@ function RequestApproveSheet({ token, user, row, onClose, onSend, t }) {
       {!list && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
       {list && list.state === "failed" && <div style={{ marginBottom: 12 }}><ListFault icon={PersonIco} text={list.said} onRetry={() => setAsked(n => n + 1)} t={t} /></div>}
       {list && list.state === "ok" && list.rows.length === 0 && <div style={wsQuiet(t)}>{tr("No one can be assigned at this site.")}</div>}
-      {list && list.state === "ok" && list.rows.map(a => { const on = picked === a.id; const me = user && String(user.id) === a.id; return (
-        <button key={a.id} type="button" data-request-assignee={a.id} onClick={() => setPicked(a.id)} aria-pressed={on} style={rowSt(on)}>
-          <span style={{ width: 16, height: 16, flexShrink: 0, borderRadius: "50%", background: on ? GOLD : "transparent", border: on ? "none" : "2px solid " + t.borderSolid }} />
-          <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ display: "block", fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{a.name}{me ? " (" + tr("Me") + ")" : ""}</span>
-            {a.role && <span style={{ display: "block", fontSize: 11, color: t.textMut, marginTop: 2 }}>{roleWord(a.role)}</span>}
-          </span>
-          {a.onShift && chip(tr("On shift"), GREEN)}
-        </button>
-      ); })}
+      {list && list.state === "ok" && list.rows.length > 0 && <SearchPick name="request-assignee" rows={list.rows.map(a => ({ id: a.id, name: a.name, note: user && String(user.id) === a.id ? " (" + tr("Me") + ")" : "", sub: a.role ? roleWord(a.role) : "", tag: a.onShift ? chip(tr("On shift"), GREEN) : null }))} value={picked || ""} onPick={(v) => setPicked(v || null)} rowAttr={(r) => ({ "data-request-assignee": r.id })} noMatch={tr("No one matches that name.")} disabled={sending} t={t} />}
     </WsSheet>
   );
 }
@@ -6801,6 +6893,8 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
   };
   const lineErr = (k) => (lineFaults[k] ? <div role="alert" style={mkFieldErr(t)}>{lineFaults[k]}</div> : null);
   const lineRing = (k) => (lineFaults[k] ? { border: "2px solid " + RED } : {});
+  // The site's supplies as the searchable picker lists them.
+  const supplyRows = supplies.map(x => ({ id: String(x.id), name: x.name }));
   const linesUI = () => (
     <div data-supply-lines={reqForm.lines.length} style={{ marginBottom: 10 }}>
       {reqForm.lines.map((ln, i) => (
@@ -6811,7 +6905,7 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
           </div>
           {typedLines
             ? <input data-supply-line-name={i} aria-label={tr("Item Name")} value={ln.itemName} maxLength={SUPPLY_NAME_MAX} onChange={e => editLine(i, "itemName", e.target.value, "item")} placeholder={tr("What do you need?")} style={{ ...inputSt, ...lineRing(i + ".item") }} />
-            : <select data-supply-line-supply={i} aria-label={tr("Supply Item")} value={ln.supplyId} onChange={e => editLine(i, "supplyId", e.target.value, "item")} style={{ ...inputSt, ...lineRing(i + ".item") }}><option value="">{tr("Select supply...")}</option>{supplies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
+            : <div data-supply-line-supply={i}><SearchPick name={"supply-line-" + i} rows={supplyRows} value={ln.supplyId} onPick={(v) => editLine(i, "supplyId", v, "item")} none={tr("Choose a supply")} empty={tr("Choose a supply")} noMatch={tr("No supply matches that name.")} invalid={!!lineFaults[i + ".item"]} t={t} /></div>}
           {lineErr(i + ".item")}
           <div id={"ocsa-supply-qty-" + ln.key} style={{ ...labelSt, marginTop: 10 }}>{tr("Quantity")}</div>
           <div role="group" aria-labelledby={"ocsa-supply-qty-" + ln.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -6834,7 +6928,7 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
     <div style={{ padding: 14, marginBottom: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, boxShadow: t.popShadow }}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supply/Gear Request")}</div>
       <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Request Type")}</label><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{typeOpts.map(tp => (<button key={tp.v} onClick={() => { setReqForm({ ...reqForm, type: tp.v }); setLineFaults({}); }} style={{ minHeight: TAP, padding: "7px 11px", borderRadius: R.sm, border: reqForm.type === tp.v ? "2px solid " + GOLD : "1px solid " + t.borderSolid, background: reqForm.type === tp.v ? t.goldBg : "transparent", color: reqForm.type === tp.v ? t.goldText : t.textSec, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tp.l}</button>))}</div></div>
-      {!linesOn && (reqForm.type === "refill" || reqForm.type === "damage_report") && supplies.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Supply Item")}</label><select value={reqForm.supplyId || ""} onChange={e => setReqForm({ ...reqForm, supplyId: e.target.value || null, itemName: supplies.find(s => s.id === e.target.value)?.name || "" })} style={inputSt}><option value="">{tr("Select supply...")}</option>{supplies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>)}
+      {!linesOn && (reqForm.type === "refill" || reqForm.type === "damage_report") && supplies.length > 0 && (<div data-supply-one="1" style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Supply Item")}</label><SearchPick name="supply-one" rows={supplyRows} value={reqForm.supplyId || ""} onPick={(v) => setReqForm(f => ({ ...f, supplyId: v || null, itemName: supplies.find(s => String(s.id) === v)?.name || "" }))} none={tr("Choose a supply")} empty={tr("Choose a supply")} noMatch={tr("No supply matches that name.")} t={t} /></div>)}
       {!linesOn && (reqForm.type === "new_gear" || reqForm.type === "new_supply") && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Item Name")}</label><input value={reqForm.itemName} onChange={e => setReqForm({ ...reqForm, itemName: e.target.value })} placeholder={tr("What do you need?")} style={inputSt} /></div>)}
       {linesOn && linesUI()}
       <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Details")}</label><textarea value={reqForm.description} onChange={e => setReqForm({ ...reqForm, description: e.target.value })} placeholder={tr("Describe the request...")} rows={2} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
@@ -7045,6 +7139,9 @@ function trainingOf(d) {
     // Step 264: the first-day path and the documents to sign (the Step
     // 262 contract, sections 5 and 6); empty until the API answers them.
     firstDay: trainingInOrder((wsRows(d, "firstDay") || []).map(trainingItemOf).filter(Boolean)), documentsToSign: (wsRows(d, "documentsToSign") || []).map(trainingDocumentOf).filter(Boolean),
+    // Step 290: the documents the person signed (API Step 289), null
+    // until the API answers the key, and Signed documents stays hidden.
+    documentsSigned: Array.isArray(d.documentsSigned) ? d.documentsSigned.map(trainingSignedOf).filter(Boolean) : null,
     // The training portal (Step 267): the categories and Continue where
     // you left off. categories is null until the API answers it, and My
     // training then stays as it was.
@@ -7157,7 +7254,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
     return <TrainingJoin key={at.join} token={token} code={at.join} onBack={() => { onAt(null); setAsked(n => n + 1); }} t={t} />;
   }
   if (at && at.doc) {
-    return <DocumentReader key={at.doc.docCode} token={token} doc={at.doc} onBack={() => { onAt(null); setAsked(n => n + 1); }} onSigned={() => setAsked(n => n + 1)} t={t} />;
+    return <DocumentReader key={at.doc.docCode + (at.signed ? ":signed" : "")} token={token} doc={at.doc} signed={at.signed || null} onBack={() => { onAt(null); setAsked(n => n + 1); }} onSigned={() => setAsked(n => n + 1)} t={t} />;
   }
   const items = data ? data.items : [];
   const cats = portal ? data.categories : [];
@@ -7244,6 +7341,23 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
           {x.signedVersion && <div style={lineSt}>{tr("You signed version {n}. This one is new.", { n: x.signedVersion })}</div>}
           <div style={{ display: "flex", marginTop: 10 }}><button type="button" data-training-doc-read={x.docCode} onClick={() => onAt({ doc: x })} style={goldBtn}>{tr("Read and sign")}</button></div>
         </div>
+      ))}
+    </div>
+  );
+  // Signed documents (Step 290): each document signed, to read again,
+  // with the day, and the language it was signed in where that is not
+  // the screen's.
+  const signedDocs = data && Array.isArray(data.documentsSigned) ? data.documentsSigned : [];
+  const signedPart = signedDocs.length > 0 && (
+    <div>
+      {head("Signed documents", "signed")}
+      {signedDocs.map(x => (
+        <button key={x.docCode + ":" + x.version} type="button" data-training-signed={x.docCode} onClick={() => onAt({ doc: x, signed: x })} style={{ ...fkRowSt(t), display: "block", width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", color: t.text }}>
+          <div style={nameSt}>{x.title}</div>
+          <div style={smallSt}>{x.docCode}</div>
+          {x.signedAt && <div style={{ ...lineSt, color: ink(t, GREEN), fontWeight: 600 }}>{tr("Signed {date}", { date: signedDay(x.signedAt) })}</div>}
+          {x.locale && x.locale !== languageToSend() && DOC_SIGNED_IN[x.locale] && <div style={lineSt}>{DOC_SIGNED_IN[x.locale]()}</div>}
+        </button>
       ))}
     </div>
   );
@@ -7353,6 +7467,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
         )}
         {items.length === 0 && docs.length === 0 && <div style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("Nothing is required for your role yet.")}</div>}
         {docsPart}
+        {signedPart}
         <div style={{ marginTop: 12 }}>{joinPart}</div>
         {historyPart}
       </div>
@@ -7364,6 +7479,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
       {faultPart}
       {joinPart}
       {docsPart}
+      {signedPart}
       {items.length === 0 && docs.length === 0 && <div style={wsQuiet(t)}>{tr("Nothing is required for your role yet.")}</div>}
       {todo.length > 0 && (
         <div>
@@ -7520,14 +7636,33 @@ function trainingDocumentOf(x) {
   const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
   return { docCode: docCode, title: str("title") || docCode, version: str("version"), locales: (Array.isArray(x.locales) ? x.locales : []).filter(v => typeof v === "string"), signedVersion: str("signedVersion") };
 }
+// A document the person signed (Step 290, documentsSigned in API Step
+// 289's /api/training/me): the version signed and the current one, the
+// language and the time it was signed in, and whether the signed page is
+// there to download.
+function trainingSignedOf(x) {
+  const base = trainingDocumentOf(x);
+  if (!base) return null;
+  const str = (k) => (typeof x[k] === "string" ? x[k].trim() : typeof x[k] === "number" ? String(x[k]) : "");
+  return Object.assign(base, { version: str("version"), currentVersion: str("currentVersion"), locale: str("locale"), signedAt: str("signedAt"), signedPage: x.signedPage === true });
+}
+// The day a document was signed, on the phone's own calendar.
+const signedDay = (at) => { const d = new Date(at); return at && !isNaN(d.getTime()) ? trainingDay(ymdLocal(d)) : trainingDay(at); };
+const DOC_SIGNED_IN = { en: () => tr("Signed in English"), es: () => tr("Signed in Spanish"), fr: () => tr("Signed in French") };
 function documentReadOf(d) {
   const doc = d && typeof d === "object" && d.document && typeof d.document === "object" ? d.document : null;
   if (!doc) return null;
   const str = (k) => (typeof doc[k] === "string" ? doc[k].trim() : "");
   const locale = str("locale") || "en";
-  const sections = (Array.isArray(doc.sections) ? doc.sections : []).map((x, i) => (x && typeof x === "object" ? { ref: typeof x.ref === "string" && x.ref.trim() ? x.ref.trim() : String(i + 1), title: typeof x.title === "string" ? x.title.trim() : "", content: typeof x.content === "string" ? x.content.trim() : "" } : null)).filter(x => x && (x.title || x.content));
+  const sections = (Array.isArray(doc.sections) ? doc.sections : []).map((x, i) => (x && typeof x === "object" ? { ref: typeof x.ref === "string" && x.ref.trim() ? x.ref.trim() : String(i + 1), title: typeof x.title === "string" ? x.title.trim() : "", content: typeof x.content === "string" ? x.content.trim() : "", ackFields: x.ackFields } : null)).filter(x => x && (x.title || x.content));
   if (sections.length === 0) return null;
-  return { docCode: str("docCode"), title: str("title"), version: str("version"), locale: locale, locales: (Array.isArray(doc.locales) ? doc.locales : []).filter(v => typeof v === "string"), sections: sections, acknowledgement: lessonText(doc.acknowledgement, locale) };
+  // Step 289: parts, the section that is the signed page, the designed
+  // version's path and whether the language asked for was missing. With
+  // no parts the reader is the one Step 264 drew.
+  const pdf = str("pdfUrl");
+  return { docCode: str("docCode"), title: str("title"), version: str("version"), locale: locale, locales: (Array.isArray(doc.locales) ? doc.locales : []).filter(v => typeof v === "string"), sections: sections, acknowledgement: lessonText(doc.acknowledgement, locale),
+    parts: docPartsOf(doc.parts), ackSectionRef: typeof doc.ackSectionRef === "string" || typeof doc.ackSectionRef === "number" ? String(doc.ackSectionRef).trim() : "",
+    pdfUrl: /^(https:\/\/|\/api\/)/i.test(pdf) ? pdf : "", shownInEnglish: doc.shownInEnglish === true || d.shownInEnglish === true, ackFields: doc.ackFields };
 }
 // A section's content as paragraphs: blank lines split them, and a line
 // starting with a dash or a bullet reads as a list item.
@@ -7535,7 +7670,7 @@ function docParagraphs(content) {
   return String(content || "").split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
 }
 
-function DocumentReader({ token, doc, onBack, onSigned, t }) {
+function DocumentReader({ token, doc, signed, onBack, onSigned, t }) {
   // loading, fault, read (at a section, or the contents), sign, done
   const [state, setState] = useState({ kind: "loading" });
   const [asked, setAsked] = useState(0);
@@ -7545,6 +7680,9 @@ function DocumentReader({ token, doc, onBack, onSigned, t }) {
   const [png, setPng] = useState(null);
   const [fault, setFault] = useState(null);
   const [busy, setBusy] = useState(false);
+  // The handbook's look read the document again after a version changed
+  // under the person, which its cover says.
+  const [again, setAgain] = useState(false);
   const live = useRef(true);
   useEffect(() => () => { live.current = false; }, []);
   useBusy("document reader", busy || strokes.length > 0);
@@ -7590,6 +7728,10 @@ function DocumentReader({ token, doc, onBack, onSigned, t }) {
       {d && d.locale !== languageToSend() && d.locale === "en" && <div data-doc-english="1" style={{ ...smallSt, fontSize: 12, marginTop: 6 }}>{tr("This document is shown in English.")}</div>}
     </div>
   );
+  // An answer with parts (Step 289) reads in the handbook's look.
+  if (state.kind === "read" && d && d.parts) {
+    return <HandbookReader key={d.version + ":" + d.locale} token={token} doc={doc} d={d} signed={signed} changed={again} onBack={onBack} onSigned={onSigned} onAgain={() => { setAgain(true); setAsked(n => n + 1); }} t={t} />;
+  }
   if (state.kind === "loading" || state.kind === "fault") {
     return (
       <div data-doc={state.kind} style={{ padding: "16px 16px 100px" }}>
@@ -7605,6 +7747,16 @@ function DocumentReader({ token, doc, onBack, onSigned, t }) {
         {head}
         <div role="status" style={{ ...titleSt, marginTop: 14, color: ink(t, GREEN) }}>{tr("Signed. It is on your record.")}</div>
         <div style={{ display: "flex", marginTop: 12 }}><button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Back to My training")}</button></div>
+      </div>
+    );
+  }
+  if (state.kind === "sign" && signed) {
+    return (
+      <div data-doc="signed" style={{ padding: "16px 16px 100px" }}>
+        {head}
+        {d.acknowledgement && <div style={{ ...bodySt, marginTop: 14, fontWeight: 600 }}>{d.acknowledgement}</div>}
+        <DocSignedEnd token={token} doc={doc} signed={signed} onBack={onBack} t={t} />
+        <div style={{ display: "flex", marginTop: 8 }}><button type="button" onClick={() => { setState({ kind: "read", d: d }); setAt(d.sections.length - 1); }} style={wsPlainBtn(t)}>{tr("Back")}</button></div>
       </div>
     );
   }
@@ -7662,6 +7814,408 @@ function DocumentReader({ token, doc, onBack, onSigned, t }) {
       )}
     </div>
   );
+}
+
+// ------------------------------------------------------------
+// The handbook reader (Step 290, the Step 289 contract's section 2.1,
+// option C). Once GET /api/documents/:docCode/read answers parts, a
+// document reads the way its designed version looks: a cover with the
+// title on a navy band over a gold rule, then its number, version and
+// language; Contents by Part; each section under its Part's heading with
+// a gold rule, a small Part and section label and the section's own
+// name; Read First and every callout in a pale gold box with a gold
+// edge; and "Table columns:" lines drawn as a table with a navy header
+// row. See the designed version opens pdfUrl behind the token, the way
+// Open the warning opens its PDF. The section ackSectionRef names is the
+// signing step: the statements, the fields the API knows filled in, and
+// the signature; after signing, Download my signed page. Opened again
+// from Signed documents, it reads the same and ends with the version
+// signed in place of the signing step. Every size here is the screen's
+// own, so the text size setting enlarges all of it, and a wide table
+// scrolls inside its own box.
+// ------------------------------------------------------------
+const docPartsOf = (v) => (Array.isArray(v) ? v.map(p => (p && typeof p === "object" && (typeof p.ref === "string" || typeof p.ref === "number") && String(p.ref).trim() ? { ref: String(p.ref).trim(), title: typeof p.title === "string" ? p.title.trim() : "" } : null)).filter(Boolean) : null);
+// The Part a section is in: the one whose number is the section's, or
+// begins it, 8 for 8.2. Read First, at 0, is in none.
+const docPartOf = (parts, ref) => parts.find(p => ref === p.ref || ref.indexOf(p.ref + ".") === 0) || null;
+const docPartWords = (p) => (p.title ? tr("Part {n}: {title}", { n: p.ref, title: p.title }) : tr("Part {n}", { n: p.ref }));
+// Read First is the section at 0, the way ocsa-mis cuts the handbook.
+const docIsReadFirst = (s) => s.ref === "0";
+// A table's head as the chunker writes it, in any of the three languages.
+const DOC_TABLE_HEAD = /^(Table columns|Columnas de la tabla|Colonnes du tableau)\s*:\s*(.+)$/i;
+const docItem = (line) => /^\s*-\s+/.test(line);
+const docItemText = (line) => line.replace(/^\s*-\s+/, "").trim();
+// A section's text as blocks, read the way ocsa-mis's chunker writes
+// them: a table head and the "- a | b" rows under it; a short line
+// ending in a colon with "- " lines under it, which is how a callout is
+// written (one starting with a number is a subheading over a list
+// instead); other "- " lines, a list; and every other line, a paragraph.
+function docBlocks(content) {
+  const lines = String(content || "").split("\n").map(l => l.trim());
+  const out = [];
+  let i = 0;
+  const items = () => { const list = []; while (i < lines.length && docItem(lines[i])) { list.push(docItemText(lines[i])); i += 1; } return list; };
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line) { i += 1; continue; }
+    const head = DOC_TABLE_HEAD.exec(line);
+    if (head) {
+      const cols = head[2].split("|").map(c => c.trim());
+      const rows = [];
+      i += 1;
+      while (i < lines.length && docItem(lines[i]) && docItemText(lines[i]).indexOf("|") !== -1) {
+        const cells = docItemText(lines[i]).split("|").map(c => c.trim());
+        while (cells.length < cols.length) cells.push("");
+        rows.push(cells);
+        i += 1;
+      }
+      out.push({ kind: "table", head: cols, rows: rows });
+      continue;
+    }
+    if (!docItem(line) && /:$/.test(line) && line.length <= 90 && i + 1 < lines.length && docItem(lines[i + 1])) {
+      const title = line.slice(0, -1).trim();
+      i += 1;
+      const list = items();
+      if (/^\d+(\.\d+)*\.?\s/.test(title)) out.push({ kind: "subhead", text: title }, { kind: "list", items: list });
+      else out.push({ kind: "box", title: title, items: list });
+      continue;
+    }
+    if (docItem(line)) { out.push({ kind: "list", items: items() }); continue; }
+    out.push({ kind: "p", text: line });
+    i += 1;
+  }
+  return out;
+}
+// On the signed page a statement is a whole sentence; the lines of the
+// paper form's fields (a name to print, a label and its hint after a
+// colon) are left for the fields the API fills in.
+const docIsStatement = (s) => /\.$/.test(s) && s.indexOf(": ") === -1;
+// The signing step's fields as the API knows them (Step 289): a list of
+// { label, value } in the language answered, or one object of named
+// values the portal labels itself. A field with no value is left out.
+const ACK_FIELD_WORDS = { name: "Name", employeeId: "Employee ID", position: "Position and job class", sites: "Assigned sites", language: "Language", date: "Date" };
+function ackFieldValue(v) {
+  if (Array.isArray(v)) return v.map(x => (x && typeof x === "object" ? x.name : x)).filter(x => typeof x === "string" && x.trim()).map(x => x.trim()).join(", ");
+  return typeof v === "string" || typeof v === "number" ? String(v).trim() : "";
+}
+function ackFieldsOf(v) {
+  if (Array.isArray(v)) return v.map((x, i) => (x && typeof x === "object" && typeof x.label === "string" && x.label.trim() ? { key: typeof x.key === "string" && x.key ? x.key : "f" + i, label: x.label.trim(), value: ackFieldValue(x.value) } : null)).filter(x => x && x.value);
+  if (!v || typeof v !== "object") return [];
+  const pick = (keys) => { for (const k of keys) { const s = ackFieldValue(v[k]); if (s) return s; } return ""; };
+  const lang = pick(["language", "locale"]);
+  const day = pick(["date", "today"]);
+  const values = {
+    name: pick(["name", "fullName"]),
+    employeeId: pick(["employeeId", "employeeNumber"]),
+    position: pick(["positionAndJobClass"]) || [pick(["position"]), pick(["jobClass"])].filter(Boolean).join(", "),
+    sites: pick(["sites", "assignedSites", "siteNames"]),
+    language: LANGUAGE_NAMES[lang] || lang,
+    date: /^\d{4}-\d{2}-\d{2}/.test(day) ? trainingDay(day.slice(0, 10)) : day,
+  };
+  return Object.keys(ACK_FIELD_WORDS).filter(k => values[k]).map(k => ({ key: k, label: tr(ACK_FIELD_WORDS[k]), value: values[k] }));
+}
+
+// The end of a document read again from Signed documents (Step 290):
+// the version signed and the day, a line when a newer version waits to be
+// signed, and Download my signed page when the API holds one. Nothing is
+// signed here.
+function DocSignedEnd({ token, doc, signed, onBack, t }) {
+  const [busy, setBusy] = useState(false);
+  const [fault, setFault] = useState(null);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  const download = async () => {
+    if (busy) return;
+    setBusy(true); setFault(null);
+    try { await openApiPdf(withLocale("/api/documents/" + encodeURIComponent(doc.docCode) + "/my-signed-page", languageToSend()), "signed-page.pdf", token); }
+    catch (err) { if (live.current) setFault(fkFaultWords(err, "Your signed page did not open. Try again.")); }
+    finally { if (live.current) setBusy(false); }
+  };
+  return (
+    <div data-doc-signed-end="1" style={{ marginTop: 14 }}>
+      <div role="status" style={{ fontSize: 16, fontWeight: 700, color: ink(t, GREEN), fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{tr("You signed version {version} on {date}.", { version: signed.version, date: signedDay(signed.signedAt) })}</div>
+      {signed.currentVersion && signed.currentVersion !== signed.version && <div data-doc-newer="1" style={{ fontSize: 13, color: t.text, marginTop: 6, lineHeight: 1.45 }}>{tr("A new version is waiting for you under Documents to sign.")}</div>}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+        {signed.signedPage && <button type="button" data-doc-signed-page="1" disabled={busy} onClick={download} style={{ ...wsMainBtn(t, false), opacity: busy ? 0.7 : 1 }}>{busy ? tr("Loading...") : tr("Download my signed page")}</button>}
+        <button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Back to My training")}</button>
+      </div>
+      {fault && <WsFault text={fault} t={t} />}
+    </div>
+  );
+}
+
+function HandbookReader({ token, doc, d, signed, changed, onBack, onSigned, onAgain, t }) {
+  // cover, contents, page (at), done
+  const [view, setView] = useState({ kind: "cover", at: 0 });
+  const [strokes, setStrokes] = useState([]);
+  const [png, setPng] = useState(null);
+  const [fault, setFault] = useState(null);
+  const [busy, setBusy] = useState(false);
+  // A PDF on its way ("designed" or "signed") and what was said when one
+  // did not open.
+  const [pdfBusy, setPdfBusy] = useState(null);
+  const [pdfFault, setPdfFault] = useState(null);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  useBusy("handbook reader", busy || strokes.length > 0);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [view.kind, view.at]);
+  // The pages in reading order, the signed page last; with no section
+  // named for signing, a page of its own comes after the last.
+  const ack = d.ackSectionRef ? d.sections.find(s => s.ref === d.ackSectionRef) || null : null;
+  const pages = d.sections.filter(s => s !== ack).concat(ack ? [ack] : []);
+  const n = pages.length;
+  const signAt = ack ? n - 1 : n;
+  const english = d.shownInEnglish || (d.locale !== languageToSend() && d.locale === "en");
+  const openPdf = async (which) => {
+    if (pdfBusy) return;
+    setPdfBusy(which); setPdfFault(null);
+    try {
+      if (which === "designed") await openApiPdf(withLocale(d.pdfUrl, d.locale), (d.docCode || doc.docCode) + ".pdf", token);
+      else await openApiPdf(withLocale("/api/documents/" + encodeURIComponent(doc.docCode) + "/my-signed-page", languageToSend()), "signed-page.pdf", token);
+    } catch (err) {
+      if (live.current) setPdfFault({ which: which, said: fkFaultWords(err, which === "designed" ? "The designed version did not open. Try again." : "Your signed page did not open. Try again.") });
+    } finally { if (live.current) setPdfBusy(null); }
+  };
+  const sign = async () => {
+    if (busy) return;
+    if (!png) { setFault(tr("Sign before you send.")); return; }
+    setBusy(true); setFault(null);
+    try {
+      await api("/api/documents/" + encodeURIComponent(doc.docCode) + "/acknowledge", { method: "POST", body: { version: d.version, locale: d.locale, signature: png }, token });
+      if (live.current) { setView({ kind: "done", at: 0 }); onSigned(doc); }
+    } catch (err) {
+      if (!live.current) return;
+      if (err && err.code === "documents.versionChanged") onAgain();
+      else if (err && err.code === "documents.alreadySigned") { setView({ kind: "done", at: 0 }); onSigned(doc); }
+      else setFault(fkFaultWords(err, "This was not signed. Try again."));
+    } finally { if (live.current) setBusy(false); }
+  };
+  const go = (at) => { setView({ kind: "page", at: Math.max(0, Math.min(at, signAt)) }); setFault(null); };
+  const back = <WsBack label={tr("My training")} onBack={onBack} t={t} />;
+  const ruleSt = { borderBottom: "2px solid " + GOLD, paddingBottom: 6 };
+  const smallSt = { fontSize: 12, color: t.textMut, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const bodySt = { fontSize: 15, color: t.text, lineHeight: 1.55, overflowWrap: "anywhere", fontFamily: FONT_BODY };
+  const partSt = { fontSize: 13, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.8px", lineHeight: 1.4, overflowWrap: "anywhere", ...ruleSt };
+  const titleSt = { fontSize: 19, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" };
+  const boxSt = { marginTop: 12, padding: "12px 14px", borderRadius: R.sm, background: t.goldBg, border: "1px solid " + t.goldBorder, borderLeft: "4px solid " + GOLD };
+  const boxHeadSt = { fontSize: 12, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 6, overflowWrap: "anywhere" };
+  const dashList = (list, key) => list.map((s, i) => (
+    <div key={key + i} style={{ display: "flex", gap: 8, marginTop: 6 }}>
+      <span aria-hidden="true" style={{ color: GOLD, fontWeight: 700, flexShrink: 0 }}>-</span>
+      <span style={{ ...bodySt, minWidth: 0 }}>{s}</span>
+    </div>
+  ));
+  const pdfLine = (which) => (pdfFault && pdfFault.which === which ? <WsFault text={pdfFault.said} t={t} /> : null);
+  const designed = d.pdfUrl && (
+    <div style={{ marginTop: 12 }}>
+      {/^https:\/\//i.test(d.pdfUrl)
+        ? <a href={d.pdfUrl} target="_blank" rel="noopener noreferrer" data-doc-designed="1" style={{ ...wsPlainBtn(t), display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>{tr("See the designed version")}</a>
+        : <button type="button" data-doc-designed="1" disabled={!!pdfBusy} onClick={() => openPdf("designed")} style={{ ...wsPlainBtn(t), width: "100%", opacity: pdfBusy ? 0.7 : 1 }}>{pdfBusy === "designed" ? tr("Loading...") : tr("See the designed version")}</button>}
+      {pdfLine("designed")}
+    </div>
+  );
+  // A page's blocks, Read First drawn whole in its box.
+  const blocksOf = (s) => {
+    const blocks = docBlocks(s.content);
+    if (docIsReadFirst(s)) {
+      return (
+        <div data-doc-box="read-first" style={{ ...boxSt, marginTop: 14 }}>
+          <div style={boxHeadSt}>{s.title}</div>
+          {blocks.map((b, i) => (b.kind === "p" ? <div key={i} style={{ ...bodySt, marginTop: i ? 8 : 0 }}>{b.text}</div> : drawBlock(b, i)))}
+        </div>
+      );
+    }
+    return blocks.map(drawBlock);
+  };
+  const drawBlock = (b, i) => {
+    if (b.kind === "p") return <div key={i} style={{ ...bodySt, marginTop: 10 }}>{b.text}</div>;
+    if (b.kind === "subhead") return <div key={i} role="heading" aria-level={3} style={{ ...bodySt, fontWeight: 700, fontFamily: FONT_HEAD, marginTop: 14 }}>{b.text}</div>;
+    if (b.kind === "list") return <div key={i} style={{ marginTop: 6 }}>{dashList(b.items, "l" + i)}</div>;
+    if (b.kind === "box") return <div key={i} data-doc-box="callout" style={boxSt}><div style={boxHeadSt}>{b.title}</div>{dashList(b.items, "b" + i)}</div>;
+    return (
+      <div key={i} data-doc-table={b.head.length} style={{ marginTop: 12, overflowX: "auto", borderRadius: R.sm, border: "1px solid " + t.borderSolid }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: Math.min(b.head.length, 4) * 120, fontSize: 13, lineHeight: 1.45, fontFamily: FONT_BODY }}>
+          <thead><tr>{b.head.map((h, j) => <th key={j} scope="col" style={{ background: NAVY, color: "#F8F7F4", fontWeight: 700, textAlign: "left", verticalAlign: "top", padding: "8px 10px", fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{h}</th>)}</tr></thead>
+          <tbody>{b.rows.map((r, ri) => <tr key={ri} style={{ background: ri % 2 === 1 ? t.cardAlt : t.card }}>{r.map((c, j) => <td key={j} style={{ color: t.text, verticalAlign: "top", padding: "8px 10px", borderTop: "1px solid " + t.borderSolid, overflowWrap: "anywhere" }}>{c}</td>)}</tr>)}</tbody>
+        </table>
+      </div>
+    );
+  };
+  // Where a page sits: its Part's heading with the gold rule, then the
+  // small section label and the section's own name.
+  const pageHead = (s) => {
+    const part = d.parts.length > 0 ? docPartOf(d.parts, s.ref) : null;
+    return (
+      <div style={{ marginTop: 14 }}>
+        {part && <div data-doc-part={part.ref} style={partSt}>{docPartWords(part)}</div>}
+        {part && s.ref !== part.ref && <div data-doc-label="1" style={{ ...smallSt, marginTop: 8 }}>{tr("Section {n}", { n: s.ref })}</div>}
+        {!docIsReadFirst(s) && <div role="heading" aria-level={2} style={{ ...titleSt, marginTop: part ? 4 : 0 }}>{s.title || docPartWords(part || { ref: s.ref, title: "" })}</div>}
+      </div>
+    );
+  };
+  const toolbar = (at) => (
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 10 }}>
+      <button type="button" data-doc-contents="1" onClick={() => setView({ kind: "contents", at: at })} style={{ ...wsPlainBtn(t), flex: "none" }}>{tr("Contents")}</button>
+      {at < n && <div style={{ ...smallSt, flex: "1 1 120px" }}>{tr("Section {n} of {count}", { n: at + 1, count: n })}</div>}
+    </div>
+  );
+  const docLine = <div style={{ ...smallSt, fontWeight: 600 }}>{d.title || doc.title}</div>;
+  const wrap = (kind, body, extra) => <div data-doc={kind} data-doc-look="handbook" {...(extra || {})} style={{ padding: "16px 16px 100px" }}>{body}</div>;
+
+  if (view.kind === "cover") {
+    const facts = [[tr("Document number"), d.docCode || doc.docCode], [tr("Version"), d.version], [tr("Language"), LANGUAGE_NAMES[d.locale] || d.locale]].filter(x => x[1]);
+    return wrap("cover", (
+      <>
+        {back}
+        <div data-doc-cover="1" style={{ background: NAVY, border: "1px solid " + t.borderSolid, borderBottom: "4px solid " + GOLD, borderRadius: R.md + "px " + R.md + "px 0 0", padding: "22px 16px 18px", textAlign: "center" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.5px", textTransform: "uppercase", color: GOLD, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{clientConfig.company.name}</div>
+          <div role="heading" aria-level={1} style={{ fontSize: 22, fontWeight: 700, color: "#F8F7F4", fontFamily: FONT_HEAD, lineHeight: 1.3, marginTop: 10, overflowWrap: "anywhere" }}>{d.title || doc.title}</div>
+        </div>
+        <div style={{ border: "1px solid " + t.borderSolid, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px", overflow: "hidden" }}>
+          {facts.map(([k, v], i) => (
+            <div key={k} data-doc-fact={i} style={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", padding: "10px 12px", background: i % 2 === 0 ? t.cardAlt : t.card }}>
+              <div style={{ flex: "1 1 120px", fontSize: 13, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{k}</div>
+              <div style={{ flex: "1 1 120px", fontSize: 13, color: t.text, overflowWrap: "anywhere" }}>{v}</div>
+            </div>
+          ))}
+        </div>
+        {english && <div data-doc-english="1" style={{ ...smallSt, marginTop: 10 }}>{tr("This document is shown in English.")}</div>}
+        {changed && <div role="status" style={{ ...smallSt, marginTop: 10, color: t.text }}>{tr("This document changed while you read it. Read it again.")}</div>}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
+          <button type="button" data-doc-contents="1" onClick={() => setView({ kind: "contents", at: -1 })} style={wsPlainBtn(t)}>{tr("Contents")}</button>
+          <button type="button" data-doc-start="1" onClick={() => go(0)} style={wsMainBtn(t, false)}>{tr("Start reading")}</button>
+        </div>
+        {designed}
+      </>
+    ));
+  }
+  if (view.kind === "contents") {
+    // Read First, then each Part with its sections under it, then any
+    // section no Part holds.
+    const row = (s) => {
+      const i = pages.indexOf(s);
+      const part = docPartOf(d.parts, s.ref);
+      const label = docIsReadFirst(s) ? "" : part && s.ref === part.ref ? tr("Part {n}", { n: part.ref }) : tr("Section {n}", { n: s.ref });
+      return (
+        <button key={s.ref + ":" + i} type="button" data-doc-jump={i + 1} onClick={() => go(i)} style={{ display: "block", width: "100%", minHeight: TAP, padding: "8px 12px", marginTop: 6, borderRadius: R.md, background: i === view.at ? t.goldBg : t.card, border: "1px solid " + (i === view.at ? GOLD : t.borderSolid), color: t.text, textAlign: "left", cursor: "pointer", fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>
+          {label && <span style={{ display: "block", fontSize: 11, color: t.textMut }}>{label}</span>}
+          <span style={{ display: "block", fontSize: 14, fontWeight: 600 }}>{s.title || label}</span>
+        </button>
+      );
+    };
+    const free = pages.filter(s => !docIsReadFirst(s) && !docPartOf(d.parts, s.ref));
+    return wrap("contents", (
+      <>
+        {back}
+        {docLine}
+        <div role="heading" aria-level={1} style={{ ...titleSt, marginTop: 8 }}>{tr("Contents")}</div>
+        {pages.filter(docIsReadFirst).map(row)}
+        {d.parts.map(p => {
+          const inPart = pages.filter(s => !docIsReadFirst(s) && docPartOf(d.parts, s.ref) === p);
+          if (inPart.length === 0) return null;
+          return (
+            <div key={p.ref} data-doc-contents-part={p.ref} style={{ marginTop: 16 }}>
+              <div style={partSt}>{docPartWords(p)}</div>
+              {inPart.map(row)}
+            </div>
+          );
+        })}
+        {free.length > 0 && <div style={{ marginTop: 16 }}>{free.map(row)}</div>}
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button type="button" onClick={() => setView({ kind: "cover", at: 0 })} style={wsPlainBtn(t)}>{tr("Back")}</button>
+        </div>
+        {designed}
+      </>
+    ));
+  }
+  if (view.kind === "done") {
+    return wrap("done", (
+      <>
+        {back}
+        {docLine}
+        <div role="status" style={{ ...titleSt, fontSize: 16, marginTop: 14, color: ink(t, GREEN) }}>{tr("Signed. It is on your record.")}</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+          <button type="button" data-doc-signed-page="1" disabled={!!pdfBusy} onClick={() => openPdf("signed")} style={{ ...wsMainBtn(t, false), opacity: pdfBusy ? 0.7 : 1 }}>{pdfBusy === "signed" ? tr("Loading...") : tr("Download my signed page")}</button>
+          <button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Back to My training")}</button>
+        </div>
+        {pdfLine("signed")}
+      </>
+    ));
+  }
+  const at = Math.min(view.at, signAt);
+  if (at === signAt) {
+    // The signing step: the signed page's own words and statements, the
+    // fields filled in, and the signature. Read again from Signed
+    // documents, the words and statements end with the version signed,
+    // and nothing is signed.
+    const blocks = ack ? docBlocks(ack.content) : [];
+    const box = blocks.find(b => b.kind === "box") || null;
+    const said = blocks.filter(b => b.kind === "box" || b.kind === "list").reduce((all, b) => all.concat(b.items), []).filter(docIsStatement);
+    const fields = signed ? [] : ackFieldsOf(ack && ack.ackFields !== undefined ? ack.ackFields : d.ackFields);
+    const words = (
+      <>
+        {back}
+        {docLine}
+        {toolbar(at)}
+        {ack && pageHead(ack)}
+        {blocks.filter(b => b.kind === "p").map((b, i) => <div key={i} style={{ ...bodySt, marginTop: 10 }}>{b.text}</div>)}
+        {said.length > 0
+          ? <div data-doc-box="statements" style={boxSt}>{box && box.title && <div style={boxHeadSt}>{box.title}</div>}{dashList(said, "st")}</div>
+          : d.acknowledgement && <div data-doc-box="statements" style={boxSt}><div style={{ ...bodySt, fontWeight: 600 }}>{d.acknowledgement}</div></div>}
+      </>
+    );
+    if (signed) {
+      return wrap("signed", (
+        <>
+          {words}
+          <DocSignedEnd token={token} doc={doc} signed={signed} onBack={onBack} t={t} />
+          <div style={{ display: "flex", marginTop: 8 }}><button type="button" onClick={() => go(at - 1)} style={wsPlainBtn(t)}>{tr("Back")}</button></div>
+        </>
+      ), { "data-doc-section": at + 1 });
+    }
+    return wrap("sign", (
+      <>
+        {words}
+        {fields.length > 0 && (
+          <div data-doc-ack-fields={fields.length} style={{ marginTop: 12, border: "1px solid " + t.borderSolid, borderRadius: R.sm, overflow: "hidden" }}>
+            {fields.map((f, i) => (
+              <div key={f.key} data-doc-ack-field={f.key} style={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", padding: "10px 12px", background: i % 2 === 0 ? t.cardAlt : t.card }}>
+                <div style={{ flex: "1 1 120px", fontSize: 13, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{f.label}</div>
+                <div style={{ flex: "1 1 140px", fontSize: 13, color: t.text, overflowWrap: "anywhere" }}>{f.value}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div data-doc-signature="1" style={{ marginTop: 14 }}>
+          <div style={mkLabel(t)}>{tr("Your signature")}</div>
+          <div style={{ borderRadius: R.md, border: fault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+            <SignatureBox strokes={strokes} onStroke={(stroke, size) => { const all = strokes.concat([stroke]); setStrokes(all); setPng(signaturePng(all, size.w, size.h)); setFault(null); }} height={SIGN_BOX_HEIGHT} />
+          </div>
+          <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+          <button type="button" onClick={() => { setStrokes([]); setPng(null); }} disabled={strokes.length === 0 || busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+        </div>
+        {fault && <WsFault text={fault} t={t} />}
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button type="button" disabled={busy} onClick={() => go(at - 1)} style={wsPlainBtn(t)}>{tr("Back")}</button>
+          <button type="button" data-doc-sign="1" disabled={busy} onClick={sign} style={wsMainBtn(t, busy)}>{busy ? tr("Sending...") : tr("Sign")}</button>
+        </div>
+      </>
+    ), { "data-doc-section": at + 1 });
+  }
+  const s = pages[at];
+  return wrap("read", (
+    <>
+      {back}
+      {docLine}
+      {toolbar(at)}
+      {pageHead(s)}
+      {blocksOf(s)}
+      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+        <button type="button" data-doc-back="1" onClick={() => (at === 0 ? setView({ kind: "cover", at: 0 }) : go(at - 1))} style={wsPlainBtn(t)}>{tr("Back")}</button>
+        <button type="button" data-doc-next={at + 1 === signAt ? "sign" : at + 2} onClick={() => go(at + 1)} style={wsMainBtn(t, false)}>{tr("Next")}</button>
+      </div>
+    </>
+  ), { "data-doc-section": at + 1 });
 }
 
 // Your first trainings (Step 264, the Step 262 contract's section 5, and
@@ -8192,28 +8746,15 @@ function SignScreen({ token, id, requests, onOpen, onBack, onChanged, t }) {
   const r = req;
   const warning = r.kind === "warning";
   const open = SIGN_OPEN.indexOf(r.state) !== -1;
-  // The warning's document from the API's own path: a new tab is opened
-  // in the tap itself, which an iPhone allows, the PDF is read behind the
-  // token in the screen's language, and the tab is pointed at it. With no
-  // tab, the file is saved as warning.pdf the way a streamed file is. A
-  // refusal closes the tab and reads under the button.
+  // The warning's document from the API's own path, read behind the
+  // token in the screen's language and opened in a new tab, or saved as
+  // warning.pdf with no tab. A refusal reads under the button.
   const openWarning = async () => {
     if (pdfBusy || !r.warning || !r.warning.pdfUrl) return;
-    let tab = null;
-    try { tab = window.open("", "_blank"); } catch (e) { tab = null; }
     setPdfBusy(true); setPdfFault(null);
     try {
-      const blob = await apiBlob(r.warning.pdfUrl + (r.warning.pdfUrl.indexOf("?") === -1 ? "?" : "&") + "locale=" + encodeURIComponent(languageToSend()), { token });
-      const href = URL.createObjectURL(blob);
-      if (tab) tab.location.href = href;
-      else {
-        const a = document.createElement("a");
-        a.href = href; a.rel = "noopener"; a.download = "warning.pdf";
-        document.body.appendChild(a); a.click(); a.remove();
-      }
-      setTimeout(() => URL.revokeObjectURL(href), 60000);
+      await openApiPdf(r.warning.pdfUrl + (r.warning.pdfUrl.indexOf("?") === -1 ? "?" : "&") + "locale=" + encodeURIComponent(languageToSend()), "warning.pdf", token);
     } catch (err) {
-      if (tab) { try { tab.close(); } catch (e) {} }
       if (live.current) setPdfFault(fkFaultWords(err, "The warning did not open. Try again."));
     } finally { if (live.current) setPdfBusy(false); }
   };
@@ -8525,13 +9066,13 @@ function SpeakUpView({ token, t }) {
               {offered.length > 0 && (
                 <div style={{ maxHeight: 264, overflowY: "auto", marginTop: 2 }}>
                   {offered.map(p => (
-                    <button key={p.id} type="button" onClick={() => setPicked(ids => ids.indexOf(p.id) === -1 ? ids.concat([p.id]) : ids)} disabled={sending} style={optRow(false)}>
+                    <button key={p.id} type="button" onClick={() => { setPicked(ids => ids.indexOf(p.id) === -1 ? ids.concat([p.id]) : ids); setSearch(""); }} disabled={sending} style={optRow(false)}>
                       <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{whole(p).trim()}</span>
                     </button>
                   ))}
                 </div>
               )}
-              {people !== null && offered.length === 0 && needle !== "" && (<div style={{ ...helpSt, marginTop: 10 }}>{tr("No one matches that name.")}</div>)}
+              {people !== null && needle !== "" && !staff.some(p => whole(p).toLowerCase().indexOf(needle) !== -1) && (<div style={{ ...helpSt, marginTop: 10 }}>{tr("No one matches that name.")}</div>)}
             </>
           )}
         </div>
@@ -11865,6 +12406,232 @@ function ListFault({ icon: Icon, text, onRetry, t }) {
 }
 
 // ------------------------------------------------------------
+// Searchable pickers (Step 290, the Step 289 contract's section 2.2).
+// Every list a person is chosen from, and a Refill item's supply, picks
+// the way a form's person question does: the one picked reads as a chip,
+// tapped to choose again; until then Search by name sits over the list,
+// the names scroll in a box of their own, so a long list leaves the
+// buttons below where a thumb can reach them, and the no match line shows
+// only when what was typed matches nothing in the whole list. What was
+// typed is dropped at a pick, and a picker opened again starts empty.
+// rows: [{ id, name, note, sub, tag }], note drawn after the name and
+// never searched, sub the line under it, tag a chip at its end.
+// ------------------------------------------------------------
+const pickMatches = (name, needle) => needle === "" || String(name || "").toLowerCase().indexOf(needle) !== -1;
+function SearchPick({ id, name, rows, value, onPick, noMatch, empty, none, disabled, invalid, rowAttr, t }) {
+  const [q, setQ] = useState("");
+  const needle = q.trim().toLowerCase();
+  const has = value !== "" && value !== null && value !== undefined;
+  const picked = has ? rows.find(r => String(r.id) === String(value)) || null : null;
+  const pick = (r) => { setQ(""); onPick(r ? String(r.id) : ""); };
+  const offered = rows.filter(r => pickMatches(r.name, needle));
+  const rowSt = {
+    width: "100%", minHeight: TAP, marginTop: 8, padding: "10px 12px", borderRadius: R.md, cursor: disabled ? "default" : "pointer",
+    display: "flex", alignItems: "center", gap: 10, textAlign: "left", fontSize: 14, fontFamily: FONT_BODY, lineHeight: 1.4,
+    background: t.card, border: "1px solid " + t.borderSolid, color: t.text,
+  };
+  const chipSt = {
+    display: "inline-flex", alignItems: "center", gap: 8, maxWidth: "100%", minWidth: TAP, minHeight: TAP,
+    padding: "8px 12px", borderRadius: R.pill, cursor: disabled ? "default" : "pointer",
+    background: t.goldBg, border: "1px solid " + (invalid ? RED : t.goldBorder), color: t.text,
+    fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, textAlign: "left", lineHeight: 1.35,
+  };
+  const words = (r) => (
+    <span style={{ flex: 1, minWidth: 0 }}>
+      <span style={{ display: "block", overflowWrap: "anywhere" }}>{r.name}{r.note || ""}</span>
+      {r.sub && <span style={{ display: "block", fontSize: 11, fontWeight: 400, color: t.textMut, marginTop: 2 }}>{r.sub}</span>}
+    </span>
+  );
+  if (picked) {
+    return (
+      <div data-pick={name}>
+        <button type="button" data-pick-chip={picked.id} disabled={disabled} onClick={() => pick(null)} aria-label={tr("Remove {name}", { name: picked.name })} style={chipSt}>
+          {words(picked)}
+          {picked.tag || null}
+          <span aria-hidden="true" style={{ flexShrink: 0, fontSize: 14, lineHeight: 1, color: t.textSec }}>{tr("x")}</span>
+        </button>
+      </div>
+    );
+  }
+  if (rows.length === 0) return <div data-pick={name} style={{ ...mkHelp(t), marginTop: 0 }}>{empty}</div>;
+  return (
+    <div data-pick={name}>
+      {none && <div style={{ ...mkHelp(t), marginTop: 0, marginBottom: 6 }}>{none}</div>}
+      <input id={id} type="text" data-pick-search={name} value={q} onChange={e => setQ(e.target.value.slice(0, 80))} disabled={disabled} placeholder={tr("Search by name")} aria-label={tr("Search by name")} aria-invalid={!!invalid} style={{ ...mkInput(t), ...(invalid ? { border: "2px solid " + RED } : {}) }} />
+      {offered.length > 0 && (
+        <div style={{ maxHeight: 264, overflowY: "auto", marginTop: 2 }}>
+          {offered.map(r => (
+            <button key={r.id} type="button" data-pick-row={r.id} {...(rowAttr ? rowAttr(r) : {})} disabled={disabled} onClick={() => pick(r)} style={rowSt}>
+              {words(r)}
+              {r.tag || null}
+            </button>
+          ))}
+        </div>
+      )}
+      {offered.length === 0 && needle !== "" && <div data-pick-none="1" style={{ ...mkHelp(t), marginTop: 10 }}>{noMatch}</div>}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// App support (Step 290, the Step 289 contract's section 2.3). Under More
+// once GET /api/support/tickets/mine answers a list: a ticket is a kind, a
+// description and an optional screenshot, and the screen it is about,
+// the app's version, the phone and the language go with it on their own,
+// shown under the form. My tickets lists the person's own, newest first,
+// with the status and the office's note. Help drafts a ticket the same
+// shape and files it only once the person sends it from the card Help
+// shows.
+// ------------------------------------------------------------
+const SUPPORT_KINDS = [
+  { v: "bug", w: "Something is not working" },
+  { v: "idea", w: "An idea for the app" },
+  { v: "wrong_info", w: "Information that is wrong" },
+  { v: "help_miss", w: "Help could not answer" },
+  { v: "cant_sign_in", w: "Trouble signing in" },
+];
+const supportKindWord = (v) => { const k = SUPPORT_KINDS.find(x => x.v === v); return k ? tr(k.w) : v; };
+const SUPPORT_STATUS = { new: "New", working: "Working on it", done: "Done", wont_do: "Won't do" };
+const SUPPORT_TEXT_MAX = 4000;
+const SUPPORT_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function supportTicketOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = agentField(x, ["id"], null);
+  if (id === null) return null;
+  const str = (keys) => { const v = agentField(x, keys, ""); return typeof v === "string" ? v.trim() : ""; };
+  return { id: String(id), kind: str(["kind"]), description: str(["description"]), status: str(["status"]) || "new", statusNote: str(["statusNote", "status_note"]), createdAt: str(["createdAt", "created_at"]) };
+}
+const supportTicketsOf = (d) => { const rows = wsRows(d, "tickets"); return rows ? rows.map(supportTicketOf).filter(Boolean) : null; };
+async function readSupportMine(token) {
+  try { return supportTicketsOf(await api("/api/support/tickets/mine", { token })); } catch (e) { return null; }
+}
+// What goes with a ticket on its own: the screen it is about, the app's
+// version, the phone and the language on the screen.
+const supportPhone = () => String((typeof navigator !== "undefined" && navigator.userAgent) || "").slice(0, 300);
+const supportPhoneShort = () => { const m = /(iPhone|iPad|Android [\d.]+|Android|Windows|Macintosh|Linux)/.exec(supportPhone()); return m ? m[1] : ""; };
+const supportDetails = (screen) => ({ screen: screen || "", appVersion: BUILD_STAMP, device: supportPhone(), locale: languageToSend(), app: "portal" });
+// A ticket Help drafted (API Step 289): its kind and description.
+const supportDraftOf = (d) => (d && typeof d === "object" && SUPPORT_KINDS.some(k => k.v === d.kind) && typeof d.description === "string" && d.description.trim() ? { kind: d.kind, description: d.description.trim().slice(0, SUPPORT_TEXT_MAX) } : null);
+// The refusal of a ticket by the field it names, or above the button.
+function supportFaults(err) {
+  const said = fkFaultWords(err, "Your ticket was not sent. Try again.");
+  const keys = Array.isArray(err && err.body && err.body.keys) ? err.body.keys.map(String) : [];
+  const out = {};
+  keys.forEach(k => { out[["kind", "description", "screenshot"].indexOf(k) !== -1 ? k : "form"] = said; });
+  if (keys.length === 0) out.form = said;
+  return out;
+}
+
+function SupportView({ token, tickets, screen, isAdmin, onFiled, t }) {
+  const [kind, setKind] = useState("");
+  const [text, setText] = useState("");
+  const [shot, setShot] = useState(null);
+  const [shotBusy, setShotBusy] = useState(false);
+  const [faults, setFaults] = useState({});
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const fileRef = useRef(null);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  useBusy("app support", sending || shotBusy || text.trim().length > 0 || !!shot);
+  // The screen as the office reads it, by its English name.
+  const place = destById(screen);
+  const screenName = place ? place.label({ isAdmin: !!isAdmin }) : "";
+  const details = [
+    [tr("Screen"), tr(screenName)],
+    [tr("App version"), BUILD_STAMP],
+    [tr("Phone"), supportPhoneShort()],
+    [tr("Language"), LANGUAGE_NAMES[languageToSend()] || languageToSend()],
+  ].filter(x => x[1]);
+  const addShot = async (file) => {
+    if (!file) return;
+    setShotBusy(true); setFaults(f => ({ ...f, screenshot: null }));
+    try {
+      const ready = await prepareFormPhoto(file);
+      const url = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => no(new Error(FORMS_PHOTO_UNREADABLE)); r.readAsDataURL(ready); });
+      if (live.current) setShot(url);
+    } catch (e) {
+      if (live.current) setFaults(f => ({ ...f, screenshot: tr(FORMS_PHOTO_UNREADABLE) }));
+    } finally { if (live.current) setShotBusy(false); }
+  };
+  const send = async () => {
+    if (sending || shotBusy) return;
+    const local = {};
+    if (!kind) local.kind = tr("Choose what it is about.");
+    if (!text.trim()) local.description = tr("Write what happened.");
+    if (Object.keys(local).length > 0) { setFaults(local); return; }
+    setSending(true); setFaults({}); setSent(false);
+    try {
+      const body = Object.assign({ kind: kind, description: text.trim(), source: "form" }, supportDetails(screenName));
+      if (shot) body.screenshot = shot;
+      await api("/api/support/tickets", { method: "POST", body: body, token });
+      if (!live.current) return;
+      setKind(""); setText(""); setShot(null); setSent(true); onFiled();
+    } catch (err) {
+      if (live.current) setFaults(supportFaults(err));
+    } finally { if (live.current) setSending(false); }
+  };
+  const labelSt = mkLabel(t);
+  const errOf = (k) => (faults[k] ? <div role="alert" style={mkFieldErr(t)}>{faults[k]}</div> : null);
+  const rowSt = (on) => ({ width: "100%", minHeight: TAP, marginTop: 8, padding: "10px 12px", borderRadius: R.md, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, textAlign: "left", fontSize: 14, fontFamily: FONT_BODY, lineHeight: 1.4, background: on ? t.goldBg : t.card, border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text });
+  const near = text.length >= SUPPORT_TEXT_MAX - 200;
+  const list = Array.isArray(tickets) ? tickets : [];
+  const statusInk = (s) => (s === "done" ? GREEN : s === "working" ? BLUE : s === "wont_do" ? t.textMut : ORANGE);
+  return (
+    <div data-support="1" style={{ padding: "16px 16px 100px" }}>
+      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("App support")}</div>
+      <div style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.5 }}>{tr("Tell the office about a problem with the app, an idea, or information that is wrong.")}</div>
+      <div style={{ marginTop: 14, padding: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, boxShadow: t.popShadow }}>
+        {sent && <div role="status" data-support-sent="1" style={{ marginBottom: 12, fontSize: 13, fontWeight: 600, color: ink(t, GREEN), lineHeight: 1.45 }}>{tr("Sent. The office will look at it.")}</div>}
+        <div style={labelSt}>{tr("What is it about?")}</div>
+        <div role="group">
+          {SUPPORT_KINDS.map(k => { const on = kind === k.v; return (
+            <button key={k.v} type="button" data-support-kind={k.v} aria-pressed={on} disabled={sending} onClick={() => { setKind(k.v); setSent(false); setFaults(f => ({ ...f, kind: null, form: null })); }} style={rowSt(on)}>
+              <span style={{ width: 16, height: 16, flexShrink: 0, borderRadius: "50%", background: on ? GOLD : "transparent", border: on ? "none" : "2px solid " + t.borderSolid }} />
+              <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr(k.w)}</span>
+            </button>
+          ); })}
+        </div>
+        {errOf("kind")}
+        <label htmlFor="ocsa-support-text" style={{ ...labelSt, marginTop: 14 }}>{tr("What happened")}</label>
+        <textarea id="ocsa-support-text" data-support-text="1" value={text} maxLength={SUPPORT_TEXT_MAX} disabled={sending} onChange={e => { setText(e.target.value.slice(0, SUPPORT_TEXT_MAX)); setSent(false); setFaults(f => ({ ...f, description: null, form: null })); }} rows={5} placeholder={tr("Say what you were doing and what you saw.")} style={{ ...mkInput(t), resize: "vertical", fontFamily: "inherit", lineHeight: 1.5, ...(faults.description ? { border: "2px solid " + RED } : {}) }} />
+        <div style={{ ...mkHelp(t), color: near ? ink(t, ORANGE) : t.textMut }}>{near ? tr("{used} of {max} characters used.", { used: text.length.toLocaleString(dateLocale()), max: SUPPORT_TEXT_MAX.toLocaleString(dateLocale()) }) : tr("You can write up to {max} characters.", { max: SUPPORT_TEXT_MAX.toLocaleString(dateLocale()) })}</div>
+        {errOf("description")}
+        <div style={{ ...labelSt, marginTop: 14 }}>{tr("Screenshot")} <span style={{ textTransform: "none", letterSpacing: 0, color: t.textMut, fontWeight: 400 }}>{tr("Optional")}</span></div>
+        <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { addShot(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+        {!shot && <button type="button" data-support-shot="add" disabled={shotBusy || sending} onClick={() => fileRef.current && fileRef.current.click()} style={{ ...wsPlainBtn(t), width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><CamIco sz={16} c={t.textSec} />{shotBusy ? tr("Loading...") : tr("Add a screenshot")}</button>}
+        {shot && (
+          <div data-support-shot="1" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <img src={shot} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} />
+            <button type="button" disabled={sending} onClick={() => setShot(null)} style={{ ...wsPlainBtn(t), flex: "none" }}>{tr("Remove photo")}</button>
+          </div>
+        )}
+        {errOf("screenshot")}
+        <div data-support-details="1" style={{ marginTop: 14, padding: "10px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.border }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Sent with your ticket")}</div>
+          {details.map(([k, v]) => <div key={k} style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>{k}: {v}</div>)}
+        </div>
+        {faults.form && <div role="alert" style={{ ...mkFieldErr(t), marginTop: 12 }}>{faults.form}</div>}
+        <button type="button" data-support-send="1" disabled={sending || shotBusy} onClick={send} style={{ ...mkPrimaryBtn(t, sending || shotBusy), marginTop: 14 }}>{sending ? tr("Sending...") : tr("Send to App support")}</button>
+      </div>
+      <div role="heading" aria-level={3} data-support-mine={list.length} style={{ ...fkHeadSt(t), marginTop: 20 }}>{tr("My tickets")}</div>
+      {list.length === 0 && <div style={wsQuiet(t)}>{tr("You have not sent a ticket yet.")}</div>}
+      {list.map(x => (
+        <div key={x.id} data-support-ticket={x.id} style={{ ...fkRowSt(t), minHeight: TAP }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{supportKindWord(x.kind)}</div>
+            <span data-support-status={x.status} style={{ flexShrink: 0, fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: R.pill, background: (x.status === "wont_do" ? "#8899AA" : statusInk(x.status)) + "20", color: x.status === "wont_do" ? t.textSec : ink(t, statusInk(x.status)), fontFamily: FONT_HEAD }}>{tr(SUPPORT_STATUS[x.status] || x.status)}</span>
+          </div>
+          {x.createdAt && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{signedDay(x.createdAt)}</div>}
+          {x.description && <div style={{ fontSize: 13, color: t.textSec, marginTop: 6, lineHeight: 1.45, whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 120, overflowY: "auto" }}>{x.description}</div>}
+          {x.statusNote && <div data-support-note={x.id} style={{ fontSize: 13, color: t.text, marginTop: 6, lineHeight: 1.45, overflowWrap: "anywhere" }}>{tr("Note from the office: {note}", { note: x.statusNote })}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
 // The team workspace (Step 234), for office people on their phones
 //
 // Each office project's message board, to-dos, chat and files, and the
@@ -12559,10 +13326,9 @@ function WsTodos({ token, user, projectId, members, openId, onOpenId, showToast,
           <label htmlFor="ocsa-ws-todo-title" style={mkLabel(t)}>{tr("Title")}</label>
           <input id="ocsa-ws-todo-title" type="text" value={draft.title} maxLength={WS_TITLE_MAX} onChange={e => setDraft({ ...draft, title: e.target.value.slice(0, WS_TITLE_MAX), fault: null })} style={{ ...mkInput(t), marginBottom: 12 }} />
           <label htmlFor="ocsa-ws-todo-who" style={mkLabel(t)}>{tr("Assigned to")}</label>
-          <select id="ocsa-ws-todo-who" value={draft.who} onChange={e => setDraft({ ...draft, who: e.target.value, fault: null })} style={{ ...mkInput(t), marginBottom: 12 }}>
-            <option value="">{tr("Nobody yet")}</option>
-            {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
+          <div style={{ marginBottom: 12 }}>
+            <SearchPick id="ocsa-ws-todo-who" name="todo-who" rows={members.map(m => ({ id: String(m.id), name: m.name }))} value={draft.who} onPick={(v) => setDraft(d => (d ? { ...d, who: v, fault: null } : d))} none={tr("Nobody yet")} empty={tr("Nobody yet")} noMatch={tr("No one matches that name.")} disabled={draft.saving} t={t} />
+          </div>
           <label htmlFor="ocsa-ws-todo-due" style={mkLabel(t)}>{tr("Due date")}</label>
           <input id="ocsa-ws-todo-due" type="date" value={draft.due} onChange={e => setDraft({ ...draft, due: e.target.value, fault: null })} style={mkInput(t)} />
           {draft.fault && <WsFault text={draft.fault} t={t} />}
@@ -13110,11 +13876,7 @@ function FkPpe({ token, site, showToast, t }) {
         <div data-fk-ppe="form">
           <div style={fieldSt}>
             <label htmlFor="ocsa-ppe-person" style={labelSt}>{tr("Person")}</label>
-            <select id="ocsa-ppe-person" value={draft.person} onChange={e => edit("person", e.target.value)} style={{ ...mkInput(t), ...ring("person") }}>
-              <option value="">{tr("Choose a person")}</option>
-              {form.people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-            {form.people.length === 0 && <div style={{ fontSize: 12, color: t.textMut, marginTop: 6 }}>{tr("No one is assigned to this site.")}</div>}
+            <SearchPick id="ocsa-ppe-person" name="ppe-person" rows={form.people.map(p => ({ id: String(p.id), name: p.name }))} value={draft.person} onPick={(v) => edit("person", v)} none={tr("Choose a person")} empty={tr("No one is assigned to this site.")} noMatch={tr("No one matches that name.")} disabled={sending} invalid={!!faults.person} t={t} />
             {errOf("person")}
           </div>
           <div style={fieldSt}>
@@ -14032,11 +14794,7 @@ function FkObserve({ token, site, user, showToast, t }) {
       {people && people.state === "ok" && (
         <div style={{ marginBottom: 14 }}>
           <label htmlFor="ocsa-observe-person" style={labelSt}>{tr("Person")}</label>
-          <select id="ocsa-observe-person" value={person} onChange={e => { setPerson(e.target.value); setFault(null); }} style={mkInput(t)}>
-            <option value="">{tr("Choose a person")}</option>
-            {people.list.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          {people.list.length === 0 && <div style={mkHelp(t)}>{tr("No one is assigned to this site.")}</div>}
+          <SearchPick id="ocsa-observe-person" name="observe-person" rows={people.list.map(p => ({ id: String(p.id), name: p.name }))} value={person} onPick={(v) => { setPerson(v); setFault(null); }} none={tr("Choose a person")} empty={tr("No one is assigned to this site.")} noMatch={tr("No one matches that name.")} t={t} />
         </div>
       )}
       {person && !lists && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
@@ -14747,10 +15505,7 @@ function InspectView({ token, user, showToast, t }) {
           {finding && (
             <div data-inspect-owner={item.id} style={{ marginBottom: 8 }}>
               <label htmlFor={"ocsa-inspect-owner-" + item.id} style={labelSt}>{tr("Owner")}</label>
-              <select id={"ocsa-inspect-owner-" + item.id} value={ownerOf[item.id] || ""} onChange={e => { const v = e.target.value; setOwnerOf(prev => ({ ...prev, [item.id]: v })); setCardFault(prev => (prev[item.id] ? { ...prev, [item.id]: null } : prev)); }} disabled={submitting} style={{ ...inputSt, fontSize: 12 }}>
-                <option value="">{tr("No owner yet")}</option>
-                {owners.map(o => <option key={o.id} value={o.id}>{o.name}{o.role ? ", " + roleWord(o.role) : ""}</option>)}
-              </select>
+              <SearchPick id={"ocsa-inspect-owner-" + item.id} name={"inspect-owner-" + item.id} rows={owners.map(o => ({ id: o.id, name: o.name, sub: o.role ? roleWord(o.role) : "" }))} value={ownerOf[item.id] || ""} onPick={(v) => { setOwnerOf(prev => ({ ...prev, [item.id]: v })); setCardFault(prev => (prev[item.id] ? { ...prev, [item.id]: null } : prev)); }} none={tr("No owner yet")} empty={tr("No owner yet")} noMatch={tr("No one matches that name.")} disabled={submitting} t={t} />
             </div>
           )}
           <input value={notes[item.id] || ""} onChange={e => { const v = e.target.value; setNotes(prev => ({ ...prev, [item.id]: v })); if (missingNote[item.id] && v.trim()) setMissingNote(prev => ({ ...prev, [item.id]: false })); if (cardFault[item.id] && v.trim()) setCardFault(prev => ({ ...prev, [item.id]: null })); }} placeholder={fix || finding ? tr("Say what needs fixing") : tr("Notes for this item (optional)")} aria-invalid={!!missingNote[item.id] || !!cardFault[item.id]} style={{ ...inputSt, fontSize: 12, marginBottom: 8, ...(missingNote[item.id] || cardFault[item.id] ? { border: "1px solid " + RED } : {}) }} />
