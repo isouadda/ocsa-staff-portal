@@ -622,6 +622,22 @@ const INSPECTION_LONG = {
 };
 // One on the list that the API no longer has when it is opened.
 const INSPECTION_GONE = { id: "in-gone", template_name: "Stairwell walk", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled", gone: true };
+// Step 296, against API Step 295 as its contract gives it, behind the
+// scheduleInspections switch: the person's own inspection on the day of
+// their shift, dated as the API sends a date column; one of theirs that
+// was cancelled; and one on the next day assigned to someone else, which
+// the API answers a supervisor too. Only the first is the person's to do.
+const SCHED_INSPECTIONS = (person) => [
+  { id: "in-s1", template_id: "tpl-s1", template_name: "Invented restroom walk", site_id: "site-north", site_name: "North Building", assigned_to: person.id, assigned_name: person.firstName + " " + person.lastName, scheduled_date: "2026-10-02T00:00:00.000Z", status: "scheduled", kind: "supervisor", formCode: "OCSA-FRM-001",
+    items: [
+      { id: "is-1", label: "Mirrors are free of streaks", zone: "Restroom", max_score: 5, cims_category: "SD" },
+      { id: "is-2", label: "Soap dispensers are full", zone: "Restroom", max_score: 5, cims_category: "SD" },
+    ] },
+  { id: "in-s2", template_id: "tpl-s2", template_name: "Invented lobby check", site_id: "site-north", site_name: "North Building", assigned_to: person.id, assigned_name: person.firstName + " " + person.lastName, scheduled_date: "2026-10-02T00:00:00.000Z", status: "cancelled", kind: "supervisor", formCode: "OCSA-FRM-001", items: [] },
+  { id: "in-s3", template_id: "tpl-s3", template_name: "Invented stairwell walk", site_id: "site-north", site_name: "North Building", assigned_to: "s-05", assigned_name: "Eve Everett", scheduled_date: "2026-10-03T00:00:00.000Z", status: "scheduled", kind: "supervisor", formCode: "OCSA-FRM-001", items: [] },
+];
+// The notice API Step 295 sends the person assigned, as the bell reads it.
+const SCHED_NOTICE = { id: "n-insp", subjectType: "inspection_assigned", subjectId: "in-s1", title: "Inspection at North Building on Oct 2", body: "You are assigned the Invented restroom walk. Scheduled by Jordan Office.", link: null, createdAt: "2026-10-01T20:10:00.000Z", readAt: null };
 
 // --- Help ----------------------------------------------------------------
 //
@@ -918,9 +934,9 @@ function makeState(opts) {
     drafts: o.drafts || [],
     // Every draft discarded, by id.
     discarded: [],
-    notifications: o.notifications || [],
+    notifications: o.notifications || (o.scheduleInspections ? [Object.assign({}, SCHED_NOTICE)] : []),
     // Copied, since /complete marks one completed and the fixture is shared.
-    inspections: (o.inspections || []).map(i => Object.assign({}, i)),
+    inspections: (o.inspections || []).concat(o.scheduleInspections ? SCHED_INSPECTIONS(o.person || PERSON) : []).map(i => Object.assign({}, i)),
     // Step 145: every problem filed through POST /api/issues, in order.
     issues: [],
     // Step 255: an API with Step 253 built, which answers owners on the
@@ -4208,7 +4224,14 @@ function createStub(opts) {
     if (key === "POST /api/supplies/requests") return json(200, { ok: true });
 
     // --- inspections
-    if (pathname === "/api/inspections/scheduled" && method === "GET") return json(200, state.inspections.filter(i => i.status !== "completed").map(i => Object.assign({}, i, { items: undefined, gone: undefined })));
+    // As the API answers it: ?status= is matched exactly, and anyone but
+    // an admin or a supervisor is answered only what is assigned to them
+    // (a row with no assignee stands in for the person's own).
+    if (pathname === "/api/inspections/scheduled" && method === "GET") {
+      const want = new URLSearchParams(search || "").get("status");
+      const everyone = state.person.role === "admin" || state.person.role === "supervisor";
+      return json(200, state.inspections.filter(i => i.status !== "completed" && (!want || i.status === want) && (everyone || i.assigned_to === undefined || i.assigned_to === state.person.id)).map(i => Object.assign({}, i, { items: undefined, gone: undefined })));
+    }
     // Step 145. Completing one the way the API does: scores required, a
     // second completion turned away, and the row marked completed.
     const completing = pathname.match(/^\/api\/inspections\/scheduled\/([^/]+)\/complete$/);
@@ -4443,7 +4466,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { SCHED_INSPECTIONS, SCHED_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

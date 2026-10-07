@@ -114,6 +114,12 @@ its contract gives it, in English and Spanish at 390: the link opens
 with no badge box, a weak PIN is refused on the phone in Change PIN's
 words with nothing sent, and a good PIN activates once, with no badge
 number, and signs in;
+inspections on the schedule (Step 296), against API Step 295 as its
+contract gives it, in English at 390 and Spanish at 320: a supervisor's
+own inspection drawn on the week and the month, and as an Inspection row
+on the day's sheet beside the shift, the row opening it on Inspect, a
+cancelled one and someone else's not drawn, and the bell's notice
+opening it;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
@@ -132,7 +138,13 @@ through it.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`, `handbook`, `handbookSigned`, `support`, `pto`), off for every other case.
+`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`, `handbook`, `handbookSigned`, `support`, `pto`, `scheduleInspections`), off for every other case.
+`scheduleInspections` (Step 296) gives the person signed in an inspection
+on the day of their shift, one of theirs cancelled and one of someone
+else's, dated as the API sends a date column, with API Step 295's notice
+about the first in the bell; `GET /api/inspections/scheduled` matches
+`?status=` and answers anyone but an admin or a supervisor only their own,
+as the API does.
 `handbook` (Step 290) answers the document to sign as API Step 289 does:
 the invented handbook in English and Spanish with parts, ackSectionRef,
 pdfUrl and the signed page's ackFields, the designed version and

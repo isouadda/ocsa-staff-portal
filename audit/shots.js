@@ -563,8 +563,18 @@ const SHOTS = [
     go: async (s) => { if (!(await s.go("Speak Up"))) return false; return s.waitText(s.say("What happened")); } },
 
   // The schedule and time off.
-  { name: "schedule", entry: E("See your schedule"), o: { signedIn: true },
-    go: async (s) => { if (!(await s.go("Schedule"))) return false; return s.waitText(s.say("My Schedule")); } },
+  // The week with an inspection assigned to the person on the day of
+  // their shift (Step 296), and that day's sheet with its row ringed.
+  { name: "schedule", entry: E("See your schedule"), o: { signedIn: true, stub: { scheduleInspections: true } },
+    go: async (s) => { if (!(await s.go("Schedule"))) return false; if (!(await s.waitText(s.say("My Schedule")))) return false; return s.waitFor(() => !!document.querySelector('[data-schedule-inspection="in-s1"]')); } },
+  { name: "schedule-inspection", entry: E("See your schedule"), o: { signedIn: true, stub: { scheduleInspections: true } },
+    go: async (s) => {
+      if (!(await s.go("Schedule"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-schedule-inspection="in-s1"]')))) return false;
+      await s.page.evaluate(() => { const c = document.querySelector('[data-schedule-inspection="in-s1"]'); const b = c && c.closest("button"); if (b) b.click(); });
+      if (!(await s.waitFor(() => !!document.querySelector('[role="dialog"] [data-schedule-inspection-row="in-s1"]')))) return false;
+      return s.mark('[data-schedule-inspection-row="in-s1"]');
+    } },
   { name: "drop-shift", entry: E("Request to drop a shift"), o: { signedIn: true },
     go: async (s) => {
       if (!(await s.go("Schedule"))) return false;

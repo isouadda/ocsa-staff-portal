@@ -166,7 +166,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -1949,6 +1949,56 @@ async function supplyPage(browser, language) {
   await app.context.close();
 }
 
+// Inspections on the schedule (Step 296), against API Step 295 as its
+// contract gives it and the stub answers it, for a supervisor, whom the
+// API answers every site's inspections: their own on the day of their
+// shift is drawn on the week and the month, and as a row on the day's
+// sheet beside the shift, which opens it on Inspect; their cancelled one
+// and someone else's are not drawn; the bell's notice opens it too.
+async function scheduleInspections(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const person = Object.assign({}, ADMIN_PERSON, { id: "u-smoke-sup", firstName: "Riley", lastName: "Example", role: "supervisor", badgeNumber: "4801", phone: "0000000008", email: "riley@example.invalid" });
+  const app = await open({ person: person, scheduleInspections: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  const name = SCHED_INSPECTIONS(person)[0].template_name;
+  const opened = () => waitFor(page, () => !!document.querySelector('[data-inspect-item="is-1"]') && !!document.querySelector('[data-inspect-item="is-2"]'));
+  const inBar = await waitFor(page, BAR_JS + ".length >= 5");
+  if (inBar) await openPlace(page, say(language, "Schedule"));
+  const week = inBar && await waitFor(page, () => !!document.querySelector('[data-schedule-inspection="in-s1"]'));
+  const notDrawn = week && await page.evaluate(() => !document.querySelector('[data-schedule-inspection="in-s2"]') && !document.querySelector('[data-schedule-inspection="in-s3"]'));
+  let month = false, sheet = false, rowOpens = false, belled = false;
+  if (week) {
+    await tapWord(page, say(language, "Month"));
+    month = await waitFor(page, () => !!document.querySelector('[data-schedule-inspection-dot="2026-10-02"]') && !document.querySelector('[data-schedule-inspection-dot="2026-10-03"]'));
+    // Week keeps the month's first week; Today comes back to this one.
+    await tapWord(page, say(language, "Week"));
+    await tapWord(page, say(language, "Today"));
+    await waitFor(page, () => !!document.querySelector('[data-schedule-inspection="in-s1"]'));
+    await page.evaluate(() => { const c = document.querySelector('[data-schedule-inspection="in-s1"]'); const b = c && c.closest("button"); if (b) b.click(); });
+    sheet = await waitFor(page, (w) => {
+      const d = document.querySelector('[role="dialog"]');
+      const r = d && d.querySelector('[data-schedule-inspection-row="in-s1"]');
+      const up = (x) => x.innerText.toUpperCase();
+      return !!r && r.innerText.indexOf(w.name) !== -1 && up(r).indexOf(w.kind.toUpperCase()) !== -1 && up(d).indexOf(w.shift.toUpperCase()) !== -1 && !d.querySelector('[data-schedule-inspection-row="in-s2"]') && !d.querySelector('[data-schedule-inspection-row="in-s3"]');
+    }, { name: name, kind: say(language, "Inspection"), shift: say(language, "Scheduled Shift") });
+    if (sheet) { await page.click('[data-schedule-inspection-row="in-s1"]'); rowOpens = await opened(); }
+  }
+  if (inBar) {
+    // Home, then the bell's notice about the same inspection.
+    await tapBar(page, 0);
+    await page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
+    if (await waitFor(page, (w) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.indexOf(w) !== -1), SCHED_NOTICE.title)) {
+      await page.evaluate((w) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.indexOf(w) !== -1); if (b) b.click(); }, SCHED_NOTICE.title);
+      belled = await opened();
+    }
+  }
+  const wide = await sideways(page);
+  check("Inspections on the schedule: a supervisor's own inspection is drawn on the week and the month, and as an Inspection row on the day's sheet beside the shift, which opens it on Inspect; a cancelled one and someone else's are not drawn; the bell's notice opens it too; with no sideways scroll" + tag,
+    week && notDrawn && month && sheet && rowOpens && belled && wide <= 1 && app.errors.length === 0,
+    !week ? "no Inspection chip on the week" : !notDrawn ? "the cancelled one or someone else's was drawn" : !month ? "the month did not mark the day, or marked someone else's" : !sheet ? "the day's sheet did not hold the Inspection row beside the shift" : !rowOpens ? "the row did not open the inspection" : !belled ? "the notice did not open the inspection" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+  await app.context.close();
+}
+
 // The Largest text size on a narrow phone: no control cut off or covered.
 async function largest(browser) {
   const app = await open({ accountPreferences: { language: "en", textSize: "largest" } }, { browser, language: "en", textSize: "largest", signedIn: true, width: 360 });
@@ -2011,6 +2061,8 @@ async function largest(browser) {
       await guard("searchable pickers (es)", () => pickers(browser, "es", 320));
       await guard("App support (en)", () => appSupport(browser, "en", 390));
       await guard("App support (es)", () => appSupport(browser, "es", 320));
+      await guard("inspections on the schedule (en)", () => scheduleInspections(browser, "en", 390));
+      await guard("inspections on the schedule (es)", () => scheduleInspections(browser, "es", 320));
     };
     await Promise.all([laneA(), laneB()]);
   } finally {

@@ -817,7 +817,6 @@ export const WORDS = {
   "Problems reported": "Problemas reportados",
   "Forms filed": "Formularios presentados",
   "Announcements from the office always come through.": "Los anuncios de la oficina siempre llegan.",
-  "Get an alert when someone messages you?": "\u00bfQuiere recibir una alerta cuando alguien le escriba?",
   "Turn on": "Activar",
   "Your settings did not save.": "Sus ajustes no se guardaron.",
 
@@ -1399,6 +1398,10 @@ export const WORDS = {
   "PTO (paid time off)": "PTO (tiempo libre pagado)",
   "Choose your 4-digit PIN and pick your language.": "Elija su PIN de 4 d\u00edgitos y su idioma.",
   "4 digits. Not all the same, not in a row like 1234, and not your badge number.": "4 d\u00edgitos. No todos iguales, no seguidos como 1234 y no su n\u00famero de empleado.",
+  "Get an alert when someone messages you or assigns you an inspection?": "\u00bfQuiere recibir una alerta cuando alguien le escriba o le asigne una inspecci\u00f3n?",
+  "This inspection was cancelled.": "Esta inspecci\u00f3n se cancel\u00f3.",
+  "This inspection is already done.": "Esta inspecci\u00f3n ya est\u00e1 hecha.",
+  "This inspection is not on your list anymore.": "Esta inspecci\u00f3n ya no est\u00e1 en su lista.",
   },
 };
 
@@ -2103,7 +2106,6 @@ WORDS.fr = {
   "Problems reported": "Probl\u00e8mes signal\u00e9s",
   "Forms filed": "Formulaires envoy\u00e9s",
   "Announcements from the office always come through.": "Les annonces du bureau arrivent toujours.",
-  "Get an alert when someone messages you?": "Recevoir une alerte quand quelqu'un vous \u00e9crit\u00a0?",
   "Turn on": "Activer",
   "Your settings did not save.": "Vos param\u00e8tres n'ont pas \u00e9t\u00e9 enregistr\u00e9s.",
   // Profile
@@ -2676,6 +2678,10 @@ WORDS.fr = {
   "PTO (paid time off)": "PTO (cong\u00e9 pay\u00e9)",
   "Choose your 4-digit PIN and pick your language.": "Choisissez votre code PIN \u00e0 4 chiffres et votre langue.",
   "4 digits. Not all the same, not in a row like 1234, and not your badge number.": "4 chiffres. Pas tous identiques, pas \u00e0 la suite comme 1234, et pas votre num\u00e9ro de badge.",
+  "Get an alert when someone messages you or assigns you an inspection?": "Recevoir une alerte quand quelqu'un vous \u00e9crit ou vous attribue une inspection\u00a0?",
+  "This inspection was cancelled.": "Cette inspection a \u00e9t\u00e9 annul\u00e9e.",
+  "This inspection is already done.": "Cette inspection est d\u00e9j\u00e0 faite.",
+  "This inspection is not on your list anymore.": "Cette inspection n'est plus dans votre liste.",
 };
 
 // {name} is replaced after the language is chosen, so the
