@@ -1414,6 +1414,16 @@ export const WORDS = {
   "Unfinished forms ({n})": "Formularios sin terminar ({n})",
   "Save and finish later": "Guardar y terminar despu\u00e9s",
   "Saved. You will get a reminder until it is sent.": "Guardado. Recibir\u00e1 un recordatorio hasta que lo env\u00ede.",
+  "Library": "Biblioteca",
+  "Search by number, title or words in the text": "Buscar por n\u00famero, t\u00edtulo o palabras del texto",
+  "Also in Spanish": "Tambi\u00e9n en espa\u00f1ol",
+  "In English only": "Solo en ingl\u00e9s",
+  "The library is loading. Check back soon.": "La biblioteca se est\u00e1 cargando. Vuelva a revisar pronto.",
+  "No document matches that search.": "Ning\u00fan documento coincide con esa b\u00fasqueda.",
+  "All folders": "Todas las carpetas",
+  "This document is waiting for your signature.": "Este documento espera su firma.",
+  "Open in Documents to sign": "Abrir en Documentos por firmar",
+  "Open {docCode}": "Abrir {docCode}",
   },
 };
 
@@ -2706,6 +2716,16 @@ WORDS.fr = {
   "Unfinished forms ({n})": "Formulaires non termin\u00e9s ({n})",
   "Save and finish later": "Enregistrer et terminer plus tard",
   "Saved. You will get a reminder until it is sent.": "Enregistr\u00e9. Vous recevrez un rappel jusqu'\u00e0 son envoi.",
+  "Library": "Biblioth\u00e8que",
+  "Search by number, title or words in the text": "Rechercher par num\u00e9ro, titre ou mots du texte",
+  "Also in Spanish": "Aussi en espagnol",
+  "In English only": "En anglais seulement",
+  "The library is loading. Check back soon.": "La biblioth\u00e8que est en cours de chargement. Revenez bient\u00f4t.",
+  "No document matches that search.": "Aucun document ne correspond \u00e0 cette recherche.",
+  "All folders": "Tous les dossiers",
+  "This document is waiting for your signature.": "Ce document attend votre signature.",
+  "Open in Documents to sign": "Ouvrir dans Documents \u00e0 signer",
+  "Open {docCode}": "Ouvrir {docCode}",
 };
 
 // {name} is replaced after the language is chosen, so the

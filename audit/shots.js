@@ -366,7 +366,7 @@ const SHOTS = [
     go: async (s) => { await s.hasBar(); if (!(await s.waitText(s.say("End Shift")))) return false; await s.mark("button", s.say("End Shift")); return true; } },
   { name: "sign-out", entry: E("Sign out"), o: { signedIn: true },
     go: async (s) => { await s.hasBar(); return s.mark('button[aria-label="' + s.say("Sign out") + '"]'); } },
-  { name: "bottom-bar-more", entry: E("Use the bottom bar and More"), o: { signedIn: true, stub: { support: true } },
+  { name: "bottom-bar-more", entry: E("Use the bottom bar and More"), o: { signedIn: true, stub: { support: true, library: true } },
     go: async (s) => { await s.openMore(); return s.waitFor(() => !!document.querySelector(".sp-more")); } },
 
   // Training, and joining a session.
@@ -851,6 +851,24 @@ const SHOTS = [
       await s.hasBar();
       await s.page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
       return s.waitText("You have an unfinished Incident report");
+    } },
+
+  // Step 321, the second staff app round. The Library (Step 307): the
+  // folders with their counts, a search's result with the section it
+  // matched, and Help's answer about a document with Open {docCode}.
+  { name: "library", entry: E("Find and read a company document"), o: { signedIn: true, stub: { library: true } },
+    go: async (s) => { if (!(await s.go("Library"))) return false; return s.waitFor(() => document.querySelectorAll("[data-library-folder]").length === 4); } },
+  { name: "library-search", entry: E("Find and read a company document"), o: { signedIn: true, stub: { library: true } },
+    go: async (s) => {
+      if (!(await s.go("Library"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector("[data-library-search]")))) return false;
+      await s.fill("[data-library-search]", "eyewash");
+      return s.waitFor(() => !!document.querySelector('[data-library-match="3.2"]'));
+    } },
+  { name: "help-document", entry: E("Ask Help what a document covers"), o: { signedIn: true, stub: { library: true } },
+    go: async (s) => {
+      if (!(await asked(s, s.language === "es" ? "\u00bfQu\u00e9 dice el manual de calidad?" : "What is in the quality manual?", "covers"))) return false;
+      return s.waitFor(() => !!document.querySelector('[data-help-open-doc="OCSA-QMS-901"]'));
     } },
 
   // The forms the guide names, each by its card on Forms.

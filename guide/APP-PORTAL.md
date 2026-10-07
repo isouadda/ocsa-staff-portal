@@ -916,11 +916,11 @@ Last checked: 2026-10-02
 ## Use the bottom bar and More (staff portal)
 Who can do this: anyone signed in
 1. The bar at the bottom holds **Home** (**Inicio**) (**Accueil**), four shortcuts and **More** (**Más**) (**Plus**). The four start as **Schedule** (**Horario**) (**Planning**), **Tasks** (**Tareas**) (**Tâches**), **Chat** (**Mensajes**) (**Messages**) and **Help** (**Ayuda**) (**Aide**).
-2. Tap **More** (**Más**) (**Plus**) for the rest: **Assigned** (**Asignadas**) (**Assignées**), **Report** (**Reportar**) (**Signaler**), **Supplies** (**Suministros**) (**Fournitures**), **Pickup** (**Turnos libres**) (**Services libres**), **Inspect** (**Inspección**) (**Inspection**), **Speak Up** (**Confianza**) (**Confiance**), **Settings** (**Ajustes**) (**Paramètres**) and **Forms** (**Formularios**) (**Formulaires**). Supervisors and admins see **Issues** (**Problemas**) (**Problèmes**) in the place of Report. **App support** (**Soporte de la aplicación**) (**Assistance de l'application**) shows there too once OCSA answers for it. A tap outside closes it.
+2. Tap **More** (**Más**) (**Plus**) for the rest: **Assigned** (**Asignadas**) (**Assignées**), **Report** (**Reportar**) (**Signaler**), **Supplies** (**Suministros**) (**Fournitures**), **Pickup** (**Turnos libres**) (**Services libres**), **Inspect** (**Inspección**) (**Inspection**), **Speak Up** (**Confianza**) (**Confiance**), **Settings** (**Ajustes**) (**Paramètres**) and **Forms** (**Formularios**) (**Formulaires**). Supervisors and admins see **Issues** (**Problemas**) (**Problèmes**) in the place of Report. **App support** (**Soporte de la aplicación**) (**Assistance de l'application**) shows there too once OCSA answers for it, and so does **Library** (**Biblioteca**) (**Bibliothèque**), for everyone, once OCSA lists the company documents. A tap outside closes it.
 3. The four shortcuts are yours to choose: **Edit shortcuts** (**Editar accesos directos**) (**Modifier les raccourcis**) at the bottom of More changes them (see Change the shortcuts on your bottom bar). Each person keeps their own bar, and it follows you to any phone or computer you sign in on.
 4. A red number counts what is waiting: on **Chat** (**Mensajes**) (**Messages**), your unread messages; on **Assigned** (**Asignadas**) (**Assignées**), the tasks assigned to you; on **More** (**Más**) (**Plus**), what is waiting in the places under it. Past nine it reads 9+.
 5. At the top of every screen, your picture or initials open your profile, the bell opens your notifications, the gear opens **Settings** (**Ajustes**) (**Paramètres**), and the last button signs you out. While a shift is open, **ON SITE** (**EN SITIO**) (**SUR PLACE**) shows beside them.
-Words people use for this: bottom bar, menu, more button, where is supplies, where is pickup, i cannot find it, the red number, navigation, menú, más.
+Words people use for this: bottom bar, menu, more button, where is supplies, where is pickup, where is the library, i cannot find it, the red number, navigation, menú, más.
 Picture: bottom-bar-more
 Last checked: 2026-10-07
 
@@ -1389,4 +1389,28 @@ Who can do this: anyone who started a form and has not sent it
 4. To stop the reminders, send the form, or discard it under **Unfinished reports** (**Reportes sin terminar**) (**Rapports non terminés**) in **Help** (**Ayuda**) (**Aide**).
 Words people use for this: reminder to finish a form, unfinished form, finish later, pick up where i left off, form reminder, recordatorio, formulario sin terminar.
 Picture: form-reminder
+Last checked: 2026-10-07
+
+## Find and read a company document (staff portal)
+Who can do this: anyone signed in, once OCSA lists the company documents
+1. Tap **More** (**Más**) (**Plus**), then **Library** (**Biblioteca**) (**Bibliothèque**). Every company document is there, sorted into folders such as Quality, Human Resources and Health and Safety, each with how many documents it holds. Everyone can read every document.
+2. Tap a folder. Each document shows its number, its version, such as **Version {n}** (**Versión {n}**) (**Version {n}**), and its title. **Also in Spanish** (**También en español**) (**Aussi en espagnol**) means it has a Spanish edition; on a Spanish screen, **In English only** (**Solo en inglés**) (**En anglais seulement**) means it has none yet. **All folders** (**Todas las carpetas**) (**Tous les dossiers**) goes back to the folders.
+3. To find a document, type in **Search by number, title or words in the text** (**Buscar por número, título o palabras del texto**) (**Rechercher par numéro, titre ou mots du texte**) at the top: its number, part of its title, or words that are in its text. Each result shows the section the words were found in, as **Section {n}** (**Sección {n}**) (**Section {n}**) and the section's name. Tap a result and the document opens at that section. **Clear** (**Borrar**) (**Effacer**) empties the box.
+4. A document opens read only, in your screen's language when it has an edition in it. A document with Parts opens on its cover, and **Contents** (**Contenido**) (**Sommaire**), **Start reading** (**Empezar a leer**) (**Commencer la lecture**), **Next** (**Siguiente**) (**Suivant**) and **Back** (**Atrás**) (**Retour**) work the way they do in My training (see Read and sign a document). **See the designed version** (**Ver la versión diseñada**) (**Voir la version mise en page**) opens the printed version as a PDF. There is no signature box in the Library, and nothing is signed here.
+5. A document you still have to sign says **This document is waiting for your signature.** (**Este documento espera su firma.**) (**Ce document attend votre signature.**): tap **Open in Documents to sign** (**Abrir en Documentos por firmar**) (**Ouvrir dans Documents à signer**) to read and sign it under My training.
+6. **Library** (**Biblioteca**) (**Bibliothèque**) at the top of a document goes back to the list.
+If it does not work: **The library is loading. Check back soon.** (**La biblioteca se está cargando. Vuelva a revisar pronto.**) (**La bibliothèque est en cours de chargement. Revenez bientôt.**) means OCSA has not loaded the documents yet. **No document matches that search.** (**Ningún documento coincide con esa búsqueda.**) (**Aucun document ne correspond à cette recherche.**) means no document has those words; try fewer words or the number. **This document is shown in English.** (**Este documento se muestra en inglés.**) (**Ce document est affiché en anglais.**) means it has no edition in your language yet.
+Words people use for this: library, company documents, find a document, read a policy, read a procedure, what does the procedure say, document number, where are the documents, biblioteca, documentos de la compañía, buscar un documento, bibliothèque.
+Picture: library
+Picture: library-search
+Last checked: 2026-10-07
+
+## Ask Help what a document covers (staff portal)
+Who can do this: anyone signed in
+1. Tap **Help** (**Ayuda**) (**Aide**) and ask what a document covers, or ask to see or open one, by its number or its name, such as "what is in the quality manual?"
+2. Help answers with what the document is for and the list of its Parts. Ask about one part and Help answers with that part's own text.
+3. Under the answer, **Open {docCode}** (**Abrir {docCode}**) (**Ouvrir {docCode}**) opens the document in the **Library** (**Biblioteca**) (**Bibliothèque**), on its cover and read only, the same as opening it from the Library itself (see Find and read a company document).
+If it does not work: no button under the answer means Help did not settle on one document; ask again with the document's number, or find it in the Library.
+Words people use for this: what is in this document, what does this document cover, show me the document, open the document, tell me about a procedure, the parts of a document, qué dice este documento, abrir el documento, que contient ce document.
+Picture: help-document
 Last checked: 2026-10-07

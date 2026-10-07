@@ -130,6 +130,15 @@ opening the issue's sheet; and unfinished forms you can see: Home's
 card opening the person's draft, Save and finish later saving the
 answer once and closing the form, and the reminder's notice opening the
 draft;
+the Library (Step 307), against API Step 305 as its contract gives it,
+in English at 390 and Spanish at 320: the folders in the contract's
+order with their counts, a folder's documents with Also in Spanish (In
+English only on a Spanish screen), a search for a word in the text
+finding the document with the section it matched and opening it at that
+section, the quality manual's cover in the screen's language with See
+the designed version read behind the token, its last page with no
+signature box and no Next, Help's Open button opening it in the Library,
+and an empty list saying the library is loading;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
@@ -148,7 +157,15 @@ through it.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`, `handbook`, `handbookSigned`, `support`, `pto`, `scheduleInspections`, `issueSheet`, `unfinishedForms`), off for every other case.
+`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`, `handbook`, `handbookSigned`, `support`, `pto`, `scheduleInspections`, `issueSheet`, `unfinishedForms`, `library`, `libraryEmpty`), off for every other case.
+`library` (Step 307) answers GET /api/library as API Step 305's contract
+gives it: five invented documents in four folders, each folder's name in
+the request's language, the quality manual with a Spanish edition, Parts
+and a PDF, and the word "eyewash" in the first aid procedure's section
+3.2 alone, so `?q=` finds it by its text with `match` naming the
+section; each document's read for everyone, its PDF behind the token,
+and Help's `covers` answer carrying `openDocument`. `libraryEmpty`
+answers the list with nothing yet.
 `scheduleInspections` (Step 296) gives the person signed in an inspection
 on the day of their shift, one of theirs cancelled and one of someone
 else's, dated as the API sends a date column, with API Step 295's notice

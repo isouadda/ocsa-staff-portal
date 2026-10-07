@@ -568,6 +568,71 @@ function docToSign(state, loc) {
 // switch. The contact is a setting, invented here; the person's one
 // ticket from before, which the office is working on with a note; the
 // kinds a ticket takes; and the refusal the API keys by field.
+// The Library (Step 307), as API Step 305's contract gives GET
+// /api/library: invented documents in four folders, numbered past any
+// real one, each folder's name in the request's language. The quality
+// manual has a Spanish edition, Parts (so it reads in the handbook's
+// look) and a PDF; the first aid procedure has neither and reads in the
+// plain look, and the word "eyewash" is in its section 3.2 alone, so a
+// search for it finds the document by its text.
+const LIBRARY_FOLDER_NAMES = { QMS: ["Quality", "Calidad"], HS: ["Health and Safety", "Salud y seguridad"], HR: ["Human Resources", "Recursos humanos"], FRM: ["Forms", "Formularios"] };
+const LIBRARY_DOCS = [
+  { docCode: "OCSA-QMS-901", version: "2.0", locales: ["en", "es"], hasPdf: true,
+    title: { en: "Invented quality manual", es: "Manual de calidad inventado" },
+    parts: { en: [{ ref: "1", title: "Purpose" }, { ref: "2", title: "How work is checked" }], es: [{ ref: "1", title: "Propósito" }, { ref: "2", title: "Cómo se revisa el trabajo" }] },
+    sections: {
+      en: [
+        { ref: "1", title: "Purpose", content: "This invented manual says how work is checked at every site." },
+        { ref: "1.1", title: "Scope", content: "It covers every invented site and every shift." },
+        { ref: "2", title: "How work is checked", content: "A supervisor walks each site once a month." },
+        { ref: "2.1", title: "Walks", content: "Each walk is scored card by card.\nNotes go on the card." },
+        { ref: "2.2", title: "Records", content: "Records are kept for three invented years." },
+      ],
+      es: [
+        { ref: "1", title: "Propósito", content: "Este manual inventado dice cómo se revisa el trabajo en cada sitio." },
+        { ref: "1.1", title: "Alcance", content: "Cubre cada sitio inventado y cada turno." },
+        { ref: "2", title: "Cómo se revisa el trabajo", content: "Un supervisor recorre cada sitio una vez al mes." },
+        { ref: "2.1", title: "Recorridos", content: "Cada recorrido se califica tarjeta por tarjeta.\nLas notas van en la tarjeta." },
+        { ref: "2.2", title: "Registros", content: "Los registros se guardan tres años inventados." },
+      ],
+    } },
+  { docCode: "OCSA-QMS-907", version: "3.0", locales: ["en"], hasPdf: false, title: { en: "Invented site file guide" }, parts: { en: [] },
+    sections: { en: [{ ref: "1", title: "Purpose", content: "This invented guide says what goes in a site file." }, { ref: "2", title: "What goes in it", content: "The schedule, the contacts and the keys list." }] } },
+  { docCode: "OCSA-HR-905", version: "1.0", locales: ["en"], hasPdf: false, title: { en: "Invented uniform policy" }, parts: { en: [] },
+    sections: { en: [{ ref: "1", title: "Purpose", content: "This invented policy says what to wear on shift." }] } },
+  { docCode: "OCSA-HS-904", version: "1.1", locales: ["en"], hasPdf: false, title: { en: "Invented first aid procedure" }, parts: { en: [] },
+    sections: { en: [
+      { ref: "1", title: "Purpose", content: "This invented procedure says what to do when someone is hurt." },
+      { ref: "2", title: "Kits", content: "Every closet has a first aid kit." },
+      { ref: "3", title: "Stations", content: "Every site has stations." },
+      { ref: "3.1", title: "Where they are", content: "Near each closet." },
+      { ref: "3.2", title: "Stations to check", content: "Flush each eyewash for three minutes every week." },
+      { ref: "4", title: "Records", content: "Write each check on the log." },
+    ] } },
+  { docCode: "OCSA-FRM-906", version: "1.0", locales: ["en"], hasPdf: false, title: { en: "Invented supply request form" }, parts: { en: [] },
+    sections: { en: [{ ref: "1", title: "Purpose", content: "This invented form asks for supplies." }] } },
+];
+const LIBRARY_SEARCH_WORD = "eyewash";
+const LIBRARY_PDF = pdfWith("Invented quality manual");
+const libraryIn = (x, k, lang) => (x[k][lang] !== undefined ? x[k][lang] : x[k].en);
+const libraryRow = (x, lang) => {
+  const folder = x.docCode.split("-")[1];
+  return { docCode: x.docCode, title: libraryIn(x, "title", lang), version: x.version, folder: folder, folderName: LIBRARY_FOLDER_NAMES[folder][lang === "es" ? 1 : 0], locales: x.locales.slice(), hasPdf: x.hasPdf, parts: libraryIn(x, "parts", "en").map(p => Object.assign({}, p)) };
+};
+// A search, the way the contract gives ?q=: the number, the title, then
+// words in the sections, each match with the section it matched, best
+// first.
+function librarySearch(q, lang) {
+  const want = String(q || "").trim().toLowerCase();
+  const out = [];
+  LIBRARY_DOCS.forEach((x) => {
+    const loc = x.locales.indexOf(lang) !== -1 ? lang : "en";
+    if (x.docCode.toLowerCase().indexOf(want) !== -1 || libraryIn(x, "title", loc).toLowerCase().indexOf(want) !== -1) { out.push({ rank: 0, row: libraryRow(x, lang) }); return; }
+    const s = libraryIn(x, "sections", loc).find(y => (y.title + " " + y.content).toLowerCase().indexOf(want) !== -1);
+    if (s) out.push({ rank: 1, row: Object.assign(libraryRow(x, lang), { match: { sectionRef: s.ref, sectionTitle: s.title } }) });
+  });
+  return out.sort((a, b) => a.rank - b.rank).map(r => r.row);
+}
 const SUPPORT_CONTACT = { name: "Invented Support", email: "support@example.invalid" };
 const SUPPORT_KINDS = ["bug", "idea", "wrong_info", "help_miss", "cant_sign_in"];
 const SUPPORT_SEED = () => [{ id: "st-1", kind: "idea", description: "Invented: a bigger clock on Home.", status: "working", statusNote: "Invented: we are trying it this month.", source: "form", app: "portal", createdAt: new Date(NOW.getTime() - 3 * DAY).toISOString() }];
@@ -710,6 +775,15 @@ const HELP_ANSWERS = {
       { app: "portal", name: "sign-in", entry: "Sign in to the staff portal (staff portal)" },
       { app: "dashboard", name: "sign-in", entry: "Sign in to the dashboard (dashboard)" },
     ],
+  },
+  // What a document covers (Step 307, API Step 305): what it is for and
+  // its Parts, with the document to open, which the portal draws as Open
+  // {docCode}.
+  covers: {
+    pieces: ["The invented quality manual says how work is ch", "ecked at every site. Its Parts:\n1. **Purpose**\n2. **How work is checked**"],
+    piecesEs: ["El manual de calidad inventado dice c\u00f3mo se revisa el tra", "bajo en cada sitio. Sus partes:\n1. **Prop\u00f3sito**\n2. **C\u00f3mo se revisa el trabajo**"],
+    citedDocs: ["OCSA-QMS-901"],
+    openDocument: { docCode: "OCSA-QMS-901", title: "Invented quality manual" },
   },
   // One whose picture has no file in any language, which is left out.
   noFile: {
@@ -1003,6 +1077,10 @@ function makeState(opts) {
     support: o.support === true,
     supportTickets: o.support === true ? SUPPORT_SEED() : [],
     pto: o.pto === true,
+    // Step 307: the Library (API Step 305), its list, search, reads and
+    // PDF, for everyone; libraryEmpty answers the list with nothing yet.
+    library: o.library === true || o.libraryEmpty === true,
+    libraryEmpty: o.libraryEmpty === true,
     // Step 267: an API with Step 266 built, which answers categories and
     // continue on GET /api/training/me, with each item's category.
     trainingPortal: o.trainingPortal === true,
@@ -2572,6 +2650,7 @@ function createStub(opts) {
       // none for an answer that cites none.
       pictures: (answer.pictures || []).map(x => Object.assign({}, x)),
     }, next.citedNames ? { citedNames: next.citedNames } : {}, answer.formResponse ? { formResponse: answer.formResponse } : {},
+      answer.openDocument ? { openDocument: Object.assign({}, answer.openDocument) } : {},
       answer.ticketDraft ? { ticketDraft: Object.assign({}, answer.ticketDraft[next.language === "es" ? "es" : "en"]) } : {});
     if (next.error) steps.push({ event: "error", data: { error: next.error.error, status: next.error.status } });
     else if (next.drop) steps.push({ drop: true });
@@ -2580,7 +2659,7 @@ function createStub(opts) {
     // dropped connection still finishes the answer and keeps it; an error
     // keeps nothing.
     state.stored.push({ role: "user", text: body && typeof body.text === "string" ? body.text : "", at: 0 });
-    const kept = { id: messageId, role: "assistant", text: reply, citedDocs: done.citedDocs, citedNames: next.citedNames || null, pictures: done.pictures, degraded: done.degraded, noProcedure: done.noProcedure, feedback: null, at: Infinity };
+    const kept = { id: messageId, role: "assistant", text: reply, citedDocs: done.citedDocs, citedNames: next.citedNames || null, pictures: done.pictures, openDocument: done.openDocument || null, degraded: done.degraded, noProcedure: done.noProcedure, feedback: null, at: Infinity };
     if (!next.error) state.stored.push(kept);
     state.help.holds = holds;
     return {
@@ -3307,7 +3386,7 @@ function createStub(opts) {
       const now = Date.now();
       const messages = pathname.split("/").pop() === state.conversationId
         ? state.stored.filter(m => m.at <= now).map(m => (m.role === "assistant"
-          ? Object.assign({ id: m.id, role: m.role, text: m.text, citedDocs: m.citedDocs, pictures: (m.pictures || []).map(x => Object.assign({}, x)), degraded: m.degraded, noProcedure: m.noProcedure, feedback: m.feedback ? Object.assign({}, m.feedback) : null }, m.citedNames ? { citedNames: m.citedNames } : {})
+          ? Object.assign({ id: m.id, role: m.role, text: m.text, citedDocs: m.citedDocs, pictures: (m.pictures || []).map(x => Object.assign({}, x)), degraded: m.degraded, noProcedure: m.noProcedure, feedback: m.feedback ? Object.assign({}, m.feedback) : null }, m.citedNames ? { citedNames: m.citedNames } : {}, m.openDocument ? { openDocument: Object.assign({}, m.openDocument) } : {})
           : { role: m.role, text: m.text }))
         : [];
       messages.forEach((m) => { if (m.role === "assistant") recordWord(m.text, "Help reply"); });
@@ -3831,6 +3910,33 @@ function createStub(opts) {
         r.photos.push({ id: "rph-" + (r.photos.length + 1), url: String(body.photoUrl) });
         return json(201, { photo: { id: "rph-" + r.photos.length, url: String(body.photoUrl) } });
       }
+    }
+    // --- Step 307: the Library, behind state.library (API Step 305's
+    // contract, section 1): the list, a search, and every document read
+    // and its PDF behind the token, for everyone; libraryEmpty answers
+    // the list empty.
+    if (state.library && key === "GET /api/library") {
+      const q = new URLSearchParams(search || "").get("q");
+      if (q) return json(200, { documents: librarySearch(q, lang) });
+      return json(200, { documents: state.libraryEmpty ? [] : LIBRARY_DOCS.map(x => libraryRow(x, lang)) });
+    }
+    const shelf = state.library ? /^GET \/api\/documents\/([^/]+)\/(read|pdf)$/.exec(key) : null;
+    const shelved = shelf ? LIBRARY_DOCS.find(x => x.docCode === decodeURIComponent(shelf[1])) : null;
+    if (shelved) {
+      const asked = new URLSearchParams(search || "").get("locale") || lang;
+      const loc = shelved.locales.indexOf(asked) !== -1 ? asked : "en";
+      if (shelf[2] === "pdf") {
+        const tokened = /^Bearer /.test(String((headers || {}).authorization || ""));
+        state.pdfReads.push({ which: "library:" + shelved.docCode, locale: asked, token: tokened });
+        if (!tokened) return json(401, { error: "Sign in first", code: "auth.required" });
+        return shelved.hasPdf ? image("application/pdf", LIBRARY_PDF) : json(404, { error: "Not found", code: "documents.notFound" });
+      }
+      const parts = libraryIn(shelved, "parts", loc);
+      const out = { docCode: shelved.docCode, title: libraryIn(shelved, "title", loc), version: shelved.version, locale: loc, locales: shelved.locales.slice(), sections: libraryIn(shelved, "sections", loc).map(s => Object.assign({}, s)) };
+      if (parts.length > 0) out.parts = parts.map(p => Object.assign({}, p));
+      if (shelved.hasPdf) out.pdfUrl = "/api/documents/" + shelved.docCode + "/pdf?locale=" + loc;
+      if (loc !== asked) out.shownInEnglish = true;
+      return json(200, { document: out });
     }
     // --- Step 264: the documents to read and sign (the Step 262
     // contract, section 6), behind state.training: one document for
@@ -4550,7 +4656,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

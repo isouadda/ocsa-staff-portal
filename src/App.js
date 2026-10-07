@@ -8881,8 +8881,9 @@ function LibraryView({ token, docs, onDocs, onOpen, at, onAt, toSign, onSign, t 
   return (
     <div data-library={openFolder ? "folder" : searching ? "search" : "folders"} style={{ padding: "14px 16px 100px" }}>
       <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>{tr("Library")}</div>
+      <label htmlFor="ocsa-library-search" style={mkLabel(t)}>{tr("Search by number, title or words in the text")}</label>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <input type="search" data-library-search="1" value={q} onChange={e => setQ(e.target.value.slice(0, 120))} placeholder={tr("Search by number, title or words in the text")} aria-label={tr("Search by number, title or words in the text")} style={{ ...mkInput(t), flex: 1, minWidth: 0 }} />
+        <input id="ocsa-library-search" type="text" enterKeyHint="search" autoComplete="off" data-library-search="1" value={q} onChange={e => setQ(e.target.value.slice(0, 120))} style={{ ...mkInput(t), flex: 1, minWidth: 0 }} />
         {q !== "" && <button type="button" onClick={() => setQ("")} style={{ ...wsPlainBtn(t), flex: "none" }}>{tr("Clear")}</button>}
       </div>
       {searching && !results && <div style={{ ...wsQuiet(t), marginTop: 12 }}>{tr("Loading...")}</div>}

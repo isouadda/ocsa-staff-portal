@@ -152,6 +152,13 @@
 //     from App support and listed in My tickets, Help's drafted ticket
 //     sent from its card, and a PTO request (English at 390, Spanish at
 //     320)
+//   - the second staff app round (Step 321), each part in English at 390
+//     and Spanish at 320: the Library (Step 307), against API Step 305 as
+//     its contract gives it: the folders in order with their counts, a
+//     folder's documents with the language line, a search by a word in
+//     the text opening the document at the section it matched, the
+//     reader with no signature box, See the designed version behind the
+//     token, Help's Open button, and the empty list's line
 //
 // The checks run in two lanes side by side (Step 290), each check on its
 // own phone and stub. SMOKE_ONLY=<words> runs only the checks whose name
@@ -166,7 +173,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_NOTICE, DRAFT_NOTICE } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_NOTICE, DRAFT_NOTICE, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -2096,6 +2103,79 @@ async function unfinishedForms(browser, language, width) {
   await app.context.close();
 }
 
+// --- Step 321, the second staff app round.
+
+// The Library (Step 307), against API Step 305 as its contract gives it
+// and the stub answers it: the folders and their counts, a folder's
+// documents with Also in Spanish (or, on a Spanish screen, In English
+// only), a search by a word in the text opening the document at the
+// section it matched, the reader with no signature box from cover to
+// last page, See the designed version read behind the token, Help's Open
+// button opening the document in the Library, and the empty list's line.
+async function library(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const app = await open({ library: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  const folderNames = ["QMS", "HR", "HS", "FRM"].map(f => LIBRARY_FOLDER_NAMES[f][language === "es" ? 1 : 0]);
+  let folders = false, folder = false, found = false, atSection = false, noSign = false, designed = false, opened = false, empty = false;
+  let wide = 0;
+  if (await waitFor(page, BAR_JS + ".length >= 5") && await openPlace(page, say(language, "Library"))) {
+    // The folders in the contract's order, each with its count.
+    folders = await waitFor(page, (w) => { const b = Array.from(document.querySelectorAll("[data-library-folder]")); return b.map(x => x.getAttribute("data-library-folder")).join(",") === "QMS,HR,HS,FRM" && b.every((x, i) => x.innerText.indexOf(w.names[i]) !== -1) && b[0].innerText.indexOf("2") !== -1; }, { names: folderNames });
+    wide = await sideways(page);
+    if (folders) {
+      await page.click('[data-library-folder="QMS"]');
+      folder = await waitFor(page, (w) => { const r = (c) => document.querySelector('[data-library-doc="' + c + '"]'); const l = (c) => (r(c) && r(c).querySelector("[data-library-language]") ? r(c).querySelector("[data-library-language]").innerText : ""); return document.querySelectorAll("[data-library-doc]").length === 2 && !!r("OCSA-QMS-901") && r("OCSA-QMS-901").innerText.indexOf(w.version) !== -1 && (w.es ? l("OCSA-QMS-901") === "" && l("OCSA-QMS-907") === w.only : l("OCSA-QMS-901") === w.also && l("OCSA-QMS-907") === ""); }, { version: say(language, "Version {n}", { n: "2.0" }), also: say(language, "Also in Spanish"), only: say(language, "In English only"), es: language === "es" });
+    }
+    // A word in the text: the first aid procedure, at its section 3.2.
+    if (folder) {
+      await page.fill("[data-library-search]", LIBRARY_SEARCH_WORD);
+      found = await waitFor(page, (w) => { const r = document.querySelectorAll("[data-library-doc]"); return r.length === 1 && r[0].getAttribute("data-library-doc") === "OCSA-HS-904" && !!r[0].querySelector('[data-library-match="3.2"]') && r[0].innerText.indexOf(w) !== -1; }, say(language, "Section {n}", { n: "3.2" }));
+    }
+    if (found) {
+      await page.click('[data-library-doc="OCSA-HS-904"]');
+      atSection = await waitFor(page, () => { const c = document.querySelector('[data-doc="read"][data-doc-ref="3.2"]'); return !!c && c.innerText.indexOf("eyewash") !== -1; });
+      wide = Math.max(wide, await sideways(page));
+      if (atSection) await clickWord(page, say(language, "Library"));
+    }
+    // The quality manual in the handbook's look: the cover in the
+    // screen's language, its designed version behind the token, and its
+    // last page with no signature box and no Next.
+    if (atSection && await waitFor(page, () => !!document.querySelector("[data-library-search]"))) {
+      // Clearing the search goes back to the folder it was opened from.
+      await page.fill("[data-library-search]", "");
+      if (await waitFor(page, () => !!document.querySelector('[data-library-doc="OCSA-QMS-901"]'))) await page.click('[data-library-doc="OCSA-QMS-901"]');
+      const cover = await waitFor(page, (w) => { const c = document.querySelector('[data-doc="cover"]'); return !!c && c.innerText.indexOf(w) !== -1 && !!c.querySelector('[data-doc-designed="1"]'); }, LIBRARY_DOCS[0].title[language]);
+      designed = cover && await pdfTab(page, '[data-doc="cover"] [data-doc-designed="1"]') && app.stub.state.pdfReads.some(r => r.which === "library:OCSA-QMS-901" && r.token && r.locale === language);
+      if (cover) {
+        await page.click('[data-doc="cover"] [data-doc-contents="1"]');
+        await waitFor(page, () => !!document.querySelector('[data-doc-jump="5"]'));
+        await page.click('[data-doc-jump="5"]');
+        noSign = await waitFor(page, () => { const c = document.querySelector('[data-doc="read"][data-doc-ref="2.2"]'); return !!c && !c.querySelector("canvas") && !c.querySelector("[data-doc-sign]") && !c.querySelector("[data-doc-next]") && !document.querySelector('[data-doc="sign"]'); });
+        wide = Math.max(wide, await sideways(page));
+      }
+    }
+    // Help's answer about what the manual covers, and its Open button.
+    if (await openPlace(page, say(language, "Help"))) {
+      const asked = await askHelp(app, language, language === "es" ? "¿Qué dice OCSA-QMS-901?" : "What is in OCSA-QMS-901?", Object.assign({ answer: "covers" }, language === "es" ? { language: "es" } : {}));
+      const button = asked && await waitFor(page, (w) => { const b = document.querySelector('[data-help-open-doc="OCSA-QMS-901"]'); return !!b && b.innerText.trim() === w; }, say(language, "Open {docCode}", { docCode: "OCSA-QMS-901" }));
+      if (button) {
+        await page.click('[data-help-open-doc="OCSA-QMS-901"]');
+        opened = await waitFor(page, (w) => { const c = document.querySelector('[data-doc="cover"]'); return !!c && c.innerText.indexOf(w) !== -1; }, LIBRARY_DOCS[0].title[language]);
+      }
+    }
+    // The list with nothing in it yet.
+    app.stub.state.libraryEmpty = true;
+    if (opened) { await page.click(".sp-content button"); await pause(page, 150); }
+    await tapBar(page, 0);
+    if (await openPlace(page, say(language, "Library"))) empty = await waitFor(page, (w) => { const e = document.querySelector("[data-library-empty]"); return !!e && e.innerText.indexOf(w) !== -1 && !document.querySelector("[data-library-folder]"); }, say(language, "The library is loading. Check back soon."));
+  }
+  check("The Library: More's Library lists the folders in order with their counts; a folder lists its documents with number, title, version and the language line; a search for a word in the text finds the document with the section it matched and opens it at that section; the quality manual opens on its cover in the screen's language, See the designed version reads its PDF behind the token, and its last page has no signature box and no Next; Help's Open button opens the document in the Library; an empty list says the library is loading; with no sideways scroll" + tag,
+    folders && folder && found && atSection && designed && noSign && opened && empty && wide <= 1 && app.errors.length === 0,
+    !folders ? "the folders did not list in order with their counts" : !folder ? "the folder did not list its two documents with the language line" : !found ? "the search did not find the document at section 3.2" : !atSection ? "the result did not open the reader at section 3.2" : !designed ? "See the designed version did not open the PDF behind the token: " + JSON.stringify(app.stub.state.pdfReads) : !noSign ? "the last page drew a signature box, Sign or Next" : !opened ? "Help's Open button did not open the manual" : !empty ? "the empty list did not say the library is loading" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+  await app.context.close();
+}
+
 // The Largest text size on a narrow phone: no control cut off or covered.
 async function largest(browser) {
   const app = await open({ accountPreferences: { language: "en", textSize: "largest" } }, { browser, language: "en", textSize: "largest", signedIn: true, width: 360 });
@@ -2140,6 +2220,8 @@ async function largest(browser) {
       for (const language of ["en", "es"]) await guard("touchpoint chips (" + language + ")", () => touchpoints(browser, language));
       await guard("the handbook reader (en)", () => handbook(browser, "en", 390));
       await guard("the handbook reader (es)", () => handbook(browser, "es", 320));
+      await guard("the Library (en)", () => library(browser, "en", 390));
+      await guard("the Library (es)", () => library(browser, "es", 320));
     };
     const laneB = async () => {
       for (const language of ["en", "es"]) await guard("the request page (" + language + ")", () => requestPage(browser, language));
