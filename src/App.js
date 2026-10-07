@@ -1047,11 +1047,13 @@ const mkCardText = (t) => ({ fontSize: 14, color: t.text, lineHeight: 1.55, marg
 
 // A PIN the phone turns away is one the API turns away, in the API's
 // words (Step 285). Every route that takes a PIN refuses one that is not
-// 4 digits. Change PIN alone, which is also Choose your PIN, refuses a
-// weak one, by isWeakPin in the API's routes/auth.js: four of one digit,
-// four digits running up or down by one with no wrap past 9 or 0, or the
-// person's badge number or its last four digits. Activation, a reset link
-// and registering take a weak PIN, so their screens ask only the shape.
+// 4 digits. Change PIN, which is also Choose your PIN, refuses a weak
+// one, by isWeakPin in the API's routes/auth.js: four of one digit, four
+// digits running up or down by one with no wrap past 9 or 0, or the
+// person's badge number or its last four digits. Activation from the
+// welcome email refuses a weak one too since API Step 292, with the same
+// words (Step 294). A reset link and registering take a weak PIN, so
+// their screens ask only the shape.
 const PIN_WEAK_WORDS = "Choose a PIN that is not repeated digits, a sequence, or your badge number";
 const PIN_UNCHANGED_WORDS = "New PIN must be different from your current PIN";
 const pinShapeReason = (pin) => (PIN_RE.test(pin) ? null : tr("PIN must be exactly 4 digits."));
@@ -3435,6 +3437,9 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
   const [errs, setErrs] = useState({});
   const [mismatches, setMismatches] = useState(0);
   const [attempt, setAttempt] = useState(0);
+  // An API that still checks the badge, met with the box hidden: the box
+  // comes back for this link.
+  const [badgeAsked, setBadgeAsked] = useState(false);
   const labelSt = mkLabel(t); const inputSt = mkInput(t); const pinSt = mkPinInput(t); const errSt = mkFieldErr(t); const helpSt = mkHelp(t); const textSt = mkCardText(t);
 
   useEffect(() => {
@@ -3447,17 +3452,19 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
     return () => { alive = false; };
   }, [token, attempt]);
 
-  // The API requires the badge whenever the row carries one. The GET says
-  // so through badgeAssigned; treat anything but an explicit false as required.
-  const needBadge = !info || info.badgeAssigned !== false;
+  // The GET says through badgeAssigned whether the link asks for the
+  // badge. API Step 292 answers false for every link from the welcome
+  // email, so the box shows only for true, or once a POST has said the
+  // badge did not match.
+  const needBadge = (!!info && info.badgeAssigned === true) || badgeAsked;
 
   const submit = async () => {
     const e = {};
     const b = badge.trim();
     if (needBadge && !b) e.badge = tr("Enter the badge number from your email.");
-    // Activation refuses a PIN that is not 4 digits and nothing more, so
-    // the phone asks the same.
-    const why = pinShapeReason(pin);
+    // The weak-PIN rule Change PIN holds, with its words, before the PIN
+    // is sent: the badge typed in, or the one the link's GET answers.
+    const why = weakPinReason(pin, needBadge && b ? b : (info && info.badgeNumber));
     if (why) e.pin = why;
     else if (pin2 !== pin) e.pin2 = tr(ERR_PIN_MISMATCH);
     setErrs(e);
@@ -3474,6 +3481,7 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
       if (err.code === "TOKEN_INVALID") { setPhase("invalid"); return; }
       if (err.code === "BADGE_MISMATCH") {
         const n = mismatches + 1; setMismatches(n);
+        setBadgeAsked(true);
         // The API's own sentence, in the request's language, with a word
         // more from the third try on.
         setErrs({ badge: tr(err.message) + (n >= 3 ? " " + tr("Ask your supervisor to confirm your badge number.") : "") });
@@ -3519,7 +3527,7 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
   );
   return (
     <AuthCard t={t} title={tr("Account Activation")} ownLanguage>
-      <div style={textSt}>{info && info.firstName ? tr("Welcome, {name}.", { name: info.firstName }) + " " : ""}{tr("Confirm your badge number and choose your 4-digit PIN.")}</div>
+      <div style={textSt}>{info && info.firstName ? tr("Welcome, {name}.", { name: info.firstName }) + " " : ""}{needBadge ? tr("Confirm your badge number and choose your 4-digit PIN.") : tr("Choose your 4-digit PIN and pick your language.")}</div>
       {info && info.expiresAt && <div style={{ ...helpSt, marginTop: 0, marginBottom: 16 }}>{tr("This link works until")} {fmtExpiry(info.expiresAt)} {tr("and can be used once.")}</div>}
       {needBadge && <div style={{ marginBottom: 14 }}>
         <label style={labelSt}>{tr("Badge Number")}</label>
@@ -3527,7 +3535,7 @@ function ActivateScreen({ token, onActivated, onGoLogin, showToast, t }) {
         <div style={helpSt}>{tr("The number on the email we sent you.")}</div>
         {errs.badge && <div style={errSt}>{errs.badge}</div>}
       </div>}
-      <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("PIN (4 digits)")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
+      <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("PIN (4 digits)")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}<div style={helpSt}>{tr("4 digits. Not all the same, not in a row like 1234, and not your badge number.")}</div></div>
       <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Confirm PIN")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
       <div style={{ marginBottom: 22 }}><label style={labelSt}>{tr("Language")}</label><LangPicker value={locale} onChange={setLocale} t={t} /></div>
       <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? tr("Activating...") : tr("Activate Account")}</button>

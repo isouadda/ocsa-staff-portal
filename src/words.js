@@ -1397,6 +1397,8 @@ export const WORDS = {
   "Sent to App support. You can follow it under My tickets.": "Enviado a Soporte de la aplicaci\u00f3n. Puede seguirlo en Mis reportes.",
   "Can't sign in? Email {email}": "\u00bfNo puede iniciar sesi\u00f3n? Escriba a {email}",
   "PTO (paid time off)": "PTO (tiempo libre pagado)",
+  "Choose your 4-digit PIN and pick your language.": "Elija su PIN de 4 d\u00edgitos y su idioma.",
+  "4 digits. Not all the same, not in a row like 1234, and not your badge number.": "4 d\u00edgitos. No todos iguales, no seguidos como 1234 y no su n\u00famero de empleado.",
   },
 };
 
@@ -2672,6 +2674,8 @@ WORDS.fr = {
   "Sent to App support. You can follow it under My tickets.": "Envoy\u00e9 \u00e0 l'assistance de l'application. Suivez-le dans Mes tickets.",
   "Can't sign in? Email {email}": "Impossible de vous connecter\u00a0? \u00c9crivez \u00e0 {email}",
   "PTO (paid time off)": "PTO (cong\u00e9 pay\u00e9)",
+  "Choose your 4-digit PIN and pick your language.": "Choisissez votre code PIN \u00e0 4 chiffres et votre langue.",
+  "4 digits. Not all the same, not in a row like 1234, and not your badge number.": "4 chiffres. Pas tous identiques, pas \u00e0 la suite comme 1234, et pas votre num\u00e9ro de badge.",
 };
 
 // {name} is replaced after the language is chosen, so the

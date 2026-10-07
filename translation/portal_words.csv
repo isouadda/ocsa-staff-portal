@@ -1226,3 +1226,5 @@ Ticket for App support,Reporte para Soporte de la aplicación,Ticket pour l'assi
 Sent to App support. You can follow it under My tickets.,Enviado a Soporte de la aplicación. Puede seguirlo en Mis reportes.,Envoyé à l'assistance de l'application. Suivez-le dans Mes tickets.,"Help, the ticket card after it is sent"
 Can't sign in? Email {email},¿No puede iniciar sesión? Escriba a {email},Impossible de vous connecter ? Écrivez à {email},"Sign in, under Sign In; the email is App support's contact"
 PTO (paid time off),PTO (tiempo libre pagado),PTO (congé payé),"Schedule, Request time off, a type; My time off"
+Choose your 4-digit PIN and pick your language.,Elija su PIN de 4 dígitos y su idioma.,Choisissez votre code PIN à 4 chiffres et votre langue.,"Account Activation, from the welcome email, when no badge is asked"
+"4 digits. Not all the same, not in a row like 1234, and not your badge number.","4 dígitos. No todos iguales, no seguidos como 1234 y no su número de empleado.","4 chiffres. Pas tous identiques, pas à la suite comme 1234, et pas votre numéro de badge.","Account Activation, under PIN (4 digits)"
