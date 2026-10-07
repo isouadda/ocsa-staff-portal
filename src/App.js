@@ -3220,7 +3220,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
-              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
+              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} onOpenDocument={(d) => openLibraryDoc(d, null)} />}
@@ -4765,6 +4765,53 @@ const isPeriodic = (tk) => PERIOD_SECTIONS.some(p => p.id === tk.period);
 const howOften = (tk) => { const p = PERIOD_SECTIONS.find(x => x.id === tk.period); return p ? tr(p.often) : null; };
 const sectionOf = (tk) => (isPeriodic(tk) ? tk.period : tk.period === "as_needed" ? "as_needed" : "today");
 const isDueToday = (tk) => sectionOf(tk) === "today" && tk.dueToday !== false;
+// Timed site schedules (Step 316, the Step 315 contract's section 2). A
+// block carries its window, from its time to its end, its kind and the
+// days it runs: on each checklist row as end_time and kind, and the
+// block's days as block_days_of_week, since the row's own days_of_week
+// is the task's; and on the session's shifts for every block, the ones
+// holding no step among them, so the day's schedule is drawn whole. With
+// none of it answered, the checklist is drawn as before.
+const BLOCK_KINDS = ["work", "critical", "meal", "full_access", "check_in", "check_out", "anytime"];
+const blockKindOf = (v) => (BLOCK_KINDS.indexOf(String(v || "")) !== -1 ? String(v) : null);
+// Each kind's words, drawn as a tag, so a kind never rests on its color
+// alone. Work has none.
+const BLOCK_KIND_WORDS = { critical: "Critical", meal: "Residents' meal", full_access: "Empty, full access", anytime: "When there is free time", check_in: "Start of shift", check_out: "End of shift" };
+const DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const blockDaysOf = (v) => { const list = String(Array.isArray(v) ? v.join(",") : v || "").toLowerCase().split(/[\s,]+/).map(x => x.slice(0, 3)).filter(x => DAY_KEYS.indexOf(x) !== -1); return list.length > 0 ? list : null; };
+const clockMinutes = (v) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(v || "").trim()); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+// The minute of the day on the company's clock.
+function companyMinutes(ms) {
+  const p = {};
+  new Intl.DateTimeFormat("en-US", { timeZone: clientConfig.company.timeZone, hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(new Date(ms)).forEach((x) => { p[x.type] = Number(x.value); });
+  return ((p.hour || 0) % 24) * 60 + (p.minute || 0);
+}
+// The day of the week of a checklist day, YYYY-MM-DD, or of today on the
+// company's calendar.
+const scheduleDayOf = (ymd, ms) => {
+  if (YMD_RE.test(String(ymd || ""))) return DAY_KEYS[new Date(Date.UTC(Number(ymd.slice(0, 4)), Number(ymd.slice(5, 7)) - 1, Number(ymd.slice(8, 10)))).getUTCDay()];
+  const n = new Intl.DateTimeFormat("en-US", { timeZone: clientConfig.company.timeZone, weekday: "short" }).format(new Date(ms)).toLowerCase().slice(0, 3);
+  return DAY_KEYS.indexOf(n) !== -1 ? n : null;
+};
+// A row's block, as the row carries it.
+const rowBlockOf = (tk) => ({ end: tk.block_end_time || tk.blockEndTime || tk.end_time || null, kind: blockKindOf(tk.block_kind || tk.blockKind || tk.kind), days: blockDaysOf(tk.block_days_of_week || tk.blockDaysOfWeek) });
+// The blocks of the shift the session carries, as every session answer
+// names them (Step 124), with Step 315's end, kind and days. A site with
+// one shift has it whatever the session carries.
+function sessionBlocks(cs) {
+  const label = sessionShiftLabel(cs);
+  const list = cs && cs.clockedIn && cs.session && Array.isArray(cs.session.shifts) ? cs.session.shifts : [];
+  const s = list.find(x => x && x.label === label) || (list.length === 1 ? list[0] : null);
+  if (!s || !Array.isArray(s.blocks)) return [];
+  return s.blocks.map(b => (b && typeof b === "object" && b.label ? {
+    shift: String(s.label), shiftDisplay: s.displayLabel || s.label, label: String(b.label), display: b.displayLabel || b.label, time: b.time || b.anchorTime || null, order: b.order === undefined ? null : b.order,
+    end: b.endTime || b.end_time || null, kind: blockKindOf(b.kind), days: blockDaysOf(b.daysOfWeek || b.days_of_week),
+  } : null)).filter(Boolean);
+}
+// Whether a window holds a minute of the day, one that runs past
+// midnight included.
+const windowHolds = (from, to, at) => (from === null || to === null || at === null ? false : from <= to ? at >= from && at < to : at >= from || at < to);
+const windowPast = (from, to, at) => (from === null || to === null || at === null ? false : from <= to ? at >= to : at >= to && at < from);
 // When and by whom work was done, the way a person says it: today,
 // yesterday, the weekday within the last six days, and a short date before
 // that, all on the company's calendar whatever zone the phone is in.
@@ -4813,7 +4860,13 @@ function itemWords(task, live) {
 // shift's own first, and then by zone, and items that carry neither a
 // building nor a floor are listed under the site itself. Every item is
 // drawn somewhere.
-function checklistSections(list, shift, live) {
+// plan is the day's schedule (Step 316): { blocks, held, day, now }, the
+// session's blocks, the blocks any row on the list holds, the day of the
+// week and the minute of the day. With it, a block holding no step on
+// the list is drawn in its place, a block whose days leave out today is
+// left out, and the block or blocks whose window holds the minute come
+// first as Now, then the next to start as Next.
+function checklistSections(list, shift, live, plan) {
   const text = (v) => (v === null || v === undefined ? "" : String(v).trim());
   const inShift = (tk) => !!(text(tk.shift_label) || text(tk.block_label));
   const areaOf = (bld, fl) => [bld, fl ? tr("Floor {n}", { n: fl }) : ""].filter(Boolean).join(" - ");
@@ -4830,18 +4883,43 @@ function checklistSections(list, shift, live) {
   // block changes, so a block that comes round twice, a restroom round
   // morning and noon, is drawn twice, each time in its place.
   const timed = list.map((tk, i) => ({ tk, i })).filter(x => inShift(x.tk));
+  const planned = plan && Array.isArray(plan.blocks) ? plan.blocks : [];
+  planned.forEach((b, j) => {
+    if (timed.some(x => text(x.tk.shift_label) === b.shift && text(x.tk.block_label) === b.label) || (plan.held && plan.held.has(b.shift + "|" + b.label))) return;
+    timed.push({ tk: { shift_label: b.shift, block_label: b.label, anchor_time: b.time, block_sort_order: b.order, display: { shift: b.shiftDisplay, block: b.display }, empty: true }, i: list.length + j });
+  });
   timed.sort((a, b) => (rank(a.tk.block_sort_order) - rank(b.tk.block_sort_order) || 0) || byTime(a.tk.anchor_time, b.tk.anchor_time) || a.i - b.i);
   const shifts = new Map();
   const shown = (tk) => (live && tk.display && typeof tk.display === "object" ? tk.display : {});
   timed.forEach(({ tk }) => {
     const s = text(tk.shift_label), b = text(tk.block_label);
-    if (!shifts.has(s)) { const sec = { head: text(shown(tk).shift) || s || null, groups: [] }; shifts.set(s, sec); sections.push(sec); }
+    if (!shifts.has(s)) { const sec = { head: (tk.empty ? text(tk.display.shift) : text(shown(tk).shift)) || s || null, groups: [] }; shifts.set(s, sec); sections.push(sec); }
     const sec = shifts.get(s);
     let g = sec.groups[sec.groups.length - 1];
-    if (!g || g.key !== b) { g = { key: b, title: b ? text(shown(tk).block) || b : null, time: b && clock(tk.anchor_time) !== null ? text(tk.anchor_time) : null, block: true, rows: [] }; sec.groups.push(g); }
+    if (!g || g.key !== b) {
+      const own = rowBlockOf(tk);
+      const from = planned.find(x => x.shift === s && x.label === b) || {};
+      const shownTitle = tk.empty ? text(tk.display.block) : text(shown(tk).block);
+      g = { key: b, title: b ? shownTitle || b : null, time: b && clock(tk.anchor_time) !== null ? text(tk.anchor_time) : null, block: true, rows: [], end: own.end || from.end || null, kind: own.kind || from.kind || null, days: own.days || from.days || null };
+      sec.groups.push(g);
+    }
+    if (tk.empty) return;
     const place = [areaOf(text(tk.building_name), text(tk.floor_number)), text(itemWords(tk, live).zone)].filter(Boolean).join(" - ");
     const before = g.rows.length ? g.rows[g.rows.length - 1].at : null;
     g.rows.push({ task: tk, at: place, place: place && place !== before ? place : null });
+  });
+
+  // The day's schedule: blocks whose days leave out today go, and Now and
+  // Next come first.
+  if (plan) shifts.forEach((sec) => {
+    sec.groups = sec.groups.filter(g => !(g.days && plan.day && g.days.indexOf(plan.day) === -1));
+    if (plan.now === null || plan.now === undefined) return;
+    sec.groups.forEach((g) => { const from = clock(g.time), to = clock(g.end); g.from = from === null ? null : Math.floor(from / 60); g.to = to === null ? null : Math.floor(to / 60); g.now = g.kind !== "anytime" && windowHolds(g.from, g.to, plan.now); g.past = g.kind !== "anytime" && windowPast(g.from, g.to, plan.now); });
+    const gap = (g) => (g.from === null || g.kind === "anytime" || g.now ? null : (g.from - plan.now + 1440) % 1440);
+    const soon = sec.groups.map(gap).filter(x => x !== null && x > 0 && x < 720);
+    const first = soon.length > 0 ? Math.min.apply(null, soon) : null;
+    sec.groups.forEach((g) => { g.next = first !== null && gap(g) === first; });
+    sec.groups = sec.groups.filter(g => g.now).concat(sec.groups.filter(g => g.next), sec.groups.filter(g => !g.now && !g.next));
   });
 
   const areas = new Map();
@@ -4924,7 +5002,7 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
   );
 }
 
-function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, t }) {
+function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, t }) {
   const [detail, setDetail] = useState(null);
   const loaded = Array.isArray(tasks);
   const standardTasks = standardTasksOf(tasks);
@@ -4936,7 +5014,34 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   // The list, section by section: the card, then each group's title, then
   // its rows, each row after the place it is in whenever that changes.
   // Everything under a card sits in from it.
-  const drawSections = (sections, row) => sections.map((sec, si) => (<div key={si}>{sec.head && (<div style={{ ...floorHeadSt, marginTop: si > 0 ? 10 : 0 }}>{sec.head}</div>)}{sec.groups.map((g, gi) => { const inset = sec.head ? 8 : 0; return (<div key={gi} style={{ marginBottom: 16 }}>{g.title && <div style={{ ...(g.block ? blockSt : zoneSt), paddingLeft: inset }}>{g.time ? <><span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{clockTime(g.time)}</span>{" "}</> : null}<span>{g.title}</span></div>}{g.rows.reduce((out, r) => { if (r.place) out.push(<div key={"at-" + r.task.id} style={{ ...zoneSt, paddingLeft: inset }}>{r.place}</div>); out.push(row(r.task, inset)); return out; }, [])}</div>); })}</div>));
+  // A block's heading (Step 316): Now or Next first, then its window,
+  // from its time to its end, and its name; its kind as words in a tag,
+  // and Overdue on a critical block past its end with steps left. A
+  // residents' meal says the space is in use. A block from before Step
+  // 315 reads its time and its name, as it always did.
+  const nowChipSt = { ...trainingChipSt(t, GOLD), background: GOLD, border: "1px solid " + GOLD, color: NAVY };
+  const kindColor = (k) => (k === "critical" ? RED : k === "meal" ? ORANGE : k === "full_access" ? GREEN : k === "anytime" ? BLUE : null);
+  const kindChipSt = (k) => (kindColor(k) ? trainingChipSt(t, kindColor(k)) : { ...trainingChipSt(t, GOLD), background: t.cardAlt, border: "1px solid " + t.borderSolid, color: t.textSec });
+  const blockHead = (g, inset) => {
+    const span = g.kind === "anytime" || !g.time ? null : g.end ? tr("{start} to {end}", { start: clockTimeKept(g.time), end: clockTimeKept(g.end) }) : clockTime(g.time);
+    const kindWord = g.kind && BLOCK_KIND_WORDS[g.kind] ? tr(BLOCK_KIND_WORDS[g.kind]) : null;
+    return (
+      <div data-block={g.key} data-block-kind={g.kind || "work"} data-block-when={g.now ? "now" : g.next ? "next" : g.overdue ? "overdue" : ""} style={{ ...blockSt, paddingLeft: inset, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "4px 8px" }}>
+        {g.now && <span data-block-now="1" style={nowChipSt}>{tr("Now")}</span>}
+        {g.next && <span data-block-next="1" style={trainingChipSt(t, BLUE)}>{tr("Next")}</span>}
+        {span && <span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{span}</span>}
+        <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{g.title}</span>
+        {kindWord && <span data-block-tag={g.kind} style={kindChipSt(g.kind)}>{kindWord}</span>}
+        {g.overdue && <span data-block-overdue="1" style={trainingChipSt(t, RED)}>{tr("Overdue")}</span>}
+      </div>
+    );
+  };
+  const groupHead = (g, inset) => {
+    if (!g.title) return null;
+    if (g.block && (g.end || g.kind || g.now || g.next)) return blockHead(g, inset);
+    return <div style={{ ...(g.block ? blockSt : zoneSt), paddingLeft: inset }}>{g.time ? <><span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{clockTime(g.time)}</span>{" "}</> : null}<span>{g.title}</span></div>;
+  };
+  const drawSections = (sections, row) => sections.map((sec, si) => (<div key={si}>{sec.head && (<div style={{ ...floorHeadSt, marginTop: si > 0 ? 10 : 0 }}>{sec.head}</div>)}{sec.groups.map((g, gi) => { const inset = sec.head ? 8 : 0; return (<div key={gi} style={{ marginBottom: 16 }}>{groupHead(g, inset)}{g.kind === "meal" && g.rows.length === 0 && <div data-block-meal="1" style={{ fontSize: 12, color: t.textSec, lineHeight: 1.4, marginTop: -2, paddingLeft: inset }}>{tr("The space is in use. No steps in this time.")}</div>}{g.rows.reduce((out, r) => { if (r.place) out.push(<div key={"at-" + r.task.id} style={{ ...zoneSt, paddingLeft: inset }}>{r.place}</div>); out.push(row(r.task, inset)); return out; }, [])}</div>); })}</div>));
   const rowBase = { display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 11, padding: "11px 13px", marginBottom: 6, borderRadius: R.md, boxShadow: t.shadow };
   const chipPriority = { fontSize: 9, color: ink(t, ORANGE), background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600, letterSpacing: "0.5px" };
   const chipOften = { fontSize: 10, color: t.textSec, background: t.cardAlt, border: "1px solid " + t.borderSolid, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600, fontFamily: FONT_HEAD };
@@ -5075,10 +5180,16 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   // each period with work, titled with its own count, and as needed work
   // last, with none.
   const today = rows.filter(tk => sectionOf(tk) === "today");
+  // The day's schedule for the shift in use (Step 316), once the session's
+  // blocks or the rows carry a window, a kind or days.
+  const blocks = sessionBlocks(clockStatus);
+  const timedPlan = blocks.some(b => b.end || b.kind || b.days) || rows.some(tk => { const m = rowBlockOf(tk); return !!(m.end || m.kind || m.days); });
+  const at = typeof nowMs === "number" ? nowMs : Date.now();
+  const plan = timedPlan ? { blocks: blocks, held: new Set(rows.map(tk => String(tk.shift_label || "").trim() + "|" + String(tk.block_label || "").trim())), day: scheduleDayOf(listDay, at), now: companyMinutes(at) } : null;
   const counts = todayCount(tasks, completedTaskIds);
   const pct = counts.total > 0 ? Math.round((counts.done / counts.total) * 100) : 0;
   const listSections = [];
-  if (today.length > 0) listSections.push({ id: "today", title: tr("Today"), rows: today, count: null });
+  if (today.length > 0 || (plan && blocks.length > 0)) listSections.push({ id: "today", title: tr("Today"), rows: today, count: null, plan: plan });
   PERIOD_SECTIONS.forEach((p) => {
     const list = rows.filter(tk => tk.period === p.id);
     if (list.length > 0) listSections.push({ id: p.id, title: p.title(), rows: list, count: tr("{done} of {total} done", { done: list.filter(isDone).length, total: list.length }) });
@@ -5106,7 +5217,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
       {listSections.map((sec, si) => (
         <div key={sec.id} style={{ marginTop: si > 0 ? 22 : 0 }}>
           <div style={periodHeadSt}><div role="heading" aria-level={2} style={periodTitleSt}>{sec.title}</div>{sec.count && <div style={periodCountSt}>{sec.count}</div>}</div>
-          {drawSections(checklistSections(sec.rows, clockStatus.shift, apiWords), (task, inset) => {
+          {drawSections((() => { const list = checklistSections(sec.rows, clockStatus.shift, apiWords, sec.plan || null); if (sec.plan) list.forEach(x => x.groups.forEach(g => { g.overdue = g.kind === "critical" && !!g.past && g.rows.some(r => !isDone(r.task)); })); return list; })(), (task, inset) => {
             const w = itemWords(task, apiWords);
             const done = isDone(task);
             const lock = lockOf(task, done);
