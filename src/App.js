@@ -1039,6 +1039,29 @@ const inspectAnswerOf = (d) => {
     } : null)).filter(Boolean),
   };
 };
+// The safety walk a scheduled inspection carries (Step 313, the Step 312
+// contract's section 2): the published OCSA-FRM-015 definition and the
+// inspector's own draft of it, tied to the scheduled inspection, from
+// safety on GET /api/inspections/scheduled/:id. null for an inspection
+// without it, which reads and sends as it always did.
+const inspectSafetyOf = (d) => {
+  const s = d && typeof d === "object" && d.safety && typeof d.safety === "object" ? d.safety : null;
+  if (!s || d.with_safety === false || d.withSafety === false) return null;
+  const draft = formDraftOf(s.draft || s.response || null);
+  const form = [s.form, s.definition, draft && draft.form, draft && draft.definition].find(x => x && typeof x === "object" && Array.isArray(x.fields)) || null;
+  return draft && typeof draft === "object" && draft.id && form ? { form: form, draft: draft } : null;
+};
+// A walk's site checklist, kept on this phone as it is scored, by person
+// and inspection (Step 313), so leaving and coming back continues it; the
+// safety part is kept by the API as the inspector's draft. Every read and
+// write in try and catch; a storage that throws keeps nothing.
+const INSPECT_KEPT_PREFIX = "ocsa-staff-inspect:";
+const inspectKeptKey = (userId, id) => INSPECT_KEPT_PREFIX + String(userId || "") + ":" + String(id);
+function readInspectKept(userId, id) {
+  try { const v = JSON.parse(window.localStorage.getItem(inspectKeptKey(userId, id)) || "null"); return v && typeof v === "object" ? v : null; } catch (e) { return null; }
+}
+function keepInspect(userId, id, v) { try { window.localStorage.setItem(inspectKeptKey(userId, id), JSON.stringify(v)); } catch (e) {} }
+function forgetInspect(userId, id) { try { window.localStorage.removeItem(inspectKeptKey(userId, id)); } catch (e) {} }
 // The band in QMS-014 5.2's words.
 const INSPECT_BAND_WORDS = {
   meets: () => tr("Meets the standard."),
@@ -12437,7 +12460,16 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
 // request to the public route, photos ride in the body as data URLs, a
 // customer signature is drawn in its section, and the API's refusal is
 // drawn under the question it names or at the top.
-function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, showToast }) {
+// With walk set, this is the safety walk inside a scheduled inspection
+// (Step 313): the form drawn by the same engine, a section at a time,
+// saved as the inspector's own draft as Next saves it, with no header,
+// no review and no send of its own. A sign-off is not drawn here: the
+// inspection's one signature at the end signs it. walk is { at, onBack,
+// onEnd, onState, saveRef }: the section to go to, what Back does on the
+// first section and Next on the last, what is told of the answers each
+// time they change, and where the save is handed for the inspection to
+// call before it sends.
+function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, showToast, walk }) {
   const isCustomer = !!customer;
   const [current, setCurrent] = useState(draft);
   // A person question: the staff list, read once the form asks for a
@@ -12523,7 +12555,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
   // Every question in play, which is what a save is judged against, and
   // the ones this screen draws, which is what a person walks through.
   const fields = formFieldsInPlay(form, values);
-  const shown = fields.filter(formDrawnOnPortal);
+  const shown = fields.filter(f => formDrawnOnPortal(f) && !(walk && formTypeOf(f) === "signoff"));
   // The staff list, asked for once the form has a person question in
   // play and never on the customer's page, which has no token for it.
   const asksPerson = !isCustomer && shown.some(f => formTypeOf(f) === "person");
@@ -12879,14 +12911,18 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
     });
   }, [values, form, current.id, token, locale, isCustomer]);
 
-  const toTop = () => { if (bodyRef.current) bodyRef.current.scrollTop = 0; };
+  const toTop = () => { if (walk) { try { window.scrollTo(0, 0); } catch (e) {} return; } if (bodyRef.current) bodyRef.current.scrollTop = 0; };
 
+  // The sections a set of answers puts in play, the way this screen
+  // draws them.
+  const sectionsFor = (answers) => formSectionsOf(formFieldsInPlay(form, answers).filter(f => formDrawnOnPortal(f) && !(walk && formTypeOf(f) === "signoff")));
   const goNext = async () => {
     if (saving) return;
     const after = await save();
     if (!after) return;
-    const list = formSectionsOf(formFieldsInPlay(form, after).filter(formDrawnOnPortal));
+    const list = sectionsFor(after);
     const i = list.indexOf(here);
+    if (walk && (i === -1 || i + 1 >= list.length)) { walk.onEnd(); return; }
     if (i === -1 || i + 1 >= list.length) { setSendErr(null); setReview(true); toTop(); return; }
     setSectionKey(list[i + 1]); toTop();
   };
@@ -12896,11 +12932,25 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
     if (review) { setReview(false); setSectionKey(sections[sections.length - 1] || null); toTop(); return; }
     const after = await save();
     if (!after) return;
-    const list = formSectionsOf(formFieldsInPlay(form, after).filter(formDrawnOnPortal));
+    const list = sectionsFor(after);
     const i = list.indexOf(here);
+    if (walk && i <= 0) { walk.onBack(); return; }
     if (i <= 0) return;
     setSectionKey(list[i - 1]); toTop();
   };
+  // The walk: the save handed over, a section asked for from outside, and
+  // what is answered and what is missing told each time it changes. A
+  // sign-off is left out of what is missing, since the inspection's
+  // signature signs it.
+  if (walk && walk.saveRef) walk.saveRef.current = save;
+  useEffect(() => { if (walk && walk.at && walk.at.key && sections.indexOf(walk.at.key) !== -1) { setSectionKey(walk.at.key); toTop(); } }, [walk ? walk.at : null]);
+  const walkMissing = walk ? missingNamed().filter(m => { const f = fieldByKey(m.key); return !f || formTypeOf(f) !== "signoff"; }) : null;
+  const walkSigned = walk ? (form && Array.isArray(form.fields) ? form.fields : []).filter(f => formTypeOf(f) === "signoff" && formDrawnOnPortal(f) && !formHasAnswer(values[f.key])).length : 0;
+  const walkTold = walk ? JSON.stringify([walkMissing, answered, remaining, sections, here, Object.keys(dirty).length, current.answers || null]) : "";
+  useEffect(() => {
+    if (!walk || !walk.onState) return;
+    walk.onState({ missing: walkMissing, answered: answered, remaining: Math.max(0, remaining - walkSigned), sections: sections.map(k => ({ key: k, title: formSectionTitle(form, k, locale) })), at: here, dirty: Object.keys(dirty).length > 0, answers: Object.assign({}, current.answers || {}) });
+  }, [walkTold]);
 
   const editSection = (sk) => {
     setReview(false); setSendErr(null); setSectionKey(sk); toTop();
@@ -13433,6 +13483,38 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
         <div style={{ background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 18 }}>
           <div style={{ fontSize: 14, color: t.text, lineHeight: 1.55, marginBottom: 16 }}>{sent === "already" ? tr(FORMS_ALREADY_LINE) : tr(FORMS_SENT_LINE)}</div>
           <button onClick={onLeave} style={footBtn(true, false)}>{tr("Done")}</button>
+        </div>
+      </div>
+    );
+  }
+
+  // The walk's safety part, drawn in the inspection's page: the section's
+  // title, its questions, and Back and Next, which save as they always
+  // do. Back on the first section goes to the site checklist, and Next on
+  // the last to the signature.
+  if (walk) {
+    return (
+      <div data-walk-safety={here || ""} data-walk-section={at + 1} ref={bodyRef}>
+        {sections.length > 1 && <div style={{ fontSize: 11, color: t.textMut, marginBottom: 8 }}>{tr("Section {n} of {total}", { n: at + 1, total: sections.length })}</div>}
+        {saveErr && <div role="alert" style={{ padding: "10px 12px", marginBottom: 16, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text, fontSize: 13, lineHeight: 1.5 }}>{saveErr}</div>}
+        {!form && <div style={{ fontSize: 13, color: t.textMut, lineHeight: 1.5 }}>{tr(FORMS_LOAD_FAILED)}</div>}
+        {hereTitle && (
+          <div style={{ marginBottom: 16 }}>
+            <div role="heading" aria-level={3} style={titleSt}>{hereTitle}</div>
+            {hereHelp && <div style={mkHelp(t)}>{hereHelp}</div>}
+          </div>
+        )}
+        {pageFields.map(f => (
+          <div key={f.key} data-walk-field={f.key} style={qSt}>
+            <div style={labelSt}>{f.label}{requiredHere(f) && <span style={reqSt}>{tr("Required")}</span>}</div>
+            {f.help && <div style={mkHelp(t)}>{f.help}</div>}
+            {renderInput(f)}
+            {keyErr[f.key] && <div style={mkFieldErr(t)}>{keyErr[f.key]}</div>}
+          </div>
+        ))}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
+          <button type="button" data-walk-back="1" onClick={goBack} disabled={saving} style={footBtn(false, saving)}>{saving ? tr("Saving") : tr("Back")}</button>
+          <button type="button" data-walk-next="1" onClick={goNext} disabled={saving} style={footBtn(true, saving)}>{saving ? tr("Saving") : tr("Next")}</button>
         </div>
       </div>
     );
@@ -16280,6 +16362,21 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
   const touch = (id) => { setScoredIds(prev => prev[id] ? prev : { ...prev, [id]: true }); setLastTouched(id); };
   // The index a long inspection offers, open or not.
   const [sectionsOpen, setSectionsOpen] = useState(false);
+  // The safety walk (Step 313): the part on screen (the site checklist,
+  // the safety walk or the signature), what the safety part last told of
+  // its answers, the section of it asked for, its save, and what the
+  // complete route said is still missing in it.
+  const safety = inspectSafetyOf(active);
+  const [part, setPart] = useState("cards");
+  const [safetyState, setSafetyState] = useState(null);
+  const [safetyAt, setSafetyAt] = useState(null);
+  const safetySave = useRef(null);
+  const [safetyRefused, setSafetyRefused] = useState(null);
+  // The site checklist of a walk is kept on this phone as it is scored.
+  useEffect(() => {
+    if (!active || !safety || !user) return;
+    keepInspect(user.id, active.id, { scores: scores, notes: notes, needsFix: needsFix, ownerOf: ownerOf, scoredIds: scoredIds, overallNotes: overallNotes, shots: shots, part: part });
+  }, [active, scores, notes, needsFix, ownerOf, scoredIds, overallNotes, shots, part]);
 
   // + Schedule follows the capability the API enforces on the schedule
   // route, read once when the tab opens, so nobody is shown a button the
@@ -16373,6 +16470,18 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       setOwnerOf({}); setCardFault({});
       notDueBefore.current = {};
       setScoredIds({}); setLastTouched(null); setShowScored(false); setSectionsOpen(false);
+      setPart("cards"); setSafetyState(null); setSafetyAt(null); setSafetyRefused(null); safetySave.current = null;
+      // A walk left part way comes back as it was left.
+      const kept = inspectSafetyOf(d) && user ? readInspectKept(user.id, d.id) : null;
+      if (kept) {
+        const ids = (d.items || []).map(item => String(item.id));
+        const only = (o) => { const out = {}; Object.keys(o && typeof o === "object" ? o : {}).forEach(k => { if (ids.indexOf(String(k)) !== -1) out[k] = o[k]; }); return out; };
+        setScores(Object.assign(initScores, only(kept.scores))); setNotes(Object.assign(initNotes, only(kept.notes)));
+        setNeedsFix(only(kept.needsFix)); setOwnerOf(only(kept.ownerOf)); setScoredIds(only(kept.scoredIds));
+        setOverallNotes(typeof kept.overallNotes === "string" ? kept.overallNotes : "");
+        if (kept.shots && typeof kept.shots === "object") setShots(kept.shots);
+        if (kept.part === "safety" || kept.part === "sign") setPart(kept.part);
+      }
     } catch (e) { showToast(tr(e.message), "error"); }
   };
 
@@ -16498,7 +16607,9 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       setMissingNote(flags);
       showToast(tr("Say what needs fixing"), "error");
       // The card may sit in the fold, so the fold opens first and the
-      // scroll waits for it to be drawn.
+      // scroll waits for it to be drawn. On a walk, the site checklist
+      // comes back first.
+      if (safety) setPart("cards");
       setShowScored(true);
       setTimeout(() => {
         const card = document.querySelector('[data-inspect-item="' + unsaid[0].id + '"]');
@@ -16509,6 +16620,14 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
     // A photo still going up holds the send until it is in. With no
     // drawing, the box turns red, says so, and comes into view.
     if (capture && shotsGoing) return;
+    // On a walk, what the safety part still needs is listed above the
+    // signature and nothing goes until it is answered (Step 313).
+    if (safety && walkSafetyMissing().length > 0) {
+      setPart("sign");
+      showToast(tr("These still need an answer"), "error");
+      scrollToMark("[data-walk-missing]");
+      return;
+    }
     if (capture && capture.sign && !sigPng) {
       setSigFault({ missing: true });
       scrollToMark("[data-inspect-signature]");
@@ -16535,6 +16654,9 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       const body = { scores: payload, overall_notes: overallNotes || null };
       if (capture) body.photo_urls = shotUrls(INSPECT_WHOLE);
       if (capture && sigPng) body.signature = sigPng;
+      // The safety part goes in the same request (Step 313): its draft and
+      // its answers as saved, signed by the same signature.
+      if (safety) body.safety = { responseId: safety.draft.id, answers: safetyState && safetyState.answers ? safetyState.answers : Object.assign({}, safety.draft.answers || {}) };
       const d = await api("/api/inspections/scheduled/" + active.id + "/complete" + (capture ? "?locale=" + languageToSend() : ""), {
         method: "POST", token,
         body: body,
@@ -16545,6 +16667,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       // reports, one after another.
       const answer = owners ? inspectAnswerOf(d) : null;
       const reports = owners ? [] : (active.items || []).filter(item => needsFix[item.id]).map(reportFor);
+      if (safety && user) forgetInspect(user.id, active.id);
       if (answer) {
         setSent({ name: active.template_name, reports: [], answer: answer });
       } else if (!reports.length) {
@@ -16556,7 +16679,13 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       }
       setActive(null);
       loadList();
-    } catch (e) { if (!((capture || owners) && placeRefusal(e))) showToast(tr(e.message), "error"); }
+    } catch (e) {
+      // What the safety part is short, as the complete route names it,
+      // is listed above the signature.
+      const said = e && e.body && typeof e.body === "object" ? (e.body.safety && typeof e.body.safety === "object" ? e.body.safety : e.body) : null;
+      if (safety && said && (Array.isArray(said.missingFields) || Array.isArray(said.missing))) { setSafetyRefused(said); setPart("sign"); scrollToMark("[data-walk-missing]"); showToast(tr(e.message), "error"); }
+      else if (!((capture || owners) && placeRefusal(e))) showToast(tr(e.message), "error");
+    }
     setSubmitting(false);
   };
   // The page scrolls to a mark once it is drawn.
@@ -16599,6 +16728,87 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
 
   const labelSt = mkLabel(t);
   const inputSt = mkInput(t);
+
+  // The walk (Step 313). What the safety part is still short: what the
+  // complete route said, else what the part last told, else what its
+  // draft carried when the inspection opened, a sign-off left out since
+  // the one signature signs it.
+  const walkMissingOf = (d) => {
+    const fields = safety && Array.isArray(safety.form.fields) ? safety.form.fields : [];
+    const byKey = (k) => fields.find(f => f.key === k) || null;
+    const named = d && Array.isArray(d.missingFields) ? d.missingFields.map(m => ({ key: String(m.key || ""), label: m.label ? String(m.label) : String(m.key || ""), rows: Array.isArray(m.rows) ? m.rows.filter(Boolean).map(String) : [] }))
+      : (d && Array.isArray(d.missing) ? d.missing : []).map(k => { const f = byKey(k); return { key: String(k), label: f ? f.label : String(k), rows: [] }; });
+    return named.filter(m => { const f = byKey(m.key); return !f || formTypeOf(f) !== "signoff"; });
+  };
+  const walkSafetyMissing = () => (!safety ? [] : safetyRefused ? walkMissingOf(safetyRefused) : safetyState ? safetyState.missing : walkMissingOf(safety.draft));
+  // Moving between the parts saves what the safety part holds first.
+  const goPart = async (next, sectionKey) => {
+    if (part === "safety" && safetySave.current) { const kept = await safetySave.current(); if (!kept) return false; }
+    setPart(next);
+    if (next === "safety" && sectionKey) setSafetyAt({ key: sectionKey, n: Date.now() });
+    try { window.scrollTo(0, 0); } catch (e) {}
+    return true;
+  };
+  // Back on the inspection: the safety part's answers are saved first, and
+  // the site checklist is already kept, so coming back continues both.
+  const leave = async () => {
+    if (safety && part === "safety" && safetySave.current) await safetySave.current();
+    setActive(null);
+  };
+  const walkPage = ({ headRow, totalCard, cardsBlock, wholePhotos, notesBlock, signBlock, submitBtn, sections, goToSection }) => {
+    const items = active.items || [];
+    const scored = items.filter(item => !!scoredIds[item.id]).length;
+    const missingCards = items.filter(item => (owners ? deficientNow(item) : needsFix[item.id]) && !(notes[item.id] || "").trim());
+    const missingSafety = walkSafetyMissing();
+    const fieldOf = (k) => (Array.isArray(safety.form.fields) ? safety.form.fields : []).find(f => f.key === k) || null;
+    const head = (word) => <div role="heading" aria-level={2} data-walk-part={part} style={{ fontSize: 13, fontWeight: 700, color: t.goldText, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, paddingBottom: 6, borderBottom: "2px solid " + GOLD }}>{tr(word)}</div>;
+    const rowBtn = { width: "100%", minHeight: TAP, marginBottom: 8, padding: "10px 12px", textAlign: "left", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.card, color: t.text, fontSize: 13, lineHeight: 1.4, cursor: "pointer", fontFamily: FONT_BODY, overflowWrap: "anywhere" };
+    const goCard = async (item) => { if (!(await goPart("cards"))) return; setShowScored(true); scrollToMark('[data-inspect-item="' + item.id + '"]'); };
+    const goField = (k) => { const f = fieldOf(k); goPart("safety", f ? formSectionOf(f) : null); };
+    const safetyCounts = safetyState ? { answered: safetyState.answered, remaining: safetyState.remaining } : { answered: Number(safety.draft.answered || 0), remaining: walkMissingOf(safety.draft).length };
+    const safetySections = safetyState ? safetyState.sections : formSectionsOf(formFieldsInPlay(safety.form, safety.draft.answers || {}).filter(f => formDrawnOnPortal(f) && formTypeOf(f) !== "signoff")).map(k => ({ key: k, title: formSectionTitle(safety.form, k, languageToSend()) }));
+    return (
+      <div data-inspect-walk={part} style={{ padding: "14px 16px 100px" }}>
+        {headRow}
+        {part === "cards" && (
+          <>
+            {head("Site checklist")}
+            {totalCard}
+            {cardsBlock}
+            {wholePhotos}
+            {notesBlock}
+            <button type="button" data-walk-to-safety="1" onClick={() => goPart("safety")} style={{ ...wsMainBtn(t, false), width: "100%" }}>{tr("Next: Safety walk")}</button>
+          </>
+        )}
+        {part === "safety" && (
+          <>
+            {head("Safety walk")}
+            <FormFiller key={active.id + ":" + safety.draft.id} token={token} t={t} locale={languageToSend()} form={safety.form} draft={safety.draft} user={user} showToast={showToast} onLeave={() => {}}
+              walk={{ at: safetyAt, onBack: () => goPart("cards"), onEnd: () => goPart("sign"), onState: (st) => { setSafetyState(st); setSafetyRefused(null); }, saveRef: safetySave }} />
+          </>
+        )}
+        {part === "sign" && (
+          <>
+            {head("Sign and send")}
+            {(missingCards.length > 0 || missingSafety.length > 0) && (
+              <div data-walk-missing={missingCards.length + missingSafety.length} style={{ padding: 14, marginBottom: 16, borderRadius: R.md, background: t.goldSubtle, border: "1px solid " + t.goldBorder }}>
+                <div style={{ ...mkLabel(t), marginBottom: 10 }}>{tr("These still need an answer")}</div>
+                {missingCards.map(item => <button key={"c" + item.id} type="button" data-walk-missing-card={item.id} onClick={() => goCard(item)} style={rowBtn}>{tr("Site checklist") + ": " + item.label + ". " + tr("Say what needs fixing")}</button>)}
+                {missingSafety.map(m => <button key={"s" + m.key} type="button" data-walk-missing-safety={m.key} onClick={() => goField(m.key)} style={rowBtn}>{tr("Safety walk") + ": " + (m.rows.length > 0 ? m.label + ": " + m.rows.join(", ") : m.label)}</button>)}
+              </div>
+            )}
+            {signBlock}
+            {submitBtn}
+          </>
+        )}
+        {sectionsOpen && (
+          <WalkSectionsSheet zones={sections} scoredIds={scoredIds} scored={scored} total={items.length} safetyCounts={safetyCounts} safetySections={safetySections}
+            onCards={(zone) => { setSectionsOpen(false); if (zone) goPart("cards").then(ok => { if (ok) goToSection(zone); }); else goPart("cards"); }}
+            onSafety={(key) => { setSectionsOpen(false); goPart("safety", key); }} onSign={() => { setSectionsOpen(false); goPart("sign"); }} onClose={() => setSectionsOpen(false)} t={t} />
+        )}
+      </div>
+    );
+  };
 
   // SCORING VIEW
   if (active) {
@@ -16754,68 +16964,85 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       );
     };
 
+    // The page's pieces, drawn one after another as they always were, or,
+    // on a walk with the safety part (Step 313), a part at a time.
+    const backBtn = <button onClick={leave} aria-label={tr("Back")} style={mkTapFrame({ color: t.textSec, fontSize: 20, lineHeight: 1 })}>{"<"}</button>;
+    const withSections = indexed || !!safety;
+    const headRow = (
+      // Sections sits at the end of the top row, and goes under the name,
+      // at its right, when the row has no room for it. A shorter
+      // inspection's row is drawn as it always was.
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, ...(withSections ? { flexWrap: "wrap" } : {}) }}>
+        {backBtn}
+        <div style={withSections ? { flex: "1 1 140px", minWidth: 0 } : undefined}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{active.template_name}</div>
+          <div style={{ fontSize: 11, color: t.textSec, fontFamily: FONT_BODY }}>{active.site_name} - {fmtDate(active.scheduled_date)}</div>
+        </div>
+        {withSections && <button type="button" data-inspect-sections="1" onClick={() => setSectionsOpen(true)} aria-haspopup="dialog" style={{ minHeight: TAP, padding: "0 14px", marginLeft: "auto", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Sections")}</button>}
+      </div>
+    );
+    const totalCard = (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderRadius: R.lg, background: t.card, marginBottom: 16, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
+        <div style={{ fontSize: 11, color: t.textSec, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px" }}>{tr("Running total")}</div>
+        <div style={{ textAlign: "right" }}>
+          <span style={{ fontSize: 22, fontWeight: 600, color: ink(t, scoreColor), fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</span>
+          <span style={{ fontSize: 11, color: t.textMut, marginLeft: 6, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{totalScored}/{totalMax} {tr("pts")}</span>
+        </div>
+      </div>
+    );
+    const cardsBlock = (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
+        {openItems.map(itemCard)}
+        {foldedItems.length > 0 && (
+          <div style={{ background: t.cardAlt, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "12px 14px" }}>
+            <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: showScored ? 10 : 8 }}>{tr("Scored")}</div>
+            {!showScored && <button type="button" onClick={() => setShowScored(true)} style={{ minHeight: TAP, padding: "0 14px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.card, color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Show {0} scored items", { 0: foldedItems.length })}</button>}
+            {showScored && <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{foldedItems.map(itemCard)}</div>}
+          </div>
+        )}
+      </div>
+    );
+    const wholePhotos = capture && (
+      <div data-inspect-photos={INSPECT_WHOLE} style={{ marginBottom: 16 }}>
+        <div style={labelSt}>{tr("Photos of the whole inspection")}</div>
+        {shotRow(INSPECT_WHOLE, capture.overall)}
+      </div>
+    );
+    const notesBlock = (
+      <div style={{ marginBottom: 16 }}>
+        <label style={labelSt}>{tr("Overall Notes")}</label>
+        <textarea value={overallNotes} onChange={e => setOverallNotes(e.target.value)} placeholder={tr("General observations, follow-ups needed, etc.")} rows={3} style={{ ...inputSt, resize: "vertical" }} />
+      </div>
+    );
+    const signBlock = capture && (
+      <div data-inspect-signature="1" style={{ marginBottom: 16 }}>
+        <div style={labelSt}>{tr("Signature")}</div>
+        {safety && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, marginBottom: 6, lineHeight: 1.4 }}>{tr("This signature signs the site checklist and the safety walk.")}</div>}
+        <div style={{ marginTop: 6, borderRadius: R.md, border: sigFault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+          <SignatureBox strokes={sigStrokes} onStroke={(stroke, size) => { const all = sigStrokes.concat([stroke]); setSigStrokes(all); setSigPng(signaturePng(all, size.w, size.h)); setSigFault(null); }} height={SIGN_BOX_HEIGHT} />
+        </div>
+        {sigFault && <div role="alert" style={mkFieldErr(t)}>{sigFault.missing ? tr("Sign before you send.") : sigFault.said}</div>}
+        <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+        <button type="button" onClick={() => { setSigStrokes([]); setSigPng(null); }} disabled={sigStrokes.length === 0 || submitting} style={{ ...shotBtn, opacity: sigStrokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+        <div style={{ fontSize: 12, color: t.textSec, marginTop: 10, lineHeight: 1.4, overflowWrap: "anywhere" }}>{tr("Signed as {name}, {date}", { name: [user && user.firstName, user && user.lastName].filter(Boolean).join(" "), date: now().toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" }) })}</div>
+      </div>
+    );
+    const submitBtn = (
+      <button onClick={submit} data-inspect-submit="1" disabled={submitting || (!!capture && shotsGoing)} style={{ width: "100%", padding: "14px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: submitting || (capture && shotsGoing) ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>
+        {submitting ? tr("Submitting...") : capture && shotsGoing ? tr("Uploading...") : tr("Submit Inspection")}
+      </button>
+    );
+
+    if (safety) return walkPage({ headRow, totalCard, cardsBlock, wholePhotos, notesBlock, signBlock, submitBtn, sections, goToSection });
     return (
       <div style={{ padding: "14px 16px 100px" }}>
-        {/* Sections sits at the end of the top row, and goes under the
-            name, at its right, when the row has no room for it. A
-            shorter inspection's row is drawn as it always was. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, ...(indexed ? { flexWrap: "wrap" } : {}) }}>
-          <button onClick={() => setActive(null)} aria-label={tr("Back")} style={mkTapFrame({ color: t.textSec, fontSize: 20, lineHeight: 1 })}>{"<"}</button>
-          <div style={indexed ? { flex: "1 1 140px", minWidth: 0 } : undefined}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{active.template_name}</div>
-            <div style={{ fontSize: 11, color: t.textSec, fontFamily: FONT_BODY }}>{active.site_name} - {fmtDate(active.scheduled_date)}</div>
-          </div>
-          {indexed && <button type="button" onClick={() => setSectionsOpen(true)} aria-haspopup="dialog" style={{ minHeight: TAP, padding: "0 14px", marginLeft: "auto", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Sections")}</button>}
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderRadius: R.lg, background: t.card, marginBottom: 16, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
-          <div style={{ fontSize: 11, color: t.textSec, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px" }}>{tr("Running total")}</div>
-          <div style={{ textAlign: "right" }}>
-            <span style={{ fontSize: 22, fontWeight: 600, color: ink(t, scoreColor), fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</span>
-            <span style={{ fontSize: 11, color: t.textMut, marginLeft: 6, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{totalScored}/{totalMax} {tr("pts")}</span>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
-          {openItems.map(itemCard)}
-          {foldedItems.length > 0 && (
-            <div style={{ background: t.cardAlt, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "12px 14px" }}>
-              <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: showScored ? 10 : 8 }}>{tr("Scored")}</div>
-              {!showScored && <button type="button" onClick={() => setShowScored(true)} style={{ minHeight: TAP, padding: "0 14px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.card, color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Show {0} scored items", { 0: foldedItems.length })}</button>}
-              {showScored && <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{foldedItems.map(itemCard)}</div>}
-            </div>
-          )}
-        </div>
-
-        {capture && (
-          <div data-inspect-photos={INSPECT_WHOLE} style={{ marginBottom: 16 }}>
-            <div style={labelSt}>{tr("Photos of the whole inspection")}</div>
-            {shotRow(INSPECT_WHOLE, capture.overall)}
-          </div>
-        )}
-
-        <div style={{ marginBottom: 16 }}>
-          <label style={labelSt}>{tr("Overall Notes")}</label>
-          <textarea value={overallNotes} onChange={e => setOverallNotes(e.target.value)} placeholder={tr("General observations, follow-ups needed, etc.")} rows={3} style={{ ...inputSt, resize: "vertical" }} />
-        </div>
-
-        {capture && (
-          <div data-inspect-signature="1" style={{ marginBottom: 16 }}>
-            <div style={labelSt}>{tr("Signature")}</div>
-            <div style={{ marginTop: 6, borderRadius: R.md, border: sigFault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
-              <SignatureBox strokes={sigStrokes} onStroke={(stroke, size) => { const all = sigStrokes.concat([stroke]); setSigStrokes(all); setSigPng(signaturePng(all, size.w, size.h)); setSigFault(null); }} height={SIGN_BOX_HEIGHT} />
-            </div>
-            {sigFault && <div role="alert" style={mkFieldErr(t)}>{sigFault.missing ? tr("Sign before you send.") : sigFault.said}</div>}
-            <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
-            <button type="button" onClick={() => { setSigStrokes([]); setSigPng(null); }} disabled={sigStrokes.length === 0 || submitting} style={{ ...shotBtn, opacity: sigStrokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
-            <div style={{ fontSize: 12, color: t.textSec, marginTop: 10, lineHeight: 1.4, overflowWrap: "anywhere" }}>{tr("Signed as {name}, {date}", { name: [user && user.firstName, user && user.lastName].filter(Boolean).join(" "), date: now().toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" }) })}</div>
-          </div>
-        )}
-
-        <button onClick={submit} disabled={submitting || (!!capture && shotsGoing)} style={{ width: "100%", padding: "14px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: submitting || (capture && shotsGoing) ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>
-          {submitting ? tr("Submitting...") : capture && shotsGoing ? tr("Uploading...") : tr("Submit Inspection")}
-        </button>
-
+        {headRow}
+        {totalCard}
+        {cardsBlock}
+        {wholePhotos}
+        {notesBlock}
+        {signBlock}
+        {submitBtn}
         {indexed && sectionsOpen && <InspectSectionsSheet sections={sections} scoredIds={scoredIds} onPick={goToSection} onClose={() => setSectionsOpen(false)} t={t} />}
       </div>
     );
@@ -16977,6 +17204,52 @@ function InspectSectionsSheet({ sections, scoredIds, onPick, onClose, t }) {
             </button>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// A walk's index (Step 313), the sheet Sections opens on an inspection
+// with the safety part: the site checklist with how many of its cards are
+// scored, and on a long one each part of the building; the safety walk
+// with how much is answered and each of its sections; and Sign and send.
+// A tap closes the sheet and goes there.
+function WalkSectionsSheet({ zones, scoredIds, scored, total, safetyCounts, safetySections, onCards, onSafety, onSign, onClose, t }) {
+  const rowSt = { width: "100%", minHeight: TAP, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "4px 12px", padding: "10px 12px", marginTop: 8, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.card, cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY };
+  const nameSt = { fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere", minWidth: 0 };
+  const countSt = { fontSize: 12, color: t.textSec, fontVariantNumeric: "tabular-nums" };
+  const partSt = { ...mkLabel(t), marginTop: 16, marginBottom: 0 };
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 500, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={tr("Sections")} data-walk-sections="1" style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "20px 20px 30px", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 40px)", overflowY: "auto", boxShadow: t.popShadow }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Sections")}</div>
+          <button type="button" onClick={onClose} aria-label={tr("Close")} style={mkTapFrame({ fontSize: 20, color: t.textMut, lineHeight: 1 })}>{tr("x")}</button>
+        </div>
+        <button type="button" data-walk-sections-part="cards" onClick={() => onCards(null)} style={rowSt}>
+          <span style={nameSt}>{tr("Site checklist")}</span>
+          <span style={countSt}>{tr("{scored} of {total} scored", { scored: scored, total: total })}</span>
+        </button>
+        {zones.length > 1 && zones.map((z, i) => (
+          <button key={z.zone + ":" + i} type="button" onClick={() => onCards(z)} style={{ ...rowSt, marginLeft: 12, width: "calc(100% - 12px)" }}>
+            <span style={nameSt}>{z.zone || tr("General")}</span>
+            <span style={countSt}>{tr("{scored} of {total} scored", { scored: z.items.filter(item => !!scoredIds[item.id]).length, total: z.items.length })}</span>
+          </button>
+        ))}
+        <div style={partSt} />
+        <button type="button" data-walk-sections-part="safety" onClick={() => onSafety(null)} style={rowSt}>
+          <span style={nameSt}>{tr("Safety walk")}</span>
+          <span style={countSt}>{tr("{answered} answered, {remaining} to go", { answered: safetyCounts.answered, remaining: safetyCounts.remaining })}</span>
+        </button>
+        {safetySections.length > 1 && safetySections.map((x, i) => (
+          <button key={x.key + ":" + i} type="button" data-walk-sections-safety={x.key} onClick={() => onSafety(x.key)} style={{ ...rowSt, marginLeft: 12, width: "calc(100% - 12px)" }}>
+            <span style={nameSt}>{x.title || tr("Section {n}", { n: i + 1 })}</span>
+          </button>
+        ))}
+        <div style={partSt} />
+        <button type="button" data-walk-sections-part="sign" onClick={onSign} style={rowSt}>
+          <span style={nameSt}>{tr("Sign and send")}</span>
+        </button>
       </div>
     </div>
   );
