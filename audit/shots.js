@@ -324,8 +324,8 @@ async function openAssigned(s) {
 
 const SHOTS = [
   // Sign in, and a forgotten PIN.
-  { name: "sign-in", entry: E("Sign in to the staff portal"), o: {},
-    go: (s) => s.waitText(s.say("Sign In")) },
+  { name: "sign-in", entry: E("Sign in to the staff portal"), o: { stub: { support: true } },
+    go: (s) => s.waitFor(() => !!document.querySelector('[data-support-contact="1"] a')) },
   { name: "reset-pin-ask", entry: E("Reset a forgotten PIN"), o: {},
     go: async (s) => { await s.waitText(s.say("Forgot your PIN?")); await s.tap(s.say("Forgot your PIN?")); return s.waitText(s.say("Send Reset Link")); } },
   { name: "reset-pin-new", entry: E("Reset a forgotten PIN"), o: { path: "/reset-pin?token=fixture" },
@@ -354,7 +354,7 @@ const SHOTS = [
     go: async (s) => { await s.hasBar(); if (!(await s.waitText(s.say("End Shift")))) return false; await s.mark("button", s.say("End Shift")); return true; } },
   { name: "sign-out", entry: E("Sign out"), o: { signedIn: true },
     go: async (s) => { await s.hasBar(); return s.mark('button[aria-label="' + s.say("Sign out") + '"]'); } },
-  { name: "bottom-bar-more", entry: E("Use the bottom bar and More"), o: { signedIn: true },
+  { name: "bottom-bar-more", entry: E("Use the bottom bar and More"), o: { signedIn: true, stub: { support: true } },
     go: async (s) => { await s.openMore(); return s.waitFor(() => !!document.querySelector(".sp-more")); } },
 
   // Training, and joining a session.
@@ -395,11 +395,50 @@ const SHOTS = [
     go: async (s) => { if (!(await openLadders(s))) return false; await s.page.click('[data-lesson-block="image"] button'); return s.waitFor(() => !!document.querySelector('[data-lesson-picture="1"] img') && document.querySelector('[data-lesson-picture="1"] img').complete); } },
   { name: "join-session", entry: "Join a training session", o: { signedIn: true, stub: { training: true, documents: true }, path: "/join/" + TRAINING_SESSION_SEED.joinCode },
     go: (s) => s.waitText(TRAINING_SESSION_SEED.title) },
-  { name: "document-read", entry: E("Read and sign a document"), o: { signedIn: true, stub: { training: true, documents: true } },
+  // The handbook in its own look (Step 290): its cover, and the page
+  // signed with the fields filled in.
+  { name: "document-read", entry: E("Read and sign a document"), o: { signedIn: true, stub: { training: true, documents: true, handbook: true } },
     go: async (s) => {
       if (!(await s.waitFor(() => !!document.querySelector('[data-first-doc="OCSA-HR-002"] button')))) return false;
       await s.page.click('[data-first-doc="OCSA-HR-002"] button');
-      return s.waitFor(() => !!document.querySelector('[data-doc="read"]'));
+      return s.waitFor(() => !!document.querySelector('[data-doc="cover"]'));
+    } },
+  { name: "document-sign", entry: E("Read and sign a document"), o: { signedIn: true, stub: { training: true, documents: true, handbook: true } },
+    go: async (s) => {
+      if (!(await s.waitFor(() => !!document.querySelector('[data-first-doc="OCSA-HR-002"] button')))) return false;
+      await s.page.click('[data-first-doc="OCSA-HR-002"] button');
+      if (!(await s.waitFor(() => !!document.querySelector('[data-doc="cover"] [data-doc-contents="1"]')))) return false;
+      await s.page.click('[data-doc="cover"] [data-doc-contents="1"]');
+      if (!(await s.waitFor(() => !!document.querySelector('[data-doc-jump="6"]')))) return false;
+      await s.page.click('[data-doc-jump="6"]');
+      if (!(await s.waitFor(() => !!document.querySelector('[data-doc="sign"] [data-doc-ack-fields]')))) return false;
+      await s.page.evaluate(() => document.querySelector('[data-doc-box="statements"]').scrollIntoView({ block: "start" }));
+      await s.page.evaluate(() => window.scrollBy(0, -96));
+      await s.pause(300);
+      return true;
+    } },
+  // Signed documents (Step 290): the list, and the handbook read again.
+  { name: "document-signed-list", entry: E("Read a document you signed"), o: { signedIn: true, stub: { training: true, documents: true, handbook: true, handbookSigned: true } },
+    go: async (s) => {
+      if (!(await s.go("My training"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-training-signed="OCSA-HR-002"]')))) return false;
+      await s.show(s.say("Signed documents"));
+      return true;
+    } },
+  { name: "document-signed", entry: E("Read a document you signed"), o: { signedIn: true, stub: { training: true, documents: true, handbook: true, handbookSigned: true } },
+    go: async (s) => {
+      if (!(await s.go("My training"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-training-signed="OCSA-HR-002"]')))) return false;
+      await s.page.click('[data-training-signed="OCSA-HR-002"]');
+      if (!(await s.waitFor(() => !!document.querySelector('[data-doc="cover"] [data-doc-contents="1"]')))) return false;
+      await s.page.click('[data-doc="cover"] [data-doc-contents="1"]');
+      if (!(await s.waitFor(() => !!document.querySelector('[data-doc-jump="6"]')))) return false;
+      await s.page.click('[data-doc-jump="6"]');
+      if (!(await s.waitFor(() => !!document.querySelector('[data-doc="signed"] [data-doc-signed-page="1"]')))) return false;
+      await s.page.evaluate(() => document.querySelector('[data-doc-box="statements"]').scrollIntoView({ block: "start" }));
+      await s.page.evaluate(() => window.scrollBy(0, -96));
+      await s.pause(300);
+      return true;
     } },
   { name: "training-sign-off", entry: E("Sign off a training"), o: { signedIn: true, stub: { training: true, fieldKit: true, person: SUPERVISOR } },
     go: async (s) => {
@@ -434,8 +473,8 @@ const SHOTS = [
   { name: "watch-sign-off", entry: E("Watch and sign off a task"), o: { signedIn: true, stub: { training: true, fieldKit: true, person: SUPERVISOR } },
     go: async (s) => {
       if (!(await kitTile(s, "Watch and sign off"))) return false;
-      if (!(await s.waitFor(() => !!document.querySelector("#ocsa-observe-person option[value]:not([value=''])")))) return false;
-      await s.page.selectOption("#ocsa-observe-person", { index: 1 });
+      if (!(await s.waitFor(() => !!document.querySelector('[data-pick="observe-person"] [data-pick-row]')))) return false;
+      await s.page.click('[data-pick="observe-person"] [data-pick-row]');
       if (!(await s.waitFor(() => !!document.querySelector('[data-fk-checklist="tp-4"] button')))) return false;
       await s.page.click('[data-fk-checklist="tp-4"] button');
       if (!(await s.waitFor(() => document.querySelectorAll("[data-fk-step]").length === 3))) return false;
@@ -485,6 +524,30 @@ const SHOTS = [
     go: async (s) => { if (!(await s.go("Help"))) return false; return s.waitText(s.say("Unfinished reports")); } },
   { name: "help-form-question", entry: E("Get help with a question on a form"), o: { signedIn: true },
     go: (s) => asked(s, s.language === "es" ? "\u00bfQu\u00e9 quiere decir tiempo de contacto en el registro diario?" : "What does contact time mean on the daily log?", "unknown") },
+  // App support (Step 290): a ticket Help drafted, on its card; the
+  // screen under More, a bug written; and My tickets.
+  { name: "help-ticket", entry: E("Send a ticket from Help"), o: { signedIn: true, stub: { support: true } },
+    go: async (s) => {
+      if (!(await asked(s, s.language === "es" ? "El horario sale en blanco." : "The schedule is blank.", "ticket"))) return false;
+      return s.waitFor(() => !!document.querySelector('[data-help-ticket="draft"]'));
+    } },
+  { name: "app-support", entry: E("Send a ticket to App support"), o: { signedIn: true, stub: { support: true } },
+    go: async (s) => {
+      if (!(await s.go("App support"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-support-kind="bug"]')))) return false;
+      await s.page.click('[data-support-kind="bug"]');
+      await s.fill('[data-support-text="1"]', s.language === "es" ? "Inventado: el mapa de Inicio no carga." : "Invented: the map on Home does not load.");
+      await s.page.evaluate(() => document.querySelector('[data-support-text="1"]').scrollIntoView({ block: "center" }));
+      await s.pause(300);
+      return true;
+    } },
+  { name: "app-support-tickets", entry: E("See your App support tickets"), o: { signedIn: true, stub: { support: true } },
+    go: async (s) => {
+      if (!(await s.go("App support"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-support-ticket="st-1"]')))) return false;
+      await s.show(s.say("My tickets"));
+      return true;
+    } },
 
   // Reporting a problem or an injury.
   { name: "report-issue", entry: E("Report a problem at a site"), o: { signedIn: true },
@@ -517,11 +580,13 @@ const SHOTS = [
       }
       return s.waitText(s.say("Submit Request"));
     } },
-  { name: "time-off-request", entry: E("Request time off"), o: { signedIn: true },
+  { name: "time-off-request", entry: E("Request time off"), o: { signedIn: true, stub: { pto: true } },
     go: async (s) => {
       if (!(await s.go("Schedule"))) return false;
       await s.pause(600);
       await s.tap(s.say("Request time off"));
+      if (!(await s.waitFor(() => !!document.querySelector('select option[value="pto"]')))) return false;
+      await s.page.selectOption('select:has(option[value="pto"])', "pto");
       return s.waitFor(() => Array.from(document.querySelectorAll("div")).some(d => { const c = getComputedStyle(d); return c.position === "fixed" && c.zIndex === "200"; }));
     } },
   { name: "time-off-mine", entry: E("See or cancel your time off"), o: { signedIn: true, stub: { myTimeOff: [timeOffRow({ id: "to-one", status: "requested" })] } },
@@ -591,11 +656,13 @@ const SHOTS = [
       if (!(await s.waitText(s.say("Supply/Gear Request")))) return false;
       await s.tap(s.say("Refill"));
       if (!(await s.waitFor(() => !!document.querySelector('[data-supply-line-supply="0"]')))) return false;
-      await s.page.selectOption('[data-supply-line-supply="0"]', "sup-1");
+      await s.page.click('[data-supply-line-supply="0"] [data-pick-row="sup-1"]');
       await s.fill('[data-supply-line-qty="0"]', "3");
       await s.tap(s.say("Add item"));
-      if (!(await s.waitFor(() => !!document.querySelector('[data-supply-line-supply="1"]')))) return false;
-      await s.page.selectOption('[data-supply-line-supply="1"]', "sup-2");
+      if (!(await s.waitFor(() => !!document.querySelector('[data-supply-line-supply="1"] [data-pick-search]')))) return false;
+      // The second item's supply narrowed by typing, before it is tapped.
+      await s.fill('[data-supply-line-supply="1"] [data-pick-search]', "soap");
+      if (!(await s.waitFor(() => document.querySelectorAll('[data-supply-line-supply="1"] [data-pick-row]').length === 1))) return false;
       await s.top();
       return true;
     } },
@@ -681,8 +748,8 @@ const SHOTS = [
   { name: "field-kit-ppe", entry: E("Issue PPE and have the person sign for it"), o: { signedIn: true, stub: { person: SUPERVISOR, fieldKit: true, equipment: true } },
     go: async (s) => {
       if (!(await kitTile(s, "Issue PPE"))) return false;
-      if (!(await s.waitFor(() => !!document.querySelector("#ocsa-ppe-person option[value]:not([value=''])") && !!document.querySelector('[data-fk-ppe="signature"] canvas')))) return false;
-      await s.page.selectOption("#ocsa-ppe-person", { index: 1 });
+      if (!(await s.waitFor(() => !!document.querySelector('[data-pick="ppe-person"] [data-pick-row]') && !!document.querySelector('[data-fk-ppe="signature"] canvas')))) return false;
+      await s.page.click('[data-pick="ppe-person"] [data-pick-row]');
       await s.page.selectOption("#ocsa-ppe-item", { index: 1 });
       await s.top();
       return true;

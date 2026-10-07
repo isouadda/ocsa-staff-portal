@@ -30,6 +30,9 @@ const SITES = [
   { siteId: "site-west", siteName: "West Building" },
 ];
 
+// PTO (Step 290), which every time-off route takes and answers once API
+// Step 289 is live, in English as the types route sends its labels.
+const PTO_TYPE = { value: "pto", label: "PTO (paid time off)" };
 const LEAVE_TYPES = [
   { value: "paid_sick", label: "Paid sick leave" },
   { value: "unpaid", label: "Unpaid time off" },
@@ -515,6 +518,66 @@ const TRAINING_DOCUMENT = { docCode: "OCSA-HR-002", title: "Invented employee ha
     { ref: "3", title: "Safety", content: "Wear what the label says. Never mix two products. Report every injury the same day." },
   ],
   acknowledgement: { en: "I received this document, I read it, and I will follow it.", es: "Recib\u00ed este documento, lo le\u00ed y lo cumplir\u00e9.", fr: "J'ai re\u00e7u ce document, je l'ai lu et je le respecterai." } };
+// Step 290: the handbook as API Step 289 answers it, behind the handbook
+// switch (with training and documents): the same code at a new version,
+// in English and Spanish, cut the way ocsa-mis cuts OCSA-HR-002, with
+// Read First at 0, a table, a callout and the signed page at Part 3;
+// parts, ackSectionRef, pdfUrl and ackFields on the read; and the signed
+// page once it is signed. Every word and value is invented.
+const HANDBOOK = { docCode: "OCSA-HR-002", version: "1.2", locales: ["en", "es"],
+  title: { en: "Invented employee handbook", es: "Manual del empleado inventado" },
+  parts: {
+    en: [{ ref: "1", title: "Introduction" }, { ref: "2", title: "Time Off" }, { ref: "3", title: "Acknowledgment" }],
+    es: [{ ref: "1", title: "Introducci\u00f3n" }, { ref: "2", title: "Tiempo libre" }, { ref: "3", title: "Reconocimiento" }],
+  },
+  sections: {
+    en: [
+      { ref: "0", title: "Read First", content: "This invented handbook is for the audit only.\nEvery employee signs the acknowledgment in Part 3." },
+      { ref: "1.1", title: "Welcome", content: "Welcome. This page says what we expect of each other.\nAsk your supervisor about anything that is not clear." },
+      { ref: "1.2", title: "Reaching the Office", content: "Use the contact that matches what you need.\nTable columns: For | Contact | How to Reach\n- Pay questions | The office | Through the app\n- Your site | Your supervisor | Through Chat\n- An emergency | 911 first | Then your supervisor" },
+      { ref: "2.1", title: "Asking for Time Off", content: "Ask for time off in the app.\nBefore You Ask:\n- Check your schedule first.\n- Ask at least two weeks ahead." },
+      { ref: "2.2", title: "Holidays", content: "Table columns: Holiday | When It Falls\n- Invented Day | January 2\n- Second Invented Day | March 3" },
+      { ref: "3", title: "Acknowledgment", content: "This page is signed by every employee and kept on file.\nEmployee Acknowledgment:\n- I have received the invented handbook.\n- I agree to read it and to follow it.\n- Employee name (print)\n- Employee ID\n- Language handbook was provided in: English or Spanish.\n- Date" },
+    ],
+    es: [
+      { ref: "0", title: "Lea primero", content: "Este manual inventado es solo para la auditor\u00eda.\nCada empleado firma el reconocimiento de la Parte 3." },
+      { ref: "1.1", title: "Bienvenida", content: "Bienvenido. Esta p\u00e1gina dice lo que esperamos unos de otros.\nPregunte a su supervisor lo que no est\u00e9 claro." },
+      { ref: "1.2", title: "C\u00f3mo comunicarse con la oficina", content: "Use el contacto que corresponda a lo que necesita.\nColumnas de la tabla: Para | Contacto | C\u00f3mo comunicarse\n- Preguntas de pago | La oficina | Por la aplicaci\u00f3n\n- Su sitio | Su supervisor | Por el chat\n- Una emergencia | Primero el 911 | Luego su supervisor" },
+      { ref: "2.1", title: "C\u00f3mo pedir tiempo libre", content: "Pida tiempo libre en la aplicaci\u00f3n.\nAntes de pedir:\n- Revise primero su horario.\n- Pida con al menos dos semanas de anticipaci\u00f3n." },
+      { ref: "2.2", title: "D\u00edas festivos", content: "Columnas de la tabla: D\u00eda festivo | Cu\u00e1ndo cae\n- D\u00eda inventado | 2 de enero\n- Segundo d\u00eda inventado | 3 de marzo" },
+      { ref: "3", title: "Reconocimiento", content: "Cada empleado firma esta p\u00e1gina y se guarda en su expediente.\nReconocimiento del empleado:\n- Recib\u00ed el manual inventado.\n- Acepto leerlo y cumplirlo.\n- Nombre del empleado (letra de molde)\n- N\u00famero de empleado\n- Idioma en que se entreg\u00f3 el manual: ingl\u00e9s o espa\u00f1ol.\n- Fecha" },
+    ],
+  },
+  ackSectionRef: "3",
+  acknowledgement: { en: "I received this document, I read it, and I will follow it.", es: "Recib\u00ed este documento, lo le\u00ed y lo cumplir\u00e9.", fr: "J'ai re\u00e7u ce document, je l'ai lu et je le respecterai." },
+  // What the API knows of the person for the signed page, all invented.
+  person: { employeeId: "E-0000", position: "Invented cleaner", jobClass: "Class 1", sites: ["North Building"] } };
+// The designed version and the signed page, each a one-page PDF with one
+// line, invented, the way the warning's is drawn.
+const pdfWith = (line) => Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 144]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n4 0 obj<</Length " + (36 + line.length) + ">>stream\nBT /F1 18 Tf 24 90 Td (" + line + ") Tj ET\nendstream\nendobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n", "latin1");
+const HANDBOOK_PDF = pdfWith("Invented handbook");
+const SIGNED_PAGE_PDF = pdfWith("Invented signed page");
+// The document to sign in one language: the handbook behind its switch,
+// else Step 264's, in English alone.
+function docToSign(state, loc) {
+  if (!state.handbook) return { docCode: TRAINING_DOCUMENT.docCode, title: TRAINING_DOCUMENT.title, version: TRAINING_DOCUMENT.version, locales: TRAINING_DOCUMENT.locales, sections: TRAINING_DOCUMENT.sections, acknowledgement: TRAINING_DOCUMENT.acknowledgement[loc] || TRAINING_DOCUMENT.acknowledgement.en };
+  const l = HANDBOOK.locales.indexOf(loc) !== -1 ? loc : "en";
+  return { docCode: HANDBOOK.docCode, title: HANDBOOK.title[l], version: HANDBOOK.version, locales: HANDBOOK.locales, sections: HANDBOOK.sections[l], acknowledgement: HANDBOOK.acknowledgement[l] };
+}
+// Step 290: App support as API Step 289 answers it, behind the support
+// switch. The contact is a setting, invented here; the person's one
+// ticket from before, which the office is working on with a note; the
+// kinds a ticket takes; and the refusal the API keys by field.
+const SUPPORT_CONTACT = { name: "Invented Support", email: "support@example.invalid" };
+const SUPPORT_KINDS = ["bug", "idea", "wrong_info", "help_miss", "cant_sign_in"];
+const SUPPORT_SEED = () => [{ id: "st-1", kind: "idea", description: "Invented: a bigger clock on Home.", status: "working", statusNote: "Invented: we are trying it this month.", source: "form", app: "portal", createdAt: new Date(NOW.getTime() - 3 * DAY).toISOString() }];
+const SUPPORT_REFUSAL = { status: 400, en: "Check the ticket's details.", es: "Revise los datos del reporte." };
+// The ticket Help drafts from a conversation (the support answer), in the
+// conversation's language.
+const SUPPORT_DRAFT = {
+  en: { kind: "bug", description: "Invented: the Schedule tab shows a blank page after I tap Next week." },
+  es: { kind: "bug", description: "Inventado: la pesta\u00f1a Horario se queda en blanco al tocar la semana siguiente." },
+};
 // The items due on the first day (the contract's section 5), by topic.
 const TRAINING_FIRST_DAY = ["tp-1", "tp-3"];
 // A one by one white PNG, what the QR route answers here.
@@ -583,6 +646,13 @@ const HELP_ANSWERS = {
   report: {
     pieces: ["I started an incid", "ent report for you. Tell me wh", "en it happened."],
     formResponse: { id: "draft-one", formCode: "OCSA-FIX-101", formName: "Incident report", status: "draft", answered: 1, remaining: 4, nextQuestion: "When did it happen" },
+  },
+  // One that drafts a ticket for App support (Step 290), filed only once
+  // the person sends it from the card.
+  ticket: {
+    pieces: ["That sounds like a problem with the app. I wrote a tic", "ket for App support. Send it if it reads right."],
+    piecesEs: ["Parece un problema de la aplicaci\u00f3n. Escrib\u00ed un rep", "orte para Soporte de la aplicaci\u00f3n. Env\u00edelo si est\u00e1 bien."],
+    ticketDraft: SUPPORT_DRAFT,
   },
   // One with no written procedure behind it.
   unknown: { pieces: ["I do not have a writ", "ten procedure for that. Ask your super", "visor."], noProcedure: true },
@@ -860,8 +930,20 @@ function makeState(opts) {
     // document acknowledgments; and the documents switch, which puts the
     // document to sign and the first-day items on GET /api/training/me.
     trainingSessions: o.training === true ? [JSON.parse(JSON.stringify(TRAINING_SESSION_SEED))] : [],
-    documentAcks: [],
+    // handbookSigned (Step 290): the handbook already signed at its
+    // version, in the language the case names, a day before the clock.
+    documentAcks: o.handbookSigned ? [{ id: "da-seed", docCode: HANDBOOK.docCode, version: HANDBOOK.version, personId: (o.person || PERSON).id, locale: o.handbookSigned === "es" ? "es" : "en", signedAt: new Date(NOW.getTime() - DAY).toISOString() }] : [],
     documents: o.documents === true,
+    // Step 290: an API with Step 289 built, whose document to sign is the
+    // handbook read with parts and signed with its signed page; every
+    // PDF it gave and whether the token went with it.
+    handbook: o.handbook === true,
+    pdfReads: [],
+    // Step 290: App support (the contact, the person's tickets and every
+    // ticket filed), and PTO among the leave types.
+    support: o.support === true,
+    supportTickets: o.support === true ? SUPPORT_SEED() : [],
+    pto: o.pto === true,
     // Step 267: an API with Step 266 built, which answers categories and
     // continue on GET /api/training/me, with each item's category.
     trainingPortal: o.trainingPortal === true,
@@ -2160,6 +2242,8 @@ const SIGNED_OUT = [
   // A lesson picture's signed address (Step 267): a storage file the
   // browser fetches as an image, with no token and no language.
   /^GET \/api\/lesson-images\/signed\/[^/]+\.png$/,
+  // App support's contact (Step 290), read on the sign-in screen.
+  /^GET \/api\/support\/contact$/,
 ];
 const signedOutLanguage = (search, accept) => {
   const m = String(search || "").match(/[?&]locale=(en|es)\b/);
@@ -2428,7 +2512,8 @@ function createStub(opts) {
       // Step 276: the pictures of the guide entries the answer cites,
       // none for an answer that cites none.
       pictures: (answer.pictures || []).map(x => Object.assign({}, x)),
-    }, next.citedNames ? { citedNames: next.citedNames } : {}, answer.formResponse ? { formResponse: answer.formResponse } : {});
+    }, next.citedNames ? { citedNames: next.citedNames } : {}, answer.formResponse ? { formResponse: answer.formResponse } : {},
+      answer.ticketDraft ? { ticketDraft: Object.assign({}, answer.ticketDraft[next.language === "es" ? "es" : "en"]) } : {});
     if (next.error) steps.push({ event: "error", data: { error: next.error.error, status: next.error.status } });
     else if (next.drop) steps.push({ drop: true });
     else steps.push({ event: "done", data: done });
@@ -3042,7 +3127,7 @@ function createStub(opts) {
     if (method === "DELETE" && /^\/api\/pickups\//.test(pathname)) return json(200, { ok: true });
 
     // --- time off
-    if (key === "GET /api/time-off/types") return state.timeOffTypesLive ? json(200, { types: LEAVE_TYPES }) : json(404, { error: "Endpoint not found" });
+    if (key === "GET /api/time-off/types") return state.timeOffTypesLive ? json(200, { types: state.pto ? [PTO_TYPE].concat(LEAVE_TYPES) : LEAVE_TYPES }) : json(404, { error: "Endpoint not found" });
     if (pathname === "/api/time-off/mine") return json(200, { requests: state.myTimeOff });
     if (key === "POST /api/time-off") return json(201, { request: timeOffRow({ id: "to-new", leaveType: body && body.leaveType, startsOn: body && body.startsOn, endsOn: body && body.endsOn }) });
     if (method === "POST" && /^\/api\/time-off\/[^/]+\/cancel$/.test(pathname)) return json(200, { request: timeOffRow({ status: "cancelled", cancelledAt: iso(NOW.getTime()) }) });
@@ -3669,24 +3754,48 @@ function createStub(opts) {
     // everyone, in English alone, signed once per version.
     if (state.training && pathname.indexOf("/api/documents/") === 0) {
       const refuseDoc = (k, extra) => { const r = SESSION_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
-      const signed = state.documentAcks.find(a => a.docCode === TRAINING_DOCUMENT.docCode && a.version === TRAINING_DOCUMENT.version && a.personId === state.person.id) || null;
-      if (key === "GET /api/documents/to-sign") return json(200, { documents: signed ? [] : [{ docCode: TRAINING_DOCUMENT.docCode, title: TRAINING_DOCUMENT.title, version: TRAINING_DOCUMENT.version, locales: TRAINING_DOCUMENT.locales.slice(), signedVersion: null }] });
+      const D = docToSign(state, lang);
+      const signed = state.documentAcks.find(a => a.docCode === D.docCode && a.version === D.version && a.personId === state.person.id) || null;
+      if (key === "GET /api/documents/to-sign") return json(200, { documents: signed ? [] : [{ docCode: D.docCode, title: D.title, version: D.version, locales: D.locales.slice(), signedVersion: null }] });
+      // Step 289: the designed version and the signed page, each read
+      // with the token, in the language the path names.
+      const file = /^GET \/api\/documents\/([^/]+)\/(pdf|my-signed-page)$/.exec(key);
+      if (state.handbook && file) {
+        if (decodeURIComponent(file[1]) !== D.docCode) return refuseDoc("documents.notFound");
+        const tokened = /^Bearer /.test(String((headers || {}).authorization || ""));
+        state.pdfReads.push({ which: file[2], locale: new URLSearchParams(search || "").get("locale"), token: tokened });
+        if (!tokened) return json(401, { error: "Sign in first", code: "auth.required" });
+        if (file[2] === "my-signed-page" && !signed) return refuseDoc("documents.notFound");
+        return image("application/pdf", file[2] === "pdf" ? HANDBOOK_PDF : SIGNED_PAGE_PDF);
+      }
       const doc = /^(GET|POST) \/api\/documents\/([^/]+)\/(read|acknowledge)$/.exec(key);
       if (doc) {
-        if (decodeURIComponent(doc[2]) !== TRAINING_DOCUMENT.docCode) return refuseDoc("documents.notFound");
+        if (decodeURIComponent(doc[2]) !== D.docCode) return refuseDoc("documents.notFound");
         if (doc[3] === "read") {
-          const loc = TRAINING_DOCUMENT.locales.indexOf(lang) !== -1 ? lang : "en";
-          return json(200, { document: { docCode: TRAINING_DOCUMENT.docCode, title: TRAINING_DOCUMENT.title, version: TRAINING_DOCUMENT.version, locale: loc, locales: TRAINING_DOCUMENT.locales.slice(), sections: TRAINING_DOCUMENT.sections.map(s => Object.assign({}, s)), acknowledgement: TRAINING_DOCUMENT.acknowledgement[loc] || TRAINING_DOCUMENT.acknowledgement.en } });
+          const asked = new URLSearchParams(search || "").get("locale") || lang;
+          const loc = D.locales.indexOf(asked) !== -1 ? asked : "en";
+          const R = docToSign(state, loc);
+          const out = { docCode: R.docCode, title: R.title, version: R.version, locale: loc, locales: R.locales.slice(), sections: R.sections.map(s => Object.assign({}, s)), acknowledgement: R.acknowledgement };
+          if (state.handbook) {
+            const p = state.person;
+            out.parts = HANDBOOK.parts[loc].map(x => Object.assign({}, x));
+            out.ackSectionRef = HANDBOOK.ackSectionRef;
+            out.pdfUrl = "/api/documents/" + R.docCode + "/pdf?locale=" + loc;
+            if (loc !== asked) out.shownInEnglish = true;
+            const ack = out.sections.find(x => x.ref === HANDBOOK.ackSectionRef);
+            ack.ackFields = { name: p.firstName + " " + p.lastName, employeeId: HANDBOOK.person.employeeId, position: HANDBOOK.person.position, jobClass: HANDBOOK.person.jobClass, sites: HANDBOOK.person.sites.slice(), language: loc, date: ymd(NOW) };
+          }
+          return json(200, { document: out });
         }
         const b = body && typeof body === "object" ? body : {};
-        if (String(b.version || "") !== TRAINING_DOCUMENT.version) return refuseDoc("documents.versionChanged", { version: TRAINING_DOCUMENT.version });
+        if (String(b.version || "") !== D.version) return refuseDoc("documents.versionChanged", { version: D.version });
         if (signed) return refuseDoc("documents.alreadySigned");
         const raw = typeof b.signature === "string" ? b.signature.trim() : "";
         const drawn = raw ? /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw) : null;
         const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
         if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") return refuseDoc("documents.signatureRequired");
         state.calls[state.calls.length - 1].signature = { bytes: bytes.length, size: imageSize(bytes) };
-        const ack = { id: "da-" + (state.documentAcks.length + 1), docCode: TRAINING_DOCUMENT.docCode, version: TRAINING_DOCUMENT.version, personId: state.person.id, locale: b.locale === "es" || b.locale === "fr" ? b.locale : "en", signedAt: new Date().toISOString() };
+        const ack = { id: "da-" + (state.documentAcks.length + 1), docCode: D.docCode, version: D.version, personId: state.person.id, locale: b.locale === "es" || b.locale === "fr" ? b.locale : "en", signedAt: new Date().toISOString() };
         state.documentAcks.push(ack);
         return json(201, { acknowledgment: { id: ack.id, docCode: ack.docCode, version: ack.version, locale: ack.locale, signedAt: ack.signedAt } });
       }
@@ -3741,8 +3850,15 @@ function createStub(opts) {
       // document to sign until it is signed, and a certificate on file.
       if (state.documents) {
         me.firstDay = me.items.filter(i => TRAINING_FIRST_DAY.indexOf(i.topicId) !== -1 && i.status !== "current").map(i => Object.assign({}, i));
-        const signedDoc = state.documentAcks.some(a => a.docCode === TRAINING_DOCUMENT.docCode && a.version === TRAINING_DOCUMENT.version && a.personId === state.person.id);
-        me.documentsToSign = signedDoc ? [] : [{ docCode: TRAINING_DOCUMENT.docCode, title: TRAINING_DOCUMENT.title, version: TRAINING_DOCUMENT.version, locales: TRAINING_DOCUMENT.locales.slice(), signedVersion: null }];
+        const D = docToSign(state, lang);
+        const signedDoc = state.documentAcks.some(a => a.docCode === D.docCode && a.version === D.version && a.personId === state.person.id);
+        me.documentsToSign = signedDoc ? [] : [{ docCode: D.docCode, title: D.title, version: D.version, locales: D.locales.slice(), signedVersion: null }];
+        // Step 290: what the person signed, newest first, behind the
+        // handbook switch (API Step 289's documentsSigned).
+        if (state.handbook) {
+          me.documentsSigned = state.documentAcks.filter(a => a.personId === state.person.id).slice().reverse()
+            .map(a => ({ docCode: a.docCode, title: D.title, version: a.version, currentVersion: D.version, locale: a.locale, signedAt: a.signedAt, signedPage: true }));
+        }
         me.records.forEach(r => { if (r.id === "tr-6") r.certificate = true; });
       }
       return json(200, me);
@@ -4187,6 +4303,27 @@ function createStub(opts) {
       return json(200, Object.assign({}, state.push.settings));
     }
 
+    // --- Step 290: App support, behind state.support. The contact needs
+    // no token; a ticket takes a kind and 1 to 4000 characters, and a
+    // screenshot only as an image's data URL.
+    if (state.support && pathname.indexOf("/api/support/") === 0) {
+      if (key === "GET /api/support/contact") return json(200, Object.assign({}, SUPPORT_CONTACT));
+      if (key === "GET /api/support/tickets/mine") return json(200, { tickets: state.supportTickets.slice().reverse().map(x => Object.assign({}, x)) });
+      if (key === "POST /api/support/tickets") {
+        const b = body && typeof body === "object" ? body : {};
+        const keys = [];
+        if (SUPPORT_KINDS.indexOf(b.kind) === -1) keys.push("kind");
+        const text = typeof b.description === "string" ? b.description.trim() : "";
+        if (!text || text.length > 4000) keys.push("description");
+        if (b.screenshot !== undefined && b.screenshot !== null && !/^data:image\/(png|jpeg|webp);base64,/.test(String(b.screenshot))) keys.push("screenshot");
+        if (keys.length > 0) return json(SUPPORT_REFUSAL.status, { error: refusalIn(SUPPORT_REFUSAL, lang), code: "support.badDetails", keys: keys });
+        const row = { id: "st-" + (state.supportTickets.length + 1), kind: b.kind, description: text, status: "new", statusNote: null, source: b.source === "help" ? "help" : "form", app: "portal", screen: b.screen || null, appVersion: b.appVersion || null, device: b.device || null, locale: b.locale || null, screenshot: !!b.screenshot, createdAt: new Date().toISOString() };
+        state.supportTickets.push(row);
+        return json(201, { ticket: Object.assign({}, row) });
+      }
+      return json(404, { error: "Not found" });
+    }
+
     // --- the bell
     if (pathname === "/api/notifications/unread-count") return json(200, { unread: state.notifications.filter(n => !n.readAt).length });
     if (pathname === "/api/notifications") return json(200, { unread: state.notifications.filter(n => !n.readAt).length, notifications: state.notifications });
@@ -4294,4 +4431,4 @@ module.exports = { createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSA
   CUSTOMER_LINKS, FORM_C_CODE, FORM_V_CODE, formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, PUBLIC_MAX_PHOTOS, PUBLIC_FILINGS_MAX, customerSignatureLine,
   ANNOUNCEMENT, FORM_E_WORDS,
   REQUEST_LINKS, REQUEST_CATEGORIES, REQUEST_WORDS, REQUEST_REF, REQUEST_OFFICE_PHONE, requestWord, requestCategoryTitle, REQUEST_ASSIGNEES, SUP_CODE, SUP_ITEM, SUP_SITES,
-  SUPPLY_CATALOG, SUPPLY_DENY_NOTE };
+  SUPPLY_CATALOG, SUPPLY_DENY_NOTE, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT };
