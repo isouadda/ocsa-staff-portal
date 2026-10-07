@@ -846,6 +846,8 @@ const ShieldIco = (p) => <Ico d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" {.
 const PenIco = (p) => <Ico d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" {...p} />;
 const BookIco = (p) => <Ico d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" {...p} />;
 // An open book, the Library's (Step 307), apart from My training's.
+// A cart, Approve supplies' (Step 311).
+const CartIco = (p) => <Ico d="M9 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM20 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" {...p} />;
 const LibIco = (p) => <Ico d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
@@ -889,6 +891,9 @@ const DESTINATIONS = [
   // Under More alone, for everyone, and only once GET /api/library has
   // answered a list, an empty one included (Step 307).
   { id: "library", label: () => "Library", icon: LibIco, moreOnly: true, role: (ctx) => !!ctx.library },
+  // Under More alone, for a holder of approve_supplies alone, by the
+  // API's canDecide on the list it answers them (Step 311).
+  { id: "supplyorders", label: () => "Approve supplies", icon: CartIco, moreOnly: true, role: (ctx) => !!ctx.supplyOrders },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
 
@@ -1149,18 +1154,19 @@ function readEntryFromUrl() {
 // /requests/<id> (Step 252), and an inspection finding's to /issues/<id>
 // (Step 255); either address opens its subject the same way, and so does
 // a training session's /join/<code> (Step 264), a training category's
-// page, /training/c/<key> (Step 267), and a signature request's /sign/<id>
-// (Step 271). None is an entry screen, so the app signs in or boots the
+// page, /training/c/<key> (Step 267), a signature request's /sign/<id>
+// (Step 271), and a supply request's /supplies/<id> (Step 311). None is
+// an entry screen, so the app signs in or boots the
 // stored session as it always does and the subject opens once the portal
 // is up.
 function readOpenFromUrl() {
   try {
     var v = new URLSearchParams(window.location.search || "").get("open");
     if (!v) {
-      var m = /^\/(requests|issues|join|training\/c|sign|inspect|drafts)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+      var m = /^\/(requests|issues|join|training\/c|sign|inspect|drafts|supplies)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
       if (!m) return null;
       try { window.history.replaceState({}, "", "/"); } catch (e) {}
-      var types = { requests: "client_request", issues: "inspection_finding", join: "training_join", "training/c": "training_category", sign: "signature_request", inspect: "inspection", drafts: "form_draft" };
+      var types = { requests: "client_request", issues: "inspection_finding", join: "training_join", "training/c": "training_category", sign: "signature_request", inspect: "inspection", drafts: "form_draft", supplies: "supply_request" };
       return { subjectType: types[m[1]], subjectId: m[2] };
     }
     try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
@@ -2604,6 +2610,9 @@ export default function OCSAStaffPortal() {
     if (!place) return;
     if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
     if (place.issue) { openIssue(place.issue, null); return; }
+    // A supply request (Step 311): opened once it is known whether this
+    // person decides it.
+    if (place.supply) { setSupplyAsk(String(place.supply)); setShowMore(false); return; }
     if (place.sign) { setSignAt({ id: String(place.sign) }); setActiveTab("clock"); setShowMore(false); return; }
     // Sign off training is a supervisor's place; anyone else lands on My
     // training. The field kit keeps its site and opens on the tile.
@@ -2755,6 +2764,47 @@ export default function OCSAStaffPortal() {
   // The Library (Step 307): what GET /api/library answers, null until it
   // answers a list; More offers the Library then, an empty list included,
   // which the screen says is still loading.
+  // Supply orders (Step 311): the list GET /api/supplies/requests answers
+  // a holder of approve_supplies, null for anyone else and until the API
+  // answers canDecide; whether this person holds it, null until known;
+  // the request open in Approve supplies; and a notice's request, held
+  // until whether this person decides is known.
+  const [supplyOrders, setSupplyOrders] = useState(null);
+  const [supplyHolder, setSupplyHolder] = useState(null);
+  const [supplyAt, setSupplyAt] = useState(null);
+  const [supplyAsk, setSupplyAsk] = useState(null);
+  const supplySeq = useRef(0);
+  // A holder is someone the list says may decide a request, or, where it
+  // says so of none (their own requests alone, or none waiting), whose
+  // permissions carry approve_supplies, read only once the list answers
+  // canDecide at all.
+  const loadSupplyOrders = async (tok) => {
+    const use = tok || token;
+    if (!use) return;
+    const mine = ++supplySeq.current;
+    const rows = await readSupplyOrders(use);
+    if (mine !== supplySeq.current || liveToken.current !== use) return;
+    if (rows === undefined) { setSupplyHolder(was => (was === null ? false : was)); return; }
+    let holder = !!rows && rows.some(r => r.canDecide);
+    if (rows && !holder) { try { const p = await api("/api/users/me/permissions", { token: use }); holder = !!(p && p.capabilities && p.capabilities.approve_supplies === true); } catch (e) {} }
+    if (mine !== supplySeq.current || liveToken.current !== use) return;
+    setSupplyHolder(holder); setSupplyOrders(holder ? rows : null);
+  };
+  // A request as an action answered it, in place of the row it was.
+  const takeSupplyOrder = (row) => setSupplyOrders(prev => (Array.isArray(prev) ? prev.map(r => (r.id === row.id ? row : r)) : prev));
+  useEffect(() => {
+    if (!token || screen !== "main") { setSupplyOrders(null); setSupplyHolder(null); setSupplyAt(null); setSupplyAsk(null); return; }
+    loadSupplyOrders(token);
+  }, [token, screen]);
+  // Home reads it again each time it opens.
+  useEffect(() => { if (token && screen === "main" && activeTab === "clock" && supplyHolder) loadSupplyOrders(); }, [activeTab]);
+  // A notice's request opens once that is known: on Approve supplies for
+  // a holder, and on Supplies, as before, for anyone else.
+  useEffect(() => {
+    if (!supplyAsk || supplyHolder === null) return;
+    if (supplyHolder) { setSupplyAt({ id: supplyAsk }); setActiveTab("supplyorders"); } else setActiveTab("supplies");
+    setSupplyAsk(null); setShowMore(false);
+  }, [supplyAsk, supplyHolder]);
   const [library, setLibrary] = useState(null);
   // The document open in the Library, { doc, at, key }: from a row, a
   // search result at the section it matched, or Help's Open button.
@@ -2790,7 +2840,7 @@ export default function OCSAStaffPortal() {
     readWorkspaceProjects(token).then(list => { if (live) setWsProjects(list); });
     return () => { live = false; };
   }, [wsAsks, token, user && user.id]);
-  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training, property: Array.isArray(property), support: Array.isArray(support), library: Array.isArray(library) };
+  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training, property: Array.isArray(property), support: Array.isArray(support), library: Array.isArray(library), supplyOrders: supplyHolder === true && Array.isArray(supplyOrders) };
   const shortcutChoices = shortcutChoicesFor(destCtx);
   const allowedShortcutIds = shortcutChoices.map(d => d.id);
   const uid = user && user.id ? user.id : null;
@@ -3126,8 +3176,9 @@ export default function OCSAStaffPortal() {
               {activeTab === "clock" && signAt && <SignScreen key={signAt.id || "list"} token={token} id={signAt.id || null} requests={signList} onOpen={openSign} onBack={() => setSignAt(null)} onChanged={() => setSignAsked(n => n + 1)} t={t} />}
               {activeTab === "property" && destCtx.property && <MyPropertyView rows={property} onSign={(id) => openSign({ id: id })} t={t} />}
               {activeTab === "support" && destCtx.support && <SupportView token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} t={t} />}
+              {activeTab === "supplyorders" && (destCtx.supplyOrders || !!supplyAt) && <SupplyOrdersView token={token} user={user} rows={supplyOrders} onReload={() => loadSupplyOrders()} onRow={takeSupplyOrder} at={supplyAt} onAt={setSupplyAt} getOpts={getOpts} showToast={showToast} t={t} />}
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
-              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
+              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -7459,6 +7510,261 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
 // check a second person makes (QMS-014 8 step 4) until it is closed.
 // ------------------------------------------------------------
 const FINDING_OPEN_STATES = ["open", "in_progress", "escalated"];
+// ------------------------------------------------------------
+// Supply orders on the phone (Step 311, the Step 308 contract's sections
+// 0, 1.7 and 4.1, 4.2 and 4.4), built for 320 to 390 wide first. For
+// holders of approve_supplies alone, by the API's canDecide on the list
+// GET /api/supplies/requests answers them: Home's card, Approve supplies
+// under More, and a request with its item decisions. Until the API
+// answers canDecide nothing here shows, and anyone else sees what they
+// saw before. The list is read once the portal is up, each time Home or
+// Approve supplies opens, and after every action on a request.
+// ------------------------------------------------------------
+const supplyVendorOf = (x) => {
+  if (!x || typeof x !== "object") return null;
+  const id = agentField(x, ["id"], null);
+  if (id === null) return null;
+  const str = (keys) => fkText(x, keys);
+  const place = [str(["city"]), [str(["state"]), str(["zip_code", "zipCode", "zip"])].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  return {
+    id: String(id), name: str(["name"]), contactName: str(["contactName", "contact_name"]), contactPhone: str(["contactPhone", "contact_phone"]), contactEmail: str(["contactEmail", "contact_email"]),
+    address: str(["address"]) || [str(["address_line1", "addressLine1"]), place].filter(Boolean).join(", "),
+    approval: str(["approvalStatus", "approval_status"]), active: x.is_active !== false && x.isActive !== false,
+  };
+};
+// A request as API Step 308 answers it (contract 1.6), over the row
+// Step 281 reads.
+function supplyOrderOf(x) {
+  const base = supplyRequestOf(x);
+  if (!base) return null;
+  const str = (keys) => fkText(x, keys);
+  return Object.assign(base, {
+    canDecide: x.canDecide === true, siteName: str(["site_name", "siteName"]), requestedByName: str(["requested_by_name", "requestedByName"]), urgency: str(["urgency"]),
+    approvedBy: x.approvedBy && typeof x.approvedBy === "object" ? fkText(x.approvedBy, ["name"]) : "", approvedAt: x.approvedAt || x.approved_at || null,
+    vendor: supplyVendorOf(x.vendor), deliverTo: str(["deliverTo", "deliver_to"]), siteAddress: str(["siteAddress", "site_address"]),
+    poNumber: str(["poNumber", "po_number"]), poPdfUrl: str(["poPdfUrl", "po_pdf_url"]), orderedAt: x.orderedAt || x.ordered_at || null, orderedToEmail: str(["orderedToEmail", "ordered_to_email"]),
+    signed: x.signed === true || !!str(["poNumber", "po_number"]),
+  });
+}
+// Every row, or null when no row carries canDecide, which is an API from
+// before Step 308; undefined when nothing came back.
+function supplyOrdersOf(d) {
+  const rows = wsRows(d, "requests");
+  if (!rows) return null;
+  if (!rows.some(r => r && typeof r === "object" && Object.prototype.hasOwnProperty.call(r, "canDecide"))) return null;
+  return rows.map(supplyOrderOf).filter(Boolean);
+}
+async function readSupplyOrders(token) {
+  try { return supplyOrdersOf(await api("/api/supplies/requests", { token })); } catch (e) { return undefined; }
+}
+// Where a request stands: decide (a line still undecided), sign (every
+// line decided and one approved, not signed), send (signed, not sent),
+// ordered, or done (every line denied, or fulfilled with no order).
+const supplyStage = (r) => (r.orderedAt ? "ordered" : r.signed ? "send" : r.status === "fulfilled" ? "done" : r.items.some(l => !l.decision) ? "decide" : r.items.some(l => l.decision === "approved") ? "sign" : "done");
+// What waits for this holder: what they may decide or sign.
+const supplyOrdersWaiting = (rows) => (Array.isArray(rows) ? rows.filter(r => r.canDecide && (supplyStage(r) === "decide" || supplyStage(r) === "sign")) : []);
+// The portal's address for a request, /supplies/<id>, which the API's
+// notice about a new one links to (Step 308's contract, 1.7).
+const SUPPLY_ORDER_PATH = "/supplies/";
+
+function SupplyOrdersCard({ rows, onOpen, t }) {
+  const n = supplyOrdersWaiting(rows).length;
+  if (n === 0) return null;
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      <button type="button" data-supply-orders-card={n} onClick={onOpen} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, minHeight: TAP, padding: "14px 12px", borderRadius: R.md, background: t.card, border: "1px solid " + t.goldBorder, boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
+        <CartIco sz={20} c={t.goldText} style={{ flexShrink: 0 }} />
+        <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{tr("Supply requests to approve ({n})", { n: n })}</span>
+        <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0 }} />
+      </button>
+    </div>
+  );
+}
+// The urgency in the screen's words: the pick list's, else the four the
+// request form falls back on. A code with neither is not drawn.
+const SUPPLY_URGENCY_WORDS = { low: "Low", normal: "Normal", high: "High", urgent: "Urgent" };
+const supplyUrgencyWord = (getOpts, v) => { const o = (getOpts ? getOpts("urgency_levels") : []).find(x => x.v === v); return o ? o.l : SUPPLY_URGENCY_WORDS[v] ? tr(SUPPLY_URGENCY_WORDS[v]) : ""; };
+const supplyLineText = (l) => [l.name, l.quantity !== null ? String(l.quantity) + (l.unit ? " " + l.unit : "") : ""].filter(Boolean).join(", ");
+const SUPPLY_ORDER_GROUPS = [
+  { id: "waiting", word: "Waiting for a decision", stages: ["decide", "sign"] },
+  { id: "send", word: "Signed, not sent yet", stages: ["send"] },
+  { id: "ordered", word: "Ordered", stages: ["ordered"] },
+];
+
+function SupplyOrdersView({ token, user, rows, onReload, onRow, at, onAt, getOpts, showToast, t }) {
+  // Read again each time the screen opens.
+  useEffect(() => { onReload(); }, []);
+  const list = Array.isArray(rows) ? rows : null;
+  const smallSt = { fontSize: 12, color: t.textSec, marginTop: 3, lineHeight: 1.4, overflowWrap: "anywhere" };
+  if (at && at.id) {
+    const open = list ? list.find(r => r.id === at.id) || null : null;
+    if (open) return <SupplyOrder key={open.id} token={token} user={user} row={open} onBack={() => onAt(null)} onRow={onRow} onReload={onReload} getOpts={getOpts} showToast={showToast} t={t} />;
+    return (
+      <div data-supply-order="none" style={{ padding: "14px 16px 100px" }}>
+        <WsBack label={tr("Approve supplies")} onBack={() => onAt(null)} t={t} />
+        <div style={{ ...wsQuiet(t), marginTop: 8 }}>{list ? tr("This request did not load.") : tr("Loading...")}</div>
+      </div>
+    );
+  }
+  const rowOf = (r) => {
+    const stage = supplyStage(r);
+    const urgency = supplyUrgencyWord(getOpts, r.urgency);
+    const loud = r.urgency === "urgent" || r.urgency === "high";
+    return (
+      <button key={r.id} type="button" data-supply-order={r.id} data-supply-order-stage={stage} onClick={() => onAt({ id: r.id })} style={{ ...fkRowSt(t), display: "block", width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", color: t.text, fontFamily: FONT_BODY }}>
+        <div style={{ display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+          <div style={{ flex: "1 1 160px", minWidth: 0, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{r.siteName || r.requestedByName}</div>
+          {urgency && <span style={trainingChipSt(t, loud ? RED : BLUE)}>{urgency}</span>}
+        </div>
+        <div style={smallSt}>{tr("Asked by {name}, {when}", { name: r.requestedByName, when: requestWhen(r.createdAt) })}</div>
+        <div style={{ ...smallSt, color: t.text }}>{r.items.map(supplyLineText).join("; ")}</div>
+        {stage === "sign" && <div style={{ ...smallSt, color: ink(t, GREEN), fontWeight: 600 }}>{tr("Ready to sign")}</div>}
+        {stage === "send" && r.poNumber && <div style={{ ...smallSt, fontWeight: 600 }}>{r.poNumber}</div>}
+        {stage === "ordered" && <div style={{ ...smallSt, color: ink(t, GREEN), fontWeight: 600 }}>{[r.poNumber, tr("Ordered {date}, sent to {email}", { date: signedDay(r.orderedAt), email: r.orderedToEmail })].filter(Boolean).join(". ")}</div>}
+      </button>
+    );
+  };
+  const shown = list || [];
+  return (
+    <div data-supply-orders={shown.length} style={{ padding: "14px 16px 100px" }}>
+      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("Approve supplies")}</div>
+      {!list && <div style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("Loading...")}</div>}
+      {list && SUPPLY_ORDER_GROUPS.every(g => !shown.some(r => g.stages.indexOf(supplyStage(r)) !== -1)) && <div data-supply-orders-none="1" style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("No supply requests are waiting for you.")}</div>}
+      {SUPPLY_ORDER_GROUPS.map(g => {
+        const inGroup = shown.filter(r => g.stages.indexOf(supplyStage(r)) !== -1);
+        if (inGroup.length === 0) return null;
+        return (
+          <div key={g.id} data-supply-orders-group={g.id}>
+            <div role="heading" aria-level={3} style={fkHeadSt(t)}>{tr(g.word)}</div>
+            {inGroup.map(rowOf)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// One line of a request: its name, quantity and note, then its decision,
+// or, for a holder until the request is ordered, Quantity to approve with
+// one less and one more, a note, Approve and Deny. A decided line offers
+// Change, which opens the controls again.
+function SupplyOrderLine({ line, at, can, busy, draft, onDraft, onDecide, fault, t }) {
+  const [editing, setEditing] = useState(false);
+  const open = can && (!line.decision || editing);
+  const max = line.quantity !== null && line.quantity > 0 ? line.quantity : 1;
+  const qty = draft && draft.qty !== undefined ? draft.qty : max;
+  const note = draft && draft.note !== undefined ? draft.note : "";
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 3, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const decided = line.decision === "approved"
+    ? <div data-supply-line-decision="approved" style={{ fontSize: 13, fontWeight: 600, color: ink(t, GREEN), marginTop: 6, fontFamily: FONT_HEAD }}>{tr("Approved {n} of {m}", { n: line.approvedQuantity !== null ? line.approvedQuantity : line.quantity, m: line.quantity })}</div>
+    : line.decision === "denied" ? <div data-supply-line-decision="denied" style={{ fontSize: 13, fontWeight: 600, color: ink(t, RED), marginTop: 6, fontFamily: FONT_HEAD }}>{tr("Denied")}</div> : null;
+  return (
+    <div data-supply-line={line.id} style={{ ...fkRowSt(t), marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: "2px 10px" }}>
+        <div style={{ flex: "1 1 140px", minWidth: 0, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{line.name}</div>
+        {line.quantity !== null && <div style={{ fontSize: 12, color: t.textSec, fontVariantNumeric: "tabular-nums" }}>{tr("Quantity: {n}", { n: line.quantity }) + (line.unit ? " " + line.unit : "")}</div>}
+      </div>
+      {line.note && <div style={lineSt}>{line.note}</div>}
+      {!open && decided}
+      {!open && line.decision && line.decisionNote && <div style={lineSt}>{tr("Note: {note}", { note: line.decisionNote })}</div>}
+      {!open && can && line.decision && <button type="button" data-supply-line-change={line.id} disabled={busy} onClick={() => { setEditing(true); onDraft({ qty: line.approvedQuantity !== null ? line.approvedQuantity : max, note: line.decisionNote || "" }); }} style={{ ...wsPlainBtn(t), width: "100%", marginTop: 10 }}>{tr("Change")}</button>}
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          <div id={"ocsa-supply-qty-" + at} style={mkLabel(t)}>{tr("Quantity to approve")}</div>
+          <div role="group" aria-labelledby={"ocsa-supply-qty-" + at} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button type="button" data-supply-line-less={line.id} onClick={() => onDraft({ qty: Math.max(1, qty - 1), note: note })} disabled={busy || qty <= 1} aria-label={tr("One less")} style={{ ...mkTapFrame(), opacity: qty <= 1 ? 0.5 : 1 }}><span style={mkQtyBtn(t)}><MinusIco sz={14} /></span></button>
+            <div data-supply-line-qty={qty} aria-live="polite" style={{ minWidth: 44, textAlign: "center", fontSize: 22, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div>
+            <button type="button" data-supply-line-more={line.id} onClick={() => onDraft({ qty: Math.min(max, qty + 1), note: note })} disabled={busy || qty >= max} aria-label={tr("One more")} style={{ ...mkTapFrame(), opacity: qty >= max ? 0.5 : 1 }}><span style={mkQtyBtn(t)}><PlusIco sz={14} /></span></button>
+          </div>
+          <input type="text" data-supply-line-note={line.id} value={note} maxLength={500} onChange={e => onDraft({ qty: qty, note: e.target.value })} placeholder={tr("Note (optional)")} aria-label={tr("Note (optional)")} style={{ ...mkInput(t), marginTop: 10 }} />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+            <button type="button" data-supply-line-deny={line.id} disabled={busy} onClick={() => onDecide("denied").then(ok => { if (ok) setEditing(false); })} style={wsPlainBtn(t)}>{tr("Deny")}</button>
+            <button type="button" data-supply-line-approve={line.id} disabled={busy} onClick={() => onDecide("approved").then(ok => { if (ok) setEditing(false); })} style={wsMainBtn(t, busy)}>{tr("Approve")}</button>
+          </div>
+        </div>
+      )}
+      {fault && <WsFault text={fault} t={t} />}
+    </div>
+  );
+}
+
+// A request open: who asked and when, its urgency and details, each line
+// with its decision, Approve all and Deny all over the lines still
+// undecided, and, below, Sign and order once every line is decided.
+function SupplyOrder({ token, user, row, onBack, onRow, onReload, getOpts, showToast, t }) {
+  const stage = supplyStage(row);
+  const can = row.canDecide && stage !== "ordered";
+  const [drafts, setDrafts] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [fault, setFault] = useState(null);
+  const [lineFaults, setLineFaults] = useState({});
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, []);
+  useBusy("supply order", busy);
+  const draftOf = (l) => drafts[l.id] || {};
+  const bodyOf = (l, decision) => {
+    const d = draftOf(l);
+    const out = { id: l.id, decision: decision };
+    const max = l.quantity !== null && l.quantity > 0 ? l.quantity : 1;
+    if (decision === "approved") out.approvedQuantity = d.qty !== undefined ? d.qty : max;
+    const note = String(d.note || "").trim();
+    if (note) out.note = note;
+    return out;
+  };
+  // One decide call for the lines given; a refusal's keys put the API's
+  // words under the line each names, and anything else at the top.
+  const decide = async (lines, decision) => {
+    if (busy || lines.length === 0) return false;
+    setBusy(true); setFault(null); setLineFaults({});
+    const sent = lines.map(l => bodyOf(l, decision));
+    let ok = false;
+    try {
+      const d = await api("/api/supplies/requests/" + encodeURIComponent(row.id) + "/decide", { method: "POST", body: { items: sent }, token });
+      const next = supplyOrderOf(d && d.request ? d.request : d);
+      if (!live.current) return false;
+      setDrafts(prev => { const n = Object.assign({}, prev); lines.forEach(l => { delete n[l.id]; }); return n; });
+      if (next) onRow(next); else onReload();
+      ok = true;
+    } catch (err) {
+      if (!live.current) return false;
+      const said = fkFaultWords(err, ERR_GENERIC);
+      const keys = err && err.body && Array.isArray(err.body.keys) ? err.body.keys.map(String) : [];
+      const under = {};
+      keys.forEach(k => { const m = /^items\.(\d+)/.exec(k); if (m && sent[Number(m[1])]) under[sent[Number(m[1])].id] = said; });
+      if (Object.keys(under).length > 0) setLineFaults(under); else setFault(said);
+    }
+    if (live.current) setBusy(false);
+    return ok;
+  };
+  const undecided = row.items.filter(l => !l.decision);
+  const urgency = supplyUrgencyWord(getOpts, row.urgency);
+  const mine = !!user && row.requestedBy !== null && String(row.requestedBy) === String(user.id);
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" };
+  return (
+    <div data-supply-order={row.id} data-supply-order-stage={stage} style={{ padding: "14px 16px 100px" }}>
+      <WsBack label={tr("Approve supplies")} onBack={onBack} t={t} />
+      <div style={{ display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+        <div role="heading" aria-level={2} style={{ flex: "1 1 160px", minWidth: 0, fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{row.siteName || row.requestedByName}</div>
+        {urgency && <span style={trainingChipSt(t, row.urgency === "urgent" || row.urgency === "high" ? RED : BLUE)}>{urgency}</span>}
+      </div>
+      <div style={lineSt}>{tr("Asked by {name}, {when}", { name: row.requestedByName, when: requestWhen(row.createdAt) })}</div>
+      {row.description && <div style={{ ...lineSt, color: t.text, whiteSpace: "pre-line" }}>{row.description}</div>}
+      {!row.canDecide && stage !== "ordered" && <div data-supply-order-readonly="1" style={{ ...lineSt, marginTop: 10, color: t.text, fontWeight: 600 }}>{mine ? tr("You asked for these supplies, so someone else decides them.") : tr("Only the people who approve supply requests can decide this.")}</div>}
+      <div style={{ marginTop: 14 }}>
+        {row.items.map((l, i) => <SupplyOrderLine key={l.id || i} line={l} at={i} can={can} busy={busy} draft={drafts[l.id]} onDraft={(d) => setDrafts(prev => Object.assign({}, prev, { [l.id]: d }))} onDecide={(decision) => decide([l], decision)} fault={lineFaults[l.id] || null} t={t} />)}
+      </div>
+      {can && undecided.length > 1 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
+          <button type="button" data-supply-deny-all="1" disabled={busy} onClick={() => decide(undecided, "denied")} style={wsPlainBtn(t)}>{tr("Deny all")}</button>
+          <button type="button" data-supply-approve-all="1" disabled={busy} onClick={() => decide(undecided, "approved")} style={wsMainBtn(t, busy)}>{tr("Approve all")}</button>
+        </div>
+      )}
+      {fault && <WsFault text={fault} t={t} />}
+    </div>
+  );
+}
+
 function findingRowOf(x) {
   if (!x || typeof x !== "object") return null;
   const id = agentField(x, ["id"], null);
@@ -10013,6 +10319,9 @@ function notifPlace(subjectType, subjectId) {
   if (tab === "chat") return { tab: "chat", chat: id };
   if (tab === "announcement") return id ? { announcement: id } : null;
   if (subjectType === "client_request") return { tab: tab, request: id };
+  // A supply request (Step 311): the request itself on Approve supplies
+  // for a holder, and Supplies for anyone else, as before.
+  if (subjectType === "supply_request" && id) return { tab: tab, supply: id };
   if (subjectType === "inspection_finding") return { tab: tab, finding: id };
   if (subjectType === "training_signoff") return { tab: tab, signoff: true };
   if (subjectType === "training_join") return id ? { tab: tab, join: id } : null;
