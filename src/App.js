@@ -845,6 +845,8 @@ const ShieldIco = (p) => <Ico d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" {.
 // A pen, for a signature waiting (Step 271).
 const PenIco = (p) => <Ico d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" {...p} />;
 const BookIco = (p) => <Ico d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" {...p} />;
+// An open book, the Library's (Step 307), apart from My training's.
+const LibIco = (p) => <Ico d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
 // Every destination the portal has, in one list, so the bottom bar and the
@@ -884,6 +886,9 @@ const DESTINATIONS = [
   // Under More alone, for everyone, and only once GET
   // /api/support/tickets/mine has answered a list (Step 290).
   { id: "support", label: () => "App support", icon: SupportIco, moreOnly: true, role: (ctx) => !!ctx.support },
+  // Under More alone, for everyone, and only once GET /api/library has
+  // answered a list, an empty one included (Step 307).
+  { id: "library", label: () => "Library", icon: LibIco, moreOnly: true, role: (ctx) => !!ctx.library },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
 
@@ -2747,6 +2752,16 @@ export default function OCSAStaffPortal() {
   }, [token, screen, supportAsked]);
   const supportFrom = useRef("clock");
   useEffect(() => { if (activeTab !== "support") supportFrom.current = activeTab; }, [activeTab]);
+  // The Library (Step 307): what GET /api/library answers, null until it
+  // answers a list; More offers the Library then, an empty list included,
+  // which the screen says is still loading.
+  const [library, setLibrary] = useState(null);
+  useEffect(() => {
+    if (!token || screen !== "main") { setLibrary(null); return undefined; }
+    let live = true;
+    readLibrary(token).then(l => { if (live && l) setLibrary(l); });
+    return () => { live = false; };
+  }, [token, screen]);
   useEffect(() => {
     if (!token || screen !== "main") { setTraining(null); setTrainingAt(null); return undefined; }
     let live = true;
@@ -2771,7 +2786,7 @@ export default function OCSAStaffPortal() {
     readWorkspaceProjects(token).then(list => { if (live) setWsProjects(list); });
     return () => { live = false; };
   }, [wsAsks, token, user && user.id]);
-  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training, property: Array.isArray(property), support: Array.isArray(support) };
+  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training, property: Array.isArray(property), support: Array.isArray(support), library: Array.isArray(library) };
   const shortcutChoices = shortcutChoicesFor(destCtx);
   const allowedShortcutIds = shortcutChoices.map(d => d.id);
   const uid = user && user.id ? user.id : null;
@@ -3107,6 +3122,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "clock" && signAt && <SignScreen key={signAt.id || "list"} token={token} id={signAt.id || null} requests={signList} onOpen={openSign} onBack={() => setSignAt(null)} onChanged={() => setSignAsked(n => n + 1)} t={t} />}
               {activeTab === "property" && destCtx.property && <MyPropertyView rows={property} onSign={(id) => openSign({ id: id })} t={t} />}
               {activeTab === "support" && destCtx.support && <SupportView token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} t={t} />}
+              {activeTab === "library" && destCtx.library && <LibraryView token={token} docs={library} onDocs={setLibrary} t={t} />}
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
@@ -8673,6 +8689,145 @@ function HandbookReader({ token, doc, d, signed, changed, onBack, onSigned, onAg
       </div>
     </>
   ), { "data-doc-section": at + 1 });
+}
+
+// ------------------------------------------------------------
+// The Library (Step 307, the Step 305 contract's sections 2.1 and 2.4).
+// Under More for everyone once GET /api/library answers a list: every
+// company document once, by its folder, the middle part of its number,
+// under the folder's name as the API answers it in the screen's language,
+// with each folder's count. Each document reads its number, its title and
+// its version, and Also in Spanish when it has a Spanish edition; on a
+// Spanish screen a document with none reads In English only instead. The
+// search box finds documents by number, by title and by words in their
+// sections, the API's ?q=, best first, each with the section it matched.
+// An empty list says the library is still loading. Nothing about any
+// document is written here.
+// ------------------------------------------------------------
+const LIBRARY_FOLDERS = ["QMS", "SVC", "HR", "HS", "ENV", "MGT", "PUR", "CTR", "FIN", "FRM"];
+const libraryFolderRank = (f) => { const n = LIBRARY_FOLDERS.indexOf(f); return n === -1 ? LIBRARY_FOLDERS.length : n; };
+// What is typed is searched once the typing stops this long, from this
+// many letters on.
+const LIBRARY_SEARCH_WAIT_MS = 350;
+const LIBRARY_SEARCH_MIN = 2;
+function libraryDocOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const docCode = fkText(x, ["docCode", "doc_code"]);
+  if (!docCode) return null;
+  const m = x.match && typeof x.match === "object" ? x.match : null;
+  const match = m ? { sectionRef: fkText(m, ["sectionRef", "section_ref"]), sectionTitle: fkText(m, ["sectionTitle", "section_title"]) } : null;
+  const folder = fkText(x, ["folder"]).toUpperCase() || ((/^[A-Z]+-([A-Z]+)-/i.exec(docCode) || [])[1] || "").toUpperCase();
+  return {
+    docCode: docCode, title: fkText(x, ["title", "docTitle", "doc_title"]) || docCode, version: fkText(x, ["version", "docVersion", "doc_version"]),
+    folder: folder, folderName: fkText(x, ["folderName", "folder_name"]) || folder,
+    locales: (Array.isArray(x.locales) ? x.locales : []).filter(v => typeof v === "string"),
+    hasPdf: x.hasPdf === true, parts: docPartsOf(x.parts) || [],
+    match: match && (match.sectionRef || match.sectionTitle) ? match : null,
+  };
+}
+function libraryOf(d) {
+  const rows = wsRows(d, "documents");
+  return rows ? rows.map(libraryDocOf).filter(Boolean) : null;
+}
+async function readLibrary(token) {
+  try { return libraryOf(await api("/api/library", { token })); } catch (e) { return null; }
+}
+// The folders in the order the contract names them, each with its
+// documents in the order the API sorted them, by number.
+function libraryFolders(docs) {
+  const out = [];
+  (docs || []).forEach((d) => {
+    let f = out.find(x => x.folder === d.folder);
+    if (!f) { f = { folder: d.folder, name: d.folderName, docs: [] }; out.push(f); }
+    f.docs.push(d);
+  });
+  return out.sort((a, b) => libraryFolderRank(a.folder) - libraryFolderRank(b.folder) || a.folder.localeCompare(b.folder));
+}
+// The line under a document about its languages.
+const libraryLanguageLine = (d) => (languageToSend() === "es" ? (d.locales.length > 0 && d.locales.indexOf("es") === -1 ? tr("In English only") : "") : d.locales.indexOf("es") !== -1 ? tr("Also in Spanish") : "");
+
+function LibraryView({ token, docs, onDocs, onOpen, t }) {
+  const [folder, setFolder] = useState(null);
+  const [q, setQ] = useState("");
+  // The search's answer for the words it was asked: { q, rows } or
+  // { q, fault }. Only the newest is kept.
+  const [found, setFound] = useState(null);
+  const [asked, setAsked] = useState(0);
+  const needle = q.trim();
+  const searching = needle.length >= LIBRARY_SEARCH_MIN;
+  // The list is read again each time the screen opens.
+  useEffect(() => {
+    let live = true;
+    readLibrary(token).then(l => { if (live && l) onDocs(l); });
+    return () => { live = false; };
+  }, []);
+  useEffect(() => {
+    if (!searching) { setFound(null); return undefined; }
+    let live = true;
+    const wait = setTimeout(() => {
+      api("/api/library?q=" + encodeURIComponent(needle), { token })
+        .then(d => { if (live) setFound({ q: needle, rows: libraryOf(d) || [] }); })
+        .catch(err => { if (live) setFound({ q: needle, fault: fkFaultWords(err, "This list did not load.") }); });
+    }, LIBRARY_SEARCH_WAIT_MS);
+    return () => { live = false; clearTimeout(wait); };
+  }, [needle, searching, token, asked]);
+  const folders = libraryFolders(docs);
+  const openFolder = folder ? folders.find(f => f.folder === folder) || null : null;
+  const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const smallSt = { fontSize: 11, color: t.textMut, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const countSt = { flexShrink: 0, minWidth: 28, padding: "2px 8px", borderRadius: R.pill, background: t.goldBg, border: "1px solid " + t.goldBorder, color: t.goldText, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD, textAlign: "center", fontVariantNumeric: "tabular-nums" };
+  // One document: a button that opens it, at the section a search matched.
+  const docRow = (d) => {
+    const language = libraryLanguageLine(d);
+    const inside = (
+      <>
+        <div style={smallSt}>{[d.docCode, d.version ? tr("Version {n}", { n: d.version }) : ""].filter(Boolean).join(", ")}</div>
+        <div style={{ ...nameSt, marginTop: 2 }}>{d.title}</div>
+        {d.match && <div data-library-match={d.match.sectionRef} style={{ ...lineSt, color: t.text, fontWeight: 600 }}>{[d.match.sectionRef ? tr("Section {n}", { n: d.match.sectionRef }) : "", d.match.sectionTitle].filter(Boolean).join(" ")}</div>}
+        {language && <div data-library-language="1" style={lineSt}>{language}</div>}
+      </>
+    );
+    const rowSt = { ...fkRowSt(t), display: "block", width: "100%", minHeight: TAP, textAlign: "left", color: t.text };
+    if (!onOpen) return <div key={d.docCode} data-library-doc={d.docCode} style={rowSt}>{inside}</div>;
+    return <button key={d.docCode} type="button" data-library-doc={d.docCode} onClick={() => onOpen(d)} style={{ ...rowSt, cursor: "pointer", fontFamily: FONT_BODY }}>{inside}</button>;
+  };
+  const results = searching && found && found.q === needle ? found : null;
+  return (
+    <div data-library={openFolder ? "folder" : searching ? "search" : "folders"} style={{ padding: "14px 16px 100px" }}>
+      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>{tr("Library")}</div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <input type="search" data-library-search="1" value={q} onChange={e => setQ(e.target.value.slice(0, 120))} placeholder={tr("Search by number, title or words in the text")} aria-label={tr("Search by number, title or words in the text")} style={{ ...mkInput(t), flex: 1, minWidth: 0 }} />
+        {q !== "" && <button type="button" onClick={() => setQ("")} style={{ ...wsPlainBtn(t), flex: "none" }}>{tr("Clear")}</button>}
+      </div>
+      {searching && !results && <div style={{ ...wsQuiet(t), marginTop: 12 }}>{tr("Loading...")}</div>}
+      {results && results.fault && <div><WsFault text={results.fault} t={t} /><div style={{ display: "flex", marginTop: 10 }}><button type="button" onClick={() => setAsked(n => n + 1)} style={wsPlainBtn(t)}>{tr("Try again")}</button></div></div>}
+      {results && results.rows && results.rows.length === 0 && <div data-library-none="1" style={{ ...wsQuiet(t), marginTop: 12 }}>{tr("No document matches that search.")}</div>}
+      {results && results.rows && results.rows.length > 0 && <div data-library-results={results.rows.length} style={{ marginTop: 12 }}>{results.rows.map(docRow)}</div>}
+      {!searching && (docs || []).length === 0 && <div data-library-empty="1" style={{ ...wsQuiet(t), marginTop: 12 }}>{tr("The library is loading. Check back soon.")}</div>}
+      {!searching && !openFolder && folders.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          {folders.map(f => (
+            <button key={f.folder} type="button" data-library-folder={f.folder} onClick={() => { setFolder(f.folder); try { window.scrollTo(0, 0); } catch (e) {} }} style={{ ...fkRowSt(t), display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", color: t.text }}>
+              <FolderIco sz={18} c={t.goldText} style={{ flexShrink: 0 }} />
+              <span style={{ ...nameSt, flex: 1, minWidth: 0 }}>{f.name}</span>
+              <span style={countSt}>{f.docs.length}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {!searching && openFolder && (
+        <div style={{ marginTop: 10 }}>
+          <WsBack label={tr("All folders")} onBack={() => setFolder(null)} t={t} />
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <div role="heading" aria-level={3} style={{ ...nameSt, fontSize: 15, flex: 1, minWidth: 0 }}>{openFolder.name}</div>
+            <span style={countSt}>{openFolder.docs.length}</span>
+          </div>
+          {openFolder.docs.map(docRow)}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Your first trainings (Step 264, the Step 262 contract's section 5, and
