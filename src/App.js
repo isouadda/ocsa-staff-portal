@@ -829,6 +829,7 @@ const ClipIco = (p) => <Ico d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 
 const SwapIco = (p) => <Ico d="M16 3l4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" {...p} />;
 const CalIco = (p) => <Ico d="M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM16 2v4M8 2v4M3 10h18" {...p} />;
 const HomeIco = (p) => <Ico d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" {...p} />;
+const SupportIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM4.9 4.9l4.3 4.3M14.8 14.8l4.3 4.3M14.8 9.2l4.3-4.3M9.2 14.8l-4.3 4.3" {...p} />;
 const HelpIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01" {...p} />;
 const GlobeIco = (p) => <Ico d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" {...p} />;
 const PersonIco = (p) => <Ico d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" {...p} />;
@@ -880,6 +881,9 @@ const DESTINATIONS = [
   // Under More alone, for everyone, and only once GET /api/hr/property/mine
   // has answered a list (Step 271).
   { id: "property", label: () => "My company property", icon: BoxIco, moreOnly: true, role: (ctx) => !!ctx.property },
+  // Under More alone, for everyone, and only once GET
+  // /api/support/tickets/mine has answered a list (Step 290).
+  { id: "support", label: () => "App support", icon: SupportIco, moreOnly: true, role: (ctx) => !!ctx.support },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
 
@@ -2695,6 +2699,21 @@ export default function OCSAStaffPortal() {
     readPropertyMine(token).then(l => { if (live && l) setProperty(l); });
     return () => { live = false; };
   }, [token, screen, signAsked]);
+  // App support (Step 290): the person's own tickets, what GET
+  // /api/support/tickets/mine answers, null until it answers a list; More
+  // offers App support then. Read again after a ticket goes, from the
+  // screen or from Help. The screen the person was on before it is the
+  // one a ticket names.
+  const [support, setSupport] = useState(null);
+  const [supportAsked, setSupportAsked] = useState(0);
+  useEffect(() => {
+    if (!token || screen !== "main") { setSupport(null); return undefined; }
+    let live = true;
+    readSupportMine(token).then(l => { if (live && l) setSupport(l); });
+    return () => { live = false; };
+  }, [token, screen, supportAsked]);
+  const supportFrom = useRef("clock");
+  useEffect(() => { if (activeTab !== "support") supportFrom.current = activeTab; }, [activeTab]);
   useEffect(() => {
     if (!token || screen !== "main") { setTraining(null); setTrainingAt(null); return undefined; }
     let live = true;
@@ -2719,7 +2738,7 @@ export default function OCSAStaffPortal() {
     readWorkspaceProjects(token).then(list => { if (live) setWsProjects(list); });
     return () => { live = false; };
   }, [wsAsks, token, user && user.id]);
-  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training, property: Array.isArray(property) };
+  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training, property: Array.isArray(property), support: Array.isArray(support) };
   const shortcutChoices = shortcutChoicesFor(destCtx);
   const allowedShortcutIds = shortcutChoices.map(d => d.id);
   const uid = user && user.id ? user.id : null;
@@ -3054,12 +3073,13 @@ export default function OCSAStaffPortal() {
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
               {activeTab === "clock" && signAt && <SignScreen key={signAt.id || "list"} token={token} id={signAt.id || null} requests={signList} onOpen={openSign} onBack={() => setSignAt(null)} onChanged={() => setSignAsked(n => n + 1)} t={t} />}
               {activeTab === "property" && destCtx.property && <MyPropertyView rows={property} onSign={(id) => openSign({ id: id })} t={t} />}
+              {activeTab === "support" && destCtx.support && <SupportView token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} t={t} />}
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} />}
               {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
-              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} />}
+              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} findings={findings} onFindingsChanged={() => loadFindings()} openFinding={findingOpen} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} token={token} user={user} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
@@ -3231,6 +3251,20 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onType
     return () => clearInterval(iv);
   }, [step ? step.sentAt : null]);
   const verify = (v) => { const c = String(v || "").replace(/\D/g, "").slice(0, 6); if (c.length === 6 && !loading) onCode(c, remember); };
+  // App support's contact (Step 290), read with no token from GET
+  // /api/support/contact; the line under Sign In shows only once it
+  // answers an email.
+  const [contact, setContact] = useState(null);
+  useEffect(() => {
+    let live = true;
+    api("/api/support/contact").then(d => { const email = d && typeof d.email === "string" ? d.email.trim() : ""; if (live && SUPPORT_EMAIL_RE.test(email)) setContact({ email: email }); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const cantSignIn = contact && (() => { const parts = tr("Can't sign in? Email {email}").split("{email}"); return (
+    <div data-support-contact="1" style={{ marginTop: 16, textAlign: "center", fontSize: 12, color: t.textSec, lineHeight: 1.5, overflowWrap: "anywhere" }}>
+      {parts[0]}<a href={"mailto:" + contact.email} style={{ display: "inline-flex", alignItems: "center", minHeight: TAP, color: t.goldText, fontWeight: 600 }}>{contact.email}</a>{parts.slice(1).join("")}
+    </div>
+  ); })();
   const logo = (
     <div style={{ textAlign: "center", marginBottom: step ? 24 : 40 }}>
       <div style={{ display: "inline-block", maxWidth: "100%", boxSizing: "border-box", padding: themeMode === "dark" ? "12px 20px" : "0", background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: 12 }}><img src={LOGO_LG} alt={clientConfig.company.shortName} style={{ height: 70, maxWidth: "100%", objectFit: "contain" }} /></div>
@@ -3273,6 +3307,7 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onType
         <div style={{ textAlign: "right", marginBottom: 24 }}><button onClick={onGoForgot} style={{ background: "none", border: "none", minHeight: TAP, padding: "4px 0", color: t.textSec, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>{tr("Forgot your PIN?")}</button></div>
         <button onClick={() => onLogin(phone, pin)} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Signing in...") : tr("Sign In")}</button>
         <button onClick={onGoRegister} style={mkGhostBtn(t)}>{tr("New Employee? Register Here")}</button>
+        {cantSignIn}
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><button onClick={toggleTheme} style={mkTapFrame()}><span style={mkSmallPill(t)}>{themeMode === "dark" ? <SunIco sz={14} c={t.textMut} /> : <MoonIco sz={14} c={t.textMut} />}{themeMode === "dark" ? tr("Light Mode") : tr("Dark Mode")}</span></button><TextSizeButton t={t} /><LanguageButton t={t} /></div>
       </div>
     </div>
@@ -3686,6 +3721,13 @@ function SetPinScreen({ token, user, onDone, onSignOut, showToast, t }) {
   );
 }
 
+// A leave type as the screen says it: the label the API sends, in the
+// screen's words, or for PTO (Step 290, which every time-off route takes
+// and answers once API Step 289 is live) the portal's own word when the
+// API sends none. A type the list does not answer is never shown.
+const LEAVE_WORDS = { pto: "PTO (paid time off)" };
+const leaveWord = (value, label) => tr(label || LEAVE_WORDS[value] || value || "");
+
 function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }) {
   const [view, setView] = useState("week");
   const [data, setData] = useState({ scheduled: [], actual: [], pickups: [] });
@@ -4064,7 +4106,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
               <button key={r.id} onClick={() => openOffDetail(r)} style={{ width: "100%", textAlign: "left", minHeight: 44, marginBottom: 8, padding: "10px 12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.card, cursor: "pointer", fontFamily: FONT_BODY, display: "block" }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
                   <div style={{ flex: "1 1 140px", minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{tr(r.leaveTypeLabel || r.leaveType || "")}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{leaveWord(r.leaveType, r.leaveTypeLabel)}</div>
                     <div style={{ fontSize: 11, color: t.textSec, marginTop: 3, overflowWrap: "anywhere" }}>{timeOffDates(r.startsOn, r.endsOn)}</div>
                     {r.partDay && r.startTime && r.endTime && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{fmtTm(r.startTime)} - {fmtTm(r.endTime)}</div>}
                     {hrs && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{hrs}</div>}
@@ -4145,7 +4187,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
               <label style={mkLabel(t)}>{tr("Type")}</label>
               <select value={reqForm.leaveType} onChange={e => setReqForm({ ...reqForm, leaveType: e.target.value })} style={{ ...mkInput(t), minHeight: 44 }}>
                 <option value="">{tr("Choose a type")}</option>
-                {offTypes.map(ty => <option key={ty.value} value={ty.value}>{tr(ty.label || ty.value)}</option>)}
+                {offTypes.map(ty => <option key={ty.value} value={ty.value}>{leaveWord(ty.value, ty.label)}</option>)}
               </select>
             </div>
 
@@ -4215,7 +4257,7 @@ function MyScheduleSection({ token, t, compact, showToast, getOpts, lkHasOther }
             {offErr && <div style={{ padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text, fontSize: 12, lineHeight: 1.5, overflowWrap: "anywhere" }}>{offErr}</div>}
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-              <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Type")}</div><div style={offValue}>{tr(offDetail.leaveTypeLabel || offDetail.leaveType || "")}</div></div>
+              <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Type")}</div><div style={offValue}>{leaveWord(offDetail.leaveType, offDetail.leaveTypeLabel)}</div></div>
               <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Status")}</div><div style={{ ...offValue, color: timeOffStatusColor(offDetail.status, t) }}>{timeOffStatusWord(offDetail.status)}</div></div>
               <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Dates")}</div><div style={offValue}>{timeOffDates(offDetail.startsOn, offDetail.endsOn)}</div></div>
               {offDetail.partDay && offDetail.startTime && offDetail.endTime && <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Time")}</div><div style={offValue}>{fmtTm(offDetail.startTime)} - {fmtTm(offDetail.endTime)}</div></div>}
@@ -5847,7 +5889,7 @@ function AnswerPictures({ pictures, language, t }) {
   );
 }
 
-function AgentView({ token, showToast, t, language, onFillForm, conversationId, onConversation }) {
+function AgentView({ token, showToast, t, language, onFillForm, onTicket, conversationId, onConversation }) {
   // The same shape the Forms screen uses, so a Spanish screen never
   // lists English form names.
   const locale = languageToSend(language);
@@ -5863,6 +5905,11 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
   const [submitBusy, setSubmitBusy] = useState(false);
   const [missing, setMissing] = useState([]);
   const [submitted, setSubmitted] = useState(false);
+  // A ticket Help drafted (Step 290): { kind, description, sending,
+  // faults }, sent to App support only from its card. A new draft takes
+  // its place; Not now puts it away; sent, the card says so until the
+  // next answer.
+  const [ticket, setTicket] = useState(null);
   const endRef = useRef(null); const taRef = useRef(null); const seqRef = useRef(0);
   const inputSt = mkInput(t);
   // What a screen reader says by itself: each answer once, when it is
@@ -6057,6 +6104,8 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
       const answer = { id: answerId, role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], citedNames: Array.isArray(data.citedNames) ? data.citedNames : [], pictures: agentPictures(data.pictures), degraded: data.degraded === true, noProcedure: data.noProcedure === true, messageId: agentMessageId(data), feedback: null };
       place(answer);
       if (data.formResponse) { setFormResponse(data.formResponse); setMissing([]); setSubmitted(false); }
+      const drafted = supportDraftOf(data.ticketDraft);
+      setTicket(prev => (drafted ? Object.assign(drafted, { sending: false, faults: {} }) : prev && !prev.sent ? prev : null));
       hear(answer.text);
     } catch (err) {
       // A Retry of a question the API holds with no answer yet is refused
@@ -6147,6 +6196,18 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
     setSubmitBusy(false);
   };
 
+  // The person sends the ticket Help drafted, as it reads on the card.
+  const sendTicket = async () => {
+    if (!ticket || ticket.sending || ticket.sent) return;
+    setTicket(x => (x ? { ...x, sending: true, faults: {} } : x));
+    try {
+      await api("/api/support/tickets", { method: "POST", body: Object.assign({ kind: ticket.kind, description: ticket.description, source: "help" }, supportDetails(destById("agent").label({}))), token });
+      setTicket(x => (x ? { ...x, sending: false, sent: true } : x));
+      if (onTicket) onTicket();
+    } catch (err) {
+      setTicket(x => (x ? { ...x, sending: false, faults: supportFaults(err) } : x));
+    }
+  };
   const remaining = formResponse ? Number(formResponse.remaining) : 0;
   // A count the API sends as a word reads as NaN, and "not greater than
   // zero" let that through with answers still missing.
@@ -6205,6 +6266,18 @@ function AgentView({ token, showToast, t, language, onFillForm, conversationId, 
         {!discardOff && formResponse.id && <button onClick={() => discard(formResponse.id)} disabled={discarding !== null || submitBusy} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, opacity: discarding !== null || submitBusy ? 0.6 : 1 }}>{tr("Discard")}</button>}
         <button onClick={submit} disabled={!canSubmit} style={{ padding: "10px 14px", minHeight: TAP, flexShrink: 0, borderRadius: R.sm, border: "none", background: canSubmit ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : t.cardAlt, color: canSubmit ? NAVY : t.textSec, fontSize: 12, fontWeight: 600, cursor: canSubmit ? "pointer" : "default", fontFamily: FONT_HEAD, boxShadow: canSubmit ? "0 6px 18px rgba(231,176,23,0.30)" : "none" }}>{submitBusy ? tr("Submitting...") : tr("Submit report")}</button></div>
         {missing.length > 0 && <div style={{ marginTop: 8, fontSize: 11, color: t.textSec, lineHeight: 1.5 }}><div style={{ fontWeight: 600 }}>{tr("Still needed before you can submit:")}</div>{missing.map((k, i) => <div key={i}>{k}</div>)}</div>}
+      </div>)}
+      {ticket && (<div data-help-ticket={ticket.sent ? "sent" : "draft"} style={{ margin: "0 12px 8px", padding: "10px 12px", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.md, boxShadow: t.shadow, flexShrink: 1, minHeight: 0, overflowY: "auto" }}>
+        <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Ticket for App support")}</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2 }}>{supportKindWord(ticket.kind)}</div>
+        <div data-help-ticket-text="1" style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.45, whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 96, overflowY: "auto" }}>{ticket.description}</div>
+        {ticket.sent
+          ? <div role="status" style={{ fontSize: 12, fontWeight: 600, color: ink(t, GREEN), marginTop: 8, lineHeight: 1.4 }}>{tr("Sent to App support. You can follow it under My tickets.")}</div>
+          : <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+              <button type="button" onClick={() => setTicket(null)} disabled={ticket.sending} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Not now")}</button>
+              <button type="button" data-help-ticket-send="1" onClick={sendTicket} disabled={ticket.sending} style={{ ...smallBtn, flex: "1 1 auto", opacity: ticket.sending ? 0.6 : 1 }}>{ticket.sending ? tr("Sending...") : tr("Send to App support")}</button>
+            </div>}
+        {ticket.faults && Object.keys(ticket.faults).filter(k => ticket.faults[k]).map(k => <div key={k} role="alert" style={{ ...mkFieldErr(t), marginTop: 6 }}>{ticket.faults[k]}</div>)}
       </div>)}
       {photos.length > 0 && (
         <div style={{ padding: "8px 12px 0", display: "flex", flexWrap: "wrap", gap: 10, flexShrink: 0 }}>
@@ -12396,6 +12469,164 @@ function SearchPick({ id, name, rows, value, onPick, noMatch, empty, none, disab
         </div>
       )}
       {offered.length === 0 && needle !== "" && <div data-pick-none="1" style={{ ...mkHelp(t), marginTop: 10 }}>{noMatch}</div>}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// App support (Step 290, the Step 289 contract's section 2.3). Under More
+// once GET /api/support/tickets/mine answers a list: a ticket is a kind, a
+// description and an optional screenshot, and the screen it is about,
+// the app's version, the phone and the language go with it on their own,
+// shown under the form. My tickets lists the person's own, newest first,
+// with the status and the office's note. Help drafts a ticket the same
+// shape and files it only once the person sends it from the card Help
+// shows.
+// ------------------------------------------------------------
+const SUPPORT_KINDS = [
+  { v: "bug", w: "Something is not working" },
+  { v: "idea", w: "An idea for the app" },
+  { v: "wrong_info", w: "Information that is wrong" },
+  { v: "help_miss", w: "Help could not answer" },
+  { v: "cant_sign_in", w: "Trouble signing in" },
+];
+const supportKindWord = (v) => { const k = SUPPORT_KINDS.find(x => x.v === v); return k ? tr(k.w) : v; };
+const SUPPORT_STATUS = { new: "New", working: "Working on it", done: "Done", wont_do: "Won't do" };
+const SUPPORT_TEXT_MAX = 4000;
+const SUPPORT_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function supportTicketOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = agentField(x, ["id"], null);
+  if (id === null) return null;
+  const str = (keys) => { const v = agentField(x, keys, ""); return typeof v === "string" ? v.trim() : ""; };
+  return { id: String(id), kind: str(["kind"]), description: str(["description"]), status: str(["status"]) || "new", statusNote: str(["statusNote", "status_note"]), createdAt: str(["createdAt", "created_at"]) };
+}
+const supportTicketsOf = (d) => { const rows = wsRows(d, "tickets"); return rows ? rows.map(supportTicketOf).filter(Boolean) : null; };
+async function readSupportMine(token) {
+  try { return supportTicketsOf(await api("/api/support/tickets/mine", { token })); } catch (e) { return null; }
+}
+// What goes with a ticket on its own: the screen it is about, the app's
+// version, the phone and the language on the screen.
+const supportPhone = () => String((typeof navigator !== "undefined" && navigator.userAgent) || "").slice(0, 300);
+const supportPhoneShort = () => { const m = /(iPhone|iPad|Android [\d.]+|Android|Windows|Macintosh|Linux)/.exec(supportPhone()); return m ? m[1] : ""; };
+const supportDetails = (screen) => ({ screen: screen || "", appVersion: BUILD_STAMP, device: supportPhone(), locale: languageToSend(), app: "portal" });
+// A ticket Help drafted (API Step 289): its kind and description.
+const supportDraftOf = (d) => (d && typeof d === "object" && SUPPORT_KINDS.some(k => k.v === d.kind) && typeof d.description === "string" && d.description.trim() ? { kind: d.kind, description: d.description.trim().slice(0, SUPPORT_TEXT_MAX) } : null);
+// The refusal of a ticket by the field it names, or above the button.
+function supportFaults(err) {
+  const said = fkFaultWords(err, "Your ticket was not sent. Try again.");
+  const keys = Array.isArray(err && err.body && err.body.keys) ? err.body.keys.map(String) : [];
+  const out = {};
+  keys.forEach(k => { out[["kind", "description", "screenshot"].indexOf(k) !== -1 ? k : "form"] = said; });
+  if (keys.length === 0) out.form = said;
+  return out;
+}
+
+function SupportView({ token, tickets, screen, isAdmin, onFiled, t }) {
+  const [kind, setKind] = useState("");
+  const [text, setText] = useState("");
+  const [shot, setShot] = useState(null);
+  const [shotBusy, setShotBusy] = useState(false);
+  const [faults, setFaults] = useState({});
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const fileRef = useRef(null);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  useBusy("app support", sending || shotBusy || text.trim().length > 0 || !!shot);
+  // The screen as the office reads it, by its English name.
+  const place = destById(screen);
+  const screenName = place ? place.label({ isAdmin: !!isAdmin }) : "";
+  const details = [
+    [tr("Screen"), tr(screenName)],
+    [tr("App version"), BUILD_STAMP],
+    [tr("Phone"), supportPhoneShort()],
+    [tr("Language"), LANGUAGE_NAMES[languageToSend()] || languageToSend()],
+  ].filter(x => x[1]);
+  const addShot = async (file) => {
+    if (!file) return;
+    setShotBusy(true); setFaults(f => ({ ...f, screenshot: null }));
+    try {
+      const ready = await prepareFormPhoto(file);
+      const url = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => no(new Error(FORMS_PHOTO_UNREADABLE)); r.readAsDataURL(ready); });
+      if (live.current) setShot(url);
+    } catch (e) {
+      if (live.current) setFaults(f => ({ ...f, screenshot: tr(FORMS_PHOTO_UNREADABLE) }));
+    } finally { if (live.current) setShotBusy(false); }
+  };
+  const send = async () => {
+    if (sending || shotBusy) return;
+    const local = {};
+    if (!kind) local.kind = tr("Choose what it is about.");
+    if (!text.trim()) local.description = tr("Write what happened.");
+    if (Object.keys(local).length > 0) { setFaults(local); return; }
+    setSending(true); setFaults({}); setSent(false);
+    try {
+      const body = Object.assign({ kind: kind, description: text.trim(), source: "form" }, supportDetails(screenName));
+      if (shot) body.screenshot = shot;
+      await api("/api/support/tickets", { method: "POST", body: body, token });
+      if (!live.current) return;
+      setKind(""); setText(""); setShot(null); setSent(true); onFiled();
+    } catch (err) {
+      if (live.current) setFaults(supportFaults(err));
+    } finally { if (live.current) setSending(false); }
+  };
+  const labelSt = mkLabel(t);
+  const errOf = (k) => (faults[k] ? <div role="alert" style={mkFieldErr(t)}>{faults[k]}</div> : null);
+  const rowSt = (on) => ({ width: "100%", minHeight: TAP, marginTop: 8, padding: "10px 12px", borderRadius: R.md, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, textAlign: "left", fontSize: 14, fontFamily: FONT_BODY, lineHeight: 1.4, background: on ? t.goldBg : t.card, border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text });
+  const near = text.length >= SUPPORT_TEXT_MAX - 200;
+  const list = Array.isArray(tickets) ? tickets : [];
+  const statusInk = (s) => (s === "done" ? GREEN : s === "working" ? BLUE : s === "wont_do" ? t.textMut : ORANGE);
+  return (
+    <div data-support="1" style={{ padding: "16px 16px 100px" }}>
+      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("App support")}</div>
+      <div style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.5 }}>{tr("Tell the office about a problem with the app, an idea, or information that is wrong.")}</div>
+      <div style={{ marginTop: 14, padding: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, boxShadow: t.popShadow }}>
+        {sent && <div role="status" data-support-sent="1" style={{ marginBottom: 12, fontSize: 13, fontWeight: 600, color: ink(t, GREEN), lineHeight: 1.45 }}>{tr("Sent. The office will look at it.")}</div>}
+        <div style={labelSt}>{tr("What is it about?")}</div>
+        <div role="group">
+          {SUPPORT_KINDS.map(k => { const on = kind === k.v; return (
+            <button key={k.v} type="button" data-support-kind={k.v} aria-pressed={on} disabled={sending} onClick={() => { setKind(k.v); setSent(false); setFaults(f => ({ ...f, kind: null, form: null })); }} style={rowSt(on)}>
+              <span style={{ width: 16, height: 16, flexShrink: 0, borderRadius: "50%", background: on ? GOLD : "transparent", border: on ? "none" : "2px solid " + t.borderSolid }} />
+              <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr(k.w)}</span>
+            </button>
+          ); })}
+        </div>
+        {errOf("kind")}
+        <label htmlFor="ocsa-support-text" style={{ ...labelSt, marginTop: 14 }}>{tr("What happened")}</label>
+        <textarea id="ocsa-support-text" data-support-text="1" value={text} maxLength={SUPPORT_TEXT_MAX} disabled={sending} onChange={e => { setText(e.target.value.slice(0, SUPPORT_TEXT_MAX)); setSent(false); setFaults(f => ({ ...f, description: null, form: null })); }} rows={5} placeholder={tr("Say what you were doing and what you saw.")} style={{ ...mkInput(t), resize: "vertical", fontFamily: "inherit", lineHeight: 1.5, ...(faults.description ? { border: "2px solid " + RED } : {}) }} />
+        <div style={{ ...mkHelp(t), color: near ? ink(t, ORANGE) : t.textMut }}>{near ? tr("{used} of {max} characters used.", { used: text.length.toLocaleString(dateLocale()), max: SUPPORT_TEXT_MAX.toLocaleString(dateLocale()) }) : tr("You can write up to {max} characters.", { max: SUPPORT_TEXT_MAX.toLocaleString(dateLocale()) })}</div>
+        {errOf("description")}
+        <div style={{ ...labelSt, marginTop: 14 }}>{tr("Screenshot")} <span style={{ textTransform: "none", letterSpacing: 0, color: t.textMut, fontWeight: 400 }}>{tr("Optional")}</span></div>
+        <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { addShot(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+        {!shot && <button type="button" data-support-shot="add" disabled={shotBusy || sending} onClick={() => fileRef.current && fileRef.current.click()} style={{ ...wsPlainBtn(t), width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><CamIco sz={16} c={t.textSec} />{shotBusy ? tr("Loading...") : tr("Add a screenshot")}</button>}
+        {shot && (
+          <div data-support-shot="1" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <img src={shot} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} />
+            <button type="button" disabled={sending} onClick={() => setShot(null)} style={{ ...wsPlainBtn(t), flex: "none" }}>{tr("Remove photo")}</button>
+          </div>
+        )}
+        {errOf("screenshot")}
+        <div data-support-details="1" style={{ marginTop: 14, padding: "10px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.border }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Sent with your ticket")}</div>
+          {details.map(([k, v]) => <div key={k} style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>{k}: {v}</div>)}
+        </div>
+        {faults.form && <div role="alert" style={{ ...mkFieldErr(t), marginTop: 12 }}>{faults.form}</div>}
+        <button type="button" data-support-send="1" disabled={sending || shotBusy} onClick={send} style={{ ...mkPrimaryBtn(t, sending || shotBusy), marginTop: 14 }}>{sending ? tr("Sending...") : tr("Send to App support")}</button>
+      </div>
+      <div role="heading" aria-level={3} data-support-mine={list.length} style={{ ...fkHeadSt(t), marginTop: 20 }}>{tr("My tickets")}</div>
+      {list.length === 0 && <div style={wsQuiet(t)}>{tr("You have not sent a ticket yet.")}</div>}
+      {list.map(x => (
+        <div key={x.id} data-support-ticket={x.id} style={{ ...fkRowSt(t), minHeight: TAP }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{supportKindWord(x.kind)}</div>
+            <span data-support-status={x.status} style={{ flexShrink: 0, fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: R.pill, background: (x.status === "wont_do" ? "#8899AA" : statusInk(x.status)) + "20", color: x.status === "wont_do" ? t.textSec : ink(t, statusInk(x.status)), fontFamily: FONT_HEAD }}>{tr(SUPPORT_STATUS[x.status] || x.status)}</span>
+          </div>
+          {x.createdAt && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{signedDay(x.createdAt)}</div>}
+          {x.description && <div style={{ fontSize: 13, color: t.textSec, marginTop: 6, lineHeight: 1.45, whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 120, overflowY: "auto" }}>{x.description}</div>}
+          {x.statusNote && <div data-support-note={x.id} style={{ fontSize: 13, color: t.text, marginTop: 6, lineHeight: 1.45, overflowWrap: "anywhere" }}>{tr("Note from the office: {note}", { note: x.statusNote })}</div>}
+        </div>
+      ))}
     </div>
   );
 }
