@@ -1051,6 +1051,14 @@ const inspectSafetyOf = (d) => {
   const form = [s.form, s.definition, draft && draft.form, draft && draft.definition].find(x => x && typeof x === "object" && Array.isArray(x.fields)) || null;
   return draft && typeof draft === "object" && draft.id && form ? { form: form, draft: draft } : null;
 };
+// API Step 319 answers the safety part's draft as null until the
+// inspector's draft exists, and makes it through POST
+// /api/inspections/scheduled/:id/safety, which creates or resumes the draft
+// tied to the inspection with its first part filled in. A walk whose
+// safety part was filed with it names it in responseId and is already sent.
+const inspectSafetyPartOf = (d) => (d && typeof d === "object" && d.with_safety !== false && d.withSafety !== false && d.safety && typeof d.safety === "object" ? d.safety : null);
+const inspectSafetyFiled = (d) => { const s = inspectSafetyPartOf(d); return !!s && s.responseId !== undefined && s.responseId !== null && s.responseId !== ""; };
+const inspectSafetyToStart = (d) => { const s = inspectSafetyPartOf(d); return !!s && !!s.form && typeof s.form === "object" && !s.draft && !inspectSafetyFiled(d); };
 // What the complete route answers about the safety part: its overall
 // result, in the words the API gives or the form's own option, and each
 // finding with its severity, owner and due date. null with none.
@@ -1060,11 +1068,17 @@ const inspectSafetyAnswerOf = (d, form) => {
   const code = fkText(s, ["result", "overallResult"]);
   const field = form && Array.isArray(form.fields) ? form.fields.find(f => Array.isArray(f.options) && f.options.some(o => o && o.value === code)) : null;
   const opt = field ? field.options.find(o => o.value === code) : null;
+  // API Step 319 answers each finding as the findings table's own row
+  // (where_what, severity as its code, owner, due_date), so a severity
+  // reads as its column's word.
+  const grid = form && Array.isArray(form.fields) ? form.fields.find(f => f && f.key === "findings" && Array.isArray(f.columns)) : null;
+  const sevCol = grid ? grid.columns.find(c => c && c.key === "severity" && Array.isArray(c.options)) : null;
+  const sevWord = (v) => { const o = sevCol ? sevCol.options.find(x => x && x.value === v) : null; return o && o.label ? String(o.label) : v; };
   return {
     result: fkText(s, ["resultLabel", "resultWords"]) || (opt ? String(opt.label || "") : ""),
     findings: (Array.isArray(s.findings) ? s.findings : []).map((f, i) => (f && typeof f === "object" ? {
-      id: String(agentField(f, ["issueId", "id"], i)), label: fkText(f, ["where", "area", "label", "title"]), what: fkText(f, ["what", "description"]), severity: fkText(f, ["severity"]),
-      owner: f.owner && typeof f.owner === "object" ? fkText(f.owner, ["name"]) : fkText(f, ["owner", "ownerName"]), dueAt: f.dueAt || f.dueDate || f.due || null,
+      id: String(agentField(f, ["issueId", "id"], i)), label: fkText(f, ["where", "where_what", "area", "label", "title"]), what: fkText(f, ["what", "description"]), severity: sevWord(fkText(f, ["severity"])),
+      owner: f.owner && typeof f.owner === "object" ? fkText(f.owner, ["name"]) : fkText(f, ["owner", "ownerName"]), dueAt: f.dueAt || f.dueDate || f.due_date || f.due || null,
     } : null)).filter(Boolean),
   };
 };
@@ -3220,7 +3234,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
-              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} t={t} />}
+              {activeTab === "tasks" && <TasksView token={token} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} onOpenDocument={(d) => openLibraryDoc(d, null)} />}
@@ -4770,8 +4784,10 @@ const isDueToday = (tk) => sectionOf(tk) === "today" && tk.dueToday !== false;
 // days it runs: on each checklist row as end_time and kind, and the
 // block's days as block_days_of_week, since the row's own days_of_week
 // is the task's; and on the session's shifts for every block, the ones
-// holding no step among them, so the day's schedule is drawn whole. With
-// none of it answered, the checklist is drawn as before.
+// holding no step among them, so the day's schedule is drawn whole, or,
+// where the session carries no shifts, on the schedule route's day
+// (scheduleRequest). With none of it answered, the checklist is drawn as
+// before.
 const BLOCK_KINDS = ["work", "critical", "meal", "full_access", "check_in", "check_out", "anytime"];
 const blockKindOf = (v) => (BLOCK_KINDS.indexOf(String(v || "")) !== -1 ? String(v) : null);
 // Each kind's words, drawn as a tag, so a kind never rests on its color
@@ -4796,8 +4812,9 @@ const scheduleDayOf = (ymd, ms) => {
 // A row's block, as the row carries it.
 const rowBlockOf = (tk) => ({ end: tk.block_end_time || tk.blockEndTime || tk.end_time || null, kind: blockKindOf(tk.block_kind || tk.blockKind || tk.kind), days: blockDaysOf(tk.block_days_of_week || tk.blockDaysOfWeek) });
 // The blocks of the shift the session carries, as every session answer
-// names them (Step 124), with Step 315's end, kind and days. A site with
-// one shift has it whatever the session carries.
+// names them (Step 124), with Step 315's end, kind and days. A list of one
+// shift is that shift whatever the session carries. A site with fewer than
+// two shifts answers none, and scheduleRequest asks for its day instead.
 function sessionBlocks(cs) {
   const label = sessionShiftLabel(cs);
   const list = cs && cs.clockedIn && cs.session && Array.isArray(cs.session.shifts) ? cs.session.shifts : [];
@@ -4807,6 +4824,39 @@ function sessionBlocks(cs) {
     shift: String(s.label), shiftDisplay: s.displayLabel || s.label, label: String(b.label), display: b.displayLabel || b.label, time: b.time || b.anchorTime || null, order: b.order === undefined ? null : b.order,
     end: b.endTime || b.end_time || null, kind: blockKindOf(b.kind), days: blockDaysOf(b.daysOfWeek || b.days_of_week),
   } : null)).filter(Boolean);
+}
+// A session carries its site's shifts only at a site with two or more, so
+// at a site with one, the blocks that hold no step (meals, check-in,
+// check-out) come from API Step 319's day schedule instead:
+// GET /api/sites/:siteId/shift-blocks/schedule?shift=&date=, asked when the
+// session's shifts carry no blocks and a row on the list is in one. The
+// rows stay the steps. null when there is nothing to ask.
+function scheduleRequest(cs, rows, day) {
+  if (!cs || !cs.clockedIn || !cs.shift || !cs.shift.siteId || sessionBlocks(cs).length > 0) return null;
+  if (!(Array.isArray(rows) ? rows : []).some(tk => tk && String(tk.block_label || "").trim())) return null;
+  const shift = sessionShiftLabel(cs);
+  return "/api/sites/" + encodeURIComponent(cs.shift.siteId) + "/shift-blocks/schedule?" + (shift ? "shift=" + encodeURIComponent(shift) + "&" : "") + (YMD_RE.test(String(day || "")) ? "date=" + day + "&" : "") + "locale=" + languageToSend();
+}
+// The schedule's blocks for the shift in use, the way sessionBlocks gives
+// them. They come in time order with no sort order, so each takes the one
+// its steps carry on the list, and a block holding no step the one of the
+// block before it (the one after it, for the first), which leaves its time
+// to place it between them. null for an answer with no shifts list.
+function scheduleBlocks(d, cs, rows) {
+  const list = d && typeof d === "object" && Array.isArray(d.shifts) ? d.shifts : null;
+  if (!list) return null;
+  const label = sessionShiftLabel(cs);
+  const s = list.find(x => x && x.label === label) || (list.length === 1 ? list[0] : null);
+  if (!s || !Array.isArray(s.blocks)) return [];
+  const text = (v) => (v === null || v === undefined ? "" : String(v).trim());
+  const blocks = s.blocks.filter(b => b && typeof b === "object" && b.label).map(b => ({
+    shift: String(s.label), shiftDisplay: s.displayLabel || s.label, label: String(b.label), display: (b.display && typeof b.display === "object" ? b.display.block : null) || b.displayLabel || b.label, time: b.startTime || b.time || null, order: null,
+    end: b.endTime || null, kind: blockKindOf(b.kind), days: blockDaysOf(b.daysOfWeek),
+  }));
+  blocks.forEach(b => { const tk = (Array.isArray(rows) ? rows : []).find(r => r && text(r.shift_label) === b.shift && text(r.block_label) === b.label && text(r.block_sort_order) !== "" && !isNaN(Number(r.block_sort_order))); if (tk) b.order = Number(tk.block_sort_order); });
+  blocks.forEach((b, i) => { if (b.order === null && i > 0) b.order = blocks[i - 1].order; });
+  for (let i = blocks.length - 2; i >= 0; i -= 1) if (blocks[i].order === null) blocks[i].order = blocks[i + 1].order;
+  return blocks;
 }
 // Whether a window holds a minute of the day, one that runs past
 // midnight included.
@@ -5002,10 +5052,23 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
   );
 }
 
-function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, t }) {
+function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, t }) {
   const [detail, setDetail] = useState(null);
   const loaded = Array.isArray(tasks);
   const standardTasks = standardTasksOf(tasks);
+  // The day's schedule from the schedule route, when the session's shifts
+  // carry no blocks (scheduleRequest), read again when the site, the shift,
+  // the day or the language changes. Until it answers, or when it does not,
+  // the checklist reads as it did.
+  const scheduleAsk = scheduleRequest(clockStatus, standardTasks, listDay);
+  const [schedule, setSchedule] = useState(null);
+  useEffect(() => {
+    if (!scheduleAsk) return undefined;
+    let on = true;
+    api(scheduleAsk, { token }).then(d => { if (on) setSchedule({ ask: scheduleAsk, d: d }); }).catch(() => {});
+    return () => { on = false; };
+  }, [scheduleAsk, token]);
+  const scheduled = scheduleAsk && schedule && schedule.ask === scheduleAsk ? scheduleBlocks(schedule.d, clockStatus, standardTasks) : null;
   const labelSt = mkLabel(t);
   const floorHeadSt = { fontSize: 11, color: t.text, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, padding: "7px 11px", background: t.card, borderRadius: R.sm, border: "1px solid " + t.borderSolid, fontFamily: FONT_HEAD };
   const zoneSt = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: 8, fontFamily: FONT_HEAD };
@@ -5181,8 +5244,10 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   // last, with none.
   const today = rows.filter(tk => sectionOf(tk) === "today");
   // The day's schedule for the shift in use (Step 316), once the session's
-  // blocks or the rows carry a window, a kind or days.
-  const blocks = sessionBlocks(clockStatus);
+  // blocks, or the schedule route's where the session carries none, or the
+  // rows carry a window, a kind or days.
+  const ownBlocks = sessionBlocks(clockStatus);
+  const blocks = ownBlocks.length > 0 ? ownBlocks : (scheduled || []);
   const timedPlan = blocks.some(b => b.end || b.kind || b.days) || rows.some(tk => { const m = rowBlockOf(tk); return !!(m.end || m.kind || m.days); });
   const at = typeof nowMs === "number" ? nowMs : Date.now();
   const plan = timedPlan ? { blocks: blocks, held: new Set(rows.map(tk => String(tk.shift_label || "").trim() + "|" + String(tk.block_label || "").trim())), day: scheduleDayOf(listDay, at), now: companyMinutes(at) } : null;
@@ -7836,13 +7901,15 @@ function SupplySignOrder({ token, row, holder, onRow, showToast, t }) {
   const live = useRef(true);
   useEffect(() => () => { live.current = false; }, []);
   useBusy("supply order signature", strokes.length > 0 && stage === "sign");
-  // The approved vendors, read once Sign and order shows: the route's own
-  // filter, then each row's status, so a vendor that is not approved is
+  // The approved vendors, read once Sign and order shows: ?approved=true,
+  // the route API Step 319 answers a holder of approve_supplies whatever
+  // their role (?approval_status= is management's, and refuses anyone
+  // else), then each row's status, so a vendor that is not approved is
   // never offered.
   useEffect(() => {
     if (!signing) return undefined;
     let on = true;
-    api("/api/vendors?approval_status=approved", { token })
+    api("/api/vendors?approved=true", { token })
       .then(d => { if (on) setVendors((wsRows(d, "vendors") || []).map(supplyVendorOf).filter(v => v && v.active && (!v.approval || v.approval === "approved"))); })
       .catch(err => { if (on) setVendors({ fault: fkFaultWords(err, "The vendor list did not load.") }); });
     return () => { on = false; };
@@ -7964,7 +8031,7 @@ function SupplySignOrder({ token, row, holder, onRow, showToast, t }) {
 }
 
 // One line of a request: its name, quantity and note, then its decision,
-// or, for a holder until the request is ordered, Quantity to approve with
+// or, for a holder until the request is signed, Quantity to approve with
 // one less and one more, a note, Approve and Deny. A decided line offers
 // Change, which opens the controls again.
 function SupplyOrderLine({ line, at, can, busy, draft, onDraft, onDecide, fault, t }) {
@@ -8012,7 +8079,11 @@ function SupplyOrderLine({ line, at, can, busy, draft, onDraft, onDecide, fault,
 // undecided, and, below, Sign and order once every line is decided.
 function SupplyOrder({ token, user, holder, row, onBack, onRow, onReload, getOpts, showToast, t }) {
   const stage = supplyStage(row);
-  const can = row.canDecide && stage !== "ordered";
+  // Once signed, the purchase order names the lines as decided and the API
+  // refuses a decision (409 supplies.alreadySigned, API Step 319), so Change
+  // and the decision controls go, whatever canDecide says.
+  const signed = row.signed || !!row.orderedAt;
+  const can = row.canDecide && !signed;
   const [drafts, setDrafts] = useState({});
   const [busy, setBusy] = useState(false);
   const [fault, setFault] = useState(null);
@@ -8052,6 +8123,8 @@ function SupplyOrder({ token, user, holder, row, onBack, onRow, onReload, getOpt
       const under = {};
       keys.forEach(k => { const m = /^items\.(\d+)/.exec(k); if (m && sent[Number(m[1])]) under[sent[Number(m[1])].id] = said; });
       if (Object.keys(under).length > 0) setLineFaults(under); else setFault(said);
+      // Signed by someone else since it opened: read again, so it shows signed.
+      if (err && err.code === "supplies.alreadySigned") onReload();
     }
     if (live.current) setBusy(false);
     return ok;
@@ -8069,7 +8142,7 @@ function SupplyOrder({ token, user, holder, row, onBack, onRow, onReload, getOpt
       </div>
       <div style={lineSt}>{tr("Asked by {name}, {when}", { name: row.requestedByName, when: requestWhen(row.createdAt) })}</div>
       {row.description && <div style={{ ...lineSt, color: t.text, whiteSpace: "pre-line" }}>{row.description}</div>}
-      {!row.canDecide && stage !== "ordered" && <div data-supply-order-readonly="1" style={{ ...lineSt, marginTop: 10, color: t.text, fontWeight: 600 }}>{mine ? tr("You asked for these supplies, so someone else decides them.") : tr("Only the people who approve supply requests can decide this.")}</div>}
+      {!row.canDecide && !signed && <div data-supply-order-readonly="1" style={{ ...lineSt, marginTop: 10, color: t.text, fontWeight: 600 }}>{mine ? tr("You asked for these supplies, so someone else decides them.") : tr("Only the people who approve supply requests can decide this.")}</div>}
       <div style={{ marginTop: 14 }}>
         {row.items.map((l, i) => <SupplyOrderLine key={l.id || i} line={l} at={i} can={can} busy={busy} draft={drafts[l.id]} onDraft={(d) => setDrafts(prev => Object.assign({}, prev, { [l.id]: d }))} onDecide={(decision) => decide([l], decision)} fault={lineFaults[l.id] || null} t={t} />)}
       </div>
@@ -16574,11 +16647,21 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
   // opened.
   const openInspection = async (id, asked) => {
     try {
-      const d = await api("/api/inspections/scheduled/" + id, { token });
+      let d = await api("/api/inspections/scheduled/" + id, { token });
       if (asked) {
         const mine = !d || d.assigned_to === undefined || d.assigned_to === null || !user || String(d.assigned_to) === String(user.id);
         const why = d && d.status === "cancelled" ? "This inspection was cancelled." : d && d.status === "completed" ? "This inspection is already done." : !mine ? "This inspection is not on your list anymore." : null;
         if (why) { showToast(tr(why), "notice"); return; }
+      }
+      // A walk whose safety part is filed was sent with it.
+      if (inspectSafetyFiled(d)) { showToast(tr("This inspection is already done."), "notice"); loadList(); return; }
+      // A walk with no safety draft yet starts it, once, as it opens, and
+      // carries on with the draft that answers. A walk never starts one
+      // through POST /api/forms/:code/drafts, which is a form on its own.
+      if (inspectSafetyToStart(d)) {
+        const started = await api("/api/inspections/scheduled/" + encodeURIComponent(id) + "/safety?locale=" + languageToSend(), { method: "POST", token, body: { answers: {} } });
+        const form = started && started.form && typeof started.form === "object" && Array.isArray(started.form.fields) ? started.form : d.safety.form;
+        d = Object.assign({}, d, { safety: Object.assign({}, d.safety, { form: form, draft: started && started.draft ? started.draft : null }) });
       }
       setActive(d);
       const initScores = {};
