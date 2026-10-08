@@ -104,7 +104,18 @@ const EAST_BLOCKS = [
   { shift: "Second shift", label: "Dining room reset", time: "18:00:00", end: "19:00:00", kind: "critical", order: 4 },
   { shift: "Second shift", label: "Check out", time: "21:45:00", end: "22:00:00", kind: "check_out", order: 5 },
 ];
-const SITE_BLOCKS = { "site-east": EAST_BLOCKS };
+// Step 324: Hall Building, an invented site of one shift, East Building's
+// first shift alone. The API answers a session there no shifts (a site
+// with fewer than two has none to choose from), so its blocks holding no
+// step, the meals, check-in and check-out, come only from the schedule
+// route, GET /api/sites/:siteId/shift-blocks/schedule.
+const HALL_BLOCKS = EAST_BLOCKS.filter(b => b.shift === "First shift");
+// Each kind's name as API Step 315 answers kindName, in both languages.
+const BLOCK_KIND_NAMES = {
+  en: { work: "Work", critical: "Critical", meal: "Residents' meal", full_access: "Empty, full access", check_in: "Check in", check_out: "Check out", anytime: "When there is free time" },
+  es: { work: "Trabajo", critical: "Cr\u00edtico", meal: "Comida de los residentes", full_access: "Vac\u00edo, acceso total", check_in: "Entrada", check_out: "Salida", anytime: "Cuando haya tiempo libre" },
+};
+const SITE_BLOCKS = { "site-east": EAST_BLOCKS, "site-hall": HALL_BLOCKS };
 const TASK_ROW = { building_name: null, floor_number: null, zone: null, task_type: "standard", shift_label: null, block_label: null, anchor_time: null, block_sort_order: null, cims_category: "SD", period: "today", every: "daily", touchpoint: false, critical: false };
 const taskRow = (o) => Object.assign({}, TASK_ROW, o);
 // A row of East Building's, carrying its block's time, end, kind and days.
@@ -199,6 +210,9 @@ const SITE_TASKS = {
     eastRow("e-13", "Sanitize the dining tables", "Dining room", "Second shift", "Dining room reset"),
   ],
 };
+// Step 324: Hall Building's rows, East Building's first shift's, each
+// with its own id, h- for e-.
+SITE_TASKS["site-hall"] = SITE_TASKS["site-east"].filter(r => r.shift_label === "First shift").map(r => Object.assign({}, r, { id: "h" + r.id.slice(1) }));
 // The order a person on the morning shift reads South Building's list in,
 // written out by hand: the shift, each block under it, each item under its
 // block, and the item tied to no shift last.
@@ -213,12 +227,13 @@ const OPEN_SHIFT = {
   "site-south": { siteId: "site-south", siteName: "South Building", buildingName: null, floorNumber: null },
   "site-west": { siteId: "site-west", siteName: "West Building", buildingName: null, floorNumber: null },
   "site-east": { siteId: "site-east", siteName: "East Building", buildingName: null, floorNumber: null },
+  "site-hall": { siteId: "site-hall", siteName: "Hall Building", buildingName: null, floorNumber: null },
 };
 // The shift an open session carries when a case says nothing. North
 // Building has no shifts. The session at South Building was started on
 // the morning shift. The one at West Building carries none yet, which is
 // what the screen asks about.
-const SESSION_SHIFT = { "site-north": null, "site-south": "Morning", "site-west": null, "site-east": "First shift" };
+const SESSION_SHIFT = { "site-north": null, "site-south": "Morning", "site-west": null, "site-east": "First shift", "site-hall": null };
 // The person a case signs in as is linked to six items at North
 // Building, one of them with no building or floor. Nobody else is.
 const LINKS = { "u-one": ["task-1", "task-2", "task-3", "task-4", "task-5", "task-8"] };
@@ -226,7 +241,7 @@ const LINKS = { "u-one": ["task-1", "task-2", "task-3", "task-4", "task-5", "tas
 // { label, description, zone }, in the language the request asks for.
 // The stub sends them on these two and leaves them off the rest, so a
 // screen is seen drawing both.
-const DISPLAYED = new Set(["task-1", "task-8"].concat(SITE_TASKS["site-east"].map(r => r.id)));
+const DISPLAYED = new Set(["task-1", "task-8"].concat(SITE_TASKS["site-east"].map(r => r.id), SITE_TASKS["site-hall"].map(r => r.id)));
 const inLanguage = (en, lang) => (en && lang === "es" && TWIN_ES.has(en) ? TWIN_ES.get(en) : en);
 const displayOf = (row, lang) => ({ label: inLanguage(row.label, lang), description: row.description ? inLanguage(row.description, lang) : null, zone: row.zone ? inLanguage(row.zone, lang) : null });
 // An item's words as a screen in one language should draw them.
@@ -543,6 +558,10 @@ const ORDER_REFUSALS = {
   "supplies.notSigned": { status: 409, en: "Sign the order before sending it.", es: "Firme el pedido antes de enviarlo." },
   "supplies.noAddress": { status: 400, en: "There is no email address to send the order to.", es: "No hay un correo al cual enviar el pedido." },
   "supplies.requestNotFound": { status: 404, en: "Supply request not found", es: "No se encontr\u00f3 la solicitud de suministros" },
+  // Step 324, API Step 319: a decision on a signed order, and the vendor
+  // list for someone who is neither management nor asking ?approved=true.
+  "supplies.alreadySigned": { status: 409, en: "This order is already signed.", es: "Esta orden ya est\u00e1 firmada." },
+  "access.insufficientPermissions": { status: 403, en: "Insufficient permissions", es: "No tiene permiso para hacer esto" },
 };
 
 // The warning's document, served at the API's own path behind the token
@@ -786,6 +805,12 @@ const FINDING_REFUSALS = {
 // by the portal's form engine, with the inspector's own draft of it, its
 // first part filled in. Beside it, one without the safety part, which
 // reads as before. Every word invented, in both languages.
+// Step 324, as API Step 319 is built: the read answers safety { formCode,
+// form, draft, startingAnswers, inspector, responseId }, draft null until
+// POST /api/inspections/scheduled/:id/safety makes the inspector's draft,
+// and responseId once the walk is filed. The findings table is keyed as
+// OCSA-FRM-015's (where_what, severity a to d, owner, due_date), since the
+// completion answers each filed finding as that row.
 const WALK_FORM_CODE = "TEST-FORM-SAFETY";
 const WALK_WORDS = {
   en: {
@@ -822,7 +847,7 @@ function walkForm(lang) {
       { key: "crew", label: w.crew, type: "grid", section: "3", required: true, rows: null, minRows: 2, maxRows: 4,
         columns: [{ key: "role", label: w.role, type: "text", required: true }, { key: "said", label: w.said, type: "text", required: true }, { key: "done", label: w.done, type: "text", required: false }] },
       { key: "findings", label: w.findings, type: "grid", section: "4", required: false, rows: null, minRows: 0, maxRows: 4,
-        columns: [{ key: "where", label: w.where, type: "text", required: true }, { key: "severity", label: w.severity, type: "select", required: true, options: ["A", "B", "C", "D"].map(v => ({ value: v, label: v })) }, { key: "owner", label: w.owner, type: "text", required: true }, { key: "due", label: w.due, type: "date", required: true }] },
+        columns: [{ key: "where_what", label: w.where, type: "text", required: true }, { key: "severity", label: w.severity, type: "select", required: true, options: ["A", "B", "C", "D"].map(v => ({ value: v.toLowerCase(), label: v })) }, { key: "owner", label: w.owner, type: "text", required: true }, { key: "due_date", label: w.due, type: "date", required: true }] },
       { key: "result", label: w.overall, type: "select", section: "5", required: true, options: [{ value: "no_findings", label: w.none }, { value: "findings_recorded", label: w.recorded }, { value: "work_stopped", label: w.stopped }, { value: "not_accessible", label: w.closed }] },
       { key: "inspectedBy", label: w.by, type: "signoff", section: "5", signer: "filer", required: true },
     ],
@@ -843,7 +868,7 @@ function walkMissing(answers, lang, signed) {
   const crew = Array.isArray(answers.crew) ? answers.crew.filter(r => r && r.role && r.said) : [];
   if (crew.length < 2) out.push({ key: "crew", label: w.crew, rows: [ROW_WORD[lang === "es" ? "es" : "en"] + " " + (crew.length + 1)] });
   const fails = WALK_AREAS.filter(k => areas[k] && areas[k].result === "fail").length;
-  const found = Array.isArray(answers.findings) ? answers.findings.filter(r => r && r.where && r.severity && r.owner && r.due).length : 0;
+  const found = Array.isArray(answers.findings) ? answers.findings.filter(r => r && r.where_what && r.severity && r.owner && r.due_date).length : 0;
   if (found < fails) out.push({ key: "findings", label: w.findings, rows: [w.everyFail] });
   if (empty(answers.result)) out.push({ key: "result", label: w.overall });
   if (!signed && !answers.inspectedBy) out.push({ key: "inspectedBy", label: w.by });
@@ -857,6 +882,15 @@ function walkDraft(state, lang) {
   return { id: "draft-safety", formCode: WALK_FORM_CODE, formName: form.title, answers: JSON.parse(JSON.stringify(answers)), status: "draft", answered: answered, remaining: form.fields.length - answered, missing: missingFields.map(m => m.key), missingFields: missingFields };
 }
 const WALK_SEED = () => ({ site: "North Building", kind: "monthly" });
+// What the read answers of the safety part: the form, the inspector's
+// draft once it exists, the first part filled in, the inspector, and the
+// filed safety part's id once the walk is sent.
+function walkSafetyRead(state, one, lang) {
+  return {
+    formCode: WALK_FORM_CODE, form: walkForm(lang), draft: state.walkStarted && !state.walkFiled ? walkDraft(state, lang) : null,
+    startingAnswers: WALK_SEED(), inspector: { id: String(one.assigned_to || state.person.id), name: state.person.firstName + " " + state.person.lastName }, responseId: state.walkFiled,
+  };
+}
 const INSPECTION_W = {
   id: "in-walk", template_name: "Invented monthly walk", site_id: "site-north", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled", with_safety: true,
   capture: { photosPerItem: 6, photosOverall: 10, signatureRequired: true },
@@ -871,7 +905,7 @@ const INSPECTION_PLAIN = {
   items: [{ id: "ip-1", label: "Lobby floor is dry", zone: "Lobby", max_score: 5 }],
 };
 const WALK_REFUSALS = {
-  "inspections.safetyIncomplete": { status: 400, en: "Finish the safety walk before you send.", es: "Termine el recorrido de seguridad antes de enviar." },
+  "inspections.safetyUnanswered": { status: 400, en: "Finish the safety walk before you send.", es: "Termine el recorrido de seguridad antes de enviar." },
   "inspections.signatureRequired": { status: 400, en: "Sign the inspection before sending it.", es: "Firme la inspecci\u00f3n antes de enviarla." },
 };
 // The band a score lands in (QMS-014 5.2), its due date from the
@@ -1148,6 +1182,8 @@ function makeState(opts) {
   return {
     // Every request the app made, newest last.
     calls: [],
+    // Step 324: every read of a site's day from the schedule route.
+    scheduleReads: [],
     // Every request that did not say its language once, as ?locale= with
     // en or es, and what was wrong with it. See localeFault below.
     localeFaults: [],
@@ -1254,6 +1290,12 @@ function makeState(opts) {
     inspectionWalk: o.inspectionWalk === true,
     walkAnswers: WALK_SEED(),
     walkSent: [],
+    // Step 324: whether the inspector's safety draft exists yet (API Step
+    // 319 answers draft null until POST .../safety makes it), every body
+    // that POST was sent, and the filed safety part's id once completed.
+    walkStarted: false,
+    walkStarts: [],
+    walkFiled: null,
     // Step 145: every problem filed through POST /api/issues, in order.
     issues: [],
     // Step 255: an API with Step 253 built, which answers owners on the
@@ -2570,6 +2612,10 @@ const ROUTE_WORDS = [
   // A shift's and a block's keys are codes; their display names are the
   // words, in the request's language. See LIVE_KINDS.
   [/^GET \/api\/sites\/[^/]+\/tasks$/, { label: "to-do item", shift_label: "code", block_label: "code", shift: "shift header", block: "shift header" }],
+  // Step 324: a site's day from the schedule route (API Step 319): a
+  // shift's and a block's keys are codes, their display names the words;
+  // a step's label is its stored key and its display the words.
+  [/^GET \/api\/sites\/[^/]+\/shift-blocks\/schedule$/, { label: "code", shiftLabel: "code", displayLabel: "shift header", shift: "shift header", block: "shift header", kind: "code", kindName: "name", day: "code", weekday: "code", frequency: "code" }],
   // Every session answer names the site's shifts and their blocks.
   [/^(GET \/api\/clock\/status|POST \/api\/shift-sessions|PATCH \/api\/shift-sessions\/[^/]+\/shift|GET \/api\/shift-sessions\/today|POST \/api\/shift-sessions\/[^/]+\/end)$/, { label: "code", displayLabel: "shift header", shiftLabel: "code" }],
   [/^GET \/api\/clock\/tasks\/assigned$/, { label: "to-do item" }],
@@ -2581,6 +2627,9 @@ const ROUTE_WORDS = [
   // The customer's form, the same view; the site's and the company's names
   // are names.
   [/^[A-Z]+ \/api\/public\/forms/, { title: "form text", label: "form text", rows: "form text", name: "name" }],
+  // Step 324: the walk's safety part started (API Step 319) answers the
+  // form engine's draft and form, as the forms routes do.
+  [/^POST \/api\/inspections\/scheduled\/[^/]+\/safety$/, { title: "form text", label: "form text", rows: "form text", formCode: "code" }],
   [/^GET \/api\/inspections\//, { name: "inspection item", label: "inspection item", zone: "inspection item", kind: "code", formCode: "code", line: "code" }],
   // The request link (Step 252): its title, tiles, scope line and thanks
   // are the API's words in the request's language; an area, a site and a
@@ -3052,6 +3101,43 @@ function createStub(opts) {
     });
   };
 
+  // Step 324: a site's schedule for one checklist day, drawn whole: every
+  // active block that runs that day, the ones holding no step among them,
+  // in time order within its shift (an anytime block, which has no
+  // window, last), each with its steps as the checklist reads them today.
+  // date is today's checklist day or none; shift one of the site's or
+  // none, each refused with its key otherwise.
+  const scheduleOf = (siteId, search) => {
+    const q = new URLSearchParams(search || "");
+    const lang = languageOf(search, state);
+    const table = SITE_BLOCKS[siteId] || [];
+    const today = checklistDay(clockNow());
+    const todayYmd = new Date(today * DAY).toISOString().slice(0, 10);
+    const bad = (k) => json(400, { error: "Check the details and try again.", code: "shiftBlocks.badDetails", keys: [k] });
+    if (q.get("date") && q.get("date") !== todayYmd) return bad("date");
+    const labels = Array.from(new Set(table.map(b => b.shift)));
+    const shift = q.get("shift") || null;
+    if (shift && labels.indexOf(shift) === -1) return bad("shift");
+    const rows = dayRows(siteId).filter(x => x.shown);
+    const start = (b) => (b.kind === "anytime" || secondsOf(b.time) === null ? Infinity : secondsOf(b.time));
+    return json(200, {
+      siteId: siteId, day: todayYmd, weekday: WEEK_DAYS[new Date(today * DAY).getUTCDay()],
+      shifts: labels.filter(l => !shift || l === shift).map(label => ({
+        label: label, displayLabel: inLanguage(label, lang),
+        blocks: table.filter(b => b.shift === label && blockDayHolds(b.days, today)).sort((x, y) => (start(x) - start(y)) || (x.order - y.order) || 0).map(b => ({
+          id: "blk-" + siteId + "-" + label.replace(/\s+/g, "-").toLowerCase() + "-" + b.order, shiftLabel: label, label: b.label,
+          display: { shift: inLanguage(label, lang), block: inLanguage(b.label, lang) },
+          startTime: b.kind === "anytime" ? null : b.time, endTime: b.kind === "anytime" ? null : b.end, crossesMidnight: false,
+          kind: b.kind, kindName: BLOCK_KIND_NAMES[lang === "es" ? "es" : "en"][b.kind], daysOfWeek: b.days || null,
+          steps: rows.filter(x => x.row.shift_label === label && x.row.block_label === b.label).map(x => ({
+            id: x.row.id, label: x.row.label, display: DISPLAYED.has(x.row.id) ? displayOf(x.row, lang) : null, frequency: x.row.every || "daily", daysOfWeek: x.row.days_of_week || null,
+            period: x.period, dueToday: x.due, doneThisPeriod: x.done ? { completedAt: x.done.completedAt, firstName: x.done.firstName } : null, shownToday: x.shown,
+          })),
+        })),
+      })),
+    });
+  };
+
   // One of Chat's refusals the way Step 132 writes it: its code beside
   // error, and error in the language the request asks for.
   const chatRefusal = (code, search) => {
@@ -3136,7 +3222,9 @@ function createStub(opts) {
       const signer = r.signed ? (r.signed.by === ORDER_HOLDER.id ? ORDER_HOLDER : state.person) : null;
       const out = JSON.parse(JSON.stringify(Object.assign({}, r, { signed: undefined, ordered: undefined })));
       return Object.assign(out, {
-        canDecide: holder && r.requested_by !== state.person.id && stageOf(r) !== "ordered",
+        // API Step 319: nobody decides a signed order, since its purchase
+        // order names the lines as decided.
+        canDecide: holder && r.requested_by !== state.person.id && r.status !== "fulfilled" && !r.signed,
         approvedBy: signer ? { id: signer.id, name: signer.firstName + " " + signer.lastName } : null, approvedAt: r.signed ? r.signed.at : null, signed: !!r.signed,
         vendor: orderVendorOf(v), deliverTo: r.signed ? r.signed.deliverTo : (ORDER_SITE_ADDRESS[r.site_id] || null), poNumber: r.signed ? r.signed.po : null,
         poPdfUrl: r.signed ? "/api/supplies/requests/" + r.id + "/po.pdf" : null, orderedAt: r.ordered ? r.ordered.at : null, orderedToEmail: r.ordered ? r.ordered.to : null,
@@ -3145,10 +3233,16 @@ function createStub(opts) {
     if (key === "GET /api/supplies/requests") {
       return json(200, state.orderRequests.filter(r => holder || r.requested_by === state.person.id).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).map(rowOf));
     }
+    // API Step 319: ?approved=true answers a holder of approve_supplies,
+    // whatever their role, the active approved vendors; anything else is
+    // management's route (admins and supervisors), and refuses anyone else.
     if (key === "GET /api/vendors") {
-      if (!holder) return json(403, { error: refusalIn(ORDER_REFUSALS["supplies.cannotDecide"], lang), code: "supplies.cannotDecide" });
       const q = new URLSearchParams(search || "");
-      const list = state.orderVendorsNone ? [] : ORDER_VENDORS.filter(v => v.is_active && (!q.get("approval_status") || v.approval_status === q.get("approval_status")));
+      const management = state.person.role === "admin" || state.person.role === "supervisor";
+      const asked = q.get("approved") === "true";
+      if (!management && !(asked && holder)) return refuse("access.insufficientPermissions");
+      const status = asked ? "approved" : q.get("approval_status");
+      const list = state.orderVendorsNone ? [] : ORDER_VENDORS.filter(v => v.is_active && (!status || v.approval_status === status));
       return json(200, list.map(v => Object.assign({}, v)));
     }
     const m = /^(GET|POST) \/api\/supplies\/requests\/([^/]+)\/(decide|sign|send|po\.pdf)$/.exec(key);
@@ -3166,7 +3260,8 @@ function createStub(opts) {
     if (!holder) return refuse("supplies.cannotDecide");
     if (r.requested_by === state.person.id) return refuse("supplies.ownRequest");
     if (m[3] === "decide") {
-      if (r.ordered) return json(409, { error: "This request was already ordered.", code: "supplies.requestFulfilled" });
+      if (r.status === "fulfilled") return json(409, { error: "This request was already ordered.", code: "supplies.requestFulfilled" });
+      if (r.signed) return refuse("supplies.alreadySigned");
       const items = Array.isArray(b.items) ? b.items : [];
       const keys = [];
       if (items.length < 1 || items.length > 30) keys.push("items");
@@ -3613,6 +3708,10 @@ function createStub(opts) {
     if (method === "PATCH" && /^\/api\/shift-sessions\//.test(pathname)) { state.clockedIn = false; return json(200, { message: "Shift ended" }); }
     if (key === "GET /api/sites") return json(200, SITES);
     if (method === "GET" && /^\/api\/sites\/[^/]+\/tasks$/.test(pathname)) return json(200, tasks(pathname.split("/")[3], search));
+    // Step 324: a site's day, as API Step 319 builds GET
+    // /api/sites/:siteId/shift-blocks/schedule?shift=&date=.
+    const daySchedule = pathname.match(/^\/api\/sites\/([^/]+)\/shift-blocks\/schedule$/);
+    if (method === "GET" && daySchedule) { state.scheduleReads.push({ siteId: daySchedule[1], search: search || "" }); return scheduleOf(daySchedule[1], search); }
     // The four pick lists, their labels in English the way the live API
     // sends them, with Step 118's displayLabel on two choices. The colors
     // are the ones the screens draw when no list arrives.
@@ -4779,6 +4878,25 @@ function createStub(opts) {
       const everyone = state.person.role === "admin" || state.person.role === "supervisor";
       return json(200, state.inspections.filter(i => i.status !== "completed" && (!want || i.status === want) && (everyone || i.assigned_to === undefined || i.assigned_to === state.person.id)).map(i => Object.assign({}, i, { items: undefined, gone: undefined })));
     }
+    // Step 324: the walk's safety part started or resumed, as API Step 319
+    // builds POST /api/inspections/scheduled/:id/safety { answers }: the
+    // inspector's draft tied to the inspection made the first time with its
+    // first part filled in, the answers sent saved over it, and { draft,
+    // form } answered.
+    const startingSafety = pathname.match(/^\/api\/inspections\/scheduled\/([^/]+)\/safety$/);
+    if (method === "POST" && startingSafety && state.inspectionWalk) {
+      const one = state.inspections.find(i => i.id === startingSafety[1] && !i.gone);
+      if (!one) return json(404, { error: INSPECTION_NOT_FOUND[0], code: "inspections.notFound" });
+      state.walkStarts.push({ id: one.id, body: body === undefined ? null : JSON.parse(JSON.stringify(body)) });
+      if (!one.with_safety) return json(409, { error: "This inspection has no safety part.", code: "inspections.noSafetyPart" });
+      if (one.status === "completed") return json(400, { error: "This inspection was already completed", code: "inspections.alreadyCompleted" });
+      const sent = body && body.answers !== undefined ? body.answers : undefined;
+      if (sent !== undefined && (!sent || typeof sent !== "object" || Array.isArray(sent))) return json(400, { error: "Check the details and try again.", code: "forms.answersShape", keys: ["answers"] });
+      if (sent && Object.keys(sent).indexOf("inspectedBy") !== -1) return json(400, { error: "A sign-off is made with its own button", code: "forms.unanswerable", keys: ["inspectedBy"] });
+      if (!state.walkStarted) { state.walkStarted = true; state.walkAnswers = WALK_SEED(); }
+      Object.keys(sent || {}).forEach((k) => { if (sent[k] === null) delete state.walkAnswers[k]; else state.walkAnswers[k] = sent[k]; });
+      return json(200, { draft: walkDraft(state, lang), form: walkForm(lang) });
+    }
     // Step 145. Completing one the way the API does: scores required, a
     // second completion turned away, and the row marked completed.
     const completing = pathname.match(/^\/api\/inspections\/scheduled\/([^/]+)\/complete$/);
@@ -4789,19 +4907,30 @@ function createStub(opts) {
       if (one.status === "completed") return json(400, { error: "This inspection was already completed" });
       // Step 313: a walk's completion carries the safety part's answers and
       // the one signature, and both parts are checked before anything is
-      // written, all or nothing.
+      // written, all or nothing. Step 324, as API Step 319 is built: the
+      // signature is read first; a body with no safety from a caller with
+      // no draft for this inspection is a staff app from before Step 313,
+      // and the cards complete alone with no safety part filed; otherwise
+      // the safety answers are the draft's (or the first part's) with the
+      // body's over them, refused with what is still missing.
+      let walkFiling = false;
       if (state.inspectionWalk && one.with_safety) {
         state.walkSent.push(JSON.parse(JSON.stringify(body)));
         const walkRefuse = (k, extra) => { const r = WALK_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
-        const sf = body.safety && typeof body.safety === "object" ? body.safety : null;
-        const answers = Object.assign({}, state.walkAnswers, sf && sf.answers && typeof sf.answers === "object" ? sf.answers : {});
-        const short = walkMissing(answers, lang, true);
-        if (!sf || sf.responseId !== "draft-safety" || short.length > 0) return walkRefuse("inspections.safetyIncomplete", { safety: { missing: short.map(m => m.key), missingFields: short } });
         const raw = typeof body.signature === "string" ? body.signature.trim() : "";
         const drawn = raw ? /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw) : null;
         const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
         if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") return walkRefuse("inspections.signatureRequired");
-        state.walkAnswers = answers;
+        const given = body.safety !== undefined && body.safety !== null;
+        if (given && (typeof body.safety !== "object" || Array.isArray(body.safety))) return json(400, { error: "Check the details and try again.", code: "inspections.badDetails", keys: ["safety"] });
+        if (given || state.walkStarted) {
+          const sf = given ? body.safety : {};
+          const answers = Object.assign({}, state.walkStarted ? state.walkAnswers : WALK_SEED(), sf.answers && typeof sf.answers === "object" ? sf.answers : {});
+          const short = walkMissing(answers, lang, true);
+          if (short.length > 0) return walkRefuse("inspections.safetyUnanswered", { missing: short.map(m => m.key), missingFields: short });
+          state.walkAnswers = answers;
+          walkFiling = true;
+        }
       }
       const total = body.scores.reduce((s, x) => s + (parseInt(x.score) || 0), 0);
       if (state.findings) {
@@ -4831,9 +4960,12 @@ function createStub(opts) {
           state.findingRows.push(row);
           return { issueId: row.id, templateItemId: r.x.template_item_id, label: r.item.label, zone: r.item.zone || null, score: r.score, maxScore: r.item.max_score, severity: row.severity, dueAt: row.due_at, owner: owner ? { id: owner.id, name: owner.name } : null };
         });
-        const walked = state.inspectionWalk && one.with_safety ? { safety: {
-          responseId: "draft-safety", result: state.walkAnswers.result, resultLabel: (walkForm(lang).fields.find(f => f.key === "result").options.find(o => o.value === state.walkAnswers.result) || {}).label || null,
-          findings: (Array.isArray(state.walkAnswers.findings) ? state.walkAnswers.findings : []).map((r, i) => ({ id: "sf-" + (i + 1), where: r.where, severity: r.severity, owner: { name: r.owner }, dueDate: r.due })),
+        // The safety part filed, answered as API Step 319 answers it: its
+        // id, the overall result's code and each finding as its row.
+        if (walkFiling) state.walkFiled = "frm-walk-1";
+        const walked = walkFiling ? { safety: {
+          responseId: state.walkFiled, overallResult: state.walkAnswers.result || null,
+          findings: (Array.isArray(state.walkAnswers.findings) ? state.walkAnswers.findings : []).filter(r => r && Object.keys(r).some(k => r[k] !== null && r[k] !== "")).map(r => Object.assign({}, r)),
         } } : {};
         return json(200, Object.assign({ success: true, result: { id: "res-" + one.id, scheduled_inspection_id: one.id, total_score: total, max_possible_score: max }, scorePct: pct, band: band, correctiveActionRequired: pct < 80, findings: opened }, walked));
       }
@@ -4842,7 +4974,7 @@ function createStub(opts) {
     }
     if (method === "GET" && /^\/api\/inspections\/scheduled\/[^/]+$/.test(pathname)) {
       const one = state.inspections.find(i => pathname.endsWith("/" + i.id) && !i.gone);
-      if (one && state.findings) return json(200, Object.assign({}, one, { owners: findingOwners() }, state.inspectionWalk && one.with_safety ? { safety: { form: walkForm(lang), draft: walkDraft(state, lang) } } : {}));
+      if (one && state.findings) return json(200, Object.assign({}, one, { owners: findingOwners() }, state.inspectionWalk && one.with_safety ? { safety: walkSafetyRead(state, one, lang) } : {}));
       return one ? json(200, one) : json(404, { error: INSPECTION_NOT_FOUND[0] });
     }
     if (pathname === "/api/inspections/scheduled") return json(200, []);
