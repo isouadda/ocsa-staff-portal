@@ -2225,7 +2225,12 @@ async function supplyOrders(browser, language, width) {
   const app = await open({ supplyOrders: true, person: ORDER_HOLDER, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
   const page = app.page;
   const calls = (route) => app.stub.state.orderCalls.filter(c => c.route === route);
-  let card = false, listed = false, decided = false, noVendor = false, facts = false, signed = false, pdf = false, ordered = false, belled = false;
+  let card = false, listed = false, decided = false, noVendor = false, facts = false, signed = false, settled = false, pdf = false, ordered = false, belled = false;
+  // Step 324: the vendor list asked as API Step 319 answers a holder who is
+  // neither an admin nor a supervisor (this one is a custodian): every ask
+  // ?approved=true, never management's ?approval_status=.
+  const vendorAsks = () => app.stub.state.calls.filter(c => c.path === "/api/vendors").map(c => new URLSearchParams(c.search || ""));
+  const vendorsAsked = () => vendorAsks().length > 0 && vendorAsks().every(q => q.get("approved") === "true" && !q.has("approval_status"));
   let wide = 0;
   if (await waitFor(page, BAR_JS + ".length >= 5")) {
     card = await waitFor(page, (w) => { const c = document.querySelector('[data-supply-orders-card="1"]'); return !!c && c.innerText.indexOf(w) !== -1; }, say(language, "Supply requests to approve ({n})", { n: 1 }));
@@ -2265,6 +2270,10 @@ async function supplyOrders(browser, language, width) {
       await page.click("[data-supply-sign-go]");
       signed = await waitFor(page, () => { const p = document.querySelector('[data-supply-po="PO-2026-0008"]'); return !!p && !document.querySelector("[data-supply-sign]"); })
         && calls("sign").length === 1 && calls("sign")[0].body.vendorId === 41 && calls("sign")[0].body.deliverTo === "10 Invented Street, Exampletown, PA 00000" && /^data:image\/png;base64,/.test(calls("sign")[0].body.signature || "");
+      // Step 324: once signed, no Change and no decision controls, and no
+      // line saying someone else decides, with nothing more decided.
+      settled = signed && await waitFor(page, () => { const o = document.querySelector('[data-supply-order="so-1"][data-supply-order-stage="send"]'); return !!o && o.querySelectorAll("[data-supply-line]").length === 2 && !o.querySelector("[data-supply-line-change], [data-supply-line-approve], [data-supply-line-deny], [data-supply-line-less], [data-supply-approve-all], [data-supply-deny-all], [data-supply-order-readonly]"); })
+        && calls("decide").length === 2;
     }
     if (signed) {
       pdf = await pdfTab(page, "[data-supply-po-open]") && app.stub.state.pdfReads.some(r => r.which === "po:so-1" && r.token);
@@ -2300,9 +2309,9 @@ async function supplyOrders(browser, language, width) {
   }
   const otherErrors = other.errors.slice();
   await other.context.close();
-  check("Supply orders on the phone: a holder's Home card reads 1 to approve and opens the list in its three groups; one item approved at a lower quantity and another denied with a note, each sent once; with no approved vendor the line asks the office; with one, its contact, email and address show under the dropdown; Sign sends the vendor, the site's address and the signature once and shows the purchase order; Open the purchase order reads it behind the token; Send sends it to the vendor's email and reads Ordered with its date; the bell's notice opens the request; someone without the capability sees no card and no Approve supplies; with no sideways scroll" + tag,
-    card && listed && decided && noVendor && facts && signed && pdf && ordered && belled && none && wide <= 1 && holderErrors.length === 0 && otherErrors.length === 0,
-    !card ? "Home showed no card" : !listed ? "the list was not in its three groups" : !decided ? "the decisions did not go as sent: " + JSON.stringify(app.stub.state.orderCalls) : !noVendor ? "no line asking the office for a vendor" : !facts ? "the vendor's details did not show" : !signed ? "Sign did not go as sent: " + JSON.stringify(app.stub.state.orderCalls.filter(c => c.route === "sign").map(c => [c.body.vendorId, c.body.deliverTo])) : !pdf ? "the purchase order did not open behind the token" : !ordered ? "Send did not read Ordered" : !belled ? "the notice did not open the request" : !none ? "someone without the capability saw it" : wide > 1 ? wide + " pixels sideways" : (holderErrors[0] || otherErrors[0]));
+  check("Supply orders on the phone: a holder's Home card reads 1 to approve and opens the list in its three groups; one item approved at a lower quantity and another denied with a note, each sent once; with no approved vendor the line asks the office; with one, asked with ?approved=true by a holder who is neither an admin nor a supervisor, its contact, email and address show under the dropdown; Sign sends the vendor, the site's address and the signature once and shows the purchase order; once signed, Change and the decision controls are gone; Open the purchase order reads it behind the token; Send sends it to the vendor's email and reads Ordered with its date; the bell's notice opens the request; someone without the capability sees no card and no Approve supplies; with no sideways scroll" + tag,
+    card && listed && decided && noVendor && facts && vendorsAsked() && signed && settled && pdf && ordered && belled && none && wide <= 1 && holderErrors.length === 0 && otherErrors.length === 0,
+    !card ? "Home showed no card" : !listed ? "the list was not in its three groups" : !decided ? "the decisions did not go as sent: " + JSON.stringify(app.stub.state.orderCalls) : !noVendor ? "no line asking the office for a vendor" : !facts ? "the vendor's details did not show" : !vendorsAsked() ? "the vendor list was asked " + JSON.stringify(vendorAsks().map(q => q.toString())) : !signed ? "Sign did not go as sent: " + JSON.stringify(app.stub.state.orderCalls.filter(c => c.route === "sign").map(c => [c.body.vendorId, c.body.deliverTo])) : !settled ? "a signed request still offered a decision, or said someone else decides" : !pdf ? "the purchase order did not open behind the token" : !ordered ? "Send did not read Ordered" : !belled ? "the notice did not open the request" : !none ? "someone without the capability saw it" : wide > 1 ? wide + " pixels sideways" : (holderErrors[0] || otherErrors[0]));
 }
 
 // One inspection walk with the safety part in it (Step 313), against API
@@ -2311,7 +2320,10 @@ async function supplyOrders(browser, language, width) {
 // in; a Fail with no finding listed as missing before anything is sent;
 // leaving and coming back with both parts kept; one signature and one
 // Submit carrying both; the result with both parts; and an inspection
-// without the safety part drawn as before.
+// without the safety part drawn as before. Step 324, against API Step 319
+// as built: the read answers no draft until the walk starts its safety
+// part through POST /api/inspections/scheduled/:id/safety { answers: {} },
+// once, never through the forms' own draft route, and Submit files both.
 async function inspectionWalk(browser, language, width) {
   const tag = " (" + language + ", " + width + " wide)";
   const app = await open({ inspectionWalk: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
@@ -2325,7 +2337,8 @@ async function inspectionWalk(browser, language, width) {
   };
   const next = async () => { await page.click("[data-walk-next]"); await pause(page, 250); };
   const pickIn = async (field, row, label) => page.evaluate((x) => { const cards = Array.from(document.querySelectorAll('[data-walk-field="' + x.field + '"] > div')).filter(d => d.querySelectorAll("button").length >= 2); const scope = x.row === null ? document.querySelector('[data-walk-field="' + x.field + '"]') : cards[x.row]; const b = scope && Array.from(scope.querySelectorAll("button")).find(y => y.innerText.trim() === x.label); if (b) b.click(); return !!b; }, { field, row, label });
-  let both = false, missingFail = false, kept = false, signedOnce = false, result = false, plain = false;
+  let both = false, missingFail = false, kept = false, signedOnce = false, result = false, plain = false, started = false;
+  const formDrafts = () => app.stub.state.calls.filter(x => x.method === "POST" && /^\/api\/forms\/[^/]+\/drafts$/.test(x.path)).length;
   let wide = 0;
   if (await waitFor(page, BAR_JS + ".length >= 5") && await openWalk(INSPECTION_W.template_name)) {
     // The site checklist, then the safety walk drawn by the form engine
@@ -2335,6 +2348,8 @@ async function inspectionWalk(browser, language, width) {
     await pause(page, 200);
     await page.click("[data-walk-to-safety]");
     both = cards && await waitFor(page, (x) => { const p = document.querySelector('[data-inspect-walk="safety"] [data-walk-safety="1"]'); const i = p && p.querySelector('[data-walk-field="site"] input'); return !!i && i.value === "North Building" && p.innerText.indexOf(x) !== -1; }, w.s1);
+    // The read answered no draft, so the walk started its safety part once.
+    started = both && app.stub.state.walkStarts.length === 1 && app.stub.state.walkStarts[0].id === INSPECTION_W.id && JSON.stringify(app.stub.state.walkStarts[0].body) === JSON.stringify({ answers: {} }) && formDrafts() === 0;
     wide = await sideways(page);
     if (both) {
       await next();
@@ -2378,6 +2393,8 @@ async function inspectionWalk(browser, language, width) {
         result = await waitFor(page, (x) => { const r = document.querySelector("[data-inspect-sent]"); const sf = r && r.querySelector("[data-inspect-sent-safety]"); return !!sf && !!r.querySelector('[data-inspect-safety-result="1"]') && sf.innerText.indexOf(x.result) !== -1 && sf.innerText.indexOf("Invented: an exit sign is out.") !== -1 && sf.innerText.indexOf(x.sev) !== -1 && r.innerText.indexOf(x.band) !== -1; }, { result: w.recorded, sev: say(language, "Severity {s}", { s: "B" }), band: say(language, "Meets the standard.") });
         const sent = app.stub.state.walkSent;
         signedOnce = sent.length === 1 && /^data:image\/png;base64,/.test(sent[0].signature || "") && !!sent[0].safety && sent[0].safety.responseId === "draft-safety" && Array.isArray(sent[0].safety.answers.findings) && sent[0].safety.answers.findings.length === 1 && sent[0].scores.length === 2 && !Object.prototype.hasOwnProperty.call(sent[0].safety.answers, "inspectedBy");
+        // Both filed, and coming back never started the safety part again.
+        started = started && app.stub.state.walkFiled === "frm-walk-1" && app.stub.state.walkStarts.length === 1 && formDrafts() === 0;
         wide = Math.max(wide, await sideways(page));
       }
     }
@@ -2387,9 +2404,9 @@ async function inspectionWalk(browser, language, width) {
       if (await openWalk(INSPECTION_PLAIN.template_name)) plain = await waitFor(page, () => !document.querySelector("[data-inspect-walk]") && !!document.querySelector("[data-inspect-item]") && !!document.querySelector("[data-inspect-signature]") && !!document.querySelector("[data-inspect-submit]") && !document.querySelector("[data-walk-to-safety]"));
     }
   }
-  check("One inspection walk: the inspection opens on the site checklist, and the safety walk is drawn by the form engine with its first part filled in; a Fail with no finding is listed as missing and nothing is sent; leaving and coming back keeps the scored cards and the safety answers; one signature and one Submit carry both parts, the sign-off left to the signature; the result shows the band, the safety result and its finding; an inspection without the safety part reads as before; with no sideways scroll" + tag,
-    both && missingFail && kept && signedOnce && result && plain && wide <= 1 && app.errors.length === 0,
-    !both ? "the two parts were not drawn" : !missingFail ? "the Fail with no finding was not listed, or something was sent" : !kept ? "coming back did not keep both parts" : !result ? "the result did not show both parts" : !signedOnce ? "the send was not one, with both parts and one signature: " + JSON.stringify(app.stub.state.walkSent.map(b => [!!b.signature, b.safety && b.safety.responseId])) : !plain ? "the inspection without the safety part was not drawn as before" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+  check("One inspection walk: the inspection opens on the site checklist, and the safety walk is drawn by the form engine with its first part filled in; a fresh walk starts its safety part once through POST .../safety with { answers: {} } and never through the forms' draft route; a Fail with no finding is listed as missing and nothing is sent; leaving and coming back keeps the scored cards and the safety answers; one signature and one Submit carry both parts and file both, the sign-off left to the signature; the result shows the band, the safety result and its finding; an inspection without the safety part reads as before; with no sideways scroll" + tag,
+    both && started && missingFail && kept && signedOnce && result && plain && wide <= 1 && app.errors.length === 0,
+    !both ? "the two parts were not drawn" : !started ? "the safety part was not started once through its POST, or not filed: " + JSON.stringify([app.stub.state.walkStarts, app.stub.state.walkFiled, formDrafts()]) : !missingFail ? "the Fail with no finding was not listed, or something was sent" : !kept ? "coming back did not keep both parts" : !result ? "the result did not show both parts" : !signedOnce ? "the send was not one, with both parts and one signature: " + JSON.stringify(app.stub.state.walkSent.map(b => [!!b.signature, b.safety && b.safety.responseId])) : !plain ? "the inspection without the safety part was not drawn as before" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
   await app.context.close();
 }
 
@@ -2404,6 +2421,10 @@ async function inspectionWalk(browser, language, width) {
 // to Sunday, is absent. At 10:00 AM on Saturday, October 3, the laundry
 // room is there, and so is the stairway maintenance, any free time on
 // Saturday, with no window and its weekly step.
+// Step 324: the Saturday is read at Hall Building, an invented site of one
+// shift (East Building's first), where the session carries no shifts, so
+// breakfast and lunch, holding no step, and check-in and check-out come
+// from the schedule route alone; East Building's Monday never asks it.
 const EAST_MONDAY = "2026-10-05T14:00:00Z";
 const EAST_SATURDAY = "2026-10-03T14:00:00Z";
 async function timedSchedule(browser, language, width) {
@@ -2413,11 +2434,11 @@ async function timedSchedule(browser, language, width) {
     const tagEl = b.querySelector("[data-block-tag]");
     return { key: b.getAttribute("data-block"), kind: b.getAttribute("data-block-kind"), text: b.innerText.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim(), tag: tagEl ? tagEl.innerText.trim() : null, now: b.querySelector("[data-block-now]") ? b.querySelector("[data-block-now]").innerText.trim() : null, next: b.querySelector("[data-block-next]") ? b.querySelector("[data-block-next]").innerText.trim() : null, overdue: b.querySelector("[data-block-overdue]") ? b.querySelector("[data-block-overdue]").innerText.trim() : null, meal: box.querySelector("[data-block-meal]") ? box.querySelector("[data-block-meal]").innerText.trim() : null, rows: box.children.length - 1 - (box.querySelector("[data-block-meal]") ? 1 : 0), box: box.innerText };
   });
-  const day = async (now) => {
-    const app = await open({ site: "site-east", now: now, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width, now: now });
+  const day = async (now, site) => {
+    const app = await open({ site: site, now: now, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width, now: now });
     await waitFor(app.page, BAR_JS + ".length >= 5");
     await tapBar(app.page, 2);
-    const drawn = await waitFor(app.page, () => document.querySelectorAll("[data-block]").length >= 5);
+    const drawn = await waitFor(app.page, () => document.querySelectorAll("[data-block]").length >= 5 && document.querySelectorAll('[data-block-kind="meal"]').length >= 2);
     const blocks = drawn ? await app.page.evaluate("(" + blocksOf.toString() + ")()") : [];
     const wide = await sideways(app.page);
     const text = await contentText(app.page);
@@ -2427,7 +2448,7 @@ async function timedSchedule(browser, language, width) {
   const to = say(language, "{start} to {end}", { start: "\u0001", end: "\u0002" });
   const between = to.split("\u0001")[1].split("\u0002")[0].trim();
   const windowRe = (from, until) => new RegExp(from.replace(":", "\\:") + "\\s*\\S*\\s*\\S*\\s+" + between + "\\s+" + until.replace(":", "\\:"));
-  const mon = await day(EAST_MONDAY);
+  const mon = await day(EAST_MONDAY, "site-east");
   const m = mon.blocks;
   const kitchen = find(m, "Kitchen floor"), sleeping = find(m, "Sleeping area"), dining = find(m, "Dining room reset"), breakfast = find(m, "Breakfast"), lunch = find(m, "Lunch"), checkIn = find(m, "Check in"), checkOut = find(m, "Check out");
   const windows = !!kitchen && windowRe("9:30", "11:00").test(kitchen.text) && !!sleeping && windowRe("10:30", "12:00").test(sleeping.text) && !!checkOut && windowRe("3:15", "3:30").test(checkOut.text);
@@ -2438,16 +2459,26 @@ async function timedSchedule(browser, language, width) {
   const ends = !!checkIn && checkIn.tag === say(language, "Start of shift") && !!checkOut && checkOut.tag === say(language, "End of shift");
   const mondayGone = !find(m, "Laundry room") && !find(m, "Stairway maintenance") && mon.text.indexOf(taskWords("e-9", language).label) === -1 && mon.text.indexOf(taskWords("e-11", language).label) === -1;
   const monErrors = mon.app.errors.slice();
+  const monAsked = mon.app.stub.state.scheduleReads.length;
   await mon.app.context.close();
-  const sat = await day(EAST_SATURDAY);
+  const sat = await day(EAST_SATURDAY, "site-hall");
   const stairs = find(sat.blocks, "Stairway maintenance"), laundry = find(sat.blocks, "Laundry room");
-  const saturday = !!stairs && stairs.kind === "anytime" && stairs.tag === say(language, "When there is free time") && !/\d:\d\d/.test(stairs.text) && !stairs.now && !stairs.next && stairs.box.indexOf(taskWords("e-11", language).label) !== -1 && !!laundry && laundry.kind === "full_access" && laundry.box.indexOf(taskWords("e-9", language).label) !== -1;
+  const saturday = !!stairs && stairs.kind === "anytime" && stairs.tag === say(language, "When there is free time") && !/\d:\d\d/.test(stairs.text) && !stairs.now && !stairs.next && stairs.box.indexOf(taskWords("h-11", language).label) !== -1 && !!laundry && laundry.kind === "full_access" && laundry.box.indexOf(taskWords("h-9", language).label) !== -1;
+  // At the site of one shift: the session carries no shifts, the schedule
+  // route is asked for the day with no shift, and its meals, check-in and
+  // check-out are drawn in their windows with their words.
+  const reads = sat.app.stub.state.scheduleReads;
+  const hall = sat.blocks;
+  const sBreakfast = find(hall, "Breakfast"), sLunch = find(hall, "Lunch"), sIn = find(hall, "Check in"), sOut = find(hall, "Check out");
+  const fromRoute = monAsked === 0 && reads.length >= 1 && reads.every(r => r.siteId === "site-hall" && !new URLSearchParams(r.search).get("shift")) && (sat.app.stub.peek.session().shifts || []).length === 0
+    && [sBreakfast, sLunch].every(b => !!b && b.kind === "meal" && b.tag === say(language, "Residents' meal") && b.meal === say(language, "The space is in use. No steps in this time.") && b.rows === 0)
+    && !!sBreakfast && windowRe("9:00", "9:30").test(sBreakfast.text) && !!sIn && sIn.tag === say(language, "Start of shift") && !!sOut && sOut.tag === say(language, "End of shift") && windowRe("3:15", "3:30").test(sOut.text);
   const errors = monErrors.concat(sat.app.errors);
   const wide = Math.max(mon.wide, sat.wide);
   await sat.app.context.close();
-  check("Timed site schedules: each block's window drawn, a meal block with no steps, a full-access block marked, Now and Next first at a fixed time, an overdue critical block, check-in and check-out as the shift's start and end, a Wednesday to Sunday block absent on a Monday, and an anytime block on a Saturday, each kind in words, with no sideways scroll" + tag,
-    windows && meals && fullAccess && nowNext && overdue && ends && mondayGone && saturday && wide <= 1 && errors.length === 0,
-    !windows ? "the windows read " + JSON.stringify([kitchen, sleeping, checkOut].map(b => b && b.text)) : !meals ? "the meals read " + JSON.stringify([breakfast, lunch].map(b => b && [b.tag, b.meal, b.rows])) : !fullAccess ? "the full-access block read " + JSON.stringify(sleeping && sleeping.text) : !nowNext ? "the order was " + JSON.stringify(m.map(b => b.key + (b.now ? " now" : "") + (b.next ? " next" : ""))) : !overdue ? "the dining room reset read " + JSON.stringify(dining && dining.text) : !ends ? "check-in and check-out read " + JSON.stringify([checkIn, checkOut].map(b => b && b.text)) : !mondayGone ? "the laundry room or the stairways showed on the Monday" : !saturday ? "on the Saturday the stairways read " + JSON.stringify(stairs && stairs.text) + " and the laundry room " + JSON.stringify(laundry && laundry.text) : wide > 1 ? wide + " pixels sideways" : errors[0]);
+  check("Timed site schedules: each block's window drawn, a meal block with no steps, a full-access block marked, Now and Next first at a fixed time, an overdue critical block, check-in and check-out as the shift's start and end, a Wednesday to Sunday block absent on a Monday, and an anytime block on a Saturday, each kind in words; at a site of one shift, whose session carries no shifts, the meal blocks, check-in and check-out drawn from the schedule route; with no sideways scroll" + tag,
+    windows && meals && fullAccess && nowNext && overdue && ends && mondayGone && saturday && fromRoute && wide <= 1 && errors.length === 0,
+    !windows ? "the windows read " + JSON.stringify([kitchen, sleeping, checkOut].map(b => b && b.text)) : !meals ? "the meals read " + JSON.stringify([breakfast, lunch].map(b => b && [b.tag, b.meal, b.rows])) : !fullAccess ? "the full-access block read " + JSON.stringify(sleeping && sleeping.text) : !nowNext ? "the order was " + JSON.stringify(m.map(b => b.key + (b.now ? " now" : "") + (b.next ? " next" : ""))) : !overdue ? "the dining room reset read " + JSON.stringify(dining && dining.text) : !ends ? "check-in and check-out read " + JSON.stringify([checkIn, checkOut].map(b => b && b.text)) : !mondayGone ? "the laundry room or the stairways showed on the Monday" : !saturday ? "on the Saturday the stairways read " + JSON.stringify(stairs && stairs.text) + " and the laundry room " + JSON.stringify(laundry && laundry.text) : !fromRoute ? "at the site of one shift, the schedule was read " + JSON.stringify([monAsked, reads]) + " and the blocks were " + JSON.stringify(hall.map(b => b.key + ":" + b.kind + ":" + b.tag + ":" + b.rows)) : wide > 1 ? wide + " pixels sideways" : errors[0]);
 }
 
 // The Largest text size on a narrow phone: no control cut off or covered.
