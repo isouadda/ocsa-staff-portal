@@ -845,6 +845,10 @@ const ShieldIco = (p) => <Ico d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" {.
 // A pen, for a signature waiting (Step 271).
 const PenIco = (p) => <Ico d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" {...p} />;
 const BookIco = (p) => <Ico d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" {...p} />;
+// An open book, the Library's (Step 307), apart from My training's.
+// A cart, Approve supplies' (Step 311).
+const CartIco = (p) => <Ico d="M9 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM20 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" {...p} />;
+const LibIco = (p) => <Ico d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" {...p} />;
 const LockIco = ({ sz = 12, c = BLUE }) => (<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>);
 
 // Every destination the portal has, in one list, so the bottom bar and the
@@ -884,6 +888,12 @@ const DESTINATIONS = [
   // Under More alone, for everyone, and only once GET
   // /api/support/tickets/mine has answered a list (Step 290).
   { id: "support", label: () => "App support", icon: SupportIco, moreOnly: true, role: (ctx) => !!ctx.support },
+  // Under More alone, for everyone, and only once GET /api/library has
+  // answered a list, an empty one included (Step 307).
+  { id: "library", label: () => "Library", icon: LibIco, moreOnly: true, role: (ctx) => !!ctx.library },
+  // Under More alone, for a holder of approve_supplies alone, by the
+  // API's canDecide on the list it answers them (Step 311).
+  { id: "supplyorders", label: () => "Approve supplies", icon: CartIco, moreOnly: true, role: (ctx) => !!ctx.supplyOrders },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
 
@@ -1029,6 +1039,46 @@ const inspectAnswerOf = (d) => {
     } : null)).filter(Boolean),
   };
 };
+// The safety walk a scheduled inspection carries (Step 313, the Step 312
+// contract's section 2): the published OCSA-FRM-015 definition and the
+// inspector's own draft of it, tied to the scheduled inspection, from
+// safety on GET /api/inspections/scheduled/:id. null for an inspection
+// without it, which reads and sends as it always did.
+const inspectSafetyOf = (d) => {
+  const s = d && typeof d === "object" && d.safety && typeof d.safety === "object" ? d.safety : null;
+  if (!s || d.with_safety === false || d.withSafety === false) return null;
+  const draft = formDraftOf(s.draft || s.response || null);
+  const form = [s.form, s.definition, draft && draft.form, draft && draft.definition].find(x => x && typeof x === "object" && Array.isArray(x.fields)) || null;
+  return draft && typeof draft === "object" && draft.id && form ? { form: form, draft: draft } : null;
+};
+// What the complete route answers about the safety part: its overall
+// result, in the words the API gives or the form's own option, and each
+// finding with its severity, owner and due date. null with none.
+const inspectSafetyAnswerOf = (d, form) => {
+  const s = d && typeof d === "object" && d.safety && typeof d.safety === "object" ? d.safety : null;
+  if (!s) return null;
+  const code = fkText(s, ["result", "overallResult"]);
+  const field = form && Array.isArray(form.fields) ? form.fields.find(f => Array.isArray(f.options) && f.options.some(o => o && o.value === code)) : null;
+  const opt = field ? field.options.find(o => o.value === code) : null;
+  return {
+    result: fkText(s, ["resultLabel", "resultWords"]) || (opt ? String(opt.label || "") : ""),
+    findings: (Array.isArray(s.findings) ? s.findings : []).map((f, i) => (f && typeof f === "object" ? {
+      id: String(agentField(f, ["issueId", "id"], i)), label: fkText(f, ["where", "area", "label", "title"]), what: fkText(f, ["what", "description"]), severity: fkText(f, ["severity"]),
+      owner: f.owner && typeof f.owner === "object" ? fkText(f.owner, ["name"]) : fkText(f, ["owner", "ownerName"]), dueAt: f.dueAt || f.dueDate || f.due || null,
+    } : null)).filter(Boolean),
+  };
+};
+// A walk's site checklist, kept on this phone as it is scored, by person
+// and inspection (Step 313), so leaving and coming back continues it; the
+// safety part is kept by the API as the inspector's draft. Every read and
+// write in try and catch; a storage that throws keeps nothing.
+const INSPECT_KEPT_PREFIX = "ocsa-staff-inspect:";
+const inspectKeptKey = (userId, id) => INSPECT_KEPT_PREFIX + String(userId || "") + ":" + String(id);
+function readInspectKept(userId, id) {
+  try { const v = JSON.parse(window.localStorage.getItem(inspectKeptKey(userId, id)) || "null"); return v && typeof v === "object" ? v : null; } catch (e) { return null; }
+}
+function keepInspect(userId, id, v) { try { window.localStorage.setItem(inspectKeptKey(userId, id), JSON.stringify(v)); } catch (e) {} }
+function forgetInspect(userId, id) { try { window.localStorage.removeItem(inspectKeptKey(userId, id)); } catch (e) {} }
 // The band in QMS-014 5.2's words.
 const INSPECT_BAND_WORDS = {
   meets: () => tr("Meets the standard."),
@@ -1144,18 +1194,19 @@ function readEntryFromUrl() {
 // /requests/<id> (Step 252), and an inspection finding's to /issues/<id>
 // (Step 255); either address opens its subject the same way, and so does
 // a training session's /join/<code> (Step 264), a training category's
-// page, /training/c/<key> (Step 267), and a signature request's /sign/<id>
-// (Step 271). None is an entry screen, so the app signs in or boots the
+// page, /training/c/<key> (Step 267), a signature request's /sign/<id>
+// (Step 271), and a supply request's /supplies/<id> (Step 311). None is
+// an entry screen, so the app signs in or boots the
 // stored session as it always does and the subject opens once the portal
 // is up.
 function readOpenFromUrl() {
   try {
     var v = new URLSearchParams(window.location.search || "").get("open");
     if (!v) {
-      var m = /^\/(requests|issues|join|training\/c|sign|inspect|drafts)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
+      var m = /^\/(requests|issues|join|training\/c|sign|inspect|drafts|supplies)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
       if (!m) return null;
       try { window.history.replaceState({}, "", "/"); } catch (e) {}
-      var types = { requests: "client_request", issues: "inspection_finding", join: "training_join", "training/c": "training_category", sign: "signature_request", inspect: "inspection", drafts: "form_draft" };
+      var types = { requests: "client_request", issues: "inspection_finding", join: "training_join", "training/c": "training_category", sign: "signature_request", inspect: "inspection", drafts: "form_draft", supplies: "supply_request" };
       return { subjectType: types[m[1]], subjectId: m[2] };
     }
     try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
@@ -2599,6 +2650,9 @@ export default function OCSAStaffPortal() {
     if (!place) return;
     if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
     if (place.issue) { openIssue(place.issue, null); return; }
+    // A supply request (Step 311): opened once it is known whether this
+    // person decides it.
+    if (place.supply) { setSupplyAsk(String(place.supply)); setShowMore(false); return; }
     if (place.sign) { setSignAt({ id: String(place.sign) }); setActiveTab("clock"); setShowMore(false); return; }
     // Sign off training is a supervisor's place; anyone else lands on My
     // training. The field kit keeps its site and opens on the tile.
@@ -2747,6 +2801,61 @@ export default function OCSAStaffPortal() {
   }, [token, screen, supportAsked]);
   const supportFrom = useRef("clock");
   useEffect(() => { if (activeTab !== "support") supportFrom.current = activeTab; }, [activeTab]);
+  // The Library (Step 307): what GET /api/library answers, null until it
+  // answers a list; More offers the Library then, an empty list included,
+  // which the screen says is still loading.
+  // Supply orders (Step 311): the list GET /api/supplies/requests answers
+  // a holder of approve_supplies, null for anyone else and until the API
+  // answers canDecide; whether this person holds it, null until known;
+  // the request open in Approve supplies; and a notice's request, held
+  // until whether this person decides is known.
+  const [supplyOrders, setSupplyOrders] = useState(null);
+  const [supplyHolder, setSupplyHolder] = useState(null);
+  const [supplyAt, setSupplyAt] = useState(null);
+  const [supplyAsk, setSupplyAsk] = useState(null);
+  const supplySeq = useRef(0);
+  // A holder is someone the list says may decide a request, or, where it
+  // says so of none (their own requests alone, or none waiting), whose
+  // permissions carry approve_supplies, read only once the list answers
+  // canDecide at all.
+  const loadSupplyOrders = async (tok) => {
+    const use = tok || token;
+    if (!use) return;
+    const mine = ++supplySeq.current;
+    const rows = await readSupplyOrders(use);
+    if (mine !== supplySeq.current || liveToken.current !== use) return;
+    if (rows === undefined) { setSupplyHolder(was => (was === null ? false : was)); return; }
+    let holder = !!rows && rows.some(r => r.canDecide);
+    if (rows && !holder) { try { const p = await api("/api/users/me/permissions", { token: use }); holder = !!(p && p.capabilities && p.capabilities.approve_supplies === true); } catch (e) {} }
+    if (mine !== supplySeq.current || liveToken.current !== use) return;
+    setSupplyHolder(holder); setSupplyOrders(holder ? rows : null);
+  };
+  // A request as an action answered it, in place of the row it was.
+  const takeSupplyOrder = (row) => setSupplyOrders(prev => (Array.isArray(prev) ? prev.map(r => (r.id === row.id ? row : r)) : prev));
+  useEffect(() => {
+    if (!token || screen !== "main") { setSupplyOrders(null); setSupplyHolder(null); setSupplyAt(null); setSupplyAsk(null); return; }
+    loadSupplyOrders(token);
+  }, [token, screen]);
+  // Home reads it again each time it opens.
+  useEffect(() => { if (token && screen === "main" && activeTab === "clock" && supplyHolder) loadSupplyOrders(); }, [activeTab]);
+  // A notice's request opens once that is known: on Approve supplies for
+  // a holder, and on Supplies, as before, for anyone else.
+  useEffect(() => {
+    if (!supplyAsk || supplyHolder === null) return;
+    if (supplyHolder) { setSupplyAt({ id: supplyAsk }); setActiveTab("supplyorders"); } else setActiveTab("supplies");
+    setSupplyAsk(null); setShowMore(false);
+  }, [supplyAsk, supplyHolder]);
+  const [library, setLibrary] = useState(null);
+  // The document open in the Library, { doc, at, key }: from a row, a
+  // search result at the section it matched, or Help's Open button.
+  const [libraryAt, setLibraryAt] = useState(null);
+  const openLibraryDoc = (doc, at) => { setLibraryAt({ doc: doc, at: at || null, key: Date.now() }); setActiveTab("library"); setShowMore(false); };
+  useEffect(() => {
+    if (!token || screen !== "main") { setLibrary(null); setLibraryAt(null); return undefined; }
+    let live = true;
+    readLibrary(token).then(l => { if (live && l) setLibrary(l); });
+    return () => { live = false; };
+  }, [token, screen]);
   useEffect(() => {
     if (!token || screen !== "main") { setTraining(null); setTrainingAt(null); return undefined; }
     let live = true;
@@ -2771,7 +2880,7 @@ export default function OCSAStaffPortal() {
     readWorkspaceProjects(token).then(list => { if (live) setWsProjects(list); });
     return () => { live = false; };
   }, [wsAsks, token, user && user.id]);
-  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training, property: Array.isArray(property), support: Array.isArray(support) };
+  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training, property: Array.isArray(property), support: Array.isArray(support), library: Array.isArray(library), supplyOrders: supplyHolder === true && Array.isArray(supplyOrders) };
   const shortcutChoices = shortcutChoicesFor(destCtx);
   const allowedShortcutIds = shortcutChoices.map(d => d.id);
   const uid = user && user.id ? user.id : null;
@@ -3107,12 +3216,14 @@ export default function OCSAStaffPortal() {
               {activeTab === "clock" && signAt && <SignScreen key={signAt.id || "list"} token={token} id={signAt.id || null} requests={signList} onOpen={openSign} onBack={() => setSignAt(null)} onChanged={() => setSignAsked(n => n + 1)} t={t} />}
               {activeTab === "property" && destCtx.property && <MyPropertyView rows={property} onSign={(id) => openSign({ id: id })} t={t} />}
               {activeTab === "support" && destCtx.support && <SupportView token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} t={t} />}
-              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
+              {activeTab === "supplyorders" && (destCtx.supplyOrders || !!supplyAt) && <SupplyOrdersView token={token} user={user} holder={supplyHolder === true} rows={supplyOrders} onReload={() => loadSupplyOrders()} onRow={takeSupplyOrder} at={supplyAt} onAt={setSupplyAt} getOpts={getOpts} showToast={showToast} t={t} />}
+              {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
+              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
-              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} t={t} />}
+              {activeTab === "tasks" && <TasksView clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
-              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} />}
+              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} onOpenDocument={(d) => openLibraryDoc(d, null)} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} findings={findings} onFindingsChanged={() => loadFindings()} openFinding={findingOpen} onOpenIssue={openIssue} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} token={token} user={user} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
@@ -4654,6 +4765,53 @@ const isPeriodic = (tk) => PERIOD_SECTIONS.some(p => p.id === tk.period);
 const howOften = (tk) => { const p = PERIOD_SECTIONS.find(x => x.id === tk.period); return p ? tr(p.often) : null; };
 const sectionOf = (tk) => (isPeriodic(tk) ? tk.period : tk.period === "as_needed" ? "as_needed" : "today");
 const isDueToday = (tk) => sectionOf(tk) === "today" && tk.dueToday !== false;
+// Timed site schedules (Step 316, the Step 315 contract's section 2). A
+// block carries its window, from its time to its end, its kind and the
+// days it runs: on each checklist row as end_time and kind, and the
+// block's days as block_days_of_week, since the row's own days_of_week
+// is the task's; and on the session's shifts for every block, the ones
+// holding no step among them, so the day's schedule is drawn whole. With
+// none of it answered, the checklist is drawn as before.
+const BLOCK_KINDS = ["work", "critical", "meal", "full_access", "check_in", "check_out", "anytime"];
+const blockKindOf = (v) => (BLOCK_KINDS.indexOf(String(v || "")) !== -1 ? String(v) : null);
+// Each kind's words, drawn as a tag, so a kind never rests on its color
+// alone. Work has none.
+const BLOCK_KIND_WORDS = { critical: "Critical", meal: "Residents' meal", full_access: "Empty, full access", anytime: "When there is free time", check_in: "Start of shift", check_out: "End of shift" };
+const DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const blockDaysOf = (v) => { const list = String(Array.isArray(v) ? v.join(",") : v || "").toLowerCase().split(/[\s,]+/).map(x => x.slice(0, 3)).filter(x => DAY_KEYS.indexOf(x) !== -1); return list.length > 0 ? list : null; };
+const clockMinutes = (v) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(v || "").trim()); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+// The minute of the day on the company's clock.
+function companyMinutes(ms) {
+  const p = {};
+  new Intl.DateTimeFormat("en-US", { timeZone: clientConfig.company.timeZone, hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(new Date(ms)).forEach((x) => { p[x.type] = Number(x.value); });
+  return ((p.hour || 0) % 24) * 60 + (p.minute || 0);
+}
+// The day of the week of a checklist day, YYYY-MM-DD, or of today on the
+// company's calendar.
+const scheduleDayOf = (ymd, ms) => {
+  if (YMD_RE.test(String(ymd || ""))) return DAY_KEYS[new Date(Date.UTC(Number(ymd.slice(0, 4)), Number(ymd.slice(5, 7)) - 1, Number(ymd.slice(8, 10)))).getUTCDay()];
+  const n = new Intl.DateTimeFormat("en-US", { timeZone: clientConfig.company.timeZone, weekday: "short" }).format(new Date(ms)).toLowerCase().slice(0, 3);
+  return DAY_KEYS.indexOf(n) !== -1 ? n : null;
+};
+// A row's block, as the row carries it.
+const rowBlockOf = (tk) => ({ end: tk.block_end_time || tk.blockEndTime || tk.end_time || null, kind: blockKindOf(tk.block_kind || tk.blockKind || tk.kind), days: blockDaysOf(tk.block_days_of_week || tk.blockDaysOfWeek) });
+// The blocks of the shift the session carries, as every session answer
+// names them (Step 124), with Step 315's end, kind and days. A site with
+// one shift has it whatever the session carries.
+function sessionBlocks(cs) {
+  const label = sessionShiftLabel(cs);
+  const list = cs && cs.clockedIn && cs.session && Array.isArray(cs.session.shifts) ? cs.session.shifts : [];
+  const s = list.find(x => x && x.label === label) || (list.length === 1 ? list[0] : null);
+  if (!s || !Array.isArray(s.blocks)) return [];
+  return s.blocks.map(b => (b && typeof b === "object" && b.label ? {
+    shift: String(s.label), shiftDisplay: s.displayLabel || s.label, label: String(b.label), display: b.displayLabel || b.label, time: b.time || b.anchorTime || null, order: b.order === undefined ? null : b.order,
+    end: b.endTime || b.end_time || null, kind: blockKindOf(b.kind), days: blockDaysOf(b.daysOfWeek || b.days_of_week),
+  } : null)).filter(Boolean);
+}
+// Whether a window holds a minute of the day, one that runs past
+// midnight included.
+const windowHolds = (from, to, at) => (from === null || to === null || at === null ? false : from <= to ? at >= from && at < to : at >= from || at < to);
+const windowPast = (from, to, at) => (from === null || to === null || at === null ? false : from <= to ? at >= to : at >= to && at < from);
 // When and by whom work was done, the way a person says it: today,
 // yesterday, the weekday within the last six days, and a short date before
 // that, all on the company's calendar whatever zone the phone is in.
@@ -4702,7 +4860,13 @@ function itemWords(task, live) {
 // shift's own first, and then by zone, and items that carry neither a
 // building nor a floor are listed under the site itself. Every item is
 // drawn somewhere.
-function checklistSections(list, shift, live) {
+// plan is the day's schedule (Step 316): { blocks, held, day, now }, the
+// session's blocks, the blocks any row on the list holds, the day of the
+// week and the minute of the day. With it, a block holding no step on
+// the list is drawn in its place, a block whose days leave out today is
+// left out, and the block or blocks whose window holds the minute come
+// first as Now, then the next to start as Next.
+function checklistSections(list, shift, live, plan) {
   const text = (v) => (v === null || v === undefined ? "" : String(v).trim());
   const inShift = (tk) => !!(text(tk.shift_label) || text(tk.block_label));
   const areaOf = (bld, fl) => [bld, fl ? tr("Floor {n}", { n: fl }) : ""].filter(Boolean).join(" - ");
@@ -4719,18 +4883,43 @@ function checklistSections(list, shift, live) {
   // block changes, so a block that comes round twice, a restroom round
   // morning and noon, is drawn twice, each time in its place.
   const timed = list.map((tk, i) => ({ tk, i })).filter(x => inShift(x.tk));
+  const planned = plan && Array.isArray(plan.blocks) ? plan.blocks : [];
+  planned.forEach((b, j) => {
+    if (timed.some(x => text(x.tk.shift_label) === b.shift && text(x.tk.block_label) === b.label) || (plan.held && plan.held.has(b.shift + "|" + b.label))) return;
+    timed.push({ tk: { shift_label: b.shift, block_label: b.label, anchor_time: b.time, block_sort_order: b.order, display: { shift: b.shiftDisplay, block: b.display }, empty: true }, i: list.length + j });
+  });
   timed.sort((a, b) => (rank(a.tk.block_sort_order) - rank(b.tk.block_sort_order) || 0) || byTime(a.tk.anchor_time, b.tk.anchor_time) || a.i - b.i);
   const shifts = new Map();
   const shown = (tk) => (live && tk.display && typeof tk.display === "object" ? tk.display : {});
   timed.forEach(({ tk }) => {
     const s = text(tk.shift_label), b = text(tk.block_label);
-    if (!shifts.has(s)) { const sec = { head: text(shown(tk).shift) || s || null, groups: [] }; shifts.set(s, sec); sections.push(sec); }
+    if (!shifts.has(s)) { const sec = { head: (tk.empty ? text(tk.display.shift) : text(shown(tk).shift)) || s || null, groups: [] }; shifts.set(s, sec); sections.push(sec); }
     const sec = shifts.get(s);
     let g = sec.groups[sec.groups.length - 1];
-    if (!g || g.key !== b) { g = { key: b, title: b ? text(shown(tk).block) || b : null, time: b && clock(tk.anchor_time) !== null ? text(tk.anchor_time) : null, block: true, rows: [] }; sec.groups.push(g); }
+    if (!g || g.key !== b) {
+      const own = rowBlockOf(tk);
+      const from = planned.find(x => x.shift === s && x.label === b) || {};
+      const shownTitle = tk.empty ? text(tk.display.block) : text(shown(tk).block);
+      g = { key: b, title: b ? shownTitle || b : null, time: b && clock(tk.anchor_time) !== null ? text(tk.anchor_time) : null, block: true, rows: [], end: own.end || from.end || null, kind: own.kind || from.kind || null, days: own.days || from.days || null };
+      sec.groups.push(g);
+    }
+    if (tk.empty) return;
     const place = [areaOf(text(tk.building_name), text(tk.floor_number)), text(itemWords(tk, live).zone)].filter(Boolean).join(" - ");
     const before = g.rows.length ? g.rows[g.rows.length - 1].at : null;
     g.rows.push({ task: tk, at: place, place: place && place !== before ? place : null });
+  });
+
+  // The day's schedule: blocks whose days leave out today go, and Now and
+  // Next come first.
+  if (plan) shifts.forEach((sec) => {
+    sec.groups = sec.groups.filter(g => !(g.days && plan.day && g.days.indexOf(plan.day) === -1));
+    if (plan.now === null || plan.now === undefined) return;
+    sec.groups.forEach((g) => { const from = clock(g.time), to = clock(g.end); g.from = from === null ? null : Math.floor(from / 60); g.to = to === null ? null : Math.floor(to / 60); g.now = g.kind !== "anytime" && windowHolds(g.from, g.to, plan.now); g.past = g.kind !== "anytime" && windowPast(g.from, g.to, plan.now); });
+    const gap = (g) => (g.from === null || g.kind === "anytime" || g.now ? null : (g.from - plan.now + 1440) % 1440);
+    const soon = sec.groups.map(gap).filter(x => x !== null && x > 0 && x < 720);
+    const first = soon.length > 0 ? Math.min.apply(null, soon) : null;
+    sec.groups.forEach((g) => { g.next = first !== null && gap(g) === first; });
+    sec.groups = sec.groups.filter(g => g.now).concat(sec.groups.filter(g => g.next), sec.groups.filter(g => !g.now && !g.next));
   });
 
   const areas = new Map();
@@ -4813,7 +5002,7 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
   );
 }
 
-function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, t }) {
+function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, t }) {
   const [detail, setDetail] = useState(null);
   const loaded = Array.isArray(tasks);
   const standardTasks = standardTasksOf(tasks);
@@ -4825,7 +5014,34 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   // The list, section by section: the card, then each group's title, then
   // its rows, each row after the place it is in whenever that changes.
   // Everything under a card sits in from it.
-  const drawSections = (sections, row) => sections.map((sec, si) => (<div key={si}>{sec.head && (<div style={{ ...floorHeadSt, marginTop: si > 0 ? 10 : 0 }}>{sec.head}</div>)}{sec.groups.map((g, gi) => { const inset = sec.head ? 8 : 0; return (<div key={gi} style={{ marginBottom: 16 }}>{g.title && <div style={{ ...(g.block ? blockSt : zoneSt), paddingLeft: inset }}>{g.time ? <><span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{clockTime(g.time)}</span>{" "}</> : null}<span>{g.title}</span></div>}{g.rows.reduce((out, r) => { if (r.place) out.push(<div key={"at-" + r.task.id} style={{ ...zoneSt, paddingLeft: inset }}>{r.place}</div>); out.push(row(r.task, inset)); return out; }, [])}</div>); })}</div>));
+  // A block's heading (Step 316): Now or Next first, then its window,
+  // from its time to its end, and its name; its kind as words in a tag,
+  // and Overdue on a critical block past its end with steps left. A
+  // residents' meal says the space is in use. A block from before Step
+  // 315 reads its time and its name, as it always did.
+  const nowChipSt = { ...trainingChipSt(t, GOLD), background: GOLD, border: "1px solid " + GOLD, color: NAVY };
+  const kindColor = (k) => (k === "critical" ? RED : k === "meal" ? ORANGE : k === "full_access" ? GREEN : k === "anytime" ? BLUE : null);
+  const kindChipSt = (k) => (kindColor(k) ? trainingChipSt(t, kindColor(k)) : { ...trainingChipSt(t, GOLD), background: t.cardAlt, border: "1px solid " + t.borderSolid, color: t.textSec });
+  const blockHead = (g, inset) => {
+    const span = g.kind === "anytime" || !g.time ? null : g.end ? tr("{start} to {end}", { start: clockTimeKept(g.time), end: clockTimeKept(g.end) }) : clockTime(g.time);
+    const kindWord = g.kind && BLOCK_KIND_WORDS[g.kind] ? tr(BLOCK_KIND_WORDS[g.kind]) : null;
+    return (
+      <div data-block={g.key} data-block-kind={g.kind || "work"} data-block-when={g.now ? "now" : g.next ? "next" : g.overdue ? "overdue" : ""} style={{ ...blockSt, paddingLeft: inset, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "4px 8px" }}>
+        {g.now && <span data-block-now="1" style={nowChipSt}>{tr("Now")}</span>}
+        {g.next && <span data-block-next="1" style={trainingChipSt(t, BLUE)}>{tr("Next")}</span>}
+        {span && <span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{span}</span>}
+        <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{g.title}</span>
+        {kindWord && <span data-block-tag={g.kind} style={kindChipSt(g.kind)}>{kindWord}</span>}
+        {g.overdue && <span data-block-overdue="1" style={trainingChipSt(t, RED)}>{tr("Overdue")}</span>}
+      </div>
+    );
+  };
+  const groupHead = (g, inset) => {
+    if (!g.title) return null;
+    if (g.block && (g.end || g.kind || g.now || g.next)) return blockHead(g, inset);
+    return <div style={{ ...(g.block ? blockSt : zoneSt), paddingLeft: inset }}>{g.time ? <><span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{clockTime(g.time)}</span>{" "}</> : null}<span>{g.title}</span></div>;
+  };
+  const drawSections = (sections, row) => sections.map((sec, si) => (<div key={si}>{sec.head && (<div style={{ ...floorHeadSt, marginTop: si > 0 ? 10 : 0 }}>{sec.head}</div>)}{sec.groups.map((g, gi) => { const inset = sec.head ? 8 : 0; return (<div key={gi} style={{ marginBottom: 16 }}>{groupHead(g, inset)}{g.kind === "meal" && g.rows.length === 0 && <div data-block-meal="1" style={{ fontSize: 12, color: t.textSec, lineHeight: 1.4, marginTop: -2, paddingLeft: inset }}>{tr("The space is in use. No steps in this time.")}</div>}{g.rows.reduce((out, r) => { if (r.place) out.push(<div key={"at-" + r.task.id} style={{ ...zoneSt, paddingLeft: inset }}>{r.place}</div>); out.push(row(r.task, inset)); return out; }, [])}</div>); })}</div>));
   const rowBase = { display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 11, padding: "11px 13px", marginBottom: 6, borderRadius: R.md, boxShadow: t.shadow };
   const chipPriority = { fontSize: 9, color: ink(t, ORANGE), background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600, letterSpacing: "0.5px" };
   const chipOften = { fontSize: 10, color: t.textSec, background: t.cardAlt, border: "1px solid " + t.borderSolid, padding: "2px 6px", borderRadius: R.sm, fontWeight: 600, fontFamily: FONT_HEAD };
@@ -4964,10 +5180,16 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
   // each period with work, titled with its own count, and as needed work
   // last, with none.
   const today = rows.filter(tk => sectionOf(tk) === "today");
+  // The day's schedule for the shift in use (Step 316), once the session's
+  // blocks or the rows carry a window, a kind or days.
+  const blocks = sessionBlocks(clockStatus);
+  const timedPlan = blocks.some(b => b.end || b.kind || b.days) || rows.some(tk => { const m = rowBlockOf(tk); return !!(m.end || m.kind || m.days); });
+  const at = typeof nowMs === "number" ? nowMs : Date.now();
+  const plan = timedPlan ? { blocks: blocks, held: new Set(rows.map(tk => String(tk.shift_label || "").trim() + "|" + String(tk.block_label || "").trim())), day: scheduleDayOf(listDay, at), now: companyMinutes(at) } : null;
   const counts = todayCount(tasks, completedTaskIds);
   const pct = counts.total > 0 ? Math.round((counts.done / counts.total) * 100) : 0;
   const listSections = [];
-  if (today.length > 0) listSections.push({ id: "today", title: tr("Today"), rows: today, count: null });
+  if (today.length > 0 || (plan && blocks.length > 0)) listSections.push({ id: "today", title: tr("Today"), rows: today, count: null, plan: plan });
   PERIOD_SECTIONS.forEach((p) => {
     const list = rows.filter(tk => tk.period === p.id);
     if (list.length > 0) listSections.push({ id: p.id, title: p.title(), rows: list, count: tr("{done} of {total} done", { done: list.filter(isDone).length, total: list.length }) });
@@ -4995,7 +5217,7 @@ function TasksView({ clockStatus, tasks, tasksFailed, onRetryTasks, completedTas
       {listSections.map((sec, si) => (
         <div key={sec.id} style={{ marginTop: si > 0 ? 22 : 0 }}>
           <div style={periodHeadSt}><div role="heading" aria-level={2} style={periodTitleSt}>{sec.title}</div>{sec.count && <div style={periodCountSt}>{sec.count}</div>}</div>
-          {drawSections(checklistSections(sec.rows, clockStatus.shift, apiWords), (task, inset) => {
+          {drawSections((() => { const list = checklistSections(sec.rows, clockStatus.shift, apiWords, sec.plan || null); if (sec.plan) list.forEach(x => x.groups.forEach(g => { g.overdue = g.kind === "critical" && !!g.past && g.rows.some(r => !isDone(r.task)); })); return list; })(), (task, inset) => {
             const w = itemWords(task, apiWords);
             const done = isDone(task);
             const lock = lockOf(task, done);
@@ -5825,6 +6047,16 @@ const agentPictures = (list) => {
   return out;
 };
 
+// The document an answer says to open (Step 307, API Step 305's
+// openDocument): { docCode, title }, drawn as Open {docCode} under the
+// answer, which opens it in the Library. null on an answer with none.
+const agentOpenDocument = (v) => {
+  if (!v || typeof v !== "object") return null;
+  const docCode = typeof v.docCode === "string" ? v.docCode.trim() : "";
+  if (!docCode) return null;
+  return { docCode: docCode, title: typeof v.title === "string" && v.title.trim() ? v.title.trim() : docCode };
+};
+
 // One message of a conversation the API keeps, read the same way for
 // resuming a report and for an answer whose connection dropped.
 // A row that carries feedback (null, or the rating) is one the API
@@ -5840,6 +6072,7 @@ const agentStored = (m) => {
     citedDocs: agentList(agentField(m, ["citedDocs", "cited_doc_codes", "citedDocCodes"], []), []),
     citedNames: agentList(agentField(m, ["citedNames", "cited_names"], []), []),
     pictures: agentPictures(agentField(m, ["pictures"], [])),
+    openDocument: agentOpenDocument(agentField(m, ["openDocument", "open_document"], null)),
     degraded: agentField(m, ["degraded"], false) === true,
     noProcedure: agentField(m, ["noProcedure", "no_procedure"], false) === true,
     messageId: rated ? agentMessageId({ messageId: agentField(m, ["id", "messageId", "message_id"], null) }) : null,
@@ -5961,7 +6194,7 @@ function AnswerPictures({ pictures, language, t }) {
   );
 }
 
-function AgentView({ token, showToast, t, language, onFillForm, onTicket, conversationId, onConversation }) {
+function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpenDocument, conversationId, onConversation }) {
   // The same shape the Forms screen uses, so a Spanish screen never
   // lists English form names.
   const locale = languageToSend(language);
@@ -6173,7 +6406,7 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, conver
       // The composer clears only now, and only if it still holds what was sent.
       setText(prev => prev.trim() === msgText ? "" : prev);
       setPhotos(prev => (prev.length > 0 && paths && paths.length > 0) ? [] : prev);
-      const answer = { id: answerId, role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], citedNames: Array.isArray(data.citedNames) ? data.citedNames : [], pictures: agentPictures(data.pictures), degraded: data.degraded === true, noProcedure: data.noProcedure === true, messageId: agentMessageId(data), feedback: null };
+      const answer = { id: answerId, role: "assistant", text: String(data.reply || ""), citedDocs: Array.isArray(data.citedDocs) ? data.citedDocs : [], citedNames: Array.isArray(data.citedNames) ? data.citedNames : [], pictures: agentPictures(data.pictures), openDocument: agentOpenDocument(data.openDocument), degraded: data.degraded === true, noProcedure: data.noProcedure === true, messageId: agentMessageId(data), feedback: null };
       place(answer);
       if (data.formResponse) { setFormResponse(data.formResponse); setMissing([]); setSubmitted(false); }
       const drafted = supportDraftOf(data.ticketDraft);
@@ -6324,6 +6557,7 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, conver
             {isMe ? m.text : (m.arriving || m.dropped) ? agentArriving(m.text) : <AgentReply text={m.text} />}
           </div>}
           {!isMe && !m.arriving && !m.dropped && m.pictures && m.pictures.length > 0 && <AnswerPictures pictures={m.pictures} language={locale} t={t} />}
+          {!isMe && !m.arriving && !m.dropped && m.openDocument && onOpenDocument && <div style={{ display: "flex", marginTop: 6 }}><button type="button" data-help-open-doc={m.openDocument.docCode} onClick={() => onOpenDocument(m.openDocument)} style={{ ...trainingGoldBtn, display: "inline-flex", gap: 8 }}><LibIco sz={16} c={NAVY} style={{ flexShrink: 0 }} /><span style={{ overflowWrap: "anywhere" }}>{tr("Open {docCode}", { docCode: m.openDocument.docCode })}</span></button></div>}
           {!isMe && agentSourcesLine(m.citedDocs, m.citedNames) && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>{tr("Based on")} {agentSourcesLine(m.citedDocs, m.citedNames)}</div>}
           {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>{tr("Working from the written procedure only right now.")}</div>}
           {!isMe && m.messageId && !m.arriving && !m.dropped && !rateOff && <RateAnswer messageId={m.messageId} feedback={m.feedback || null} onRated={(f) => setThread(prev => prev.map(x => x.id === m.id ? { ...x, feedback: f } : x))} onUnavailable={() => setRateOff(true)} token={token} t={t} />}
@@ -7427,6 +7661,430 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
 // check a second person makes (QMS-014 8 step 4) until it is closed.
 // ------------------------------------------------------------
 const FINDING_OPEN_STATES = ["open", "in_progress", "escalated"];
+// ------------------------------------------------------------
+// Supply orders on the phone (Step 311, the Step 308 contract's sections
+// 0, 1.7 and 4.1, 4.2 and 4.4), built for 320 to 390 wide first. For
+// holders of approve_supplies alone, by the API's canDecide on the list
+// GET /api/supplies/requests answers them: Home's card, Approve supplies
+// under More, and a request with its item decisions. Until the API
+// answers canDecide nothing here shows, and anyone else sees what they
+// saw before. The list is read once the portal is up, each time Home or
+// Approve supplies opens, and after every action on a request.
+// ------------------------------------------------------------
+const supplyVendorOf = (x) => {
+  if (!x || typeof x !== "object") return null;
+  const id = agentField(x, ["id"], null);
+  if (id === null) return null;
+  const str = (keys) => fkText(x, keys);
+  const place = [str(["city"]), [str(["state"]), str(["zip_code", "zipCode", "zip"])].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  return {
+    id: String(id), rawId: id, name: str(["name"]), contactName: str(["contactName", "contact_name"]), contactPhone: str(["contactPhone", "contact_phone"]), contactEmail: str(["contactEmail", "contact_email"]),
+    address: str(["address"]) || [str(["address_line1", "addressLine1"]), place].filter(Boolean).join(", "),
+    approval: str(["approvalStatus", "approval_status"]), active: x.is_active !== false && x.isActive !== false,
+  };
+};
+// A request as API Step 308 answers it (contract 1.6), over the row
+// Step 281 reads.
+function supplyOrderOf(x) {
+  const base = supplyRequestOf(x);
+  if (!base) return null;
+  const str = (keys) => fkText(x, keys);
+  return Object.assign(base, {
+    canDecide: x.canDecide === true, siteName: str(["site_name", "siteName"]), requestedByName: str(["requested_by_name", "requestedByName"]), urgency: str(["urgency"]),
+    approvedBy: x.approvedBy && typeof x.approvedBy === "object" ? fkText(x.approvedBy, ["name"]) : "", approvedAt: x.approvedAt || x.approved_at || null,
+    vendor: supplyVendorOf(x.vendor), deliverTo: str(["deliverTo", "deliver_to"]), siteAddress: str(["siteAddress", "site_address"]),
+    poNumber: str(["poNumber", "po_number"]), poPdfUrl: str(["poPdfUrl", "po_pdf_url"]), orderedAt: x.orderedAt || x.ordered_at || null, orderedToEmail: str(["orderedToEmail", "ordered_to_email"]),
+    signed: x.signed === true || !!str(["poNumber", "po_number"]),
+  });
+}
+// Every row, or null when no row carries canDecide, which is an API from
+// before Step 308; undefined when nothing came back.
+function supplyOrdersOf(d) {
+  const rows = wsRows(d, "requests");
+  if (!rows) return null;
+  if (!rows.some(r => r && typeof r === "object" && Object.prototype.hasOwnProperty.call(r, "canDecide"))) return null;
+  return rows.map(supplyOrderOf).filter(Boolean);
+}
+async function readSupplyOrders(token) {
+  try { return supplyOrdersOf(await api("/api/supplies/requests", { token })); } catch (e) { return undefined; }
+}
+// Where a request stands: decide (a line still undecided), sign (every
+// line decided and one approved, not signed), send (signed, not sent),
+// ordered, or done (every line denied, or fulfilled with no order).
+const supplyStage = (r) => (r.orderedAt ? "ordered" : r.signed ? "send" : r.status === "fulfilled" ? "done" : r.items.some(l => !l.decision) ? "decide" : r.items.some(l => l.decision === "approved") ? "sign" : "done");
+// What waits for this holder: what they may decide or sign.
+const supplyOrdersWaiting = (rows) => (Array.isArray(rows) ? rows.filter(r => r.canDecide && (supplyStage(r) === "decide" || supplyStage(r) === "sign")) : []);
+// The portal's address for a request, /supplies/<id>, which the API's
+// notice about a new one links to (Step 308's contract, 1.7).
+const SUPPLY_ORDER_PATH = "/supplies/";
+
+function SupplyOrdersCard({ rows, onOpen, t }) {
+  const n = supplyOrdersWaiting(rows).length;
+  if (n === 0) return null;
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      <button type="button" data-supply-orders-card={n} onClick={onOpen} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, minHeight: TAP, padding: "14px 12px", borderRadius: R.md, background: t.card, border: "1px solid " + t.goldBorder, boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
+        <CartIco sz={20} c={t.goldText} style={{ flexShrink: 0 }} />
+        <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{tr("Supply requests to approve ({n})", { n: n })}</span>
+        <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0 }} />
+      </button>
+    </div>
+  );
+}
+// The urgency in the screen's words: the pick list's, else the four the
+// request form falls back on. A code with neither is not drawn.
+const SUPPLY_URGENCY_WORDS = { low: "Low", normal: "Normal", high: "High", urgent: "Urgent" };
+const supplyUrgencyWord = (getOpts, v) => { const o = (getOpts ? getOpts("urgency_levels") : []).find(x => x.v === v); return o ? o.l : SUPPLY_URGENCY_WORDS[v] ? tr(SUPPLY_URGENCY_WORDS[v]) : ""; };
+const supplyLineText = (l) => [l.name, l.quantity !== null ? String(l.quantity) + (l.unit ? " " + l.unit : "") : ""].filter(Boolean).join(", ");
+const SUPPLY_ORDER_GROUPS = [
+  { id: "waiting", word: "Waiting for a decision", stages: ["decide", "sign"] },
+  { id: "send", word: "Signed, not sent yet", stages: ["send"] },
+  { id: "ordered", word: "Ordered", stages: ["ordered"] },
+];
+
+function SupplyOrdersView({ token, user, holder, rows, onReload, onRow, at, onAt, getOpts, showToast, t }) {
+  // Read again each time the screen opens.
+  useEffect(() => { onReload(); }, []);
+  const list = Array.isArray(rows) ? rows : null;
+  const smallSt = { fontSize: 12, color: t.textSec, marginTop: 3, lineHeight: 1.4, overflowWrap: "anywhere" };
+  if (at && at.id) {
+    const open = list ? list.find(r => r.id === at.id) || null : null;
+    if (open) return <SupplyOrder key={open.id} token={token} user={user} holder={holder} row={open} onBack={() => onAt(null)} onRow={onRow} onReload={onReload} getOpts={getOpts} showToast={showToast} t={t} />;
+    return (
+      <div data-supply-order="none" style={{ padding: "14px 16px 100px" }}>
+        <WsBack label={tr("Approve supplies")} onBack={() => onAt(null)} t={t} />
+        <div style={{ ...wsQuiet(t), marginTop: 8 }}>{list ? tr("This request did not load.") : tr("Loading...")}</div>
+      </div>
+    );
+  }
+  const rowOf = (r) => {
+    const stage = supplyStage(r);
+    const urgency = supplyUrgencyWord(getOpts, r.urgency);
+    const loud = r.urgency === "urgent" || r.urgency === "high";
+    return (
+      <button key={r.id} type="button" data-supply-order={r.id} data-supply-order-stage={stage} onClick={() => onAt({ id: r.id })} style={{ ...fkRowSt(t), display: "block", width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", color: t.text, fontFamily: FONT_BODY }}>
+        <div style={{ display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+          <div style={{ flex: "1 1 160px", minWidth: 0, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{r.siteName || r.requestedByName}</div>
+          {urgency && <span style={trainingChipSt(t, loud ? RED : BLUE)}>{urgency}</span>}
+        </div>
+        <div style={smallSt}>{tr("Asked by {name}, {when}", { name: r.requestedByName, when: requestWhen(r.createdAt) })}</div>
+        <div style={{ ...smallSt, color: t.text }}>{r.items.map(supplyLineText).join("; ")}</div>
+        {stage === "sign" && <div style={{ ...smallSt, color: ink(t, GREEN), fontWeight: 600 }}>{tr("Ready to sign")}</div>}
+        {stage === "send" && r.poNumber && <div style={{ ...smallSt, fontWeight: 600 }}>{r.poNumber}</div>}
+        {stage === "ordered" && <div style={{ ...smallSt, color: ink(t, GREEN), fontWeight: 600 }}>{[r.poNumber, tr("Ordered {date}, sent to {email}", { date: signedDay(r.orderedAt), email: r.orderedToEmail })].filter(Boolean).join(". ")}</div>}
+      </button>
+    );
+  };
+  const shown = list || [];
+  return (
+    <div data-supply-orders={shown.length} style={{ padding: "14px 16px 100px" }}>
+      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("Approve supplies")}</div>
+      {!list && <div style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("Loading...")}</div>}
+      {list && SUPPLY_ORDER_GROUPS.every(g => !shown.some(r => g.stages.indexOf(supplyStage(r)) !== -1)) && <div data-supply-orders-none="1" style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("No supply requests are waiting for you.")}</div>}
+      {SUPPLY_ORDER_GROUPS.map(g => {
+        const inGroup = shown.filter(r => g.stages.indexOf(supplyStage(r)) !== -1);
+        if (inGroup.length === 0) return null;
+        return (
+          <div key={g.id} data-supply-orders-group={g.id}>
+            <div role="heading" aria-level={3} style={fkHeadSt(t)}>{tr(g.word)}</div>
+            {inGroup.map(rowOf)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Sign and order (Step 311, the Step 308 contract's section 4.3), under
+// a request once every line is decided and one is approved: Vendor, a
+// dropdown of the approved vendors the vendor route answers, with the
+// chosen one's contact, phone, email and address under it, read only;
+// Deliver to, the site's address as the request answers it, editable;
+// the signature drawn with a finger, the way an inspection is signed;
+// and Sign. Once signed: the purchase order's number, who signed and
+// when, Open the purchase order behind the token, and Send to the
+// vendor's email, or to one typed where the vendor has none; once sent,
+// Ordered {date}, sent to {email}, with Send again.
+const SUPPLY_DELIVER_MAX = 500;
+function SupplyVendorFacts({ vendor, t }) {
+  if (!vendor) return null;
+  const facts = [[tr("Contact"), vendor.contactName], [tr("Phone"), vendor.contactPhone], [tr("Email"), vendor.contactEmail], [tr("Address"), vendor.address]].filter(x => x[1]);
+  if (facts.length === 0) return null;
+  return (
+    <div data-supply-vendor-facts={vendor.id} style={{ marginTop: 8, border: "1px solid " + t.borderSolid, borderRadius: R.sm, overflow: "hidden" }}>
+      {facts.map(([k, v], i) => (
+        <div key={k} style={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", padding: "8px 12px", background: i % 2 === 0 ? t.cardAlt : t.card }}>
+          <div style={{ flex: "1 1 90px", fontSize: 12, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{k}</div>
+          <div style={{ flex: "2 1 160px", minWidth: 0, fontSize: 13, color: t.text, overflowWrap: "anywhere" }}>{v}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+function SupplySignOrder({ token, row, holder, onRow, showToast, t }) {
+  const stage = supplyStage(row);
+  const signing = stage === "sign" && row.canDecide;
+  const [vendors, setVendors] = useState(null);
+  const [vendorsAsked, setVendorsAsked] = useState(0);
+  const [vendorId, setVendorId] = useState("");
+  const [deliverTo, setDeliverTo] = useState(row.deliverTo || row.siteAddress || "");
+  const [strokes, setStrokes] = useState([]);
+  const [png, setPng] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const [faults, setFaults] = useState({});
+  const [sendTo, setSendTo] = useState("");
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  useBusy("supply order signature", strokes.length > 0 && stage === "sign");
+  // The approved vendors, read once Sign and order shows: the route's own
+  // filter, then each row's status, so a vendor that is not approved is
+  // never offered.
+  useEffect(() => {
+    if (!signing) return undefined;
+    let on = true;
+    api("/api/vendors?approval_status=approved", { token })
+      .then(d => { if (on) setVendors((wsRows(d, "vendors") || []).map(supplyVendorOf).filter(v => v && v.active && (!v.approval || v.approval === "approved"))); })
+      .catch(err => { if (on) setVendors({ fault: fkFaultWords(err, "The vendor list did not load.") }); });
+    return () => { on = false; };
+  }, [signing, vendorsAsked]);
+  const listed = Array.isArray(vendors) ? vendors : [];
+  const chosen = listed.find(v => v.id === vendorId) || null;
+  const said = (err) => fkFaultWords(err, ERR_GENERIC);
+  // A refusal's keys put the API's words under the box each names.
+  const placeFault = (err, keysOf) => {
+    const keys = err && err.body && Array.isArray(err.body.keys) ? err.body.keys.map(String) : [];
+    const next = {};
+    keys.forEach(k => { if (keysOf.indexOf(k) !== -1) next[k] = said(err); });
+    if (Object.keys(next).length === 0) next.top = said(err);
+    setFaults(next);
+  };
+  const sign = async () => {
+    if (busy) return;
+    const missing = {};
+    if (!chosen) missing.vendorId = tr("Choose a vendor first.");
+    if (!png) missing.signature = tr("Sign before you send.");
+    if (Object.keys(missing).length > 0) { setFaults(missing); return; }
+    setBusy("sign"); setFaults({});
+    try {
+      const d = await api("/api/supplies/requests/" + encodeURIComponent(row.id) + "/sign", { method: "POST", body: { signature: png, vendorId: chosen.rawId, deliverTo: deliverTo.trim() }, token });
+      const next = supplyOrderOf(d && d.request ? d.request : d);
+      if (live.current && next) { setStrokes([]); setPng(null); onRow(next); }
+    } catch (err) { if (live.current) placeFault(err, ["vendorId", "deliverTo", "signature"]); }
+    if (live.current) setBusy(null);
+  };
+  const openPdf = async () => {
+    if (busy) return;
+    setBusy("pdf"); setFaults({});
+    try { await openApiPdf(row.poPdfUrl || "/api/supplies/requests/" + encodeURIComponent(row.id) + "/po.pdf", (row.poNumber || "purchase-order") + ".pdf", token); }
+    catch (err) { if (live.current) setFaults({ pdf: fkFaultWords(err, "The purchase order did not open. Try again.") }); }
+    if (live.current) setBusy(null);
+  };
+  const send = async (to) => {
+    if (busy) return;
+    if (to !== null && !SUPPORT_EMAIL_RE.test(to)) { setFaults({ to: tr("Enter a valid email address.") }); return; }
+    setBusy("send"); setFaults({});
+    try {
+      const d = await api("/api/supplies/requests/" + encodeURIComponent(row.id) + "/send", { method: "POST", body: to ? { to: to } : {}, token });
+      const next = supplyOrderOf(d && d.request ? d.request : d);
+      if (live.current && next) { onRow(next); if (showToast) showToast(tr("Sent to {email}", { email: next.orderedToEmail || to || "" })); }
+    } catch (err) { if (live.current) placeFault(err, ["to"]); }
+    if (live.current) setBusy(null);
+  };
+  const labelSt = { ...mkLabel(t), marginTop: 14 };
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const under = (k) => (faults[k] ? <div role="alert" style={mkFieldErr(t)}>{faults[k]}</div> : null);
+  if (stage === "sign") {
+    if (!row.canDecide) return null;
+    return (
+      <div data-supply-sign={row.id} style={{ marginTop: 18, padding: "14px 14px 16px", borderRadius: R.md, background: t.card, border: "1px solid " + t.goldBorder, boxShadow: t.shadow }}>
+        <div role="heading" aria-level={3} style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Sign and order")}</div>
+        <label htmlFor="ocsa-supply-vendor" style={labelSt}>{tr("Vendor")}</label>
+        {vendors === null && <div style={lineSt}>{tr("Loading...")}</div>}
+        {vendors && vendors.fault && <div><WsFault text={vendors.fault} t={t} /><div style={{ display: "flex", marginTop: 8 }}><button type="button" onClick={() => setVendorsAsked(n => n + 1)} style={wsPlainBtn(t)}>{tr("Try again")}</button></div></div>}
+        {Array.isArray(vendors) && vendors.length === 0 && <div data-supply-vendor-none="1" style={{ ...lineSt, color: t.text, fontWeight: 600 }}>{tr("Ask the office to add the vendor and set it to approved.")}</div>}
+        {listed.length > 0 && (
+          <select id="ocsa-supply-vendor" data-supply-vendor="1" value={vendorId} onChange={e => { setVendorId(e.target.value); setFaults(f => (f.vendorId ? Object.assign({}, f, { vendorId: null }) : f)); }} aria-invalid={!!faults.vendorId} style={{ ...mkInput(t), ...(faults.vendorId ? { border: "2px solid " + RED } : {}) }}>
+            <option value="">{tr("Choose a vendor")}</option>
+            {listed.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+        )}
+        {under("vendorId")}
+        <SupplyVendorFacts vendor={chosen} t={t} />
+        <label htmlFor="ocsa-supply-deliver" style={labelSt}>{tr("Deliver to")}</label>
+        <textarea id="ocsa-supply-deliver" data-supply-deliver="1" value={deliverTo} maxLength={SUPPLY_DELIVER_MAX} rows={2} onChange={e => setDeliverTo(e.target.value)} aria-invalid={!!faults.deliverTo} style={{ ...mkInput(t), resize: "vertical", ...(faults.deliverTo ? { border: "2px solid " + RED } : {}) }} />
+        <div style={mkHelp(t)}>{tr("Left blank, the site's address is used.")}</div>
+        {under("deliverTo")}
+        <div data-supply-signature="1">
+          <div style={labelSt}>{tr("Your signature")}</div>
+          <div style={{ borderRadius: R.md, border: faults.signature ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+            <SignatureBox strokes={strokes} onStroke={(stroke, size) => { const all = strokes.concat([stroke]); setStrokes(all); setPng(signaturePng(all, size.w, size.h)); setFaults(f => (f.signature ? Object.assign({}, f, { signature: null }) : f)); }} height={SIGN_BOX_HEIGHT} />
+          </div>
+          <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+          <button type="button" onClick={() => { setStrokes([]); setPng(null); }} disabled={strokes.length === 0 || !!busy} style={{ ...wsPlainBtn(t), width: "100%", marginTop: 8, opacity: strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+          {under("signature")}
+        </div>
+        {under("top")}
+        <div style={{ display: "flex", marginTop: 14 }}><button type="button" data-supply-sign-go="1" disabled={!!busy || listed.length === 0} onClick={sign} style={wsMainBtn(t, !!busy || listed.length === 0)}>{busy === "sign" ? tr("Sending...") : tr("Sign")}</button></div>
+      </div>
+    );
+  }
+  if (stage !== "send" && stage !== "ordered") return null;
+  const email = row.vendor && row.vendor.contactEmail ? row.vendor.contactEmail : "";
+  const sender = !!holder;
+  return (
+    <div data-supply-po={row.poNumber || row.id} style={{ marginTop: 18, padding: "14px 14px 16px", borderRadius: R.md, background: t.card, border: "1px solid " + t.goldBorder, boxShadow: t.shadow }}>
+      <div style={{ ...mkLabel(t), marginBottom: 2 }}>{tr("Purchase order")}</div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{row.poNumber}</div>
+      {row.approvedBy && <div style={lineSt}>{tr("Signed by {name}, {date}", { name: row.approvedBy, date: signedDay(row.approvedAt) })}</div>}
+      {row.vendor && <div style={{ ...labelSt, marginBottom: 0 }}>{tr("Vendor")}</div>}
+      {row.vendor && <div style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginTop: 2, overflowWrap: "anywhere" }}>{row.vendor.name}</div>}
+      <SupplyVendorFacts vendor={row.vendor} t={t} />
+      {row.deliverTo && <div style={{ ...labelSt, marginBottom: 0 }}>{tr("Deliver to")}</div>}
+      {row.deliverTo && <div style={{ fontSize: 13, color: t.text, marginTop: 2, lineHeight: 1.45, whiteSpace: "pre-line", overflowWrap: "anywhere" }}>{row.deliverTo}</div>}
+      {row.orderedAt && <div data-supply-ordered="1" role="status" style={{ fontSize: 14, fontWeight: 600, color: ink(t, GREEN), marginTop: 12, lineHeight: 1.4, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{tr("Ordered {date}, sent to {email}", { date: signedDay(row.orderedAt), email: row.orderedToEmail })}</div>}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
+        <button type="button" data-supply-po-open="1" disabled={!!busy} onClick={openPdf} style={{ ...wsPlainBtn(t), opacity: busy === "pdf" ? 0.7 : 1 }}>{busy === "pdf" ? tr("Loading...") : tr("Open the purchase order")}</button>
+        {sender && stage === "send" && email && <button type="button" data-supply-send="1" disabled={!!busy} onClick={() => send(null)} style={wsMainBtn(t, !!busy)}>{busy === "send" ? tr("Sending...") : tr("Send to {email}", { email: email })}</button>}
+        {sender && stage === "ordered" && <button type="button" data-supply-send-again="1" disabled={!!busy} onClick={() => send(row.orderedToEmail || null)} style={wsPlainBtn(t)}>{busy === "send" ? tr("Sending...") : tr("Send again")}</button>}
+      </div>
+      {sender && stage === "send" && !email && (
+        <div style={{ marginTop: 12 }}>
+          <label htmlFor="ocsa-supply-send-to" style={mkLabel(t)}>{tr("Email to send it to")}</label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <input id="ocsa-supply-send-to" type="email" inputMode="email" autoComplete="off" data-supply-send-to="1" value={sendTo} onChange={e => { setSendTo(e.target.value); setFaults(f => (f.to ? Object.assign({}, f, { to: null }) : f)); }} style={{ ...mkInput(t), flex: "1 1 180px", minWidth: 0 }} />
+            <button type="button" data-supply-send="1" disabled={!!busy} onClick={() => send(sendTo.trim())} style={{ ...wsMainBtn(t, !!busy), flex: "none" }}>{busy === "send" ? tr("Sending...") : tr("Send")}</button>
+          </div>
+        </div>
+      )}
+      {under("to")}
+      {under("pdf")}
+      {under("top")}
+    </div>
+  );
+}
+
+// One line of a request: its name, quantity and note, then its decision,
+// or, for a holder until the request is ordered, Quantity to approve with
+// one less and one more, a note, Approve and Deny. A decided line offers
+// Change, which opens the controls again.
+function SupplyOrderLine({ line, at, can, busy, draft, onDraft, onDecide, fault, t }) {
+  const [editing, setEditing] = useState(false);
+  const open = can && (!line.decision || editing);
+  const max = line.quantity !== null && line.quantity > 0 ? line.quantity : 1;
+  const qty = draft && draft.qty !== undefined ? draft.qty : max;
+  const note = draft && draft.note !== undefined ? draft.note : "";
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 3, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const decided = line.decision === "approved"
+    ? <div data-supply-line-decision="approved" style={{ fontSize: 13, fontWeight: 600, color: ink(t, GREEN), marginTop: 6, fontFamily: FONT_HEAD }}>{tr("Approved {n} of {m}", { n: line.approvedQuantity !== null ? line.approvedQuantity : line.quantity, m: line.quantity })}</div>
+    : line.decision === "denied" ? <div data-supply-line-decision="denied" style={{ fontSize: 13, fontWeight: 600, color: ink(t, RED), marginTop: 6, fontFamily: FONT_HEAD }}>{tr("Denied")}</div> : null;
+  return (
+    <div data-supply-line={line.id} style={{ ...fkRowSt(t), marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: "2px 10px" }}>
+        <div style={{ flex: "1 1 140px", minWidth: 0, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{line.name}</div>
+        {line.quantity !== null && <div style={{ fontSize: 12, color: t.textSec, fontVariantNumeric: "tabular-nums" }}>{tr("Quantity: {n}", { n: line.quantity }) + (line.unit ? " " + line.unit : "")}</div>}
+      </div>
+      {line.note && <div style={lineSt}>{line.note}</div>}
+      {!open && decided}
+      {!open && line.decision && line.decisionNote && <div style={lineSt}>{tr("Note: {note}", { note: line.decisionNote })}</div>}
+      {!open && can && line.decision && <button type="button" data-supply-line-change={line.id} disabled={busy} onClick={() => { setEditing(true); onDraft({ qty: line.approvedQuantity !== null ? line.approvedQuantity : max, note: line.decisionNote || "" }); }} style={{ ...wsPlainBtn(t), width: "100%", marginTop: 10 }}>{tr("Change")}</button>}
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          <div id={"ocsa-supply-qty-" + at} style={mkLabel(t)}>{tr("Quantity to approve")}</div>
+          <div role="group" aria-labelledby={"ocsa-supply-qty-" + at} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button type="button" data-supply-line-less={line.id} onClick={() => onDraft({ qty: Math.max(1, qty - 1), note: note })} disabled={busy || qty <= 1} aria-label={tr("One less")} style={{ ...mkTapFrame(), opacity: qty <= 1 ? 0.5 : 1 }}><span style={mkQtyBtn(t)}><MinusIco sz={14} /></span></button>
+            <div data-supply-line-qty={qty} aria-live="polite" style={{ minWidth: 44, textAlign: "center", fontSize: 22, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div>
+            <button type="button" data-supply-line-more={line.id} onClick={() => onDraft({ qty: Math.min(max, qty + 1), note: note })} disabled={busy || qty >= max} aria-label={tr("One more")} style={{ ...mkTapFrame(), opacity: qty >= max ? 0.5 : 1 }}><span style={mkQtyBtn(t)}><PlusIco sz={14} /></span></button>
+          </div>
+          <input type="text" data-supply-line-note={line.id} value={note} maxLength={500} onChange={e => onDraft({ qty: qty, note: e.target.value })} placeholder={tr("Note (optional)")} aria-label={tr("Note (optional)")} style={{ ...mkInput(t), marginTop: 10 }} />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+            <button type="button" data-supply-line-deny={line.id} disabled={busy} onClick={() => onDecide("denied").then(ok => { if (ok) setEditing(false); })} style={wsPlainBtn(t)}>{tr("Deny")}</button>
+            <button type="button" data-supply-line-approve={line.id} disabled={busy} onClick={() => onDecide("approved").then(ok => { if (ok) setEditing(false); })} style={wsMainBtn(t, busy)}>{tr("Approve")}</button>
+          </div>
+        </div>
+      )}
+      {fault && <WsFault text={fault} t={t} />}
+    </div>
+  );
+}
+
+// A request open: who asked and when, its urgency and details, each line
+// with its decision, Approve all and Deny all over the lines still
+// undecided, and, below, Sign and order once every line is decided.
+function SupplyOrder({ token, user, holder, row, onBack, onRow, onReload, getOpts, showToast, t }) {
+  const stage = supplyStage(row);
+  const can = row.canDecide && stage !== "ordered";
+  const [drafts, setDrafts] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [fault, setFault] = useState(null);
+  const [lineFaults, setLineFaults] = useState({});
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, []);
+  useBusy("supply order", busy);
+  const draftOf = (l) => drafts[l.id] || {};
+  const bodyOf = (l, decision) => {
+    const d = draftOf(l);
+    const out = { id: l.id, decision: decision };
+    const max = l.quantity !== null && l.quantity > 0 ? l.quantity : 1;
+    if (decision === "approved") out.approvedQuantity = d.qty !== undefined ? d.qty : max;
+    const note = String(d.note || "").trim();
+    if (note) out.note = note;
+    return out;
+  };
+  // One decide call for the lines given; a refusal's keys put the API's
+  // words under the line each names, and anything else at the top.
+  const decide = async (lines, decision) => {
+    if (busy || lines.length === 0) return false;
+    setBusy(true); setFault(null); setLineFaults({});
+    const sent = lines.map(l => bodyOf(l, decision));
+    let ok = false;
+    try {
+      const d = await api("/api/supplies/requests/" + encodeURIComponent(row.id) + "/decide", { method: "POST", body: { items: sent }, token });
+      const next = supplyOrderOf(d && d.request ? d.request : d);
+      if (!live.current) return false;
+      setDrafts(prev => { const n = Object.assign({}, prev); lines.forEach(l => { delete n[l.id]; }); return n; });
+      if (next) onRow(next); else onReload();
+      ok = true;
+    } catch (err) {
+      if (!live.current) return false;
+      const said = fkFaultWords(err, ERR_GENERIC);
+      const keys = err && err.body && Array.isArray(err.body.keys) ? err.body.keys.map(String) : [];
+      const under = {};
+      keys.forEach(k => { const m = /^items\.(\d+)/.exec(k); if (m && sent[Number(m[1])]) under[sent[Number(m[1])].id] = said; });
+      if (Object.keys(under).length > 0) setLineFaults(under); else setFault(said);
+    }
+    if (live.current) setBusy(false);
+    return ok;
+  };
+  const undecided = row.items.filter(l => !l.decision);
+  const urgency = supplyUrgencyWord(getOpts, row.urgency);
+  const mine = !!user && row.requestedBy !== null && String(row.requestedBy) === String(user.id);
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" };
+  return (
+    <div data-supply-order={row.id} data-supply-order-stage={stage} style={{ padding: "14px 16px 100px" }}>
+      <WsBack label={tr("Approve supplies")} onBack={onBack} t={t} />
+      <div style={{ display: "flex", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+        <div role="heading" aria-level={2} style={{ flex: "1 1 160px", minWidth: 0, fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{row.siteName || row.requestedByName}</div>
+        {urgency && <span style={trainingChipSt(t, row.urgency === "urgent" || row.urgency === "high" ? RED : BLUE)}>{urgency}</span>}
+      </div>
+      <div style={lineSt}>{tr("Asked by {name}, {when}", { name: row.requestedByName, when: requestWhen(row.createdAt) })}</div>
+      {row.description && <div style={{ ...lineSt, color: t.text, whiteSpace: "pre-line" }}>{row.description}</div>}
+      {!row.canDecide && stage !== "ordered" && <div data-supply-order-readonly="1" style={{ ...lineSt, marginTop: 10, color: t.text, fontWeight: 600 }}>{mine ? tr("You asked for these supplies, so someone else decides them.") : tr("Only the people who approve supply requests can decide this.")}</div>}
+      <div style={{ marginTop: 14 }}>
+        {row.items.map((l, i) => <SupplyOrderLine key={l.id || i} line={l} at={i} can={can} busy={busy} draft={drafts[l.id]} onDraft={(d) => setDrafts(prev => Object.assign({}, prev, { [l.id]: d }))} onDecide={(decision) => decide([l], decision)} fault={lineFaults[l.id] || null} t={t} />)}
+      </div>
+      {can && undecided.length > 1 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
+          <button type="button" data-supply-deny-all="1" disabled={busy} onClick={() => decide(undecided, "denied")} style={wsPlainBtn(t)}>{tr("Deny all")}</button>
+          <button type="button" data-supply-approve-all="1" disabled={busy} onClick={() => decide(undecided, "approved")} style={wsMainBtn(t, busy)}>{tr("Approve all")}</button>
+        </div>
+      )}
+      {fault && <WsFault text={fault} t={t} />}
+      <SupplySignOrder key={stage} token={token} row={row} holder={holder && !mine} onRow={onRow} showToast={showToast} t={t} />
+    </div>
+  );
+}
+
 function findingRowOf(x) {
   if (!x || typeof x !== "object") return null;
   const id = agentField(x, ["id"], null);
@@ -8127,7 +8785,37 @@ function docParagraphs(content) {
   return String(content || "").split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
 }
 
-function DocumentReader({ token, doc, signed, onBack, onSigned, t }) {
+// The Library's reader (Step 307, the Step 305 contract's section 2.2):
+// library is { at, waiting, onSign } when the reader is opened from the
+// Library, at being the section a search matched, and absent otherwise.
+// It reads every section with no signature box, Back goes to the
+// Library, See the designed version opens the PDF behind the token, and
+// a document waiting for the person's signature says so with a button
+// that opens it under Documents to sign.
+// The section a search matched, as a place in the list: the section of
+// that number, else the first inside it, else the first.
+const docSectionAt = (sections, ref) => {
+  if (!ref) return 0;
+  const want = String(ref).trim();
+  const exact = sections.findIndex(s => s.ref === want);
+  if (exact !== -1) return exact;
+  const inside = sections.findIndex(s => s.ref.indexOf(want + ".") === 0);
+  return inside === -1 ? 0 : inside;
+};
+// The designed version's path: the read's own, or the PDF route when the
+// Library says the document has one.
+const docPdfOf = (d, doc) => (d && d.pdfUrl ? d.pdfUrl : doc && doc.hasPdf ? "/api/documents/" + encodeURIComponent(doc.docCode) + "/pdf" : "");
+function DocWaiting({ library, t }) {
+  if (!library || !library.waiting) return null;
+  return (
+    <div data-doc-waiting="1" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 8, marginBottom: 6, padding: "10px 12px", borderRadius: R.md, background: t.goldSubtle, border: "1px solid " + t.goldBorder }}>
+      <div style={{ flex: "1 1 160px", minWidth: 0, fontSize: 13, fontWeight: 600, color: t.text, lineHeight: 1.4, fontFamily: FONT_HEAD }}>{tr("This document is waiting for your signature.")}</div>
+      <button type="button" data-doc-waiting-open="1" onClick={library.onSign} style={{ ...trainingGoldBtn, flex: "none" }}>{tr("Open in Documents to sign")}</button>
+    </div>
+  );
+}
+
+function DocumentReader({ token, doc, signed, onBack, onSigned, t, library }) {
   // loading, fault, read (at a section, or the contents), sign, done
   const [state, setState] = useState({ kind: "loading" });
   const [asked, setAsked] = useState(0);
@@ -8151,7 +8839,7 @@ function DocumentReader({ token, doc, signed, onBack, onSigned, t }) {
       try {
         const d = documentReadOf(await api("/api/documents/" + encodeURIComponent(doc.docCode) + "/read?locale=" + encodeURIComponent(languageToSend()), { token }));
         if (!d) throw new Error(ERR_GENERIC);
-        if (on) setState({ kind: "read", d: d });
+        if (on) { setState({ kind: "read", d: d }); if (library && library.at) setAt(docSectionAt(d.sections, library.at)); }
       } catch (err) {
         if (on) setState({ kind: "fault", said: fkFaultWords(err, "This document did not open. Try again.") });
       }
@@ -8172,7 +8860,7 @@ function DocumentReader({ token, doc, signed, onBack, onSigned, t }) {
       else setFault(fkFaultWords(err, "This was not signed. Try again."));
     } finally { if (live.current) setBusy(false); }
   };
-  const back = <WsBack label={tr("My training")} onBack={onBack} t={t} />;
+  const back = <WsBack label={library ? tr("Library") : tr("My training")} onBack={onBack} t={t} />;
   const titleSt = { fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
   const smallSt = { fontSize: 11, color: t.textMut, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" };
   const bodySt = { fontSize: 15, color: t.text, lineHeight: 1.55, overflowWrap: "anywhere", fontFamily: FONT_BODY, whiteSpace: "pre-wrap" };
@@ -8180,6 +8868,7 @@ function DocumentReader({ token, doc, signed, onBack, onSigned, t }) {
   const head = (
     <div>
       {back}
+      <DocWaiting library={library} t={t} />
       <div role="heading" aria-level={1} style={titleSt}>{d && d.title ? d.title : doc.title}</div>
       <div style={smallSt}>{[doc.docCode, d && d.version ? tr("Version {n}", { n: d.version }) : ""].filter(Boolean).join(", ")}</div>
       {d && d.locale !== languageToSend() && d.locale === "en" && <div data-doc-english="1" style={{ ...smallSt, fontSize: 12, marginTop: 6 }}>{tr("This document is shown in English.")}</div>}
@@ -8187,7 +8876,7 @@ function DocumentReader({ token, doc, signed, onBack, onSigned, t }) {
   );
   // An answer with parts (Step 289) reads in the handbook's look.
   if (state.kind === "read" && d && d.parts) {
-    return <HandbookReader key={d.version + ":" + d.locale} token={token} doc={doc} d={d} signed={signed} changed={again} onBack={onBack} onSigned={onSigned} onAgain={() => { setAgain(true); setAsked(n => n + 1); }} t={t} />;
+    return <HandbookReader key={d.version + ":" + d.locale} token={token} doc={doc} d={d} signed={signed} changed={again} onBack={onBack} onSigned={onSigned} onAgain={() => { setAgain(true); setAsked(n => n + 1); }} library={library} t={t} />;
   }
   if (state.kind === "loading" || state.kind === "fault") {
     return (
@@ -8242,7 +8931,7 @@ function DocumentReader({ token, doc, signed, onBack, onSigned, t }) {
   const n = d.sections.length;
   const sec = d.sections[Math.min(at, n - 1)];
   return (
-    <div data-doc={contents ? "contents" : "read"} data-doc-section={at + 1} style={{ padding: "16px 16px 100px" }}>
+    <div data-doc={contents ? "contents" : "read"} data-doc-section={at + 1} data-doc-ref={sec.ref} style={{ padding: "16px 16px 100px" }}>
       {head}
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
         <button type="button" data-doc-contents="1" aria-pressed={contents} onClick={() => setContents(v => !v)} style={{ ...wsPlainBtn(t), flex: "none" }}>{tr("Contents")}</button>
@@ -8265,10 +8954,36 @@ function DocumentReader({ token, doc, signed, onBack, onSigned, t }) {
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
             <button type="button" data-doc-back="1" disabled={at === 0} onClick={() => setAt(a => Math.max(0, a - 1))} style={{ ...wsPlainBtn(t), opacity: at === 0 ? 0.6 : 1 }}>{tr("Back")}</button>
             {at < n - 1 && <button type="button" data-doc-next={at + 2} onClick={() => setAt(a => a + 1)} style={wsMainBtn(t, false)}>{tr("Next")}</button>}
-            {at === n - 1 && <button type="button" data-doc-next="sign" onClick={() => setState({ kind: "sign", d: d })} style={wsMainBtn(t, false)}>{tr("Next")}</button>}
+            {at === n - 1 && !library && <button type="button" data-doc-next="sign" onClick={() => setState({ kind: "sign", d: d })} style={wsMainBtn(t, false)}>{tr("Next")}</button>}
           </div>
         </div>
       )}
+      {library && <DocDesigned token={token} path={docPdfOf(d, doc)} name={(d.docCode || doc.docCode) + ".pdf"} locale={d.locale} t={t} />}
+    </div>
+  );
+}
+// See the designed version in the Library's plain reader, for a document
+// read with no parts: the PDF behind the token, the way the handbook's
+// look opens it.
+function DocDesigned({ token, path, name, locale, t }) {
+  const [busy, setBusy] = useState(false);
+  const [fault, setFault] = useState(null);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  if (!path) return null;
+  const open = async () => {
+    if (busy) return;
+    setBusy(true); setFault(null);
+    try { await openApiPdf(withLocale(path, locale), name, token); }
+    catch (err) { if (live.current) setFault(fkFaultWords(err, "The designed version did not open. Try again.")); }
+    finally { if (live.current) setBusy(false); }
+  };
+  return (
+    <div style={{ marginTop: 12 }}>
+      {/^https:\/\//i.test(path)
+        ? <a href={path} target="_blank" rel="noopener noreferrer" data-doc-designed="1" style={{ ...wsPlainBtn(t), display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>{tr("See the designed version")}</a>
+        : <button type="button" data-doc-designed="1" disabled={busy} onClick={open} style={{ ...wsPlainBtn(t), width: "100%", opacity: busy ? 0.7 : 1 }}>{busy ? tr("Loading...") : tr("See the designed version")}</button>}
+      {fault && <WsFault text={fault} t={t} />}
     </div>
   );
 }
@@ -8401,9 +9116,10 @@ function DocSignedEnd({ token, doc, signed, onBack, t }) {
   );
 }
 
-function HandbookReader({ token, doc, d, signed, changed, onBack, onSigned, onAgain, t }) {
-  // cover, contents, page (at), done
-  const [view, setView] = useState({ kind: "cover", at: 0 });
+function HandbookReader({ token, doc, d, signed, changed, onBack, onSigned, onAgain, t, library }) {
+  // cover, contents, page (at), done. From the Library, a search's
+  // section opens its page rather than the cover.
+  const [view, setView] = useState(() => (library && library.at ? { kind: "page", at: docSectionAt(d.sections, library.at) } : { kind: "cover", at: 0 }));
   const [strokes, setStrokes] = useState([]);
   const [png, setPng] = useState(null);
   const [fault, setFault] = useState(null);
@@ -8417,17 +9133,20 @@ function HandbookReader({ token, doc, d, signed, changed, onBack, onSigned, onAg
   useBusy("handbook reader", busy || strokes.length > 0);
   useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [view.kind, view.at]);
   // The pages in reading order, the signed page last; with no section
-  // named for signing, a page of its own comes after the last.
-  const ack = d.ackSectionRef ? d.sections.find(s => s.ref === d.ackSectionRef) || null : null;
+  // named for signing, a page of its own comes after the last. From the
+  // Library every section is a page in its own place and nothing is
+  // signed, so the signing step is never reached.
+  const ack = !library && d.ackSectionRef ? d.sections.find(s => s.ref === d.ackSectionRef) || null : null;
   const pages = d.sections.filter(s => s !== ack).concat(ack ? [ack] : []);
   const n = pages.length;
-  const signAt = ack ? n - 1 : n;
+  const signAt = library ? n : ack ? n - 1 : n;
+  const pdfPath = docPdfOf(d, doc);
   const english = d.shownInEnglish || (d.locale !== languageToSend() && d.locale === "en");
   const openPdf = async (which) => {
     if (pdfBusy) return;
     setPdfBusy(which); setPdfFault(null);
     try {
-      if (which === "designed") await openApiPdf(withLocale(d.pdfUrl, d.locale), (d.docCode || doc.docCode) + ".pdf", token);
+      if (which === "designed") await openApiPdf(withLocale(pdfPath, d.locale), (d.docCode || doc.docCode) + ".pdf", token);
       else await openApiPdf(withLocale("/api/documents/" + encodeURIComponent(doc.docCode) + "/my-signed-page", languageToSend()), "signed-page.pdf", token);
     } catch (err) {
       if (live.current) setPdfFault({ which: which, said: fkFaultWords(err, which === "designed" ? "The designed version did not open. Try again." : "Your signed page did not open. Try again.") });
@@ -8447,8 +9166,8 @@ function HandbookReader({ token, doc, d, signed, changed, onBack, onSigned, onAg
       else setFault(fkFaultWords(err, "This was not signed. Try again."));
     } finally { if (live.current) setBusy(false); }
   };
-  const go = (at) => { setView({ kind: "page", at: Math.max(0, Math.min(at, signAt)) }); setFault(null); };
-  const back = <WsBack label={tr("My training")} onBack={onBack} t={t} />;
+  const go = (at) => { setView({ kind: "page", at: Math.max(0, Math.min(at, library ? n - 1 : signAt)) }); setFault(null); };
+  const back = <><WsBack label={library ? tr("Library") : tr("My training")} onBack={onBack} t={t} /><DocWaiting library={library} t={t} /></>;
   const ruleSt = { borderBottom: "2px solid " + GOLD, paddingBottom: 6 };
   const smallSt = { fontSize: 12, color: t.textMut, lineHeight: 1.4, overflowWrap: "anywhere" };
   const bodySt = { fontSize: 15, color: t.text, lineHeight: 1.55, overflowWrap: "anywhere", fontFamily: FONT_BODY };
@@ -8463,10 +9182,10 @@ function HandbookReader({ token, doc, d, signed, changed, onBack, onSigned, onAg
     </div>
   ));
   const pdfLine = (which) => (pdfFault && pdfFault.which === which ? <WsFault text={pdfFault.said} t={t} /> : null);
-  const designed = d.pdfUrl && (
+  const designed = pdfPath && (
     <div style={{ marginTop: 12 }}>
-      {/^https:\/\//i.test(d.pdfUrl)
-        ? <a href={d.pdfUrl} target="_blank" rel="noopener noreferrer" data-doc-designed="1" style={{ ...wsPlainBtn(t), display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>{tr("See the designed version")}</a>
+      {/^https:\/\//i.test(pdfPath)
+        ? <a href={pdfPath} target="_blank" rel="noopener noreferrer" data-doc-designed="1" style={{ ...wsPlainBtn(t), display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>{tr("See the designed version")}</a>
         : <button type="button" data-doc-designed="1" disabled={!!pdfBusy} onClick={() => openPdf("designed")} style={{ ...wsPlainBtn(t), width: "100%", opacity: pdfBusy ? 0.7 : 1 }}>{pdfBusy === "designed" ? tr("Loading...") : tr("See the designed version")}</button>}
       {pdfLine("designed")}
     </div>
@@ -8669,10 +9388,158 @@ function HandbookReader({ token, doc, d, signed, changed, onBack, onSigned, onAg
       {blocksOf(s)}
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
         <button type="button" data-doc-back="1" onClick={() => (at === 0 ? setView({ kind: "cover", at: 0 }) : go(at - 1))} style={wsPlainBtn(t)}>{tr("Back")}</button>
-        <button type="button" data-doc-next={at + 1 === signAt ? "sign" : at + 2} onClick={() => go(at + 1)} style={wsMainBtn(t, false)}>{tr("Next")}</button>
+        {(!library || at + 1 < n) && <button type="button" data-doc-next={at + 1 === signAt ? "sign" : at + 2} onClick={() => go(at + 1)} style={wsMainBtn(t, false)}>{tr("Next")}</button>}
       </div>
+      {library && designed}
     </>
-  ), { "data-doc-section": at + 1 });
+  ), { "data-doc-section": at + 1, "data-doc-ref": s.ref });
+}
+
+// ------------------------------------------------------------
+// The Library (Step 307, the Step 305 contract's sections 2.1 and 2.4).
+// Under More for everyone once GET /api/library answers a list: every
+// company document once, by its folder, the middle part of its number,
+// under the folder's name as the API answers it in the screen's language,
+// with each folder's count. Each document reads its number, its title and
+// its version, and Also in Spanish when it has a Spanish edition; on a
+// Spanish screen a document with none reads In English only instead. The
+// search box finds documents by number, by title and by words in their
+// sections, the API's ?q=, best first, each with the section it matched.
+// An empty list says the library is still loading. Nothing about any
+// document is written here.
+// ------------------------------------------------------------
+const LIBRARY_FOLDERS = ["QMS", "SVC", "HR", "HS", "ENV", "MGT", "PUR", "CTR", "FIN", "FRM"];
+const libraryFolderRank = (f) => { const n = LIBRARY_FOLDERS.indexOf(f); return n === -1 ? LIBRARY_FOLDERS.length : n; };
+// What is typed is searched once the typing stops this long, from this
+// many letters on.
+const LIBRARY_SEARCH_WAIT_MS = 350;
+const LIBRARY_SEARCH_MIN = 2;
+function libraryDocOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const docCode = fkText(x, ["docCode", "doc_code"]);
+  if (!docCode) return null;
+  const m = x.match && typeof x.match === "object" ? x.match : null;
+  const match = m ? { sectionRef: fkText(m, ["sectionRef", "section_ref"]), sectionTitle: fkText(m, ["sectionTitle", "section_title"]) } : null;
+  const folder = fkText(x, ["folder"]).toUpperCase() || ((/^[A-Z]+-([A-Z]+)-/i.exec(docCode) || [])[1] || "").toUpperCase();
+  return {
+    docCode: docCode, title: fkText(x, ["title", "docTitle", "doc_title"]) || docCode, version: fkText(x, ["version", "docVersion", "doc_version"]),
+    folder: folder, folderName: fkText(x, ["folderName", "folder_name"]) || folder,
+    locales: (Array.isArray(x.locales) ? x.locales : []).filter(v => typeof v === "string"),
+    hasPdf: x.hasPdf === true, parts: docPartsOf(x.parts) || [],
+    match: match && (match.sectionRef || match.sectionTitle) ? match : null,
+  };
+}
+function libraryOf(d) {
+  const rows = wsRows(d, "documents");
+  return rows ? rows.map(libraryDocOf).filter(Boolean) : null;
+}
+async function readLibrary(token) {
+  try { return libraryOf(await api("/api/library", { token })); } catch (e) { return null; }
+}
+// The folders in the order the contract names them, each with its
+// documents in the order the API sorted them, by number.
+function libraryFolders(docs) {
+  const out = [];
+  (docs || []).forEach((d) => {
+    let f = out.find(x => x.folder === d.folder);
+    if (!f) { f = { folder: d.folder, name: d.folderName, docs: [] }; out.push(f); }
+    f.docs.push(d);
+  });
+  return out.sort((a, b) => libraryFolderRank(a.folder) - libraryFolderRank(b.folder) || a.folder.localeCompare(b.folder));
+}
+// The line under a document about its languages.
+const libraryLanguageLine = (d) => (languageToSend() === "es" ? (d.locales.length > 0 && d.locales.indexOf("es") === -1 ? tr("In English only") : "") : d.locales.indexOf("es") !== -1 ? tr("Also in Spanish") : "");
+
+function LibraryView({ token, docs, onDocs, onOpen, at, onAt, toSign, onSign, t }) {
+  const [folder, setFolder] = useState(null);
+  const [q, setQ] = useState("");
+  // The search's answer for the words it was asked: { q, rows } or
+  // { q, fault }. Only the newest is kept.
+  const [found, setFound] = useState(null);
+  const [asked, setAsked] = useState(0);
+  const needle = q.trim();
+  const searching = needle.length >= LIBRARY_SEARCH_MIN;
+  // The list is read again each time the screen opens.
+  useEffect(() => {
+    let live = true;
+    readLibrary(token).then(l => { if (live && l) onDocs(l); });
+    return () => { live = false; };
+  }, []);
+  useEffect(() => {
+    if (!searching) { setFound(null); return undefined; }
+    let live = true;
+    const wait = setTimeout(() => {
+      api("/api/library?q=" + encodeURIComponent(needle), { token })
+        .then(d => { if (live) setFound({ q: needle, rows: libraryOf(d) || [] }); })
+        .catch(err => { if (live) setFound({ q: needle, fault: fkFaultWords(err, "This list did not load.") }); });
+    }, LIBRARY_SEARCH_WAIT_MS);
+    return () => { live = false; clearTimeout(wait); };
+  }, [needle, searching, token, asked]);
+  const folders = libraryFolders(docs);
+  const openFolder = folder ? folders.find(f => f.folder === folder) || null : null;
+  const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const smallSt = { fontSize: 11, color: t.textMut, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const countSt = { flexShrink: 0, minWidth: 28, padding: "2px 8px", borderRadius: R.pill, background: t.goldBg, border: "1px solid " + t.goldBorder, color: t.goldText, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD, textAlign: "center", fontVariantNumeric: "tabular-nums" };
+  // One document: a button that opens it, at the section a search matched.
+  const docRow = (d) => {
+    const language = libraryLanguageLine(d);
+    const inside = (
+      <>
+        <div style={smallSt}>{[d.docCode, d.version ? tr("Version {n}", { n: d.version }) : ""].filter(Boolean).join(", ")}</div>
+        <div style={{ ...nameSt, marginTop: 2 }}>{d.title}</div>
+        {d.match && <div data-library-match={d.match.sectionRef} style={{ ...lineSt, color: t.text, fontWeight: 600 }}>{[d.match.sectionRef ? tr("Section {n}", { n: d.match.sectionRef }) : "", d.match.sectionTitle].filter(Boolean).join(" ")}</div>}
+        {language && <div data-library-language="1" style={lineSt}>{language}</div>}
+      </>
+    );
+    const rowSt = { ...fkRowSt(t), display: "block", width: "100%", minHeight: TAP, textAlign: "left", color: t.text };
+    if (!onOpen) return <div key={d.docCode} data-library-doc={d.docCode} style={rowSt}>{inside}</div>;
+    return <button key={d.docCode} type="button" data-library-doc={d.docCode} onClick={() => onOpen(d)} style={{ ...rowSt, cursor: "pointer", fontFamily: FONT_BODY }}>{inside}</button>;
+  };
+  const results = searching && found && found.q === needle ? found : null;
+  // A document open: the reader, with no signature box. One waiting for
+  // the person's signature says so, and its button opens it under
+  // Documents to sign.
+  if (at && at.doc) {
+    const waiting = (toSign || []).find(x => x.docCode === at.doc.docCode) || null;
+    return <DocumentReader key={at.doc.docCode + ":" + (at.at || "") + ":" + (at.key || "")} token={token} doc={at.doc} signed={null} onBack={() => onAt(null)} onSigned={() => {}} library={{ at: at.at, waiting: !!waiting, onSign: () => onSign(waiting) }} t={t} />;
+  }
+  return (
+    <div data-library={openFolder ? "folder" : searching ? "search" : "folders"} style={{ padding: "14px 16px 100px" }}>
+      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>{tr("Library")}</div>
+      <label htmlFor="ocsa-library-search" style={mkLabel(t)}>{tr("Search by number, title or words in the text")}</label>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <input id="ocsa-library-search" type="text" enterKeyHint="search" autoComplete="off" data-library-search="1" value={q} onChange={e => setQ(e.target.value.slice(0, 120))} style={{ ...mkInput(t), flex: 1, minWidth: 0 }} />
+        {q !== "" && <button type="button" onClick={() => setQ("")} style={{ ...wsPlainBtn(t), flex: "none" }}>{tr("Clear")}</button>}
+      </div>
+      {searching && !results && <div style={{ ...wsQuiet(t), marginTop: 12 }}>{tr("Loading...")}</div>}
+      {results && results.fault && <div><WsFault text={results.fault} t={t} /><div style={{ display: "flex", marginTop: 10 }}><button type="button" onClick={() => setAsked(n => n + 1)} style={wsPlainBtn(t)}>{tr("Try again")}</button></div></div>}
+      {results && results.rows && results.rows.length === 0 && <div data-library-none="1" style={{ ...wsQuiet(t), marginTop: 12 }}>{tr("No document matches that search.")}</div>}
+      {results && results.rows && results.rows.length > 0 && <div data-library-results={results.rows.length} style={{ marginTop: 12 }}>{results.rows.map(docRow)}</div>}
+      {!searching && (docs || []).length === 0 && <div data-library-empty="1" style={{ ...wsQuiet(t), marginTop: 12 }}>{tr("The library is loading. Check back soon.")}</div>}
+      {!searching && !openFolder && folders.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          {folders.map(f => (
+            <button key={f.folder} type="button" data-library-folder={f.folder} onClick={() => { setFolder(f.folder); try { window.scrollTo(0, 0); } catch (e) {} }} style={{ ...fkRowSt(t), display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", color: t.text }}>
+              <FolderIco sz={18} c={t.goldText} style={{ flexShrink: 0 }} />
+              <span style={{ ...nameSt, flex: 1, minWidth: 0 }}>{f.name}</span>
+              <span style={countSt}>{f.docs.length}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {!searching && openFolder && (
+        <div style={{ marginTop: 10 }}>
+          <WsBack label={tr("All folders")} onBack={() => setFolder(null)} t={t} />
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <div role="heading" aria-level={3} style={{ ...nameSt, fontSize: 15, flex: 1, minWidth: 0 }}>{openFolder.name}</div>
+            <span style={countSt}>{openFolder.docs.length}</span>
+          </div>
+          {openFolder.docs.map(docRow)}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Your first trainings (Step 264, the Step 262 contract's section 5, and
@@ -9772,6 +10639,9 @@ function notifPlace(subjectType, subjectId) {
   if (tab === "chat") return { tab: "chat", chat: id };
   if (tab === "announcement") return id ? { announcement: id } : null;
   if (subjectType === "client_request") return { tab: tab, request: id };
+  // A supply request (Step 311): the request itself on Approve supplies
+  // for a holder, and Supplies for anyone else, as before.
+  if (subjectType === "supply_request" && id) return { tab: tab, supply: id };
   if (subjectType === "inspection_finding") return { tab: tab, finding: id };
   if (subjectType === "training_signoff") return { tab: tab, signoff: true };
   if (subjectType === "training_join") return id ? { tab: tab, join: id } : null;
@@ -11718,7 +12588,16 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
 // request to the public route, photos ride in the body as data URLs, a
 // customer signature is drawn in its section, and the API's refusal is
 // drawn under the question it names or at the top.
-function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, showToast }) {
+// With walk set, this is the safety walk inside a scheduled inspection
+// (Step 313): the form drawn by the same engine, a section at a time,
+// saved as the inspector's own draft as Next saves it, with no header,
+// no review and no send of its own. A sign-off is not drawn here: the
+// inspection's one signature at the end signs it. walk is { at, onBack,
+// onEnd, onState, saveRef }: the section to go to, what Back does on the
+// first section and Next on the last, what is told of the answers each
+// time they change, and where the save is handed for the inspection to
+// call before it sends.
+function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, showToast, walk }) {
   const isCustomer = !!customer;
   const [current, setCurrent] = useState(draft);
   // A person question: the staff list, read once the form asks for a
@@ -11804,7 +12683,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
   // Every question in play, which is what a save is judged against, and
   // the ones this screen draws, which is what a person walks through.
   const fields = formFieldsInPlay(form, values);
-  const shown = fields.filter(formDrawnOnPortal);
+  const shown = fields.filter(f => formDrawnOnPortal(f) && !(walk && formTypeOf(f) === "signoff"));
   // The staff list, asked for once the form has a person question in
   // play and never on the customer's page, which has no token for it.
   const asksPerson = !isCustomer && shown.some(f => formTypeOf(f) === "person");
@@ -12160,14 +13039,18 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
     });
   }, [values, form, current.id, token, locale, isCustomer]);
 
-  const toTop = () => { if (bodyRef.current) bodyRef.current.scrollTop = 0; };
+  const toTop = () => { if (walk) { try { window.scrollTo(0, 0); } catch (e) {} return; } if (bodyRef.current) bodyRef.current.scrollTop = 0; };
 
+  // The sections a set of answers puts in play, the way this screen
+  // draws them.
+  const sectionsFor = (answers) => formSectionsOf(formFieldsInPlay(form, answers).filter(f => formDrawnOnPortal(f) && !(walk && formTypeOf(f) === "signoff")));
   const goNext = async () => {
     if (saving) return;
     const after = await save();
     if (!after) return;
-    const list = formSectionsOf(formFieldsInPlay(form, after).filter(formDrawnOnPortal));
+    const list = sectionsFor(after);
     const i = list.indexOf(here);
+    if (walk && (i === -1 || i + 1 >= list.length)) { walk.onEnd(); return; }
     if (i === -1 || i + 1 >= list.length) { setSendErr(null); setReview(true); toTop(); return; }
     setSectionKey(list[i + 1]); toTop();
   };
@@ -12177,11 +13060,25 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
     if (review) { setReview(false); setSectionKey(sections[sections.length - 1] || null); toTop(); return; }
     const after = await save();
     if (!after) return;
-    const list = formSectionsOf(formFieldsInPlay(form, after).filter(formDrawnOnPortal));
+    const list = sectionsFor(after);
     const i = list.indexOf(here);
+    if (walk && i <= 0) { walk.onBack(); return; }
     if (i <= 0) return;
     setSectionKey(list[i - 1]); toTop();
   };
+  // The walk: the save handed over, a section asked for from outside, and
+  // what is answered and what is missing told each time it changes. A
+  // sign-off is left out of what is missing, since the inspection's
+  // signature signs it.
+  if (walk && walk.saveRef) walk.saveRef.current = save;
+  useEffect(() => { if (walk && walk.at && walk.at.key && sections.indexOf(walk.at.key) !== -1) { setSectionKey(walk.at.key); toTop(); } }, [walk ? walk.at : null]);
+  const walkMissing = walk ? missingNamed().filter(m => { const f = fieldByKey(m.key); return !f || formTypeOf(f) !== "signoff"; }) : null;
+  const walkSigned = walk ? (form && Array.isArray(form.fields) ? form.fields : []).filter(f => formTypeOf(f) === "signoff" && formDrawnOnPortal(f) && !formHasAnswer(values[f.key])).length : 0;
+  const walkTold = walk ? JSON.stringify([walkMissing, answered, remaining, sections, here, Object.keys(dirty).length, current.answers || null]) : "";
+  useEffect(() => {
+    if (!walk || !walk.onState) return;
+    walk.onState({ missing: walkMissing, answered: answered, remaining: Math.max(0, remaining - walkSigned), sections: sections.map(k => ({ key: k, title: formSectionTitle(form, k, locale) })), at: here, dirty: Object.keys(dirty).length > 0, answers: Object.assign({}, current.answers || {}) });
+  }, [walkTold]);
 
   const editSection = (sk) => {
     setReview(false); setSendErr(null); setSectionKey(sk); toTop();
@@ -12714,6 +13611,38 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
         <div style={{ background: t.card, border: "1px solid " + t.border, borderRadius: R.md, padding: 18 }}>
           <div style={{ fontSize: 14, color: t.text, lineHeight: 1.55, marginBottom: 16 }}>{sent === "already" ? tr(FORMS_ALREADY_LINE) : tr(FORMS_SENT_LINE)}</div>
           <button onClick={onLeave} style={footBtn(true, false)}>{tr("Done")}</button>
+        </div>
+      </div>
+    );
+  }
+
+  // The walk's safety part, drawn in the inspection's page: the section's
+  // title, its questions, and Back and Next, which save as they always
+  // do. Back on the first section goes to the site checklist, and Next on
+  // the last to the signature.
+  if (walk) {
+    return (
+      <div data-walk-safety={here || ""} data-walk-section={at + 1} ref={bodyRef}>
+        {sections.length > 1 && <div style={{ fontSize: 11, color: t.textMut, marginBottom: 8 }}>{tr("Section {n} of {total}", { n: at + 1, total: sections.length })}</div>}
+        {saveErr && <div role="alert" style={{ padding: "10px 12px", marginBottom: 16, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text, fontSize: 13, lineHeight: 1.5 }}>{saveErr}</div>}
+        {!form && <div style={{ fontSize: 13, color: t.textMut, lineHeight: 1.5 }}>{tr(FORMS_LOAD_FAILED)}</div>}
+        {hereTitle && (
+          <div style={{ marginBottom: 16 }}>
+            <div role="heading" aria-level={3} style={titleSt}>{hereTitle}</div>
+            {hereHelp && <div style={mkHelp(t)}>{hereHelp}</div>}
+          </div>
+        )}
+        {pageFields.map(f => (
+          <div key={f.key} data-walk-field={f.key} style={qSt}>
+            <div style={labelSt}>{f.label}{requiredHere(f) && <span style={reqSt}>{tr("Required")}</span>}</div>
+            {f.help && <div style={mkHelp(t)}>{f.help}</div>}
+            {renderInput(f)}
+            {keyErr[f.key] && <div style={mkFieldErr(t)}>{keyErr[f.key]}</div>}
+          </div>
+        ))}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
+          <button type="button" data-walk-back="1" onClick={goBack} disabled={saving} style={footBtn(false, saving)}>{saving ? tr("Saving") : tr("Back")}</button>
+          <button type="button" data-walk-next="1" onClick={goNext} disabled={saving} style={footBtn(true, saving)}>{saving ? tr("Saving") : tr("Next")}</button>
         </div>
       </div>
     );
@@ -15561,6 +16490,21 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
   const touch = (id) => { setScoredIds(prev => prev[id] ? prev : { ...prev, [id]: true }); setLastTouched(id); };
   // The index a long inspection offers, open or not.
   const [sectionsOpen, setSectionsOpen] = useState(false);
+  // The safety walk (Step 313): the part on screen (the site checklist,
+  // the safety walk or the signature), what the safety part last told of
+  // its answers, the section of it asked for, its save, and what the
+  // complete route said is still missing in it.
+  const safety = inspectSafetyOf(active);
+  const [part, setPart] = useState("cards");
+  const [safetyState, setSafetyState] = useState(null);
+  const [safetyAt, setSafetyAt] = useState(null);
+  const safetySave = useRef(null);
+  const [safetyRefused, setSafetyRefused] = useState(null);
+  // The site checklist of a walk is kept on this phone as it is scored.
+  useEffect(() => {
+    if (!active || !safety || !user) return;
+    keepInspect(user.id, active.id, { scores: scores, notes: notes, needsFix: needsFix, ownerOf: ownerOf, scoredIds: scoredIds, overallNotes: overallNotes, shots: shots, part: part });
+  }, [active, scores, notes, needsFix, ownerOf, scoredIds, overallNotes, shots, part]);
 
   // + Schedule follows the capability the API enforces on the schedule
   // route, read once when the tab opens, so nobody is shown a button the
@@ -15654,6 +16598,18 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       setOwnerOf({}); setCardFault({});
       notDueBefore.current = {};
       setScoredIds({}); setLastTouched(null); setShowScored(false); setSectionsOpen(false);
+      setPart("cards"); setSafetyState(null); setSafetyAt(null); setSafetyRefused(null); safetySave.current = null;
+      // A walk left part way comes back as it was left.
+      const kept = inspectSafetyOf(d) && user ? readInspectKept(user.id, d.id) : null;
+      if (kept) {
+        const ids = (d.items || []).map(item => String(item.id));
+        const only = (o) => { const out = {}; Object.keys(o && typeof o === "object" ? o : {}).forEach(k => { if (ids.indexOf(String(k)) !== -1) out[k] = o[k]; }); return out; };
+        setScores(Object.assign(initScores, only(kept.scores))); setNotes(Object.assign(initNotes, only(kept.notes)));
+        setNeedsFix(only(kept.needsFix)); setOwnerOf(only(kept.ownerOf)); setScoredIds(only(kept.scoredIds));
+        setOverallNotes(typeof kept.overallNotes === "string" ? kept.overallNotes : "");
+        if (kept.shots && typeof kept.shots === "object") setShots(kept.shots);
+        if (kept.part === "safety" || kept.part === "sign") setPart(kept.part);
+      }
     } catch (e) { showToast(tr(e.message), "error"); }
   };
 
@@ -15779,7 +16735,9 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       setMissingNote(flags);
       showToast(tr("Say what needs fixing"), "error");
       // The card may sit in the fold, so the fold opens first and the
-      // scroll waits for it to be drawn.
+      // scroll waits for it to be drawn. On a walk, the site checklist
+      // comes back first.
+      if (safety) setPart("cards");
       setShowScored(true);
       setTimeout(() => {
         const card = document.querySelector('[data-inspect-item="' + unsaid[0].id + '"]');
@@ -15790,6 +16748,14 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
     // A photo still going up holds the send until it is in. With no
     // drawing, the box turns red, says so, and comes into view.
     if (capture && shotsGoing) return;
+    // On a walk, what the safety part still needs is listed above the
+    // signature and nothing goes until it is answered (Step 313).
+    if (safety && walkSafetyMissing().length > 0) {
+      setPart("sign");
+      showToast(tr("These still need an answer"), "error");
+      scrollToMark("[data-walk-missing]");
+      return;
+    }
     if (capture && capture.sign && !sigPng) {
       setSigFault({ missing: true });
       scrollToMark("[data-inspect-signature]");
@@ -15816,6 +16782,9 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       const body = { scores: payload, overall_notes: overallNotes || null };
       if (capture) body.photo_urls = shotUrls(INSPECT_WHOLE);
       if (capture && sigPng) body.signature = sigPng;
+      // The safety part goes in the same request (Step 313): its draft and
+      // its answers as saved, signed by the same signature.
+      if (safety) body.safety = { responseId: safety.draft.id, answers: safetyState && safetyState.answers ? safetyState.answers : Object.assign({}, safety.draft.answers || {}) };
       const d = await api("/api/inspections/scheduled/" + active.id + "/complete" + (capture ? "?locale=" + languageToSend() : ""), {
         method: "POST", token,
         body: body,
@@ -15826,8 +16795,10 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       // reports, one after another.
       const answer = owners ? inspectAnswerOf(d) : null;
       const reports = owners ? [] : (active.items || []).filter(item => needsFix[item.id]).map(reportFor);
-      if (answer) {
-        setSent({ name: active.template_name, reports: [], answer: answer });
+      const safetyAnswer = safety ? inspectSafetyAnswerOf(d, safety.form) : null;
+      if (safety && user) forgetInspect(user.id, active.id);
+      if (answer || safetyAnswer) {
+        setSent({ name: active.template_name, reports: [], answer: answer, safety: safetyAnswer });
       } else if (!reports.length) {
         showToast(tr("Inspection submitted"));
       } else {
@@ -15837,7 +16808,13 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       }
       setActive(null);
       loadList();
-    } catch (e) { if (!((capture || owners) && placeRefusal(e))) showToast(tr(e.message), "error"); }
+    } catch (e) {
+      // What the safety part is short, as the complete route names it,
+      // is listed above the signature.
+      const said = e && e.body && typeof e.body === "object" ? (e.body.safety && typeof e.body.safety === "object" ? e.body.safety : e.body) : null;
+      if (safety && said && (Array.isArray(said.missingFields) || Array.isArray(said.missing))) { setSafetyRefused(said); setPart("sign"); scrollToMark("[data-walk-missing]"); showToast(tr(e.message), "error"); }
+      else if (!((capture || owners) && placeRefusal(e))) showToast(tr(e.message), "error");
+    }
     setSubmitting(false);
   };
   // The page scrolls to a mark once it is drawn.
@@ -15880,6 +16857,87 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
 
   const labelSt = mkLabel(t);
   const inputSt = mkInput(t);
+
+  // The walk (Step 313). What the safety part is still short: what the
+  // complete route said, else what the part last told, else what its
+  // draft carried when the inspection opened, a sign-off left out since
+  // the one signature signs it.
+  const walkMissingOf = (d) => {
+    const fields = safety && Array.isArray(safety.form.fields) ? safety.form.fields : [];
+    const byKey = (k) => fields.find(f => f.key === k) || null;
+    const named = d && Array.isArray(d.missingFields) ? d.missingFields.map(m => ({ key: String(m.key || ""), label: m.label ? String(m.label) : String(m.key || ""), rows: Array.isArray(m.rows) ? m.rows.filter(Boolean).map(String) : [] }))
+      : (d && Array.isArray(d.missing) ? d.missing : []).map(k => { const f = byKey(k); return { key: String(k), label: f ? f.label : String(k), rows: [] }; });
+    return named.filter(m => { const f = byKey(m.key); return !f || formTypeOf(f) !== "signoff"; });
+  };
+  const walkSafetyMissing = () => (!safety ? [] : safetyRefused ? walkMissingOf(safetyRefused) : safetyState ? safetyState.missing : walkMissingOf(safety.draft));
+  // Moving between the parts saves what the safety part holds first.
+  const goPart = async (next, sectionKey) => {
+    if (part === "safety" && safetySave.current) { const kept = await safetySave.current(); if (!kept) return false; }
+    setPart(next);
+    if (next === "safety" && sectionKey) setSafetyAt({ key: sectionKey, n: Date.now() });
+    try { window.scrollTo(0, 0); } catch (e) {}
+    return true;
+  };
+  // Back on the inspection: the safety part's answers are saved first, and
+  // the site checklist is already kept, so coming back continues both.
+  const leave = async () => {
+    if (safety && part === "safety" && safetySave.current) await safetySave.current();
+    setActive(null);
+  };
+  const walkPage = ({ headRow, totalCard, cardsBlock, wholePhotos, notesBlock, signBlock, submitBtn, sections, goToSection }) => {
+    const items = active.items || [];
+    const scored = items.filter(item => !!scoredIds[item.id]).length;
+    const missingCards = items.filter(item => (owners ? deficientNow(item) : needsFix[item.id]) && !(notes[item.id] || "").trim());
+    const missingSafety = walkSafetyMissing();
+    const fieldOf = (k) => (Array.isArray(safety.form.fields) ? safety.form.fields : []).find(f => f.key === k) || null;
+    const head = (word) => <div role="heading" aria-level={2} data-walk-part={part} style={{ fontSize: 13, fontWeight: 700, color: t.goldText, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, paddingBottom: 6, borderBottom: "2px solid " + GOLD }}>{tr(word)}</div>;
+    const rowBtn = { width: "100%", minHeight: TAP, marginBottom: 8, padding: "10px 12px", textAlign: "left", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.card, color: t.text, fontSize: 13, lineHeight: 1.4, cursor: "pointer", fontFamily: FONT_BODY, overflowWrap: "anywhere" };
+    const goCard = async (item) => { if (!(await goPart("cards"))) return; setShowScored(true); scrollToMark('[data-inspect-item="' + item.id + '"]'); };
+    const goField = (k) => { const f = fieldOf(k); goPart("safety", f ? formSectionOf(f) : null); };
+    const safetyCounts = safetyState ? { answered: safetyState.answered, remaining: safetyState.remaining } : { answered: Number(safety.draft.answered || 0), remaining: walkMissingOf(safety.draft).length };
+    const safetySections = safetyState ? safetyState.sections : formSectionsOf(formFieldsInPlay(safety.form, safety.draft.answers || {}).filter(f => formDrawnOnPortal(f) && formTypeOf(f) !== "signoff")).map(k => ({ key: k, title: formSectionTitle(safety.form, k, languageToSend()) }));
+    return (
+      <div data-inspect-walk={part} style={{ padding: "14px 16px 100px" }}>
+        {headRow}
+        {part === "cards" && (
+          <>
+            {head("Site checklist")}
+            {totalCard}
+            {cardsBlock}
+            {wholePhotos}
+            {notesBlock}
+            <button type="button" data-walk-to-safety="1" onClick={() => goPart("safety")} style={{ ...wsMainBtn(t, false), width: "100%" }}>{tr("Next: Safety walk")}</button>
+          </>
+        )}
+        {part === "safety" && (
+          <>
+            {head("Safety walk")}
+            <FormFiller key={active.id + ":" + safety.draft.id} token={token} t={t} locale={languageToSend()} form={safety.form} draft={safety.draft} user={user} showToast={showToast} onLeave={() => {}}
+              walk={{ at: safetyAt, onBack: () => goPart("cards"), onEnd: () => goPart("sign"), onState: (st) => { setSafetyState(st); setSafetyRefused(null); }, saveRef: safetySave }} />
+          </>
+        )}
+        {part === "sign" && (
+          <>
+            {head("Sign and send")}
+            {(missingCards.length > 0 || missingSafety.length > 0) && (
+              <div data-walk-missing={missingCards.length + missingSafety.length} style={{ padding: 14, marginBottom: 16, borderRadius: R.md, background: t.goldSubtle, border: "1px solid " + t.goldBorder }}>
+                <div style={{ ...mkLabel(t), marginBottom: 10 }}>{tr("These still need an answer")}</div>
+                {missingCards.map(item => <button key={"c" + item.id} type="button" data-walk-missing-card={item.id} onClick={() => goCard(item)} style={rowBtn}>{tr("Site checklist") + ": " + item.label + ". " + tr("Say what needs fixing")}</button>)}
+                {missingSafety.map(m => <button key={"s" + m.key} type="button" data-walk-missing-safety={m.key} onClick={() => goField(m.key)} style={rowBtn}>{tr("Safety walk") + ": " + (m.rows.length > 0 ? m.label + ": " + m.rows.join(", ") : m.label)}</button>)}
+              </div>
+            )}
+            {signBlock}
+            {submitBtn}
+          </>
+        )}
+        {sectionsOpen && (
+          <WalkSectionsSheet zones={sections} scoredIds={scoredIds} scored={scored} total={items.length} safetyCounts={safetyCounts} safetySections={safetySections}
+            onCards={(zone) => { setSectionsOpen(false); if (zone) goPart("cards").then(ok => { if (ok) goToSection(zone); }); else goPart("cards"); }}
+            onSafety={(key) => { setSectionsOpen(false); goPart("safety", key); }} onSign={() => { setSectionsOpen(false); goPart("sign"); }} onClose={() => setSectionsOpen(false)} t={t} />
+        )}
+      </div>
+    );
+  };
 
   // SCORING VIEW
   if (active) {
@@ -16035,68 +17093,85 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       );
     };
 
+    // The page's pieces, drawn one after another as they always were, or,
+    // on a walk with the safety part (Step 313), a part at a time.
+    const backBtn = <button onClick={leave} aria-label={tr("Back")} style={mkTapFrame({ color: t.textSec, fontSize: 20, lineHeight: 1 })}>{"<"}</button>;
+    const withSections = indexed || !!safety;
+    const headRow = (
+      // Sections sits at the end of the top row, and goes under the name,
+      // at its right, when the row has no room for it. A shorter
+      // inspection's row is drawn as it always was.
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, ...(withSections ? { flexWrap: "wrap" } : {}) }}>
+        {backBtn}
+        <div style={withSections ? { flex: "1 1 140px", minWidth: 0 } : undefined}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{active.template_name}</div>
+          <div style={{ fontSize: 11, color: t.textSec, fontFamily: FONT_BODY }}>{active.site_name} - {fmtDate(active.scheduled_date)}</div>
+        </div>
+        {withSections && <button type="button" data-inspect-sections="1" onClick={() => setSectionsOpen(true)} aria-haspopup="dialog" style={{ minHeight: TAP, padding: "0 14px", marginLeft: "auto", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Sections")}</button>}
+      </div>
+    );
+    const totalCard = (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderRadius: R.lg, background: t.card, marginBottom: 16, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
+        <div style={{ fontSize: 11, color: t.textSec, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px" }}>{tr("Running total")}</div>
+        <div style={{ textAlign: "right" }}>
+          <span style={{ fontSize: 22, fontWeight: 600, color: ink(t, scoreColor), fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</span>
+          <span style={{ fontSize: 11, color: t.textMut, marginLeft: 6, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{totalScored}/{totalMax} {tr("pts")}</span>
+        </div>
+      </div>
+    );
+    const cardsBlock = (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
+        {openItems.map(itemCard)}
+        {foldedItems.length > 0 && (
+          <div style={{ background: t.cardAlt, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "12px 14px" }}>
+            <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: showScored ? 10 : 8 }}>{tr("Scored")}</div>
+            {!showScored && <button type="button" onClick={() => setShowScored(true)} style={{ minHeight: TAP, padding: "0 14px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.card, color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Show {0} scored items", { 0: foldedItems.length })}</button>}
+            {showScored && <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{foldedItems.map(itemCard)}</div>}
+          </div>
+        )}
+      </div>
+    );
+    const wholePhotos = capture && (
+      <div data-inspect-photos={INSPECT_WHOLE} style={{ marginBottom: 16 }}>
+        <div style={labelSt}>{tr("Photos of the whole inspection")}</div>
+        {shotRow(INSPECT_WHOLE, capture.overall)}
+      </div>
+    );
+    const notesBlock = (
+      <div style={{ marginBottom: 16 }}>
+        <label style={labelSt}>{tr("Overall Notes")}</label>
+        <textarea value={overallNotes} onChange={e => setOverallNotes(e.target.value)} placeholder={tr("General observations, follow-ups needed, etc.")} rows={3} style={{ ...inputSt, resize: "vertical" }} />
+      </div>
+    );
+    const signBlock = capture && (
+      <div data-inspect-signature="1" style={{ marginBottom: 16 }}>
+        <div style={labelSt}>{tr("Signature")}</div>
+        {safety && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, marginBottom: 6, lineHeight: 1.4 }}>{tr("This signature signs the site checklist and the safety walk.")}</div>}
+        <div style={{ marginTop: 6, borderRadius: R.md, border: sigFault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+          <SignatureBox strokes={sigStrokes} onStroke={(stroke, size) => { const all = sigStrokes.concat([stroke]); setSigStrokes(all); setSigPng(signaturePng(all, size.w, size.h)); setSigFault(null); }} height={SIGN_BOX_HEIGHT} />
+        </div>
+        {sigFault && <div role="alert" style={mkFieldErr(t)}>{sigFault.missing ? tr("Sign before you send.") : sigFault.said}</div>}
+        <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+        <button type="button" onClick={() => { setSigStrokes([]); setSigPng(null); }} disabled={sigStrokes.length === 0 || submitting} style={{ ...shotBtn, opacity: sigStrokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+        <div style={{ fontSize: 12, color: t.textSec, marginTop: 10, lineHeight: 1.4, overflowWrap: "anywhere" }}>{tr("Signed as {name}, {date}", { name: [user && user.firstName, user && user.lastName].filter(Boolean).join(" "), date: now().toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" }) })}</div>
+      </div>
+    );
+    const submitBtn = (
+      <button onClick={submit} data-inspect-submit="1" disabled={submitting || (!!capture && shotsGoing)} style={{ width: "100%", padding: "14px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: submitting || (capture && shotsGoing) ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>
+        {submitting ? tr("Submitting...") : capture && shotsGoing ? tr("Uploading...") : tr("Submit Inspection")}
+      </button>
+    );
+
+    if (safety) return walkPage({ headRow, totalCard, cardsBlock, wholePhotos, notesBlock, signBlock, submitBtn, sections, goToSection });
     return (
       <div style={{ padding: "14px 16px 100px" }}>
-        {/* Sections sits at the end of the top row, and goes under the
-            name, at its right, when the row has no room for it. A
-            shorter inspection's row is drawn as it always was. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, ...(indexed ? { flexWrap: "wrap" } : {}) }}>
-          <button onClick={() => setActive(null)} aria-label={tr("Back")} style={mkTapFrame({ color: t.textSec, fontSize: 20, lineHeight: 1 })}>{"<"}</button>
-          <div style={indexed ? { flex: "1 1 140px", minWidth: 0 } : undefined}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{active.template_name}</div>
-            <div style={{ fontSize: 11, color: t.textSec, fontFamily: FONT_BODY }}>{active.site_name} - {fmtDate(active.scheduled_date)}</div>
-          </div>
-          {indexed && <button type="button" onClick={() => setSectionsOpen(true)} aria-haspopup="dialog" style={{ minHeight: TAP, padding: "0 14px", marginLeft: "auto", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 }}>{tr("Sections")}</button>}
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderRadius: R.lg, background: t.card, marginBottom: 16, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
-          <div style={{ fontSize: 11, color: t.textSec, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "0.5px" }}>{tr("Running total")}</div>
-          <div style={{ textAlign: "right" }}>
-            <span style={{ fontSize: 22, fontWeight: 600, color: ink(t, scoreColor), fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</span>
-            <span style={{ fontSize: 11, color: t.textMut, marginLeft: 6, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{totalScored}/{totalMax} {tr("pts")}</span>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
-          {openItems.map(itemCard)}
-          {foldedItems.length > 0 && (
-            <div style={{ background: t.cardAlt, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "12px 14px" }}>
-              <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: showScored ? 10 : 8 }}>{tr("Scored")}</div>
-              {!showScored && <button type="button" onClick={() => setShowScored(true)} style={{ minHeight: TAP, padding: "0 14px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.card, color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Show {0} scored items", { 0: foldedItems.length })}</button>}
-              {showScored && <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{foldedItems.map(itemCard)}</div>}
-            </div>
-          )}
-        </div>
-
-        {capture && (
-          <div data-inspect-photos={INSPECT_WHOLE} style={{ marginBottom: 16 }}>
-            <div style={labelSt}>{tr("Photos of the whole inspection")}</div>
-            {shotRow(INSPECT_WHOLE, capture.overall)}
-          </div>
-        )}
-
-        <div style={{ marginBottom: 16 }}>
-          <label style={labelSt}>{tr("Overall Notes")}</label>
-          <textarea value={overallNotes} onChange={e => setOverallNotes(e.target.value)} placeholder={tr("General observations, follow-ups needed, etc.")} rows={3} style={{ ...inputSt, resize: "vertical" }} />
-        </div>
-
-        {capture && (
-          <div data-inspect-signature="1" style={{ marginBottom: 16 }}>
-            <div style={labelSt}>{tr("Signature")}</div>
-            <div style={{ marginTop: 6, borderRadius: R.md, border: sigFault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
-              <SignatureBox strokes={sigStrokes} onStroke={(stroke, size) => { const all = sigStrokes.concat([stroke]); setSigStrokes(all); setSigPng(signaturePng(all, size.w, size.h)); setSigFault(null); }} height={SIGN_BOX_HEIGHT} />
-            </div>
-            {sigFault && <div role="alert" style={mkFieldErr(t)}>{sigFault.missing ? tr("Sign before you send.") : sigFault.said}</div>}
-            <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
-            <button type="button" onClick={() => { setSigStrokes([]); setSigPng(null); }} disabled={sigStrokes.length === 0 || submitting} style={{ ...shotBtn, opacity: sigStrokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
-            <div style={{ fontSize: 12, color: t.textSec, marginTop: 10, lineHeight: 1.4, overflowWrap: "anywhere" }}>{tr("Signed as {name}, {date}", { name: [user && user.firstName, user && user.lastName].filter(Boolean).join(" "), date: now().toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" }) })}</div>
-          </div>
-        )}
-
-        <button onClick={submit} disabled={submitting || (!!capture && shotsGoing)} style={{ width: "100%", padding: "14px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: submitting || (capture && shotsGoing) ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>
-          {submitting ? tr("Submitting...") : capture && shotsGoing ? tr("Uploading...") : tr("Submit Inspection")}
-        </button>
-
+        {headRow}
+        {totalCard}
+        {cardsBlock}
+        {wholePhotos}
+        {notesBlock}
+        {signBlock}
+        {submitBtn}
         {indexed && sectionsOpen && <InspectSectionsSheet sections={sections} scoredIds={scoredIds} onPick={goToSection} onClose={() => setSectionsOpen(false)} t={t} />}
       </div>
     );
@@ -16129,6 +17204,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
             </div>
           )}
         </div>
+        {a && a.findings.length > 0 && sent.safety && <div role="heading" aria-level={3} style={{ fontSize: 13, fontWeight: 700, color: t.goldText, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 10, paddingBottom: 6, borderBottom: "2px solid " + GOLD }}>{tr("Site checklist")}</div>}
         {a && a.findings.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
             {a.findings.map((f, i) => (
@@ -16141,6 +17217,24 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
                 {f.dueAt && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4 }}>{tr("Due {when}", { when: requestWhen(f.dueAt) })}</div>}
               </div>
             ))}
+          </div>
+        )}
+        {sent.safety && (
+          <div data-inspect-sent-safety="1" style={{ marginBottom: 16 }}>
+            <div role="heading" aria-level={3} style={{ fontSize: 13, fontWeight: 700, color: t.goldText, fontFamily: FONT_HEAD, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 10, paddingBottom: 6, borderBottom: "2px solid " + GOLD }}>{tr("Safety walk")}</div>
+            {sent.safety.result && <div data-inspect-safety-result="1" style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.4, marginBottom: 10, overflowWrap: "anywhere" }}>{sent.safety.result}</div>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {sent.safety.findings.map((f, i) => (
+                <div key={f.id || i} data-inspect-safety-found={f.id || i} style={{ background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, padding: "14px" }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                    <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{f.label || f.what}{f.label && f.what ? <span style={{ display: "block", fontSize: 12, fontWeight: 400, color: t.textSec, fontFamily: FONT_BODY }}>{f.what}</span> : null}</div>
+                    {f.severity && <span style={trainingChipSt(t, /^[AB]$/i.test(f.severity) ? RED : ORANGE)}>{tr("Severity {s}", { s: f.severity })}</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: t.textSec, marginTop: 6, lineHeight: 1.4, overflowWrap: "anywhere" }}>{f.owner ? tr("Owner: {name}", { name: f.owner }) : tr("No owner yet")}</div>
+                  {f.dueAt && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4 }}>{tr("Due {when}", { when: /^\d{4}-\d{2}-\d{2}$/.test(String(f.dueAt)) ? trainingDay(f.dueAt) : requestWhen(f.dueAt) })}</div>}
+                </div>
+              ))}
+            </div>
           </div>
         )}
         {failed.length > 0 && (
@@ -16258,6 +17352,52 @@ function InspectSectionsSheet({ sections, scoredIds, onPick, onClose, t }) {
             </button>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// A walk's index (Step 313), the sheet Sections opens on an inspection
+// with the safety part: the site checklist with how many of its cards are
+// scored, and on a long one each part of the building; the safety walk
+// with how much is answered and each of its sections; and Sign and send.
+// A tap closes the sheet and goes there.
+function WalkSectionsSheet({ zones, scoredIds, scored, total, safetyCounts, safetySections, onCards, onSafety, onSign, onClose, t }) {
+  const rowSt = { width: "100%", minHeight: TAP, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "4px 12px", padding: "10px 12px", marginTop: 8, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.card, cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY };
+  const nameSt = { fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere", minWidth: 0 };
+  const countSt = { fontSize: 12, color: t.textSec, fontVariantNumeric: "tabular-nums" };
+  const partSt = { ...mkLabel(t), marginTop: 16, marginBottom: 0 };
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 500, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={tr("Sections")} data-walk-sections="1" style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "20px 20px 30px", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 40px)", overflowY: "auto", boxShadow: t.popShadow }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Sections")}</div>
+          <button type="button" onClick={onClose} aria-label={tr("Close")} style={mkTapFrame({ fontSize: 20, color: t.textMut, lineHeight: 1 })}>{tr("x")}</button>
+        </div>
+        <button type="button" data-walk-sections-part="cards" onClick={() => onCards(null)} style={rowSt}>
+          <span style={nameSt}>{tr("Site checklist")}</span>
+          <span style={countSt}>{tr("{scored} of {total} scored", { scored: scored, total: total })}</span>
+        </button>
+        {zones.length > 1 && zones.map((z, i) => (
+          <button key={z.zone + ":" + i} type="button" onClick={() => onCards(z)} style={{ ...rowSt, marginLeft: 12, width: "calc(100% - 12px)" }}>
+            <span style={nameSt}>{z.zone || tr("General")}</span>
+            <span style={countSt}>{tr("{scored} of {total} scored", { scored: z.items.filter(item => !!scoredIds[item.id]).length, total: z.items.length })}</span>
+          </button>
+        ))}
+        <div style={partSt} />
+        <button type="button" data-walk-sections-part="safety" onClick={() => onSafety(null)} style={rowSt}>
+          <span style={nameSt}>{tr("Safety walk")}</span>
+          <span style={countSt}>{tr("{answered} answered, {remaining} to go", { answered: safetyCounts.answered, remaining: safetyCounts.remaining })}</span>
+        </button>
+        {safetySections.length > 1 && safetySections.map((x, i) => (
+          <button key={x.key + ":" + i} type="button" data-walk-sections-safety={x.key} onClick={() => onSafety(x.key)} style={{ ...rowSt, marginLeft: 12, width: "calc(100% - 12px)" }}>
+            <span style={nameSt}>{x.title || tr("Section {n}", { n: i + 1 })}</span>
+          </button>
+        ))}
+        <div style={partSt} />
+        <button type="button" data-walk-sections-part="sign" onClick={onSign} style={rowSt}>
+          <span style={nameSt}>{tr("Sign and send")}</span>
+        </button>
       </div>
     </div>
   );

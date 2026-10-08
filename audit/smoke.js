@@ -152,6 +152,31 @@
 //     from App support and listed in My tickets, Help's drafted ticket
 //     sent from its card, and a PTO request (English at 390, Spanish at
 //     320)
+//   - the second staff app round (Step 321), each part in English at 390
+//     and Spanish at 320: the Library (Step 307), against API Step 305 as
+//     its contract gives it: the folders in order with their counts, a
+//     folder's documents with the language line, a search by a word in
+//     the text opening the document at the section it matched, the
+//     reader with no signature box, See the designed version behind the
+//     token, Help's Open button, and the empty list's line; supply
+//     orders on the phone (Step 311), against API Step 308 as its
+//     contract gives it: a holder's Home card opening the list, one item
+//     approved at a lower quantity and another denied with a note, the
+//     line asking the office for a vendor, Sign with a vendor whose
+//     details show, the purchase order behind the token, Send then
+//     Ordered with its date, the bell's notice opening the request, and
+//     someone without the capability seeing none of it; one inspection
+//     walk (Step 313), against API Step 312 as its contract gives it: both
+//     parts drawn, a Fail with no finding listed as missing with nothing
+//     sent, leaving and coming back with both parts kept, one signature
+//     and one Submit, the result with both parts, and an inspection
+//     without the safety part as before; timed site schedules (Step
+//     316), against API Step 315 as its contract gives it, at an invented
+//     two-shift site with every kind: each block's window drawn, a meal
+//     block with no steps, a full-access block marked, Now and Next at
+//     10:00 AM on a Monday, an overdue critical block, a Wednesday to
+//     Sunday block absent on the Monday, and an anytime block on a
+//     Saturday
 //
 // The checks run in two lanes side by side (Step 290), each check on its
 // own phone and stub. SMOKE_ONLY=<words> runs only the checks whose name
@@ -166,7 +191,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_NOTICE, DRAFT_NOTICE } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_NOTICE, DRAFT_NOTICE, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, ORDER_HOLDER, ORDER_NOTICE, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, EAST_BLOCKS, taskWords } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -277,7 +302,7 @@ async function pickIn(page, scope, id, typed) {
 
 async function open(stubOptions, o) {
   const stub = createStub(stubOptions);
-  const app = await openApp(o.browser, BASE, { stub, language: o.language, textSize: o.textSize || "standard", signedIn: !!o.signedIn, path: o.path, buildStamp: stampOf() });
+  const app = await openApp(o.browser, BASE, { stub, language: o.language, textSize: o.textSize || "standard", signedIn: !!o.signedIn, path: o.path, buildStamp: stampOf(), now: o.now });
   const errors = [];
   app.page.on("pageerror", (e) => errors.push(String(e && e.message || e).split("\n")[0]));
   await app.page.setViewportSize({ width: o.width || 390, height: 780 });
@@ -1707,15 +1732,34 @@ async function supplyLines(browser, language, width) {
 // A PDF opened in a new tab from a tap, read behind the token. A phone
 // shows it in the tab; headless Chromium has no viewer, so the tab hands
 // the blob address over as a download, and either counts.
+// A PDF read behind the token opens in a new tab, which shows the blob
+// or, in a browser with no PDF viewer, downloads it. The tab's download
+// and navigation are listened for in the same turn as its page event,
+// before anything the tab does next can arrive, so a download the tab
+// starts before the click returns is never missed (Step 316: the final
+// head's third run once read a purchase order as not opened).
 async function pdfTab(page, selector) {
-  const [popup] = await Promise.all([page.context().waitForEvent("page", { timeout: 6000 }).catch(() => null), page.click(selector)]);
-  if (!popup) return false;
-  const download = popup.waitForEvent("download", { timeout: 6000 }).then(d => d.url().indexOf("blob:") === 0, () => false);
-  const shown = popup.waitForURL(/^blob:/, { timeout: 6000 }).then(() => true, () => null);
-  const first = await Promise.race([shown, download]);
-  const ok = first === null ? await download : first;
-  await popup.close().catch(() => {});
-  return ok;
+  const context = page.context();
+  const isBlob = (u) => String(u || "").indexOf("blob:") === 0;
+  const opened = new Promise((resolve) => {
+    let popup = null, over = false;
+    const done = (ok) => {
+      if (over) return;
+      over = true; clearTimeout(timer); context.off("page", onPage);
+      if (popup) popup.close().catch(() => {});
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(false), 12000);
+    function onPage(p) {
+      popup = p; context.off("page", onPage);
+      p.on("download", (d) => done(isBlob(d.url())));
+      p.on("framenavigated", (f) => { if (f === p.mainFrame() && isBlob(f.url())) done(true); });
+      if (isBlob(p.url())) done(true);
+    }
+    context.on("page", onPage);
+  });
+  await page.click(selector);
+  return opened;
 }
 // The words of a line before its first placeholder, for a line whose
 // value ends it.
@@ -2096,6 +2140,316 @@ async function unfinishedForms(browser, language, width) {
   await app.context.close();
 }
 
+// --- Step 321, the second staff app round.
+
+// The Library (Step 307), against API Step 305 as its contract gives it
+// and the stub answers it: the folders and their counts, a folder's
+// documents with Also in Spanish (or, on a Spanish screen, In English
+// only), a search by a word in the text opening the document at the
+// section it matched, the reader with no signature box from cover to
+// last page, See the designed version read behind the token, Help's Open
+// button opening the document in the Library, and the empty list's line.
+async function library(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const app = await open({ library: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  const folderNames = ["QMS", "HR", "HS", "FRM"].map(f => LIBRARY_FOLDER_NAMES[f][language === "es" ? 1 : 0]);
+  let folders = false, folder = false, found = false, atSection = false, noSign = false, designed = false, opened = false, empty = false;
+  let wide = 0;
+  if (await waitFor(page, BAR_JS + ".length >= 5") && await openPlace(page, say(language, "Library"))) {
+    // The folders in the contract's order, each with its count.
+    folders = await waitFor(page, (w) => { const b = Array.from(document.querySelectorAll("[data-library-folder]")); return b.map(x => x.getAttribute("data-library-folder")).join(",") === "QMS,HR,HS,FRM" && b.every((x, i) => x.innerText.indexOf(w.names[i]) !== -1) && b[0].innerText.indexOf("2") !== -1; }, { names: folderNames });
+    wide = await sideways(page);
+    if (folders) {
+      await page.click('[data-library-folder="QMS"]');
+      folder = await waitFor(page, (w) => { const r = (c) => document.querySelector('[data-library-doc="' + c + '"]'); const l = (c) => (r(c) && r(c).querySelector("[data-library-language]") ? r(c).querySelector("[data-library-language]").innerText : ""); return document.querySelectorAll("[data-library-doc]").length === 2 && !!r("OCSA-QMS-901") && r("OCSA-QMS-901").innerText.indexOf(w.version) !== -1 && (w.es ? l("OCSA-QMS-901") === "" && l("OCSA-QMS-907") === w.only : l("OCSA-QMS-901") === w.also && l("OCSA-QMS-907") === ""); }, { version: say(language, "Version {n}", { n: "2.0" }), also: say(language, "Also in Spanish"), only: say(language, "In English only"), es: language === "es" });
+    }
+    // A word in the text: the first aid procedure, at its section 3.2.
+    if (folder) {
+      await page.fill("[data-library-search]", LIBRARY_SEARCH_WORD);
+      found = await waitFor(page, (w) => { const r = document.querySelectorAll("[data-library-doc]"); return r.length === 1 && r[0].getAttribute("data-library-doc") === "OCSA-HS-904" && !!r[0].querySelector('[data-library-match="3.2"]') && r[0].innerText.indexOf(w) !== -1; }, say(language, "Section {n}", { n: "3.2" }));
+    }
+    if (found) {
+      await page.click('[data-library-doc="OCSA-HS-904"]');
+      atSection = await waitFor(page, () => { const c = document.querySelector('[data-doc="read"][data-doc-ref="3.2"]'); return !!c && c.innerText.indexOf("eyewash") !== -1; });
+      wide = Math.max(wide, await sideways(page));
+      if (atSection) await clickWord(page, say(language, "Library"));
+    }
+    // The quality manual in the handbook's look: the cover in the
+    // screen's language, its designed version behind the token, and its
+    // last page with no signature box and no Next.
+    if (atSection && await waitFor(page, () => !!document.querySelector("[data-library-search]"))) {
+      // Clearing the search goes back to the folder it was opened from.
+      await page.fill("[data-library-search]", "");
+      if (await waitFor(page, () => !!document.querySelector('[data-library-doc="OCSA-QMS-901"]'))) await page.click('[data-library-doc="OCSA-QMS-901"]');
+      const cover = await waitFor(page, (w) => { const c = document.querySelector('[data-doc="cover"]'); return !!c && c.innerText.indexOf(w) !== -1 && !!c.querySelector('[data-doc-designed="1"]'); }, LIBRARY_DOCS[0].title[language]);
+      designed = cover && await pdfTab(page, '[data-doc="cover"] [data-doc-designed="1"]') && app.stub.state.pdfReads.some(r => r.which === "library:OCSA-QMS-901" && r.token && r.locale === language);
+      if (cover) {
+        await page.click('[data-doc="cover"] [data-doc-contents="1"]');
+        await waitFor(page, () => !!document.querySelector('[data-doc-jump="5"]'));
+        await page.click('[data-doc-jump="5"]');
+        noSign = await waitFor(page, () => { const c = document.querySelector('[data-doc="read"][data-doc-ref="2.2"]'); return !!c && !c.querySelector("canvas") && !c.querySelector("[data-doc-sign]") && !c.querySelector("[data-doc-next]") && !document.querySelector('[data-doc="sign"]'); });
+        wide = Math.max(wide, await sideways(page));
+      }
+    }
+    // Help's answer about what the manual covers, and its Open button.
+    if (await openPlace(page, say(language, "Help"))) {
+      const asked = await askHelp(app, language, language === "es" ? "¿Qué dice OCSA-QMS-901?" : "What is in OCSA-QMS-901?", Object.assign({ answer: "covers" }, language === "es" ? { language: "es" } : {}));
+      const button = asked && await waitFor(page, (w) => { const b = document.querySelector('[data-help-open-doc="OCSA-QMS-901"]'); return !!b && b.innerText.trim() === w; }, say(language, "Open {docCode}", { docCode: "OCSA-QMS-901" }));
+      if (button) {
+        await page.click('[data-help-open-doc="OCSA-QMS-901"]');
+        opened = await waitFor(page, (w) => { const c = document.querySelector('[data-doc="cover"]'); return !!c && c.innerText.indexOf(w) !== -1; }, LIBRARY_DOCS[0].title[language]);
+      }
+    }
+    // The list with nothing in it yet.
+    app.stub.state.libraryEmpty = true;
+    if (opened) { await page.click(".sp-content button"); await pause(page, 150); }
+    await tapBar(page, 0);
+    if (await openPlace(page, say(language, "Library"))) empty = await waitFor(page, (w) => { const e = document.querySelector("[data-library-empty]"); return !!e && e.innerText.indexOf(w) !== -1 && !document.querySelector("[data-library-folder]"); }, say(language, "The library is loading. Check back soon."));
+  }
+  check("The Library: More's Library lists the folders in order with their counts; a folder lists its documents with number, title, version and the language line; a search for a word in the text finds the document with the section it matched and opens it at that section; the quality manual opens on its cover in the screen's language, See the designed version reads its PDF behind the token, and its last page has no signature box and no Next; Help's Open button opens the document in the Library; an empty list says the library is loading; with no sideways scroll" + tag,
+    folders && folder && found && atSection && designed && noSign && opened && empty && wide <= 1 && app.errors.length === 0,
+    !folders ? "the folders did not list in order with their counts" : !folder ? "the folder did not list its two documents with the language line" : !found ? "the search did not find the document at section 3.2" : !atSection ? "the result did not open the reader at section 3.2" : !designed ? "See the designed version did not open the PDF behind the token: " + JSON.stringify(app.stub.state.pdfReads) : !noSign ? "the last page drew a signature box, Sign or Next" : !opened ? "Help's Open button did not open the manual" : !empty ? "the empty list did not say the library is loading" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+  await app.context.close();
+}
+
+// Supply orders on the phone (Step 311), against API Step 308 as its
+// contract gives it and the stub answers it: a holder's Home card opening
+// the list; one item approved at a lower quantity and another denied with
+// a note; with no approved vendor, the line asking the office; Sign with a
+// vendor whose details show; the purchase order behind the token; Send,
+// then Ordered with its date; the bell's notice opening the request; and a
+// person without the capability seeing none of it.
+async function supplyOrders(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const app = await open({ supplyOrders: true, person: ORDER_HOLDER, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  const calls = (route) => app.stub.state.orderCalls.filter(c => c.route === route);
+  let card = false, listed = false, decided = false, noVendor = false, facts = false, signed = false, pdf = false, ordered = false, belled = false;
+  let wide = 0;
+  if (await waitFor(page, BAR_JS + ".length >= 5")) {
+    card = await waitFor(page, (w) => { const c = document.querySelector('[data-supply-orders-card="1"]'); return !!c && c.innerText.indexOf(w) !== -1; }, say(language, "Supply requests to approve ({n})", { n: 1 }));
+    if (card) {
+      await page.click("[data-supply-orders-card]");
+      listed = await waitFor(page, () => { const g = (id) => Array.from(document.querySelectorAll('[data-supply-orders-group="' + id + '"] [data-supply-order]')).map(b => b.getAttribute("data-supply-order")).join(","); return g("waiting") === "so-1,so-4" && g("send") === "so-2" && g("ordered") === "so-3"; });
+      wide = await sideways(page);
+    }
+    if (listed) {
+      await page.click('[data-supply-order="so-1"]');
+      await waitFor(page, () => !!document.querySelector('[data-supply-line-less="so-1-1"]'));
+      await page.click('[data-supply-line-less="so-1-1"]');
+      await page.click('[data-supply-line-approve="so-1-1"]');
+      await waitFor(page, () => !!document.querySelector('[data-supply-line="so-1-1"] [data-supply-line-decision="approved"]'));
+      // No approved vendor yet, for the line that asks the office.
+      app.stub.state.orderVendorsNone = true;
+      await page.fill('[data-supply-line-note="so-1-2"]', "Invented: the closet holds six.");
+      await page.click('[data-supply-line-deny="so-1-2"]');
+      decided = await waitFor(page, (w) => { const a = document.querySelector('[data-supply-line="so-1-1"] [data-supply-line-decision="approved"]'); const n = document.querySelector('[data-supply-line="so-1-2"] [data-supply-line-decision="denied"]'); return !!a && a.innerText.indexOf(w) !== -1 && !!n && document.querySelector('[data-supply-line="so-1-2"]').innerText.indexOf("Invented: the closet holds six.") !== -1; }, say(language, "Approved {n} of {m}", { n: 5, m: 6 }))
+        && calls("decide").length === 2 && JSON.stringify(calls("decide")[0].body.items) === JSON.stringify([{ id: "so-1-1", decision: "approved", approvedQuantity: 5 }]) && JSON.stringify(calls("decide")[1].body.items) === JSON.stringify([{ id: "so-1-2", decision: "denied", note: "Invented: the closet holds six." }]);
+      noVendor = decided && await waitFor(page, (w) => { const e = document.querySelector("[data-supply-vendor-none]"); return !!e && e.innerText.indexOf(w) !== -1 && !document.querySelector("[data-supply-vendor]"); }, say(language, "Ask the office to add the vendor and set it to approved."));
+    }
+    if (noVendor) {
+      // The office approves one: the request opened again lists it.
+      app.stub.state.orderVendorsNone = false;
+      await clickWord(page, say(language, "Approve supplies"));
+      await waitFor(page, () => !!document.querySelector('[data-supply-order="so-1"]'));
+      await page.click('[data-supply-order="so-1"]');
+      if (await waitFor(page, () => !!document.querySelector('[data-supply-vendor] option[value="41"]'))) {
+        await page.selectOption("[data-supply-vendor]", "41");
+        facts = await waitFor(page, () => { const f = document.querySelector('[data-supply-vendor-facts="41"]'); return !!f && f.innerText.indexOf("Pat Example") !== -1 && f.innerText.indexOf("orders@vendor.example.invalid") !== -1 && f.innerText.indexOf("1 Invented Way") !== -1; });
+        wide = Math.max(wide, await sideways(page));
+      }
+    }
+    if (facts) {
+      await sign(page, "[data-supply-signature] canvas");
+      await page.click("[data-supply-sign-go]");
+      signed = await waitFor(page, () => { const p = document.querySelector('[data-supply-po="PO-2026-0008"]'); return !!p && !document.querySelector("[data-supply-sign]"); })
+        && calls("sign").length === 1 && calls("sign")[0].body.vendorId === 41 && calls("sign")[0].body.deliverTo === "10 Invented Street, Exampletown, PA 00000" && /^data:image\/png;base64,/.test(calls("sign")[0].body.signature || "");
+    }
+    if (signed) {
+      pdf = await pdfTab(page, "[data-supply-po-open]") && app.stub.state.pdfReads.some(r => r.which === "po:so-1" && r.token);
+      await page.click("[data-supply-send]");
+      ordered = await waitFor(page, (w) => { const o = document.querySelector("[data-supply-ordered]"); return !!o && o.innerText.indexOf(w) !== -1 && o.innerText.indexOf("orders@vendor.example.invalid") !== -1 && !!document.querySelector("[data-supply-send-again]"); }, sayLead(language, "Ordered {date}, sent to {email}"))
+        && app.stub.state.orderSends.length === 1 && app.stub.state.orderSends[0].to === "orders@vendor.example.invalid";
+      wide = Math.max(wide, await sideways(page));
+    }
+    // The bell's notice about the new request opens it.
+    await tapBar(page, 0);
+    await page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
+    if (await waitFor(page, (w) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.indexOf(w) !== -1), ORDER_NOTICE.title)) {
+      await page.evaluate((w) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.indexOf(w) !== -1); if (b) b.click(); }, ORDER_NOTICE.title);
+      belled = await waitFor(page, () => !!document.querySelector('[data-supply-order="so-1"][data-supply-order-stage]') && !!document.querySelector("[data-supply-line]"));
+    }
+  }
+  const holderErrors = app.errors.slice();
+  await app.context.close();
+
+  // Someone without the capability: no card, no More item, and nothing
+  // decided, signed or sent.
+  const other = await open({ supplyOrders: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  let none = false;
+  if (await waitFor(other.page, BAR_JS + ".length >= 5")) {
+    // The list is read, and, since it says canDecide of none, the
+    // permissions after it.
+    for (let i = 0; i < 60 && !other.stub.state.calls.some(c => c.path === "/api/users/me/permissions"); i += 1) await pause(other.page, 100);
+    const asked = other.stub.state.calls.some(c => c.path === "/api/supplies/requests") && other.stub.state.calls.some(c => c.path === "/api/users/me/permissions");
+    await pause(other.page, 200);
+    const items = await openMore(other.page);
+    await other.page.mouse.click(5, 5);
+    none = asked && items.indexOf(say(language, "Approve supplies")) === -1 && !(await other.page.$("[data-supply-orders-card]")) && other.stub.state.orderCalls.length === 0 && !other.stub.state.calls.some(c => c.path === "/api/vendors");
+  }
+  const otherErrors = other.errors.slice();
+  await other.context.close();
+  check("Supply orders on the phone: a holder's Home card reads 1 to approve and opens the list in its three groups; one item approved at a lower quantity and another denied with a note, each sent once; with no approved vendor the line asks the office; with one, its contact, email and address show under the dropdown; Sign sends the vendor, the site's address and the signature once and shows the purchase order; Open the purchase order reads it behind the token; Send sends it to the vendor's email and reads Ordered with its date; the bell's notice opens the request; someone without the capability sees no card and no Approve supplies; with no sideways scroll" + tag,
+    card && listed && decided && noVendor && facts && signed && pdf && ordered && belled && none && wide <= 1 && holderErrors.length === 0 && otherErrors.length === 0,
+    !card ? "Home showed no card" : !listed ? "the list was not in its three groups" : !decided ? "the decisions did not go as sent: " + JSON.stringify(app.stub.state.orderCalls) : !noVendor ? "no line asking the office for a vendor" : !facts ? "the vendor's details did not show" : !signed ? "Sign did not go as sent: " + JSON.stringify(app.stub.state.orderCalls.filter(c => c.route === "sign").map(c => [c.body.vendorId, c.body.deliverTo])) : !pdf ? "the purchase order did not open behind the token" : !ordered ? "Send did not read Ordered" : !belled ? "the notice did not open the request" : !none ? "someone without the capability saw it" : wide > 1 ? wide + " pixels sideways" : (holderErrors[0] || otherErrors[0]));
+}
+
+// One inspection walk with the safety part in it (Step 313), against API
+// Step 312 as its contract gives it and the stub answers it: both parts
+// drawn, the safety part by the form engine with its first part filled
+// in; a Fail with no finding listed as missing before anything is sent;
+// leaving and coming back with both parts kept; one signature and one
+// Submit carrying both; the result with both parts; and an inspection
+// without the safety part drawn as before.
+async function inspectionWalk(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const app = await open({ inspectionWalk: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  const page = app.page;
+  const w = WALK_WORDS[language];
+  const openWalk = async (name) => {
+    if (!(await openPlace(page, say(language, "Inspect")))) return false;
+    if (!(await waitFor(page, (n) => Array.from(document.querySelectorAll(".sp-content button")).some(b => b.innerText.indexOf(n) !== -1), name))) return false;
+    await page.evaluate((n) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.indexOf(n) !== -1); if (b) b.click(); }, name);
+    return waitFor(page, () => !!document.querySelector("[data-inspect-item]") || !!document.querySelector("[data-inspect-walk]"));
+  };
+  const next = async () => { await page.click("[data-walk-next]"); await pause(page, 250); };
+  const pickIn = async (field, row, label) => page.evaluate((x) => { const cards = Array.from(document.querySelectorAll('[data-walk-field="' + x.field + '"] > div')).filter(d => d.querySelectorAll("button").length >= 2); const scope = x.row === null ? document.querySelector('[data-walk-field="' + x.field + '"]') : cards[x.row]; const b = scope && Array.from(scope.querySelectorAll("button")).find(y => y.innerText.trim() === x.label); if (b) b.click(); return !!b; }, { field, row, label });
+  let both = false, missingFail = false, kept = false, signedOnce = false, result = false, plain = false;
+  let wide = 0;
+  if (await waitFor(page, BAR_JS + ".length >= 5") && await openWalk(INSPECTION_W.template_name)) {
+    // The site checklist, then the safety walk drawn by the form engine
+    // with its first part filled in.
+    const cards = await waitFor(page, (h) => { const p = document.querySelector('[data-inspect-walk="cards"]'); return !!p && p.querySelectorAll("[data-inspect-item]").length === 2 && p.querySelector("[data-walk-part]").innerText.toUpperCase() === h.toUpperCase() && !!p.querySelector("[data-walk-to-safety]") && !p.querySelector("[data-inspect-signature]"); }, say(language, "Site checklist"));
+    await page.evaluate(() => Array.from(document.querySelectorAll("[data-inspect-item] button[aria-pressed]")).forEach(b => b.click()));
+    await pause(page, 200);
+    await page.click("[data-walk-to-safety]");
+    both = cards && await waitFor(page, (x) => { const p = document.querySelector('[data-inspect-walk="safety"] [data-walk-safety="1"]'); const i = p && p.querySelector('[data-walk-field="site"] input'); return !!i && i.value === "North Building" && p.innerText.indexOf(x) !== -1; }, w.s1);
+    wide = await sideways(page);
+    if (both) {
+      await next();
+      for (const [row, label] of [[0, w.pass], [1, w.fail], [2, w.pass]]) { await pickIn("areas", row, label); await pause(page, 120); }
+      await next();
+      await waitFor(page, () => document.querySelectorAll('[data-walk-field="crew"] input[type="text"]').length >= 6);
+      const crew = await page.$$('[data-walk-field="crew"] input[type="text"]');
+      await crew[0].fill("Invented cleaner"); await crew[1].fill("Invented: more gloves."); await crew[3].fill("Invented lead"); await crew[4].fill("Invented: brighter signs.");
+      await next(); await next();
+      await pickIn("result", null, w.recorded); await pause(page, 120);
+      await next();
+      missingFail = await waitFor(page, () => { const m = document.querySelector('[data-inspect-walk="sign"] [data-walk-missing="1"]'); return !!m && !!m.querySelector('[data-walk-missing-safety="findings"]'); }) && app.stub.state.walkSent.length === 0;
+      if (missingFail) { await page.click("[data-inspect-submit]"); await pause(page, 300); missingFail = app.stub.state.walkSent.length === 0; }
+    }
+    // Leaving and coming back: the cards kept on the phone, the safety
+    // answers kept as the draft.
+    if (missingFail) {
+      await page.evaluate((l) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.getAttribute("aria-label") === l); if (b) b.click(); }, say(language, "Back"));
+      await waitFor(page, () => !document.querySelector("[data-inspect-walk]"));
+      if (await openWalk(INSPECTION_W.template_name)) {
+        await page.click("[data-inspect-sections]");
+        kept = await waitFor(page, (x) => { const c = document.querySelector('[data-walk-sections-part="cards"]'); return !!document.querySelector('[data-inspect-walk="sign"]') && !!c && c.innerText.indexOf(x) !== -1 && !!document.querySelector('[data-walk-missing-safety="findings"]') && !document.querySelector('[data-walk-missing-safety="areas"]') && !document.querySelector('[data-walk-missing-safety="crew"]'); }, say(language, "{scored} of {total} scored", { scored: 2, total: 2 }));
+        await page.keyboard.press("Escape");
+        await page.evaluate((l) => { const b = Array.from(document.querySelectorAll("[data-walk-sections] button")).find(x => x.getAttribute("aria-label") === l); if (b) b.click(); }, say(language, "Close"));
+        await pause(page, 200);
+      }
+    }
+    // The finding the Fail needs, then one signature and one Submit.
+    if (kept) {
+      await page.click('[data-walk-missing-safety="findings"]');
+      await waitFor(page, () => !!document.querySelector('[data-walk-safety="4"]'));
+      await page.evaluate((l) => { const b = Array.from(document.querySelectorAll('[data-walk-field="findings"] button')).find(x => x.innerText.trim() === l); if (b) b.click(); }, say(language, "Add row"));
+      await waitFor(page, () => document.querySelectorAll('[data-walk-field="findings"] input').length >= 3);
+      const f = await page.$$('[data-walk-field="findings"] input');
+      await f[0].fill("Invented: an exit sign is out."); await f[1].fill("Invented Owner"); await f[2].fill("2026-10-09");
+      await pickIn("findings", null, "B"); await pause(page, 120);
+      await next(); await next();
+      if (await waitFor(page, () => !!document.querySelector('[data-inspect-walk="sign"]') && !document.querySelector("[data-walk-missing]"))) {
+        await sign(page, "[data-inspect-signature] canvas");
+        await page.click("[data-inspect-submit]");
+        result = await waitFor(page, (x) => { const r = document.querySelector("[data-inspect-sent]"); const sf = r && r.querySelector("[data-inspect-sent-safety]"); return !!sf && !!r.querySelector('[data-inspect-safety-result="1"]') && sf.innerText.indexOf(x.result) !== -1 && sf.innerText.indexOf("Invented: an exit sign is out.") !== -1 && sf.innerText.indexOf(x.sev) !== -1 && r.innerText.indexOf(x.band) !== -1; }, { result: w.recorded, sev: say(language, "Severity {s}", { s: "B" }), band: say(language, "Meets the standard.") });
+        const sent = app.stub.state.walkSent;
+        signedOnce = sent.length === 1 && /^data:image\/png;base64,/.test(sent[0].signature || "") && !!sent[0].safety && sent[0].safety.responseId === "draft-safety" && Array.isArray(sent[0].safety.answers.findings) && sent[0].safety.answers.findings.length === 1 && sent[0].scores.length === 2 && !Object.prototype.hasOwnProperty.call(sent[0].safety.answers, "inspectedBy");
+        wide = Math.max(wide, await sideways(page));
+      }
+    }
+    // An inspection without the safety part, as before.
+    if (result) {
+      await tapWord(page, say(language, "Done"));
+      if (await openWalk(INSPECTION_PLAIN.template_name)) plain = await waitFor(page, () => !document.querySelector("[data-inspect-walk]") && !!document.querySelector("[data-inspect-item]") && !!document.querySelector("[data-inspect-signature]") && !!document.querySelector("[data-inspect-submit]") && !document.querySelector("[data-walk-to-safety]"));
+    }
+  }
+  check("One inspection walk: the inspection opens on the site checklist, and the safety walk is drawn by the form engine with its first part filled in; a Fail with no finding is listed as missing and nothing is sent; leaving and coming back keeps the scored cards and the safety answers; one signature and one Submit carry both parts, the sign-off left to the signature; the result shows the band, the safety result and its finding; an inspection without the safety part reads as before; with no sideways scroll" + tag,
+    both && missingFail && kept && signedOnce && result && plain && wide <= 1 && app.errors.length === 0,
+    !both ? "the two parts were not drawn" : !missingFail ? "the Fail with no finding was not listed, or something was sent" : !kept ? "coming back did not keep both parts" : !result ? "the result did not show both parts" : !signedOnce ? "the send was not one, with both parts and one signature: " + JSON.stringify(app.stub.state.walkSent.map(b => [!!b.signature, b.safety && b.safety.responseId])) : !plain ? "the inspection without the safety part was not drawn as before" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+  await app.context.close();
+}
+
+// Timed site schedules (Step 316): East Building, the stub's invented
+// two-shift site whose blocks carry Step 315's window, kind and days, on
+// First shift. At 10:00 AM on Monday, October 5, 2026, in New York, the
+// kitchen floor (9:30 to 11:00, critical) is Now and the sleeping area
+// (10:30, empty with full access) is Next, ahead of the rest; the dining
+// room reset (8:00 to 9:00, critical) is past its end with a step left;
+// breakfast and lunch are residents' meals holding no step; check-in and
+// check-out read as the shift's start and end; the laundry room, Wednesday
+// to Sunday, is absent. At 10:00 AM on Saturday, October 3, the laundry
+// room is there, and so is the stairway maintenance, any free time on
+// Saturday, with no window and its weekly step.
+const EAST_MONDAY = "2026-10-05T14:00:00Z";
+const EAST_SATURDAY = "2026-10-03T14:00:00Z";
+async function timedSchedule(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const blocksOf = () => Array.from(document.querySelectorAll("[data-block]")).map((b) => {
+    const box = b.parentElement;
+    const tagEl = b.querySelector("[data-block-tag]");
+    return { key: b.getAttribute("data-block"), kind: b.getAttribute("data-block-kind"), text: b.innerText.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim(), tag: tagEl ? tagEl.innerText.trim() : null, now: b.querySelector("[data-block-now]") ? b.querySelector("[data-block-now]").innerText.trim() : null, next: b.querySelector("[data-block-next]") ? b.querySelector("[data-block-next]").innerText.trim() : null, overdue: b.querySelector("[data-block-overdue]") ? b.querySelector("[data-block-overdue]").innerText.trim() : null, meal: box.querySelector("[data-block-meal]") ? box.querySelector("[data-block-meal]").innerText.trim() : null, rows: box.children.length - 1 - (box.querySelector("[data-block-meal]") ? 1 : 0), box: box.innerText };
+  });
+  const day = async (now) => {
+    const app = await open({ site: "site-east", now: now, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width, now: now });
+    await waitFor(app.page, BAR_JS + ".length >= 5");
+    await tapBar(app.page, 2);
+    const drawn = await waitFor(app.page, () => document.querySelectorAll("[data-block]").length >= 5);
+    const blocks = drawn ? await app.page.evaluate("(" + blocksOf.toString() + ")()") : [];
+    const wide = await sideways(app.page);
+    const text = await contentText(app.page);
+    return { app, blocks, wide, text };
+  };
+  const find = (list, key) => list.find(b => b.key === key) || null;
+  const to = say(language, "{start} to {end}", { start: "\u0001", end: "\u0002" });
+  const between = to.split("\u0001")[1].split("\u0002")[0].trim();
+  const windowRe = (from, until) => new RegExp(from.replace(":", "\\:") + "\\s*\\S*\\s*\\S*\\s+" + between + "\\s+" + until.replace(":", "\\:"));
+  const mon = await day(EAST_MONDAY);
+  const m = mon.blocks;
+  const kitchen = find(m, "Kitchen floor"), sleeping = find(m, "Sleeping area"), dining = find(m, "Dining room reset"), breakfast = find(m, "Breakfast"), lunch = find(m, "Lunch"), checkIn = find(m, "Check in"), checkOut = find(m, "Check out");
+  const windows = !!kitchen && windowRe("9:30", "11:00").test(kitchen.text) && !!sleeping && windowRe("10:30", "12:00").test(sleeping.text) && !!checkOut && windowRe("3:15", "3:30").test(checkOut.text);
+  const meals = [breakfast, lunch].every(b => !!b && b.kind === "meal" && b.tag === say(language, "Residents' meal") && b.meal === say(language, "The space is in use. No steps in this time.") && b.rows === 0);
+  const fullAccess = !!sleeping && sleeping.kind === "full_access" && sleeping.tag === say(language, "Empty, full access");
+  const nowNext = m.length > 1 && m[0] === kitchen && kitchen.now === say(language, "Now") && kitchen.tag === say(language, "Critical") && !kitchen.overdue && m[1] === sleeping && sleeping.next === say(language, "Next") && m.filter(b => b.now).length === 1 && m.filter(b => b.next).length === 1;
+  const overdue = !!dining && dining.kind === "critical" && dining.overdue === say(language, "Overdue") && dining.tag === say(language, "Critical");
+  const ends = !!checkIn && checkIn.tag === say(language, "Start of shift") && !!checkOut && checkOut.tag === say(language, "End of shift");
+  const mondayGone = !find(m, "Laundry room") && !find(m, "Stairway maintenance") && mon.text.indexOf(taskWords("e-9", language).label) === -1 && mon.text.indexOf(taskWords("e-11", language).label) === -1;
+  const monErrors = mon.app.errors.slice();
+  await mon.app.context.close();
+  const sat = await day(EAST_SATURDAY);
+  const stairs = find(sat.blocks, "Stairway maintenance"), laundry = find(sat.blocks, "Laundry room");
+  const saturday = !!stairs && stairs.kind === "anytime" && stairs.tag === say(language, "When there is free time") && !/\d:\d\d/.test(stairs.text) && !stairs.now && !stairs.next && stairs.box.indexOf(taskWords("e-11", language).label) !== -1 && !!laundry && laundry.kind === "full_access" && laundry.box.indexOf(taskWords("e-9", language).label) !== -1;
+  const errors = monErrors.concat(sat.app.errors);
+  const wide = Math.max(mon.wide, sat.wide);
+  await sat.app.context.close();
+  check("Timed site schedules: each block's window drawn, a meal block with no steps, a full-access block marked, Now and Next first at a fixed time, an overdue critical block, check-in and check-out as the shift's start and end, a Wednesday to Sunday block absent on a Monday, and an anytime block on a Saturday, each kind in words, with no sideways scroll" + tag,
+    windows && meals && fullAccess && nowNext && overdue && ends && mondayGone && saturday && wide <= 1 && errors.length === 0,
+    !windows ? "the windows read " + JSON.stringify([kitchen, sleeping, checkOut].map(b => b && b.text)) : !meals ? "the meals read " + JSON.stringify([breakfast, lunch].map(b => b && [b.tag, b.meal, b.rows])) : !fullAccess ? "the full-access block read " + JSON.stringify(sleeping && sleeping.text) : !nowNext ? "the order was " + JSON.stringify(m.map(b => b.key + (b.now ? " now" : "") + (b.next ? " next" : ""))) : !overdue ? "the dining room reset read " + JSON.stringify(dining && dining.text) : !ends ? "check-in and check-out read " + JSON.stringify([checkIn, checkOut].map(b => b && b.text)) : !mondayGone ? "the laundry room or the stairways showed on the Monday" : !saturday ? "on the Saturday the stairways read " + JSON.stringify(stairs && stairs.text) + " and the laundry room " + JSON.stringify(laundry && laundry.text) : wide > 1 ? wide + " pixels sideways" : errors[0]);
+}
+
 // The Largest text size on a narrow phone: no control cut off or covered.
 async function largest(browser) {
   const app = await open({ accountPreferences: { language: "en", textSize: "largest" } }, { browser, language: "en", textSize: "largest", signedIn: true, width: 360 });
@@ -2140,6 +2494,11 @@ async function largest(browser) {
       for (const language of ["en", "es"]) await guard("touchpoint chips (" + language + ")", () => touchpoints(browser, language));
       await guard("the handbook reader (en)", () => handbook(browser, "en", 390));
       await guard("the handbook reader (es)", () => handbook(browser, "es", 320));
+      await guard("the Library (en)", () => library(browser, "en", 390));
+      await guard("the Library (es)", () => library(browser, "es", 320));
+      await guard("one inspection walk (en)", () => inspectionWalk(browser, "en", 390));
+      await guard("one inspection walk (es)", () => inspectionWalk(browser, "es", 320));
+      await guard("timed site schedules (en)", () => timedSchedule(browser, "en", 390));
     };
     const laneB = async () => {
       for (const language of ["en", "es"]) await guard("the request page (" + language + ")", () => requestPage(browser, language));
@@ -2164,6 +2523,9 @@ async function largest(browser) {
       await guard("App support (es)", () => appSupport(browser, "es", 320));
       await guard("inspections on the schedule (en)", () => scheduleInspections(browser, "en", 390));
       await guard("inspections on the schedule (es)", () => scheduleInspections(browser, "es", 320));
+      await guard("supply orders on the phone (en)", () => supplyOrders(browser, "en", 390));
+      await guard("supply orders on the phone (es)", () => supplyOrders(browser, "es", 320));
+      await guard("timed site schedules (es)", () => timedSchedule(browser, "es", 320));
     };
     await Promise.all([laneA(), laneB()]);
   } finally {

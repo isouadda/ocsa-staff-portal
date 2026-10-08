@@ -79,8 +79,39 @@ const lookupsIn = (lang) => LOOKUPS.map(c => Object.assign({}, c, { values: c.va
 // not show today. Every row carries touchpoint (Step 238) and critical
 // (Step 247), false unless the item says otherwise; the API stores
 // critical only on a touchpoint.
+// Step 316: East Building's shifts and every block in them, as Step 315
+// stores them: the start, the end, the kind and the days, and the order.
+// First shift runs 7:00 AM to 3:30 PM and Second shift 2:00 PM to 10:00
+// PM. At 10:00 AM on a Monday the kitchen floor is Now, the sleeping area
+// is Next, the dining room reset is past with a step left, the laundry
+// room (Wednesday to Sunday) is absent, and the stairways (any free time
+// on Saturday) are too. Every name here is invented.
+const EAST_BLOCKS = [
+  { shift: "First shift", label: "Check in", time: "07:00:00", end: "07:15:00", kind: "check_in", order: 1 },
+  { shift: "First shift", label: "Lobby opening", time: "07:15:00", end: "08:00:00", kind: "work", order: 2 },
+  { shift: "First shift", label: "Dining room reset", time: "08:00:00", end: "09:00:00", kind: "critical", order: 3 },
+  { shift: "First shift", label: "Breakfast", time: "09:00:00", end: "09:30:00", kind: "meal", order: 4 },
+  { shift: "First shift", label: "Kitchen floor", time: "09:30:00", end: "11:00:00", kind: "critical", order: 5 },
+  { shift: "First shift", label: "Sleeping area", time: "10:30:00", end: "12:00:00", kind: "full_access", order: 6 },
+  { shift: "First shift", label: "Laundry room", time: "12:00:00", end: "13:00:00", kind: "full_access", days: "wed,thu,fri,sat,sun", order: 7 },
+  { shift: "First shift", label: "Lunch", time: "12:00:00", end: "13:00:00", kind: "meal", order: 8 },
+  { shift: "First shift", label: "Restroom round", time: "13:00:00", end: "14:30:00", kind: "work", order: 9 },
+  { shift: "First shift", label: "Stairway maintenance", time: null, end: null, kind: "anytime", days: "sat", order: 10 },
+  { shift: "First shift", label: "Check out", time: "15:15:00", end: "15:30:00", kind: "check_out", order: 11 },
+  { shift: "Second shift", label: "Check in", time: "14:00:00", end: "14:15:00", kind: "check_in", order: 1 },
+  { shift: "Second shift", label: "Evening round", time: "14:15:00", end: "16:00:00", kind: "work", order: 2 },
+  { shift: "Second shift", label: "Dinner", time: "17:00:00", end: "18:00:00", kind: "meal", order: 3 },
+  { shift: "Second shift", label: "Dining room reset", time: "18:00:00", end: "19:00:00", kind: "critical", order: 4 },
+  { shift: "Second shift", label: "Check out", time: "21:45:00", end: "22:00:00", kind: "check_out", order: 5 },
+];
+const SITE_BLOCKS = { "site-east": EAST_BLOCKS };
 const TASK_ROW = { building_name: null, floor_number: null, zone: null, task_type: "standard", shift_label: null, block_label: null, anchor_time: null, block_sort_order: null, cims_category: "SD", period: "today", every: "daily", touchpoint: false, critical: false };
 const taskRow = (o) => Object.assign({}, TASK_ROW, o);
+// A row of East Building's, carrying its block's time, end, kind and days.
+const eastRow = (id, label, zone, shift, block, more) => {
+  const b = EAST_BLOCKS.find(x => x.shift === shift && x.label === block);
+  return taskRow(Object.assign({ id: id, label: label, zone: zone, shift_label: shift, block_label: block, anchor_time: b.time, block_sort_order: b.order, end_time: b.end, kind: b.kind, block_days_of_week: b.days || null }, more || {}));
+};
 const SITE_TASKS = {
   // Some people here are linked to particular items and most are not.
   // The open shift puts this person on Main Hall's second floor; the rest
@@ -146,6 +177,27 @@ const SITE_TASKS = {
     taskRow({ id: "w-13", label: "Wipe the air vents", zone: "Office", shift_label: "Night shift", block_label: "Deep clean", block_sort_order: 10, period: "quarter" }),
     taskRow({ id: "w-3", label: "Empty the office bins", zone: "Office", shift_label: "Night shift", block_label: "Office sweep", anchor_time: "21:00:00", block_sort_order: 7 }),
   ],
+  // Step 316: an invented two-shift site whose blocks carry Step 315's
+  // window, kind and days, every kind among them (see EAST_BLOCKS below).
+  // Each row carries its block's end_time and kind, and the block's days
+  // as block_days_of_week, beside the task's own. Blocks that hold no
+  // step, the meals, check-in and check-out, come only on the session's
+  // shifts. The stairway block's step is weekly work, counted once a week.
+  "site-east": [
+    eastRow("e-6", "Mop the kitchen floor", "Kitchen", "First shift", "Kitchen floor"),
+    eastRow("e-1", "Wipe the lobby glass", "Lobby", "First shift", "Lobby opening"),
+    eastRow("e-12", "Wipe the hallway rails", "Hallway", "Second shift", "Evening round"),
+    eastRow("e-3", "Sanitize the dining tables", "Dining room", "First shift", "Dining room reset"),
+    eastRow("e-9", "Clean the laundry lint traps", "Laundry room", "First shift", "Laundry room"),
+    eastRow("e-7", "Vacuum the sleeping area", "Sleeping area", "First shift", "Sleeping area"),
+    eastRow("e-2", "Empty the lobby bins", "Lobby", "First shift", "Lobby opening"),
+    eastRow("e-11", "Sweep the stairways", "Stairway", "First shift", "Stairway maintenance", { period: "week" }),
+    eastRow("e-4", "Wipe the dining chairs", "Dining room", "First shift", "Dining room reset"),
+    eastRow("e-10", "Refill the restroom soap", "Restroom", "First shift", "Restroom round"),
+    eastRow("e-5", "Scrub the kitchen floor drains", "Kitchen", "First shift", "Kitchen floor"),
+    eastRow("e-8", "Wipe the bed frames", "Sleeping area", "First shift", "Sleeping area"),
+    eastRow("e-13", "Sanitize the dining tables", "Dining room", "Second shift", "Dining room reset"),
+  ],
 };
 // The order a person on the morning shift reads South Building's list in,
 // written out by hand: the shift, each block under it, each item under its
@@ -160,12 +212,13 @@ const OPEN_SHIFT = {
   "site-north": { siteId: "site-north", siteName: "North Building", buildingName: "Main Hall", floorNumber: "2" },
   "site-south": { siteId: "site-south", siteName: "South Building", buildingName: null, floorNumber: null },
   "site-west": { siteId: "site-west", siteName: "West Building", buildingName: null, floorNumber: null },
+  "site-east": { siteId: "site-east", siteName: "East Building", buildingName: null, floorNumber: null },
 };
 // The shift an open session carries when a case says nothing. North
 // Building has no shifts. The session at South Building was started on
 // the morning shift. The one at West Building carries none yet, which is
 // what the screen asks about.
-const SESSION_SHIFT = { "site-north": null, "site-south": "Morning", "site-west": null };
+const SESSION_SHIFT = { "site-north": null, "site-south": "Morning", "site-west": null, "site-east": "First shift" };
 // The person a case signs in as is linked to six items at North
 // Building, one of them with no building or floor. Nobody else is.
 const LINKS = { "u-one": ["task-1", "task-2", "task-3", "task-4", "task-5", "task-8"] };
@@ -173,7 +226,7 @@ const LINKS = { "u-one": ["task-1", "task-2", "task-3", "task-4", "task-5", "tas
 // { label, description, zone }, in the language the request asks for.
 // The stub sends them on these two and leaves them off the rest, so a
 // screen is seen drawing both.
-const DISPLAYED = new Set(["task-1", "task-8"]);
+const DISPLAYED = new Set(["task-1", "task-8"].concat(SITE_TASKS["site-east"].map(r => r.id)));
 const inLanguage = (en, lang) => (en && lang === "es" && TWIN_ES.has(en) ? TWIN_ES.get(en) : en);
 const displayOf = (row, lang) => ({ label: inLanguage(row.label, lang), description: row.description ? inLanguage(row.description, lang) : null, zone: row.zone ? inLanguage(row.zone, lang) : null });
 // An item's words as a screen in one language should draw them.
@@ -189,6 +242,10 @@ const FIRST_NAMES = { "u-one": "Alex", "u-two": "Sam", "u-three": "Robin" };
 // stub's clock. The rest are at West Building on the days they name, on
 // the company's clock: Monday September 28, Tuesday September 29,
 // Wednesday September 30, which is yesterday, and September 3.
+const EAST_COMPLETIONS = [
+  { taskId: "e-1", userId: "u-three" },
+  { taskId: "e-3", userId: "u-two" },
+];
 const COMPLETIONS = [
   { taskId: "task-1", userId: "u-one" },
   { taskId: "task-2", userId: "u-three" },
@@ -229,6 +286,10 @@ const zoneParts = (ms) => {
 };
 // The checklist day an instant falls on, counted in days since 1970.
 const checklistDay = (ms) => { const p = zoneParts(ms - DAY_STARTS_HOUR * 3600 * 1000); return Math.round(Date.UTC(p.year, p.month - 1, p.day) / DAY); };
+// Whether a block's days, 'wed,thu' form, take in a checklist day. A
+// block with none runs every day (Step 315).
+const WEEK_DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const blockDayHolds = (days, day) => !days || String(days).split(",").map(x => x.trim()).indexOf(WEEK_DAYS[new Date(day * DAY).getUTCDay()]) !== -1;
 // A day's period, as a number that is the same for every day in it.
 // Weeks start on Monday; every two weeks is counted from a Monday; the
 // seasons are the three month ones, winter taking December.
@@ -251,11 +312,21 @@ const clockOf = (s) => { const x = ((s % 86400) + 86400) % 86400; return [Math.f
 // and ends at the last; a shift with no timed block has none. The shift
 // suggested is the one whose window holds the session's start, or opens
 // next after it, and none when no shift has a time.
-function shiftsFor(siteId, startMs) {
+function shiftsFor(siteId, startMs, lang) {
   const rows = SITE_TASKS[siteId] || [];
   const labels = Array.from(new Set(rows.map(r => r.shift_label).filter(Boolean))).sort();
   if (labels.length < 2) return [];
-  const list = labels.map((label) => {
+  // Step 315: a site whose blocks carry a window answers every block of
+  // each shift, the ones holding no step among them, with its end, kind
+  // and days, and its own words in the language asked. Its hours open an
+  // hour before the first block and end at the last block's end.
+  const table = SITE_BLOCKS[siteId];
+  const list = table ? labels.map((label) => {
+    const blocks = table.filter(b => b.shift === label).map(b => ({ label: b.label, displayLabel: inLanguage(b.label, lang), time: b.time, order: b.order, endTime: b.end, kind: b.kind, daysOfWeek: b.days || null }));
+    const timed = blocks.filter(b => b.time !== null);
+    const last = timed.reduce((m, b) => (secondsOf(b.endTime || b.time) > secondsOf(m) ? b.endTime || b.time : m), timed[0].time);
+    return { label: label, displayLabel: inLanguage(label, lang), suggested: false, window: { opensAt: clockOf(secondsOf(timed[0].time) - 3600), startsAt: timed[0].time, endsAt: last, crossesMidnight: false }, blocks: blocks };
+  }) : labels.map((label) => {
     const blocks = [];
     rows.filter(r => r.shift_label === label && r.block_label).forEach((r) => {
       let b = blocks.find(x => x.label === r.block_label && x.order === r.block_sort_order);
@@ -435,6 +506,44 @@ const SUPPLY_REQ_SEED = () => [
     ] },
 ];
 const SUPPLY_TYPES = ["refill", "damage_report", "new_gear", "new_supply"];
+// Supply orders (Step 311), as API Step 308's contract gives them, behind
+// supplyOrders. The person who holds approve_supplies here is a custodian
+// by role, since the capability, not the role, decides (contract 1.7).
+// Every request, vendor and address invented: one waiting for a decision,
+// the holder's own, one signed and not sent, and one ordered.
+const ORDER_HOLDER = { id: "u-holder", firstName: "Drew", lastName: "Example", role: "custodian", badgeNumber: "4831", phone: "0000000011", email: "holder@example.invalid", approveSupplies: true };
+const ORDER_SITE_ADDRESS = { "site-north": "10 Invented Street, Exampletown, PA 00000", "site-south": "20 Invented Avenue, Exampletown, PA 00000" };
+const ORDER_VENDORS = [
+  { id: 41, name: "Invented Supply Co.", contact_name: "Pat Example", contact_phone: "0000000041", contact_email: "orders@vendor.example.invalid", address_line1: "1 Invented Way", city: "Exampletown", state: "PA", zip_code: "00000", approval_status: "approved", is_active: true },
+  { id: 42, name: "Invented Paper House", contact_name: "Lee Example", contact_phone: "0000000042", contact_email: null, address_line1: "2 Invented Road", city: "Exampletown", state: "PA", zip_code: "00000", approval_status: "approved", is_active: true },
+  { id: 43, name: "Invented Vendor Under Review", contact_name: "Kim Example", contact_phone: "0000000043", contact_email: "review@vendor.example.invalid", address_line1: "3 Invented Lane", city: "Exampletown", state: "PA", zip_code: "00000", approval_status: "pending", is_active: true },
+];
+const orderVendorOf = (v) => (v ? { id: v.id, name: v.name, contactName: v.contact_name, contactPhone: v.contact_phone, contactEmail: v.contact_email, address: [v.address_line1, v.city + ", " + v.state + " " + v.zip_code].join(", ") } : null);
+const ORDER_SEED = () => [
+  { id: "so-1", requested_by: SECOND_PERSON.id, requested_by_name: "Sam Second", site_id: "site-north", site_name: "North Building", request_type: "refill", description: "Invented: the second floor closet is nearly out.", urgency: "urgent", status: "pending", created_at: "2026-10-01T19:00:00Z",
+    items: [supplyLine("so-1-1", SUPPLY_CATALOG[2], 6), supplyLine("so-1-2", SUPPLY_CATALOG[3], 3, { note: "Invented: the blue bottles." })] },
+  { id: "so-4", requested_by: ORDER_HOLDER.id, requested_by_name: "Drew Example", site_id: "site-south", site_name: "South Building", request_type: "refill", description: null, urgency: "normal", status: "pending", created_at: "2026-10-01T17:30:00Z",
+    items: [supplyLine("so-4-1", SUPPLY_CATALOG[1], 2)] },
+  { id: "so-2", requested_by: SECOND_PERSON.id, requested_by_name: "Sam Second", site_id: "site-south", site_name: "South Building", request_type: "refill", description: null, urgency: "normal", status: "approved", created_at: "2026-09-30T14:00:00Z",
+    items: [supplyLine("so-2-1", SUPPLY_CATALOG[0], 8, { decision: "approved", approvedQuantity: 8, decidedAt: "2026-09-30T18:00:00Z", decidedBy: { name: "Drew Example" } })],
+    signed: { by: ORDER_HOLDER.id, at: "2026-09-30T18:05:00Z", vendorId: 41, deliverTo: ORDER_SITE_ADDRESS["site-south"], po: "PO-2026-0007" } },
+  { id: "so-3", requested_by: PERSON.id, requested_by_name: "Alex Tester", site_id: "site-north", site_name: "North Building", request_type: "refill", description: null, urgency: "normal", status: "approved", created_at: "2026-09-27T14:00:00Z",
+    items: [supplyLine("so-3-1", SUPPLY_CATALOG[1], 4, { decision: "approved", approvedQuantity: 4, decidedAt: "2026-09-27T18:00:00Z", decidedBy: { name: "Drew Example" } })],
+    signed: { by: ORDER_HOLDER.id, at: "2026-09-27T18:05:00Z", vendorId: 41, deliverTo: ORDER_SITE_ADDRESS["site-north"], po: "PO-2026-0006" },
+    ordered: { at: "2026-09-28T13:00:00Z", by: ORDER_HOLDER.id, to: "orders@vendor.example.invalid" } },
+];
+const ORDER_NOTICE = { id: "n-supply", subjectType: "supply_request", subjectId: "so-1", title: "New supply request at North Building", body: "Sam Second asked for 2 items.", link: null, createdAt: "2026-10-01T19:00:05.000Z", readAt: null };
+// The refusals the contract gives the routes (section 1), each in both
+// languages, keyed the way the API keys them.
+const ORDER_REFUSALS = {
+  "supplies.cannotDecide": { status: 403, en: "Only the people who approve supply requests can do this.", es: "Solo las personas que aprueban las solicitudes de suministros pueden hacer esto." },
+  "supplies.ownRequest": { status: 403, en: "You cannot decide or sign your own request.", es: "No puede decidir ni firmar su propia solicitud." },
+  "supplies.notReadyToSign": { status: 409, en: "Decide every item, and approve at least one, before signing.", es: "Decida cada art\u00edculo, y apruebe al menos uno, antes de firmar." },
+  "supplies.badDetails": { status: 400, en: "Check the details and try again.", es: "Revise los datos e intente de nuevo." },
+  "supplies.notSigned": { status: 409, en: "Sign the order before sending it.", es: "Firme el pedido antes de enviarlo." },
+  "supplies.noAddress": { status: 400, en: "There is no email address to send the order to.", es: "No hay un correo al cual enviar el pedido." },
+  "supplies.requestNotFound": { status: 404, en: "Supply request not found", es: "No se encontr\u00f3 la solicitud de suministros" },
+};
 
 // The warning's document, served at the API's own path behind the token
 // (Step 270 as built): a one-page PDF with one line, invented.
@@ -568,6 +677,73 @@ function docToSign(state, loc) {
 // switch. The contact is a setting, invented here; the person's one
 // ticket from before, which the office is working on with a note; the
 // kinds a ticket takes; and the refusal the API keys by field.
+// The Library (Step 307), as API Step 305's contract gives GET
+// /api/library: invented documents in four folders, numbered past any
+// real one, each folder's name in the request's language. The quality
+// manual has a Spanish edition, Parts (so it reads in the handbook's
+// look) and a PDF; the first aid procedure has neither and reads in the
+// plain look, and the word "eyewash" is in its section 3.2 alone, so a
+// search for it finds the document by its text.
+const LIBRARY_FOLDER_NAMES = { QMS: ["Quality", "Calidad"], HS: ["Health and Safety", "Salud y seguridad"], HR: ["Human Resources", "Recursos humanos"], FRM: ["Forms", "Formularios"] };
+const LIBRARY_DOCS = [
+  { docCode: "OCSA-QMS-901", version: "2.0", locales: ["en", "es"], hasPdf: true,
+    title: { en: "Invented quality manual", es: "Manual de calidad inventado" },
+    parts: { en: [{ ref: "1", title: "Purpose" }, { ref: "2", title: "How work is checked" }], es: [{ ref: "1", title: "Propósito" }, { ref: "2", title: "Cómo se revisa el trabajo" }] },
+    sections: {
+      en: [
+        { ref: "1", title: "Purpose", content: "This invented manual says how work is checked at every site." },
+        { ref: "1.1", title: "Scope", content: "It covers every invented site and every shift." },
+        { ref: "2", title: "How work is checked", content: "A supervisor walks each site once a month." },
+        { ref: "2.1", title: "Walks", content: "Each walk is scored card by card.\nNotes go on the card." },
+        { ref: "2.2", title: "Records", content: "Records are kept for three invented years." },
+      ],
+      es: [
+        { ref: "1", title: "Propósito", content: "Este manual inventado dice cómo se revisa el trabajo en cada sitio." },
+        { ref: "1.1", title: "Alcance", content: "Cubre cada sitio inventado y cada turno." },
+        { ref: "2", title: "Cómo se revisa el trabajo", content: "Un supervisor recorre cada sitio una vez al mes." },
+        { ref: "2.1", title: "Recorridos", content: "Cada recorrido se califica tarjeta por tarjeta.\nLas notas van en la tarjeta." },
+        { ref: "2.2", title: "Registros", content: "Los registros se guardan tres años inventados." },
+      ],
+    } },
+  { docCode: "OCSA-QMS-907", version: "3.0", locales: ["en"], hasPdf: false, title: { en: "Invented site file guide" }, parts: { en: [] },
+    sections: { en: [{ ref: "1", title: "Purpose", content: "This invented guide says what goes in a site file." }, { ref: "2", title: "What goes in it", content: "The schedule, the contacts and the keys list." }] } },
+  { docCode: "OCSA-HR-905", version: "1.0", locales: ["en"], hasPdf: false, title: { en: "Invented uniform policy" }, parts: { en: [] },
+    sections: { en: [{ ref: "1", title: "Purpose", content: "This invented policy says what to wear on shift." }] } },
+  { docCode: "OCSA-HS-904", version: "1.1", locales: ["en"], hasPdf: false, title: { en: "Invented first aid procedure" }, parts: { en: [] },
+    sections: { en: [
+      { ref: "1", title: "Purpose", content: "This invented procedure says what to do when someone is hurt." },
+      { ref: "2", title: "Kits", content: "Every closet has a first aid kit." },
+      { ref: "3", title: "Stations", content: "Every site has stations." },
+      { ref: "3.1", title: "Where they are", content: "Near each closet." },
+      { ref: "3.2", title: "Stations to check", content: "Flush each eyewash for three minutes every week." },
+      { ref: "4", title: "Records", content: "Write each check on the log." },
+    ] } },
+  { docCode: "OCSA-FRM-906", version: "1.0", locales: ["en"], hasPdf: false, title: { en: "Invented supply request form" }, parts: { en: [] },
+    sections: { en: [{ ref: "1", title: "Purpose", content: "This invented form asks for supplies." }] } },
+];
+const LIBRARY_SEARCH_WORD = "eyewash";
+const LIBRARY_PDF = pdfWith("Invented quality manual");
+// Supply orders' purchase order (Step 311), read behind the token.
+const ORDER_PDF = pdfWith("Invented purchase order");
+const libraryIn = (x, k, lang) => (x[k][lang] !== undefined ? x[k][lang] : x[k].en);
+const libraryRow = (x, lang) => {
+  const folder = x.docCode.split("-")[1];
+  return { docCode: x.docCode, title: libraryIn(x, "title", lang), version: x.version, folder: folder, folderName: LIBRARY_FOLDER_NAMES[folder][lang === "es" ? 1 : 0], locales: x.locales.slice(), hasPdf: x.hasPdf, parts: libraryIn(x, "parts", "en").map(p => Object.assign({}, p)) };
+};
+// A search, the way the contract gives ?q=: the number, the title, then
+// words in the sections, each match with the section it matched, best
+// first.
+function librarySearch(q, lang) {
+  const want = String(q || "").trim().toLowerCase();
+  const out = [];
+  LIBRARY_DOCS.forEach((x) => {
+    const loc = x.locales.indexOf(lang) !== -1 ? lang : "en";
+    if (x.docCode.toLowerCase().indexOf(want) !== -1 || libraryIn(x, "title", loc).toLowerCase().indexOf(want) !== -1) { out.push({ rank: 0, row: libraryRow(x, lang) }); return; }
+    const s = libraryIn(x, "sections", loc).find(y => (y.title + " " + y.content).toLowerCase().indexOf(want) !== -1);
+    if (s) out.push({ rank: 1, row: Object.assign(libraryRow(x, lang), { match: { sectionRef: s.ref, sectionTitle: s.title } }) });
+  });
+  return out.sort((a, b) => a.rank - b.rank).map(r => r.row);
+}
 const SUPPORT_CONTACT = { name: "Invented Support", email: "support@example.invalid" };
 const SUPPORT_KINDS = ["bug", "idea", "wrong_info", "help_miss", "cant_sign_in"];
 const SUPPORT_SEED = () => [{ id: "st-1", kind: "idea", description: "Invented: a bigger clock on Home.", status: "working", statusNote: "Invented: we are trying it this month.", source: "form", app: "portal", createdAt: new Date(NOW.getTime() - 3 * DAY).toISOString() }];
@@ -602,6 +778,101 @@ const SESSION_REFUSALS = {
 const FINDING_REFUSALS = {
   "inspections.findingNoteRequired": { status: 400, en: "Say what needs fixing on this card.", es: "Diga qu\u00e9 hay que arreglar en esta tarjeta." },
   "inspections.badOwner": { status: 400, en: "Choose an owner from the list.", es: "Elija un responsable de la lista." },
+};
+// One inspection walk with the safety part in it (Step 313), as API Step
+// 312's contract gives it, behind inspectionWalk: a scheduled inspection
+// carrying with_safety, its two cards, the photos and the signature it
+// takes, and the safety part: an invented safety inspection form, drawn
+// by the portal's form engine, with the inspector's own draft of it, its
+// first part filled in. Beside it, one without the safety part, which
+// reads as before. Every word invented, in both languages.
+const WALK_FORM_CODE = "TEST-FORM-SAFETY";
+const WALK_WORDS = {
+  en: {
+    title: "Invented safety inspection", s1: "The inspection", s2: "The checklist", s3: "What the crew said", s4: "Findings", s5: "Result",
+    site: "Site", kind: "What kind of inspection is this", monthly: "Monthly", quarterly: "Quarterly unannounced", came: "Who came with you",
+    areas: "Check each area", result: "Result", pass: "Pass", fail: "Fail", na: "Not applicable", chemical: "Chemical storage", exits: "Exits and corridors", eyewash: "First aid and eyewash",
+    crew: "Ask two people on shift", role: "Their role", said: "What they said", done: "What was done",
+    findings: "Findings", where: "Where and what", severity: "Severity", owner: "Who owns it", due: "Due date", everyFail: "A finding for every Fail",
+    overall: "Overall result", none: "No findings", recorded: "Findings recorded", stopped: "Work stopped", closed: "Site not accessible", by: "Inspected by",
+  },
+  es: {
+    title: "Inspecci\u00f3n de seguridad inventada", s1: "La inspecci\u00f3n", s2: "La lista", s3: "Lo que dijo el equipo", s4: "Hallazgos", s5: "Resultado",
+    site: "Sitio", kind: "\u00bfQu\u00e9 tipo de inspecci\u00f3n es?", monthly: "Mensual", quarterly: "Trimestral sin aviso", came: "Qui\u00e9n vino con usted",
+    areas: "Revise cada \u00e1rea", result: "Resultado", pass: "Cumple", fail: "No cumple", na: "No aplica", chemical: "Almac\u00e9n de qu\u00edmicos", exits: "Salidas y pasillos", eyewash: "Primeros auxilios y lavaojos",
+    crew: "Pregunte a dos personas del turno", role: "Su puesto", said: "Lo que dijeron", done: "Lo que se hizo",
+    findings: "Hallazgos", where: "D\u00f3nde y qu\u00e9", severity: "Gravedad", owner: "Responsable", due: "Fecha l\u00edmite", everyFail: "Un hallazgo por cada No cumple",
+    overall: "Resultado general", none: "Sin hallazgos", recorded: "Hallazgos registrados", stopped: "Trabajo detenido", closed: "Sitio sin acceso", by: "Inspeccionado por",
+  },
+};
+const WALK_AREAS = ["chemical", "exits", "eyewash"];
+function walkForm(lang) {
+  const w = WALK_WORDS[lang === "es" ? "es" : "en"];
+  const opt = (v) => ({ value: v, label: w[v] });
+  return {
+    code: WALK_FORM_CODE, title: w.title, version: 1,
+    sections: [1, 2, 3, 4, 5].map(n => ({ key: String(n), title: w["s" + n] })),
+    fields: [
+      { key: "site", label: w.site, type: "text", section: "1", required: true },
+      { key: "kind", label: w.kind, type: "select", section: "1", required: true, options: [opt("monthly"), opt("quarterly")] },
+      { key: "came", label: w.came, type: "text", section: "1", required: false },
+      { key: "areas", label: w.areas, type: "grid", section: "2", required: true,
+        columns: [{ key: "result", label: w.result, type: "select", required: true, options: [{ value: "pass", label: w.pass }, { value: "fail", label: w.fail }, { value: "na", label: w.na }] }],
+        rows: WALK_AREAS.map(k => ({ key: k, label: w[k] })) },
+      { key: "crew", label: w.crew, type: "grid", section: "3", required: true, rows: null, minRows: 2, maxRows: 4,
+        columns: [{ key: "role", label: w.role, type: "text", required: true }, { key: "said", label: w.said, type: "text", required: true }, { key: "done", label: w.done, type: "text", required: false }] },
+      { key: "findings", label: w.findings, type: "grid", section: "4", required: false, rows: null, minRows: 0, maxRows: 4,
+        columns: [{ key: "where", label: w.where, type: "text", required: true }, { key: "severity", label: w.severity, type: "select", required: true, options: ["A", "B", "C", "D"].map(v => ({ value: v, label: v })) }, { key: "owner", label: w.owner, type: "text", required: true }, { key: "due", label: w.due, type: "date", required: true }] },
+      { key: "result", label: w.overall, type: "select", section: "5", required: true, options: [{ value: "no_findings", label: w.none }, { value: "findings_recorded", label: w.recorded }, { value: "work_stopped", label: w.stopped }, { value: "not_accessible", label: w.closed }] },
+      { key: "inspectedBy", label: w.by, type: "signoff", section: "5", signer: "filer", required: true },
+    ],
+  };
+}
+// What the safety part is short, as the form engine's rules say it: every
+// area answered, two crew rows, a finding for every Fail, the result, and
+// the signature, which the walk's one signature makes.
+function walkMissing(answers, lang, signed) {
+  const w = WALK_WORDS[lang === "es" ? "es" : "en"];
+  const out = [];
+  const empty = (v) => v === undefined || v === null || v === "";
+  if (empty(answers.site)) out.push({ key: "site", label: w.site });
+  if (empty(answers.kind)) out.push({ key: "kind", label: w.kind });
+  const areas = answers.areas && typeof answers.areas === "object" ? answers.areas : {};
+  const open = WALK_AREAS.filter(k => !(areas[k] && areas[k].result)).map(k => w[k]);
+  if (open.length > 0) out.push({ key: "areas", label: w.areas, rows: open });
+  const crew = Array.isArray(answers.crew) ? answers.crew.filter(r => r && r.role && r.said) : [];
+  if (crew.length < 2) out.push({ key: "crew", label: w.crew, rows: [ROW_WORD[lang === "es" ? "es" : "en"] + " " + (crew.length + 1)] });
+  const fails = WALK_AREAS.filter(k => areas[k] && areas[k].result === "fail").length;
+  const found = Array.isArray(answers.findings) ? answers.findings.filter(r => r && r.where && r.severity && r.owner && r.due).length : 0;
+  if (found < fails) out.push({ key: "findings", label: w.findings, rows: [w.everyFail] });
+  if (empty(answers.result)) out.push({ key: "result", label: w.overall });
+  if (!signed && !answers.inspectedBy) out.push({ key: "inspectedBy", label: w.by });
+  return out;
+}
+function walkDraft(state, lang) {
+  const form = walkForm(lang);
+  const answers = state.walkAnswers;
+  const missingFields = walkMissing(answers, lang, false);
+  const answered = form.fields.filter(f => answers[f.key] !== undefined && answers[f.key] !== null && answers[f.key] !== "").length;
+  return { id: "draft-safety", formCode: WALK_FORM_CODE, formName: form.title, answers: JSON.parse(JSON.stringify(answers)), status: "draft", answered: answered, remaining: form.fields.length - answered, missing: missingFields.map(m => m.key), missingFields: missingFields };
+}
+const WALK_SEED = () => ({ site: "North Building", kind: "monthly" });
+const INSPECTION_W = {
+  id: "in-walk", template_name: "Invented monthly walk", site_id: "site-north", site_name: "North Building", scheduled_date: "2026-10-02", status: "scheduled", with_safety: true,
+  capture: { photosPerItem: 6, photosOverall: 10, signatureRequired: true },
+  items: [
+    { id: "iw-1", label: "Restroom mirrors are free of streaks", zone: "Restroom", max_score: 5 },
+    { id: "iw-2", label: "Exit signs are lit", zone: "Corridor", max_score: 5 },
+  ],
+};
+const INSPECTION_PLAIN = {
+  id: "in-plain", template_name: "Invented quick walk", site_id: "site-north", site_name: "North Building", scheduled_date: "2026-10-03", status: "scheduled", with_safety: false,
+  capture: { photosPerItem: 6, photosOverall: 10, signatureRequired: true },
+  items: [{ id: "ip-1", label: "Lobby floor is dry", zone: "Lobby", max_score: 5 }],
+};
+const WALK_REFUSALS = {
+  "inspections.safetyIncomplete": { status: 400, en: "Finish the safety walk before you send.", es: "Termine el recorrido de seguridad antes de enviar." },
+  "inspections.signatureRequired": { status: 400, en: "Sign the inspection before sending it.", es: "Firme la inspecci\u00f3n antes de enviarla." },
 };
 // The band a score lands in (QMS-014 5.2), its due date from the
 // completion, and the severity of each finding, as the contract's rule 2.
@@ -710,6 +981,15 @@ const HELP_ANSWERS = {
       { app: "portal", name: "sign-in", entry: "Sign in to the staff portal (staff portal)" },
       { app: "dashboard", name: "sign-in", entry: "Sign in to the dashboard (dashboard)" },
     ],
+  },
+  // What a document covers (Step 307, API Step 305): what it is for and
+  // its Parts, with the document to open, which the portal draws as Open
+  // {docCode}.
+  covers: {
+    pieces: ["The invented quality manual says how work is ch", "ecked at every site. Its Parts:\n1. **Purpose**\n2. **How work is checked**"],
+    piecesEs: ["El manual de calidad inventado dice c\u00f3mo se revisa el tra", "bajo en cada sitio. Sus partes:\n1. **Prop\u00f3sito**\n2. **C\u00f3mo se revisa el trabajo**"],
+    citedDocs: ["OCSA-QMS-901"],
+    openDocument: { docCode: "OCSA-QMS-901", title: "Invented quality manual" },
   },
   // One whose picture has no file in any language, which is left out.
   noFile: {
@@ -946,7 +1226,7 @@ function makeState(opts) {
     // today. A check made on one phone is seen on another through here.
     site: o.site || "site-north",
     links: o.links || LINKS,
-    completions: (o.completions || COMPLETIONS).map(c => Object.assign({}, c)),
+    completions: (o.completions || COMPLETIONS.concat(o.site === "site-east" ? EAST_COMPLETIONS : [])).map(c => Object.assign({}, c)),
     // Step 124: the stub's own clock, which a case can move, the shift the
     // open session carries, and when that session started. It started
     // three hours before the clock unless a case says otherwise.
@@ -959,7 +1239,7 @@ function makeState(opts) {
     drafts: o.drafts || (o.unfinishedForms ? [DRAFT_MINE(o.person || PERSON)] : []),
     // Every draft discarded, by id.
     discarded: [],
-    notifications: o.notifications || [].concat(o.scheduleInspections ? [Object.assign({}, SCHED_NOTICE)] : []).concat(o.issueSheet ? [Object.assign({}, SHEET_NOTICE)] : []).concat(o.unfinishedForms ? [Object.assign({}, DRAFT_NOTICE)] : []),
+    notifications: o.notifications || [].concat(o.scheduleInspections ? [Object.assign({}, SCHED_NOTICE)] : []).concat(o.issueSheet ? [Object.assign({}, SHEET_NOTICE)] : []).concat(o.unfinishedForms ? [Object.assign({}, DRAFT_NOTICE)] : []).concat(o.supplyOrders && o.person && o.person.approveSupplies ? [Object.assign({}, ORDER_NOTICE)] : []),
     // Step 297: the issues, the tasks they made, every resolve and assign
     // sent, behind issueSheet.
     issueSheet: o.issueSheet === true,
@@ -967,7 +1247,13 @@ function makeState(opts) {
     sheetTasks: o.issueSheet === true ? SHEET_TASKS.map(x => Object.assign({}, x)) : [],
     sheetCalls: [],
     // Copied, since /complete marks one completed and the fixture is shared.
-    inspections: (o.inspections || []).concat(o.scheduleInspections ? SCHED_INSPECTIONS(o.person || PERSON) : []).map(i => Object.assign({}, i)),
+    inspections: (o.inspections || []).concat(o.scheduleInspections ? SCHED_INSPECTIONS(o.person || PERSON) : []).concat(o.inspectionWalk ? [INSPECTION_W, INSPECTION_PLAIN] : []).map(i => Object.assign({}, i)),
+    // Step 313: the inspection walk (API Step 312), its safety draft's
+    // answers, every safety part sent with a completion, and every
+    // completion's body.
+    inspectionWalk: o.inspectionWalk === true,
+    walkAnswers: WALK_SEED(),
+    walkSent: [],
     // Step 145: every problem filed through POST /api/issues, in order.
     issues: [],
     // Step 255: an API with Step 253 built, which answers owners on the
@@ -975,7 +1261,7 @@ function makeState(opts) {
     // and lists them as source inspection. The first completion is turned
     // away once with findingNoteRequired on its first deficient card, laid
     // over the stub, so a check sees the refusal under the card.
-    findings: o.findings === true,
+    findings: o.findings === true || o.inspectionWalk === true,
     findingRows: [],
     findingRefusals: o.findings === true ? 1 : 0,
     // Step 258: an API with Step 256 built, which answers GET
@@ -1003,6 +1289,10 @@ function makeState(opts) {
     support: o.support === true,
     supportTickets: o.support === true ? SUPPORT_SEED() : [],
     pto: o.pto === true,
+    // Step 307: the Library (API Step 305), its list, search, reads and
+    // PDF, for everyone; libraryEmpty answers the list with nothing yet.
+    library: o.library === true || o.libraryEmpty === true,
+    libraryEmpty: o.libraryEmpty === true,
     // Step 267: an API with Step 266 built, which answers categories and
     // continue on GET /api/training/me, with each item's category.
     trainingPortal: o.trainingPortal === true,
@@ -1014,6 +1304,16 @@ function makeState(opts) {
     // Step 281: an API with Step 280 built, whose supply requests take
     // and answer items, with the person's requests seeded.
     supplyItems: o.supplyItems === true,
+    // Step 311: supply orders (API Step 308), the requests a holder of
+    // approve_supplies reads and decides, signs and sends; every decide,
+    // sign and send call, every send made, the next PO number, and
+    // orderVendorsNone for a vendor list with none approved.
+    supplyOrders: o.supplyOrders === true,
+    orderRequests: o.supplyOrders === true ? ORDER_SEED() : [],
+    orderCalls: [],
+    orderSends: [],
+    orderPoSeq: 7,
+    orderVendorsNone: o.orderVendorsNone === true,
     // supplyEmpty (Step 285): the same API, with no request yet.
     supplyRequests: o.supplyItems === true && !o.supplyEmpty ? SUPPLY_REQ_SEED() : [],
     // The supplies at the open shift's site, which a case can answer
@@ -2069,6 +2369,37 @@ const TWIN_PAIRS = [
   ["Office", "Oficina"],
   ["Elevator", "Elevador"],
   ["Outside", "Afuera"],
+  // East Building's list (Step 316): its items, zones, shifts and blocks.
+  ["Wipe the lobby glass", "Limpie los vidrios del vest\u00edbulo"],
+  ["Empty the lobby bins", "Vac\u00ede los botes del vest\u00edbulo"],
+  ["Sanitize the dining tables", "Desinfecte las mesas del comedor"],
+  ["Wipe the dining chairs", "Limpie las sillas del comedor"],
+  ["Scrub the kitchen floor drains", "Talle las coladeras del piso de la cocina"],
+  ["Mop the kitchen floor", "Trapee el piso de la cocina"],
+  ["Vacuum the sleeping area", "Aspire el dormitorio"],
+  ["Wipe the bed frames", "Limpie las estructuras de las camas"],
+  ["Clean the laundry lint traps", "Limpie los filtros de pelusa de la lavander\u00eda"],
+  ["Refill the restroom soap", "Rellene el jab\u00f3n de los ba\u00f1os"],
+  ["Sweep the stairways", "Barra las escaleras"],
+  ["Wipe the hallway rails", "Limpie los pasamanos del pasillo"],
+  ["Hallway", "Pasillo"],
+  ["Kitchen", "Cocina"],
+  ["Dining room", "Comedor"],
+  ["Sleeping area", "Dormitorio"],
+  ["Laundry room", "Lavander\u00eda"],
+  ["Stairway", "Escalera"],
+  ["First shift", "Primer turno"],
+  ["Second shift", "Segundo turno"],
+  ["Check in", "Registro de entrada"],
+  ["Check out", "Registro de salida"],
+  ["Lobby opening", "Apertura del vest\u00edbulo"],
+  ["Dining room reset", "Repaso del comedor"],
+  ["Breakfast", "Desayuno"],
+  ["Kitchen floor", "Piso de la cocina"],
+  ["Lunch", "Almuerzo"],
+  ["Stairway maintenance", "Mantenimiento de las escaleras"],
+  ["Evening round", "Ronda de la tarde"],
+  ["Dinner", "Cena"],
   ...WEST_SHIFTS,
   ["Opening checks", "Revisi\u00f3n de apertura"],
   ["Lobby reset", "Repaso del vest\u00edbulo"],
@@ -2572,6 +2903,7 @@ function createStub(opts) {
       // none for an answer that cites none.
       pictures: (answer.pictures || []).map(x => Object.assign({}, x)),
     }, next.citedNames ? { citedNames: next.citedNames } : {}, answer.formResponse ? { formResponse: answer.formResponse } : {},
+      answer.openDocument ? { openDocument: Object.assign({}, answer.openDocument) } : {},
       answer.ticketDraft ? { ticketDraft: Object.assign({}, answer.ticketDraft[next.language === "es" ? "es" : "en"]) } : {});
     if (next.error) steps.push({ event: "error", data: { error: next.error.error, status: next.error.status } });
     else if (next.drop) steps.push({ drop: true });
@@ -2580,7 +2912,7 @@ function createStub(opts) {
     // dropped connection still finishes the answer and keeps it; an error
     // keeps nothing.
     state.stored.push({ role: "user", text: body && typeof body.text === "string" ? body.text : "", at: 0 });
-    const kept = { id: messageId, role: "assistant", text: reply, citedDocs: done.citedDocs, citedNames: next.citedNames || null, pictures: done.pictures, degraded: done.degraded, noProcedure: done.noProcedure, feedback: null, at: Infinity };
+    const kept = { id: messageId, role: "assistant", text: reply, citedDocs: done.citedDocs, citedNames: next.citedNames || null, pictures: done.pictures, openDocument: done.openDocument || null, degraded: done.degraded, noProcedure: done.noProcedure, feedback: null, at: Infinity };
     if (!next.error) state.stored.push(kept);
     state.help.holds = holds;
     return {
@@ -2623,7 +2955,7 @@ function createStub(opts) {
       const checks = state.completions.filter(c => c.taskId === row.id && checklistDay(atOf(c)) <= today);
       const on = (day) => checks.filter(c => checklistDay(atOf(c)) === day);
       const todays = on(today), yesterdays = on(today - 1);
-      const shown = row.shown !== false;
+      const shown = row.shown !== false && blockDayHolds(row.block_days_of_week, today);
       const every = row.every || "daily";
       const due = row.period === "today" && shown && !(every === "every_other_day" && yesterdays.length > 0);
       let done = null;
@@ -2677,15 +3009,15 @@ function createStub(opts) {
   };
 
   // The open session, the way every session answer carries it.
-  const sessionOf = () => {
-    const shifts = shiftsFor(state.site, state.sessionStartedAt);
+  const sessionOf = (lang) => {
+    const shifts = shiftsFor(state.site, state.sessionStartedAt, lang);
     return { id: "sess-1", siteId: state.site, startedAt: iso(state.sessionStartedAt), shiftLabel: shifts.length > 0 ? state.shiftLabel : null, shifts: shifts };
   };
 
-  const clockStatus = () => (state.clockedIn ? {
+  const clockStatus = (lang) => (state.clockedIn ? {
     clockedIn: true,
     shift: Object.assign({ sessionId: "sess-1", id: "sess-1" }, OPEN_SHIFT[state.site], { clockInTime: iso(state.sessionStartedAt) }),
-    session: sessionOf(),
+    session: sessionOf(lang),
     tasks: progress(),
   } : { clockedIn: false, shift: null, session: null, tasks: null });
 
@@ -2711,9 +3043,10 @@ function createStub(opts) {
     if (q.has("floor_number")) rows = rows.filter(x => x.row.floor_number === q.get("floor_number"));
     return rows.map((x) => {
       const { every: often, shown, ...row } = x.row;
+      const twin = !!SITE_BLOCKS[siteId];
       const display = Object.assign(DISPLAYED.has(row.id) ? displayOf(row, lang) : {}, {
-        shift: row.block_label ? row.shift_label : null,
-        block: row.block_label || null,
+        shift: row.block_label ? (twin ? inLanguage(row.shift_label, lang) : row.shift_label) : null,
+        block: row.block_label ? (twin ? inLanguage(row.block_label, lang) : row.block_label) : null,
       });
       return Object.assign(row, { period: x.period, dueToday: x.due, doneThisPeriod: x.done, shownToday: x.shown, checkedToday: x.checked, display: display });
     });
@@ -2786,6 +3119,96 @@ function createStub(opts) {
     };
     state.supplyRequests.push(row);
     return json(201, { message: "Request submitted", code: "supplies.requestSubmitted", request: copy(row) });
+  }
+
+  // --- Supply orders (Step 311), behind state.supplyOrders, as API Step
+  // 308's contract gives the routes (section 1): the list and each
+  // request with canDecide and the order's fields, the item decisions,
+  // the approved vendors, Sign, the purchase order behind the token and
+  // Send, with their refusals. A holder is a person with approveSupplies;
+  // nobody decides or signs their own request.
+  function supplyOrderAnswer(method, pathname, search, body, key, lang, headers) {
+    const holder = state.person.approveSupplies === true;
+    const refuse = (k, extra) => { const r = ORDER_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
+    const stageOf = (r) => (r.ordered ? "ordered" : r.signed ? "send" : r.items.some(l => !l.decision) ? "decide" : r.items.some(l => l.decision === "approved") ? "sign" : "done");
+    const rowOf = (r) => {
+      const v = r.signed ? ORDER_VENDORS.find(x => x.id === r.signed.vendorId) : null;
+      const signer = r.signed ? (r.signed.by === ORDER_HOLDER.id ? ORDER_HOLDER : state.person) : null;
+      const out = JSON.parse(JSON.stringify(Object.assign({}, r, { signed: undefined, ordered: undefined })));
+      return Object.assign(out, {
+        canDecide: holder && r.requested_by !== state.person.id && stageOf(r) !== "ordered",
+        approvedBy: signer ? { id: signer.id, name: signer.firstName + " " + signer.lastName } : null, approvedAt: r.signed ? r.signed.at : null, signed: !!r.signed,
+        vendor: orderVendorOf(v), deliverTo: r.signed ? r.signed.deliverTo : (ORDER_SITE_ADDRESS[r.site_id] || null), poNumber: r.signed ? r.signed.po : null,
+        poPdfUrl: r.signed ? "/api/supplies/requests/" + r.id + "/po.pdf" : null, orderedAt: r.ordered ? r.ordered.at : null, orderedToEmail: r.ordered ? r.ordered.to : null,
+      });
+    };
+    if (key === "GET /api/supplies/requests") {
+      return json(200, state.orderRequests.filter(r => holder || r.requested_by === state.person.id).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).map(rowOf));
+    }
+    if (key === "GET /api/vendors") {
+      if (!holder) return json(403, { error: refusalIn(ORDER_REFUSALS["supplies.cannotDecide"], lang), code: "supplies.cannotDecide" });
+      const q = new URLSearchParams(search || "");
+      const list = state.orderVendorsNone ? [] : ORDER_VENDORS.filter(v => v.is_active && (!q.get("approval_status") || v.approval_status === q.get("approval_status")));
+      return json(200, list.map(v => Object.assign({}, v)));
+    }
+    const m = /^(GET|POST) \/api\/supplies\/requests\/([^/]+)\/(decide|sign|send|po\.pdf)$/.exec(key);
+    if (!m) return null;
+    const r = state.orderRequests.find(x => x.id === decodeURIComponent(m[2]));
+    if (!r) return refuse("supplies.requestNotFound");
+    const b = body && typeof body === "object" ? body : {};
+    if (m[3] === "po.pdf") {
+      const tokened = /^Bearer /.test(String((headers || {}).authorization || ""));
+      state.pdfReads.push({ which: "po:" + r.id, locale: new URLSearchParams(search || "").get("locale"), token: tokened });
+      if (!tokened) return json(401, { error: "Sign in first", code: "auth.required" });
+      return r.signed ? image("application/pdf", ORDER_PDF) : refuse("supplies.notSigned");
+    }
+    state.orderCalls.push({ route: m[3], id: r.id, body: JSON.parse(JSON.stringify(b)) });
+    if (!holder) return refuse("supplies.cannotDecide");
+    if (r.requested_by === state.person.id) return refuse("supplies.ownRequest");
+    if (m[3] === "decide") {
+      if (r.ordered) return json(409, { error: "This request was already ordered.", code: "supplies.requestFulfilled" });
+      const items = Array.isArray(b.items) ? b.items : [];
+      const keys = [];
+      if (items.length < 1 || items.length > 30) keys.push("items");
+      items.forEach((x, i) => {
+        const line = x && r.items.find(l => l.id === x.id);
+        if (!line) { keys.push("items." + i + ".id"); return; }
+        if (x.decision !== "approved" && x.decision !== "denied") keys.push("items." + i + ".decision");
+        if (x.decision === "approved" && x.approvedQuantity !== undefined && (!Number.isInteger(x.approvedQuantity) || x.approvedQuantity < 1 || x.approvedQuantity > line.quantity)) keys.push("items." + i + ".approvedQuantity");
+        if (x.note !== undefined && x.note !== null && (typeof x.note !== "string" || x.note.length > 500)) keys.push("items." + i + ".note");
+      });
+      if (keys.length > 0) return refuse("supplies.badDetails", { keys: keys });
+      items.forEach((x) => {
+        const line = r.items.find(l => l.id === x.id);
+        Object.assign(line, { decision: x.decision, approvedQuantity: x.decision === "approved" ? (x.approvedQuantity !== undefined ? x.approvedQuantity : line.quantity) : null, decisionNote: x.note || null, decidedAt: new Date(clockNow()).toISOString(), decidedBy: { name: state.person.firstName + " " + state.person.lastName } });
+      });
+      if (r.items.every(l => l.decision)) r.status = r.items.some(l => l.decision === "approved") ? "approved" : "denied";
+      return json(200, { request: rowOf(r) });
+    }
+    if (m[3] === "sign") {
+      if (stageOf(r) !== "sign") return refuse(r.signed ? "supplies.notReadyToSign" : "supplies.notReadyToSign");
+      const keys = [];
+      const v = ORDER_VENDORS.find(x => String(x.id) === String(b.vendorId) && x.approval_status === "approved" && x.is_active);
+      if (!v || state.orderVendorsNone) keys.push("vendorId");
+      const deliverTo = typeof b.deliverTo === "string" ? b.deliverTo.trim() : "";
+      if (deliverTo.length > 500) keys.push("deliverTo");
+      const raw = typeof b.signature === "string" ? b.signature.trim() : "";
+      const drawn = raw ? /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw) : null;
+      const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
+      if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") keys.push("signature");
+      if (keys.length > 0) return refuse("supplies.badDetails", { keys: keys });
+      state.orderPoSeq += 1;
+      r.signed = { by: state.person.id, at: new Date(clockNow()).toISOString(), vendorId: v.id, deliverTo: deliverTo || ORDER_SITE_ADDRESS[r.site_id] || "", po: "PO-2026-" + String(state.orderPoSeq).padStart(4, "0") };
+      return json(200, { request: rowOf(r) });
+    }
+    // send
+    if (!r.signed) return refuse("supplies.notSigned");
+    const v = ORDER_VENDORS.find(x => x.id === r.signed.vendorId);
+    const to = typeof b.to === "string" && b.to.trim() ? b.to.trim() : (v && v.contact_email) || "";
+    if (!to) return refuse("supplies.noAddress");
+    state.orderSends.push({ id: r.id, to: to, at: new Date(clockNow()).toISOString() });
+    if (!r.ordered) r.ordered = { at: new Date(clockNow()).toISOString(), by: state.person.id, to: to };
+    return json(200, { request: rowOf(r) });
   }
 
   // --- The supervisor's field kit (Step 246), behind state.fieldKit
@@ -3087,6 +3510,9 @@ function createStub(opts) {
       const tier = state.person.role === "admin" || state.person.role === "supervisor" ? state.person.role : "staff";
       const capabilities = {};
       Object.keys(CAPABILITIES).forEach((k) => { capabilities[k] = CAPABILITIES[k].indexOf(tier) !== -1; });
+      // Step 311: approve_supplies is held by name, as on live, never by
+      // a role.
+      capabilities.approve_supplies = state.person.approveSupplies === true;
       return json(200, { role: state.person.role, capabilities: capabilities });
     }
     if (key === "GET /api/users/profile/me") return json(200, {
@@ -3097,7 +3523,7 @@ function createStub(opts) {
     if (key === "POST /api/users/profile/photo") return json(200, { ok: true });
 
     // --- the shift
-    if (key === "GET /api/clock/status") return json(200, clockStatus());
+    if (key === "GET /api/clock/status") return json(200, clockStatus(languageOf(search, state)));
     if (key === "GET /api/clock/tasks/assigned") return json(200, [
       Object.assign({ task_id: "at-1", label: "Replace the cracked light cover", description: "Second floor corridor.", site_name: "North Building", building_name: "Main Hall", floor_number: "2", zone: "Corridor", priority: "high", cims_category: "SD", created_by_name: "A supervisor", task_created_at: iso(NOW.getTime() - DAY) },
         state.assignedDue ? { due_date: state.assignedDue } : {}),
@@ -3307,7 +3733,7 @@ function createStub(opts) {
       const now = Date.now();
       const messages = pathname.split("/").pop() === state.conversationId
         ? state.stored.filter(m => m.at <= now).map(m => (m.role === "assistant"
-          ? Object.assign({ id: m.id, role: m.role, text: m.text, citedDocs: m.citedDocs, pictures: (m.pictures || []).map(x => Object.assign({}, x)), degraded: m.degraded, noProcedure: m.noProcedure, feedback: m.feedback ? Object.assign({}, m.feedback) : null }, m.citedNames ? { citedNames: m.citedNames } : {})
+          ? Object.assign({ id: m.id, role: m.role, text: m.text, citedDocs: m.citedDocs, pictures: (m.pictures || []).map(x => Object.assign({}, x)), degraded: m.degraded, noProcedure: m.noProcedure, feedback: m.feedback ? Object.assign({}, m.feedback) : null }, m.citedNames ? { citedNames: m.citedNames } : {}, m.openDocument ? { openDocument: Object.assign({}, m.openDocument) } : {})
           : { role: m.role, text: m.text }))
         : [];
       messages.forEach((m) => { if (m.role === "assistant") recordWord(m.text, "Help reply"); });
@@ -3561,6 +3987,15 @@ function createStub(opts) {
     // draft keeps the version it was started on, which the draft routes
     // send beside it; with formVersions the incident report has a second
     // version out.
+    // Step 313: the walk's safety draft, saved the way any draft is.
+    if (state.inspectionWalk && /^\/api\/forms\/drafts\/draft-safety$/.test(pathname)) {
+      if (method === "PATCH") {
+        const written = (body && body.answers) || {};
+        if (Object.keys(written).some(k => k === "inspectedBy")) return json(400, { error: "A sign-off is made with its own button" });
+        Object.keys(written).forEach((k) => { if (written[k] === null) delete state.walkAnswers[k]; else state.walkAnswers[k] = written[k]; });
+      }
+      return json(200, { draft: walkDraft(state, lang), form: walkForm(lang) });
+    }
     if (pathname === "/api/forms") {
       return json(200, { forms: [state.formVersions ? FORM_V2 : FORM, formP(lang)].concat(state.sectionsForm ? [thirdForm()] : []).concat(state.personForm ? [formE(lang)] : []).concat(state.guideForms ? guideForms(lang) : []) });
     }
@@ -3831,6 +4266,33 @@ function createStub(opts) {
         r.photos.push({ id: "rph-" + (r.photos.length + 1), url: String(body.photoUrl) });
         return json(201, { photo: { id: "rph-" + r.photos.length, url: String(body.photoUrl) } });
       }
+    }
+    // --- Step 307: the Library, behind state.library (API Step 305's
+    // contract, section 1): the list, a search, and every document read
+    // and its PDF behind the token, for everyone; libraryEmpty answers
+    // the list empty.
+    if (state.library && key === "GET /api/library") {
+      const q = new URLSearchParams(search || "").get("q");
+      if (q) return json(200, { documents: librarySearch(q, lang) });
+      return json(200, { documents: state.libraryEmpty ? [] : LIBRARY_DOCS.map(x => libraryRow(x, lang)) });
+    }
+    const shelf = state.library ? /^GET \/api\/documents\/([^/]+)\/(read|pdf)$/.exec(key) : null;
+    const shelved = shelf ? LIBRARY_DOCS.find(x => x.docCode === decodeURIComponent(shelf[1])) : null;
+    if (shelved) {
+      const asked = new URLSearchParams(search || "").get("locale") || lang;
+      const loc = shelved.locales.indexOf(asked) !== -1 ? asked : "en";
+      if (shelf[2] === "pdf") {
+        const tokened = /^Bearer /.test(String((headers || {}).authorization || ""));
+        state.pdfReads.push({ which: "library:" + shelved.docCode, locale: asked, token: tokened });
+        if (!tokened) return json(401, { error: "Sign in first", code: "auth.required" });
+        return shelved.hasPdf ? image("application/pdf", LIBRARY_PDF) : json(404, { error: "Not found", code: "documents.notFound" });
+      }
+      const parts = libraryIn(shelved, "parts", loc);
+      const out = { docCode: shelved.docCode, title: libraryIn(shelved, "title", loc), version: shelved.version, locale: loc, locales: shelved.locales.slice(), sections: libraryIn(shelved, "sections", loc).map(s => Object.assign({}, s)) };
+      if (parts.length > 0) out.parts = parts.map(p => Object.assign({}, p));
+      if (shelved.hasPdf) out.pdfUrl = "/api/documents/" + shelved.docCode + "/pdf?locale=" + loc;
+      if (loc !== asked) out.shownInEnglish = true;
+      return json(200, { document: out });
     }
     // --- Step 264: the documents to read and sign (the Step 262
     // contract, section 6), behind state.training: one document for
@@ -4301,6 +4763,7 @@ function createStub(opts) {
     }
     if (key === "GET /api/supplies") return json(200, state.supplies || [{ id: "sup-1", name: "Paper towels", qr_code: "QR-0001", unit: "rolls", is_low: true }]);
     if (key === "POST /api/supplies/log-usage") return json(200, { message: "Usage logged", log: { id: "log-1", supply_name: "Paper towels", quantity: 1 }, lowStockAlert: false });
+    if (state.supplyOrders) { const answered = supplyOrderAnswer(method, pathname, search, body, key, lang, headers); if (answered) return answered; }
     if (state.supplyItems && (key === "GET /api/supplies/requests" || key === "POST /api/supplies/requests")) return supplyRequestAnswer(method, search, body, lang);
     // The API's own index with Step 280 built, the route the office
     // decides items through among its supply routes (Step 285).
@@ -4324,6 +4787,22 @@ function createStub(opts) {
       const one = state.inspections.find(i => i.id === completing[1] && !i.gone);
       if (!one) return json(404, { error: INSPECTION_NOT_FOUND[0] });
       if (one.status === "completed") return json(400, { error: "This inspection was already completed" });
+      // Step 313: a walk's completion carries the safety part's answers and
+      // the one signature, and both parts are checked before anything is
+      // written, all or nothing.
+      if (state.inspectionWalk && one.with_safety) {
+        state.walkSent.push(JSON.parse(JSON.stringify(body)));
+        const walkRefuse = (k, extra) => { const r = WALK_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
+        const sf = body.safety && typeof body.safety === "object" ? body.safety : null;
+        const answers = Object.assign({}, state.walkAnswers, sf && sf.answers && typeof sf.answers === "object" ? sf.answers : {});
+        const short = walkMissing(answers, lang, true);
+        if (!sf || sf.responseId !== "draft-safety" || short.length > 0) return walkRefuse("inspections.safetyIncomplete", { safety: { missing: short.map(m => m.key), missingFields: short } });
+        const raw = typeof body.signature === "string" ? body.signature.trim() : "";
+        const drawn = raw ? /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw) : null;
+        const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
+        if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") return walkRefuse("inspections.signatureRequired");
+        state.walkAnswers = answers;
+      }
       const total = body.scores.reduce((s, x) => s + (parseInt(x.score) || 0), 0);
       if (state.findings) {
         // Step 255, as the Step 253 contract's section 3 item 2: a card
@@ -4352,14 +4831,18 @@ function createStub(opts) {
           state.findingRows.push(row);
           return { issueId: row.id, templateItemId: r.x.template_item_id, label: r.item.label, zone: r.item.zone || null, score: r.score, maxScore: r.item.max_score, severity: row.severity, dueAt: row.due_at, owner: owner ? { id: owner.id, name: owner.name } : null };
         });
-        return json(200, { success: true, result: { id: "res-" + one.id, scheduled_inspection_id: one.id, total_score: total, max_possible_score: max }, scorePct: pct, band: band, correctiveActionRequired: pct < 80, findings: opened });
+        const walked = state.inspectionWalk && one.with_safety ? { safety: {
+          responseId: "draft-safety", result: state.walkAnswers.result, resultLabel: (walkForm(lang).fields.find(f => f.key === "result").options.find(o => o.value === state.walkAnswers.result) || {}).label || null,
+          findings: (Array.isArray(state.walkAnswers.findings) ? state.walkAnswers.findings : []).map((r, i) => ({ id: "sf-" + (i + 1), where: r.where, severity: r.severity, owner: { name: r.owner }, dueDate: r.due })),
+        } } : {};
+        return json(200, Object.assign({ success: true, result: { id: "res-" + one.id, scheduled_inspection_id: one.id, total_score: total, max_possible_score: max }, scorePct: pct, band: band, correctiveActionRequired: pct < 80, findings: opened }, walked));
       }
       one.status = "completed";
       return json(200, { success: true, result: { id: "res-" + one.id, scheduled_inspection_id: one.id, total_score: total } });
     }
     if (method === "GET" && /^\/api\/inspections\/scheduled\/[^/]+$/.test(pathname)) {
       const one = state.inspections.find(i => pathname.endsWith("/" + i.id) && !i.gone);
-      if (one && state.findings) return json(200, Object.assign({}, one, { owners: findingOwners() }));
+      if (one && state.findings) return json(200, Object.assign({}, one, { owners: findingOwners() }, state.inspectionWalk && one.with_safety ? { safety: { form: walkForm(lang), draft: walkDraft(state, lang) } } : {}));
       return one ? json(200, one) : json(404, { error: INSPECTION_NOT_FOUND[0] });
     }
     if (pathname === "/api/inspections/scheduled") return json(200, []);
@@ -4550,7 +5033,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

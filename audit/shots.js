@@ -32,7 +32,7 @@ const fs = require("fs");
 const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp, letSheetOffer, ANDROID } = require("./browser");
-const { ADMIN_PERSON, TWIN_ES, SECOND_STEP_CODE, EQ_CODE, SUP_CODE, TRAINING_SESSION_SEED, SIGN_SEED, INSPECTION, INSPECTION_F, timeOffRow, formP, ANNOUNCEMENT } = require("./stub");
+const { INSPECTION_W, ORDER_HOLDER, ADMIN_PERSON, TWIN_ES, SECOND_STEP_CODE, EQ_CODE, SUP_CODE, TRAINING_SESSION_SEED, SIGN_SEED, INSPECTION, INSPECTION_F, timeOffRow, formP, ANNOUNCEMENT } = require("./stub");
 
 const { execFileSync } = require("child_process");
 const ROOT = path.join(__dirname, "..");
@@ -323,6 +323,14 @@ async function asked(s, question, answer) {
   return s.waitFor(() => { const box = document.querySelector(".sp-content textarea"); return !!box && !box.disabled && box.value === ""; }, null, 12000);
 }
 
+// A supply request open under Approve supplies (Step 311).
+async function openOrder(s, id) {
+  if (!(await s.go("Approve supplies"))) return false;
+  if (!(await s.waitFor((x) => !!document.querySelector('[data-supply-order="' + x + '"]'), id))) return false;
+  await s.page.click('[data-supply-order="' + id + '"]');
+  return s.waitFor((x) => !!document.querySelector('[data-supply-order="' + x + '"][data-supply-order-stage] [data-supply-line]'), id);
+}
+
 // Assigned, with its one task open. The task's name comes as the API
 // serves it, which may be English on a Spanish screen.
 async function openAssigned(s) {
@@ -366,7 +374,7 @@ const SHOTS = [
     go: async (s) => { await s.hasBar(); if (!(await s.waitText(s.say("End Shift")))) return false; await s.mark("button", s.say("End Shift")); return true; } },
   { name: "sign-out", entry: E("Sign out"), o: { signedIn: true },
     go: async (s) => { await s.hasBar(); return s.mark('button[aria-label="' + s.say("Sign out") + '"]'); } },
-  { name: "bottom-bar-more", entry: E("Use the bottom bar and More"), o: { signedIn: true, stub: { support: true } },
+  { name: "bottom-bar-more", entry: E("Use the bottom bar and More"), o: { signedIn: true, stub: { support: true, library: true } },
     go: async (s) => { await s.openMore(); return s.waitFor(() => !!document.querySelector(".sp-more")); } },
 
   // Training, and joining a session.
@@ -650,6 +658,10 @@ const SHOTS = [
     } },
   { name: "tasks-no-shift", entry: E("Use Tasks before your shift starts"), o: { signedIn: true, stub: { clockedIn: false } },
     go: async (s) => { if (!(await s.go("Tasks"))) return false; return s.waitText(s.say("Start your shift to see and check off your tasks.")); } },
+  // Step 316: East Building's timed schedule at 10:00 AM on a Monday, the
+  // kitchen floor Now and the sleeping area Next at the top.
+  { name: "tasks-schedule", entry: E("Read your site's schedule"), o: { signedIn: true, stub: { site: "site-east", now: "2026-10-05T14:00:00Z" }, phone: { now: "2026-10-05T14:00:00Z" } },
+    go: async (s) => { if (!(await s.go("Tasks"))) return false; return s.waitFor(() => !!document.querySelector("[data-block-now]") && !!document.querySelector("[data-block-next]")); } },
   { name: "tasks-no-signal", entry: E("Check off tasks with no signal"), o: { signedIn: true },
     go: async (s) => {
       if (!(await s.go("Tasks"))) return false;
@@ -705,8 +717,23 @@ const SHOTS = [
     go: async (s) => { if (!(await s.go("Supplies"))) return false; return s.waitFor(() => !!document.querySelector('[data-supply-req="sreq-1"] [data-supply-decision="denied"]')); } },
   { name: "supply-usage", entry: E("Log supplies you used"), o: { signedIn: true },
     go: async (s) => { if (!(await s.go("Supplies"))) return false; return s.waitText(s.say("Supply Tracking")); } },
-  { name: "inspection-open", entry: E("Do an inspection assigned to you"), o: { signedIn: true, stub: { inspections: [INSPECTION] } },
-    go: async (s) => { if (!(await s.go("Inspect"))) return false; if (!(await s.waitText(INSPECTION.template_name))) return false; await s.tap(INSPECTION.template_name); return s.waitFor(() => !!document.querySelector("[data-inspect-item]")); } },
+  // Since Step 313 the inspection carries the safety walk: it opens on
+  // its site checklist, and its second part is the safety walk.
+  { name: "inspection-open", entry: E("Do an inspection assigned to you"), o: { signedIn: true, stub: { inspectionWalk: true } },
+    go: async (s) => { if (!(await s.go("Inspect"))) return false; if (!(await s.waitText(INSPECTION_W.template_name))) return false; await s.tap(INSPECTION_W.template_name); return s.waitFor(() => !!document.querySelector('[data-inspect-walk="cards"] [data-inspect-item]')); } },
+  { name: "inspection-walk", entry: E("Do an inspection assigned to you"), o: { signedIn: true, stub: { inspectionWalk: true } },
+    go: async (s) => {
+      if (!(await s.go("Inspect"))) return false;
+      if (!(await s.waitText(INSPECTION_W.template_name))) return false;
+      await s.tap(INSPECTION_W.template_name);
+      if (!(await s.waitFor(() => !!document.querySelector("[data-walk-to-safety]")))) return false;
+      await s.page.click("[data-walk-to-safety]");
+      if (!(await s.waitFor(() => !!document.querySelector('[data-walk-safety="1"]')))) return false;
+      await s.page.click("[data-walk-next]");
+      if (!(await s.waitFor(() => !!document.querySelector('[data-walk-safety="2"]')))) return false;
+      await s.top();
+      return true;
+    } },
   // The stub gives a supervisor the permission to schedule one.
   { name: "inspection-schedule", entry: E("Schedule an inspection from the portal"), o: { signedIn: true, stub: { person: SUPERVISOR } },
     go: async (s) => { if (!(await s.go("Inspect"))) return false; await s.pause(600); await s.tap(s.say("+ Schedule")); return s.waitText(s.say("Schedule Inspection")); } },
@@ -851,6 +878,61 @@ const SHOTS = [
       await s.hasBar();
       await s.page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
       return s.waitText("You have an unfinished Incident report");
+    } },
+
+  // Step 321, the second staff app round. The Library (Step 307): the
+  // folders with their counts, a search's result with the section it
+  // matched, and Help's answer about a document with Open {docCode}.
+  { name: "library", entry: E("Find and read a company document"), o: { signedIn: true, stub: { library: true } },
+    go: async (s) => { if (!(await s.go("Library"))) return false; return s.waitFor(() => document.querySelectorAll("[data-library-folder]").length === 4); } },
+  { name: "library-search", entry: E("Find and read a company document"), o: { signedIn: true, stub: { library: true } },
+    go: async (s) => {
+      if (!(await s.go("Library"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector("[data-library-search]")))) return false;
+      await s.fill("[data-library-search]", "eyewash");
+      return s.waitFor(() => !!document.querySelector('[data-library-match="3.2"]'));
+    } },
+  { name: "help-document", entry: E("Ask Help what a document covers"), o: { signedIn: true, stub: { library: true } },
+    go: async (s) => {
+      if (!(await asked(s, s.language === "es" ? "\u00bfQu\u00e9 dice el manual de calidad?" : "What is in the quality manual?", "covers"))) return false;
+      return s.waitFor(() => !!document.querySelector('[data-help-open-doc="OCSA-QMS-901"]'));
+    } },
+
+  // Supply orders on the phone (Step 311), as a holder of approve_supplies
+  // sees them: the list, a request decided, Sign and order with a vendor
+  // chosen, and an order sent.
+  { name: "supply-orders", entry: E("Approve a supply request on your phone"), o: { signedIn: true, stub: { supplyOrders: true, person: ORDER_HOLDER } },
+    go: async (s) => { if (!(await s.go("Approve supplies"))) return false; return s.waitFor(() => !!document.querySelector('[data-supply-orders-group="ordered"]')); } },
+  { name: "supply-order-decide", entry: E("Approve a supply request on your phone"), o: { signedIn: true, stub: { supplyOrders: true, person: ORDER_HOLDER } },
+    go: async (s) => {
+      if (!(await openOrder(s, "so-1"))) return false;
+      await s.page.click('[data-supply-line-less="so-1-1"]');
+      await s.page.click('[data-supply-line-approve="so-1-1"]');
+      if (!(await s.waitFor(() => !!document.querySelector('[data-supply-line="so-1-1"] [data-supply-line-decision]')))) return false;
+      await s.type('[data-supply-line-note="so-1-2"]', s.language === "es" ? "Inventado: el cuarto tiene seis." : "Invented: the closet holds six.");
+      await s.pause(200);
+      await s.top();
+      return true;
+    } },
+  { name: "supply-order-sign", entry: E("Sign a supply order and send it to the vendor"), o: { signedIn: true, stub: { supplyOrders: true, person: ORDER_HOLDER } },
+    go: async (s) => {
+      if (!(await openOrder(s, "so-1"))) return false;
+      await s.page.click("[data-supply-approve-all]");
+      if (!(await s.waitFor(() => !!document.querySelector('[data-supply-vendor] option[value="41"]')))) return false;
+      await s.page.selectOption("[data-supply-vendor]", "41");
+      if (!(await s.waitFor(() => !!document.querySelector('[data-supply-vendor-facts="41"]')))) return false;
+      await s.sign("[data-supply-signature] canvas");
+      await s.page.evaluate(() => { document.querySelector("[data-supply-sign]").scrollIntoView({ block: "start" }); window.scrollBy(0, -96); });
+      await s.pause(300);
+      return true;
+    } },
+  { name: "supply-order-sent", entry: E("Sign a supply order and send it to the vendor"), o: { signedIn: true, stub: { supplyOrders: true, person: ORDER_HOLDER } },
+    go: async (s) => {
+      if (!(await openOrder(s, "so-3"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector("[data-supply-ordered]")))) return false;
+      await s.page.evaluate(() => { document.querySelector("[data-supply-po]").scrollIntoView({ block: "start" }); window.scrollBy(0, -96); });
+      await s.pause(300);
+      return true;
     } },
 
   // The forms the guide names, each by its card on Forms.

@@ -130,6 +130,38 @@ opening the issue's sheet; and unfinished forms you can see: Home's
 card opening the person's draft, Save and finish later saving the
 answer once and closing the form, and the reminder's notice opening the
 draft;
+the Library (Step 307), against API Step 305 as its contract gives it,
+in English at 390 and Spanish at 320: the folders in the contract's
+order with their counts, a folder's documents with Also in Spanish (In
+English only on a Spanish screen), a search for a word in the text
+finding the document with the section it matched and opening it at that
+section, the quality manual's cover in the screen's language with See
+the designed version read behind the token, its last page with no
+signature box and no Next, Help's Open button opening it in the Library,
+and an empty list saying the library is loading; supply orders on the
+phone (Step 311), against API Step 308 as its contract gives it, in
+English at 390 and Spanish at 320: a holder's Home card opening Approve
+supplies in its three groups, one item approved at a lower quantity and
+another denied with a note, each sent once, the line asking the office
+when no vendor is approved, Sign with a vendor whose details show, the
+purchase order read behind the token, Send to the vendor's email then
+Ordered with its date, the bell's notice opening the request, and
+someone without the capability seeing no card and no Approve supplies;
+one inspection walk (Step 313), against API Step 312 as its contract
+gives it, in English at 390 and Spanish at 320: the inspection opening
+on its site checklist, the safety walk drawn by the form engine with its
+first part filled in, a Fail with no finding listed as missing and
+nothing sent, leaving and coming back with the scored cards and the
+safety answers kept, one signature and one Submit carrying both parts,
+the result with the band, the safety result and its finding, and an
+inspection without the safety part drawn as before; timed site schedules
+(Step 316), against API Step 315 as its contract gives it, in English at
+390 and Spanish at 320, at the stub's invented two-shift site with every
+kind: each block's window drawn, a meal block with no steps, a
+full-access block marked, Now and Next first at 10:00 AM on a Monday, an
+overdue critical block, check-in and check-out as the shift's start and
+end, a Wednesday to Sunday block absent on the Monday, and an anytime
+block on a Saturday with no window and its weekly step;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
@@ -148,7 +180,52 @@ through it.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`, `handbook`, `handbookSigned`, `support`, `pto`, `scheduleInspections`, `issueSheet`, `unfinishedForms`), off for every other case.
+`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`, `handbook`, `handbookSigned`, `support`, `pto`, `scheduleInspections`, `issueSheet`, `unfinishedForms`, `library`, `libraryEmpty`, `supplyOrders`, `orderVendorsNone`, `inspectionWalk`), off for every other case.
+`library` (Step 307) answers GET /api/library as API Step 305's contract
+gives it: five invented documents in four folders, each folder's name in
+the request's language, the quality manual with a Spanish edition, Parts
+and a PDF, and the word "eyewash" in the first aid procedure's section
+3.2 alone, so `?q=` finds it by its text with `match` naming the
+section; each document's read for everyone, its PDF behind the token,
+and Help's `covers` answer carrying `openDocument`. `libraryEmpty`
+answers the list with nothing yet.
+`supplyOrders` (Step 311) answers API Step 308's routes as its contract
+gives them: GET /api/supplies/requests with canDecide and the order's
+fields (every request to a holder, a person with `approveSupplies`, such
+as `ORDER_HOLDER`, a custodian by role), one waiting for a decision, the
+holder's own, one signed and not sent and one ordered; the decide, sign
+and send routes with their refusals keyed as the API keys them, nobody
+deciding or signing their own; the purchase order behind the token; the
+approved vendors on GET /api/vendors; approve_supplies on the
+permissions route; and, for a holder, the bell's notice about the
+request waiting. `orderVendorsNone` answers the vendor list with none
+approved.
+East Building (Step 316), opened with `site: "site-east"` and a `now`
+for the stub and the phone, is an invented two-shift site whose blocks
+carry API Step 315's end, kind and days: First shift 7:00 AM to 3:30 PM
+and Second shift 2:00 PM to 10:00 PM, with check-in, work, critical,
+meal, full-access, anytime and check-out blocks (`EAST_BLOCKS`). Every
+block comes on the session's shifts with `endTime`, `kind` and
+`daysOfWeek`, the meals, check-in and check-out among them though they
+hold no step; each checklist row carries its block's `end_time` and
+`kind` and the block's days as `block_days_of_week`; a block's days hide
+its rows on other days, as the API does; the stairway block's step is
+weekly work; the rows, shifts and blocks answer in the language asked;
+and two of the day's steps are checked by coworkers, one of the dining
+room reset's two. No other site carries any of it, so every other case
+reads a list from before Step 315.
+`inspectionWalk` (Step 313) answers API Step 312 as its contract gives
+it: a scheduled inspection with `with_safety`, two cards, the photos and
+the signature it takes, and `safety` carrying an invented safety
+inspection form (its sections, an areas checklist, a crew table of two
+rows at least, a findings table, the overall result and an Inspected by
+sign-off) with the inspector's own draft, its site and kind filled in;
+the draft saved through the forms route, with what is missing by the
+form's rules (every area, two crew rows, a finding for every Fail);
+the one completion carrying both parts and the signature, refused with
+the safety part's missing fields until both are complete, and answered
+with the band and the safety result and findings; and beside it an
+inspection without the safety part.
 `scheduleInspections` (Step 296) gives the person signed in an inspection
 on the day of their shift, one of theirs cancelled and one of someone
 else's, dated as the API sends a date column, with API Step 295's notice
