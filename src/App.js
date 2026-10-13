@@ -2753,6 +2753,7 @@ export default function OCSAStaffPortal() {
     }
     if (place.tab === "training") setTrainingAt(place.join ? { join: String(place.join) } : place.doc ? { doc: { docCode: String(place.doc), title: String(place.doc) } } : place.category ? { category: String(place.category) } : place.topic ? { topic: String(place.topic) } : null);
     if (place.tab === "inspect") setInspectAt(place.inspection ? { id: String(place.inspection), at: Date.now() } : null);
+    if (place.tab === "tasks") setTaskFocus(place.task ? { id: String(place.task), at: Date.now() } : null);
     if (place.tab === "forms" && place.draft) setFormsDraft(String(place.draft));
     setActiveTab(place.tab); setShowMore(false);
     if (place.tab === "issues") { setRequestOpen(place.request || null); setFindingOpen(place.finding || null); loadClientRequests(); loadFindings(); }
@@ -2850,6 +2851,9 @@ export default function OCSAStaffPortal() {
   // My Schedule or Home's week, a notice or /inspect/<id>: { id, at },
   // at telling two taps on the same one apart. Dropped once opened.
   const [inspectAt, setInspectAt] = useState(null);
+  // The checklist task a notice asked Tasks to open (the training day
+  // round): { id, at }, dropped once Tasks has looked for it.
+  const [taskFocus, setTaskFocus] = useState(null);
   const openInspection = (id) => { setInspectAt({ id: String(id), at: Date.now() }); setActiveTab("inspect"); setShowMore(false); };
   // The issue whose sheet is open (Step 297), over whatever is on the
   // screen: { id, row, at }, row being what it was opened from, if
@@ -3118,7 +3122,7 @@ export default function OCSAStaffPortal() {
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null); setTasksMode(null); setNotTracked({}); setSiteListAt(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
     setChannels(null); setChannelsFailed(false); setMessages([]); setMessagesOf(null); setActiveChannel(null);
-    setAgentConversation(null); setFormsDraft(null); setFieldKitAt(null); setEquipmentShown(null); setEquipmentBack(null); setInspectAt(null); setIssueAt(null);
+    setAgentConversation(null); setFormsDraft(null); setFieldKitAt(null); setEquipmentShown(null); setEquipmentBack(null); setInspectAt(null); setTaskFocus(null); setIssueAt(null);
     setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
     setLookups([]); setLookupsLang(null); toastsRef.current.clear(); setLoading(false);
     setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false); setAnnouncementOpen(null); setOpenAsk(null); setAlertsCard(null); setAlertsCardBusy(false);
@@ -3321,7 +3325,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
-              {activeTab === "tasks" && <TasksView token={token} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} t={t} />}
+              {activeTab === "tasks" && <TasksView token={token} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} onOpenDocument={(d) => openLibraryDoc(d, null)} />}
@@ -5186,8 +5190,19 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
 // reference: the site keeps its task list as a record (Step 339), and the
 // list is drawn to read, with nothing to check off. standalone: the list
 // read from a site with no shift open, from Home (SiteTaskListSheet).
-function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, reference, standalone, t }) {
+// focus: a task a notice asked for, { id, at }; with a shift open and the
+// task on its list, its details open, else the list, and onFocused says it
+// was looked for either way.
+function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, reference, standalone, focus, onFocused, t }) {
   const [detail, setDetail] = useState(null);
+  useEffect(() => {
+    if (!focus) return;
+    if (!clockStatus || !clockStatus.clockedIn || (tasksFailed && !Array.isArray(tasks))) { if (onFocused) onFocused(); return; }
+    if (!Array.isArray(tasks)) return;
+    const row = tasks.find(tk => tk && String(tk.id) === focus.id);
+    setDetail(row || null);
+    if (onFocused) onFocused();
+  }, [focus, tasks, tasksFailed, clockStatus && clockStatus.clockedIn]);
   const loaded = Array.isArray(tasks);
   const standardTasks = standardTasksOf(tasks);
   // The day's schedule from the schedule route, when the session's shifts
@@ -10879,6 +10894,12 @@ const NOTIF_TAB = {
   // A signature sent to the person's phone (Step 271): the signing screen,
   // in Home's place.
   signature_request: "sign",
+  // A checklist task the person was linked to (the training day round,
+  // API Step 328): Tasks, on that task when the open shift's list holds
+  // it, else Tasks. A site the person was assigned to: Home, where their
+  // sites are listed to start a shift.
+  task_assigned: "tasks",
+  site_assigned: "clock",
   chat: "chat",
   chat_mention: "chat",
   announcement: "announcement",
@@ -10899,6 +10920,11 @@ const inspectionSubject = (s) => typeof s === "string" && s !== "inspection_find
 // Any shift notice the API sends (Step 336), shift_assigned first: My
 // Schedule. shift_drop and shift_claim keep Shift Pickup (NOTIF_TAB).
 const shiftSubject = (s) => typeof s === "string" && /^shifts?(_|$)/.test(s) && !Object.prototype.hasOwnProperty.call(NOTIF_TAB, s);
+// Any training notice with no place of its own (the training day round):
+// training_assigned, training_session and the rest open My training.
+// training_signoff, training_join, training_category, training_expiring
+// and training_reteach keep theirs (NOTIF_TAB).
+const trainingSubject = (s) => typeof s === "string" && /^training(_|$)/.test(s);
 // An HR case (Step 336): assigned to the person or escalated to them.
 // Cases are worked on the admin dashboard and the portal has no place
 // for one, so the bell's row offers Open in the dashboard with the
@@ -10919,9 +10945,10 @@ function notifPlace(subjectType, subjectId) {
   if (inspectionSubject(subjectType)) return subjectId === null || subjectId === undefined ? { tab: "inspect" } : { tab: "inspect", inspection: String(subjectId) };
   if (shiftSubject(subjectType)) return { tab: "schedule" };
   if (caseSubject(subjectType)) return null;
-  const tab = NOTIF_TAB[subjectType];
+  const tab = NOTIF_TAB[subjectType] || (trainingSubject(subjectType) ? "training" : null);
   if (!tab) return null;
   const id = subjectId === null || subjectId === undefined ? null : String(subjectId);
+  if (subjectType === "task_assigned") return id ? { tab: tab, task: id } : { tab: tab };
   if (tab === "chat") return { tab: "chat", chat: id };
   if (tab === "announcement") return id ? { announcement: id } : null;
   if (subjectType === "client_request") return { tab: tab, request: id };

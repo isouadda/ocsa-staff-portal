@@ -183,7 +183,13 @@
 //     subscription the phone holds posted again with app "portal"; on the
 //     bell, Open in the dashboard on hr_case_assigned's row alone,
 //     inspection_unfinished opening that inspection and shift_assigned
-//     opening My Schedule; then Start an inspection at a site with one
+//     opening My Schedule; each of the API round's other notices tapped in
+//     turn, a line each: task_assigned opening Tasks on that task when the
+//     open shift's list holds it and on the list when it does not,
+//     training_assigned, training_session and training_todo opening My
+//     training, site_assigned opening Home, and support_ticket_new and
+//     workspace_member keeping Open in the dashboard with the bell left
+//     where it is; then Start an inspection at a site with one
 //     template, posted as today's in Eastern time with startNow, the
 //     template and the date, landing in the walk with its safety part
 //     started; a site with two templates asking which and sending nothing
@@ -2518,6 +2524,29 @@ const ROUND_NOTICES = [
   { id: "n-case", subjectType: "hr_case_assigned", subjectId: "case-1", title: "A case was assigned to you", body: "Open it in Cases.", link: "https://admin.example.invalid/#cases/case-1", createdAt: "2026-10-12T17:17:00.000Z", readAt: null },
   { id: "n-shift", subjectType: "shift_assigned", subjectId: "shift-9", title: "You have a new shift at North Building", body: "Oct 14, 2:00 PM to 10:00 PM.", link: null, createdAt: "2026-10-12T18:48:00.000Z", readAt: null },
   { id: "n-left", subjectType: "inspection_unfinished", subjectId: "in-s1", title: "You have an unfinished inspection at North Building", body: "Started Oct 2. Tap to pick up where you left off.", link: "https://staff.example.invalid/inspect/in-s1", createdAt: "2026-10-13T12:00:00.000Z", readAt: null },
+  // The rest of the API round's notices (the training day round's last
+  // commit): a task on the open shift's list and one at another site, three
+  // training notices, a site, and two the office reads on the dashboard.
+  { id: "n-task", subjectType: "task_assigned", subjectId: "task-2", title: "You were given a task at North Building", body: "Invented: empty every bin on the floor.", link: null, createdAt: "2026-10-13T11:00:00.000Z", readAt: null },
+  { id: "n-task-away", subjectType: "task_assigned", subjectId: "task-west-9", title: "You were given a task at West Building", body: "Invented: a task at another site.", link: null, createdAt: "2026-10-13T10:59:00.000Z", readAt: null },
+  { id: "n-train-a", subjectType: "training_assigned", subjectId: "topic-1", title: "Training was assigned to you", body: "Invented: open My training.", link: null, createdAt: "2026-10-13T10:58:00.000Z", readAt: null },
+  { id: "n-train-s", subjectType: "training_session", subjectId: "ts-9", title: "A training session starts soon", body: "Invented: a session at North Building.", link: null, createdAt: "2026-10-13T10:57:00.000Z", readAt: null },
+  { id: "n-train-o", subjectType: "training_todo", subjectId: "2026-10-13", title: "You have training to do", body: "Invented: two items.", link: null, createdAt: "2026-10-13T10:56:00.000Z", readAt: null },
+  { id: "n-site", subjectType: "site_assigned", subjectId: "site-west", title: "You were assigned to a new site", body: "Invented: West Building.", link: null, createdAt: "2026-10-13T10:55:00.000Z", readAt: null },
+  { id: "n-ticket", subjectType: "support_ticket_new", subjectId: "tk-9", title: "A new App support ticket", body: "Invented: a ticket.", link: "https://admin.example.invalid/#support/tk-9", createdAt: "2026-10-13T10:54:00.000Z", readAt: null },
+  { id: "n-member", subjectType: "workspace_member", subjectId: "wp-9", title: "You were added to a project", body: "Invented: a project.", link: "https://admin.example.invalid/#workspace/wp-9", createdAt: "2026-10-13T10:53:00.000Z", readAt: null },
+];
+// Each of the API round's other notices, the subject, its row's title and
+// what the screen shows once its row is tapped.
+const ROUND_PLACES = [
+  { type: "task_assigned", title: "You were given a task at North Building", where: "taskHere" },
+  { type: "training_assigned", title: "Training was assigned to you", where: "training" },
+  { type: "site_assigned", title: "You were assigned to a new site", where: "home" },
+  { type: "training_session", title: "A training session starts soon", where: "training" },
+  { type: "task_assigned", title: "You were given a task at West Building", where: "taskAway" },
+  { type: "training_todo", title: "You have training to do", where: "training" },
+  { type: "support_ticket_new", title: "A new App support ticket", where: "bell" },
+  { type: "workspace_member", title: "You were added to a project", where: "bell" },
 ];
 // Today in Eastern time on the phone's clock, which the case leaves at the
 // stub's NOW, 9:30 PM in New York on a day that is already the next one
@@ -2531,7 +2560,7 @@ async function until(page, fn, ms) {
 }
 async function trainingDay(browser, language, width) {
   const tag = " (" + language + ", " + width + " wide)";
-  const app = await open({ person: ROUND_SUPERVISOR, inspectionWalk: true, startInspection: true, scheduleInspections: true, notifications: ROUND_NOTICES.map(n => Object.assign({}, n)), accountPreferences: { language: language, textSize: "standard" } },
+  const app = await open({ person: ROUND_SUPERVISOR, inspectionWalk: true, startInspection: true, scheduleInspections: true, training: true, notifications: ROUND_NOTICES.map(n => Object.assign({}, n)), accountPreferences: { language: language, textSize: "standard" } },
     { browser, language, signedIn: true, width: width, push: { permission: "granted", subscribed: true }, userAgent: ANDROID });
   const page = app.page;
   const st = app.stub.state;
@@ -2558,6 +2587,42 @@ async function trainingDay(browser, language, width) {
   check("New notices: the subscription this phone holds is posted again after sign-in with app \"portal\"; on the bell, hr_case_assigned shows Open in the dashboard and the others do not; inspection_unfinished opens that inspection; shift_assigned opens My Schedule" + tag,
     appPortal && caseRow && unfinished && shift && app.errors.length === 0,
     !appPortal ? "the subscription was posted as " + JSON.stringify(posted.map(c => c.body)) : !caseRow ? "Open in the dashboard was not on the case's row alone" : !unfinished ? "inspection_unfinished did not open the inspection" : !shift ? "shift_assigned did not open My Schedule" : app.errors[0]);
+
+  // The API round's other notices, each tapped on the bell in turn, so
+  // each place is reached from somewhere else: task_assigned opens Tasks on
+  // that task when the open shift's list holds it and on the list when it
+  // does not; training_assigned, training_session and training_todo open
+  // My training; site_assigned opens Home; support_ticket_new and
+  // workspace_member keep the rule for a subject with no place: Open in the
+  // dashboard on the row, and a tap leaves the bell where it is.
+  const backTo = say(language, "Back to checklist");
+  const taskLabel = taskWords("task-2", language).label;
+  const reached = {};
+  if (inBar) {
+    for (const p of ROUND_PLACES) {
+      if (!(await bell())) { reached[p.type + ":" + p.where] = false; continue; }
+      const dashOn = await rowHas(p.title, dash);
+      await tapRow(p.title);
+      let ok = false;
+      if (p.where === "taskHere") ok = await waitFor(page, (w) => { const c = document.querySelector(".sp-content"); return !!c && c.innerText.indexOf(w.back) !== -1 && c.innerText.indexOf(w.label) !== -1 && !document.querySelector('[role="dialog"]'); }, { back: backTo, label: taskLabel });
+      if (p.where === "taskAway") ok = await waitFor(page, (w) => { const c = document.querySelector(".sp-content"); return !!c && c.innerText.indexOf(w.back) === -1 && Array.from(c.querySelectorAll("button[aria-label]")).some(b => b.getAttribute("aria-label").indexOf(w.mark) === 0); }, { back: backTo, mark: say(language, "Mark {name} done").split("{name}")[0] });
+      if (p.where === "training") ok = await waitFor(page, () => !!document.querySelector('[data-training="1"]') && !document.querySelector('[role="dialog"]'));
+      if (p.where === "home") ok = await waitFor(page, (w) => { const c = document.querySelector(".sp-content"); return !!c && c.innerText.toUpperCase().indexOf(w.toUpperCase()) !== -1 && !document.querySelector('[data-training="1"]'); }, say(language, "Time on Site"));
+      if (p.where === "bell") { await pause(page, 300); ok = dashOn && await page.evaluate((w) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.trim() === w), say(language, "Mark all read")) && !!(await page.$('[data-training="1"]')); }
+      reached[p.type + ":" + p.where] = ok && (p.where === "bell" || !dashOn);
+    }
+    // The bell left open by the last two closed by its own Close.
+    await page.evaluate((w) => { const m = Array.from(document.querySelectorAll("button")).find(b => b.innerText.trim() === w.mark); const root = m && m.closest('div[style*="position: fixed"]'); const c = root && Array.from(root.querySelectorAll("button")).find(b => b.innerText.trim() === w.close); if (c) c.click(); }, { mark: say(language, "Mark all read"), close: say(language, "Close") });
+    await waitFor(page, (w) => !Array.from(document.querySelectorAll("button")).some(b => b.innerText.trim() === w), say(language, "Mark all read"));
+  }
+  const placeLine = (type, wheres, words) => check("The " + type + " notice " + words + tag, wheres.every(w => reached[type + ":" + w] === true) && app.errors.length === 0, wheres.filter(w => reached[type + ":" + w] !== true).map(w => "not " + w).join(", ") || app.errors[0]);
+  placeLine("task_assigned", ["taskHere", "taskAway"], "opens Tasks on that task when the open shift's list holds it, and Tasks when it does not");
+  placeLine("training_assigned", ["training"], "opens My training");
+  placeLine("training_session", ["training"], "opens My training");
+  placeLine("training_todo", ["training"], "(any other training_* with no place of its own) opens My training");
+  placeLine("site_assigned", ["home"], "opens Home");
+  placeLine("support_ticket_new", ["bell"], "keeps the rule for a subject with no place: Open in the dashboard on its row, and a tap leaves the bell");
+  placeLine("workspace_member", ["bell"], "keeps the rule for a subject with no place: Open in the dashboard on its row, and a tap leaves the bell");
 
   // 335: Start an inspection.
   const sheet = async () => { await page.click("[data-inspect-start]"); return waitFor(page, () => !!document.querySelector("[data-inspect-start-sheet] [data-pick-search]")); };

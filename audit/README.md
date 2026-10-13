@@ -167,7 +167,13 @@ to 331 and 337 as the training day contract gives them, in English at
 390 and Spanish at 320: on one supervisor's phone, the subscription the
 phone holds posted again with app "portal", Open in the dashboard on an
 HR case's notice alone, the unfinished inspection's notice opening that
-inspection and a new shift's opening My Schedule, then Start an
+inspection and a new shift's opening My Schedule, each of the API
+round's other notices tapped in turn with a line each (a task given
+opening Tasks on that task when the open shift's list holds it and on
+the list when it does not, training_assigned, training_session and
+training_todo opening My training, site_assigned opening Home, and
+support_ticket_new and workspace_member keeping Open in the dashboard
+with the bell left where it is), then Start an
 inspection at a site with one template landing in the walk with its
 safety part started and posted as today's in Eastern time with startNow,
 the template and the date, a site with two templates asking which, and a
