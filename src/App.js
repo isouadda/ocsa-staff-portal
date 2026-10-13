@@ -1019,6 +1019,59 @@ const inspectionDay = (v) => (typeof v === "string" ? v.slice(0, 10) : "");
 // The ones on a person's schedule: assigned to them and still scheduled,
 // so a cancelled or completed one is never drawn.
 const inspectionsForMe = (d, user) => (Array.isArray(d) ? d : []).filter(i => i && i.id !== undefined && i.id !== null && i.status === "scheduled" && !!user && String(i.assigned_to) === String(user.id) && /^\d{4}-\d{2}-\d{2}$/.test(inspectionDay(i.scheduled_date)));
+// Start an inspection (Step 335, the training day contract's 3, 335): one
+// started now at a site, with no schedule, from the lists + Schedule
+// reads, GET /api/inspections/templates and GET /api/sites. A template on
+// that list names no site today (inspection_templates has no site
+// column), so a template is matched to its site this way: by the site it
+// names itself, as site_id or siteId or in site_ids, siteIds or sites,
+// once the list answers one; while no template names a site, by its name
+// holding the site's name as whole words; and with neither, every live
+// template is offered and the person picks.
+const inspectSitesNamed = (x) => {
+  const out = [];
+  const add = (v) => { if (v !== null && v !== undefined && v !== "") out.push(String(v)); };
+  [x.site_id, x.siteId].forEach(add);
+  [x.site_ids, x.siteIds, x.sites].forEach(list => { if (Array.isArray(list)) list.forEach(v => add(v && typeof v === "object" ? (v.id !== undefined ? v.id : v.siteId) : v)); });
+  return out;
+};
+const inspectTemplateOf = (x) => (x && typeof x === "object" && x.id !== null && x.id !== undefined && x.is_active !== false && x.isActive !== false ? { id: String(x.id), name: typeof x.name === "string" && x.name.trim() ? x.name.trim() : String(x.id), sites: inspectSitesNamed(x) } : null);
+const inspectSiteOf = (x) => {
+  if (!x || typeof x !== "object") return null;
+  const id = x.id !== undefined && x.id !== null ? x.id : x.siteId;
+  const name = typeof x.name === "string" ? x.name : x.siteName;
+  if (id === undefined || id === null || typeof name !== "string" || !name.trim()) return null;
+  return x.status === "inactive" || x.is_active === false ? null : { id: String(id), name: name.trim() };
+};
+const inspectNameKey = (v) => " " + String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() + " ";
+// The templates offered for a site: { list, own }, own when the list is
+// the site's own rather than every live template.
+function inspectTemplatesFor(templates, site) {
+  const live = (Array.isArray(templates) ? templates : []).map(inspectTemplateOf).filter(Boolean);
+  if (!site) return { list: [], own: false };
+  if (live.some(tp => tp.sites.length > 0)) return { list: live.filter(tp => tp.sites.indexOf(site.id) !== -1), own: true };
+  const name = inspectNameKey(site.name);
+  const named = name.trim() ? live.filter(tp => inspectNameKey(tp.name).indexOf(name) !== -1) : [];
+  return named.length > 0 ? { list: named, own: true } : { list: live, own: false };
+}
+// The id the start answers. Today's API answers the new row itself,
+// { id, template_id, site_id, ... }; an answer that nests it, or names it
+// alone, is read too. null when it carries none.
+const inspectStartedIdOf = (d) => {
+  if (!d || typeof d !== "object") return null;
+  const v = [d.id, d.inspection && d.inspection.id, d.scheduledInspection && d.scheduledInspection.id, d.scheduled_inspection && d.scheduled_inspection.id, d.inspectionId, d.scheduledInspectionId].find(x => x !== null && x !== undefined && x !== "");
+  return v === undefined ? null : String(v);
+};
+// Today's inspection at a site, the person's own and still scheduled,
+// from My Inspections' list, newest first: what a start whose answer
+// carries no id opens.
+function inspectTodayAt(list, siteId, templateId, user, day) {
+  const rows = (Array.isArray(list) ? list : []).filter(i => i && i.id !== undefined && i.id !== null && i.status === "scheduled" && String(i.site_id) === String(siteId) && inspectionDay(i.scheduled_date) === day && (i.assigned_to === undefined || i.assigned_to === null || (!!user && String(i.assigned_to) === String(user.id))));
+  const same = rows.filter(i => i.template_id === undefined || String(i.template_id) === String(templateId));
+  const pool = same.length > 0 ? same : rows;
+  const at = (i) => { const v = Date.parse(i.created_at || i.createdAt || ""); return isNaN(v) ? 0 : v; };
+  return pool.length > 0 ? pool.reduce((a, b) => (at(b) >= at(a) ? b : a)) : null;
+}
 // A colour the calendar does not already use, apart from the gold of a
 // shift: teal, drawn in light mode in a darker ink of its own, which
 // reads at 6.4 to 1 on white (LIGHT_INK).
@@ -16551,6 +16604,8 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
   const [sites, setSites] = useState([]);
   const [schedForm, setSchedForm] = useState({ template_id: "", site_id: "", scheduled_date: "" });
   const [scheduling, setScheduling] = useState(false);
+  // Start an inspection's sheet (Step 335), open or not.
+  const [startOpen, setStartOpen] = useState(false);
   useBusy("inspection in progress", !!active || !!sent || uploadingId !== null || submitting || scheduling);
   // Which cards have been scored (the slider moved, or Not due yet
   // tapped), the card touched last, and whether the scored group is
@@ -16640,6 +16695,21 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       showToast(tr("Inspection scheduled")); setScheduleModal(false); loadList();
     } catch (e) { showToast(tr(e.message), "error"); }
     setScheduling(false);
+  };
+
+  // Start an inspection (Step 335): the walk opens at once from the id the
+  // start answers. With none, My Inspections is read again, today's one at
+  // that site opens, and the screen says it was started.
+  const started = async (s) => {
+    setStartOpen(false);
+    if (s.id) { loadList(); openInspection(s.id); return; }
+    showToast(tr("Inspection started"));
+    setLoading(true);
+    let d = null;
+    try { d = await loadScheduledInspections(token); setList(d); setListFailed(false); } catch (e) { setListFailed(true); }
+    setLoading(false);
+    const one = inspectTodayAt(d, s.siteId, s.templateId, user, s.day);
+    if (one) openInspection(one.id);
   };
 
   // asked: opened from outside My Inspections (Step 296), where one that
@@ -17351,6 +17421,10 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
         )}
       </div>
 
+      {canSchedule === true && (
+        <button type="button" data-inspect-start="1" onClick={() => setStartOpen(true)} style={{ ...mkPrimaryBtn(t, false), minHeight: TAP, marginBottom: 16, fontSize: 14, textTransform: "uppercase", letterSpacing: "0.5px" }}>{tr("Start an inspection")}</button>
+      )}
+
       {loading && <div style={{ padding: "30px 0", textAlign: "center", fontSize: 12, color: t.textMut }}>{tr("Loading...")}</div>}
 
       {!loading && listFailed && list.length === 0 && <ListFault icon={ClipIco} text={tr("This list did not load.")} onRetry={loadList} t={t} />}
@@ -17410,6 +17484,112 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
           </div>
         </div>
       )}
+
+      {startOpen && <StartInspectionSheet token={token} user={user} onClose={() => setStartOpen(false)} onStarted={started} t={t} />}
+    </div>
+  );
+}
+
+// Start an inspection's sheet (Step 335): the site, searchable; the
+// site's template, or which of them when it has several (inspectTemplatesFor
+// says how one is matched), or the ones a refusal names; Include the
+// safety walk, on; and Start the inspection, which posts it as today's,
+// the caller's, started now:
+// POST /api/inspections/scheduled { site_id, template_id, scheduled_date,
+// assigned_to, startNow: true, withSafety }. The template and the date go
+// as well, so it is taken by today's API, which schedules it the way
+// + Schedule does, and by the API that starts it now. A refusal is said
+// under the button in the API's words; inspections.templateRequired
+// offers the templates it answers.
+function StartInspectionSheet({ token, user, onClose, onStarted, t }) {
+  const [templates, setTemplates] = useState(null);
+  const [sites, setSites] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [siteId, setSiteId] = useState("");
+  const [picked, setPicked] = useState("");
+  const [withSafety, setWithSafety] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [fault, setFault] = useState(null);
+  const [answered, setAnswered] = useState(null);
+  useBusy("inspection start", busy);
+  const load = async () => {
+    setFailed(false);
+    try {
+      const [tmpl, st] = await Promise.all([api("/api/inspections/templates", { token }), api("/api/sites", { token })]);
+      setTemplates(Array.isArray(tmpl) ? tmpl : []);
+      setSites((Array.isArray(st) ? st : []).map(inspectSiteOf).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (e) { setFailed(true); }
+  };
+  useEffect(() => { load(); }, []);
+  const site = (sites || []).find(s => s.id === siteId) || null;
+  const fromRefusal = answered && answered.siteId === siteId ? answered.list : null;
+  const match = fromRefusal ? { list: fromRefusal, own: true } : inspectTemplatesFor(templates, site);
+  const choices = match.list;
+  const templateId = choices.length === 1 ? choices[0].id : choices.some(c => c.id === picked) ? picked : "";
+  const pickSite = (id) => { setSiteId(id); setPicked(""); setFault(null); };
+  const start = async () => {
+    if (busy) return;
+    if (!site) { setFault(tr("Choose a site first.")); return; }
+    if (!templateId) { setFault(tr("Choose a template first.")); return; }
+    const day = companyYmd();
+    setBusy(true); setFault(null);
+    try {
+      const d = await api("/api/inspections/scheduled", { method: "POST", token, body: { site_id: site.id, template_id: templateId, scheduled_date: day, assigned_to: user.id, startNow: true, withSafety: withSafety } });
+      setBusy(false);
+      onStarted({ id: inspectStartedIdOf(d), siteId: site.id, templateId: templateId, day: day });
+    } catch (e) {
+      setBusy(false);
+      if (e && e.code === "inspections.templateRequired" && e.body && Array.isArray(e.body.templates)) { setAnswered({ siteId: site.id, list: e.body.templates.map(inspectTemplateOf).filter(Boolean) }); setPicked(""); }
+      setFault(tr(e.message));
+    }
+  };
+  const labelSt = mkLabel(t);
+  const choiceSt = (on) => ({ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: TAP, marginTop: 8, padding: "11px 14px", borderRadius: R.md, cursor: "pointer", textAlign: "left", background: on ? t.goldBg : t.card, border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text });
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 500, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={tr("Start an inspection")} data-inspect-start-sheet="1" style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "24px 20px 40px", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 40px)", overflowY: "auto", boxShadow: t.popShadow }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Start an inspection")}</div>
+          <button type="button" onClick={onClose} aria-label={tr("Close")} style={mkTapFrame({ fontSize: 20, color: t.textMut, lineHeight: 1 })}>{tr("x")}</button>
+        </div>
+        <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, marginBottom: 18 }}>{tr("For today, assigned to you.")}</div>
+        {failed && <ListFault icon={ClipIco} text={tr("This list did not load.")} onRetry={load} t={t} />}
+        {!failed && sites === null && <div style={{ padding: "20px 0", textAlign: "center", fontSize: 12, color: t.textMut }}>{tr("Loading...")}</div>}
+        {!failed && sites !== null && (
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <label htmlFor="ocsa-start-site" style={labelSt}>{tr("Site")}</label>
+              <SearchPick id="ocsa-start-site" name="start-site" rows={sites} value={siteId} onPick={pickSite} noMatch={tr("No site matches that name.")} empty={tr("No sites available yet.")} disabled={busy} t={t} />
+            </div>
+            {site && choices.length === 0 && <div data-inspect-start-none="1" style={{ ...mkHelp(t), marginTop: 0, marginBottom: 16 }}>{tr("No inspection template is set up for this site yet. Ask the office.")}</div>}
+            {site && choices.length === 1 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={labelSt}>{tr("Template")}</div>
+                <div data-inspect-start-template={choices[0].id} style={{ padding: "11px 14px", borderRadius: R.md, background: t.cardAlt, border: "1px solid " + t.borderSolid, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{choices[0].name}</div>
+              </div>
+            )}
+            {site && choices.length > 1 && (
+              <div role="radiogroup" aria-labelledby="ocsa-start-which" style={{ marginBottom: 16 }}>
+                <div id="ocsa-start-which" style={labelSt}>{tr("Which template?")}</div>
+                {choices.map(c => (
+                  <button key={c.id} type="button" role="radio" aria-checked={templateId === c.id} data-inspect-start-choice={c.id} disabled={busy} onClick={() => { setPicked(c.id); setFault(null); }} style={choiceSt(templateId === c.id)}>
+                    <span aria-hidden="true" style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: templateId === c.id ? GOLD : "transparent", border: templateId === c.id ? "none" : "2px solid " + t.borderSolid }} />
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: templateId === c.id ? 600 : 500, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{c.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button type="button" role="switch" aria-checked={withSafety} data-inspect-start-safety="1" disabled={busy} onClick={() => setWithSafety(v => !v)} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 12, padding: "4px 0", marginBottom: 18, background: "none", border: "none", cursor: "pointer", color: t.text, textAlign: "left" }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontFamily: FONT_HEAD }}>{tr("Include the safety walk")}</span>
+              <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: 13, flexShrink: 0, background: withSafety ? GOLD : t.btnGhost, border: "1px solid " + (withSafety ? GOLD : t.borderSolid), position: "relative", transition: "background 0.15s" }}>
+                <span style={{ position: "absolute", top: 2, left: withSafety ? 20 : 2, width: 20, height: 20, borderRadius: "50%", background: withSafety ? NAVY : t.card, boxShadow: "0 1px 3px rgba(0,0,0,0.3)", transition: "left 0.15s" }} />
+              </span>
+            </button>
+            <button type="button" data-inspect-start-go="1" onClick={start} disabled={busy} style={{ ...mkPrimaryBtn(t, busy), minHeight: TAP, fontSize: 14, textTransform: "uppercase", letterSpacing: "0.5px", cursor: busy ? "default" : "pointer" }}>{busy ? tr("Starting...") : tr("Start the inspection")}</button>
+            {fault && <div role="alert" data-inspect-start-fault="1" style={{ fontSize: 12, color: ink(t, RED), lineHeight: 1.45, marginTop: 10 }}>{fault}</div>}
+          </>
+        )}
+      </div>
     </div>
   );
 }
