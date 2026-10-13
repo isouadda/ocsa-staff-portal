@@ -1485,6 +1485,8 @@ export const WORDS = {
   "Choose a site first.": "Elija primero un sitio.",
   "Choose a template first.": "Elija primero una plantilla.",
   "Inspection started": "Inspecci\u00f3n iniciada",
+  "Task list for this site": "Lista de tareas de este sitio",
+  "Nothing to check off here. This list shows the work our staff do at this site.": "Aqu\u00ed no hay nada que marcar. Esta lista muestra el trabajo que nuestro personal hace en este sitio.",
   },
 };
 
@@ -2848,6 +2850,8 @@ WORDS.fr = {
   "Choose a site first.": "Choisissez d'abord un site.",
   "Choose a template first.": "Choisissez d'abord un mod\u00e8le.",
   "Inspection started": "Inspection commenc\u00e9e",
+  "Task list for this site": "Liste des t\u00e2ches de ce site",
+  "Nothing to check off here. This list shows the work our staff do at this site.": "Rien \u00e0 cocher ici. Cette liste montre le travail que notre personnel effectue sur ce site.",
 };
 
 // {name} is replaced after the language is chosen, so the

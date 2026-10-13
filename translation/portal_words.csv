@@ -1314,3 +1314,5 @@ No inspection template is set up for this site yet. Ask the office.,Todavía no 
 Choose a site first.,Elija primero un sitio.,Choisissez d'abord un site.,"Inspect, Start an inspection, under the button with no site picked"
 Choose a template first.,Elija primero una plantilla.,Choisissez d'abord un modèle.,"Inspect, Start an inspection, under the button with no template picked"
 Inspection started,Inspección iniciada,Inspection commencée,"Inspect, the note when a start's answer names no inspection and today's opens"
+Task list for this site,Lista de tareas de este sitio,Liste des tâches de ce site,"Tasks, the title of the list at a site that keeps it as a record, and Home, the button under such a site"
+Nothing to check off here. This list shows the work our staff do at this site.,Aquí no hay nada que marcar. Esta lista muestra el trabajo que nuestro personal hace en este sitio.,Rien à cocher ici. Cette liste montre le travail que notre personnel effectue sur ce site.,"Tasks, under Task list for this site, and the note when a check is refused there"
