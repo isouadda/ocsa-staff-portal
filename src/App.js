@@ -1019,6 +1019,59 @@ const inspectionDay = (v) => (typeof v === "string" ? v.slice(0, 10) : "");
 // The ones on a person's schedule: assigned to them and still scheduled,
 // so a cancelled or completed one is never drawn.
 const inspectionsForMe = (d, user) => (Array.isArray(d) ? d : []).filter(i => i && i.id !== undefined && i.id !== null && i.status === "scheduled" && !!user && String(i.assigned_to) === String(user.id) && /^\d{4}-\d{2}-\d{2}$/.test(inspectionDay(i.scheduled_date)));
+// Start an inspection (Step 335, the training day contract's 3, 335): one
+// started now at a site, with no schedule, from the lists + Schedule
+// reads, GET /api/inspections/templates and GET /api/sites. A template on
+// that list names no site today (inspection_templates has no site
+// column), so a template is matched to its site this way: by the site it
+// names itself, as site_id or siteId or in site_ids, siteIds or sites,
+// once the list answers one; while no template names a site, by its name
+// holding the site's name as whole words; and with neither, every live
+// template is offered and the person picks.
+const inspectSitesNamed = (x) => {
+  const out = [];
+  const add = (v) => { if (v !== null && v !== undefined && v !== "") out.push(String(v)); };
+  [x.site_id, x.siteId].forEach(add);
+  [x.site_ids, x.siteIds, x.sites].forEach(list => { if (Array.isArray(list)) list.forEach(v => add(v && typeof v === "object" ? (v.id !== undefined ? v.id : v.siteId) : v)); });
+  return out;
+};
+const inspectTemplateOf = (x) => (x && typeof x === "object" && x.id !== null && x.id !== undefined && x.is_active !== false && x.isActive !== false ? { id: String(x.id), name: typeof x.name === "string" && x.name.trim() ? x.name.trim() : String(x.id), sites: inspectSitesNamed(x) } : null);
+const inspectSiteOf = (x) => {
+  if (!x || typeof x !== "object") return null;
+  const id = x.id !== undefined && x.id !== null ? x.id : x.siteId;
+  const name = typeof x.name === "string" ? x.name : x.siteName;
+  if (id === undefined || id === null || typeof name !== "string" || !name.trim()) return null;
+  return x.status === "inactive" || x.is_active === false ? null : { id: String(id), name: name.trim() };
+};
+const inspectNameKey = (v) => " " + String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() + " ";
+// The templates offered for a site: { list, own }, own when the list is
+// the site's own rather than every live template.
+function inspectTemplatesFor(templates, site) {
+  const live = (Array.isArray(templates) ? templates : []).map(inspectTemplateOf).filter(Boolean);
+  if (!site) return { list: [], own: false };
+  if (live.some(tp => tp.sites.length > 0)) return { list: live.filter(tp => tp.sites.indexOf(site.id) !== -1), own: true };
+  const name = inspectNameKey(site.name);
+  const named = name.trim() ? live.filter(tp => inspectNameKey(tp.name).indexOf(name) !== -1) : [];
+  return named.length > 0 ? { list: named, own: true } : { list: live, own: false };
+}
+// The id the start answers. Today's API answers the new row itself,
+// { id, template_id, site_id, ... }; an answer that nests it, or names it
+// alone, is read too. null when it carries none.
+const inspectStartedIdOf = (d) => {
+  if (!d || typeof d !== "object") return null;
+  const v = [d.id, d.inspection && d.inspection.id, d.scheduledInspection && d.scheduledInspection.id, d.scheduled_inspection && d.scheduled_inspection.id, d.inspectionId, d.scheduledInspectionId].find(x => x !== null && x !== undefined && x !== "");
+  return v === undefined ? null : String(v);
+};
+// Today's inspection at a site, the person's own and still scheduled,
+// from My Inspections' list, newest first: what a start whose answer
+// carries no id opens.
+function inspectTodayAt(list, siteId, templateId, user, day) {
+  const rows = (Array.isArray(list) ? list : []).filter(i => i && i.id !== undefined && i.id !== null && i.status === "scheduled" && String(i.site_id) === String(siteId) && inspectionDay(i.scheduled_date) === day && (i.assigned_to === undefined || i.assigned_to === null || (!!user && String(i.assigned_to) === String(user.id))));
+  const same = rows.filter(i => i.template_id === undefined || String(i.template_id) === String(templateId));
+  const pool = same.length > 0 ? same : rows;
+  const at = (i) => { const v = Date.parse(i.created_at || i.createdAt || ""); return isNaN(v) ? 0 : v; };
+  return pool.length > 0 ? pool.reduce((a, b) => (at(b) >= at(a) ? b : a)) : null;
+}
 // A colour the calendar does not already use, apart from the gold of a
 // shift: teal, drawn in light mode in a darker ink of its own, which
 // reads at 6.4 to 1 on white (LIGHT_INK).
@@ -1444,6 +1497,12 @@ async function phoneAlertsState() {
   const sub = pushPermission() === "granted" ? await pushSubscription() : null;
   return sub ? "on" : "off";
 }
+// What POST /api/push/subscriptions is sent: the endpoint and keys the
+// browser gave, the phone's user agent, and which app it is (Step 336),
+// app "portal", so the API tells this subscription from the dashboard's
+// on the same computer. An API that does not read app yet stores it as
+// portal by default (migration 0069).
+const pushSubscriptionBody = (j) => ({ endpoint: j.endpoint, keys: j.keys || {}, userAgent: window.navigator.userAgent, app: "portal" });
 // Turns alerts on for this phone. Called from a tap, so the browser's
 // permission can be asked. Answers on, denied, failed or unsupported.
 async function turnOnPhoneAlerts(publicKey, token) {
@@ -1462,7 +1521,7 @@ async function turnOnPhoneAlerts(publicKey, token) {
   } catch (e) { return "failed"; }
   try {
     const j = sub.toJSON ? sub.toJSON() : { endpoint: sub.endpoint, keys: {} };
-    await api("/api/push/subscriptions", { method: "POST", body: { endpoint: j.endpoint, keys: j.keys || {}, userAgent: window.navigator.userAgent }, token });
+    await api("/api/push/subscriptions", { method: "POST", body: pushSubscriptionBody(j), token });
     return "on";
   } catch (e) {
     // A subscription the API never took is dropped, so the phone holds
@@ -1483,7 +1542,7 @@ async function repostPhoneAlerts(token) {
     if (!sub) return;
     const j = sub.toJSON ? sub.toJSON() : { endpoint: sub.endpoint, keys: {} };
     if (!j || !j.endpoint) return;
-    await api("/api/push/subscriptions", { method: "POST", body: { endpoint: j.endpoint, keys: j.keys || {}, userAgent: window.navigator.userAgent }, token, noAuthEvent: true });
+    await api("/api/push/subscriptions", { method: "POST", body: pushSubscriptionBody(j), token, noAuthEvent: true });
   } catch (e) {}
 }
 // Turns alerts off for this phone: unsubscribes here, deletes there.
@@ -1928,6 +1987,14 @@ export default function OCSAStaffPortal() {
   // The checklist day the list in tasks belongs to, YYYY-MM-DD, once the
   // API sends it (Step 198), and null until then.
   const [tasksDay, setTasksDay] = useState(null);
+  // What the task read said of its site's checklist mode (Step 339),
+  // { site, mode }, and the sites a check was refused at with
+  // tasks.siteNotTracked, by id, which read as a list to read from then.
+  const [tasksMode, setTasksMode] = useState(null);
+  const [notTracked, setNotTracked] = useState({});
+  // A site's task list opened to read from Home with no shift open
+  // (Step 339): the site's row from Start Shift's list, or null.
+  const [siteListAt, setSiteListAt] = useState(null);
   // Every clock status request takes a number and only the newest one may
   // fill the Set. An older response landing late would otherwise clear a
   // box that was ticked after it was requested. A person's own list reads
@@ -2228,6 +2295,7 @@ export default function OCSAStaffPortal() {
     if (kept.clock.shift) setSelectedSite(kept.clock.shift.siteId);
     const got = checklistAnswer(list.answer);
     setTasks(got.rows); setTasksDay(got.day); setTasksLang(list.lang || null);
+    setTasksMode(kept.clock && kept.clock.shift ? { site: String(kept.clock.shift.siteId), mode: got.mode } : null);
     setOfflineOpen(true);
     setScreen("main");
   };
@@ -2457,12 +2525,19 @@ export default function OCSAStaffPortal() {
   // flight, which a check or an uncheck needs: the list then carries what
   // the API says was done. Only the newest request's answer is taken.
   const tasksSeq = useRef(0);
-  const loadTasks = async (again) => { const path = checklistAsk; const key = checklistKey; const lang = language; if (!path || (again !== true && tasksReqAsked.current === key)) return; const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (mine !== tasksSeq.current) return; const got = checklistAnswer(tt); setTasks(got.rows); setTasksDay(got.day); setTasksLang(lang); tasksAsked.current = key; setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; }); const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); if (takeStatus(cs, seq) && user && mine === tasksSeq.current && liveToken.current === token) keepChecklist(user.id, user.role, cs, tt, lang); } catch (err) { console.error(err); if (mine === tasksSeq.current) setTasksFailed(true); } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; } };
+  const loadTasks = async (again) => { const path = checklistAsk; const key = checklistKey; const lang = language; const site = clockStatus && clockStatus.shift ? String(clockStatus.shift.siteId) : null; if (!path || (again !== true && tasksReqAsked.current === key)) return; const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (mine !== tasksSeq.current) return; const got = checklistAnswer(tt); setTasks(got.rows); setTasksDay(got.day); setTasksLang(lang); setTasksMode({ site: site, mode: got.mode }); tasksAsked.current = key; setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; }); const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); if (takeStatus(cs, seq) && user && mine === tasksSeq.current && liveToken.current === token) keepChecklist(user.id, user.role, cs, tt, lang); } catch (err) { console.error(err); if (mine === tasksSeq.current) setTasksFailed(true); } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; } };
   // A check or an uncheck, sent the way it always has been, for the row as
   // the screen draws it. A row outside the id lists is drawn from this
   // phone's own tap until the list comes back. Then the list and the
   // status are both read again, since a periodic row's tick lives on the
   // row and not in the status.
+  // A check refused because the site keeps its list as a record (Step
+  // 339, tasks.siteNotTracked): the site's list reads as a list to read
+  // from then on, and the line saying so is shown.
+  const refusedNotTracked = (siteId) => {
+    if (siteId !== null && siteId !== undefined) setNotTracked(prev => (prev[String(siteId)] ? prev : { ...prev, [String(siteId)]: true }));
+    showToast(tr(CHECKLIST_LINE), "notice");
+  };
   const toggleTask = async (task, done) => {
     const taskId = task.id;
     if (inFlightTaskIds.current.has(taskId)) return;
@@ -2490,6 +2565,7 @@ export default function OCSAStaffPortal() {
       // So is one turned away until the person chooses their own PIN.
       if (err && (err.message === ERR_OFFLINE || err.code === "auth.mustSetPin")) { putPending(pendingRef.current.concat([tap])); shown(); }
       else if (done && err.code === "NOT_YOUR_CHECK") { showRowNote(taskId, tr(err.message)); loadTasks(true); }
+      else if (err && err.code === CHECKLIST_NOT_TRACKED) refusedNotTracked(tap.siteId);
       else showToast(tr(err.message), "error");
     } finally { inFlightTaskIds.current.delete(taskId); }
   };
@@ -2514,7 +2590,8 @@ export default function OCSAStaffPortal() {
             // chosen: the tap stays, for later or for this person's next
             // sign-in.
             if (err && (err.message === ERR_OFFLINE || err.message === "Session expired" || err.code === "auth.mustSetPin")) break;
-            showToast(tr(err.message), "error");
+            if (err && err.code === CHECKLIST_NOT_TRACKED) refusedNotTracked(tap.siteId);
+            else showToast(tr(err.message), "error");
           }
         }
         putPending(pendingRef.current.filter(x => x.clientId !== tap.clientId));
@@ -2676,6 +2753,7 @@ export default function OCSAStaffPortal() {
     }
     if (place.tab === "training") setTrainingAt(place.join ? { join: String(place.join) } : place.doc ? { doc: { docCode: String(place.doc), title: String(place.doc) } } : place.category ? { category: String(place.category) } : place.topic ? { topic: String(place.topic) } : null);
     if (place.tab === "inspect") setInspectAt(place.inspection ? { id: String(place.inspection), at: Date.now() } : null);
+    if (place.tab === "tasks") setTaskFocus(place.task ? { id: String(place.task), at: Date.now() } : null);
     if (place.tab === "forms" && place.draft) setFormsDraft(String(place.draft));
     setActiveTab(place.tab); setShowMore(false);
     if (place.tab === "issues") { setRequestOpen(place.request || null); setFindingOpen(place.finding || null); loadClientRequests(); loadFindings(); }
@@ -2715,7 +2793,11 @@ export default function OCSAStaffPortal() {
   useEffect(() => {
     if (!openAsk || booting || screen !== "main" || !token) return;
     setOpenAsk(null);
-    openPlace(notifPlace(openAsk.subjectType, openAsk.subjectId));
+    // A subject the portal has no place for, an HR case among them (Step
+    // 336), opens the bell, where its notice offers Open in the dashboard.
+    // A tap on an alert never opens another address by itself.
+    const place = notifPlace(openAsk.subjectType, openAsk.subjectId);
+    if (place) openPlace(place); else if (openAsk.subjectType) setNotifOpen(true);
   }, [openAsk, booting, screen, token]);
   // The list of chats is read once the portal is up, so the Chat tab's
   // count is on the bar before Chat is ever opened, and again each time
@@ -2769,6 +2851,9 @@ export default function OCSAStaffPortal() {
   // My Schedule or Home's week, a notice or /inspect/<id>: { id, at },
   // at telling two taps on the same one apart. Dropped once opened.
   const [inspectAt, setInspectAt] = useState(null);
+  // The checklist task a notice asked Tasks to open (the training day
+  // round): { id, at }, dropped once Tasks has looked for it.
+  const [taskFocus, setTaskFocus] = useState(null);
   const openInspection = (id) => { setInspectAt({ id: String(id), at: Date.now() }); setActiveTab("inspect"); setShowMore(false); };
   // The issue whose sheet is open (Step 297), over whatever is on the
   // screen: { id, row, at }, row being what it was opened from, if
@@ -3034,10 +3119,10 @@ export default function OCSAStaffPortal() {
     tasksSeq.current += 1;
     pendingRef.current = []; setPending([]); setOfflineOpen(false);
     if (!keepQueue) { writePending([]); forgetKept(); }
-    setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null);
+    setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null); setTasksMode(null); setNotTracked({}); setSiteListAt(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
     setChannels(null); setChannelsFailed(false); setMessages([]); setMessagesOf(null); setActiveChannel(null);
-    setAgentConversation(null); setFormsDraft(null); setFieldKitAt(null); setEquipmentShown(null); setEquipmentBack(null); setInspectAt(null); setIssueAt(null);
+    setAgentConversation(null); setFormsDraft(null); setFieldKitAt(null); setEquipmentShown(null); setEquipmentBack(null); setInspectAt(null); setTaskFocus(null); setIssueAt(null);
     setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
     setLookups([]); setLookupsLang(null); toastsRef.current.clear(); setLoading(false);
     setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false); setAnnouncementOpen(null); setOpenAsk(null); setAlertsCard(null); setAlertsCardBusy(false);
@@ -3158,6 +3243,12 @@ export default function OCSAStaffPortal() {
   const pendingTicks = pendingTicksFor(pending, clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, user && user.id);
   const shownCompleted = pendingTicks.size === 0 ? completedTaskIds : (() => { const n = new Set(completedTaskIds); pendingTicks.forEach((on, id) => { if (on) n.add(id); else n.delete(id); }); return n; })();
   const homeCounts = Array.isArray(tasks) ? todayCount(tasks, shownCompleted) : null;
+  // Step 339: whether the open shift's site keeps its task list as a
+  // record, to read, and whether one of the person's sites does.
+  const siteLists = [sessionSites && sessionSites.scheduled, sessionSites && sessionSites.assigned, sessionSites && sessionSites.all, sites];
+  const shiftSite = clockStatus && clockStatus.clockedIn && clockStatus.shift ? String(clockStatus.shift.siteId) : null;
+  const shiftReference = !!shiftSite && (!!notTracked[shiftSite] || shiftChecklistMode(clockStatus, tasksMode && tasksMode.site === shiftSite ? tasksMode.mode : null, siteLists) === "reference");
+  const siteReference = (id) => !!notTracked[String(id)] || siteChecklistMode(id, siteLists) === "reference";
   // The sheet that asks which shift, while it is needed: after Start Shift
   // or Change shift, and whenever the session at a site with shifts
   // carries none.
@@ -3232,9 +3323,9 @@ export default function OCSAStaffPortal() {
               {activeTab === "support" && destCtx.support && <SupportView token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} t={t} />}
               {activeTab === "supplyorders" && (destCtx.supplyOrders || !!supplyAt) && <SupplyOrdersView token={token} user={user} holder={supplyHolder === true} rows={supplyOrders} onReload={() => loadSupplyOrders()} onRow={takeSupplyOrder} at={supplyAt} onAt={setSupplyAt} getOpts={getOpts} showToast={showToast} t={t} />}
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
-              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
+              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
-              {activeTab === "tasks" && <TasksView token={token} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} t={t} />}
+              {activeTab === "tasks" && <TasksView token={token} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} onOpenDocument={(d) => openLibraryDoc(d, null)} />}
@@ -3311,6 +3402,7 @@ export default function OCSAStaffPortal() {
         </>
       )}
 
+      {siteListAt && token && <SiteTaskListSheet token={token} site={siteListAt} language={language} onClose={() => setSiteListAt(null)} t={t} />}
       {notifOpen && (
         <NotificationsSheet
           token={token}
@@ -4626,7 +4718,12 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
   );
 }
 
-function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, onSelectSite, onStartSession, onEndSession, siteChoices, siteChoicesFailed, onRetrySites, loading, completedCount, taskCount, taskListLoaded, t }) {
+// reference: the open shift's site keeps its task list as a record (Step
+// 339), so the card counts nothing. siteReference(id) says the same of a
+// site on the list, and each of the person's own such sites, scheduled
+// today or assigned, offers its list to read with no shift open
+// (onReadList).
+function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, onSelectSite, onStartSession, onEndSession, siteChoices, siteChoicesFailed, onRetrySites, loading, completedCount, taskCount, taskListLoaded, reference, siteReference, onReadList, t }) {
   // The timer below is the one number on any screen wide enough to reach
   // the edge of its card, so this screen has to know the text size.
   const { textSize: clockTextSize } = useContext(TextSizeCtx);
@@ -4650,7 +4747,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
   const shown = new Set([...scheduled, ...assigned].map(x => x.siteId));
   const others = (siteChoices?.all || []).filter(x => !shown.has(x.siteId));
   const grouped = scheduled.length > 0 || assigned.length > 0;
-  const groups = (grouped ? [{ label: tr("Scheduled Today"), items: scheduled }, { label: tr("Your Assigned Sites"), items: assigned }, { label: tr("All Other Sites"), items: others }] : [{ label: null, items: others }]).filter(g => g.items.length > 0);
+  const groups = (grouped ? [{ label: tr("Scheduled Today"), items: scheduled, own: true }, { label: tr("Your Assigned Sites"), items: assigned, own: true }, { label: tr("All Other Sites"), items: others }] : [{ label: null, items: others }]).filter(g => g.items.length > 0);
   const pendingRow = pendingSite ? [...scheduled, ...assigned, ...others].find(x => x.siteId === pendingSite) : null;
   const pendingName = pendingRow ? pendingRow.siteName : "";
   const emptySt = { padding: "28px 20px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontSize: 13, color: t.textMut, boxShadow: t.shadow };
@@ -4659,13 +4756,14 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
   // shift in progress: gold fill, filled dot. picked is a choice not yet
   // started: gold outline, hollow gold dot. Rows go inert while a shift
   // is open, since the API refuses a second start until it is ended.
-  const renderSite = (site, idx) => {
+  const renderSite = (site, idx, own) => {
     const open = ci && selectedSite === site.siteId;
     const picked = !ci && pendingSite === site.siteId;
     const inert = loading || !!ci;
     const place = [site.address, site.city].filter(Boolean).join(", ");
     const detail = [site.buildingName, site.floorNumber ? tr("Floor {n}", { n: site.floorNumber }) : null].filter(Boolean).join(" - ");
-    return (
+    const readable = own && !!onReadList && !!siteReference && siteReference(site.siteId);
+    const row = (
       <button key={site.siteId + "-" + idx} onClick={() => { if (!inert) onSelectSite(site.siteId); }} disabled={inert} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", marginBottom: 10, background: open ? t.goldBg : t.card, border: open || picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: R.md, cursor: inert ? "default" : "pointer", color: t.text, textAlign: "left", opacity: loading || (ci && !open) ? 0.6 : 1, boxShadow: open || picked ? t.popShadow : t.shadow, transition: "background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease" }}>
         <div style={{ width: 38, height: 38, flexShrink: 0, borderRadius: R.sm, display: "flex", alignItems: "center", justifyContent: "center", background: open ? t.goldSubtle : t.hover, border: "1px solid " + (open || picked ? t.goldBorder : t.borderSolid) }}>
           <MapIco sz={18} c={open || picked ? GOLD : t.textMut} />
@@ -4677,6 +4775,15 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
         </div>
         <div style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: open ? GOLD : "transparent", border: open ? "none" : "2px solid " + (picked ? GOLD : t.borderSolid) }} />
       </button>
+    );
+    if (!readable) return row;
+    // A site that keeps its list as a record: its list, to read, under
+    // its row, whether or not a shift is open.
+    return (
+      <div key={site.siteId + "-" + idx}>
+        {row}
+        <button type="button" data-site-list={site.siteId} onClick={() => onReadList(site)} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 8, marginTop: -4, marginBottom: 10, padding: "0 14px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left", fontFamily: FONT_HEAD }}><CheckIco sz={14} c={t.goldText} style={{ flexShrink: 0 }} />{tr("Task list for this site")}</button>
+      </div>
     );
   };
   return (
@@ -4692,7 +4799,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
           <div style={{ fontSize: 11, color: t.textSec, marginTop: 8 }}>{sameLocalDay(clockStatus.shift.clockInTime, currentTime) ? tr("Started at {time}", { time: formatTime(clockStatus.shift.clockInTime) }) : tr("Started {day} at {time}", { day: formatDayShort(clockStatus.shift.clockInTime), time: formatTime(clockStatus.shift.clockInTime) })}</div>
           <div style={{ fontSize: 12, color: t.text, marginTop: 4, fontWeight: 600 }}>{clockStatus.shift.siteName}</div>
           {(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.goldText, marginTop: 3 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>}
-          {taskListLoaded && (<div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><div style={{ flex: 1, maxWidth: 180, height: 6, borderRadius: R.pill, background: t.cardAlt, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.3s ease" }} /></div><span style={{ fontSize: 11, color: t.goldText, fontWeight: 600, fontFamily: FONT_HEAD }}>{done}/{total}</span></div>)}
+          {taskListLoaded && !reference && (<div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><div style={{ flex: 1, maxWidth: 180, height: 6, borderRadius: R.pill, background: t.cardAlt, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.3s ease" }} /></div><span style={{ fontSize: 11, color: t.goldText, fontWeight: 600, fontFamily: FONT_HEAD }}>{done}/{total}</span></div>)}
           <button onClick={onEndSession} disabled={loading} style={{ ...mkPrimaryBtn(t, loading), marginTop: 16 }}>{loading ? tr("Ending...") : tr("End Shift")}</button>
         </div>
       )}
@@ -4702,7 +4809,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
         {!siteChoices && siteChoicesFailed && <ListFault icon={MapIco} text={tr("Your sites did not load.")} onRetry={onRetrySites} t={t} />}
         {!siteChoices && !siteChoicesFailed && <div style={emptySt}>{tr("Loading sites...")}</div>}
         {siteChoices && groups.length === 0 && <div style={emptySt}>{tr("No sites available yet.")}</div>}
-        {siteChoices && groups.map((g, gi) => (<div key={gi}>{g.label && <div style={groupHeadSt}>{g.label}</div>}{g.items.map(renderSite)}</div>))}
+        {siteChoices && groups.map((g, gi) => (<div key={gi}>{g.label && <div style={groupHeadSt}>{g.label}</div>}{g.items.map((site, idx) => renderSite(site, idx, !!g.own))}</div>))}
         {siteChoices && groups.length > 0 && !ci && (
           <button onClick={() => onStartSession(pendingSite)} disabled={!pendingSite || loading} style={{ ...mkPrimaryBtn(t, loading || !pendingSite), marginTop: 4, cursor: !pendingSite || loading ? "default" : "pointer" }}>{loading ? tr("Starting...") : pendingSite ? tr("Start Shift at {site}", { site: pendingName }) : tr("Start Shift")}</button>
         )}
@@ -4760,7 +4867,35 @@ function checklistAnswer(tt) {
   const top = tt && !Array.isArray(tt) && typeof tt === "object" ? tt.checklistDay : null;
   const onRow = Array.isArray(rows) ? (rows.find(r => r && YMD_RE.test(String(r.checklistDay || ""))) || {}).checklistDay : null;
   const day = YMD_RE.test(String(top || "")) ? top : onRow || null;
-  return { rows, day };
+  const mode = checklistModeOf(tt && !Array.isArray(tt) && typeof tt === "object" ? tt : null) || (Array.isArray(rows) ? checklistModeOf(rows.find(r => checklistModeOf(r)) || null) : null);
+  return { rows, day, mode };
+}
+// Task lists kept as a record (Step 339, the training day contract's 3,
+// 339, API Step 337). A site answers checklistMode, tracked or reference,
+// on every site read and on the shift's task read; at a reference site
+// the task list is there to read and nothing is checked off. It is read
+// from the task read (its top level, or its rows), then the clock status
+// (its shift, its session, or its counts, answered notTracked at such a
+// site), then the person's sites. Until any of them answers it, every
+// site is tracked and the checklist is as before.
+const CHECKLIST_LINE = "Nothing to check off here. This list shows the work our staff do at this site.";
+const CHECKLIST_NOT_TRACKED = "tasks.siteNotTracked";
+const checklistModeOf = (x) => { if (!x || typeof x !== "object") return null; const v = x.checklistMode !== undefined ? x.checklistMode : x.checklist_mode; return v === "reference" || v === "tracked" ? v : null; };
+// A site's mode from lists of sites, each row named by siteId or id:
+// Start Shift's sites, the person's own and every site.
+function siteChecklistMode(siteId, lists) {
+  if (siteId === null || siteId === undefined) return null;
+  for (const list of lists) {
+    const hit = (Array.isArray(list) ? list : []).find(r => r && String(r.siteId !== undefined ? r.siteId : r.id) === String(siteId) && checklistModeOf(r));
+    if (hit) return checklistModeOf(hit);
+  }
+  return null;
+}
+// The open shift's site's mode, answered being what its task read said.
+function shiftChecklistMode(cs, answered, lists) {
+  if (!cs || !cs.clockedIn || !cs.shift) return null;
+  const tk = cs.tasks && typeof cs.tasks === "object" ? cs.tasks : null;
+  return answered || checklistModeOf(cs.shift) || checklistModeOf(cs.session) || checklistModeOf(tk) || (tk && tk.notTracked === true ? "reference" : null) || siteChecklistMode(cs.shift.siteId, lists);
 }
 // Where a row belongs on the checklist. The day's own work is counted in
 // its percentage when it is due today. Work that repeats over a week, two
@@ -5052,15 +5187,29 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
   );
 }
 
-function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, t }) {
+// reference: the site keeps its task list as a record (Step 339), and the
+// list is drawn to read, with nothing to check off. standalone: the list
+// read from a site with no shift open, from Home (SiteTaskListSheet).
+// focus: a task a notice asked for, { id, at }; with a shift open and the
+// task on its list, its details open, else the list, and onFocused says it
+// was looked for either way.
+function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, reference, standalone, focus, onFocused, t }) {
   const [detail, setDetail] = useState(null);
+  useEffect(() => {
+    if (!focus) return;
+    if (!clockStatus || !clockStatus.clockedIn || (tasksFailed && !Array.isArray(tasks))) { if (onFocused) onFocused(); return; }
+    if (!Array.isArray(tasks)) return;
+    const row = tasks.find(tk => tk && String(tk.id) === focus.id);
+    setDetail(row || null);
+    if (onFocused) onFocused();
+  }, [focus, tasks, tasksFailed, clockStatus && clockStatus.clockedIn]);
   const loaded = Array.isArray(tasks);
   const standardTasks = standardTasksOf(tasks);
   // The day's schedule from the schedule route, when the session's shifts
   // carry no blocks (scheduleRequest), read again when the site, the shift,
   // the day or the language changes. Until it answers, or when it does not,
   // the checklist reads as it did.
-  const scheduleAsk = scheduleRequest(clockStatus, standardTasks, listDay);
+  const scheduleAsk = standalone ? null : scheduleRequest(clockStatus, standardTasks, listDay);
   const [schedule, setSchedule] = useState(null);
   useEffect(() => {
     if (!scheduleAsk) return undefined;
@@ -5257,11 +5406,25 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
   if (today.length > 0 || (plan && blocks.length > 0)) listSections.push({ id: "today", title: tr("Today"), rows: today, count: null, plan: plan });
   PERIOD_SECTIONS.forEach((p) => {
     const list = rows.filter(tk => tk.period === p.id);
-    if (list.length > 0) listSections.push({ id: p.id, title: p.title(), rows: list, count: tr("{done} of {total} done", { done: list.filter(isDone).length, total: list.length }) });
+    if (list.length > 0) listSections.push({ id: p.id, title: p.title(), rows: list, count: reference ? null : tr("{done} of {total} done", { done: list.filter(isDone).length, total: list.length }) });
   });
   const needed = rows.filter(tk => sectionOf(tk) === "as_needed");
   if (needed.length > 0) listSections.push({ id: "as_needed", title: tr("As needed"), rows: needed, count: null });
 
+  if (detail && reference) return drawDetail(detail, null, null);
+  // A row of a list to read (Step 339): its name, the blue dot of one with
+  // details, which a tap opens, and its chips, how often it comes, PRIORITY
+  // and a touchpoint. No box, no line through it and no who or when.
+  const readRow = (task, inset) => {
+    const w = itemWords(task, apiWords);
+    const hasInfo = task.has_details || w.description || task.media_url;
+    const often = howOften(task);
+    const touch = touchChip(task);
+    const inside = (<><span style={{ flex: "1 1 120px", minWidth: 0, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 5, color: t.text, lineHeight: 1.4, overflowWrap: "anywhere" }}>{w.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</span>{(often || task.priority === "high" || touch) && <span style={chipGroupSt}>{often && <span style={chipOften}>{often}</span>}{task.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}{touch}</span>}</>);
+    const st = { ...rowBase, alignItems: "center", minHeight: TAP, boxSizing: "border-box", background: t.card, border: "1px solid " + t.borderSolid, marginLeft: inset };
+    if (!hasInfo) return <div key={task.id} data-task-read={task.id} style={st}>{inside}</div>;
+    return <button key={task.id} type="button" data-task-read={task.id} onClick={() => setDetail(task)} style={{ ...st, width: inset ? "calc(100% - " + inset + "px)" : "100%", textAlign: "left", fontFamily: FONT_BODY, cursor: "pointer" }}>{inside}</button>;
+  };
   if (detail) {
     const current = rows.find(tk => tk.id === detail.id) || rowNow(detail);
     const done = isDone(current);
@@ -5273,16 +5436,26 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
   return (
     <div style={{ padding: "16px" }}>
       {/* One quiet line while a tap waits for signal. */}
-      {waiting.size > 0 && <div role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}><ClockIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.5, minWidth: 0 }}>{tr("Saved on this phone. It sends when you have signal.")}</div></div>}
-      <div style={{ padding: "14px 16px", marginBottom: 16, background: t.goldBg, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
+      {!reference && waiting.size > 0 && <div role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}><ClockIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.5, minWidth: 0 }}>{tr("Saved on this phone. It sends when you have signal.")}</div></div>}
+      {/* A list to read (Step 339): its title, the site and the line
+          saying nothing is checked off here, with no percentage and no
+          bar. */}
+      {reference && (
+        <div data-task-list-read="1" style={{ padding: "14px 16px", marginBottom: 16, background: t.goldBg, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
+          <div role="heading" aria-level={2} style={{ fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35 }}>{tr("Task list for this site")}</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: t.goldText, marginTop: 3, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{clockStatus.shift.siteName}{clockStatus.shift.buildingName ? " - " + clockStatus.shift.buildingName : ""}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>
+          <div data-task-list-line="1" style={{ fontSize: 12, color: t.textSec, marginTop: 8, lineHeight: 1.45 }}>{tr(CHECKLIST_LINE)}</div>
+        </div>
+      )}
+      {!reference && <div style={{ padding: "14px 16px", marginBottom: 16, background: t.goldBg, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Your Assignment")}</div><div style={{ fontSize: 15, fontWeight: 600, marginTop: 3, color: t.text, fontFamily: FONT_HEAD }}>{clockStatus.shift.siteName}</div>{(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.textSec, marginTop: 2 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>}</div><div style={{ background: pct === 100 ? t.greenSubtle : t.card, padding: "6px 14px", borderRadius: R.pill, border: "1px solid " + (pct === 100 ? t.greenBorder : t.borderSolid) }}><div style={{ fontSize: 18, fontWeight: 600, color: ink(t, pct === 100 ? GREEN : t.goldText), fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</div></div></div>
         <div style={{ height: 5, borderRadius: R.pill, background: t.cardAlt, marginTop: 12, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.4s ease" }} /></div>
-      </div>
-      {shiftRow}
+      </div>}
+      {!standalone && shiftRow}
       {listSections.map((sec, si) => (
         <div key={sec.id} style={{ marginTop: si > 0 ? 22 : 0 }}>
           <div style={periodHeadSt}><div role="heading" aria-level={2} style={periodTitleSt}>{sec.title}</div>{sec.count && <div style={periodCountSt}>{sec.count}</div>}</div>
-          {drawSections((() => { const list = checklistSections(sec.rows, clockStatus.shift, apiWords, sec.plan || null); if (sec.plan) list.forEach(x => x.groups.forEach(g => { g.overdue = g.kind === "critical" && !!g.past && g.rows.some(r => !isDone(r.task)); })); return list; })(), (task, inset) => {
+          {drawSections((() => { const list = checklistSections(sec.rows, clockStatus.shift, apiWords, sec.plan || null); if (sec.plan && !reference) list.forEach(x => x.groups.forEach(g => { g.overdue = g.kind === "critical" && !!g.past && g.rows.some(r => !isDone(r.task)); })); return list; })(), reference ? readRow : (task, inset) => {
             const w = itemWords(task, apiWords);
             const done = isDone(task);
             const lock = lockOf(task, done);
@@ -5316,6 +5489,45 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
     </div>
   );
 }
+
+// A site's task list read from Home with no shift open (Step 339): the
+// list of a site that keeps it as a record, for anyone assigned there,
+// from GET /api/sites/:id/tasks?day=today, the site's whole list for the
+// day with every shift's items under its own name. It is drawn the way
+// the shift's list to read is, over the screen, with Close at the foot.
+function SiteTaskListSheet({ token, site, language, onClose, t }) {
+  const [rows, setRows] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [day, setDay] = useState(null);
+  const [lang, setLang] = useState(null);
+  const seq = useRef(0);
+  const load = useCallback(async () => {
+    const mine = ++seq.current;
+    setFailed(false);
+    try {
+      const tt = await api("/api/sites/" + encodeURIComponent(site.siteId) + "/tasks?day=today&locale=" + languageToSend(language), { token });
+      if (mine !== seq.current) return;
+      const got = checklistAnswer(tt);
+      setRows(Array.isArray(got.rows) ? got.rows : []); setDay(got.day); setLang(language);
+    } catch (e) { if (mine === seq.current) setFailed(true); }
+  }, [token, site.siteId, language]);
+  useEffect(() => { load(); }, [load]);
+  const cs = { clockedIn: true, shift: { siteId: site.siteId, siteName: site.siteName, buildingName: site.buildingName || null, floorNumber: site.floorNumber || null }, session: null, tasks: null };
+  return (
+    <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div role="dialog" aria-modal="true" aria-label={tr("Task list for this site")} data-site-list-sheet={site.siteId} onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, height: "var(--ocsa-vh, 100vh)", maxHeight: "var(--ocsa-dvh, 100dvh)", display: "flex", flexDirection: "column", borderTop: "1px solid " + t.borderSolid }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+          <TasksView token={token} clockStatus={cs} tasks={rows} tasksFailed={failed} onRetryTasks={load} completedTaskIds={NO_TICKS} pendingTicks={null} tickOverrides={NO_OVERRIDES} toggleTask={() => {}} rowNote={null} onRowNote={() => {}} apiWords={lang === language} listDay={day} shiftSheet={null} onChangeShift={() => {}} nowMs={Date.now()} reference standalone t={t} />
+        </div>
+        <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
+          <button type="button" onClick={onClose} style={{ width: "100%", minHeight: 44, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Close")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+const NO_TICKS = new Set();
+const NO_OVERRIDES = new Map();
 
 // --- Chat -------------------------------------------------------------
 // The chat last chosen on this phone, kept per person the way shortcuts
@@ -10653,6 +10865,9 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
 const NOTIF_TAB = {
   supply_request: "supplies",
   time_off: "schedule",
+  // A shift dropped or claimed: Shift Pickup, as before. Every other
+  // shift notice, shift_assigned among them (Step 336, a shift given to
+  // the person in place of someone off), opens My Schedule (shiftSubject).
   shift_drop: "pickup",
   shift_claim: "pickup",
   issue: "issues",
@@ -10679,6 +10894,12 @@ const NOTIF_TAB = {
   // A signature sent to the person's phone (Step 271): the signing screen,
   // in Home's place.
   signature_request: "sign",
+  // A checklist task the person was linked to (the training day round,
+  // API Step 328): Tasks, on that task when the open shift's list holds
+  // it, else Tasks. A site the person was assigned to: Home, where their
+  // sites are listed to start a shift.
+  task_assigned: "tasks",
+  site_assigned: "clock",
   chat: "chat",
   chat_mention: "chat",
   announcement: "announcement",
@@ -10691,8 +10912,24 @@ const NOTIF_TAB = {
 // Inspect, with that inspection open. The contract names the notices
 // (assigned, moved to someone else, a new date, cancelled) and not their
 // subject type, so every inspection subject but a finding opens it, and
-// so does the portal's own address for one, /inspect/<id>.
+// so does the portal's own address for one, /inspect/<id>. The morning's
+// notice about a walk left unfinished (Step 336, API Step 326),
+// inspection_unfinished with the scheduled inspection's id, is one of
+// them.
 const inspectionSubject = (s) => typeof s === "string" && s !== "inspection_finding" && /^(scheduled_)?inspections?(_|$)/.test(s);
+// Any shift notice the API sends (Step 336), shift_assigned first: My
+// Schedule. shift_drop and shift_claim keep Shift Pickup (NOTIF_TAB).
+const shiftSubject = (s) => typeof s === "string" && /^shifts?(_|$)/.test(s) && !Object.prototype.hasOwnProperty.call(NOTIF_TAB, s);
+// Any training notice with no place of its own (the training day round):
+// training_assigned, training_session and the rest open My training.
+// training_signoff, training_join, training_category, training_expiring
+// and training_reteach keep theirs (NOTIF_TAB).
+const trainingSubject = (s) => typeof s === "string" && /^training(_|$)/.test(s);
+// An HR case (Step 336): assigned to the person or escalated to them.
+// Cases are worked on the admin dashboard and the portal has no place
+// for one, so the bell's row offers Open in the dashboard with the
+// notice's link, and a tap on its phone alert opens the bell.
+const caseSubject = (s) => typeof s === "string" && /^hr_cases?(_|$)/.test(s);
 // An issue (Step 297): its sheet, from any notice about one (reported at
 // the person's site, escalated, and those API Step 298 adds: assigned to
 // them, its status changed), an inspection finding, and /issues/<id>.
@@ -10706,9 +10943,12 @@ function notifPlace(subjectType, subjectId) {
   if (draftSubject(subjectType) && subjectId !== null && subjectId !== undefined && subjectId !== "") return { tab: "forms", draft: String(subjectId) };
   if (issueSubject(subjectType) && subjectId !== null && subjectId !== undefined && subjectId !== "") return { issue: String(subjectId) };
   if (inspectionSubject(subjectType)) return subjectId === null || subjectId === undefined ? { tab: "inspect" } : { tab: "inspect", inspection: String(subjectId) };
-  const tab = NOTIF_TAB[subjectType];
+  if (shiftSubject(subjectType)) return { tab: "schedule" };
+  if (caseSubject(subjectType)) return null;
+  const tab = NOTIF_TAB[subjectType] || (trainingSubject(subjectType) ? "training" : null);
   if (!tab) return null;
   const id = subjectId === null || subjectId === undefined ? null : String(subjectId);
+  if (subjectType === "task_assigned") return id ? { tab: tab, task: id } : { tab: tab };
   if (tab === "chat") return { tab: "chat", chat: id };
   if (tab === "announcement") return id ? { announcement: id } : null;
   if (subjectType === "client_request") return { tab: tab, request: id };
@@ -10838,6 +11078,8 @@ function NotificationsSheet({ token, t, locale, unread, onClose, onOpen, onUnrea
           {(rows || []).map(row => {
             const isUnread = !row.readAt;
             const hasTab = !!notifPlace(row.subjectType, row.subjectId);
+            // A subject the portal has no place for offers its link on the
+            // dashboard; one it can open never sends the person elsewhere.
             const showDashboard = !hasTab && notifOffOrigin(row.link);
             return (
               <div key={row.id} style={{ marginBottom: 6, background: t.card, border: "1px solid " + (isUnread ? t.goldBorder : t.borderSolid), borderRadius: R.md }}>
@@ -16551,6 +16793,8 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
   const [sites, setSites] = useState([]);
   const [schedForm, setSchedForm] = useState({ template_id: "", site_id: "", scheduled_date: "" });
   const [scheduling, setScheduling] = useState(false);
+  // Start an inspection's sheet (Step 335), open or not.
+  const [startOpen, setStartOpen] = useState(false);
   useBusy("inspection in progress", !!active || !!sent || uploadingId !== null || submitting || scheduling);
   // Which cards have been scored (the slider moved, or Not due yet
   // tapped), the card touched last, and whether the scored group is
@@ -16640,6 +16884,21 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       showToast(tr("Inspection scheduled")); setScheduleModal(false); loadList();
     } catch (e) { showToast(tr(e.message), "error"); }
     setScheduling(false);
+  };
+
+  // Start an inspection (Step 335): the walk opens at once from the id the
+  // start answers. With none, My Inspections is read again, today's one at
+  // that site opens, and the screen says it was started.
+  const started = async (s) => {
+    setStartOpen(false);
+    if (s.id) { loadList(); openInspection(s.id); return; }
+    showToast(tr("Inspection started"));
+    setLoading(true);
+    let d = null;
+    try { d = await loadScheduledInspections(token); setList(d); setListFailed(false); } catch (e) { setListFailed(true); }
+    setLoading(false);
+    const one = inspectTodayAt(d, s.siteId, s.templateId, user, s.day);
+    if (one) openInspection(one.id);
   };
 
   // asked: opened from outside My Inspections (Step 296), where one that
@@ -17351,6 +17610,10 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
         )}
       </div>
 
+      {canSchedule === true && (
+        <button type="button" data-inspect-start="1" onClick={() => setStartOpen(true)} style={{ ...mkPrimaryBtn(t, false), minHeight: TAP, marginBottom: 16, fontSize: 14, textTransform: "uppercase", letterSpacing: "0.5px" }}>{tr("Start an inspection")}</button>
+      )}
+
       {loading && <div style={{ padding: "30px 0", textAlign: "center", fontSize: 12, color: t.textMut }}>{tr("Loading...")}</div>}
 
       {!loading && listFailed && list.length === 0 && <ListFault icon={ClipIco} text={tr("This list did not load.")} onRetry={loadList} t={t} />}
@@ -17410,6 +17673,112 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
           </div>
         </div>
       )}
+
+      {startOpen && <StartInspectionSheet token={token} user={user} onClose={() => setStartOpen(false)} onStarted={started} t={t} />}
+    </div>
+  );
+}
+
+// Start an inspection's sheet (Step 335): the site, searchable; the
+// site's template, or which of them when it has several (inspectTemplatesFor
+// says how one is matched), or the ones a refusal names; Include the
+// safety walk, on; and Start the inspection, which posts it as today's,
+// the caller's, started now:
+// POST /api/inspections/scheduled { site_id, template_id, scheduled_date,
+// assigned_to, startNow: true, withSafety }. The template and the date go
+// as well, so it is taken by today's API, which schedules it the way
+// + Schedule does, and by the API that starts it now. A refusal is said
+// under the button in the API's words; inspections.templateRequired
+// offers the templates it answers.
+function StartInspectionSheet({ token, user, onClose, onStarted, t }) {
+  const [templates, setTemplates] = useState(null);
+  const [sites, setSites] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [siteId, setSiteId] = useState("");
+  const [picked, setPicked] = useState("");
+  const [withSafety, setWithSafety] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [fault, setFault] = useState(null);
+  const [answered, setAnswered] = useState(null);
+  useBusy("inspection start", busy);
+  const load = async () => {
+    setFailed(false);
+    try {
+      const [tmpl, st] = await Promise.all([api("/api/inspections/templates", { token }), api("/api/sites", { token })]);
+      setTemplates(Array.isArray(tmpl) ? tmpl : []);
+      setSites((Array.isArray(st) ? st : []).map(inspectSiteOf).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (e) { setFailed(true); }
+  };
+  useEffect(() => { load(); }, []);
+  const site = (sites || []).find(s => s.id === siteId) || null;
+  const fromRefusal = answered && answered.siteId === siteId ? answered.list : null;
+  const match = fromRefusal ? { list: fromRefusal, own: true } : inspectTemplatesFor(templates, site);
+  const choices = match.list;
+  const templateId = choices.length === 1 ? choices[0].id : choices.some(c => c.id === picked) ? picked : "";
+  const pickSite = (id) => { setSiteId(id); setPicked(""); setFault(null); };
+  const start = async () => {
+    if (busy) return;
+    if (!site) { setFault(tr("Choose a site first.")); return; }
+    if (!templateId) { setFault(tr("Choose a template first.")); return; }
+    const day = companyYmd();
+    setBusy(true); setFault(null);
+    try {
+      const d = await api("/api/inspections/scheduled", { method: "POST", token, body: { site_id: site.id, template_id: templateId, scheduled_date: day, assigned_to: user.id, startNow: true, withSafety: withSafety } });
+      setBusy(false);
+      onStarted({ id: inspectStartedIdOf(d), siteId: site.id, templateId: templateId, day: day });
+    } catch (e) {
+      setBusy(false);
+      if (e && e.code === "inspections.templateRequired" && e.body && Array.isArray(e.body.templates)) { setAnswered({ siteId: site.id, list: e.body.templates.map(inspectTemplateOf).filter(Boolean) }); setPicked(""); }
+      setFault(tr(e.message));
+    }
+  };
+  const labelSt = mkLabel(t);
+  const choiceSt = (on) => ({ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: TAP, marginTop: 8, padding: "11px 14px", borderRadius: R.md, cursor: "pointer", textAlign: "left", background: on ? t.goldBg : t.card, border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text });
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 500, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={tr("Start an inspection")} data-inspect-start-sheet="1" style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "24px 20px 40px", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 40px)", overflowY: "auto", boxShadow: t.popShadow }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Start an inspection")}</div>
+          <button type="button" onClick={onClose} aria-label={tr("Close")} style={mkTapFrame({ fontSize: 20, color: t.textMut, lineHeight: 1 })}>{tr("x")}</button>
+        </div>
+        <div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, marginBottom: 18 }}>{tr("For today, assigned to you.")}</div>
+        {failed && <ListFault icon={ClipIco} text={tr("This list did not load.")} onRetry={load} t={t} />}
+        {!failed && sites === null && <div style={{ padding: "20px 0", textAlign: "center", fontSize: 12, color: t.textMut }}>{tr("Loading...")}</div>}
+        {!failed && sites !== null && (
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <label htmlFor="ocsa-start-site" style={labelSt}>{tr("Site")}</label>
+              <SearchPick id="ocsa-start-site" name="start-site" rows={sites} value={siteId} onPick={pickSite} noMatch={tr("No site matches that name.")} empty={tr("No sites available yet.")} disabled={busy} t={t} />
+            </div>
+            {site && choices.length === 0 && <div data-inspect-start-none="1" style={{ ...mkHelp(t), marginTop: 0, marginBottom: 16 }}>{tr("No inspection template is set up for this site yet. Ask the office.")}</div>}
+            {site && choices.length === 1 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={labelSt}>{tr("Template")}</div>
+                <div data-inspect-start-template={choices[0].id} style={{ padding: "11px 14px", borderRadius: R.md, background: t.cardAlt, border: "1px solid " + t.borderSolid, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{choices[0].name}</div>
+              </div>
+            )}
+            {site && choices.length > 1 && (
+              <div role="radiogroup" aria-labelledby="ocsa-start-which" style={{ marginBottom: 16 }}>
+                <div id="ocsa-start-which" style={labelSt}>{tr("Which template?")}</div>
+                {choices.map(c => (
+                  <button key={c.id} type="button" role="radio" aria-checked={templateId === c.id} data-inspect-start-choice={c.id} disabled={busy} onClick={() => { setPicked(c.id); setFault(null); }} style={choiceSt(templateId === c.id)}>
+                    <span aria-hidden="true" style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: templateId === c.id ? GOLD : "transparent", border: templateId === c.id ? "none" : "2px solid " + t.borderSolid }} />
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: templateId === c.id ? 600 : 500, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{c.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button type="button" role="switch" aria-checked={withSafety} data-inspect-start-safety="1" disabled={busy} onClick={() => setWithSafety(v => !v)} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 12, padding: "4px 0", marginBottom: 18, background: "none", border: "none", cursor: "pointer", color: t.text, textAlign: "left" }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontFamily: FONT_HEAD }}>{tr("Include the safety walk")}</span>
+              <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: 13, flexShrink: 0, background: withSafety ? GOLD : t.btnGhost, border: "1px solid " + (withSafety ? GOLD : t.borderSolid), position: "relative", transition: "background 0.15s" }}>
+                <span style={{ position: "absolute", top: 2, left: withSafety ? 20 : 2, width: 20, height: 20, borderRadius: "50%", background: withSafety ? NAVY : t.card, boxShadow: "0 1px 3px rgba(0,0,0,0.3)", transition: "left 0.15s" }} />
+              </span>
+            </button>
+            <button type="button" data-inspect-start-go="1" onClick={start} disabled={busy} style={{ ...mkPrimaryBtn(t, busy), minHeight: TAP, fontSize: 14, textTransform: "uppercase", letterSpacing: "0.5px", cursor: busy ? "default" : "pointer" }}>{busy ? tr("Starting...") : tr("Start the inspection")}</button>
+            {fault && <div role="alert" data-inspect-start-fault="1" style={{ fontSize: 12, color: ink(t, RED), lineHeight: 1.45, marginTop: 10 }}>{fault}</div>}
+          </>
+        )}
+      </div>
     </div>
   );
 }

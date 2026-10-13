@@ -162,6 +162,26 @@ full-access block marked, Now and Next first at 10:00 AM on a Monday, an
 overdue critical block, check-in and check-out as the shift's start and
 end, a Wednesday to Sunday block absent on the Monday, and an anytime
 block on a Saturday with no window and its weekly step;
+the training day round (Steps 335, 336 and 339), against API Steps 326
+to 331 and 337 as the training day contract gives them, in English at
+390 and Spanish at 320: on one supervisor's phone, the subscription the
+phone holds posted again with app "portal", Open in the dashboard on an
+HR case's notice alone, the unfinished inspection's notice opening that
+inspection and a new shift's opening My Schedule, each of the API
+round's other notices tapped in turn with a line each (a task given
+opening Tasks on that task when the open shift's list holds it and on
+the list when it does not, training_assigned, training_session and
+training_todo opening My training, site_assigned opening Home, and
+support_ticket_new and workspace_member keeping Open in the dashboard
+with the bell left where it is), then Start an
+inspection at a site with one template landing in the walk with its
+safety part started and posted as today's in Eastern time with startNow,
+the template and the date, a site with two templates asking which, and a
+start answered with no id still ending on today's inspection; and a task
+list to read, at a site answered checklistMode reference, on the shift
+with its line and no box, percentage or count, from the site on Home
+with no shift open, and a tracked site as before until a check is
+refused with tasks.siteNotTracked;
 French offered by the stub turns the screen French with no English the
 portal drew; and Home at the Largest size, 360 wide, has no control cut
 off. Each check prints one line, PASS or FAIL, and the command exits
@@ -180,7 +200,7 @@ through it.
 
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
-`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`, `handbook`, `handbookSigned`, `support`, `pto`, `scheduleInspections`, `issueSheet`, `unfinishedForms`, `library`, `libraryEmpty`, `supplyOrders`, `orderVendorsNone`, `inspectionWalk`), off for every other case.
+`concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`, `handbook`, `handbookSigned`, `support`, `pto`, `scheduleInspections`, `issueSheet`, `unfinishedForms`, `library`, `libraryEmpty`, `supplyOrders`, `orderVendorsNone`, `inspectionWalk`, `startInspection`, `startNoId`, `checklistModes`), off for every other case.
 `library` (Step 307) answers GET /api/library as API Step 305's contract
 gives it: five invented documents in four folders, each folder's name in
 the request's language, the quality manual with a Spanish edition, Parts
@@ -214,6 +234,25 @@ weekly work; the rows, shifts and blocks answer in the language asked;
 and two of the day's steps are checked by coworkers, one of the dining
 room reset's two. No other site carries any of it, so every other case
 reads a list from before Step 315.
+`startInspection` (Step 335) answers what Start an inspection reads and
+posts, as the training day contract gives API Step 331: GET
+/api/inspections/templates with each template naming its site as
+`site_id` (North Building one, South Building two, West Building none),
+GET /api/sites as the API answers a supervisor (`id`, `name` and
+`status`, a closed site among them), and POST
+/api/inspections/scheduled with `startNow` writing an inspection of the
+caller's with the walk's cards and its safety part, answered as the row
+itself, 201, as today's API answers a schedule; `startNoId`, which a case
+may set part way, answers it with no id. Every start's body is kept in
+`startCalls`. Behind it a scheduled inspection's read carries the safety
+part only with `inspectionWalk` on as well.
+`checklistModes` (Step 339), a map of site id to `reference` (any other
+site `tracked`), answers each site's `checklistMode`, as API Step 337 is
+contracted, on Start Shift's sites, on `GET /api/auth/me`'s sites, on the
+clock status's shift and on every row of the task read; at a reference
+site the clock status's counts answer `notTracked: true` and no
+completion, the rows answer no completion, and a check or an uncheck is
+refused 409 `tasks.siteNotTracked`. A case may change the map part way.
 `inspectionWalk` (Step 313) answers API Step 312 as its contract gives
 it: a scheduled inspection with `with_safety`, two cards, the photos and
 the signature it takes, and `safety` carrying an invented safety
