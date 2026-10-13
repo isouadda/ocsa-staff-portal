@@ -240,6 +240,21 @@ const MARK_JS = "(function (w, done) { return Array.from(document.querySelectorA
 // A picture's own few seconds of a phone: a shot that types or draws
 // does it the way a person would, with invented words.
 const E = (title) => title + " (staff portal)";
+// Start an inspection's sheet with a site picked (Step 335), and a
+// template tapped among several when one is named.
+async function startSheetAt(s, siteId, typed, templateId) {
+  if (!(await s.go("Inspect"))) return false;
+  if (!(await s.waitFor(() => !!document.querySelector("[data-inspect-start]")))) return false;
+  await s.page.click("[data-inspect-start]");
+  if (!(await s.waitFor(() => !!document.querySelector("[data-inspect-start-sheet] [data-pick-search]")))) return false;
+  await s.page.fill("[data-inspect-start-sheet] [data-pick-search]", typed);
+  if (!(await s.waitFor((id) => !!document.querySelector('[data-inspect-start-sheet] [data-pick-row="' + id + '"]'), siteId))) return false;
+  await s.page.click('[data-inspect-start-sheet] [data-pick-row="' + siteId + '"]');
+  if (!templateId) return s.waitFor(() => !!document.querySelector("[data-inspect-start-template]"));
+  if (!(await s.waitFor(() => document.querySelectorAll("[data-inspect-start-choice]").length === 2))) return false;
+  await s.page.click('[data-inspect-start-choice="' + templateId + '"]');
+  return s.waitFor((id) => { const b = document.querySelector('[data-inspect-start-choice="' + id + '"]'); return !!b && b.getAttribute("aria-checked") === "true"; }, templateId);
+}
 
 // A photo, made in the page, as a phone's camera hands one over.
 async function photo(s, selector) {
@@ -637,6 +652,10 @@ const SHOTS = [
   // The checklist.
   { name: "tasks", entry: E("Check off a task on your checklist"), o: { signedIn: true },
     go: async (s) => { if (!(await s.go("Tasks"))) return false; const w = marks(s); return s.waitFor((x) => !!eval(x.js)(x.w, false), { js: MARK_JS, w: w }); } },
+  // Step 339: North Building keeping its task list as a record, read on
+  // the shift with nothing to check off.
+  { name: "tasks-reference", entry: E("Check off a task on your checklist"), o: { signedIn: true, stub: { checklistModes: { "site-north": "reference" } } },
+    go: async (s) => { if (!(await s.go("Tasks"))) return false; return s.waitFor(() => !!document.querySelector("[data-task-list-read]") && document.querySelectorAll("[data-task-read]").length >= 3); } },
   { name: "task-uncheck", entry: E("Uncheck a task checked by mistake"), o: { signedIn: true },
     go: async (s) => {
       if (!(await s.go("Tasks"))) return false;
@@ -737,6 +756,12 @@ const SHOTS = [
   // The stub gives a supervisor the permission to schedule one.
   { name: "inspection-schedule", entry: E("Schedule an inspection from the portal"), o: { signedIn: true, stub: { person: SUPERVISOR } },
     go: async (s) => { if (!(await s.go("Inspect"))) return false; await s.pause(600); await s.tap(s.say("+ Schedule")); return s.waitText(s.say("Schedule Inspection")); } },
+  // Step 335: Start an inspection at a site with one template, and at one
+  // with two, which asks which.
+  { name: "inspection-start", entry: E("Start an inspection without a schedule"), o: { signedIn: true, stub: { person: SUPERVISOR, startInspection: true } },
+    go: (s) => startSheetAt(s, "site-north", "North", null) },
+  { name: "inspection-start-which", entry: E("Start an inspection without a schedule"), o: { signedIn: true, stub: { person: SUPERVISOR, startInspection: true } },
+    go: (s) => startSheetAt(s, "site-south", "South", "tpl-south-day") },
 
   // Chat.
   { name: "chat-site", entry: E("Send a message in Chat"), o: { signedIn: true },
@@ -762,7 +787,13 @@ const SHOTS = [
     go: async (s) => { if (!(await s.go("Chat"))) return false; if (!(await s.waitText(s.say("New message")))) return false; await s.tap(s.say("New message")); return s.waitText(s.say("Office")); } },
 
   // Notices, Settings and the app itself.
-  { name: "notifications", entry: E("See your notifications"), o: { signedIn: true, stub: { notifications: [{ id: "n-1", subjectType: "supply_request", subjectId: "sr-1", title: "Supply request approved", body: "Two cases of paper towels.", link: null, createdAt: "2026-10-01T18:00:00.000Z", readAt: null }] } },
+  // Step 336: a case assigned, which offers Open in the dashboard, a shift
+  // given, and a supply request approved.
+  { name: "notifications", entry: E("See your notifications"), o: { signedIn: true, stub: { notifications: [
+    { id: "n-3", subjectType: "hr_case_assigned", subjectId: "case-1", title: "A case was assigned to you", body: "Open it in Cases.", link: "https://admin.example.invalid/#cases/case-1", createdAt: "2026-10-01T23:00:00.000Z", readAt: null },
+    { id: "n-2", subjectType: "shift_assigned", subjectId: "shift-9", title: "You have a new shift at North Building", body: "Oct 3, 2:00 PM to 10:00 PM.", link: null, createdAt: "2026-10-01T21:00:00.000Z", readAt: null },
+    { id: "n-1", subjectType: "supply_request", subjectId: "sr-1", title: "Supply request approved", body: "Two cases of paper towels.", link: null, createdAt: "2026-10-01T18:00:00.000Z", readAt: null },
+  ] } },
     go: async (s) => {
       await s.hasBar();
       await s.page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaciones/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });

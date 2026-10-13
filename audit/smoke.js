@@ -177,6 +177,23 @@
 //     10:00 AM on a Monday, an overdue critical block, a Wednesday to
 //     Sunday block absent on the Monday, and an anytime block on a
 //     Saturday
+//   - The training day round (Steps 335, 336 and 339), against API Steps
+//     326 to 331 and 337 as the training day contract gives them, in
+//     English at 390 and Spanish at 320. On one supervisor's phone: the
+//     subscription the phone holds posted again with app "portal"; on the
+//     bell, Open in the dashboard on hr_case_assigned's row alone,
+//     inspection_unfinished opening that inspection and shift_assigned
+//     opening My Schedule; then Start an inspection at a site with one
+//     template, posted as today's in Eastern time with startNow, the
+//     template and the date, landing in the walk with its safety part
+//     started; a site with two templates asking which and sending nothing
+//     before one is picked; and a start answered with no id still ending
+//     on today's inspection there. A task list to read: at a site answered
+//     checklistMode reference, the shift's list with its line and no box,
+//     percentage or count, Home counting nothing, the list opened from the
+//     site on Home with no shift open, read whole for the day; a tracked
+//     site as before, and a check refused with tasks.siteNotTracked turning
+//     it into the list to read
 //
 // The checks run in two lanes side by side (Step 290), each check on its
 // own phone and stub. SMOKE_ONLY=<words> runs only the checks whose name
@@ -189,9 +206,9 @@
 const fs = require("fs");
 const path = require("path");
 const { serve } = require("./serve");
-const { launch, openApp } = require("./browser");
+const { launch, openApp, ANDROID } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_NOTICE, DRAFT_NOTICE, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, ORDER_HOLDER, ORDER_NOTICE, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, EAST_BLOCKS, taskWords } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_NOTICE, DRAFT_NOTICE, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, ORDER_HOLDER, ORDER_NOTICE, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, EAST_BLOCKS, taskWords, START_TEMPLATES, NOW } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -302,7 +319,7 @@ async function pickIn(page, scope, id, typed) {
 
 async function open(stubOptions, o) {
   const stub = createStub(stubOptions);
-  const app = await openApp(o.browser, BASE, { stub, language: o.language, textSize: o.textSize || "standard", signedIn: !!o.signedIn, path: o.path, buildStamp: stampOf(), now: o.now });
+  const app = await openApp(o.browser, BASE, { stub, language: o.language, textSize: o.textSize || "standard", signedIn: !!o.signedIn, path: o.path, buildStamp: stampOf(), now: o.now, push: o.push, userAgent: o.userAgent });
   const errors = [];
   app.page.on("pageerror", (e) => errors.push(String(e && e.message || e).split("\n")[0]));
   await app.page.setViewportSize({ width: o.width || 390, height: 780 });
@@ -2481,6 +2498,170 @@ async function timedSchedule(browser, language, width) {
     !windows ? "the windows read " + JSON.stringify([kitchen, sleeping, checkOut].map(b => b && b.text)) : !meals ? "the meals read " + JSON.stringify([breakfast, lunch].map(b => b && [b.tag, b.meal, b.rows])) : !fullAccess ? "the full-access block read " + JSON.stringify(sleeping && sleeping.text) : !nowNext ? "the order was " + JSON.stringify(m.map(b => b.key + (b.now ? " now" : "") + (b.next ? " next" : ""))) : !overdue ? "the dining room reset read " + JSON.stringify(dining && dining.text) : !ends ? "check-in and check-out read " + JSON.stringify([checkIn, checkOut].map(b => b && b.text)) : !mondayGone ? "the laundry room or the stairways showed on the Monday" : !saturday ? "on the Saturday the stairways read " + JSON.stringify(stairs && stairs.text) + " and the laundry room " + JSON.stringify(laundry && laundry.text) : !fromRoute ? "at the site of one shift, the schedule was read " + JSON.stringify([monAsked, reads]) + " and the blocks were " + JSON.stringify(hall.map(b => b.key + ":" + b.kind + ":" + b.tag + ":" + b.rows)) : wide > 1 ? wide + " pixels sideways" : errors[0]);
 }
 
+// The training day round (Steps 335, 336 and 339), against API Steps 326
+// to 331 and 337 as the training day contract gives them and the stub
+// answers them. One supervisor's phone carries 335 and 336:
+// - Start an inspection (startInspection): Inspect offers it; at North
+//   Building, with one template, the sheet shows that template with
+//   Include the safety walk on, and Start the inspection posts it as
+//   today's (Eastern), the caller's, with startNow, the template and the
+//   date, and lands in the walk with its safety part started; at South
+//   Building, with two templates, the sheet asks which and sends nothing
+//   before one is picked; and a start answered with no id (startNoId)
+//   still ends on today's inspection there.
+// - New notices: the subscription the phone holds is posted again after
+//   sign-in with app "portal"; on the bell, hr_case_assigned shows Open in
+//   the dashboard and the others do not; inspection_unfinished opens that
+//   inspection; shift_assigned opens My Schedule.
+const ROUND_SUPERVISOR = Object.assign({}, ADMIN_PERSON, { id: "u-smoke-sup", firstName: "Riley", lastName: "Example", role: "supervisor", badgeNumber: "4801", phone: "0000000008", email: "riley@example.invalid" });
+const ROUND_NOTICES = [
+  { id: "n-case", subjectType: "hr_case_assigned", subjectId: "case-1", title: "A case was assigned to you", body: "Open it in Cases.", link: "https://admin.example.invalid/#cases/case-1", createdAt: "2026-10-12T17:17:00.000Z", readAt: null },
+  { id: "n-shift", subjectType: "shift_assigned", subjectId: "shift-9", title: "You have a new shift at North Building", body: "Oct 14, 2:00 PM to 10:00 PM.", link: null, createdAt: "2026-10-12T18:48:00.000Z", readAt: null },
+  { id: "n-left", subjectType: "inspection_unfinished", subjectId: "in-s1", title: "You have an unfinished inspection at North Building", body: "Started Oct 2. Tap to pick up where you left off.", link: "https://staff.example.invalid/inspect/in-s1", createdAt: "2026-10-13T12:00:00.000Z", readAt: null },
+];
+// Today in Eastern time on the phone's clock, which the case leaves at the
+// stub's NOW, 9:30 PM in New York on a day that is already the next one
+// in UTC, so a date taken in UTC would not match.
+const easternDay = () => { const p = {}; new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(NOW).forEach((x) => { p[x.type] = x.value; }); return p.year + "-" + p.month + "-" + p.day; };
+// Until something the stub holds is so, read every 100 ms.
+async function until(page, fn, ms) {
+  const end = Date.now() + (ms || 6000);
+  while (Date.now() < end) { if (fn()) return true; await pause(page, 100); }
+  return !!fn();
+}
+async function trainingDay(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const app = await open({ person: ROUND_SUPERVISOR, inspectionWalk: true, startInspection: true, scheduleInspections: true, notifications: ROUND_NOTICES.map(n => Object.assign({}, n)), accountPreferences: { language: language, textSize: "standard" } },
+    { browser, language, signedIn: true, width: width, push: { permission: "granted", subscribed: true }, userAgent: ANDROID });
+  const page = app.page;
+  const st = app.stub.state;
+  const inBar = await waitFor(page, BAR_JS + ".length >= 5");
+
+  // 336: the push subscription, then the bell.
+  const portal = inBar && await until(page, () => st.calls.some(c => c.method === "POST" && c.path === "/api/push/subscriptions"));
+  const posted = st.calls.filter(c => c.method === "POST" && c.path === "/api/push/subscriptions");
+  const appPortal = portal && posted.every(c => c.body && c.body.app === "portal" && typeof c.body.endpoint === "string" && c.body.keys && typeof c.body.userAgent === "string");
+  const bell = async () => { await page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); }); return waitFor(page, (t) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.indexOf(t) !== -1), ROUND_NOTICES[0].title); };
+  const rowHas = (title, word) => page.evaluate((x) => { const b = Array.from(document.querySelectorAll("button")).find(y => y.innerText.indexOf(x.title) !== -1); const row = b && b.parentElement; return !!row && Array.from(row.querySelectorAll("button")).some(y => y.innerText.trim() === x.word); }, { title, word });
+  const tapRow = (title) => page.evaluate((t) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.indexOf(t) !== -1); if (b) b.click(); return !!b; }, title);
+  let caseRow = false, unfinished = false, shift = false;
+  const dash = say(language, "Open in the dashboard");
+  if (inBar && await bell()) {
+    caseRow = await rowHas(ROUND_NOTICES[0].title, dash) && !(await rowHas(ROUND_NOTICES[1].title, dash)) && !(await rowHas(ROUND_NOTICES[2].title, dash));
+    await tapRow(ROUND_NOTICES[2].title);
+    unfinished = await waitFor(page, () => !!document.querySelector('[data-inspect-item="is-1"]') && !!document.querySelector('[data-inspect-item="is-2"]'));
+    if (await bell()) {
+      await tapRow(ROUND_NOTICES[1].title);
+      shift = await waitFor(page, (w) => { const c = document.querySelector(".sp-content"); return !!c && c.innerText.indexOf(w.mine) !== -1 && c.innerText.toUpperCase().indexOf(w.onSite.toUpperCase()) === -1 && !document.querySelector("[data-inspect-item]") && !document.querySelector('[role="dialog"]'); }, { mine: say(language, "My Schedule"), onSite: say(language, "Time on Site") });
+    }
+  }
+  check("New notices: the subscription this phone holds is posted again after sign-in with app \"portal\"; on the bell, hr_case_assigned shows Open in the dashboard and the others do not; inspection_unfinished opens that inspection; shift_assigned opens My Schedule" + tag,
+    appPortal && caseRow && unfinished && shift && app.errors.length === 0,
+    !appPortal ? "the subscription was posted as " + JSON.stringify(posted.map(c => c.body)) : !caseRow ? "Open in the dashboard was not on the case's row alone" : !unfinished ? "inspection_unfinished did not open the inspection" : !shift ? "shift_assigned did not open My Schedule" : app.errors[0]);
+
+  // 335: Start an inspection.
+  const sheet = async () => { await page.click("[data-inspect-start]"); return waitFor(page, () => !!document.querySelector("[data-inspect-start-sheet] [data-pick-search]")); };
+  const inWalk = (id) => waitFor(page, (i) => { const p = document.querySelector('[data-inspect-walk="cards"]'); return !!p && p.querySelectorAll('[data-inspect-item^="' + i + '-"]').length === 2; }, id);
+  const back = async () => { await page.evaluate((l) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.getAttribute("aria-label") === l); if (b) b.click(); }, say(language, "Back")); return waitFor(page, () => !document.querySelector("[data-inspect-walk]") && !!document.querySelector("[data-inspect-start]")); };
+  let offered = false, one = false, walked = false, sent = false, asks = false, held = false, noId = false;
+  let wide = 0;
+  if (inBar) {
+    await openPlace(page, say(language, "Inspect"));
+    // The inspection the notice opened may still be on the screen: back
+    // to the list.
+    await waitFor(page, () => !!document.querySelector("[data-inspect-start]") || !!document.querySelector("[data-inspect-item]"));
+    if (await page.evaluate(() => !!document.querySelector("[data-inspect-item]"))) await back();
+    offered = await waitFor(page, () => !!document.querySelector("[data-inspect-start]"));
+  }
+  if (offered && await sheet()) {
+    if (await pickIn(page, "[data-inspect-start-sheet]", "site-north", "North")) {
+      one = await waitFor(page, (n) => { const tp = document.querySelector('[data-inspect-start-template="tpl-north"]'); const sw = document.querySelector("[data-inspect-start-safety]"); return !!tp && tp.innerText.trim() === n && !document.querySelector("[data-inspect-start-choice]") && !!sw && sw.getAttribute("aria-checked") === "true"; }, START_TEMPLATES[0].name);
+      wide = await sideways(page);
+      await page.click("[data-inspect-start-go]");
+      walked = await inWalk("in-start-1") && await until(page, () => st.walkStarts.length === 1) && st.walkStarts[0].id === "in-start-1";
+      const b = st.startCalls[0] || {};
+      sent = st.startCalls.length === 1 && b.site_id === "site-north" && b.template_id === "tpl-north" && b.scheduled_date === easternDay() && b.assigned_to === ROUND_SUPERVISOR.id && b.startNow === true && b.withSafety === true;
+    }
+    if (walked && await back() && await sheet() && await pickIn(page, "[data-inspect-start-sheet]", "site-south", "South")) {
+      asks = await waitFor(page, (h) => document.querySelectorAll("[data-inspect-start-choice]").length === 2 && document.querySelector("[data-inspect-start-sheet]").innerText.toUpperCase().indexOf(h.toUpperCase()) !== -1 && !document.querySelector("[data-inspect-start-template]"), say(language, "Which template?"));
+      await page.click("[data-inspect-start-go]");
+      held = asks && await waitFor(page, (w) => { const f = document.querySelector("[data-inspect-start-fault]"); return !!f && f.innerText.trim() === w; }, say(language, "Choose a template first.")) && st.startCalls.length === 1;
+      wide = Math.max(wide, await sideways(page));
+      st.startNoId = true;
+      await page.click('[data-inspect-start-choice="tpl-south-night"]');
+      await page.click("[data-inspect-start-go]");
+      noId = await inWalk("in-start-2") && st.startCalls.length === 2 && st.startCalls[1].template_id === "tpl-south-night" && st.startCalls[1].site_id === "site-south" && st.calls.some(c => c.method === "GET" && c.path === "/api/inspections/scheduled/in-start-2");
+    }
+  }
+  check("Start an inspection: a supervisor's Inspect offers it; at a site with one template the sheet shows it with Include the safety walk on, and Start the inspection posts today's, their own, with startNow, the template and the date, and lands in the walk with its safety part started; a site with two templates asks which and sends nothing before one is picked; a start answered with no id still ends on today's inspection there; with no sideways scroll" + tag,
+    offered && one && walked && sent && asks && held && noId && wide <= 1 && app.errors.length === 0,
+    !offered ? "Inspect offered no Start an inspection" : !one ? "the site's one template was not shown with the safety walk on" : !walked ? "the walk did not open with its safety part started: " + JSON.stringify(st.walkStarts) : !sent ? "the start was posted as " + JSON.stringify(st.startCalls[0]) + ", today " + easternDay() : !asks ? "two templates were not asked between" : !held ? "the start without a template was not held with its line" : !noId ? "the start with no id did not end on today's inspection: " + JSON.stringify(st.startCalls) : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+  await app.context.close();
+}
+
+// A task list to read (Step 339), with the stub's checklistModes: North
+// Building kept as a record, South and West Buildings tracked. At North,
+// Tasks reads Task list for this site with its line and rows, and no box,
+// no percentage and no counts, and Home counts nothing; with the shift
+// ended, Home's North Building opens the list, read whole for the day,
+// and South and West offer none. At South, the checklist is as before,
+// and a check refused with tasks.siteNotTracked turns it into the list to
+// read, with the same line.
+async function taskListToRead(browser, language, width) {
+  const tag = " (" + language + ", " + width + " wide)";
+  const line = say(language, "Nothing to check off here. This list shows the work our staff do at this site.");
+  const title = say(language, "Task list for this site");
+  const mark = say(language, "Mark {name} done").split("{name}")[0];
+  // A box on a row not done yet: its label is Mark {name} done and not Mark
+  // {name} not done.
+  const [onA, onZ] = say(language, "Mark {name} done").split("{name}");
+  const [offA, offZ] = say(language, "Mark {name} not done").split("{name}");
+  const boxes = (page) => page.evaluate((p) => Array.from(document.querySelectorAll(".sp-content button[aria-label]")).filter(b => b.getAttribute("aria-label").indexOf(p) === 0).length, mark);
+  const readList = (page, scope) => waitFor(page, (x) => { const c = document.querySelector(x.scope); const h = c && c.querySelector('[data-task-list-read] [role="heading"]'); const l = c && c.querySelector("[data-task-list-line]"); return !!h && h.innerText.trim() === x.title && !!l && l.innerText.trim() === x.line && c.querySelectorAll("[data-task-read]").length >= 3; }, { scope, title, line });
+  const modes = { "site-north": "reference", "site-south": "tracked", "site-west": "tracked" };
+  // North Building, a shift open.
+  const a = await open({ checklistModes: modes, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  let onShift = false, homeQuiet = false, offers = false, ended = false, fromSite = false, wide = 0;
+  if (await waitFor(a.page, BAR_JS + ".length >= 5")) {
+    await tapBar(a.page, 2);
+    onShift = await readList(a.page, ".sp-content") && (await boxes(a.page)) === 0 && !/\d\s*%/.test(await contentText(a.page));
+    wide = await sideways(a.page);
+    await tapBar(a.page, 0);
+    homeQuiet = await waitFor(a.page, (w) => { const c = document.querySelector(".sp-content"); return !!c && c.innerText.toUpperCase().indexOf(w.toUpperCase()) !== -1 && !!document.querySelector('[data-site-list="site-north"]'); }, say(language, "Time on Site")) && await a.page.evaluate(() => !Array.from(document.querySelectorAll(".sp-content span")).some(x => /^\d+\/\d+$/.test(x.innerText.trim())));
+    offers = homeQuiet && await a.page.evaluate(() => !document.querySelector('[data-site-list="site-south"]') && !document.querySelector('[data-site-list="site-west"]'));
+    // The shift ended, the list read from the site.
+    await tapWord(a.page, say(language, "End Shift"));
+    ended = await waitFor(a.page, (w) => { const c = document.querySelector(".sp-content"); return !!c && c.innerText.toUpperCase().indexOf(w.toUpperCase()) === -1 && !!document.querySelector('[data-site-list="site-north"]'); }, say(language, "Time on Site"));
+    if (ended) {
+      const before = a.stub.state.calls.length;
+      await a.page.click('[data-site-list="site-north"]');
+      const asked = () => a.stub.state.calls.slice(before).filter(c => c.method === "GET" && c.path === "/api/sites/site-north/tasks");
+      fromSite = await readList(a.page, '[data-site-list-sheet="site-north"]') && asked().length >= 1 && asked().every(c => { const q = new URLSearchParams(c.search); return q.get("day") === "today" && !q.has("user_id"); });
+      wide = Math.max(wide, await sideways(a.page));
+    }
+  }
+  const aErrors = a.errors.slice();
+  await a.context.close();
+  // South Building, tracked, then a check refused.
+  const b = await open({ site: "site-south", checklistModes: modes, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
+  let tracked = false, refused = false;
+  if (await waitFor(b.page, BAR_JS + ".length >= 5")) {
+    await tapBar(b.page, 2);
+    tracked = await waitFor(b.page, (p) => Array.from(document.querySelectorAll(".sp-content button[aria-label]")).filter(x => x.getAttribute("aria-label").indexOf(p) === 0).length >= 3 && /\d\s*%/.test(document.querySelector(".sp-content").innerText) && !document.querySelector("[data-task-list-read]"), mark);
+    if (tracked) {
+      b.stub.state.checklistModes["site-south"] = "reference";
+      const before = b.stub.state.calls.length;
+      await b.page.evaluate((w) => { const x = Array.from(document.querySelectorAll(".sp-content button[aria-label]")).find(y => { const l = y.getAttribute("aria-label"); return l.indexOf(w.onA) === 0 && l.slice(-w.onZ.length) === w.onZ && !(l.indexOf(w.offA) === 0 && l.slice(-w.offZ.length) === w.offZ) && !y.disabled; }); if (x) x.click(); }, { onA, onZ, offA, offZ });
+      refused = await readList(b.page, ".sp-content") && b.stub.state.calls.slice(before).some(c => c.method === "POST" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(c.path));
+    }
+  }
+  const errors = aErrors.concat(b.errors);
+  await b.context.close();
+  check("A task list to read: at a site answered checklistMode reference, the shift shows Task list for this site with its line, its rows and no box, percentage or count, and Home counts nothing; with no shift open the list opens from the site on Home, read whole for the day, and tracked sites offer none; a tracked site is unchanged, and a check refused with tasks.siteNotTracked turns it into the list to read; with no sideways scroll" + tag,
+    onShift && homeQuiet && offers && ended && fromSite && tracked && refused && wide <= 1 && errors.length === 0,
+    !onShift ? "the shift's list was not the list to read" : !homeQuiet ? "Home counted the site, or offered no list under it" : !offers ? "a tracked site offered its list" : !ended ? "the shift did not end" : !fromSite ? "the list did not open from the site" : !tracked ? "the tracked site's checklist was not as before" : !refused ? "the refused check did not turn the list into the list to read" : wide > 1 ? wide + " pixels sideways" : errors[0]);
+}
+
 // The Largest text size on a narrow phone: no control cut off or covered.
 async function largest(browser) {
   const app = await open({ accountPreferences: { language: "en", textSize: "largest" } }, { browser, language: "en", textSize: "largest", signedIn: true, width: 360 });
@@ -2530,6 +2711,8 @@ async function largest(browser) {
       await guard("one inspection walk (en)", () => inspectionWalk(browser, "en", 390));
       await guard("one inspection walk (es)", () => inspectionWalk(browser, "es", 320));
       await guard("timed site schedules (en)", () => timedSchedule(browser, "en", 390));
+      await guard("the training day round (es)", () => trainingDay(browser, "es", 320));
+      await guard("a task list to read (en)", () => taskListToRead(browser, "en", 390));
     };
     const laneB = async () => {
       for (const language of ["en", "es"]) await guard("the request page (" + language + ")", () => requestPage(browser, language));
@@ -2557,6 +2740,8 @@ async function largest(browser) {
       await guard("supply orders on the phone (en)", () => supplyOrders(browser, "en", 390));
       await guard("supply orders on the phone (es)", () => supplyOrders(browser, "es", 320));
       await guard("timed site schedules (es)", () => timedSchedule(browser, "es", 320));
+      await guard("the training day round (en)", () => trainingDay(browser, "en", 390));
+      await guard("a task list to read (es)", () => taskListToRead(browser, "es", 320));
     };
     await Promise.all([laneA(), laneB()]);
   } finally {

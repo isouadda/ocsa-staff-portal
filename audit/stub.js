@@ -904,6 +904,31 @@ const INSPECTION_PLAIN = {
   capture: { photosPerItem: 6, photosOverall: 10, signatureRequired: true },
   items: [{ id: "ip-1", label: "Lobby floor is dry", zone: "Lobby", max_score: 5 }],
 };
+// Step 335, against API Step 331 as the training day contract gives it,
+// behind startInspection: GET /api/inspections/templates with each
+// template naming its site as site_id (North Building one, South
+// Building two, West Building none), GET /api/sites as the API answers a
+// supervisor (id, name and status, a closed site among them), and the
+// start posted with startNow written as an inspection of the caller's,
+// with the walk's cards and the safety part, answered as the row itself
+// (201), or with no id when a case sets startNoId. Every name invented.
+const START_TEMPLATES = [
+  { id: "tpl-north", name: "Invented North walk", description: null, site_id: "site-north", kind: "supervisor", is_active: true, item_count: 2 },
+  { id: "tpl-south-day", name: "Invented South day walk", description: null, site_id: "site-south", kind: "supervisor", is_active: true, item_count: 2 },
+  { id: "tpl-south-night", name: "Invented South night walk", description: null, site_id: "site-south", kind: "supervisor", is_active: true, item_count: 2 },
+];
+const START_SITES = [
+  { id: "site-north", name: "North Building", status: "active" },
+  { id: "site-south", name: "South Building", status: "active" },
+  { id: "site-west", name: "West Building", status: "active" },
+  { id: "site-shut", name: "Invented Closed Building", status: "inactive" },
+];
+const START_REFUSALS = {
+  "inspections.scheduleFieldsRequired": { status: 400, en: "Template, site, and date are required", es: "Se necesitan la plantilla, el sitio y la fecha" },
+};
+// Step 339, against API Step 337 as the contract gives it: a check or an
+// uncheck at a site whose task list is kept as a record.
+const NOT_TRACKED = { status: 409, code: "tasks.siteNotTracked", en: "Nothing is checked off at this site. Its task list is kept as a record.", es: "En este sitio no se marca nada. Su lista de tareas se guarda como registro." };
 const WALK_REFUSALS = {
   "inspections.safetyUnanswered": { status: 400, en: "Finish the safety walk before you send.", es: "Termine el recorrido de seguridad antes de enviar." },
   "inspections.signatureRequired": { status: 400, en: "Sign the inspection before sending it.", es: "Firme la inspecci\u00f3n antes de enviarla." },
@@ -1296,6 +1321,16 @@ function makeState(opts) {
     walkStarted: false,
     walkStarts: [],
     walkFiled: null,
+    // Step 335: the templates and sites Start an inspection reads, every
+    // start posted, and startNoId for a start answered with no id.
+    startInspection: o.startInspection === true,
+    startNoId: o.startNoId === true,
+    startCalls: [],
+    // Step 339: each site's checklistMode by id ("tracked" for a site the
+    // map leaves out), answered on every site read, the clock status and
+    // the task read once a case gives the map; null answers none, as
+    // before API Step 337.
+    checklistModes: o.checklistModes ? Object.assign({}, o.checklistModes) : null,
     // Step 145: every problem filed through POST /api/issues, in order.
     issues: [],
     // Step 255: an API with Step 253 built, which answers owners on the
@@ -3033,7 +3068,13 @@ function createStub(opts) {
   // has been checked off among them, by this person and by anyone at the
   // site, the repeating work by period over the list this person is shown,
   // whether this person has links here, and who checked what today.
+  // Step 339: a site's checklist mode, or null with no map, and a site
+  // row with it beside its other fields.
+  const modeOf = (siteId) => (state.checklistModes ? (state.checklistModes[siteId] === "reference" ? "reference" : "tracked") : null);
+  const withMode = (row) => (state.checklistModes && row && row.siteId ? Object.assign({}, row, { checklistMode: modeOf(row.siteId) }) : row);
   const progress = () => {
+    // At a site that keeps its list as a record, the counts leave it out.
+    if (modeOf(state.site) === "reference") return { notTracked: true, checklistMode: "reference", total: 0, completed: 0, siteTotal: 0, completedTaskIds: [], siteCompletedTaskIds: [], periodic: {}, hasLinkedItems: linkedTo(state.person.id, state.site).length > 0, checkedToday: [] };
     const shown = dayRows(state.site).filter(x => x.shown).filter(inShift(sessionShift()));
     const linked = linkedTo(state.person.id, state.site);
     const theirs = shown.filter(x => linked.indexOf(x.row.id) !== -1);
@@ -3065,7 +3106,7 @@ function createStub(opts) {
 
   const clockStatus = (lang) => (state.clockedIn ? {
     clockedIn: true,
-    shift: Object.assign({ sessionId: "sess-1", id: "sess-1" }, OPEN_SHIFT[state.site], { clockInTime: iso(state.sessionStartedAt) }),
+    shift: Object.assign({ sessionId: "sess-1", id: "sess-1" }, OPEN_SHIFT[state.site], { clockInTime: iso(state.sessionStartedAt) }, modeOf(state.site) ? { checklistMode: modeOf(state.site) } : {}),
     session: sessionOf(lang),
     tasks: progress(),
   } : { clockedIn: false, shift: null, session: null, tasks: null });
@@ -3097,7 +3138,11 @@ function createStub(opts) {
         shift: row.block_label ? (twin ? inLanguage(row.shift_label, lang) : row.shift_label) : null,
         block: row.block_label ? (twin ? inLanguage(row.block_label, lang) : row.block_label) : null,
       });
-      return Object.assign(row, { period: x.period, dueToday: x.due, doneThisPeriod: x.done, shownToday: x.shown, checkedToday: x.checked, display: display });
+      // Step 339: every row says its site's mode once a case gives the
+      // map, and at a site kept as a record no completion is answered.
+      const mode = modeOf(siteId);
+      const record = mode === "reference";
+      return Object.assign(row, { period: x.period, dueToday: x.due, doneThisPeriod: record ? null : x.done, shownToday: x.shown, checkedToday: record ? null : x.checked, display: display }, mode ? { checklistMode: mode } : {});
     });
   };
 
@@ -3544,7 +3589,7 @@ function createStub(opts) {
       }
       return json(404, { error: "That equipment was not found.", code: "equipment.notFound" });
     }
-    if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: SITES, preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
+    if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: SITES.map(withMode), preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
     if (key === "POST /api/auth/register") return json(200, { ok: true });
     if (key === "POST /api/auth/reset/request") return json(200, { ok: true });
     if (key === "POST /api/auth/change-pin") {
@@ -3628,6 +3673,9 @@ function createStub(opts) {
     // this person's own check today and no one else's: with none of their
     // own and somebody else's there, Step 124 turns it away, and with
     // neither it answers as if it had taken one back.
+    if ((method === "POST" || method === "DELETE") && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(pathname) && modeOf(state.site) === "reference") {
+      return json(NOT_TRACKED.status, { error: refusalIn(NOT_TRACKED, languageOf(search, state)), code: NOT_TRACKED.code });
+    }
     if (method === "POST" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(pathname)) {
       const id = pathname.split("/")[4];
       const today = checklistDay(clockNow());
@@ -3662,9 +3710,9 @@ function createStub(opts) {
       return json(200, { ok: true });
     }
     if (key === "GET /api/shift-sessions/sites") return json(200, {
-      scheduled: [{ siteId: "site-north", siteName: "North Building", address: "1 Example Way", city: "Philadelphia", buildingName: "Main Hall", floorNumber: "2" }],
-      assigned: [{ siteId: "site-south", siteName: "South Building", address: "2 Example Way", city: "Philadelphia" }, { siteId: "site-west", siteName: "West Building", address: "3 Example Way", city: "Philadelphia" }],
-      all: SITES,
+      scheduled: [{ siteId: "site-north", siteName: "North Building", address: "1 Example Way", city: "Philadelphia", buildingName: "Main Hall", floorNumber: "2" }].map(withMode),
+      assigned: [{ siteId: "site-south", siteName: "South Building", address: "2 Example Way", city: "Philadelphia" }, { siteId: "site-west", siteName: "West Building", address: "3 Example Way", city: "Philadelphia" }].map(withMode),
+      all: SITES.map(withMode),
     });
     // Start Shift takes the site and, at a site with shifts, the shift. A
     // session starts on the stub's clock and carries no shift unless one
@@ -3706,7 +3754,7 @@ function createStub(opts) {
       return json(200, { message: "Shift ended", session: session, tasks: counted });
     }
     if (method === "PATCH" && /^\/api\/shift-sessions\//.test(pathname)) { state.clockedIn = false; return json(200, { message: "Shift ended" }); }
-    if (key === "GET /api/sites") return json(200, SITES);
+    if (key === "GET /api/sites") return json(200, state.startInspection ? START_SITES.map(x => Object.assign({}, x)) : SITES.map(withMode));
     if (method === "GET" && /^\/api\/sites\/[^/]+\/tasks$/.test(pathname)) return json(200, tasks(pathname.split("/")[3], search));
     // Step 324: a site's day, as API Step 319 builds GET
     // /api/sites/:siteId/shift-blocks/schedule?shift=&date=.
@@ -4977,8 +5025,24 @@ function createStub(opts) {
       if (one && state.findings) return json(200, Object.assign({}, one, { owners: findingOwners() }, state.inspectionWalk && one.with_safety ? { safety: walkSafetyRead(state, one, lang) } : {}));
       return one ? json(200, one) : json(404, { error: INSPECTION_NOT_FOUND[0] });
     }
+    if (key === "POST /api/inspections/scheduled" && state.startInspection) {
+      const b = body && typeof body === "object" ? body : {};
+      state.startCalls.push(JSON.parse(JSON.stringify(b)));
+      if (!b.template_id || !b.site_id || !b.scheduled_date) { const r = START_REFUSALS["inspections.scheduleFieldsRequired"]; return json(r.status, { error: refusalIn(r, languageOf(search, state)), code: "inspections.scheduleFieldsRequired" }); }
+      const tpl = START_TEMPLATES.find(x => x.id === b.template_id);
+      const site = START_SITES.find(x => x.id === b.site_id);
+      if (!tpl || !site) return json(404, { error: INSPECTION_NOT_FOUND[languageOf(search, state) === "es" ? 1 : 0] });
+      const id = "in-start-" + state.startCalls.length;
+      const row = { id: id, template_id: tpl.id, template_name: tpl.name, site_id: site.id, site_name: site.name, assigned_to: b.assigned_to || null, scheduled_date: b.scheduled_date, status: "scheduled", with_safety: b.withSafety !== false, created_by: state.person.id, created_at: iso(clockNow()),
+        capture: Object.assign({}, INSPECTION_W.capture), items: INSPECTION_W.items.map(i => Object.assign({}, i, { id: id + "-" + i.id })) };
+      state.inspections.push(row);
+      if (state.startNoId) return json(201, { ok: true });
+      const answer = Object.assign({}, row);
+      delete answer.items; delete answer.capture;
+      return json(201, answer);
+    }
     if (pathname === "/api/inspections/scheduled") return json(200, []);
-    if (key === "GET /api/inspections/templates") return json(200, []);
+    if (key === "GET /api/inspections/templates") return json(200, state.startInspection ? START_TEMPLATES.map(x => Object.assign({}, x)) : []);
     if (method === "PATCH" && /^\/api\/inspections\/scheduled\//.test(pathname)) return json(200, { ok: true });
     if (key === "POST /api/inspections/scheduled") return json(200, { ok: true });
 
@@ -5165,7 +5229,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
