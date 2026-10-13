@@ -1497,6 +1497,12 @@ async function phoneAlertsState() {
   const sub = pushPermission() === "granted" ? await pushSubscription() : null;
   return sub ? "on" : "off";
 }
+// What POST /api/push/subscriptions is sent: the endpoint and keys the
+// browser gave, the phone's user agent, and which app it is (Step 336),
+// app "portal", so the API tells this subscription from the dashboard's
+// on the same computer. An API that does not read app yet stores it as
+// portal by default (migration 0069).
+const pushSubscriptionBody = (j) => ({ endpoint: j.endpoint, keys: j.keys || {}, userAgent: window.navigator.userAgent, app: "portal" });
 // Turns alerts on for this phone. Called from a tap, so the browser's
 // permission can be asked. Answers on, denied, failed or unsupported.
 async function turnOnPhoneAlerts(publicKey, token) {
@@ -1515,7 +1521,7 @@ async function turnOnPhoneAlerts(publicKey, token) {
   } catch (e) { return "failed"; }
   try {
     const j = sub.toJSON ? sub.toJSON() : { endpoint: sub.endpoint, keys: {} };
-    await api("/api/push/subscriptions", { method: "POST", body: { endpoint: j.endpoint, keys: j.keys || {}, userAgent: window.navigator.userAgent }, token });
+    await api("/api/push/subscriptions", { method: "POST", body: pushSubscriptionBody(j), token });
     return "on";
   } catch (e) {
     // A subscription the API never took is dropped, so the phone holds
@@ -1536,7 +1542,7 @@ async function repostPhoneAlerts(token) {
     if (!sub) return;
     const j = sub.toJSON ? sub.toJSON() : { endpoint: sub.endpoint, keys: {} };
     if (!j || !j.endpoint) return;
-    await api("/api/push/subscriptions", { method: "POST", body: { endpoint: j.endpoint, keys: j.keys || {}, userAgent: window.navigator.userAgent }, token, noAuthEvent: true });
+    await api("/api/push/subscriptions", { method: "POST", body: pushSubscriptionBody(j), token, noAuthEvent: true });
   } catch (e) {}
 }
 // Turns alerts off for this phone: unsubscribes here, deletes there.
@@ -2768,7 +2774,11 @@ export default function OCSAStaffPortal() {
   useEffect(() => {
     if (!openAsk || booting || screen !== "main" || !token) return;
     setOpenAsk(null);
-    openPlace(notifPlace(openAsk.subjectType, openAsk.subjectId));
+    // A subject the portal has no place for, an HR case among them (Step
+    // 336), opens the bell, where its notice offers Open in the dashboard.
+    // A tap on an alert never opens another address by itself.
+    const place = notifPlace(openAsk.subjectType, openAsk.subjectId);
+    if (place) openPlace(place); else if (openAsk.subjectType) setNotifOpen(true);
   }, [openAsk, booting, screen, token]);
   // The list of chats is read once the portal is up, so the Chat tab's
   // count is on the bar before Chat is ever opened, and again each time
@@ -10706,6 +10716,9 @@ function ShortcutsSheet({ t, choices, current, ctx, onSave, onClose }) {
 const NOTIF_TAB = {
   supply_request: "supplies",
   time_off: "schedule",
+  // A shift dropped or claimed: Shift Pickup, as before. Every other
+  // shift notice, shift_assigned among them (Step 336, a shift given to
+  // the person in place of someone off), opens My Schedule (shiftSubject).
   shift_drop: "pickup",
   shift_claim: "pickup",
   issue: "issues",
@@ -10744,8 +10757,19 @@ const NOTIF_TAB = {
 // Inspect, with that inspection open. The contract names the notices
 // (assigned, moved to someone else, a new date, cancelled) and not their
 // subject type, so every inspection subject but a finding opens it, and
-// so does the portal's own address for one, /inspect/<id>.
+// so does the portal's own address for one, /inspect/<id>. The morning's
+// notice about a walk left unfinished (Step 336, API Step 326),
+// inspection_unfinished with the scheduled inspection's id, is one of
+// them.
 const inspectionSubject = (s) => typeof s === "string" && s !== "inspection_finding" && /^(scheduled_)?inspections?(_|$)/.test(s);
+// Any shift notice the API sends (Step 336), shift_assigned first: My
+// Schedule. shift_drop and shift_claim keep Shift Pickup (NOTIF_TAB).
+const shiftSubject = (s) => typeof s === "string" && /^shifts?(_|$)/.test(s) && !Object.prototype.hasOwnProperty.call(NOTIF_TAB, s);
+// An HR case (Step 336): assigned to the person or escalated to them.
+// Cases are worked on the admin dashboard and the portal has no place
+// for one, so the bell's row offers Open in the dashboard with the
+// notice's link, and a tap on its phone alert opens the bell.
+const caseSubject = (s) => typeof s === "string" && /^hr_cases?(_|$)/.test(s);
 // An issue (Step 297): its sheet, from any notice about one (reported at
 // the person's site, escalated, and those API Step 298 adds: assigned to
 // them, its status changed), an inspection finding, and /issues/<id>.
@@ -10759,6 +10783,8 @@ function notifPlace(subjectType, subjectId) {
   if (draftSubject(subjectType) && subjectId !== null && subjectId !== undefined && subjectId !== "") return { tab: "forms", draft: String(subjectId) };
   if (issueSubject(subjectType) && subjectId !== null && subjectId !== undefined && subjectId !== "") return { issue: String(subjectId) };
   if (inspectionSubject(subjectType)) return subjectId === null || subjectId === undefined ? { tab: "inspect" } : { tab: "inspect", inspection: String(subjectId) };
+  if (shiftSubject(subjectType)) return { tab: "schedule" };
+  if (caseSubject(subjectType)) return null;
   const tab = NOTIF_TAB[subjectType];
   if (!tab) return null;
   const id = subjectId === null || subjectId === undefined ? null : String(subjectId);
@@ -10891,6 +10917,8 @@ function NotificationsSheet({ token, t, locale, unread, onClose, onOpen, onUnrea
           {(rows || []).map(row => {
             const isUnread = !row.readAt;
             const hasTab = !!notifPlace(row.subjectType, row.subjectId);
+            // A subject the portal has no place for offers its link on the
+            // dashboard; one it can open never sends the person elsewhere.
             const showDashboard = !hasTab && notifOffOrigin(row.link);
             return (
               <div key={row.id} style={{ marginBottom: 6, background: t.card, border: "1px solid " + (isUnread ? t.goldBorder : t.borderSolid), borderRadius: R.md }}>
