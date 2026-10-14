@@ -5049,8 +5049,9 @@ function itemWords(task, live) {
 // session's blocks, the blocks any row on the list holds, the day of the
 // week and the minute of the day. With it, a block holding no step on
 // the list is drawn in its place, a block whose days leave out today is
-// left out, and the block or blocks whose window holds the minute come
-// first as Now, then the next to start as Next.
+// left out, and the block or blocks whose window holds the minute are
+// marked Now and the next to start Next, each where it stands, so the
+// list reads in time order all through the shift (part 345).
 function checklistSections(list, shift, live, plan) {
   const text = (v) => (v === null || v === undefined ? "" : String(v).trim());
   const inShift = (tk) => !!(text(tk.shift_label) || text(tk.block_label));
@@ -5073,7 +5074,17 @@ function checklistSections(list, shift, live, plan) {
     if (timed.some(x => text(x.tk.shift_label) === b.shift && text(x.tk.block_label) === b.label) || (plan.held && plan.held.has(b.shift + "|" + b.label))) return;
     timed.push({ tk: { shift_label: b.shift, block_label: b.label, anchor_time: b.time, block_sort_order: b.order, display: { shift: b.shiftDisplay, block: b.display }, empty: true }, i: list.length + j });
   });
-  timed.sort((a, b) => (rank(a.tk.block_sort_order) - rank(b.tk.block_sort_order) || 0) || byTime(a.tk.anchor_time, b.tk.anchor_time) || a.i - b.i);
+  // Inside a block the steps run in their step order where a row carries
+  // one, sort_order or sortOrder, so a reply that sends them in another
+  // order still reads in step order; rows with none keep the list's order
+  // (part 345). Two blocks that share a number and a time each stay
+  // whole, where the first row of each comes, so step order never mixes
+  // their steps.
+  const blockOf = (tk) => text(tk.shift_label) + "|" + text(tk.block_label);
+  const blockAt = new Map();
+  timed.forEach((x) => { if (!blockAt.has(blockOf(x.tk))) blockAt.set(blockOf(x.tk), x.i); });
+  const step = (tk) => rank(tk.sort_order !== undefined && tk.sort_order !== null ? tk.sort_order : tk.sortOrder);
+  timed.sort((a, b) => (rank(a.tk.block_sort_order) - rank(b.tk.block_sort_order) || 0) || byTime(a.tk.anchor_time, b.tk.anchor_time) || blockAt.get(blockOf(a.tk)) - blockAt.get(blockOf(b.tk)) || (step(a.tk) - step(b.tk) || 0) || a.i - b.i);
   const shifts = new Map();
   const shown = (tk) => (live && tk.display && typeof tk.display === "object" ? tk.display : {});
   timed.forEach(({ tk }) => {
@@ -5095,7 +5106,7 @@ function checklistSections(list, shift, live, plan) {
   });
 
   // The day's schedule: blocks whose days leave out today go, and Now and
-  // Next come first.
+  // Next are marked where they stand, in the day's order.
   if (plan) shifts.forEach((sec) => {
     sec.groups = sec.groups.filter(g => !(g.days && plan.day && g.days.indexOf(plan.day) === -1));
     if (plan.now === null || plan.now === undefined) return;
@@ -5104,7 +5115,6 @@ function checklistSections(list, shift, live, plan) {
     const soon = sec.groups.map(gap).filter(x => x !== null && x > 0 && x < 720);
     const first = soon.length > 0 ? Math.min.apply(null, soon) : null;
     sec.groups.forEach((g) => { g.next = first !== null && gap(g) === first; });
-    sec.groups = sec.groups.filter(g => g.now).concat(sec.groups.filter(g => g.next), sec.groups.filter(g => !g.now && !g.next));
   });
 
   const areas = new Map();
@@ -5217,6 +5227,29 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
     api(scheduleAsk, { token }).then(d => { if (on) setSchedule({ ask: scheduleAsk, d: d }); }).catch(() => {});
     return () => { on = false; };
   }, [scheduleAsk, token]);
+  // The list opens at the work happening now (part 345). The first time it
+  // draws for an open shift with a day's schedule, the first block marked
+  // Now, or Next when nothing is Now, is brought near the top of the
+  // screen, with no smooth scroll when the phone asks for reduced motion.
+  // That happens once each time the checklist opens. A refresh, a
+  // check-off or a change of language while it is open never scrolls it
+  // again, so the list never moves under someone's thumb. A list with no
+  // schedule, and a list to read, never move.
+  const planRef = useRef(null);
+  const landed = useRef(false);
+  useEffect(() => {
+    const box = planRef.current;
+    if (landed.current || !box) return;
+    landed.current = true;
+    const el = box.querySelector('[data-block-when="now"]') || box.querySelector('[data-block-when="next"]');
+    if (!el) return;
+    try {
+      const bar = document.getElementById(UPDATE_BAR_ID);
+      const top = Math.max(0, el.getBoundingClientRect().top + window.pageYOffset - (bar ? bar.offsetHeight : 0) - 12);
+      const still = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+      window.scrollTo({ top: top, behavior: still ? "auto" : "smooth" });
+    } catch (e) {}
+  });
   const scheduled = scheduleAsk && schedule && schedule.ask === scheduleAsk ? scheduleBlocks(schedule.d, clockStatus, standardTasks) : null;
   const labelSt = mkLabel(t);
   const floorHeadSt = { fontSize: 11, color: t.text, fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, padding: "7px 11px", background: t.card, borderRadius: R.sm, border: "1px solid " + t.borderSolid, fontFamily: FONT_HEAD };
@@ -5453,7 +5486,7 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
       </div>}
       {!standalone && shiftRow}
       {listSections.map((sec, si) => (
-        <div key={sec.id} style={{ marginTop: si > 0 ? 22 : 0 }}>
+        <div key={sec.id} ref={sec.plan && !reference && !standalone ? planRef : undefined} style={{ marginTop: si > 0 ? 22 : 0 }}>
           <div style={periodHeadSt}><div role="heading" aria-level={2} style={periodTitleSt}>{sec.title}</div>{sec.count && <div style={periodCountSt}>{sec.count}</div>}</div>
           {drawSections((() => { const list = checklistSections(sec.rows, clockStatus.shift, apiWords, sec.plan || null); if (sec.plan && !reference) list.forEach(x => x.groups.forEach(g => { g.overdue = g.kind === "critical" && !!g.past && g.rows.some(r => !isDone(r.task)); })); return list; })(), reference ? readRow : (task, inset) => {
             const w = itemWords(task, apiWords);

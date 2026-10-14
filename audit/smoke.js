@@ -2437,7 +2437,8 @@ async function inspectionWalk(browser, language, width) {
 // two-shift site whose blocks carry Step 315's window, kind and days, on
 // First shift. At 10:00 AM on Monday, October 5, 2026, in New York, the
 // kitchen floor (9:30 to 11:00, critical) is Now and the sleeping area
-// (10:30, empty with full access) is Next, ahead of the rest; the dining
+// (10:30, empty with full access) is Next, each in its place in the day's
+// order (part 345); the dining
 // room reset (8:00 to 9:00, critical) is past its end with a step left;
 // breakfast and lunch are residents' meals holding no step; check-in and
 // check-out read as the shift's start and end; the laundry room, Wednesday
@@ -2448,14 +2449,27 @@ async function inspectionWalk(browser, language, width) {
 // shift (East Building's first), where the session carries no shifts, so
 // breakfast and lunch, holding no step, and check-in and check-out come
 // from the schedule route alone; East Building's Monday never asks it.
+// Part 345: the list stays in time order through the shift. At 6:00 PM on
+// Tuesday, October 6, in the middle of East Building's second shift, the
+// block titles run in time order top to bottom: the 2:00 PM check-in and
+// the three blocks after it are drawn above the two 6:00 PM blocks, the
+// dining room reset and the stairway round, which both carry Now in their
+// place, and the lounge round at 8:00 PM carries Next. The list opened at
+// the first Now block, brought near the top once: scrolled back to the
+// top by hand and a step checked off, it stays where it was put. The
+// stairway round's steps, served in reverse with sort_order on each row,
+// and the lounge round's, with sortOrder, draw in step order.
 const EAST_MONDAY = "2026-10-05T14:00:00Z";
 const EAST_SATURDAY = "2026-10-03T14:00:00Z";
+const EAST_EVENING = "2026-10-06T22:00:00Z";
+const MONDAY_ORDER = EAST_BLOCKS.filter(b => b.shift === "First shift" && !b.days).map(b => b.label);
+const EVENING_ORDER = EAST_BLOCKS.filter(b => b.shift === "Second shift" && !b.days).map(b => b.label);
 async function timedSchedule(browser, language, width) {
   const tag = " (" + language + ", " + width + " wide)";
   const blocksOf = () => Array.from(document.querySelectorAll("[data-block]")).map((b) => {
     const box = b.parentElement;
     const tagEl = b.querySelector("[data-block-tag]");
-    return { key: b.getAttribute("data-block"), kind: b.getAttribute("data-block-kind"), text: b.innerText.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim(), tag: tagEl ? tagEl.innerText.trim() : null, now: b.querySelector("[data-block-now]") ? b.querySelector("[data-block-now]").innerText.trim() : null, next: b.querySelector("[data-block-next]") ? b.querySelector("[data-block-next]").innerText.trim() : null, overdue: b.querySelector("[data-block-overdue]") ? b.querySelector("[data-block-overdue]").innerText.trim() : null, meal: box.querySelector("[data-block-meal]") ? box.querySelector("[data-block-meal]").innerText.trim() : null, rows: box.children.length - 1 - (box.querySelector("[data-block-meal]") ? 1 : 0), box: box.innerText };
+    return { key: b.getAttribute("data-block"), top: b.getBoundingClientRect().top + window.scrollY, kind: b.getAttribute("data-block-kind"), text: b.innerText.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim(), tag: tagEl ? tagEl.innerText.trim() : null, now: b.querySelector("[data-block-now]") ? b.querySelector("[data-block-now]").innerText.trim() : null, next: b.querySelector("[data-block-next]") ? b.querySelector("[data-block-next]").innerText.trim() : null, overdue: b.querySelector("[data-block-overdue]") ? b.querySelector("[data-block-overdue]").innerText.trim() : null, meal: box.querySelector("[data-block-meal]") ? box.querySelector("[data-block-meal]").innerText.trim() : null, rows: box.children.length - 1 - (box.querySelector("[data-block-meal]") ? 1 : 0), box: box.innerText };
   });
   const day = async (now, site) => {
     const app = await open({ site: site, now: now, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width, now: now });
@@ -2477,13 +2491,48 @@ async function timedSchedule(browser, language, width) {
   const windows = !!kitchen && windowRe("9:30", "11:00").test(kitchen.text) && !!sleeping && windowRe("10:30", "12:00").test(sleeping.text) && !!checkOut && windowRe("3:15", "3:30").test(checkOut.text);
   const meals = [breakfast, lunch].every(b => !!b && b.kind === "meal" && b.tag === say(language, "Residents' meal") && b.meal === say(language, "The space is in use. No steps in this time.") && b.rows === 0);
   const fullAccess = !!sleeping && sleeping.kind === "full_access" && sleeping.tag === say(language, "Empty, full access");
-  const nowNext = m.length > 1 && m[0] === kitchen && kitchen.now === say(language, "Now") && kitchen.tag === say(language, "Critical") && !kitchen.overdue && m[1] === sleeping && sleeping.next === say(language, "Next") && m.filter(b => b.now).length === 1 && m.filter(b => b.next).length === 1;
+  const nowNext = JSON.stringify(m.map(b => b.key)) === JSON.stringify(MONDAY_ORDER) && !!kitchen && kitchen.now === say(language, "Now") && kitchen.tag === say(language, "Critical") && !kitchen.overdue && !!sleeping && sleeping.next === say(language, "Next") && m.filter(b => b.now).length === 1 && m.filter(b => b.next).length === 1;
   const overdue = !!dining && dining.kind === "critical" && dining.overdue === say(language, "Overdue") && dining.tag === say(language, "Critical");
   const ends = !!checkIn && checkIn.tag === say(language, "Start of shift") && !!checkOut && checkOut.tag === say(language, "End of shift");
   const mondayGone = !find(m, "Laundry room") && !find(m, "Stairway maintenance") && mon.text.indexOf(taskWords("e-9", language).label) === -1 && mon.text.indexOf(taskWords("e-11", language).label) === -1;
   const monErrors = mon.app.errors.slice();
   const monAsked = mon.app.stub.state.scheduleReads.length;
   await mon.app.context.close();
+  // Part 345: the second shift at 6:00 PM on a Tuesday.
+  const eve = await open({ site: "site-east", shiftLabel: "Second shift", now: EAST_EVENING, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width, now: EAST_EVENING });
+  let e = [], landed = false, once = false, eWide = 0;
+  if (await waitFor(eve.page, BAR_JS + ".length >= 5")) {
+    await tapBar(eve.page, 2);
+    if (await waitFor(eve.page, (n) => document.querySelectorAll("[data-block]").length >= n && !!document.querySelector("[data-block-now]"), EVENING_ORDER.length)) {
+      // Landed: the first Now block near the top of the screen, the page
+      // scrolled to it. Then a short rest for a smooth scroll to finish.
+      landed = await waitFor(eve.page, () => { const b = document.querySelector('[data-block-when="now"]'); const top = b ? b.getBoundingClientRect().top : -1; return window.scrollY > 0 && top >= 0 && top <= 200; });
+      await pause(eve.page, 600);
+      e = await eve.page.evaluate("(" + blocksOf.toString() + ")()");
+      eWide = await sideways(eve.page);
+      // Back to the top by hand, then a step checked off, which reads the
+      // list and the status again: nothing scrolls a second time.
+      await eve.page.evaluate(() => window.scrollTo(0, 0));
+      const name = taskWords("e-12", language).label;
+      const before = eve.stub.state.calls.length;
+      await eve.page.evaluate((l) => { const b = Array.from(document.querySelectorAll(".sp-content button[aria-label]")).find(x => x.getAttribute("aria-label") === l); if (b) b.click(); }, say(language, "Mark {name} done", { name }));
+      const ticked = await waitFor(eve.page, (l) => Array.from(document.querySelectorAll(".sp-content button[aria-label]")).some(x => x.getAttribute("aria-label") === l), say(language, "Mark {name} not done", { name }));
+      await pause(eve.page, 1200);
+      const posted = eve.stub.state.calls.slice(before).some(c => c.method === "POST" && c.path === "/api/clock/tasks/e-12/complete");
+      once = landed && ticked && posted && (await eve.page.evaluate(() => window.scrollY)) <= 1;
+    }
+  }
+  const eNow = e.filter(b => b.now), eNext = e.filter(b => b.next);
+  const eIn = find(e, "Check in"), stairRound = find(e, "Stairway round"), loungeRound = find(e, "Lounge round");
+  const evening = JSON.stringify(e.map(b => b.key)) === JSON.stringify(EVENING_ORDER) && e.every((b, i) => i === 0 || b.top > e[i - 1].top)
+    && JSON.stringify(eNow.map(b => b.key)) === JSON.stringify(["Dining room reset", "Stairway round"]) && eNow.every(b => b.now === say(language, "Now") && e.indexOf(b) === EVENING_ORDER.indexOf(b.key))
+    && JSON.stringify(eNext.map(b => b.key)) === JSON.stringify(["Lounge round"]) && eNext[0].next === say(language, "Next")
+    && !!eIn && windowRe("2:00", "2:15").test(eIn.text) && eIn.top < eNow[0].top;
+  // Steps in step order: each label's place in its block's text.
+  const inOrder = (b, ids) => !!b && ids.map(id => b.box.indexOf(taskWords(id, language).label)).every((x, i, a) => x !== -1 && (i === 0 || a[i - 1] < x));
+  const steps = inOrder(stairRound, ["e-14", "e-15", "e-16"]) && inOrder(loungeRound, ["e-18", "e-19"]);
+  const eveErrors = eve.errors.slice();
+  await eve.context.close();
   const sat = await day(EAST_SATURDAY, "site-hall");
   const stairs = find(sat.blocks, "Stairway maintenance"), laundry = find(sat.blocks, "Laundry room");
   const saturday = !!stairs && stairs.kind === "anytime" && stairs.tag === say(language, "When there is free time") && !/\d:\d\d/.test(stairs.text) && !stairs.now && !stairs.next && stairs.box.indexOf(taskWords("h-11", language).label) !== -1 && !!laundry && laundry.kind === "full_access" && laundry.box.indexOf(taskWords("h-9", language).label) !== -1;
@@ -2496,12 +2545,12 @@ async function timedSchedule(browser, language, width) {
   const fromRoute = monAsked === 0 && reads.length >= 1 && reads.every(r => r.siteId === "site-hall" && !new URLSearchParams(r.search).get("shift")) && (sat.app.stub.peek.session().shifts || []).length === 0
     && [sBreakfast, sLunch].every(b => !!b && b.kind === "meal" && b.tag === say(language, "Residents' meal") && b.meal === say(language, "The space is in use. No steps in this time.") && b.rows === 0)
     && !!sBreakfast && windowRe("9:00", "9:30").test(sBreakfast.text) && !!sIn && sIn.tag === say(language, "Start of shift") && !!sOut && sOut.tag === say(language, "End of shift") && windowRe("3:15", "3:30").test(sOut.text);
-  const errors = monErrors.concat(sat.app.errors);
-  const wide = Math.max(mon.wide, sat.wide);
+  const errors = monErrors.concat(eveErrors, sat.app.errors);
+  const wide = Math.max(mon.wide, eWide, sat.wide);
   await sat.app.context.close();
-  check("Timed site schedules: each block's window drawn, a meal block with no steps, a full-access block marked, Now and Next first at a fixed time, an overdue critical block, check-in and check-out as the shift's start and end, a Wednesday to Sunday block absent on a Monday, and an anytime block on a Saturday, each kind in words; at a site of one shift, whose session carries no shifts, the meal blocks, check-in and check-out drawn from the schedule route; with no sideways scroll" + tag,
-    windows && meals && fullAccess && nowNext && overdue && ends && mondayGone && saturday && fromRoute && wide <= 1 && errors.length === 0,
-    !windows ? "the windows read " + JSON.stringify([kitchen, sleeping, checkOut].map(b => b && b.text)) : !meals ? "the meals read " + JSON.stringify([breakfast, lunch].map(b => b && [b.tag, b.meal, b.rows])) : !fullAccess ? "the full-access block read " + JSON.stringify(sleeping && sleeping.text) : !nowNext ? "the order was " + JSON.stringify(m.map(b => b.key + (b.now ? " now" : "") + (b.next ? " next" : ""))) : !overdue ? "the dining room reset read " + JSON.stringify(dining && dining.text) : !ends ? "check-in and check-out read " + JSON.stringify([checkIn, checkOut].map(b => b && b.text)) : !mondayGone ? "the laundry room or the stairways showed on the Monday" : !saturday ? "on the Saturday the stairways read " + JSON.stringify(stairs && stairs.text) + " and the laundry room " + JSON.stringify(laundry && laundry.text) : !fromRoute ? "at the site of one shift, the schedule was read " + JSON.stringify([monAsked, reads]) + " and the blocks were " + JSON.stringify(hall.map(b => b.key + ":" + b.kind + ":" + b.tag + ":" + b.rows)) : wide > 1 ? wide + " pixels sideways" : errors[0]);
+  check("Timed site schedules: each block's window drawn, a meal block with no steps, a full-access block marked, Now and Next marked in their place at a fixed time; at 6:00 PM on a two-shift site's second shift the block titles in time order top to bottom, Now on both 6:00 PM blocks in their place with a 2:00 PM block above them, the list opened at Now once, and steps sent in reverse drawn in step order; an overdue critical block, check-in and check-out as the shift's start and end, a Wednesday to Sunday block absent on a Monday, and an anytime block on a Saturday, each kind in words; at a site of one shift, whose session carries no shifts, the meal blocks, check-in and check-out drawn from the schedule route; with no sideways scroll" + tag,
+    windows && meals && fullAccess && nowNext && evening && landed && once && steps && overdue && ends && mondayGone && saturday && fromRoute && wide <= 1 && errors.length === 0,
+    !windows ? "the windows read " + JSON.stringify([kitchen, sleeping, checkOut].map(b => b && b.text)) : !meals ? "the meals read " + JSON.stringify([breakfast, lunch].map(b => b && [b.tag, b.meal, b.rows])) : !fullAccess ? "the full-access block read " + JSON.stringify(sleeping && sleeping.text) : !nowNext ? "the order was " + JSON.stringify(m.map(b => b.key + (b.now ? " now" : "") + (b.next ? " next" : ""))) : !evening ? "at 6:00 PM the order was " + JSON.stringify(e.map(b => b.key + (b.now ? " now" : "") + (b.next ? " next" : "") + " @" + Math.round(b.top))) : !landed ? "the list did not open at the Now block" : !once ? "the list moved again after a check-off, or the check-off did not go" : !steps ? "the steps read " + JSON.stringify([stairRound && stairRound.box, loungeRound && loungeRound.box]) : !overdue ? "the dining room reset read " + JSON.stringify(dining && dining.text) : !ends ? "check-in and check-out read " + JSON.stringify([checkIn, checkOut].map(b => b && b.text)) : !mondayGone ? "the laundry room or the stairways showed on the Monday" : !saturday ? "on the Saturday the stairways read " + JSON.stringify(stairs && stairs.text) + " and the laundry room " + JSON.stringify(laundry && laundry.text) : !fromRoute ? "at the site of one shift, the schedule was read " + JSON.stringify([monAsked, reads]) + " and the blocks were " + JSON.stringify(hall.map(b => b.key + ":" + b.kind + ":" + b.tag + ":" + b.rows)) : wide > 1 ? wide + " pixels sideways" : errors[0]);
 }
 
 // The training day round (Steps 335, 336 and 339), against API Steps 326
