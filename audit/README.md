@@ -158,7 +158,13 @@ inspection without the safety part drawn as before; timed site schedules
 (Step 316), against API Step 315 as its contract gives it, in English at
 390 and Spanish at 320, at the stub's invented two-shift site with every
 kind: each block's window drawn, a meal block with no steps, a
-full-access block marked, Now and Next first at 10:00 AM on a Monday, an
+full-access block marked, Now and Next marked in their place at 10:00 AM
+on a Monday; at 6:00 PM on a Tuesday, on the second shift, the block
+titles in time order top to bottom, Now on both 6:00 PM blocks in their
+place with the 2:00 PM check-in above them, the list opened at the Now
+block once and left where it was after a check-off, and one block's
+steps sent in reverse with sort_order and another's with sortOrder drawn
+in step order (part 345); an
 overdue critical block, check-in and check-out as the shift's start and
 end, a Wednesday to Sunday block absent on the Monday, and an anytime
 block on a Saturday with no window and its weekly step;

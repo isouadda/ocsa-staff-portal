@@ -85,7 +85,10 @@ const lookupsIn = (lang) => LOOKUPS.map(c => Object.assign({}, c, { values: c.va
 // PM. At 10:00 AM on a Monday the kitchen floor is Now, the sleeping area
 // is Next, the dining room reset is past with a step left, the laundry
 // room (Wednesday to Sunday) is absent, and the stairways (any free time
-// on Saturday) are too. Every name here is invented.
+// on Saturday) are too. Part 345: at 6:00 PM on the second shift two
+// blocks start together and are both Now, the dining room reset and the
+// stairway round, with four blocks above them from 2:00 PM on and the
+// lounge round Next at 8:00 PM. Every name here is invented.
 const EAST_BLOCKS = [
   { shift: "First shift", label: "Check in", time: "07:00:00", end: "07:15:00", kind: "check_in", order: 1 },
   { shift: "First shift", label: "Lobby opening", time: "07:15:00", end: "08:00:00", kind: "work", order: 2 },
@@ -100,9 +103,12 @@ const EAST_BLOCKS = [
   { shift: "First shift", label: "Check out", time: "15:15:00", end: "15:30:00", kind: "check_out", order: 11 },
   { shift: "Second shift", label: "Check in", time: "14:00:00", end: "14:15:00", kind: "check_in", order: 1 },
   { shift: "Second shift", label: "Evening round", time: "14:15:00", end: "16:00:00", kind: "work", order: 2 },
-  { shift: "Second shift", label: "Dinner", time: "17:00:00", end: "18:00:00", kind: "meal", order: 3 },
-  { shift: "Second shift", label: "Dining room reset", time: "18:00:00", end: "19:00:00", kind: "critical", order: 4 },
-  { shift: "Second shift", label: "Check out", time: "21:45:00", end: "22:00:00", kind: "check_out", order: 5 },
+  { shift: "Second shift", label: "Restroom round", time: "16:00:00", end: "17:00:00", kind: "work", order: 3 },
+  { shift: "Second shift", label: "Dinner", time: "17:00:00", end: "18:00:00", kind: "meal", order: 4 },
+  { shift: "Second shift", label: "Dining room reset", time: "18:00:00", end: "19:00:00", kind: "critical", order: 5 },
+  { shift: "Second shift", label: "Stairway round", time: "18:00:00", end: "19:00:00", kind: "work", order: 6 },
+  { shift: "Second shift", label: "Lounge round", time: "20:00:00", end: "21:00:00", kind: "work", order: 7 },
+  { shift: "Second shift", label: "Check out", time: "21:45:00", end: "22:00:00", kind: "check_out", order: 8 },
 ];
 // Step 324: Hall Building, an invented site of one shift, East Building's
 // first shift alone. The API answers a session there no shifts (a site
@@ -208,6 +214,15 @@ const SITE_TASKS = {
     eastRow("e-5", "Scrub the kitchen floor drains", "Kitchen", "First shift", "Kitchen floor"),
     eastRow("e-8", "Wipe the bed frames", "Sleeping area", "First shift", "Sleeping area"),
     eastRow("e-13", "Sanitize the dining tables", "Dining room", "Second shift", "Dining room reset"),
+    // Part 345: the stairway round's steps come in reverse, each with its
+    // step order as sort_order, and the lounge round's the same way with
+    // sortOrder, so the screen is seen putting them back in step order.
+    eastRow("e-16", "Mop the stair landings", "Stairway", "Second shift", "Stairway round", { sort_order: 3 }),
+    eastRow("e-15", "Sweep the stairways", "Stairway", "Second shift", "Stairway round", { sort_order: 2 }),
+    eastRow("e-14", "Dust the stair rails", "Stairway", "Second shift", "Stairway round", { sort_order: 1 }),
+    eastRow("e-17", "Restock the restroom paper", "Restroom", "Second shift", "Restroom round"),
+    eastRow("e-19", "Vacuum the lounge rug", "Lounge", "Second shift", "Lounge round", { sortOrder: 2 }),
+    eastRow("e-18", "Wipe the lounge tables", "Lounge", "Second shift", "Lounge round", { sortOrder: 1 }),
   ],
 };
 // Step 324: Hall Building's rows, East Building's first shift's, each
@@ -2459,7 +2474,11 @@ const TWIN_PAIRS = [
   ["Refill the restroom soap", "Rellene el jab\u00f3n de los ba\u00f1os"],
   ["Sweep the stairways", "Barra las escaleras"],
   ["Wipe the hallway rails", "Limpie los pasamanos del pasillo"],
+  ["Mop the stair landings", "Trapee los descansos de la escalera"],
+  ["Wipe the lounge tables", "Limpie las mesas de la sala"],
+  ["Vacuum the lounge rug", "Aspire el tapete de la sala"],
   ["Hallway", "Pasillo"],
+  ["Lounge", "Sala"],
   ["Kitchen", "Cocina"],
   ["Dining room", "Comedor"],
   ["Sleeping area", "Dormitorio"],
@@ -2477,6 +2496,8 @@ const TWIN_PAIRS = [
   ["Stairway maintenance", "Mantenimiento de las escaleras"],
   ["Evening round", "Ronda de la tarde"],
   ["Dinner", "Cena"],
+  ["Stairway round", "Ronda de las escaleras"],
+  ["Lounge round", "Ronda de la sala"],
   ...WEST_SHIFTS,
   ["Opening checks", "Revisi\u00f3n de apertura"],
   ["Lobby reset", "Repaso del vest\u00edbulo"],
