@@ -9,6 +9,8 @@
 const fs = require("fs");
 const path = require("path");
 
+const { PERSON, ORDER_HOLDER, EQ_CODE, SUP_CODE, ACK_TOKEN } = require("./stub");
+
 const SRC = path.join(__dirname, "..", "src");
 const appSource = () => fs.readFileSync(path.join(SRC, "App.js"), "utf8");
 
@@ -75,6 +77,9 @@ function discoverSheets() {
 
 // --- what the suite drives ------------------------------------------
 
+// A supervisor, the person every place for one is swept as. Invented.
+const SUPERVISOR = Object.assign({}, PERSON, { id: "u-audit-sup", role: "supervisor" });
+
 // One case per screen. Each says how to get there from a fresh load.
 // "tab" drives the bottom bar or More; "screen" opens a path.
 const SCREEN_CASES = [
@@ -86,6 +91,12 @@ const SCREEN_CASES = [
   { id: "setpin", kind: "screen", path: "/", signedIn: true, mustSetPin: true, label: "Set your PIN" },
   { id: "main", kind: "screen", path: "/", signedIn: true, label: "The portal itself" },
   { id: "customer", kind: "screen", path: "/c/link-checklist", signedIn: false, label: "Customer form" },
+  // Part 344: the pages a QR code or a mail opens with no sign-in, each
+  // with the stub switch that answers it, added since the sweep last ran.
+  { id: "sds", kind: "screen", path: "/sds", signedIn: false, label: "Safety data sheets, from the poster", stubOptions: { sds: true } },
+  { id: "supply", kind: "screen", path: "/sup/" + SUP_CODE, signedIn: false, label: "A supply label", stubOptions: { supplyQr: true } },
+  { id: "request", kind: "screen", path: "/r/req-area", signedIn: false, label: "A client's request page", stubOptions: { requests: true } },
+  { id: "acknowledge", kind: "screen", path: "/a/" + ACK_TOKEN, signedIn: false, label: "A client's acknowledgement", stubOptions: { acknowledge: true } },
 
   { id: "clock", kind: "tab", label: "Home" },
   { id: "schedule", kind: "tab", label: "Schedule" },
@@ -103,15 +114,30 @@ const SCREEN_CASES = [
   { id: "profile", kind: "tab", label: "Profile" },
   // Reached from its row in Settings.
   { id: "phonealerts", kind: "tab", label: "Phone alerts" },
+  // Part 344: the places under More that only some people have, or only
+  // once the API has answered something, each in a session of its own
+  // (own): the stub switches and the person it needs, and the address
+  // that opens it where nothing under More does.
+  { id: "workspace", kind: "tab", label: "Workspace", own: { stubOptions: { person: SUPERVISOR, workspace: true } } },
+  { id: "fieldkit", kind: "tab", label: "Field kit", own: { stubOptions: { person: SUPERVISOR, fieldKit: true } } },
+  { id: "training", kind: "tab", label: "My training", own: { stubOptions: { training: true, trainingPortal: true } } },
+  { id: "property", kind: "tab", label: "My company property", own: { stubOptions: { signatures: true } } },
+  { id: "support", kind: "tab", label: "App support", own: { stubOptions: { support: true } } },
+  { id: "library", kind: "tab", label: "Library", own: { stubOptions: { library: true } } },
+  { id: "supplyorders", kind: "tab", label: "Approve supplies", own: { stubOptions: { person: ORDER_HOLDER, supplyOrders: true } } },
+  { id: "equipment", kind: "tab", label: "An equipment label", own: { stubOptions: { equipment: true }, path: "/eq/" + EQ_CODE } },
 ];
 
 // One case per sheet, keyed by what discoverSheets finds.
 const SHEET_CASES = [
   { id: "TextSizeButton#0", label: "Text size" },
   { id: "OCSAStaffPortal#0", label: "More" },
-  { id: "MyScheduleSection#0", label: "Request time off" },
-  { id: "MyScheduleSection#1", label: "One time off request" },
-  { id: "MyScheduleSection#2", label: "Shift detail, with the drop form inside it" },
+  // Part 344: a day's sheet came first in My Schedule since the sweep last
+  // ran, so the three after it moved up one; each keeps its label.
+  { id: "MyScheduleSection#0", label: "A day on the schedule" },
+  { id: "MyScheduleSection#1", label: "Request time off" },
+  { id: "MyScheduleSection#2", label: "One time off request" },
+  { id: "MyScheduleSection#3", label: "Shift detail, with the drop form inside it" },
   { id: "ShortcutsSheet#0", label: "Shortcuts" },
   { id: "ShortcutsSheet#1", label: "Shortcuts, pick something for this spot" },
   { id: "ShortcutsSheet#2", label: "Shortcuts, start over" },
@@ -124,6 +150,17 @@ const SHEET_CASES = [
   { id: "OCSAStaffPortal#1", label: "Phone alerts, the card after the first sign-in" },
   { id: "ChatView#0", label: "Chat, tag someone" },
   { id: "AnnouncementSheet#0", label: "An announcement" },
+  // Part 344: the sheets added since the sweep last ran.
+  { id: "LanguageButton#0", label: "Language, on the sign-in card" },
+  { id: "SiteTaskListSheet#0", label: "A site's task list to read" },
+  { id: "ChatView#1", label: "Chat, new message" },
+  { id: "AnswerPictures#0", label: "Help, a picture full screen" },
+  { id: "IssueSheet#0", label: "An issue's sheet" },
+  { id: "TrainingLesson#0", label: "A lesson's picture full screen" },
+  { id: "WsSheet#0", label: "Tag out, an equipment item" },
+  { id: "StartInspectionSheet#0", label: "Start an inspection" },
+  { id: "InspectSectionsSheet#0", label: "Inspect, the sections of a long inspection" },
+  { id: "WalkSectionsSheet#0", label: "Inspect, the sections of a walk" },
 ];
 
 // Every form a person can fill in and send. Required fields are the ones
@@ -178,4 +215,4 @@ function coverage() {
   };
 }
 
-module.exports = { discoverTabs, discoverScreens, discoverSheets, coverage, SCREEN_CASES, SHEET_CASES, FORM_CASES };
+module.exports = { discoverTabs, discoverScreens, discoverSheets, coverage, SCREEN_CASES, SHEET_CASES, FORM_CASES, SUPERVISOR };

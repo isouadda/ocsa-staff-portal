@@ -16,7 +16,7 @@ const { coverage, SCREEN_CASES, SHEET_CASES, FORM_CASES } = require("./inventory
 const { runJourneys } = require("./journeys");
 const { sort: sortKnown, write: writeKnown } = require("./known");
 const { literalWords, untranslated, retiredRows } = require("./words");
-const { localeRows } = require("./stub");
+const { localeRows, payRows } = require("./stub");
 
 const ROOT = path.join(__dirname, "..");
 const BUILD = path.join(ROOT, "build");
@@ -141,7 +141,9 @@ function table(counts) {
     // stub turned away each signed-in one that did not, and here each
     // route that did not is a row of its own. So is every line in src or
     // translation that writes a word the apps retired.
-    const everything = sweep.rows.concat(walk.rows, wordRows, localeRows(), retiredRows());
+    // Since part 344, every answer any case got that carried a pay figure
+    // to someone without manage_employment is a row too (contract 2.1).
+    const everything = sweep.rows.concat(walk.rows, wordRows, localeRows(), retiredRows(), payRows());
     if (process.env.AUDIT_WRITE_KNOWN === "1") {
       const added = writeKnown(sortKnown(everything).fresh);
       process.stdout.write("wrote " + added + " entries into audit/known.json. Write the reason on each one.\n");

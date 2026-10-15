@@ -388,12 +388,18 @@ function shiftsFor(siteId, startMs, lang) {
 
 // Each capability and the tiers that hold it by default, as the API's
 // middleware/capabilities.js lists them. Nobody here holds an override.
+// Part 344: the five the audit contract's section 1 gives API #146 are
+// as built there. manage_staff and read_incident_reports are held by a
+// supervisor too, and manage_employment (every pay figure among what it
+// guards), read_hr_records and manage_cases are on the list, which the
+// stub had lagged behind.
 const CAPABILITIES = {
-  manage_permissions: ["admin"], manage_settings: ["admin"], manage_lookups: ["admin"], manage_staff: ["admin"],
+  manage_permissions: ["admin"], manage_settings: ["admin"], manage_lookups: ["admin"], manage_staff: ["admin", "supervisor"],
+  manage_employment: ["admin"], read_hr_records: ["admin"], manage_cases: ["admin", "supervisor"],
   manage_sites: ["admin"], manage_integrations: ["admin"], manage_tasks: ["admin", "supervisor"],
   manage_inspections: ["admin", "supervisor"], manage_time: ["admin"], manage_schedule: ["admin", "supervisor"],
   approve_time_off: [], manage_supplies: ["admin"], manage_vendors: ["admin"], view_reports: ["admin", "supervisor"],
-  read_incident_reports: ["admin"], export_payroll: ["admin"], manage_admins: [], send_announcements: ["admin"],
+  read_incident_reports: ["admin", "supervisor"], export_payroll: ["admin"], manage_admins: [], send_announcements: ["admin"],
   view_help_insights: ["admin"],
 };
 
@@ -1008,6 +1014,64 @@ const DRAFT_MINE = (person) => ({ id: "draft-one", formCode: "OCSA-FIX-101", for
 const DRAFT_NOTICE = { id: "n-draft", subjectType: "form_draft", subjectId: "draft-one", title: "You have an unfinished Incident report", body: "Started Oct 1. Tap to pick up where you left off.", link: null, createdAt: "2026-10-01T12:00:00.000Z", readAt: null };
 // The notices about them: an issue reported at the person's site.
 const SHEET_NOTICE = { id: "n-iss", subjectType: "issue", subjectId: "iss-b2", title: "Issue reported at North Building", body: "Invented loose handrail on the stairs.", link: null, createdAt: "2026-10-01T21:06:00.000Z", readAt: null };
+// Part 344: a second send of a draft already sent (invented words; the
+// portal reads the 409 alone).
+const FORM_SENT_ALREADY = { status: 409, en: "This report was already sent.", es: "Este reporte ya se envi\u00f3." };
+// Part 344: a client's acknowledgement of a monthly report, invented, in
+// the shape the portal's AcknowledgeScreen reads.
+const ACK_TOKEN = "ack-invented";
+const ACK_GONE = { status: 404, en: "This link was used or has ended.", es: "Este enlace ya se us\u00f3 o venci\u00f3." };
+const ACK_REPORT = {
+  company: { name: "Invented Cleaning Co", logoUrl: null }, siteName: "Harbor Point", title: "Monthly service report", periodStart: "2026-09-01", periodEnd: "2026-09-30",
+  sections: [{ key: "1", title: { en: "Work done", es: "Trabajo hecho" } }, { key: "2", title: { en: "Findings", es: "Hallazgos" } }],
+  fields: [
+    { key: "visits", label: "Visits", value: "22", section: "1" },
+    { key: "inspections", label: "Inspections", value: "4", section: "1" },
+    { key: "open", label: "Open findings", value: "1", section: "2" },
+  ],
+};
+
+// Part 344: one notice of every subject type the audit contract's section
+// 3 names, written on live or added by API #146, each with the id it
+// names and a link as the API builds one: a staff app link on
+// STAFF_APP_ORIGIN for what a person works on the phone, a dashboard
+// link for what the office works there, and none where the API writes
+// none. All invented. ours says what the portal does with a tap today
+// (Step 336 and before): "place" leaves the bell for a place of its own,
+// "dashboard" offers Open in the dashboard on its row, and "nothing" is
+// marked read and left on the bell. want is what the contract asks
+// (section 2.6: a tap opens the item itself, in the app the reader
+// uses), so a row whose ours differs is a finding and is in known.json.
+const STAFF_ORIGIN = "https://staff.example.invalid";
+const ADMIN_ORIGIN = "https://admin.example.invalid";
+const EVERY_NOTICE = [
+  ["chat", "ch-north", null, "place"],
+  ["client_request", "rq-1", STAFF_ORIGIN + "/requests/rq-1", "place"],
+  ["customer_concern", "cc-1", ADMIN_ORIGIN + "/#concerns/cc-1", "place"],
+  ["document_to_sign", "OCSA-HR-001", null, "place"],
+  ["issue", "iss-1", STAFF_ORIGIN + "/issues/iss-1", "place"],
+  ["issue_assigned", "iss-1", STAFF_ORIGIN + "/issues/iss-1", "place"],
+  ["issue_escalated", "iss-1", STAFF_ORIGIN + "/issues/iss-1", "place"],
+  ["periodic_overdue", "site-north", null, "place"],
+  ["shift_assigned", "shift-9", null, "place"],
+  ["support_ticket", "tk-1", null, "place"],
+  ["support_ticket_new", "tk-9", ADMIN_ORIGIN + "/#support/tk-9", "dashboard"],
+  ["time_off", "to-1", null, "place"],
+  ["hr_case_assigned", "case-1", ADMIN_ORIGIN + "/#cases/case-1", "dashboard"],
+  ["hr_case_escalated", "case-1", ADMIN_ORIGIN + "/#cases/case-1", "dashboard"],
+  ["hr_case_filed", "case-1", ADMIN_ORIGIN + "/#cases/case-1", "dashboard"],
+  ["hr_case_due_soon", "case-1", ADMIN_ORIGIN + "/#cases/case-1", "dashboard"],
+  ["hr_case_overdue", "case-1", ADMIN_ORIGIN + "/#cases/case-1", "dashboard"],
+  ["task_assigned", "task-2", null, "place"],
+  ["training_assigned", "topic-1", null, "place"],
+  ["training_session", "ts-9", null, "place"],
+  ["site_assigned", "site-west", null, "place"],
+  ["workspace_member", "wp-9", ADMIN_ORIGIN + "/#workspace/wp-9", "dashboard"],
+  ["inspection_unfinished", "in-s1", STAFF_ORIGIN + "/inspect/in-s1", "place"],
+  ["inspection_finding", "iss-1", STAFF_ORIGIN + "/issues/iss-1", "place"],
+  ["shift_drop", "shift-8", null, "place"],
+  ["shift_claim", "shift-8", null, "place"],
+].map(([type, id, link, want], i) => ({ type: type, want: want, notice: { id: "n-every-" + i, subjectType: type, subjectId: id, title: "Invented notice " + (i + 1) + " about " + type, body: "An invented notice.", link: link, createdAt: new Date(Date.UTC(2026, 9, 1, 20, 59 - i)).toISOString(), readAt: null } }));
 
 // --- Help ----------------------------------------------------------------
 //
@@ -1293,6 +1357,7 @@ function makeState(opts) {
     // Flip these from a case to make a route answer differently.
     refuse: o.refuse || {},          // "POST /api/time-off": { status, body }, { chat: code } or { api: key }
     offline: false,                  // every call fails at the network
+    trouble: null,                   // part 344: { method, path, kind: "500" | "hold" | "lose", ms, left }
     person: o.person || PERSON,
     accountPreferences: o.accountPreferences === undefined ? {} : o.accountPreferences,
     clockedIn: o.clockedIn !== false,
@@ -1343,9 +1408,21 @@ function makeState(opts) {
     startCalls: [],
     // Step 339: each site's checklistMode by id ("tracked" for a site the
     // map leaves out), answered on every site read, the clock status and
-    // the task read once a case gives the map; null answers none, as
-    // before API Step 337.
-    checklistModes: o.checklistModes ? Object.assign({}, o.checklistModes) : null,
+    // the task read. Since part 344 it is answered for every case, every
+    // site tracked unless a case's map says reference, the way API #146
+    // answers it with Step 337 built; a case that passes null answers
+    // none, as an API from before Step 337.
+    checklistModes: o.checklistModes === null ? null : Object.assign({}, o.checklistModes || {}),
+    // Part 344: the sites a person is assigned to, every invented site
+    // unless a case gives a list (none, for a person Chat cannot open a
+    // site chat for on its own).
+    assignedSites: Array.isArray(o.assignedSites) ? o.assignedSites : null,
+    // Part 344: every first form's draft sent, by path, so a second send
+    // is refused the way the API refuses it.
+    submittedDrafts: [],
+    // Part 344: the acknowledgement page and every acknowledgement sent.
+    acknowledge: o.acknowledge === true,
+    acks: [],
     // Step 145: every problem filed through POST /api/issues, in order.
     issues: [],
     // Step 255: an API with Step 253 built, which answers owners on the
@@ -2643,7 +2720,13 @@ const TWIN_PAIRS = [
   // The request link's words (Step 252).
   .concat(REQUEST_CATEGORIES.map(c => [c.en[0], c.es[0]]))
   .concat(REQUEST_CATEGORIES.map(c => [c.en[1], c.es[1]]))
-  .concat(Object.keys(REQUEST_WORDS.en).map(k => [REQUEST_WORDS.en[k], REQUEST_WORDS.es[k]]));
+  .concat(Object.keys(REQUEST_WORDS.en).map(k => [REQUEST_WORDS.en[k], REQUEST_WORDS.es[k]]))
+  // The acknowledgement page's refusal (part 344).
+  .concat([[ACK_GONE.en, ACK_GONE.es], [FORM_SENT_ALREADY.en, FORM_SENT_ALREADY.es]])
+  // The inspection walk's safety form (Step 313), registered in part 344:
+  // the sweep's first look at the walk's Sections sheet read its Spanish
+  // as English, since these words had no twin.
+  .concat(Object.keys(WALK_WORDS.en).map(k => [WALK_WORDS.en[k], WALK_WORDS.es[k]]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -2739,6 +2822,8 @@ const SIGNED_OUT = [
   /^GET \/api\/lesson-images\/signed\/[^/]+\.png$/,
   // App support's contact (Step 290), read on the sign-in screen.
   /^GET \/api\/support\/contact$/,
+  // A client's acknowledgement of a monthly report (part 344), the same way.
+  /^GET \/api\/public\/acknowledge\/[^/]+$/, /^POST \/api\/public\/acknowledge\/[^/]+$/,
 ];
 const signedOutLanguage = (search, accept) => {
   const m = String(search || "").match(/[?&]locale=(en|es)\b/);
@@ -2778,6 +2863,30 @@ function noteLocaleFault(key, search, fault) {
 // One row per route, the way the table reads a row.
 function localeRows() {
   return Array.from(LOCALE_FAULTS.values()).map(f => ({ where: "Every request to OCSA", check: "says the screen's language once", detail: f.key + f.search + " " + f.fault }));
+}
+
+// Part 344, contract 2.1: pay is admin-only. Every answer any stub gives
+// is read for a field that carries a pay figure, and one given to anyone
+// who does not hold manage_employment is kept here, once per route and
+// field, so the run fails on it whichever case asked. The stub serves no
+// pay figure today; this holds it to that as cases are added.
+const PAY_FIELD = /^(hourly_?rate|pay_?rate|hourly_?pay|base_?rate|rate_?of_?pay|wage|wages|salary|labor_?cost|total_?cost|cost_?per_?hour|overtime_?pay|gross_?pay)$/i;
+const PAY_SERVED = new Map();
+function payIn(data, route, person) {
+  const tier = person && (person.role === "admin" || person.role === "supervisor") ? person.role : "staff";
+  if (CAPABILITIES.manage_employment.indexOf(tier) !== -1) return;
+  const walk = (v, at) => {
+    if (Array.isArray(v)) { v.forEach(x => walk(x, at)); return; }
+    if (!v || typeof v !== "object") return;
+    Object.keys(v).forEach((k) => {
+      if (PAY_FIELD.test(k) && v[k] !== null && v[k] !== undefined && v[k] !== "") { const key = route + " " + at + k; if (!PAY_SERVED.has(key)) PAY_SERVED.set(key, { route: route, field: at + k, role: person ? person.role : "" }); }
+      walk(v[k], at + k + ".");
+    });
+  };
+  walk(data, "");
+}
+function payRows() {
+  return Array.from(PAY_SERVED.values()).map(p => ({ where: "Every answer to someone without manage_employment", check: "carries no pay figure", detail: p.route + " answered " + p.field + " to a " + p.role }));
 }
 
 // What the Spanish check reads, from one stub.
@@ -3520,7 +3629,10 @@ function createStub(opts) {
     // signed-in one is turned away before anything else answers it. The
     // seven calls made before signing in are answered as before, in the
     // phone's language, which is what the case for them catches.
-    const fault = localeFault(search, state.languages);
+    // A lesson picture's signed address is fetched by an <img>, which the
+    // portal never builds through reach(), so it says no language and needs
+    // none (part 344).
+    const fault = /^\/api\/lesson-images\/signed\//.test(pathname) ? null : localeFault(search, state.languages);
     if (fault) {
       state.localeFaults.push(key + (search || "") + " " + fault);
       noteLocaleFault(key, search, fault);
@@ -3539,11 +3651,38 @@ function createStub(opts) {
       delete state.holdMs[key];
       return Object.assign(answerNow(method, pathname, search, body, headers, key), { after: new Promise(done => setTimeout(done, ms)) });
     }
+    // Part 344: trouble for the next call that matches state.trouble, the
+    // weak-signal journeys' one switch: { method, path (a RegExp), kind,
+    // ms, left }. "500" answers the server's own sentence with a 500;
+    // "hold" does the work and answers ms late; "lose" does the work and
+    // keeps it, and the answer never reaches the phone, the way a signal
+    // lost on the way back loses it. left counts the calls it meets, one
+    // unless a case says.
+    const tr = state.trouble;
+    if (tr && (tr.left === undefined ? 1 : tr.left) > 0 && method === tr.method && tr.path.test(pathname)) {
+      tr.left = (tr.left === undefined ? 1 : tr.left) - 1;
+      tr.met = (tr.met || 0) + 1;
+      if (tr.kind === "500") return json(500, { error: languageOf(search, state) === "es" ? ES[SERVER_ERROR] : SERVER_ERROR });
+      if (tr.kind === "hold") return Object.assign(answerNow(method, pathname, search, body, headers, key), { after: new Promise(done => setTimeout(done, tr.ms || 30000)) });
+      if (tr.kind === "lose") { const kept = answerNow(method, pathname, search, body, headers, key); tr.saved = kept && kept.status; return { abort: true }; }
+    }
     return answerNow(method, pathname, search, body, headers, key);
   }
 
   function answerNow(method, pathname, search, body, headers, key) {
     const lang = languageOf(search, state);
+    // Part 344: a client's acknowledgement of a monthly report, /a/<token>,
+    // which the stub had never answered. The shape is what the portal's
+    // AcknowledgeScreen reads, since the API's route is out of reach here:
+    // the company, the site, the title and period, and the report's
+    // sections and fields; a POST keeps what was sent. ACK_TOKEN reads;
+    // any other token is a link that names nothing.
+    if (state.acknowledge && /^\/api\/public\/acknowledge\/[^/]+$/.test(pathname)) {
+      const token = decodeURIComponent(pathname.split("/").pop());
+      if (token !== ACK_TOKEN) return json(404, { error: refusalIn(ACK_GONE, lang), code: "acknowledge.notFound" });
+      if (method === "POST") { state.acks.push(body); return json(200, { ok: true }); }
+      return json(200, ACK_REPORT);
+    }
     // --- signing in and getting in
     if (key === "POST /api/auth/login") {
       // A wrong PIN carries its key as its code, the way the API's
@@ -3610,7 +3749,7 @@ function createStub(opts) {
       }
       return json(404, { error: "That equipment was not found.", code: "equipment.notFound" });
     }
-    if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: SITES.map(withMode), preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
+    if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: (state.assignedSites || SITES).map(withMode), preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
     if (key === "POST /api/auth/register") return json(200, { ok: true });
     if (key === "POST /api/auth/reset/request") return json(200, { ok: true });
     if (key === "POST /api/auth/change-pin") {
@@ -4164,6 +4303,15 @@ function createStub(opts) {
       }
       return json(200, { draft: walkDraft(state, lang), form: walkForm(lang) });
     }
+    // Part 344: the people a form's person question offers, the forms
+    // route the portal reads first (src/App.js:13044), each with an id and
+    // a whole name, the person filing among them. The stub had never
+    // answered it, so the read fell to the form route below and the
+    // question drew nobody.
+    if (method === "GET" && pathname === "/api/forms/people") {
+      const everyone = [state.person].concat(STAFF.filter(p => p.id !== state.person.id));
+      return json(200, { people: everyone.map(p => ({ id: p.id, name: p.firstName + " " + p.lastName })) });
+    }
     if (pathname === "/api/forms") {
       return json(200, { forms: [state.formVersions ? FORM_V2 : FORM, formP(lang)].concat(state.sectionsForm ? [thirdForm()] : []).concat(state.personForm ? [formE(lang)] : []).concat(state.guideForms ? guideForms(lang) : []) });
     }
@@ -4240,6 +4388,11 @@ function createStub(opts) {
       }
       const missing = FORM.fields.filter(f => f.required && !state.answers[f.key]).map(f => f.key);
       if (missing.length > 0) return json(400, { error: "Answer every required question before sending", missing: missing });
+      // Part 344: a draft already sent is refused 409, which the portal
+      // reads as already sent (src/App.js:13496); the stub had answered a
+      // second send 200.
+      if (state.submittedDrafts.indexOf(pathname) !== -1) return json(409, { error: refusalIn(FORM_SENT_ALREADY, languageOf(search, state)), code: "forms.alreadySubmitted" });
+      state.submittedDrafts.push(pathname);
       return json(200, { ok: true, reference: "OCSA-FIX-101-0001" });
     }
     // A customer's signature on the second form, saved on the staff
@@ -5230,6 +5383,7 @@ function createStub(opts) {
     if (!answer || typeof answer.body !== "string") return answer;
     let data;
     try { data = JSON.parse(answer.body); } catch (e) { return answer; }
+    payIn(data, method + " " + pathname, state.person);
     return Object.assign({}, answer, { body: JSON.stringify(translate(data, method, pathname, search, accept)) });
   }
 
@@ -5250,7 +5404,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { ACK_TOKEN, EVERY_NOTICE, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

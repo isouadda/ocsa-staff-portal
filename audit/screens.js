@@ -4,10 +4,11 @@
 // checks.
 
 const { openApp, letSheetOffer, ANDROID } = require("./browser");
+const { inLanes } = require("./lanes");
 const { INSPECT, rowsFrom } = require("./checks");
 const { LEAKABLE, SPANISH, SPANISH_PATTERNS, say } = require("./words");
-const { SCREEN_CASES, SHEET_CASES } = require("./inventory");
-const { timeOffRow, formP, STAFF, servedFor, PERSON, INSPECTION, ANNOUNCEMENT } = require("./stub");
+const { SCREEN_CASES, SHEET_CASES, SUPERVISOR } = require("./inventory");
+const { timeOffRow, formP, STAFF, servedFor, PERSON, INSPECTION, ANNOUNCEMENT, INSPECTION_LONG, INSPECTION_W, EQ_CODE } = require("./stub");
 
 const SIZES = ["standard", "large", "xlarge", "largest"];
 const LANGUAGES = ["en", "es"];
@@ -35,7 +36,7 @@ const LIGHT_BAR = "#FFFFFF";
 // judged by what it is: on a Spanish screen it passes only in Spanish.
 // See "names, words and codes" in audit/stub.js.
 const ALLOWED = [
-  "English", "Espa\u00f1ol",
+  "English", "Espa\u00f1ol", "Fran\u00e7ais",
   "OCSA Staff", "OCSA Cleaning", "OCSA-0001", "OCSA-FIX-101",
   "Alex", "Tester", "Alex Tester", "Sam", "Second", "Sam Second",
   "North Building", "South Building", "West Building", "Main Hall", "Robin",
@@ -114,9 +115,12 @@ const tapSendLabel = (page, language) => page.evaluate((want) => {
 
 const TAB_LABEL = {
   clock: "Home", schedule: "Schedule", tasks: "Tasks", chat: "Chat",
-  agent: "Help", issuetasks: "Assigned", issues: "Report", supplies: "Supplies",
+  agent: "Help", issuetasks: "Assigned", issues: ["Report", "Issues"], supplies: "Supplies",
   pickup: "Pickup", inspect: "Inspect", speakup: "Speak Up", settings: "Settings",
   forms: "Forms",
+  // Part 344: under More alone, for the people and the answers each needs.
+  workspace: "Workspace", fieldkit: "Field kit", training: "My training", property: "My company property",
+  support: "App support", library: "Library", supplyorders: "Approve supplies",
 };
 
 const pause = (page, ms) => page.waitForTimeout(ms || 500);
@@ -144,9 +148,11 @@ async function openTab(page, tabId, language) {
     await pause(page, 900);
     return true;
   }
-  const wanted = say(TAB_LABEL[tabId] || tabId, language);
+  // Report reads Issues for an admin or a supervisor (part 344), so a tab
+  // may go by more than one name.
+  const wanted = [].concat(TAB_LABEL[tabId] || tabId).map(w => say(w, language));
   const more = say("More", language);
-  const where = await page.evaluate(([name, moreName]) => {
+  const where = await page.evaluate(([names, moreName]) => {
     const bar = Array.from(document.querySelectorAll("div")).find((el) => {
       const s = getComputedStyle(el);
       return s.position === "fixed" && s.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5;
@@ -154,7 +160,7 @@ async function openTab(page, tabId, language) {
     if (!bar) return "no bar";
     // A badge sits before the name: a count, or 9+ from ten on.
     const clean = (b) => b.textContent.trim().replace(/^(9\+|\d+)/, "");
-    const onBar = Array.from(bar.querySelectorAll(":scope > button")).find(b => clean(b) === name);
+    const onBar = Array.from(bar.querySelectorAll(":scope > button")).find(b => names.indexOf(clean(b)) !== -1);
     if (onBar) { onBar.click(); return "bar"; }
     const moreBtn = Array.from(bar.querySelectorAll(":scope > button")).find(b => clean(b) === moreName) || Array.from(bar.querySelectorAll(":scope > button")).pop();
     if (moreBtn) { moreBtn.click(); return "more"; }
@@ -162,12 +168,24 @@ async function openTab(page, tabId, language) {
   }, [wanted, more]);
   await pause(page, 500);
   if (where === "more") {
-    await page.evaluate((name) => {
-      const grid = Array.from(document.querySelectorAll("div")).find(d => getComputedStyle(d).display === "grid" && d.querySelectorAll(":scope > button").length >= 5);
-      const b = grid && Array.from(grid.querySelectorAll(":scope > button")).find(x => x.textContent.trim().replace(/^(9\+|\d+)/, "") === name);
+    // A place under More that waits for the API's answer (part 344) shows
+    // once that answer is in, so its button is waited for, a few seconds
+    // at most.
+    // The grid inside More's own sheet: Home's week is a grid of seven
+    // buttons too, and comes first on the page.
+    const hit = (names) => {
+      const grid = Array.from(document.querySelectorAll(".sp-more div")).find(d => getComputedStyle(d).display === "grid" && d.querySelectorAll(":scope > button").length >= 5);
+      return !!grid && Array.from(grid.querySelectorAll(":scope > button")).some(x => names.indexOf(x.textContent.trim().replace(/^(9\+|\d+)/, "")) !== -1);
+    };
+    await page.waitForFunction(hit, wanted, { timeout: 5000 }).catch(() => {});
+    const tapped = await page.evaluate((names) => {
+      const grid = Array.from(document.querySelectorAll(".sp-more div")).find(d => getComputedStyle(d).display === "grid" && d.querySelectorAll(":scope > button").length >= 5);
+      const b = grid && Array.from(grid.querySelectorAll(":scope > button")).find(x => names.indexOf(x.textContent.trim().replace(/^(9\+|\d+)/, "")) !== -1);
       if (b) b.click();
+      return !!b;
     }, wanted);
     await pause(page, 800);
+    return tapped;
   }
   return where !== "nothing" && where !== "no bar";
 }
@@ -188,11 +206,26 @@ const SHEET_OPENERS = {
     });
     await pause(page, 600);
   },
+  // Part 344: a day's sheet came first in My Schedule, so each sheet after
+  // it moved up one id. A day with a shift on it opens its sheet; the
+  // shift on that sheet opens its detail.
   "MyScheduleSection#0": async (page, language) => {
+    await openTab(page, "schedule", language);
+    await pause(page, 600);
+    // The day with a shift on it, told by the time on its button.
+    await page.evaluate(() => {
+      const grid = Array.from(document.querySelectorAll(".sp-content div")).find(d => getComputedStyle(d).display === "grid" && d.children.length === 7);
+      const days = grid ? Array.from(grid.querySelectorAll("button")) : [];
+      const card = days.find(b => /\d{1,2}:\d{2}/.test(b.textContent)) || days[0];
+      if (card) card.click();
+    });
+    await pause(page, 800);
+  },
+  "MyScheduleSection#1": async (page, language) => {
     await openTab(page, "schedule", language);
     await clickText(page, say("Request time off", language));
   },
-  "MyScheduleSection#1": async (page, language) => {
+  "MyScheduleSection#2": async (page, language) => {
     await openTab(page, "schedule", language);
     await page.evaluate(([heading]) => {
       const h = Array.from(document.querySelectorAll(".sp-content div")).find(d => d.textContent.trim() === heading);
@@ -201,12 +234,13 @@ const SHEET_OPENERS = {
     }, [say("My time off", language)]);
     await pause(page, 900);
   },
-  "MyScheduleSection#2": async (page, language) => {
-    await openTab(page, "schedule", language);
+  "MyScheduleSection#3": async (page, language) => {
+    await SHEET_OPENERS["MyScheduleSection#0"](page, language);
     await page.evaluate(() => {
-      const grid = Array.from(document.querySelectorAll(".sp-content div")).find(d => getComputedStyle(d).display === "grid" && d.children.length === 7);
-      const card = grid && grid.querySelector("button");
-      if (card) card.click();
+      const d = document.querySelector('[aria-labelledby="ocsa-day-sheet-title"]');
+      const all = d ? Array.from(d.querySelectorAll("button")) : [];
+      const b = all.find(x => /\d{1,2}:\d{2}/.test(x.textContent));
+      if (b) b.click();
     });
     await pause(page, 800);
   },
@@ -280,7 +314,101 @@ const SHEET_OPENERS = {
   // An announcement, opened the way a tapped phone alert opens one: the
   // address names it, and it opens once the portal is up (see SHEET_PHONES).
   "AnnouncementSheet#0": async (page) => { await pause(page, 1500); },
+  // Part 344: the sheets added since the sweep last ran, each by the
+  // shortest route a person takes to it, with its phone in SHEET_PHONES.
+  // The language button on the sign-in card.
+  "LanguageButton#0": async (page) => {
+    // The sheet is there once a third language is offered, which the
+    // first load learns and the next one draws.
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector('button[aria-haspopup="dialog"] [lang]', { timeout: 6000 }).catch(() => {});
+    await page.evaluate(() => { const b = Array.from(document.querySelectorAll('button[aria-haspopup="dialog"]')).find(x => x.querySelector("[lang]")); if (b) b.click(); });
+    await pause(page, 600);
+  },
+  // A site whose list is only to read, from Home with no shift open.
+  "SiteTaskListSheet#0": async (page) => {
+    await page.waitForSelector('[data-site-list="site-north"]', { timeout: 8000 }).catch(() => {});
+    await page.click('[data-site-list="site-north"]').catch(() => {});
+    await pause(page, 1200);
+  },
+  // New message, from Chat, for an office person once the people route
+  // answers.
+  "ChatView#1": async (page, language) => {
+    await openTab(page, "chat", language);
+    await pause(page, 1200);
+    await clickText(page, say("New message", language));
+    await pause(page, 600);
+  },
+  // A how-to answer's picture, full screen.
+  "AnswerPictures#0": async (page, language, app) => {
+    await openTab(page, "agent", language);
+    await pause(page, 900);
+    app.stub.state.help.next = Object.assign({ answer: "howTo", pauseMs: 20 }, language === "es" ? { language: "es" } : {});
+    await askHelp(page, app.stub, language, language === "es" ? "\u00bfC\u00f3mo inicio sesi\u00f3n?" : "How do I sign in?");
+    await helpAnswered(page);
+    await page.waitForSelector('[data-help-picture="sign-in"] img', { timeout: 6000 }).catch(() => {});
+    await page.click('[data-help-picture="sign-in"]').catch(() => {});
+    await pause(page, 700);
+  },
+  // An issue's sheet, from a supervisor's Issues.
+  "IssueSheet#0": async (page, language) => {
+    await openTab(page, "issues", language);
+    await page.waitForSelector('[data-issue-row="iss-b2"]', { timeout: 8000 }).catch(() => {});
+    await page.click('[data-issue-row="iss-b2"]').catch(() => {});
+    await pause(page, 1000);
+  },
+  // The ladders lesson's picture, full screen, from the safety category.
+  "TrainingLesson#0": async (page, language) => {
+    await openTab(page, "training", language);
+    await page.waitForSelector('[data-training-category="safety"]', { timeout: 8000 }).catch(() => {});
+    await page.click('[data-training-category="safety"]').catch(() => {});
+    await page.waitForSelector('[data-training-start="tp-2:"]', { timeout: 6000 }).catch(() => {});
+    await page.click('[data-training-start="tp-2:"]').catch(() => {});
+    await page.waitForSelector('[data-lesson-block="image"] button', { timeout: 6000 }).catch(() => {});
+    await page.click('[data-lesson-block="image"] button').catch(() => {});
+    await pause(page, 900);
+  },
+  // Tag out, on an equipment item's page opened from its label. Every
+  // sheet built on WsSheet draws the same way; this one any person meets.
+  "WsSheet#0": async (page, language) => {
+    await page.waitForFunction(() => window.location.pathname === "/", null, { timeout: 8000 }).catch(() => {});
+    await pause(page, 900);
+    await clickText(page, say("Tag out", language));
+    await pause(page, 600);
+  },
+  // Start an inspection, from a supervisor's Inspect.
+  "StartInspectionSheet#0": async (page, language) => {
+    await openTab(page, "inspect", language);
+    await page.waitForSelector("[data-inspect-start]", { timeout: 8000 }).catch(() => {});
+    await page.click("[data-inspect-start]").catch(() => {});
+    await pause(page, 900);
+  },
+  // Sections, on an inspection long enough to have them.
+  "InspectSectionsSheet#0": async (page, language) => {
+    await openTab(page, "inspect", language);
+    await pause(page, 900);
+    await clickText(page, INSPECTION_LONG.template_name);
+    await page.waitForSelector('[data-inspect-sections="1"]', { timeout: 6000 }).catch(() => {});
+    await page.click('[data-inspect-sections="1"]').catch(() => {});
+    await pause(page, 600);
+  },
+  // Sections, on a walk with its safety part.
+  "WalkSectionsSheet#0": async (page, language) => {
+    await openTab(page, "inspect", language);
+    await pause(page, 900);
+    await clickText(page, INSPECTION_W.template_name);
+    await page.waitForSelector('[data-inspect-sections="1"]', { timeout: 6000 }).catch(() => {});
+    await page.click('[data-inspect-sections="1"]').catch(() => {});
+    await pause(page, 600);
+  },
 };
+// An inspection long enough for Sections (over INSPECT_INDEX_OVER, 20
+// cards, in src/App.js): the long inspection's five cards five times over,
+// each with an id of its own (part 344).
+const INSPECTION_INDEXED = Object.assign({}, INSPECTION_LONG, {
+  id: "in-indexed",
+  items: [0, 1, 2, 3, 4].reduce((all, n) => all.concat(INSPECTION_LONG.items.map(it => Object.assign({}, it, { id: it.id + "-" + n }))), []),
+});
 // The phone a sheet needs, where it differs from the one every case opens.
 const SHEET_PHONES = {
   // The alerts card asks only on a phone that can take alerts and has
@@ -288,6 +416,16 @@ const SHEET_PHONES = {
   "OCSAStaffPortal#1": { userAgent: ANDROID, push: { permission: "default" } },
   // The announcement is opened from the address.
   "AnnouncementSheet#0": { path: "/?open=announcement:" + ANNOUNCEMENT.id },
+  // Part 344.
+  "LanguageButton#0": { signedIn: false, stubOptions: { languages: ["en", "es", "fr"] } },
+  "SiteTaskListSheet#0": { stubOptions: { clockedIn: false, checklistModes: { "site-north": "reference" } } },
+  "ChatView#1": { stubOptions: { person: Object.assign({}, SUPERVISOR), chatPeopleRoute: true } },
+  "IssueSheet#0": { stubOptions: { person: Object.assign({}, SUPERVISOR), issueSheet: true } },
+  "TrainingLesson#0": { stubOptions: { training: true, trainingPortal: true } },
+  "WsSheet#0": { path: "/eq/" + EQ_CODE, stubOptions: { equipment: true } },
+  "StartInspectionSheet#0": { stubOptions: { person: Object.assign({}, SUPERVISOR), startInspection: true } },
+  "InspectSectionsSheet#0": { stubOptions: { inspections: [INSPECTION_INDEXED] } },
+  "WalkSectionsSheet#0": { stubOptions: { inspectionWalk: true } },
 };
 
 // The Forms screen lists more than one form now, so a case says which
@@ -402,10 +540,12 @@ async function runScreens(browser, base, opts) {
     notifications: [{ id: "n-1", subjectType: "supply_request", subjectId: "sr-1", title: "Supply request approved", body: "Two cases of paper towels.", link: null, createdAt: "2026-10-01T18:00:00.000Z", readAt: null }],
   });
 
-  for (const combination of COMBINATIONS) {
+  // Since part 344 the combinations run in lanes (audit/lanes.js), each
+  // combination's sessions one after another inside its lane.
+  await inLanes(COMBINATIONS, async (combination) => {
     const language = combination.language, size = combination.size, theme = combination.theme;
     // Every tab in one session, the way a person moves through them.
-    const tabCases = SCREEN_CASES.filter(c => c.kind === "tab");
+    const tabCases = SCREEN_CASES.filter(c => c.kind === "tab" && !c.own);
     const app = await openApp(browser, base, { language: language, textSize: size, theme: theme, signedIn: true, stubOptions: stubFor(language, size) });
     try {
       // The portal itself, before any tab is chosen.
@@ -433,6 +573,27 @@ async function runScreens(browser, base, opts) {
       }
     } finally {
       await app.context.close();
+    }
+
+    // Part 344: each place only some people have, or only once the API has
+    // answered something, in a session of its own with the person and the
+    // switches it needs; one an address opens is opened by it.
+    for (const sc of SCREEN_CASES.filter(c => c.kind === "tab" && c.own)) {
+      const one = await openApp(browser, base, {
+        language: language, textSize: size, theme: theme, signedIn: true, path: sc.own.path || "/",
+        stubOptions: Object.assign(stubFor(language, size), sc.own.stubOptions || {}),
+      });
+      try {
+        const ok = sc.own.path ? await one.page.waitForFunction(() => { const c = document.querySelector(".sp-content"); return !!c && window.location.pathname === "/" && c.innerText.trim().length > 0; }, null, { timeout: 8000 }).then(() => true).catch(() => false)
+          : await openTab(one.page, sc.id, language);
+        if (!ok) rows.push({ where: sc.label + " [" + language + "/" + size + "/" + theme + "]", check: "reachable", detail: "the place could not be opened" });
+        await pause(one.page, 900);
+        rows.push(...await inspect(one.page, null, sc.label, language, size, one.stub, theme));
+        if (covered.screens.indexOf(sc.id) === -1) covered.screens.push(sc.id);
+        combinations += 1;
+      } finally {
+        await one.context.close();
+      }
     }
 
     // The checklist most people open: the whole site's list, for someone
@@ -590,7 +751,7 @@ async function runScreens(browser, base, opts) {
     for (const sc of SCREEN_CASES.filter(c => c.kind === "screen" && c.id !== "main")) {
       const one = await openApp(browser, base, {
         language: language, textSize: size, theme: theme, signedIn: sc.signedIn !== false,
-        path: sc.path || "/", stubOptions: Object.assign(stubFor(language, size), sc.mustSetPin ? { mustSetPin: true } : {}),
+        path: sc.path || "/", stubOptions: Object.assign(stubFor(language, size), sc.mustSetPin ? { mustSetPin: true } : {}, sc.stubOptions || {}),
       });
       try {
         if (sc.via === "register") await clickText(one.page, say("Register Here", language));
@@ -602,24 +763,30 @@ async function runScreens(browser, base, opts) {
         await one.context.close();
       }
     }
-  }
+  });
 
   // The sheets, at the two ends of the text size scale, since a sheet's
-  // own layout is what the size changes.
-  for (const language of LANGUAGES) {
-    for (const size of ["standard", "largest"]) {
-      for (const sh of SHEET_CASES) {
+  // own layout is what the size changes. In lanes since part 344, one
+  // sheet in one language at one size a piece.
+  const sheetRuns = [];
+  LANGUAGES.forEach(language => ["standard", "largest"].forEach(size => SHEET_CASES.forEach(sh => sheetRuns.push({ language, size, sh }))));
+  await inLanes(sheetRuns, async ({ language, size, sh }) => {
+      {
+        // A sheet's phone may add stub switches of its own (part 344), which
+        // join the ones every sheet's phone has.
+        const phone = SHEET_PHONES[sh.id] || {};
         const app = await openApp(browser, base, Object.assign({
           language: language, textSize: size, signedIn: true,
           installSheet: sh.id === "HomeScreenPrompt#0" ? "fresh" : "dismissed",
-          stubOptions: {
+        }, phone, {
+          stubOptions: Object.assign({
             accountPreferences: { language: language, textSize: size },
             myTimeOff: [timeOffRow({ id: "to-one", status: "requested" })],
-          },
-        }, SHEET_PHONES[sh.id] || {}));
+          }, phone.stubOptions || {}),
+        }));
         try {
           const opener = SHEET_OPENERS[sh.id];
-          if (opener) await opener(app.page, language);
+          if (opener) await opener(app.page, language, app);
           const up = await app.page.evaluate(() => Array.from(document.querySelectorAll("div")).some((d) => {
             const s = getComputedStyle(d);
             return s.position === "fixed" && s.top === "0px" && s.left === "0px" && s.right === "0px" && s.bottom === "0px";
@@ -647,10 +814,9 @@ async function runScreens(browser, base, opts) {
           await app.context.close();
         }
       }
-    }
-  }
+  });
 
   return { rows: rows, covered: covered, gaps: gaps, combinations: COMBINATIONS.length };
 }
 
-module.exports = { runScreens, openTab, clickText, startForm, inspect, SHEET_OPENERS, SIZES, LANGUAGES, COMBINATIONS, FORM_P_PAGES, ALLOWED };
+module.exports = { runScreens, openTab, clickText, startForm, inspect, SHEET_OPENERS, SHEET_PHONES, SIZES, LANGUAGES, COMBINATIONS, FORM_P_PAGES, ALLOWED };
