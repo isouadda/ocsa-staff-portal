@@ -11,7 +11,7 @@ const { INSPECT, languageRows } = require("./checks");
 const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES,
-  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS, EVERY_NOTICE } = require("./stub");
+  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS, EVERY_NOTICE, FIRST_NAMES } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -5612,7 +5612,8 @@ const issueReady = (photo) => async (app, language) => {
 };
 const WEAK_ACTIONS = [
   {
-    id: "checkoff", name: "a check-off", method: "POST", path: /^\/api\/clock\/tasks\/[^/]+\/complete$/, must: ["kept", "queue", "once"],
+    // Since part 350 a check asks the status first, on the way to it.
+    id: "checkoff", name: "a check-off", method: "POST", path: /^\/api\/clock\/tasks\/[^/]+\/complete$/, reach: /^\/api\/clock\/(status|tasks\/[^/]+\/complete)$/, must: ["kept", "queue", "once"],
     ready: async (app, language) => { await openTab(app.page, "tasks", language); await pause(app.page, 1200); return { label: await taskBox(app.page, language, false) }; },
     tap: async (app, language, ctx) => { await tapAria(app.page, ctx.label); },
     kept: async (app) => (await pendingTaps(app.page)) > 0,
@@ -6044,5 +6045,187 @@ const ROUND1_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...ROUND1_JOURNEYS);
+
+// --- Everyone on a shift sees the same list, live (part 350) -------------
+//
+// The checklist on screen reads itself again every ten seconds, and so
+// does a site's list a supervisor follows from Home. A coworker's check is
+// the stub's third person (an invented first name) checking a step at the
+// same site, pushed into the stub while this phone holds its list. Each
+// check fails on the main of part 348, which reads the list only when it
+// opens.
+const LIVE_WAIT_MS = 11500;
+const COWORKER = "u-three";
+const siteListReads = (stub) => stub.state.calls.filter(c => c.method === "GET" && /^\/api\/sites\/[^/]+\/tasks$/.test(c.path)).length;
+// The step ids the stub's site list answers by the name the screen gives
+// each, read without counting as one of the phone's reads.
+const stepIds = (app, language) => {
+  const a = app.stub.handle("GET", "/api/sites/site-north/tasks", "?day=today&locale=" + language, null, "", {});
+  app.stub.state.calls.pop();
+  const ids = {};
+  (JSON.parse(a.body) || []).forEach((r) => { ids[(r.display && r.display.label) || r.label] = r.id; if (r.label) ids[r.label] = ids[r.label] || r.id; });
+  return ids;
+};
+// A step on the checklist by its name: the words on its row and its box's
+// label, which says whether it reads done.
+const taskRow = (page, language, name) => page.evaluate(([on, off]) => {
+  const b = Array.from(document.querySelectorAll("button[aria-label]")).find(x => x.getAttribute("aria-label") === on || x.getAttribute("aria-label") === off);
+  const row = b ? (b.closest("[data-task-row]") || b.parentElement) : null;
+  return row ? { text: row.innerText.replace(/\s+/g, " "), label: b.getAttribute("aria-label") } : null;
+}, [say("Mark {name} done", language).replace("{name}", name), say("Mark {name} not done", language).replace("{name}", name)]);
+// A step on a followed list by its name: the words on its row, and its
+// mark, done or not.
+const watchRow = (page, name) => page.evaluate((n) => {
+  const row = Array.from(document.querySelectorAll("[data-task-row]")).find(r => r.innerText.indexOf(n) !== -1);
+  const mark = row ? row.querySelector("[data-task-done]") : null;
+  return row ? { text: row.innerText.replace(/\s+/g, " "), watchDone: mark ? mark.getAttribute("data-task-done") === "1" : null } : null;
+}, name);
+// The first step on the list with an open box: its name and id.
+const openStep = async (app, language) => {
+  const label = await taskBox(app.page, language, false);
+  const name = label ? nameIn(label, say("Mark {name} done", language)) : null;
+  const id = name ? stepIds(app, language)[name] : null;
+  return name && id ? { name: name, id: id, label: label } : null;
+};
+const rowDone = (language, r) => !!r && labelRe(say("Mark {name} not done", language)).test(r.label || "");
+const checkedByLine = (language) => say("Checked by {firstName}", language).replace("{firstName}", FIRST_NAMES[COWORKER]);
+const coworkerChecks = (app, id) => { app.stub.state.completions.push({ taskId: id, userId: COWORKER }); };
+// Waits for a list read after the one counted, and a moment for it to draw.
+const nextRead = async (app, from, ms) => {
+  const until = Date.now() + (ms || LIVE_WAIT_MS);
+  while (Date.now() < until) { if (siteListReads(app.stub) > from) { await pause(app.page, 900); return true; } await pause(app.page, 250); }
+  return false;
+};
+const LIVE_SUPERVISOR = Object.assign({}, PERSON, { id: "u-live-sup", role: "supervisor" });
+// The site's shared list: a person linked to no step of their own sees
+// the whole site's list, where a coworker's check shows as Checked by.
+const SHARED_LIST = { links: {} };
+
+const LIVE_JOURNEYS = [
+  {
+    id: "livecheckoff",
+    label: "A coworker's check-off shows on the checklist on its own within ten seconds, with who checked it",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: SHARED_LIST });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1500);
+        const step = await openStep(app, language);
+        if (!step) { expect("the list has a step still to do", false, "no open box"); return; }
+        const at = Date.now();
+        coworkerChecks(app, step.id);
+        let seen = null;
+        while (Date.now() - at < LIVE_WAIT_MS) {
+          const r = await taskRow(app.page, language, step.name);
+          if (rowDone(language, r) && has(r.text, checkedByLine(language))) { seen = Date.now() - at; break; }
+          await pause(app.page, 250);
+        }
+        expect("a coworker's check shows within ten seconds, with Checked by and their name", seen !== null, JSON.stringify(await taskRow(app.page, language, step.name)));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "livequeued",
+    label: "A tap still waiting on the phone survives the checklist reading itself again",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: SHARED_LIST });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1500);
+        const step = await openStep(app, language);
+        if (!step) { expect("the list has a step still to do", false, "no open box"); return; }
+        // The API answers 500 to the check, so it waits on the phone.
+        app.stub.state.trouble = { method: "POST", path: CHECKOFF_PATH, kind: "500", left: 99 };
+        await tapAria(app.page, step.label);
+        await pause(app.page, 1500);
+        const before = siteListReads(app.stub);
+        const read = await nextRead(app, before);
+        const r = await taskRow(app.page, language, step.name);
+        expect("the checklist reads itself again while a tap waits", read, "no list read in " + LIVE_WAIT_MS + " ms");
+        expect("the waiting tap still shows on its box after the read", rowDone(language, r), JSON.stringify(r));
+        expect("the waiting tap is still on the phone after the read", (await pendingTaps(app.page)) === 1, (await pendingTaps(app.page)) + " on the phone");
+        expect("the saved line still shows after the read", has(await bodyText(app.page), say(SAVED_LINE, language)), "the line is gone");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "livescroll",
+    label: "The checklist reading itself again never moves it: the scroll position holds while a coworker's check comes in",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: SHARED_LIST });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 2000);
+        const want = await app.page.evaluate(() => { const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight); window.scrollTo(0, Math.min(240, max)); return window.scrollY; });
+        await pause(app.page, 500);
+        const step = await openStep(app, language);
+        if (step) coworkerChecks(app, step.id);
+        const read = await nextRead(app, siteListReads(app.stub));
+        const after = await app.page.evaluate(() => window.scrollY);
+        expect("the checklist reads itself again", read, "no list read in " + LIVE_WAIT_MS + " ms");
+        expect("the list scrolled down stays where it was across the read", want > 0 && Math.abs(after - want) <= 2, "scrolled to " + want + ", then at " + after);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "livesamestep",
+    label: "Two people tapping the same step: one check-off, and the second phone says Already done by the first, with no failure",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: SHARED_LIST });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1500);
+        const step = await openStep(app, language);
+        if (!step) { expect("the list has a step still to do", false, "no open box"); return; }
+        const id = step.id;
+        // The coworker checks it a moment before this phone's tap, with no
+        // read of the list between.
+        coworkerChecks(app, id);
+        await tapAria(app.page, step.label);
+        await pause(app.page, 1200);
+        const line = say("Already done by {firstName}", language).replace("{firstName}", FIRST_NAMES[COWORKER]);
+        const text = await bodyText(app.page);
+        const toast = await toastText(app.page);
+        const checks = app.stub.state.completions.filter(c => c.taskId === id);
+        expect("two taps on one step leave one check-off", checks.length === 1 && checks[0].userId === COWORKER, JSON.stringify(checks));
+        expect("the second phone says Already done by the first", has(text, line), text.slice(0, 260));
+        expect("the second tap leaves the phone quietly, with no failure", (await pendingTaps(app.page)) === 0 && !has(toast || "", say("Something went wrong on our end. Try again in a minute.", language)) && !has(text, say(SAVED_LINE, language)), (await pendingTaps(app.page)) + " on the phone; toast " + JSON.stringify(toast));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "livewatch",
+    label: "A supervisor with no shift follows a site's list from Home, and a cleaner's check-offs appear on it within ten seconds",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: LIVE_SUPERVISOR, clockedIn: false } });
+      try {
+        await pause(app.page, 2000);
+        const opened = await app.page.evaluate(() => { const b = document.querySelector('button[data-site-list="site-north"]'); if (b) b.click(); return !!b; });
+        await pause(app.page, 1500);
+        expect("Home offers a supervisor the task list under a site of their own", opened, "no Task list for this site under North Building");
+        if (!opened) return;
+        const watching = await app.page.evaluate(() => !!document.querySelector('[data-site-list-sheet="site-north"][data-site-list-watch="1"]'));
+        expect("the list opens to follow, with each step done or not", watching, "the sheet is a list to read");
+        const id = await app.page.evaluate(() => { const r = Array.from(document.querySelectorAll("[data-task-row]")).find(x => { const m = x.querySelector("[data-task-done]"); return m && m.getAttribute("data-task-done") === "0"; }); return r ? r.getAttribute("data-task-row") : null; });
+        if (!id) { expect("the site has a step still to do", false, "no open step"); return; }
+        const name = Object.keys(stepIds(app, language)).find(n => stepIds(app, language)[n] === id && n);
+        const at = Date.now();
+        coworkerChecks(app, id);
+        let seen = null;
+        while (Date.now() - at < LIVE_WAIT_MS) {
+          const r = await watchRow(app.page, name);
+          if (r && r.watchDone && has(r.text, checkedByLine(language))) { seen = Date.now() - at; break; }
+          await pause(app.page, 250);
+        }
+        expect("a cleaner's check-off appears within ten seconds, with who checked it", seen !== null, JSON.stringify(await watchRow(app.page, name)));
+        expect("nothing on the followed list can be checked off", await app.page.evaluate((w) => !Array.from(document.querySelectorAll('[data-site-list-sheet] button[aria-label]')).some(b => new RegExp(w).test(b.getAttribute("aria-label"))), labelRe(say("Mark {name} done", language)).source), "a box to tap");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...LIVE_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };

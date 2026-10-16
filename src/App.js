@@ -2044,7 +2044,10 @@ export default function OCSAStaffPortal() {
   // their own ticks, and the whole site's list reads everyone's there
   // today, so the ticks always match the list on screen.
   const statusSeq = useRef(0);
-  const nextStatusSeq = () => ++statusSeq.current;
+  // When the newest status was asked for, so a tap the API took after it
+  // is still drawn as taken until a status asked for later comes back.
+  const statusAskedAt = useRef(0);
+  const nextStatusSeq = () => { statusAskedAt.current = Date.now(); return ++statusSeq.current; };
   const hydrateCompleted = (cs, seq) => {
     if (seq !== statusSeq.current) return;
     const tk = cs ? cs.tasks : null;
@@ -2057,8 +2060,16 @@ export default function OCSAStaffPortal() {
   const takeStatus = (cs, seq) => {
     if (seq !== statusSeq.current) return false;
     setClockStatus(cs); hydrateCompleted(cs, seq);
+    const asked = statusAskedAt.current;
+    setTaken(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at >= asked) n.set(id, v); }); return n.size === prev.size ? prev : n; });
     return true;
   };
+  // This person's taps the API has taken since the newest status was
+  // asked for (part 350), by task: { done, at, siteId, userId }. A list
+  // read every few seconds can be asked for while a tap is on its way, and
+  // come back without it; the box stays the way the person left it until a
+  // status asked for after the tap was taken says the same.
+  const [taken, setTaken] = useState(new Map());
   // Task ids with a tick or untick request in flight. A second tap on the
   // same task is ignored until the first answers. Other tasks stay tappable.
   const inFlightTaskIds = useRef(new Set());
@@ -2617,6 +2628,20 @@ export default function OCSAStaffPortal() {
   // 408 and 429, a session that expired, and a PIN still to be chosen. The
   // clientId makes the next send of it safe.
   const keepsTap = (err) => !err || !err.status || err.status === 408 || err.status === 429 || err.status >= 500 || err.message === ERR_OFFLINE || err.message === "Session expired" || err.code === "auth.mustSetPin";
+  // The first name of whoever else checked a tap's step today at its
+  // site, by a status read now; "" when it names nobody, and null when
+  // nobody else has, the status is another site's, or it says nothing.
+  // Only on the site's shared list: on a list of the person's own linked
+  // steps, each person's check counts for them, and every tap goes.
+  const doneByOther = async (tap, tok) => {
+    const seq = nextStatusSeq();
+    const cs = await api(statusPath(), { token: tok });
+    takeStatus(cs, seq);
+    if (!cs || !cs.clockedIn || !cs.shift || String(cs.shift.siteId) !== String(tap.siteId) || checklistIsOwn(cs)) return null;
+    const list = cs.tasks && Array.isArray(cs.tasks.checkedToday) ? cs.tasks.checkedToday : [];
+    const c = list.find(x => x && String(x.taskId) === String(tap.taskId));
+    return c && c.byCaller === false ? String(c.firstName || "").trim() : null;
+  };
   const sendingPending = useRef(false);
   const sendPending = async () => {
     if (sendingPending.current || !token || !user || pendingRef.current.length === 0) return;
@@ -2629,11 +2654,19 @@ export default function OCSAStaffPortal() {
         const tap = pendingRef.current.find(mine);
         if (!tap) break;
         const fresh = freshTaps.current.delete(tap.clientId);
-        let taken = false, kept = false;
+        let taken = false, kept = false, doneBy = null;
         inFlightTaskIds.current.add(tap.taskId);
         try {
-          await api(checkoffPath(tap.taskId), { method: tap.done ? "POST" : "DELETE", body: { clientId: tap.clientId, completedAt: tap.completedAt }, token: tok });
-          taken = true;
+          // A check is asked about first (part 350): when someone else at
+          // the site checked the step since this phone last read the list,
+          // the step is theirs already and nothing is sent, so two people
+          // tapping one step make one check-off. The read brings every
+          // tick on the screen up to date too.
+          if (tap.done) doneBy = await doneByOther(tap, tok);
+          if (doneBy === null) {
+            await api(checkoffPath(tap.taskId), { method: tap.done ? "POST" : "DELETE", body: { clientId: tap.clientId, completedAt: tap.completedAt }, token: tok });
+            taken = true;
+          }
         } catch (err) {
           // An answer whose words could not be read is still the API's: a
           // 2xx is a tap it took.
@@ -2651,6 +2684,13 @@ export default function OCSAStaffPortal() {
         }
         answered += 1;
         if (taken && fresh) showToast(tr(tap.done ? "Task completed" : "Task unchecked"));
+        if (taken) setTaken(prev => new Map(prev).set(tap.taskId, { done: tap.done, at: Date.now(), siteId: tap.siteId, userId: tap.userId }));
+        // Someone else's already: the tap leaves quietly, the row says who
+        // did it, and the box shows their check.
+        if (doneBy !== null) {
+          showRowNote(tap.taskId, doneBy ? tr("Already done by {firstName}", { firstName: doneBy }) : tr("Already done"));
+          setTickOverrides(prev => { if (!prev.has(tap.taskId)) return prev; const n = new Map(prev); n.delete(tap.taskId); return n; });
+        }
         putPending(pendingRef.current.filter(x => x.clientId !== tap.clientId));
       }
     } finally { sendingPending.current = false; }
@@ -2777,6 +2817,11 @@ export default function OCSAStaffPortal() {
   // no list has come back asks again, the way it always has. No session,
   // no fetch.
   useEffect(() => { if (checklistKey && (tasks === null || tasksAsked.current !== checklistKey)) loadTasks(); }, [activeTab, checklistKey]);
+  // While Tasks is open on the shift's list, it reads itself again every
+  // ten seconds (part 350), the list and the status with it, so a
+  // coworker's check shows within seconds. Not while a read of it is on
+  // its way, nor opened from the copy kept for no signal.
+  useLiveRead(screen === "main" && activeTab === "tasks" && !!checklistKey && !!token && !offlineOpen, () => (tasksReqAsked.current !== null ? null : loadTasks(true)));
   useEffect(() => { activeChannelRef.current = activeChannel; setMessages([]); setMessagesOf(null); if (activeChannel) { loadMessages(activeChannel); markChatRead(activeChannel).then(() => setTimeout(() => loadChannels(), 600)); } }, [activeChannel]);
   // Chat opens on a chat: the one last chosen on this phone while it is
   // still on the list, or the only one when the list holds one. Never a
@@ -3188,7 +3233,7 @@ export default function OCSAStaffPortal() {
     setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null);
     setSessionSitesFailed(false); setAssignedFailed(false); setIssuesFailed(false); setSuppliesFailed(false); setSuppliesLoaded(false);
     setClientRequests(null); setRequestOpen(null);
-    setShiftAsk(null); setShiftBusy(false); setShiftFault(null); setTickOverrides(new Map()); setRowNote(null);
+    setShiftAsk(null); setShiftBusy(false); setShiftFault(null); setTickOverrides(new Map()); setTaken(new Map()); setRowNote(null);
     // A checklist read still on its way is dropped, so it cannot keep the
     // list again after this.
     tasksSeq.current += 1;
@@ -3315,7 +3360,15 @@ export default function OCSAStaffPortal() {
   // their own items; completed also counts a check of an item outside them,
   // which total does not, and would read more than the whole.
   // The ticks drawn: the API's, with this phone's waiting taps over them.
-  const pendingTicks = pendingTicksFor(pending, clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, user && user.id);
+  // A tap the API has taken shows as left until a status after it comes
+  // back, and a tap still waiting shows over it.
+  const pendingTicks = (() => {
+    const site = clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null;
+    const m = new Map();
+    taken.forEach((v, id) => { if ((!site || String(v.siteId) === String(site)) && (!user || !v.userId || String(v.userId) === String(user.id))) m.set(id, v.done); });
+    pendingTicksFor(pending, site, user && user.id).forEach((done, id) => m.set(id, done));
+    return m;
+  })();
   const pendingKept = pendingKeptFor(pending, clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, user && user.id);
   const shownCompleted = pendingTicks.size === 0 ? completedTaskIds : (() => { const n = new Set(completedTaskIds); pendingTicks.forEach((on, id) => { if (on) n.add(id); else n.delete(id); }); return n; })();
   const homeCounts = Array.isArray(tasks) ? todayCount(tasks, shownCompleted) : null;
@@ -3399,7 +3452,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "support" && destCtx.support && <SupportView token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} t={t} />}
               {activeTab === "supplyorders" && (destCtx.supplyOrders || !!supplyAt) && <SupplyOrdersView token={token} user={user} holder={supplyHolder === true} rows={supplyOrders} onReload={() => loadSupplyOrders()} onRow={takeSupplyOrder} at={supplyAt} onAt={setSupplyAt} getOpts={getOpts} showToast={showToast} t={t} />}
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
-              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
+              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
               {activeTab === "tasks" && <TasksView token={token} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -3478,7 +3531,7 @@ export default function OCSAStaffPortal() {
         </>
       )}
 
-      {siteListAt && token && <SiteTaskListSheet token={token} site={siteListAt} language={language} onClose={() => setSiteListAt(null)} t={t} />}
+      {siteListAt && token && <SiteTaskListSheet token={token} site={siteListAt} language={language} watch={isAdmin} onClose={() => setSiteListAt(null)} t={t} />}
       {notifOpen && (
         <NotificationsSheet
           token={token}
@@ -4800,7 +4853,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
 // site on the list, and each of the person's own such sites, scheduled
 // today or assigned, offers its list to read with no shift open
 // (onReadList).
-function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, onSelectSite, onStartSession, onEndSession, siteChoices, siteChoicesFailed, onRetrySites, loading, completedCount, taskCount, taskListLoaded, reference, siteReference, onReadList, t }) {
+function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, onSelectSite, onStartSession, onEndSession, siteChoices, siteChoicesFailed, onRetrySites, loading, completedCount, taskCount, taskListLoaded, reference, siteReference, onReadList, watchSites, t }) {
   // The timer below is the one number on any screen wide enough to reach
   // the edge of its card, so this screen has to know the text size.
   const { textSize: clockTextSize } = useContext(TextSizeCtx);
@@ -4839,7 +4892,9 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
     const inert = loading || !!ci;
     const place = [site.address, site.city].filter(Boolean).join(", ");
     const detail = [site.buildingName, site.floorNumber ? tr("Floor {n}", { n: site.floorNumber }) : null].filter(Boolean).join(" - ");
-    const readable = own && !!onReadList && !!siteReference && siteReference(site.siteId);
+    // A supervisor or an admin has it under every site of their own too,
+    // to follow the crew's check-offs there (part 350).
+    const readable = own && !!onReadList && ((!!siteReference && siteReference(site.siteId)) || !!watchSites);
     const row = (
       <button key={site.siteId + "-" + idx} onClick={() => { if (!inert) onSelectSite(site.siteId); }} disabled={inert} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", marginBottom: 10, background: open ? t.goldBg : t.card, border: open || picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: R.md, cursor: inert ? "default" : "pointer", color: t.text, textAlign: "left", opacity: loading || (ci && !open) ? 0.6 : 1, boxShadow: open || picked ? t.popShadow : t.shadow, transition: "background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease" }}>
         <div style={{ width: 38, height: 38, flexShrink: 0, borderRadius: R.sm, display: "flex", alignItems: "center", justifyContent: "center", background: open ? t.goldSubtle : t.hover, border: "1px solid " + (open || picked ? t.goldBorder : t.borderSolid) }}>
@@ -4854,8 +4909,8 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
       </button>
     );
     if (!readable) return row;
-    // A site that keeps its list as a record: its list, to read, under
-    // its row, whether or not a shift is open.
+    // A site that keeps its list as a record, or any of a supervisor's
+    // own sites: its list under its row, whether or not a shift is open.
     return (
       <div key={site.siteId + "-" + idx}>
         {row}
@@ -5232,6 +5287,38 @@ function todayCount(taskList, ticks) {
   return { done: due.filter(tk => ticks.has(tk.id)).length, total: due.length };
 }
 
+// A task list on screen reads itself again (part 350), so everyone on a
+// shift at a site sees the others' work within seconds, and a supervisor
+// watching a site sees it too: every LIVE_EVERY_MS while on is true and
+// the app is on screen, and at once when the app comes back to the
+// screen. Nothing is read while the app is in the background, the phone
+// is locked or says it has no signal, and a read never starts while the
+// last one is still on its way. read answers a promise, or null when it
+// has nothing to start, and what it reads replaces what is drawn in place.
+const LIVE_EVERY_MS = 10000;
+function useLiveRead(on, read) {
+  const readRef = useRef(read);
+  readRef.current = read;
+  const busy = useRef(false);
+  useEffect(() => {
+    if (!on) return undefined;
+    const go = () => {
+      if (busy.current) return;
+      try { if (document.visibilityState === "hidden") return; } catch (e) {}
+      try { if (navigator.onLine === false) return; } catch (e) {}
+      let started = null;
+      try { started = readRef.current(); } catch (e) { started = null; }
+      if (!started || typeof started.then !== "function") return;
+      busy.current = true;
+      started.catch(() => {}).then(() => { busy.current = false; });
+    };
+    const every = setInterval(go, LIVE_EVERY_MS);
+    const back = () => { try { if (document.visibilityState === "visible") go(); } catch (e) {} };
+    document.addEventListener("visibilitychange", back);
+    return () => { clearInterval(every); document.removeEventListener("visibilitychange", back); };
+  }, [on]);
+}
+
 // The sheet that asks which shift a session is working. It sits over the
 // checklist and nowhere else, so the bottom bar and every tab stay in
 // reach, and it closes only by choosing, since a session at a site with
@@ -5277,10 +5364,13 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
 // reference: the site keeps its task list as a record (Step 339), and the
 // list is drawn to read, with nothing to check off. standalone: the list
 // read from a site with no shift open, from Home (SiteTaskListSheet).
+// watch: that list at a site whose list is checked off, drawn for a
+// supervisor or an admin to follow (part 350): each step done or not and
+// who checked it, with nothing to tap but a step's details.
 // focus: a task a notice asked for, { id, at }; with a shift open and the
 // task on its list, its details open, else the list, and onFocused says it
 // was looked for either way.
-function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, pendingKept, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, reference, standalone, focus, onFocused, t }) {
+function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, pendingKept, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, reference, standalone, watch, focus, onFocused, t }) {
   const [detail, setDetail] = useState(null);
   useEffect(() => {
     if (!focus) return;
@@ -5539,7 +5629,8 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
     const current = rows.find(tk => tk.id === detail.id) || rowNow(detail);
     const done = isDone(current);
     const lock = lockOf(current, done);
-    const byWho = done ? whenOf(current) || (lock === "other" ? checkedBy(current) : null) : null;
+    const byWho = done ? whenOf(current) || (lock === "other" || watch ? checkedBy(current) : null) : null;
+    if (watch) return drawDetail(detail, byWho, null);
     return drawDetail(detail, byWho, lock !== "earlier" && <button onClick={() => { tap(current, done, lock); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? tr("Uncheck Task") : tr("Mark Complete")}</button>);
   }
 
@@ -5558,7 +5649,7 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
         </div>
       )}
       {!reference && <div style={{ padding: "14px 16px", marginBottom: 16, background: t.goldBg, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Your Assignment")}</div><div style={{ fontSize: 15, fontWeight: 600, marginTop: 3, color: t.text, fontFamily: FONT_HEAD }}>{clockStatus.shift.siteName}</div>{(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.textSec, marginTop: 2 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>}</div><div style={{ background: pct === 100 ? t.greenSubtle : t.card, padding: "6px 14px", borderRadius: R.pill, border: "1px solid " + (pct === 100 ? t.greenBorder : t.borderSolid) }}><div style={{ fontSize: 18, fontWeight: 600, color: ink(t, pct === 100 ? GREEN : t.goldText), fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</div></div></div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{watch ? tr("Task list for this site") : tr("Your Assignment")}</div><div style={{ fontSize: 15, fontWeight: 600, marginTop: 3, color: t.text, fontFamily: FONT_HEAD }}>{clockStatus.shift.siteName}</div>{(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.textSec, marginTop: 2 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>}</div><div style={{ background: pct === 100 ? t.greenSubtle : t.card, padding: "6px 14px", borderRadius: R.pill, border: "1px solid " + (pct === 100 ? t.greenBorder : t.borderSolid) }}><div style={{ fontSize: 18, fontWeight: 600, color: ink(t, pct === 100 ? GREEN : t.goldText), fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</div></div></div>
         <div style={{ height: 5, borderRadius: R.pill, background: t.cardAlt, marginTop: 12, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.4s ease" }} /></div>
       </div>}
       {!standalone && shiftRow}
@@ -5571,20 +5662,22 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
             const lock = lockOf(task, done);
             // Who did it and when for periodic work and a day's work done
             // before today; for a coworker's check today, who made it.
-            const when = done ? whenOf(task) || (lock === "other" ? checkedBy(task) : null) : null;
+            const when = done ? whenOf(task) || (lock === "other" || watch ? checkedBy(task) : null) : null;
             const note = rowNote && rowNote.id === task.id ? rowNote.text : null;
             const hasInfo = task.has_details || w.description || task.media_url;
             const often = howOften(task);
             const touch = touchChip(task);
             return (
-              <div key={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: inset }}>
-                <button onClick={() => tap(task, done, lock)} disabled={lock === "earlier"} aria-label={tr(done ? "Mark {name} not done" : "Mark {name} done", { name: w.label })} style={mkTapFrame({ flexShrink: 0, marginTop: 1, cursor: lock === "earlier" ? "default" : "pointer" })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></button>
+              <div key={task.id} data-task-row={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: inset }}>
+                {watch
+                  ? <span data-task-watch={task.id} data-task-done={done ? "1" : "0"} role="img" aria-label={tr(done ? "Done" : "Not done yet")} style={mkTapFrame({ flexShrink: 0, marginTop: 1, cursor: "default" })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></span>
+                  : <button onClick={() => tap(task, done, lock)} disabled={lock === "earlier"} aria-label={tr(done ? "Mark {name} not done" : "Mark {name} done", { name: w.label })} style={mkTapFrame({ flexShrink: 0, marginTop: 1, cursor: lock === "earlier" ? "default" : "pointer" })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></button>}
                 <div style={{ flex: "1 1 120px", minWidth: 0 }}>
                   {/* The name and the line under it are one button the tap
                       height, which opens the item's detail, or on a row
                       with none does what it always did. The note stays
                       outside it, so it is still read out when it comes. */}
-                  <button type="button" onClick={() => hasInfo ? setDetail(task) : tap(task, done, lock)} style={mkTapFrame({ display: "flex", flexDirection: "column", alignItems: "stretch", width: "100%", textAlign: "left", fontFamily: FONT_BODY })}>
+                  <button type="button" onClick={() => hasInfo ? setDetail(task) : watch ? null : tap(task, done, lock)} style={mkTapFrame({ display: "flex", flexDirection: "column", alignItems: "stretch", width: "100%", textAlign: "left", fontFamily: FONT_BODY, cursor: watch && !hasInfo ? "default" : "pointer" })}>
                     <span style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{w.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</span>
                     {when && <span style={{ ...rowLineSt, display: "block" }}>{when}</span>}
                   </button>
@@ -5605,29 +5698,41 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
 // from GET /api/sites/:id/tasks?day=today, the site's whole list for the
 // day with every shift's items under its own name. It is drawn the way
 // the shift's list to read is, over the screen, with Close at the foot.
-function SiteTaskListSheet({ token, site, language, onClose, t }) {
+// watch (part 350): a supervisor or an admin has it at a site whose list
+// is checked off too, drawn with each step done or not and who checked
+// it. While it is open and on screen it reads itself again every ten
+// seconds, so the crew's check-offs show as they are made.
+function SiteTaskListSheet({ token, site, language, watch, onClose, t }) {
   const [rows, setRows] = useState(null);
   const [failed, setFailed] = useState(false);
   const [day, setDay] = useState(null);
   const [lang, setLang] = useState(null);
+  const [mode, setMode] = useState(null);
   const seq = useRef(0);
+  const flying = useRef(false);
   const load = useCallback(async () => {
     const mine = ++seq.current;
+    flying.current = true;
     setFailed(false);
     try {
       const tt = await api("/api/sites/" + encodeURIComponent(site.siteId) + "/tasks?day=today&locale=" + languageToSend(language), { token });
       if (mine !== seq.current) return;
       const got = checklistAnswer(tt);
-      setRows(Array.isArray(got.rows) ? got.rows : []); setDay(got.day); setLang(language);
-    } catch (e) { if (mine === seq.current) setFailed(true); }
+      setRows(Array.isArray(got.rows) ? got.rows : []); setDay(got.day); setLang(language); setMode(got.mode);
+    } catch (e) { if (mine === seq.current) setFailed(true); } finally { if (mine === seq.current) flying.current = false; }
   }, [token, site.siteId, language]);
   useEffect(() => { load(); }, [load]);
+  useLiveRead(true, () => (flying.current ? null : load()));
   const cs = { clockedIn: true, shift: { siteId: site.siteId, siteName: site.siteName, buildingName: site.buildingName || null, floorNumber: site.floorNumber || null }, session: null, tasks: null };
+  // Followed, at a site whose list is checked off: a day's step is done
+  // when anyone checked it today, the way the site's own list counts it.
+  const following = !!watch && mode !== "reference";
+  const ticks = following && Array.isArray(rows) ? new Set(rows.filter(r => r && isDueToday(r) && r.checkedToday).map(r => r.id)) : NO_TICKS;
   return (
     <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div role="dialog" aria-modal="true" aria-label={tr("Task list for this site")} data-site-list-sheet={site.siteId} onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, height: "var(--ocsa-vh, 100vh)", maxHeight: "var(--ocsa-dvh, 100dvh)", display: "flex", flexDirection: "column", borderTop: "1px solid " + t.borderSolid }}>
+      <div role="dialog" aria-modal="true" aria-label={tr("Task list for this site")} data-site-list-sheet={site.siteId} data-site-list-watch={following ? "1" : undefined} onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, height: "var(--ocsa-vh, 100vh)", maxHeight: "var(--ocsa-dvh, 100dvh)", display: "flex", flexDirection: "column", borderTop: "1px solid " + t.borderSolid }}>
         <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-          <TasksView token={token} clockStatus={cs} tasks={rows} tasksFailed={failed} onRetryTasks={load} completedTaskIds={NO_TICKS} pendingTicks={null} tickOverrides={NO_OVERRIDES} toggleTask={() => {}} rowNote={null} onRowNote={() => {}} apiWords={lang === language} listDay={day} shiftSheet={null} onChangeShift={() => {}} nowMs={Date.now()} reference standalone t={t} />
+          <TasksView token={token} clockStatus={cs} tasks={rows} tasksFailed={failed} onRetryTasks={load} completedTaskIds={ticks} pendingTicks={null} tickOverrides={NO_OVERRIDES} toggleTask={() => {}} rowNote={null} onRowNote={() => {}} apiWords={lang === language} listDay={day} shiftSheet={null} onChangeShift={() => {}} nowMs={Date.now()} reference={!following} standalone watch={following} t={t} />
         </div>
         <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
           <button type="button" onClick={onClose} style={{ width: "100%", minHeight: 44, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Close")}</button>

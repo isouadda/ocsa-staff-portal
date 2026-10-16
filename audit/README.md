@@ -750,6 +750,31 @@ main of part 344 and passing once its fix is in:
 
 `pinrules` also tries 1234 on a reset link and on Register (PORT-08).
 
+## Everyone on a shift sees the same list (part 350)
+
+The checklist on screen, and a site's list a supervisor follows from
+Home, read themselves again every ten seconds. A coworker's check is the
+stub's third person checking a step, pushed into `state.completions`
+while the phone holds its list, on a person linked to no step of their
+own (`links: {}`), who sees the site's shared list. Each journey fails on
+the main of part 348:
+
+- `livecheckoff`: a coworker's check shows within ten seconds, with
+  Checked by and their first name.
+- `livequeued`: a tap kept on the phone by a 500 still shows on its box,
+  and is still on the phone, after the list reads itself again.
+- `livescroll`: the scroll position holds across a read.
+- `livesamestep`: the coworker checks a step a moment before this phone's
+  tap: one check-off, Already done by under the step, and nothing left
+  on the phone or said as a failure.
+- `livewatch`: a supervisor with no shift opens Task list for this site
+  under a site of their own, and a cleaner's check shows on it within
+  ten seconds; nothing on it can be checked off.
+
+Rows carry `data-task-row` with their task id, and the followed list's
+marks `data-task-done`. A check-off asks the status first, so the weak
+check-off journey counts that read on the way to it (`reach`).
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

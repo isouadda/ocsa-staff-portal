@@ -1493,6 +1493,8 @@ export const WORDS = {
   "The session was not closed. Try again.": "La sesi\u00f3n no se cerr\u00f3. Intente de nuevo.",
   "This checklist did not start. Try again.": "Esta lista no se inici\u00f3. Intente de nuevo.",
   "Issue reported. Its photo did not attach.": "Problema reportado. Su foto no se adjunt\u00f3.",
+  "Already done by {firstName}": "Ya lo hizo {firstName}",
+  "Already done": "Ya est\u00e1 hecho",
   },
 };
 
@@ -2864,6 +2866,8 @@ WORDS.fr = {
   "The session was not closed. Try again.": "La s\u00e9ance n'a pas \u00e9t\u00e9 cl\u00f4tur\u00e9e. R\u00e9essayez.",
   "This checklist did not start. Try again.": "Cette liste n'a pas commenc\u00e9. R\u00e9essayez.",
   "Issue reported. Its photo did not attach.": "Probl\u00e8me signal\u00e9. Sa photo n'a pas \u00e9t\u00e9 jointe.",
+  "Already done by {firstName}": "D\u00e9j\u00e0 fait par {firstName}",
+  "Already done": "D\u00e9j\u00e0 fait",
 };
 
 // {name} is replaced after the language is chosen, so the

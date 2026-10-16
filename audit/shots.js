@@ -656,6 +656,14 @@ const SHOTS = [
   // the shift with nothing to check off.
   { name: "tasks-reference", entry: E("Check off a task on your checklist"), o: { signedIn: true, stub: { checklistModes: { "site-north": "reference" } } },
     go: async (s) => { if (!(await s.go("Tasks"))) return false; return s.waitFor(() => !!document.querySelector("[data-task-list-read]") && document.querySelectorAll("[data-task-read]").length >= 3); } },
+  // Part 350: a supervisor with no shift following North Building's list
+  // from Home, each step done or not and who checked it.
+  { name: "site-list-follow", entry: E("Follow a site's checklist from Home"), o: { signedIn: true, stub: { clockedIn: false, person: SUPERVISOR } },
+    go: async (s) => {
+      if (!(await s.waitFor(() => !!document.querySelector('button[data-site-list="site-north"]')))) return false;
+      await s.page.evaluate(() => document.querySelector('button[data-site-list="site-north"]').click());
+      return s.waitFor(() => !!document.querySelector('[data-site-list-watch="1"]') && document.querySelectorAll("[data-task-row]").length >= 3);
+    } },
   { name: "task-uncheck", entry: E("Uncheck a task checked by mistake"), o: { signedIn: true },
     go: async (s) => {
       if (!(await s.go("Tasks"))) return false;
