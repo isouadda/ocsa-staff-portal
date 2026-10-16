@@ -196,7 +196,12 @@ Since Step 258 it waits for each screen to be there rather than sleeping
 a fixed time after every load and tap, and since Step 290 its checks run
 in two lanes side by side on the one browser, each check on its own phone
 and stub, so a run takes about 100 seconds with the round's six checks
-added; the three-minute line stays where it was. `SMOKE_ONLY=<words>`
+added; the three-minute line stays where it was. Since part 344 the
+checks are one queue, longest first, drained by three lanes, so a run
+that took 167 seconds in two fixed lanes takes about 100; `SMOKE_LANES=<n>`
+sets the lanes and `SMOKE_TIMES=1` prints each check's seconds after the
+run, which is where the number beside each check's name in the list came
+from. `SMOKE_ONLY=<words>`
 runs only the checks whose name holds them, for working on one; every
 build runs them all. Since Step 277 the training session's
 sign-in arrives by moving the phone's clock on rather than waiting out
@@ -656,6 +661,71 @@ screen sheets out of `src` and reconciles them against the cases the
 suite drives. **A screen or a sheet with no case prints `NO CASE` and
 fails the run**, so a screen added tomorrow cannot land untested.
 
+## Brought back in October (part 344)
+
+The suite was paused from late September until the October audit, and
+twelve screens and eleven sheets were added in that time with no case.
+Part 344 brought it up to the app:
+
+- **Coverage.** The pages a QR code or a mail opens (`/sds`, a supply
+  label, a client's request page and a client's acknowledgement) are
+  screen cases with the stub switch each needs. The places under More
+  that only some people have, or only once the API has answered
+  (Workspace, Field kit, My training, My company property, App support,
+  Library, Approve supplies, and an equipment label opened from its
+  address), are tab cases marked `own`, each swept in a session of its
+  own with its person and switches. The eleven new sheets each have an
+  opener and, where it needs one, a phone in `SHEET_PHONES`, whose stub
+  switches now join the ones every sheet's phone has.
+- **Sheet ids.** A sheet's id is its place among its owner's sheets, so a
+  sheet added first in My Schedule (a day's sheet) moved every later id
+  up one, and three cases were inspecting the sheet beside the one they
+  name. They are renumbered, each keeping its label.
+- **More.** `openTab` looks inside More's own sheet (`.sp-more`), since
+  Home's week is a grid of seven buttons too and came first; it waits a
+  few seconds for a place that shows once the API answers, and Report
+  goes by Issues too, as it reads for an admin or a supervisor.
+- **Lanes.** The sweep's combinations, its sheets and the journeys run in
+  `AUDIT_LANES` lanes side by side (three unless set; `audit/lanes.js`),
+  each piece on its own phone and stub. A full run took 26 minutes in
+  three lanes.
+- **Journeys that fell behind.** A check-off's body has carried its
+  `clientId` and time since Step 238; a checklist row's name and each day
+  on the week are tap frames; a shift's detail opens from its day's
+  sheet; Help's question carries its `requestId`; the lock line shows
+  under a locked account; Chat opens on the person's own site chat; the
+  toast strip is always in the page as a live region; the form person
+  question reads `GET /api/forms/people`; and every page asks the
+  language list with no token. Each journey reads the app as it is.
+- **Every notice type.** `EVERY_NOTICE` in the stub is one notice of each
+  type in the audit contract's section 3, with the link the API builds,
+  and the `everynotice` journey taps each on a supervisor's bell: a place
+  of its own, Open in the dashboard, or nothing.
+- **Weak signal.** The `weak*` journeys put each action a cleaner sends (a
+  check-off, an uncheck, Start Shift, End Shift, an issue with and without
+  a photo, a form submit, a signature and a time off request) through four
+  kinds of trouble: the signal gone as the tap is made, a 500, an answer
+  30 seconds late with a second tap (English alone), and the work kept by
+  the API while the answer is lost, then tried again. The browser's own
+  offline switch never stops a request the harness routes to the stub, so
+  the stub's `offline` goes with it. `state.trouble` (`{ method, path,
+  kind: "500" | "hold" | "lose", ms }`) gives the next matching call its
+  trouble. Each answer goes to the file `AUDIT_WEAK_TABLE` names, one
+  JSON line each.
+- **Pay.** Every answer of every case is read for a pay figure, and one
+  served to anyone without manage_employment is a row of the full suite
+  and a failing line of the smoke check (`payRows()` in the stub;
+  contract 2.1).
+- **Words.** `audit/words.js` reads the words handed to a helper that runs
+  `tr()` on them (`fkFaultWords`, `wsFaultWords`, a `head(word)` helper,
+  `RequestTarget`'s label), where five lines with no Spanish had gone by.
+- **Stub.** Capabilities as the contract's section 1 gives API #146;
+  `checklistMode` answered on every read; the acknowledgement page
+  (`acknowledge`); the forms people route; a second send of a sent draft
+  refused 409; `assignedSites` for a person with none; the walk's safety
+  words as twins; and no language asked of a lesson picture an `<img>`
+  fetches.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
@@ -705,6 +775,10 @@ early and the suite catches it.
 - `AUDIT_PORT=4788` sets the port the build is served on.
 - `AUDIT_ONLY=screens` or `AUDIT_ONLY=journeys` runs one half, which is
   what you want while working on a single case.
+- `AUDIT_JOURNEY=everynotice,bell` runs only the journeys named, with
+  `AUDIT_ONLY=journeys`, for working on one (part 344). A row a known
+  entry names that such a run never reaches reads as fixed, so judge
+  known.json on a full run alone.
 - `AUDIT_WRITE_KNOWN=1` writes what is failing today into `known.json`
   with a placeholder reason. Write the reason on each one by hand.
 

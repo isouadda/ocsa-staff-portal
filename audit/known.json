@@ -36,6 +36,66 @@
       "check": "clipped",
       "what": "\"Administrador\"",
       "why": "An admin's role in Spanish, the same way, and for the same reason."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "Supervisor",
+      "why": "The role under the name in the header runs to one line and ends in an ellipsis, as Custodian does, now that the sweep draws a supervisor's places (part 344)."
+    },
+    {
+      "where": "*",
+      "check": "clipped",
+      "what": "Drew Example",
+      "why": "The person's name in the header runs to one line and ends in an ellipsis, as Alex Tester does; the holder of approve_supplies is the person Approve supplies is swept as (part 344)."
+    },
+    {
+      "where": "App support",
+      "check": "not translated",
+      "what": "\"local-",
+      "why": "The build stamp App support shows and sends with a ticket is the build's own name, the same in every language."
+    },
+    {
+      "where": "App support",
+      "check": "not translated",
+      "what": "\"iPhone\"",
+      "why": "The phone App support names beside a ticket is the phone's own model name."
+    },
+    {
+      "where": "Approve supplies",
+      "check": "not translated",
+      "what": "\"Paper towels, 8 rolls\"",
+      "why": "A request's line is each item as the person asked for it, its quantity and its unit as the office typed it: all names, joined by the portal, which the Spanish check cannot take apart."
+    },
+    {
+      "where": "Approve supplies",
+      "check": "not translated",
+      "what": "\"Invented trash liners, 6 boxes; Invented glass cleaner, 3 bottles\"",
+      "why": "A request's line is each item as the person asked for it, its quantity and its unit as the office typed it: all names, joined by the portal, which the Spanish check cannot take apart."
+    },
+    {
+      "where": "Approve supplies",
+      "check": "not translated",
+      "what": "\"Invented hand soap, 4 bottles\"",
+      "why": "A request's line is each item as the person asked for it, its quantity and its unit as the office typed it: all names, joined by the portal, which the Spanish check cannot take apart."
+    },
+    {
+      "where": "Approve supplies",
+      "check": "not translated",
+      "what": "\"Invented hand soap, 2 bottles\"",
+      "why": "A request's line is each item as the person asked for it, its quantity and its unit as the office typed it: all names, joined by the portal, which the Spanish check cannot take apart."
+    },
+    {
+      "where": "Approve supplies",
+      "check": "not translated",
+      "what": "\"PO-2026-",
+      "why": "The purchase order's line: its number, the day it was ordered and the vendor's address are names inside the portal's own Spanish words (Pedida el, enviada a), joined in a way the Spanish check cannot take apart."
+    },
+    {
+      "where": "Chat: an admin reaches every group chat",
+      "check": "english",
+      "what": "\"Office\"",
+      "why": "The invented office person is Jordan Office, and the private row draws a last name on its own, which the Spanish check takes for the word Office. A name of the suite's, never a word the portal drew."
     }
   ],
   "failures": [
@@ -87,36 +147,6 @@
       "check": "contrast",
       "what": "\"#8899AA on #1B3058\"",
       "why": "The muted gray on the dark theme's panel. 4.46 to 1, just under the 4.5 to 1 small text needs."
-    },
-    {
-      "where": "Tasks",
-      "check": "too small",
-      "what": "a div with a click handler",
-      "why": "A checklist item's name, one or two lines tall, 14 to 28 pixels. A tap on it opens the item's detail, or checks the item off when it has none, which the 44 pixel box beside it also does. Pull request 52 made a div that is the only way to something a button, working from the scout's list, and this one was not on it. The widened check found it; this run changes code only where the first audit found it wrong."
-    },
-    {
-      "where": "*",
-      "check": "too small",
-      "what": "\"5:00 PM - 11:00 PM ",
-      "why": "A shift in the week strip on Home and Schedule. Seven days share the phone's width, so the chip is 28 pixels wide at Standard and 39 at Largest, under the 44 a tap needs, though 44 or more tall. A wider chip needs the strip to scroll on its own at every size, or another layout."
-    },
-    {
-      "where": "*",
-      "check": "too small",
-      "what": "\"6:30 PM (live) ",
-      "why": "A shift in the week strip on Home and Schedule. Seven days share the phone's width, so the chip is 28 pixels wide at Standard and 39 at Largest, under the 44 a tap needs, though 44 or more tall. A wider chip needs the strip to scroll on its own at every size, or another layout."
-    },
-    {
-      "where": "*",
-      "check": "too small",
-      "what": "\"5:00 p.m. - 11:00 p.m. ",
-      "why": "A shift in the week strip on Home and Schedule. Seven days share the phone's width, so the chip is 28 pixels wide at Standard and 39 at Largest, under the 44 a tap needs, though 44 or more tall. A wider chip needs the strip to scroll on its own at every size, or another layout."
-    },
-    {
-      "where": "*",
-      "check": "too small",
-      "what": "\"6:30 p.m. (en curso) ",
-      "why": "A shift in the week strip on Home and Schedule. Seven days share the phone's width, so the chip is 28 pixels wide at Standard and 39 at Largest, under the 44 a tap needs, though 44 or more tall. A wider chip needs the strip to scroll on its own at every size, or another layout."
     },
     {
       "where": "*",
@@ -177,6 +207,132 @@
       "check": "english",
       "what": "is a procedure name the API sent in English",
       "why": "The procedures an answer cites are named the way the API writes them, in English. Their names are the API's to send in the person's language, with Help's replies. The suite draws one for the first time in this build."
+    },
+    {
+      "where": "Every notice type on the bell",
+      "check": "a support_ticket notice opens a place of its own in the portal",
+      "what": "the tap is marked read and left on the bell",
+      "why": "A support_ticket notice has no place in the portal: NOTIF_TAB (src/App.js:10898-10941) has no entry for it and notifPlace (src/App.js:10975-10982) answers null, so a tap only marks it read and leaves the bell open. Contract 2.6 says a notice tap opens the item itself. Findings: notices that open nothing."
+    },
+    {
+      "where": "Every notice type on the bell",
+      "check": "a periodic_overdue notice opens a place of its own in the portal",
+      "what": "the tap is marked read and left on the bell",
+      "why": "A periodic_overdue notice has no place in the portal: NOTIF_TAB (src/App.js:10898-10941) has no entry for it and notifPlace (src/App.js:10975-10982) answers null, so a tap only marks it read and leaves the bell open. Contract 2.6 says a notice tap opens the item itself. Findings: notices that open nothing."
+    },
+    {
+      "where": "Every notice type on the bell",
+      "check": "a customer_concern notice opens a place of its own in the portal",
+      "what": "the tap offers Open in the dashboard on its row",
+      "why": "A customer_concern notice has no place in the portal: NOTIF_TAB (src/App.js:10898-10941) has no entry for it and notifPlace (src/App.js:10975-10982) answers null, so a tap only marks it read and offers the dashboard, a second sign-in. Contract 2.6 says a notice tap opens the item itself. Findings: notices that open nothing."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"This session did not open. Try again.\" has no Spanish entry",
+      "why": "Handed to fkFaultWords (src/App.js:15502), which runs tr() on it, at line 8975; src/words.js has no Spanish for it, so a Spanish screen shows it in English. audit/words.js reads helper arguments since part 344, which is how it was found."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"This document did not open. Try again.\" has no Spanish entry",
+      "why": "Handed to fkFaultWords (src/App.js:15502), which runs tr() on it, at line 9162; src/words.js has no Spanish for it, so a Spanish screen shows it in English. audit/words.js reads helper arguments since part 344, which is how it was found."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"This session did not start. Try again.\" has no Spanish entry",
+      "why": "Handed to fkFaultWords (src/App.js:15502), which runs tr() on it, at line 16259; src/words.js has no Spanish for it, so a Spanish screen shows it in English. audit/words.js reads helper arguments since part 344, which is how it was found."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"The session was not closed. Try again.\" has no Spanish entry",
+      "why": "Handed to fkFaultWords (src/App.js:15502), which runs tr() on it, at line 16281; src/words.js has no Spanish for it, so a Spanish screen shows it in English. audit/words.js reads helper arguments since part 344, which is how it was found."
+    },
+    {
+      "where": "src/App.js",
+      "check": "no Spanish entry",
+      "what": "\"This checklist did not start. Try again.\" has no Spanish entry",
+      "why": "Handed to fkFaultWords (src/App.js:15502), which runs tr() on it, at line 16465; src/words.js has no Spanish for it, so a Spanish screen shows it in English. audit/words.js reads helper arguments since part 344, which is how it was found."
+    },
+    {
+      "where": "Weak signal: a check-off",
+      "check": "a check-off is kept on the phone (the API answering 500)",
+      "what": "the work is gone",
+      "why": "A check-off that meets a 500 (or a 502 or 503 while Railway replaces its one container) is not kept: toggleTask keeps a tap only for ERR_OFFLINE or auth.mustSetPin (src/App.js:2566), so the box goes back and a 3-second toast is all the cleaner sees. A queued tap that meets one later is deleted (src/App.js:2591-2597)."
+    },
+    {
+      "where": "Weak signal: an uncheck",
+      "check": "an uncheck is kept on the phone (the API answering 500)",
+      "what": "the work is gone",
+      "why": "The same as a check-off: an uncheck that meets a 500 is not kept (src/App.js:2566)."
+    },
+    {
+      "where": "Weak signal: End Shift",
+      "check": "End Shift goes by itself once the signal is back (the signal gone as the tap is made)",
+      "what": "nothing was sent",
+      "why": "End Shift with no signal shows a toast and keeps nothing (src/App.js:2483-2510); the end is sent only when the person taps again with signal, and it sends no time of its own (src/App.js:2492), so the shift ends when the request arrives."
+    },
+    {
+      "where": "Weak signal: an issue with a photo",
+      "check": "an issue with a photo is kept on the phone (the API answering 500)",
+      "what": "the work is gone",
+      "why": "submitIssue catches its own error and returns (src/App.js:2662), and handleSubmit then clears the title, details, zone and photo and closes the form (src/App.js:7696), so the report is gone when the send fails. With a photo, a drop at the photo's upload keeps the form, since uploadPhoto throws first."
+    },
+    {
+      "where": "Weak signal: an issue with a photo",
+      "check": "an issue with a photo is kept on the phone (the work kept and the answer lost, then tried again)",
+      "what": "the work is gone",
+      "why": "submitIssue catches its own error and returns (src/App.js:2662), and handleSubmit then clears the title, details, zone and photo and closes the form (src/App.js:7696), so the report is gone when the send fails. With a photo, a drop at the photo's upload keeps the form, since uploadPhoto throws first."
+    },
+    {
+      "where": "Weak signal: an issue with a photo",
+      "check": "an issue with a photo reaches the API once (the work kept and the answer lost, then tried again)",
+      "what": "2 records",
+      "why": "When the API keeps the issue and the answer is lost, the form is already cleared, the person reports it again, and the API gets a second issue: POST /api/issues carries no clientId (src/App.js:2662), and every admin and supervisor is told twice."
+    },
+    {
+      "where": "Weak signal: an issue with no photo",
+      "check": "an issue with no photo is kept on the phone (the signal gone as the tap is made)",
+      "what": "the work is gone",
+      "why": "submitIssue catches its own error and returns (src/App.js:2662), and handleSubmit then clears the title, details, zone and photo and closes the form (src/App.js:7696), so the report is gone when the send fails."
+    },
+    {
+      "where": "Weak signal: an issue with no photo",
+      "check": "an issue with no photo is kept on the phone (the API answering 500)",
+      "what": "the work is gone",
+      "why": "submitIssue catches its own error and returns (src/App.js:2662), and handleSubmit then clears the title, details, zone and photo and closes the form (src/App.js:7696), so the report is gone when the send fails."
+    },
+    {
+      "where": "Weak signal: an issue with no photo",
+      "check": "an issue with no photo is kept on the phone (the work kept and the answer lost, then tried again)",
+      "what": "the work is gone",
+      "why": "submitIssue catches its own error and returns (src/App.js:2662), and handleSubmit then clears the title, details, zone and photo and closes the form (src/App.js:7696), so the report is gone when the send fails."
+    },
+    {
+      "where": "Weak signal: an issue with no photo",
+      "check": "an issue with no photo reaches the API once (the work kept and the answer lost, then tried again)",
+      "what": "2 records",
+      "why": "When the API keeps the issue and the answer is lost, the form is already cleared, the person reports it again, and the API gets a second issue: POST /api/issues carries no clientId (src/App.js:2662), and every admin and supervisor is told twice."
+    },
+    {
+      "where": "Site walk",
+      "check": "covered",
+      "what": "\"Siguiente\" at",
+      "why": "In Spanish at the Largest text size the bottom bar stands taller than the room the form keeps for the app around it (src/App.js:1754), so the form's Next at the foot of the site walk sits under the bar and a tap lands on the bar's button. The bar stays live under a form (src/App.js:3360, 3383)."
+    },
+    {
+      "where": "Site walk",
+      "check": "covered",
+      "what": "\"Atr\u00e1s\" at",
+      "why": "In Spanish at the Largest text size the bottom bar stands taller than the room the form keeps for the app around it (src/App.js:1754), so the form's Back at the foot of the site walk sits under the bar and a tap lands on the bar's button. The bar stays live under a form (src/App.js:3360, 3383)."
+    },
+    {
+      "where": "Site walk",
+      "check": "covered",
+      "what": "\"Enviar reporte\" at",
+      "why": "In Spanish at the Largest text size the bottom bar stands taller than the room the form keeps for the app around it (src/App.js:1754), so the form's Submit report at the foot of the site walk sits under the bar and a tap lands on the bar's button. The bar stays live under a form (src/App.js:3360, 3383)."
     }
   ]
 }

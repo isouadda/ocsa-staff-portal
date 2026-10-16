@@ -76,9 +76,23 @@ function literalWords() {
     }
     while ((m = lastIs.exec(text))) out.push({ key: unquote(m[1]), file: name, line: lineOf(m.index) });
     while ((m = firstIs.exec(text))) out.push({ key: unquote(m[1]), file: name, line: lineOf(m.index) });
+    // Part 344: words handed to a helper that runs tr() on them, which
+    // the lines above never saw: the field kit's and the workspace's
+    // fault lines (the second argument), a section heading drawn by a
+    // head(word) helper, and RequestTarget's label. Five fault lines with
+    // no Spanish had gone by this way.
+    CARRIERS.forEach((re) => { re.lastIndex = 0; while ((m = re.exec(text))) [m[1], m[2]].filter(k => k !== undefined).forEach(k => out.push({ key: unquote(k), file: name, line: lineOf(m.index) })); });
   });
   return out;
 }
+const CARRIER_STR = '"((?:[^"\\\\\\n]|\\\\.)*)"';
+const CARRIERS = [
+  new RegExp("\\b(?:fkFaultWords|wsFaultWords)\\(\\s*[^,()\"\\n]+,\\s*" + CARRIER_STR, "g"),
+  // and a choice between two of them, the way tr() is read above.
+  new RegExp("\\b(?:fkFaultWords|wsFaultWords)\\(\\s*[^,()\"\\n]+,(?:[^\"()?\\n]|\"[^\"\\n]*\")*\\?\\s*" + CARRIER_STR + "\\s*:\\s*" + CARRIER_STR, "g"),
+  new RegExp("\\bhead\\(\\s*" + CARRIER_STR, "g"),
+  new RegExp("<RequestTarget\\b[^>]*?\\blabel=" + CARRIER_STR, "g"),
+];
 
 // The words above with no Spanish entry, one row each, the first place
 // each is written.

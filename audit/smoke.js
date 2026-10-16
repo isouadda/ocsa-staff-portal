@@ -201,9 +201,11 @@
 //     site as before, and a check refused with tasks.siteNotTracked turning
 //     it into the list to read
 //
-// The checks run in two lanes side by side (Step 290), each check on its
-// own phone and stub. SMOKE_ONLY=<words> runs only the checks whose name
-// holds them.
+// The checks run as one queue, longest first, drained by three lanes side
+// by side (part 344; two fixed lanes since Step 290), each check on its
+// own phone and stub. SMOKE_LANES=<n> sets the lanes, SMOKE_ONLY=<words>
+// runs only the checks whose name holds them, and SMOKE_TIMES=1 prints
+// each check's seconds after the run.
 //
 // The full suite, npm run audit, is a separate command and this file
 // changes nothing in it. The stub's switches this check uses are off for
@@ -214,7 +216,7 @@ const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp, ANDROID } = require("./browser");
 const { createStub, servedFor, ADMIN_PERSON, PERSON, FORM, TWIN_ES, HELP_ANSWERS, SDS_SHEETS, WS_TODO, SECOND_STEP_CODE, SECOND_STEP_HINT, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
-  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_NOTICE, DRAFT_NOTICE, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, ORDER_HOLDER, ORDER_NOTICE, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, EAST_BLOCKS, taskWords, START_TEMPLATES, NOW } = require("./stub");
+  API_REFUSALS, requestWord, requestCategoryTitle, REQUEST_REF, SUP_CODE, SUP_ITEM, SUP_SITES, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_CATEGORIES, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_KIND_WORDS, STAFF, SUPPLY_DENY_NOTE, PIN_REFUSALS, HANDBOOK, SUPPORT_CONTACT, SUPPORT_DRAFT, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_NOTICE, DRAFT_NOTICE, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, ORDER_HOLDER, ORDER_NOTICE, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, EAST_BLOCKS, taskWords, START_TEMPLATES, NOW, payRows } = require("./stub");
 const { inspect } = require("./screens");
 const { sort: sortKnown } = require("./known");
 
@@ -2791,78 +2793,107 @@ async function largest(browser) {
   const server = await serve(BUILD, PORT);
   const browser = await launch();
   // SMOKE_ONLY=<words> runs only the checks whose name holds them, for
-  // working on one; every build runs them all.
+  // working on one; every build runs them all. SMOKE_TIMES=1 prints how
+  // long each check took, longest first, after the run.
   const only = process.env.SMOKE_ONLY || "";
-  const guard = async (name, fn) => { if (only && name.indexOf(only) === -1) return; try { await fn(); } catch (e) { check(name, false, "threw " + String(e && e.message || e).split("\n")[0]); } };
+  const times = [];
+  const guard = async (name, fn) => {
+    if (only && name.indexOf(only) === -1) return;
+    const at = Date.now();
+    try { await fn(); } catch (e) { check(name, false, "threw " + String(e && e.message || e).split("\n")[0]); }
+    times.push({ name, ms: Date.now() - at });
+  };
   try {
-    // Two lanes side by side (Step 290), each running its checks one
-    // after another on the one browser, every check on its own phone and
-    // stub, so the run stays under three minutes as checks are added.
-    const laneA = async () => {
-      for (const language of ["en", "es"]) await guard("a cleaner's run (" + language + ")", () => cleaner(browser, language));
-      // /sds reads the API's sheet names alone, the same in every language.
-      await guard("/sds (en)", () => sds(browser, "en"));
-      await guard("sign-in made simple and closed (en)", () => signInClosed(browser, "en", 390));
-      await guard("sign-in made simple and closed (es)", () => signInClosed(browser, "es", 320));
-      for (const language of ["en", "es"]) await guard("activating from the welcome email (" + language + ")", () => activateWelcome(browser, language, 390));
-      await guard("one place to work an issue (en)", () => issueSheet(browser, "en", 390));
-      await guard("one place to work an issue (es)", () => issueSheet(browser, "es", 320));
-      await guard("unfinished forms (en)", () => unfinishedForms(browser, "en", 390));
-      await guard("unfinished forms (es)", () => unfinishedForms(browser, "es", 320));
-      for (const language of ["en", "es"]) await guard("the workspace (" + language + ")", () => supervisor(browser, language));
-      for (const language of ["en", "es"]) await guard("007 on the customer page (" + language + ")", () => customerAsks(browser, language));
-      for (const language of ["en", "es"]) await guard("006 on the customer page (" + language + ")", () => customerWalk(browser, language));
-      for (const language of ["en", "es"]) await guard("the page's own name and role (" + language + ")", () => customerOwn(browser, language));
-      await guard("a check-off with no signal", () => noSignal(browser));
-      for (const language of ["en", "es"]) await guard("an equipment label (" + language + ")", () => equipment(browser, language));
-      for (const language of ["en", "es"]) await guard("periodic work (" + language + ")", () => periodic(browser, language));
-      for (const language of ["en", "es"]) await guard("a concern link (" + language + ")", () => concern(browser, language));
-      for (const language of ["en", "es"]) await guard("touchpoint chips (" + language + ")", () => touchpoints(browser, language));
-      await guard("the handbook reader (en)", () => handbook(browser, "en", 390));
-      await guard("the handbook reader (es)", () => handbook(browser, "es", 320));
-      await guard("the Library (en)", () => library(browser, "en", 390));
-      await guard("the Library (es)", () => library(browser, "es", 320));
-      await guard("one inspection walk (en)", () => inspectionWalk(browser, "en", 390));
-      await guard("one inspection walk (es)", () => inspectionWalk(browser, "es", 320));
-      await guard("timed site schedules (en)", () => timedSchedule(browser, "en", 390));
-      await guard("the training day round (es)", () => trainingDay(browser, "es", 320));
-      await guard("a task list to read (en)", () => taskListToRead(browser, "en", 390));
-    };
-    const laneB = async () => {
-      for (const language of ["en", "es"]) await guard("the request page (" + language + ")", () => requestPage(browser, language));
-      await guard("Client requests for an approver", () => requestsApprover(browser, "en"));
-      await guard("Client requests for an assignee", () => requestsAssignee(browser, "en"));
-      await guard("Inspection findings", () => findings(browser, "en"));
-      await guard("My training", () => training(browser, "en"));
-      await guard("Online lessons", () => lessons(browser));
-      await guard("Step 264", () => step264(browser));
-      await guard("the training portal (en)", () => trainingPortal(browser, "en", 390));
-      await guard("the training portal (es)", () => trainingPortal(browser, "es", 320));
-      await guard("sign on your own phone (en)", () => signOnPhone(browser, "en", 390));
-      await guard("sign on your own phone (es)", () => signOnPhone(browser, "es", 320));
-      await guard("a supply request with many items (en)", () => supplyLines(browser, "en", 390));
-      await guard("a supply request with many items (es)", () => supplyLines(browser, "es", 320));
-      await guard("the supply page", () => supplyPage(browser, "en"));
-      await guard("French", () => french(browser));
-      await guard("the Largest text size", () => largest(browser));
-      await guard("searchable pickers (en)", () => pickers(browser, "en", 390));
-      await guard("searchable pickers (es)", () => pickers(browser, "es", 320));
-      await guard("App support (en)", () => appSupport(browser, "en", 390));
-      await guard("App support (es)", () => appSupport(browser, "es", 320));
-      await guard("inspections on the schedule (en)", () => scheduleInspections(browser, "en", 390));
-      await guard("inspections on the schedule (es)", () => scheduleInspections(browser, "es", 320));
-      await guard("supply orders on the phone (en)", () => supplyOrders(browser, "en", 390));
-      await guard("supply orders on the phone (es)", () => supplyOrders(browser, "es", 320));
-      await guard("timed site schedules (es)", () => timedSchedule(browser, "es", 320));
-      await guard("the training day round (en)", () => trainingDay(browser, "en", 390));
-      await guard("a task list to read (es)", () => taskListToRead(browser, "es", 320));
-    };
-    await Promise.all([laneA(), laneB()]);
+    // Every check, each on its own phone and stub. Since part 344 they are
+    // one queue drained by SMOKE_LANES lanes side by side on the one
+    // browser (three unless set, as the dashboard's smoke runs them), the
+    // longest first, so no lane is left with a long check at the end. The
+    // number beside each name is its time in seconds with three lanes, as
+    // SMOKE_TIMES=1 measured it in part 344; it only orders the queue.
+    const CHECKS = [
+      ["a cleaner's run (en)", 14, () => cleaner(browser, "en")],
+      ["a cleaner's run (es)", 13, () => cleaner(browser, "es")],
+      ["/sds (en)", 2, () => sds(browser, "en")],
+      ["sign-in made simple and closed (en)", 6, () => signInClosed(browser, "en", 390)],
+      ["sign-in made simple and closed (es)", 6, () => signInClosed(browser, "es", 320)],
+      ["activating from the welcome email (en)", 2, () => activateWelcome(browser, "en", 390)],
+      ["activating from the welcome email (es)", 2, () => activateWelcome(browser, "es", 390)],
+      ["one place to work an issue (en)", 5, () => issueSheet(browser, "en", 390)],
+      ["one place to work an issue (es)", 6, () => issueSheet(browser, "es", 320)],
+      ["unfinished forms (en)", 3, () => unfinishedForms(browser, "en", 390)],
+      ["unfinished forms (es)", 3, () => unfinishedForms(browser, "es", 320)],
+      ["the workspace (en)", 8, () => supervisor(browser, "en")],
+      ["the workspace (es)", 8, () => supervisor(browser, "es")],
+      ["007 on the customer page (en)", 3, () => customerAsks(browser, "en")],
+      ["007 on the customer page (es)", 3, () => customerAsks(browser, "es")],
+      ["006 on the customer page (en)", 3, () => customerWalk(browser, "en")],
+      ["006 on the customer page (es)", 3, () => customerWalk(browser, "es")],
+      ["the page's own name and role (en)", 3, () => customerOwn(browser, "en")],
+      ["the page's own name and role (es)", 3, () => customerOwn(browser, "es")],
+      ["a check-off with no signal", 3, () => noSignal(browser)],
+      ["an equipment label (en)", 2, () => equipment(browser, "en")],
+      ["an equipment label (es)", 2, () => equipment(browser, "es")],
+      ["periodic work (en)", 2, () => periodic(browser, "en")],
+      ["periodic work (es)", 2, () => periodic(browser, "es")],
+      ["a concern link (en)", 3, () => concern(browser, "en")],
+      ["a concern link (es)", 3, () => concern(browser, "es")],
+      ["touchpoint chips (en)", 2, () => touchpoints(browser, "en")],
+      ["touchpoint chips (es)", 2, () => touchpoints(browser, "es")],
+      ["the handbook reader (en)", 4, () => handbook(browser, "en", 390)],
+      ["the handbook reader (es)", 4, () => handbook(browser, "es", 320)],
+      ["the Library (en)", 6, () => library(browser, "en", 390)],
+      ["the Library (es)", 6, () => library(browser, "es", 320)],
+      ["one inspection walk (en)", 8, () => inspectionWalk(browser, "en", 390)],
+      ["one inspection walk (es)", 8, () => inspectionWalk(browser, "es", 320)],
+      ["timed site schedules (en)", 8, () => timedSchedule(browser, "en", 390)],
+      ["the training day round (es)", 4, () => trainingDay(browser, "es", 320)],
+      ["a task list to read (en)", 5, () => taskListToRead(browser, "en", 390)],
+      ["the request page (en)", 2, () => requestPage(browser, "en")],
+      ["the request page (es)", 2, () => requestPage(browser, "es")],
+      ["Client requests for an approver", 2, () => requestsApprover(browser, "en")],
+      ["Client requests for an assignee", 3, () => requestsAssignee(browser, "en")],
+      ["Inspection findings", 4, () => findings(browser, "en")],
+      ["My training", 5, () => training(browser, "en")],
+      ["Online lessons", 8, () => lessons(browser)],
+      ["Step 264", 14, () => step264(browser)],
+      ["the training portal (en)", 3, () => trainingPortal(browser, "en", 390)],
+      ["the training portal (es)", 3, () => trainingPortal(browser, "es", 320)],
+      ["sign on your own phone (en)", 5, () => signOnPhone(browser, "en", 390)],
+      ["sign on your own phone (es)", 5, () => signOnPhone(browser, "es", 320)],
+      ["a supply request with many items (en)", 4, () => supplyLines(browser, "en", 390)],
+      ["a supply request with many items (es)", 4, () => supplyLines(browser, "es", 320)],
+      ["the supply page", 4, () => supplyPage(browser, "en")],
+      ["French", 4, () => french(browser)],
+      ["the Largest text size", 2, () => largest(browser)],
+      ["searchable pickers (en)", 4, () => pickers(browser, "en", 390)],
+      ["searchable pickers (es)", 4, () => pickers(browser, "es", 320)],
+      ["App support (en)", 4, () => appSupport(browser, "en", 390)],
+      ["App support (es)", 4, () => appSupport(browser, "es", 320)],
+      ["inspections on the schedule (en)", 3, () => scheduleInspections(browser, "en", 390)],
+      ["inspections on the schedule (es)", 3, () => scheduleInspections(browser, "es", 320)],
+      ["supply orders on the phone (en)", 7, () => supplyOrders(browser, "en", 390)],
+      ["supply orders on the phone (es)", 7, () => supplyOrders(browser, "es", 320)],
+      ["timed site schedules (es)", 9, () => timedSchedule(browser, "es", 320)],
+      ["the training day round (en)", 5, () => trainingDay(browser, "en", 390)],
+      ["a task list to read (es)", 5, () => taskListToRead(browser, "es", 320)],
+    ];
+    const queue = CHECKS.slice().sort((a, b) => b[1] - a[1]);
+    const lanes = Math.max(1, Number(process.env.SMOKE_LANES) || 3);
+    const lane = async () => { while (queue.length) { const [name, , fn] = queue.shift(); await guard(name, fn); } };
+    await Promise.all(Array.from({ length: lanes }, lane));
   } finally {
     await browser.close();
     server.close();
   }
   const took = Date.now() - STARTED;
+  // Contract 2.1, since part 344: no answer any check got carried a pay
+  // figure to someone without manage_employment.
+  const pay = payRows();
+  check("no answer to anyone without manage_employment carried a pay figure", pay.length === 0, pay.slice(0, 3).map(r => r.detail).join("; "));
+  if (process.env.SMOKE_TIMES) {
+    console.log("\nseconds per check, longest first:");
+    times.slice().sort((a, b) => b.ms - a.ms).forEach((t) => console.log("  " + (t.ms / 1000).toFixed(1).padStart(5) + "  " + t.name));
+  }
   check("the smoke check ran in under three minutes (" + Math.round(took / 1000) + " seconds)", took < LIMIT_MS);
   console.log("\n" + lines.length + " checks, " + failed + " failed");
   process.exit(failed ? 1 : 0);
