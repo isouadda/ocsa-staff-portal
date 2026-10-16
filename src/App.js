@@ -18,8 +18,36 @@ const ERR_OFFLINE = "Could not reach OCSA. Check your connection and try again."
 // own words, which are never the app's, so it says the line every screen
 // says for it instead, in the person's language, and still carries no
 // status. An answer that cannot be read says the other one.
+// Every request has a time limit (Round 1, PORT-04): 15 seconds for the
+// answer to start, and 15 more for an answer read as JSON to arrive. A
+// basement connection that opens and then moves nothing is no signal, so
+// a request that runs out of time says the no-signal line too. A request
+// carrying a photo or a file gets 15 seconds plus the time its bytes take
+// at a weak signal's pace, about 256 kbit/s, so a full-size photo on one
+// bar is never cut off part way. A caller may ask for a longer wait with
+// limitMs, as Help's question does.
+const REQUEST_LIMIT_MS = 15000;
+const SLOW_BYTES_PER_MS = 32;
+function limitFor(init) {
+  if (init && init.limitMs) return init.limitMs;
+  const body = init ? init.body : null;
+  let bytes = 0;
+  try {
+    if (typeof Blob === "function" && body instanceof Blob) bytes = body.size;
+    else if (typeof FormData === "function" && body instanceof FormData) body.forEach((v) => { if (typeof Blob === "function" && v instanceof Blob) bytes += v.size; });
+  } catch (e) {}
+  return REQUEST_LIMIT_MS + Math.ceil(bytes / SLOW_BYTES_PER_MS);
+}
+// The stop for each answer, so its JSON is read within the limit too.
+const answerStops = new WeakMap();
 async function reach(url, init) {
-  try { return await fetch(inScreenLanguage(url), init); } catch (e) { throw new Error(ERR_OFFLINE); }
+  const ctl = typeof AbortController === "function" ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => { try { ctl.abort(); } catch (e) {} }, limitFor(init)) : null;
+  try {
+    const res = await fetch(inScreenLanguage(url), ctl ? { ...(init || {}), signal: ctl.signal } : init);
+    if (ctl) answerStops.set(res, ctl);
+    return res;
+  } catch (e) { throw new Error(ERR_OFFLINE); } finally { if (timer) clearTimeout(timer); }
 }
 // Every request asks in the language on the screen. Since Step 137 the API
 // answers a signed-in call in ?locale= first and in the account's language
@@ -33,7 +61,9 @@ function inScreenLanguage(url) {
   return url + (url.indexOf("?") === -1 ? "?" : "&") + "locale=" + languageToSend();
 }
 async function readJson(res) {
-  try { return await res.json(); } catch (e) { const x = new Error(ERR_GENERIC); x.status = res.status; throw x; }
+  const ctl = answerStops.get(res);
+  const timer = ctl ? setTimeout(() => { try { ctl.abort(); } catch (e) {} }, REQUEST_LIMIT_MS) : null;
+  try { return await res.json(); } catch (e) { const x = new Error(ERR_GENERIC); x.status = res.status; throw x; } finally { if (timer) clearTimeout(timer); }
 }
 
 // --- Part way through ---------------------------------------------------
@@ -230,7 +260,7 @@ async function uploadPhoto(file, token) {
     });
   } finally { flightDown(); }
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || AGENT_PHOTO_FAILED); }
+  if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(e.error || AGENT_PHOTO_FAILED); }
   const data = await readJson(res);
   return data.url;
 }
@@ -243,7 +273,7 @@ async function uploadTaskMedia(file, token) {
     body: file,
   });
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || UPLOAD_FAILED); }
+  if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(e.error || UPLOAD_FAILED); }
   return readJson(res);
 }
 
@@ -378,8 +408,8 @@ async function uploadAgentPhoto(blob, token) {
     body: blob,
   });
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || AGENT_PHOTO_FAILED); }
-  const data = await res.json().catch(() => null);
+  if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(e.error || AGENT_PHOTO_FAILED); }
+  const data = await readJson(res).catch(() => null);
   if (!data || !data.path) throw new Error(AGENT_PHOTO_FAILED);
   return data.path;
 }
@@ -515,7 +545,7 @@ function refusalOf(status, err, opts) {
   return e;
 }
 async function refuseUnlessOk(res, opts) {
-  if (!res.ok) throw refusalOf(res.status, await res.json().catch(() => ({ error: "Request failed" })), opts);
+  if (!res.ok) throw refusalOf(res.status, await readJson(res).catch(() => ({ error: "Request failed" })), opts);
 }
 
 async function api(path, opts = {}) {
@@ -618,9 +648,12 @@ function streamEvent(block) {
 //   error  a refusal with its own status, thrown the way api() throws one
 // A connection that ends before done or error throws the line every
 // screen says for a request that never got its answer, marked dropped and
-// carrying meta, so Help can read the answer the API kept.
+// carrying meta, so Help can read the answer the API kept. So does one
+// that moves nothing for HELP_WAIT_MS, and the answer is read back the
+// same way.
+const HELP_WAIT_MS = 60000;
 async function apiStream(path, opts, on) {
-  const init = requestInit(opts);
+  const init = requestInit(Object.assign({ limitMs: HELP_WAIT_MS }, opts));
   flightUp();
   let reader = null;
   try {
@@ -634,7 +667,10 @@ async function apiStream(path, opts, on) {
     const dropped = () => { const e = new Error(ERR_OFFLINE); e.dropped = true; e.meta = meta; return e; };
     for (;;) {
       let piece;
-      try { piece = await reader.read(); } catch (e) { throw dropped(); }
+      let still = null;
+      try {
+        piece = await Promise.race([reader.read(), new Promise((resolve, reject) => { still = setTimeout(() => reject(new Error(ERR_OFFLINE)), HELP_WAIT_MS); })]);
+      } catch (e) { throw dropped(); } finally { if (still) clearTimeout(still); }
       if (piece.done) throw dropped();
       buffer += decoder.decode(piece.value, { stream: true });
       // An event ends at a blank line. Whatever follows the last one waits
@@ -1184,11 +1220,12 @@ const mkCardText = (t) => ({ fontSize: 14, color: t.text, lineHeight: 1.55, marg
 // digits running up or down by one with no wrap past 9 or 0, or the
 // person's badge number or its last four digits. Activation from the
 // welcome email refuses a weak one too since API Step 292, with the same
-// words (Step 294). A reset link and registering take a weak PIN, so
-// their screens ask only the shape.
+// words (Step 294). A reset link and registering take a weak PIN on the
+// API until its own Round 2, so their screens refuse one here first, in
+// the same words, and all five PIN screens hold one rule (Round 1,
+// PORT-08). Registering has no badge number yet.
 const PIN_WEAK_WORDS = "Choose a PIN that is not repeated digits, a sequence, or your badge number";
 const PIN_UNCHANGED_WORDS = "New PIN must be different from your current PIN";
-const pinShapeReason = (pin) => (PIN_RE.test(pin) ? null : tr("PIN must be exactly 4 digits."));
 function weakPinReason(pin, badgeNumber) {
   if (!PIN_RE.test(pin)) return tr("PIN must be exactly 4 digits.");
   var d = pin.split("").map(Number);
@@ -1333,10 +1370,11 @@ function deviceId() {
 }
 
 // --- Check-offs with no signal (Step 240) ------------------------------
-// A check or an uncheck the API could not be reached for is kept on this
-// phone until it can be: the task, its site, whose tap it was, the tap's
-// own clientId and time, and whether it checked or unchecked. Nothing
-// else. The API takes clientId and completedAt beside what a check-off
+// A check or an uncheck is kept on this phone from the moment it is made
+// until the API has answered it (Round 1, PORT-03 and PORT-04): the task,
+// its site, whose tap it was, the tap's own clientId and time, whether it
+// checked or unchecked, and how many sends it has met no answer on.
+// Nothing else. The API takes clientId and completedAt beside what a check-off
 // takes today (Step 238), answers the same clientId twice once, and puts
 // a tap on the checklist day it was made.
 const PENDING_KEY = "ocsa-pending-checkoffs";
@@ -1359,14 +1397,19 @@ function pendingTicksFor(list, siteId, userId) {
   (list || []).forEach(x => { if ((!siteId || String(x.siteId) === String(siteId)) && (!userId || !x.userId || String(x.userId) === String(userId))) m.set(x.taskId, x.done); });
   return m;
 }
+// Whether one of those taps has been tried and kept, which the checklist
+// says under its title. A tap still on its first send is not one, so the
+// line never flickers past a tap on good signal.
+function pendingKeptFor(list, siteId, userId) {
+  return (list || []).some(x => Number(x.tries) > 0 && (!siteId || String(x.siteId) === String(siteId)) && (!userId || !x.userId || String(x.userId) === String(userId)));
+}
 // The checklist's last answer for each site, with the status it was read
 // under, so the checklist opens with no signal at all and takes taps into
 // the queue. Names are left out, coworkers' first names among them; a
 // kept list says who has a tick only once it is read again with signal.
 // A day old, it is no longer opened. A sign-out clears it. A session that
-// expires keeps it, and the queue, for the person they belong to: theirs
-// go once that person signs in again, and anyone else's sign-in clears
-// both.
+// expires keeps it for the person it belongs to, and anyone else's
+// sign-in clears it. The queue stays through all of these (PORT-05).
 const KEPT_KEY = "ocsa-checklist-kept";
 const KEPT_MAX_MS = 24 * 60 * 60 * 1000;
 const KEPT_SITES = 3;
@@ -1642,7 +1685,7 @@ function askLanguages() {
     try { res = await reach(API + "/api/languages", {}); } catch (e) { return undefined; }
     if (res.status !== 404 && !res.ok) return undefined;
     let body = null;
-    if (res.ok) { try { body = await res.json(); } catch (e) { body = null; } }
+    if (res.ok) { try { body = await readJson(res); } catch (e) { body = null; } }
     const list = offeredFrom(body && body.languages);
     setOfferedLanguages(list);
     return list;
@@ -2208,14 +2251,16 @@ export default function OCSAStaffPortal() {
   const hydrateSession = useCallback(async (tok) => {
     const me = await api("/api/auth/me", { token: tok });
     setUser(me.user); setSites(me.sites);
-    // Taps kept through an expired session wait for the person who made
-    // them, and go once they are back. Anyone else signing in clears
-    // them, and the list kept for no signal with them.
+    // Taps kept through a sign-out or an expired session wait for the
+    // person who made them, and go once they are back (Round 1, PORT-05).
+    // Anyone else signing in leaves them waiting, and never sends them;
+    // only the list kept for no signal, which is the other person's, is
+    // cleared.
     const waiting = readPending();
     const kept = readKept();
     const theirs = (id) => !id || !me.user || String(id) === String(me.user.id);
-    if (!waiting.every(x => theirs(x.userId)) || (kept && !theirs(kept.userId))) { writePending([]); forgetKept(); pendingRef.current = []; setPending([]); }
-    else if (waiting.length > 0) { pendingRef.current = waiting; setPending(waiting); }
+    if (kept && !theirs(kept.userId)) forgetKept();
+    pendingRef.current = waiting; setPending(waiting);
     // The phone follows whoever signed in. Not awaited: sign-in never
     // waits on the push service.
     repostPhoneAlerts(tok);
@@ -2446,7 +2491,8 @@ export default function OCSAStaffPortal() {
   // holds signing out.
   const handleLogout = async () => {
     const tok = token;
-    // Taps still waiting go now if they can, and are dropped after.
+    // Taps still waiting go now if they can. Any that cannot stay on this
+    // phone under the person, and go at their next sign-in here.
     if (tok && pendingRef.current.length > 0) { try { await Promise.race([sendPending(), new Promise(resolve => setTimeout(resolve, SIGN_OUT_PUSH_MS))]); } catch (e) {} }
     if (tok) { try { await Promise.race([turnOffPhoneAlerts(tok), new Promise(resolve => setTimeout(resolve, SIGN_OUT_PUSH_MS))]); } catch (e) {} }
     forgetPerson();
@@ -2538,71 +2584,84 @@ export default function OCSAStaffPortal() {
     if (siteId !== null && siteId !== undefined) setNotTracked(prev => (prev[String(siteId)] ? prev : { ...prev, [String(siteId)]: true }));
     showToast(tr(CHECKLIST_LINE), "notice");
   };
-  const toggleTask = async (task, done) => {
+  const toggleTask = (task, done) => {
     const taskId = task.id;
     if (inFlightTaskIds.current.has(taskId)) return;
     const counted = isDueToday(task);
     const mark = (on) => setTickOverrides(prev => { const n = new Map(prev); n.set(taskId, { done: on, doneThisPeriod: on ? { completedAt: new Date().toISOString(), firstName: user && user.firstName } : null, checkedToday: on ? { byCaller: true, firstName: user && user.firstName, completedAt: new Date().toISOString() } : null, at: Date.now() }); return n; });
     // The box as the person set it.
-    const shown = () => {
-      if (done) { showRowNote(taskId, null); if (counted) setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); else mark(false); }
-      else if (counted) setCompletedTaskIds(prev => new Set(prev).add(taskId)); else mark(true);
-    };
+    if (done) { showRowNote(taskId, null); if (counted) setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); else mark(false); }
+    else if (counted) setCompletedTaskIds(prev => new Set(prev).add(taskId)); else mark(true);
     // Every tap carries its own clientId and the time it was made, so a
     // tap sent twice is kept once and a tap sent late lands on its day.
+    // It is written to this phone before it is sent (Round 1, PORT-04),
+    // so a tap is never lost to an app closed while its send waits, and
+    // it goes behind any taps already waiting, so they reach the API in
+    // the order they were made. A tap made while nothing is waiting says
+    // Task completed or Task unchecked once it is in.
     const tap = { taskId: taskId, siteId: clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, userId: user ? user.id : null, clientId: newClientId(), completedAt: new Date().toISOString(), done: !done };
-    // While taps wait, a new one waits behind them, so they reach the API
-    // in the order they were made.
-    if (pendingRef.current.length > 0) { putPending(pendingRef.current.concat([tap])); shown(); sendPending(); return; }
-    inFlightTaskIds.current.add(taskId);
-    try {
-      await api(checkoffPath(taskId), { method: done ? "DELETE" : "POST", body: { clientId: tap.clientId, completedAt: tap.completedAt }, token });
-      shown();
-      showToast(tr(done ? "Task unchecked" : "Task completed"));
-      loadTasks(true);
-    } catch (err) {
-      // No signal: the tap is kept on this phone and the box stays as set.
-      // So is one turned away until the person chooses their own PIN.
-      if (err && (err.message === ERR_OFFLINE || err.code === "auth.mustSetPin")) { putPending(pendingRef.current.concat([tap])); shown(); }
-      else if (done && err.code === "NOT_YOUR_CHECK") { showRowNote(taskId, tr(err.message)); loadTasks(true); }
-      else if (err && err.code === CHECKLIST_NOT_TRACKED) refusedNotTracked(tap.siteId);
-      else showToast(tr(err.message), "error");
-    } finally { inFlightTaskIds.current.delete(taskId); }
+    if (!pendingRef.current.some(x => x.tries > 0 && mine(x))) freshTaps.current.add(tap.clientId);
+    putPending(pendingRef.current.concat([tap]));
+    sendPending();
   };
-  // The taps waiting, sent oldest first. A tap leaves the queue on any
-  // answer but no signal; no signal stops the send, and the rest wait for
-  // the next. A refusal is said once, in the API's words.
+  // Whether a waiting tap is the signed-in person's. A tap made under
+  // another person's session waits for them, and never goes under this one.
+  const mine = (x) => !x.userId || !user || String(x.userId) === String(user.id);
+  const freshTaps = useRef(new Set());
+  // The taps waiting, sent oldest first, the signed-in person's alone. A
+  // tap leaves this phone only once the API has answered it (Round 1,
+  // PORT-03): taken, or turned away in its own words, which are said on
+  // the tap's row and in a toast. Everything else keeps it and stops the
+  // send, and the rest wait for the next: no signal or no answer in time,
+  // a server fault (5xx, 502 and 503 among them while the API restarts),
+  // 408 and 429, a session that expired, and a PIN still to be chosen. The
+  // clientId makes the next send of it safe.
+  const keepsTap = (err) => !err || !err.status || err.status === 408 || err.status === 429 || err.status >= 500 || err.message === ERR_OFFLINE || err.message === "Session expired" || err.code === "auth.mustSetPin";
   const sendingPending = useRef(false);
   const sendPending = async () => {
-    if (sendingPending.current || !token || pendingRef.current.length === 0) return;
+    if (sendingPending.current || !token || !user || pendingRef.current.length === 0) return;
     sendingPending.current = true;
-    let sent = 0;
+    const tok = token;
+    let answered = 0;
     try {
-      while (pendingRef.current.length > 0) {
-        const tap = pendingRef.current[0];
-        // A tap made under another person's session never goes under this one.
-        if (!user || !tap.userId || String(tap.userId) === String(user.id)) {
-          try {
-            await api(checkoffPath(tap.taskId), { method: tap.done ? "POST" : "DELETE", body: { clientId: tap.clientId, completedAt: tap.completedAt }, token });
-            sent += 1;
-          } catch (err) {
-            // No signal, a session that expired, or a PIN still to be
-            // chosen: the tap stays, for later or for this person's next
-            // sign-in.
-            if (err && (err.message === ERR_OFFLINE || err.message === "Session expired" || err.code === "auth.mustSetPin")) break;
-            if (err && err.code === CHECKLIST_NOT_TRACKED) refusedNotTracked(tap.siteId);
-            else showToast(tr(err.message), "error");
-          }
+      for (;;) {
+        if (liveToken.current !== tok) break;
+        const tap = pendingRef.current.find(mine);
+        if (!tap) break;
+        const fresh = freshTaps.current.delete(tap.clientId);
+        let taken = false, kept = false;
+        inFlightTaskIds.current.add(tap.taskId);
+        try {
+          await api(checkoffPath(tap.taskId), { method: tap.done ? "POST" : "DELETE", body: { clientId: tap.clientId, completedAt: tap.completedAt }, token: tok });
+          taken = true;
+        } catch (err) {
+          // An answer whose words could not be read is still the API's: a
+          // 2xx is a tap it took.
+          if (err && err.status >= 200 && err.status < 300) taken = true;
+          else if (keepsTap(err)) kept = true;
+          else if (!tap.done && err.code === "NOT_YOUR_CHECK") showRowNote(tap.taskId, tr(err.message));
+          else if (err.code === CHECKLIST_NOT_TRACKED) refusedNotTracked(tap.siteId);
+          else { showRowNote(tap.taskId, tr(err.message)); showToast(tr(err.message), "error"); }
+        } finally { inFlightTaskIds.current.delete(tap.taskId); }
+        if (kept) {
+          // It waits, and the checklist says so, until the next send.
+          freshTaps.current.clear();
+          putPending(pendingRef.current.map(x => x.clientId === tap.clientId ? { ...x, tries: (Number(x.tries) || 0) + 1 } : x));
+          break;
         }
+        answered += 1;
+        if (taken && fresh) showToast(tr(tap.done ? "Task completed" : "Task unchecked"));
         putPending(pendingRef.current.filter(x => x.clientId !== tap.clientId));
       }
     } finally { sendingPending.current = false; }
-    if (sent > 0 && token && liveToken.current === token) loadTasks(true);
+    // The list is read again, so a box the API turned away shows as the
+    // API holds it.
+    if (answered > 0 && token && liveToken.current === token) loadTasks(true);
   };
   const sendPendingRef = useRef(sendPending);
   sendPendingRef.current = sendPending;
   // The queue goes when the phone says it is back, when the checklist
-  // opens, and every minute while it is open.
+  // opens, and every minute while someone is signed in.
   useEffect(() => {
     const go = () => { sendPendingRef.current(); };
     window.addEventListener("online", go);
@@ -2616,9 +2675,15 @@ export default function OCSAStaffPortal() {
   useEffect(() => {
     if (activeTab !== "tasks" || screen !== "main") return undefined;
     sendPendingRef.current();
+  }, [activeTab, screen]);
+  // Every minute while anyone is signed in, whatever is open, so a tap
+  // kept from a server fault, which no return of signal announces, still
+  // goes. With nothing waiting this sends nothing.
+  useEffect(() => {
+    if (screen !== "main") return undefined;
     const every = setInterval(() => { sendPendingRef.current(); }, PENDING_EVERY_MS);
     return () => clearInterval(every);
-  }, [activeTab, screen]);
+  }, [screen]);
   // The shift a session carries, sent as the person chose it on the sheet.
   // Keeping the shift in use sends nothing. The answer is the session and
   // its counts, which replace what the screen holds, and the list is read
@@ -2658,8 +2723,15 @@ export default function OCSAStaffPortal() {
   const loadFindings = async (tok) => { const use = tok || token; if (!use) return; try { const d = await api("/api/issues?source=inspection", { token: use }); const rows = findingRowsOf(d); if (rows) setFindings(rows); } catch (err) { if (err && (err.status === 404 || err.status === 400)) setFindings(null); } };
   const loadClientRequests = async (tok) => { const use = tok || token; if (!use) return; try { const d = await api("/api/issues/requests", { token: use }); const rows = clientRequestsOf(d); if (rows) setClientRequests(rows); } catch (err) { if (err && err.status === 404) setClientRequests(null); } };
   const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); setIssuesFailed(false); } catch (err) { console.error(err); setIssuesFailed(true); } };
-  const resolveAssignedTask = async (taskId, status, note, photoUrl) => { try { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast(tr("Task updated to {status}", { status: taskStatusWord(status) })); loadAssignedTasks(); } catch (err) { showToast(tr(err.message), "error"); } };
-  const submitIssue = async (title, description, zone, severity, photoUrl, siteId) => { const actualSiteId = siteId || clockStatus?.shift?.siteId; if (!actualSiteId) { showToast(tr("Select a site first"), "error"); return; } try { const data = await api("/api/issues", { method: "POST", body: { siteId: actualSiteId, title, description, zone, severity }, token }); if (photoUrl && data.issue) { await api("/api/issues/" + data.issue.id + "/photos", { method: "POST", body: { photoUrl }, token }); } showToast(tr("Issue reported")); loadIssues(); } catch (err) { showToast(tr(err.message), "error"); } };
+  // A save that fails throws, so the screen keeps the note and the photo
+  // for the next try (Round 1, PORT-02).
+  const resolveAssignedTask = async (taskId, status, note, photoUrl) => { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast(tr("Task updated to {status}", { status: taskStatusWord(status) })); loadAssignedTasks(); };
+  // A report that does not go throws, so the form keeps what was typed
+  // and the photo (Round 1, PORT-01). An issue made whose photo did not
+  // attach comes back with photoFault, so the screen says so and can
+  // attach it again without a second issue.
+  const attachIssuePhoto = async (issueId, photoUrl) => { try { await api("/api/issues/" + issueId + "/photos", { method: "POST", body: { photoUrl }, token }); } finally { loadIssues(); } };
+  const submitIssue = async (title, description, zone, severity, photoUrl, siteId) => { const actualSiteId = siteId || clockStatus?.shift?.siteId; if (!actualSiteId) throw new Error("Select a site first"); const data = await api("/api/issues", { method: "POST", body: { siteId: actualSiteId, title, description, zone, severity }, token }); const issue = data && data.issue ? data.issue : null; if (photoUrl && issue) { try { await attachIssuePhoto(issue.id, photoUrl); } catch (err) { return { issue: issue, photoFault: err }; } } else loadIssues(); showToast(tr("Issue reported")); return { issue: issue }; };
   const loadSupplies = async () => { try { const url = clockStatus?.shift?.siteId ? "/api/supplies?site_id=" + clockStatus.shift.siteId : "/api/supplies"; const data = await api(url, { token }); setSupplies(data); setSuppliesLoaded(true); setSuppliesFailed(false); } catch (err) { console.error(err); setSuppliesFailed(true); } };
   const logSupplyUsage = async (supplyId, quantity) => { try { const data = await api("/api/supplies/log-usage", { method: "POST", body: { supplyId, quantity, siteId: clockStatus.shift.siteId, scanMethod: "manual" }, token }); showToast(data.message); setSupplyLogs(prev => [{ ...data.log, loggedAt: now().toISOString() }, ...prev]); if (data.lowStockAlert) showToast(tr("Low stock alert!"), "notice"); } catch (err) { showToast(tr(err.message), "error"); } };
   const submitSupplyRequest = async (requestType, itemName, description, urgency, supplyId) => { try { const siteId = clockStatus?.shift?.siteId || null; await api("/api/supplies/requests", { method: "POST", body: { requestType, itemName, description, urgency, supplyId, siteId }, token }); showToast(tr("Request submitted")); } catch (err) { showToast(tr(err.message), "error"); } };
@@ -3105,9 +3177,12 @@ export default function OCSAStaffPortal() {
   // one place. Signing out and a session that runs out take this same
   // path, so the next person on the same phone starts clean however the
   // last one left. What this phone is set to, the language, the theme
-  // and the text size, belongs to the phone and stays.
+  // and the text size, belongs to the phone and stays. So do check-offs
+  // still waiting to send, each under the person who made it, which no
+  // one else's session sends (Round 1, PORT-05). The list kept for no
+  // signal stays only through a session that expired.
   const forgetPerson = useCallback((opts) => {
-    const keepQueue = !!(opts && opts.keepQueue === true);
+    const keepList = !!(opts && opts.keepList === true);
     clearAuth();
     setToken(null); setUser(null); setSites([]); setScreen("login"); setLoginFault(null);
     setClockStatus(null); setSelectedSite(null); setSessionSites(null); setPendingSite(null); setStartBlock(null);
@@ -3117,8 +3192,8 @@ export default function OCSAStaffPortal() {
     // A checklist read still on its way is dropped, so it cannot keep the
     // list again after this.
     tasksSeq.current += 1;
-    pendingRef.current = []; setPending([]); setOfflineOpen(false);
-    if (!keepQueue) { writePending([]); forgetKept(); }
+    setOfflineOpen(false);
+    if (!keepList) forgetKept();
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null); setTasksMode(null); setNotTracked({}); setSiteListAt(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
     setChannels(null); setChannelsFailed(false); setMessages([]); setMessagesOf(null); setActiveChannel(null);
@@ -3130,12 +3205,12 @@ export default function OCSAStaffPortal() {
     unreadWarned.current = false; prefsLive.current = false; chosenOnEntryRef.current = null;
     tasksAsked.current = null; tasksReqAsked.current = null; inFlightTaskIds.current = new Set();
   }, []);
-  // An expired session signs the person out and keeps what is waiting,
-  // which is theirs, for when they sign in again. A 401 to a request sent
+  // An expired session signs the person out and keeps the list kept for
+  // no signal, which is theirs, for when they sign in again. A 401 to a request sent
   // with a token this phone has since replaced, as a PIN change does, is
   // not this session's.
   useEffect(() => {
-    const expired = (e) => { const sentWith = e && e.detail ? e.detail.token : null; if (sentWith && liveToken.current && sentWith !== liveToken.current) return; forgetPerson({ keepQueue: true }); };
+    const expired = (e) => { const sentWith = e && e.detail ? e.detail.token : null; if (sentWith && liveToken.current && sentWith !== liveToken.current) return; forgetPerson({ keepList: true }); };
     window.addEventListener("ocsa-session-expired", expired);
     return () => window.removeEventListener("ocsa-session-expired", expired);
   }, [forgetPerson]);
@@ -3241,6 +3316,7 @@ export default function OCSAStaffPortal() {
   // which total does not, and would read more than the whole.
   // The ticks drawn: the API's, with this phone's waiting taps over them.
   const pendingTicks = pendingTicksFor(pending, clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, user && user.id);
+  const pendingKept = pendingKeptFor(pending, clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, user && user.id);
   const shownCompleted = pendingTicks.size === 0 ? completedTaskIds : (() => { const n = new Set(completedTaskIds); pendingTicks.forEach((on, id) => { if (on) n.add(id); else n.delete(id); }); return n; })();
   const homeCounts = Array.isArray(tasks) ? todayCount(tasks, shownCompleted) : null;
   // Step 339: whether the open shift's site keeps its task list as a
@@ -3325,11 +3401,11 @@ export default function OCSAStaffPortal() {
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
-              {activeTab === "tasks" && <TasksView token={token} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} t={t} />}
+              {activeTab === "tasks" && <TasksView token={token} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} onOpenDocument={(d) => openLibraryDoc(d, null)} />}
-              {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} findings={findings} onFindingsChanged={() => loadFindings()} openFinding={findingOpen} onOpenIssue={openIssue} />}
+              {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} attachIssuePhoto={attachIssuePhoto} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} findings={findings} onFindingsChanged={() => loadFindings()} openFinding={findingOpen} onOpenIssue={openIssue} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} token={token} user={user} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} openAt={inspectAt} onOpened={() => setInspectAt(null)} />}
@@ -3581,9 +3657,9 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
     const required = [["firstName", "First Name", fn], ["phone", "Phone Number", ph], ["email", "Email Address", em], ["pin", "PIN", pin], ["pin2", "Confirm PIN", pin2]];
     const empty = required.find(f => !String(f[2]).trim());
     if (empty) { setErrs({ [empty[0]]: tr("Fill in {field}.", { field: tr(empty[1]) }) }); return; }
-    // A PIN that is not 4 digits, the one PIN registering refuses, is
-    // named here before it is sent.
-    const shape = pinShapeReason(pin);
+    // A PIN that is not 4 digits, or is easy to guess, is named here
+    // before it is sent.
+    const shape = weakPinReason(pin, null);
     if (shape) { setErrs({ pin: shape }); return; }
     if (pin !== pin2) { setErrs({ pin2: tr(ERR_PIN_MISMATCH) }); return; }
     setErrs({});
@@ -3602,7 +3678,7 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Last Name")}</label><input value={ln} onChange={e => setLn(e.target.value)} placeholder={tr("Last name")} style={inputSt} /></div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Phone Number *")}</label><input value={ph} onChange={e => setPh(e.target.value)} placeholder={tr("2155550000 (no dashes needed)")} style={inputSt} />{errs.phone && <div style={errSt}>{errs.phone}</div>}</div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Email Address *")}</label><input value={em} onChange={e => setEm(e.target.value)} placeholder={tr("name@email.com")} type="email" style={inputSt} />{errs.email && <div style={errSt}>{errs.email}</div>}</div>
-        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("PIN (4 digits) *")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={mkPinInput(t)} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
+        <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("PIN (4 digits) *")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={mkPinInput(t)} />{errs.pin && <div style={errSt}>{errs.pin}</div>}<div style={mkHelp(t)}>{tr("4 digits. Not all the same, not in a row like 1234, and not your badge number.")}</div></div>
         <div style={{ marginBottom: 24 }}><label style={labelSt}>{tr("Confirm PIN *")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={mkPinInput(t)} onKeyDown={e => e.key === "Enter" && !loading && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
         <button onClick={submit} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Registering...") : tr("Register")}</button>
         <button onClick={onBack} style={mkGhostBtn(t)}>{tr("Back to Login")}</button>
@@ -3825,7 +3901,8 @@ function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
 
   const submit = async () => {
     const e = {};
-    if (!PIN_RE.test(pin)) e.pin = tr("PIN must be exactly 4 digits.");
+    const why = weakPinReason(pin, info && info.badgeNumber);
+    if (why) e.pin = why;
     else if (pin2 !== pin) e.pin2 = tr(ERR_PIN_MISMATCH);
     setErrs(e);
     if (Object.keys(e).length) return;
@@ -3880,7 +3957,7 @@ function ResetScreen({ token, onReset, onGoLogin, onGoForgot, showToast, t }) {
     <AuthCard t={t} title={tr("Reset Your PIN")}>
       <div style={textSt}>{info && info.firstName ? tr("Welcome back, {name}.", { name: info.firstName }) + " " : ""}{tr("Choose your new 4-digit PIN.")}</div>
       {info && info.expiresAt && <div style={{ ...helpSt, marginTop: 0, marginBottom: 16 }}>{tr("This link works until")} {fmtExpiry(info.expiresAt)} {tr("and can be used once.")}</div>}
-      <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("New PIN (4 digits)")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}</div>
+      <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("New PIN (4 digits)")}</label><input value={pin} onChange={e => setPin(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} />{errs.pin && <div style={errSt}>{errs.pin}</div>}<div style={helpSt}>{tr("4 digits. Not all the same, not in a row like 1234, and not your badge number.")}</div></div>
       <div style={{ marginBottom: 22 }}><label style={labelSt}>{tr("Confirm PIN")}</label><input value={pin2} onChange={e => setPin2(e.target.value)} {...PIN_INPUT_PROPS} style={pinSt} onKeyDown={e => e.key === "Enter" && !working && submit()} />{errs.pin2 && <div style={errSt}>{errs.pin2}</div>}</div>
       <button onClick={submit} disabled={working} style={mkPrimaryBtn(t, working)}>{working ? tr("Saving...") : tr("Save PIN")}</button>
       <button onClick={onGoLogin} style={mkGhostBtn(t)}>{tr("Back to Sign In")}</button>
@@ -5203,7 +5280,7 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
 // focus: a task a notice asked for, { id, at }; with a shift open and the
 // task on its list, its details open, else the list, and onFocused says it
 // was looked for either way.
-function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, reference, standalone, focus, onFocused, t }) {
+function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, pendingKept, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, reference, standalone, focus, onFocused, t }) {
   const [detail, setDetail] = useState(null);
   useEffect(() => {
     if (!focus) return;
@@ -5469,7 +5546,7 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
   return (
     <div style={{ padding: "16px" }}>
       {/* One quiet line while a tap waits for signal. */}
-      {!reference && waiting.size > 0 && <div role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}><ClockIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.5, minWidth: 0 }}>{tr("Saved on this phone. It sends when you have signal.")}</div></div>}
+      {!reference && pendingKept && waiting.size > 0 && <div role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}><ClockIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.5, minWidth: 0 }}>{tr("Saved on this phone. It sends when you have signal.")}</div></div>}
       {/* A list to read (Step 339): its title, the site and the line
           saying nothing is checked off here, with no percentage and no
           bar. */}
@@ -7264,8 +7341,12 @@ function AssignedTasksView({ assignedTasks, work, onOpenIssue, onOpenRequest, fa
   const inputSt = mkInput(t);
   const handlePhoto = (e) => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { showToast(tr("Photo must be under 10MB"), "error"); return; } setPhoto(file); const reader = new FileReader(); reader.onload = (ev) => setPhotoPreview(ev.target.result); reader.readAsDataURL(file); };
   const clearForm = () => { setActivePanel(null); setNote(""); setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; };
-  const handleResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Describe what you did to complete this task"), "error"); return; } if (!photo) { showToast(tr("A photo of the completed task is required"), "error"); return; } setUploading(true); try { const photoUrl = await uploadPhoto(photo, token); await resolveTask(taskId, "resolved", note.trim(), photoUrl); clearForm(); setDetail(null); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
-  const handleCantResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Please provide a reason"), "error"); return; } await resolveTask(taskId, "unable_to_resolve", note.trim(), null); clearForm(); setDetail(null); };
+  // The form clears only once the save is in. A save that fails keeps the
+  // note and the photo, says why, and Submit tries again (Round 1,
+  // PORT-02); a photo already up is not sent a second time.
+  const photoUp = useRef(null);
+  const handleResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Describe what you did to complete this task"), "error"); return; } if (!photo) { showToast(tr("A photo of the completed task is required"), "error"); return; } setUploading(true); try { const photoUrl = photoUp.current && photoUp.current.file === photo ? photoUp.current.url : await uploadPhoto(photo, token); photoUp.current = { file: photo, url: photoUrl }; await resolveTask(taskId, "resolved", note.trim(), photoUrl); clearForm(); setDetail(null); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
+  const handleCantResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Please provide a reason"), "error"); return; } setUploading(true); try { await resolveTask(taskId, "unable_to_resolve", note.trim(), null); clearForm(); setDetail(null); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
   const getTaskInfo = (task) => { const isIssueLinked = !!task.source_issue_id; const title = isIssueLinked ? (task.issue_title || task.label) : task.label; const desc = isIssueLinked ? task.issue_description : task.description; const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD); const photoUrl = isIssueLinked ? task.issue_photo_url : (task.media_url || null); const mediaType = isIssueLinked ? "image" : (task.media_type || "image"); const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name; const assignedByLabel = isIssueLinked ? tr("Reported by") : tr("Assigned by"); const locationParts = [task.site_name]; if (task.building_name) locationParts.push(task.building_name); if (task.floor_number) locationParts.push(tr("Floor {n}", { n: task.floor_number })); locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || tr("General")); const locationStr = locationParts.filter(Boolean).join(" > "); return { isIssueLinked, title, desc, borderColor, photoUrl, mediaType, assignedBy, assignedByLabel, locationStr }; };
 
   const items = Array.isArray(work) ? work : assignedTasks.map(task => ({ key: "task:" + task.task_id, kind: "task", id: String(task.task_id), task: task }));
@@ -7286,7 +7367,7 @@ function AssignedTasksView({ assignedTasks, work, onOpenIssue, onOpenRequest, fa
             {info.desc && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Description")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{info.desc}</div></div>)}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{info.assignedByLabel}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{info.assignedBy}</div></div><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Site")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{detail.site_name}</div></div>{detail.due_date && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Due Date")}</div><div style={{ fontSize: 13, color: ink(t, ORANGE), fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{dueDayText(detail.due_date, { month: "short", day: "numeric", year: "numeric" })}{detail.due_time ? " " + tr("at {time}", { time: clockTime(detail.due_time) }) : ""}</div></div>}{detail.task_created_at && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Assigned")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.task_created_at).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })}</div></div>}</div>
             {info.photoUrl && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{info.mediaType === "video" ? tr("Attached Video") : tr("Attached Photo")}</div>{info.mediaType === "video" ? (<video src={info.photoUrl} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} />) : (<img src={info.photoUrl} alt={tr("Task")} style={{ width: "100%", borderRadius: R.md, maxHeight: 200, objectFit: "cover", border: "1px solid " + t.borderSolid }} />)}</div>)}
-            {!isResolving && !isCantResolve && (<div style={{ display: "flex", gap: 6, marginTop: 10 }}>{detail.resolution_status !== "in_progress" && (<button onClick={() => { resolveTask(detail.task_id, "in_progress", null, null); setDetail(null); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + ORANGE, background: "transparent", color: ink(t, ORANGE), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("In Progress")}</button>)}<button onClick={() => { clearForm(); setActivePanel("resolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + GREEN, background: "transparent", color: ink(t, GREEN), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Resolved")}</button><button onClick={() => { clearForm(); setActivePanel("cantresolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: ink(t, RED), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cannot Resolve")}</button></div>)}
+            {!isResolving && !isCantResolve && (<div style={{ display: "flex", gap: 6, marginTop: 10 }}>{detail.resolution_status !== "in_progress" && (<button onClick={() => { resolveTask(detail.task_id, "in_progress", null, null).catch(err => showToast(tr(err.message), "error")); setDetail(null); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + ORANGE, background: "transparent", color: ink(t, ORANGE), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("In Progress")}</button>)}<button onClick={() => { clearForm(); setActivePanel("resolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + GREEN, background: "transparent", color: ink(t, GREEN), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Resolved")}</button><button onClick={() => { clearForm(); setActivePanel("cantresolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: ink(t, RED), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cannot Resolve")}</button></div>)}
           </div>
           {isResolving && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.greenSubtle }}>
             <div style={{ fontSize: 10, color: ink(t, GREEN), fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Mark as Resolved")}</div>
@@ -7297,7 +7378,7 @@ function AssignedTasksView({ assignedTasks, work, onOpenIssue, onOpenRequest, fa
           {isCantResolve && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.redSubtle }}>
             <div style={{ fontSize: 10, color: ink(t, RED), fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Explain why this cannot be completed *")}</div>
             <textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the issue preventing completion...")} rows={3} style={{ ...inputSt, resize: "vertical", marginBottom: 8 }} />
-            <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleCantResolve(detail.task_id)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: RED_FILL, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Submit")}</button></div>
+            <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleCantResolve(detail.task_id)} disabled={uploading} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: RED_FILL, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: uploading ? 0.6 : 1 }}>{tr("Submit")}</button></div>
           </div>)}
         </div>
       </div>
@@ -7678,12 +7759,16 @@ function RequestNoteSheet({ id, title, line, label, required, button, photos, to
   );
 }
 
-function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToast, user, sites, t, token, getOpts, lkColorMap, requests, onRequestsChanged, openRequest, findings, onFindingsChanged, openFinding, onOpenIssue }) {
+function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, attachIssuePhoto, showToast, user, sites, t, token, getOpts, lkColorMap, requests, onRequestsChanged, openRequest, findings, onFindingsChanged, openFinding, onOpenIssue }) {
   const [showForm, setShowForm] = useState(false); const [title, setTitle] = useState(""); const [desc, setDesc] = useState("");
   const [sev, setSev] = useState("medium"); const [zone, setZone] = useState(""); const [selSite, setSelSite] = useState("");
   const [photo, setPhoto] = useState(null); const [photoPreview, setPhotoPreview] = useState(null); const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
-  useBusy("issue form", title.trim().length > 0 || desc.trim().length > 0 || zone.trim().length > 0 || !!photo || uploading);
+  // An issue that went whose photo did not attach: the issue, the photo
+  // already up, and its preview, until Try again attaches it.
+  const [photoLeft, setPhotoLeft] = useState(null);
+  const photoUp = useRef(null);
+  useBusy("issue form", title.trim().length > 0 || desc.trim().length > 0 || zone.trim().length > 0 || !!photo || uploading || !!photoLeft);
   const labelSt = mkLabel(t); const inputSt = mkInput(t);
   const sevOpts = getOpts("issue_severities");
   const sevColors = lkColorMap("issue_severities");
@@ -7693,12 +7778,17 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, showToa
   const sevC = Object.keys(sevColors).length > 0 ? sevColors : { low: GREEN, medium: ORANGE, high: RED };
   const handlePhoto = (e) => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { showToast(tr("Photo must be under 10MB"), "error"); return; } setPhoto(file); const reader = new FileReader(); reader.onload = (ev) => setPhotoPreview(ev.target.result); reader.readAsDataURL(file); };
   const removePhoto = () => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; };
-  const handleSubmit = async () => { if (!title.trim()) { showToast(tr("Enter issue title"), "error"); return; } const siteId = clockStatus?.clockedIn ? clockStatus.shift.siteId : selSite; if (!siteId) { showToast(tr("Select a site"), "error"); return; } setUploading(true); try { let photoUrl = null; if (photo) { photoUrl = await uploadPhoto(photo, token); } await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl, siteId); setTitle(""); setDesc(""); setZone(""); setSev("medium"); setPhoto(null); setPhotoPreview(null); setShowForm(false); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
+  // The form clears only once the issue is in. A send that fails keeps
+  // every field and the photo, says why, and Submit Issue tries again; a
+  // photo already up is not sent a second time (Round 1, PORT-01).
+  const handleSubmit = async () => { if (!title.trim()) { showToast(tr("Enter issue title"), "error"); return; } const siteId = clockStatus?.clockedIn ? clockStatus.shift.siteId : selSite; if (!siteId) { showToast(tr("Select a site"), "error"); return; } setUploading(true); try { let photoUrl = null; if (photo) { photoUrl = photoUp.current && photoUp.current.file === photo ? photoUp.current.url : await uploadPhoto(photo, token); photoUp.current = { file: photo, url: photoUrl }; } const done = await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl, siteId); if (done && done.photoFault && done.issue) setPhotoLeft({ issueId: done.issue.id, url: photoUrl, preview: photoPreview }); photoUp.current = null; setTitle(""); setDesc(""); setZone(""); setSev("medium"); setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; setShowForm(false); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
+  const attachAgain = async () => { if (!photoLeft || uploading) return; setUploading(true); try { await attachIssuePhoto(photoLeft.issueId, photoLeft.url); setPhotoLeft(null); showToast(tr("Photo attached")); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
   return (
     <div style={{ padding: "16px" }}>
       <ClientRequestsSection token={token} user={user} rows={requests} onChanged={onRequestsChanged} showToast={showToast} openId={openRequest} t={t} />
       <FindingsSection token={token} user={user} rows={findings} onChanged={onFindingsChanged} showToast={showToast} openId={openFinding} t={t} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{isAdmin ? tr("Issues") : tr("Report an Issue")}</div>{isAdmin && <button onClick={() => setShowForm(!showForm)} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "7px 13px", borderRadius: R.sm, border: showForm ? "1px solid " + t.borderSolid : "none", background: showForm ? t.cardAlt : GOLD, color: showForm ? t.text : NAVY, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{showForm ? tr("Cancel") : tr("+ Report")}</span></button>}</div>
+      {photoLeft && (<div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", marginBottom: 14, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow }}>{photoLeft.preview ? <img src={photoLeft.preview} alt={tr("Preview")} style={{ width: 44, height: 44, objectFit: "cover", borderRadius: R.sm, flexShrink: 0, border: "1px solid " + t.borderSolid }} /> : <CamIco sz={18} c={t.textMut} style={{ flexShrink: 0 }} />}<div role="alert" style={{ flex: 1, minWidth: 0, fontSize: 12, color: t.textSec, lineHeight: 1.5 }}>{tr("Issue reported. Its photo did not attach.")}</div><button type="button" onClick={attachAgain} disabled={uploading} style={{ minHeight: TAP, padding: "0 14px", flexShrink: 0, borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: uploading ? 0.6 : 1 }}>{tr("Try again")}</button></div>)}
       {(showForm || !isAdmin) && (<div style={{ padding: 14, marginBottom: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, animation: "fadeIn 0.3s ease", boxShadow: t.popShadow }}>
         {!clockStatus?.clockedIn && sites && sites.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Site")}</label><select value={selSite} onChange={e => setSelSite(e.target.value)} style={inputSt}><option value="">{tr("Select site...")}</option>{sites.map(s => <option key={s.siteId} value={s.siteId}>{s.siteName}</option>)}</select></div>)}
         <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Title")}</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder={tr("Brief description")} style={inputSt} /></div>
@@ -14523,7 +14613,7 @@ async function wsOpenFile(token, file) {
   await refuseUnlessOk(res, {});
   let href = null, own = false;
   if (/application\/json/i.test(res.headers.get("Content-Type") || "")) {
-    const d = await res.json().catch(() => null);
+    const d = await readJson(res).catch(() => null);
     href = wsText(d, ["url", "signedUrl", "signed_url"]);
     if (!/^https:\/\//i.test(href)) throw new Error(ERR_GENERIC);
   } else {
@@ -17918,7 +18008,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
         method: "POST", headers: { "Authorization": "Bearer " + token, "Content-Type": "image/jpeg" }, body: compressed
       });
       if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || UPLOAD_FAILED); }
+      if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(e.error || UPLOAD_FAILED); }
       const r = await readJson(res);
       await api("/api/users/profile/photo", { method: "POST", body: { photoUrl: r.url }, token });
       showToast(tr("Photo updated"));

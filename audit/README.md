@@ -726,6 +726,30 @@ Part 344 brought it up to the app:
   words as twins; and no language asked of a lesson picture an `<img>`
   fetches.
 
+## Round 1 of the fixes (part 348)
+
+Five journeys for Now findings no case asked before, each failing on the
+main of part 344 and passing once its fix is in:
+
+- `stalledcheckoff` (PORT-04): a check-off whose send the stub holds for
+  a minute is on the phone before it is sent, shows on its box at once,
+  reads as no signal after 15 seconds, and goes once by itself after a
+  reload.
+- `signoutkeeps` (PORT-05): a check-off kept with no signal stays on the
+  phone through signing out and through the stub's second person signing
+  in, who never sends it, and goes once at its owner's next sign-in.
+- `resolvekeeps` (PORT-02): a resolution whose save meets a 500 keeps its
+  note and photo, and Submit Resolution again saves it with the photo
+  uploaded once.
+- `issuephoto` (PORT-01): an issue whose photo attach meets a 500 goes
+  once, the screen says the photo did not attach, and Try again attaches
+  it to the same issue.
+- `guidemore` (PORT-12): every place under More, for a supervisor with
+  every switch on, is named in the guide's More entry, and Home's cards
+  are named in its Home entry in the order Home draws them.
+
+`pinrules` also tries 1234 on a reset link and on Register (PORT-08).
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

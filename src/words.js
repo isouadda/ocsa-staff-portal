@@ -1487,6 +1487,12 @@ export const WORDS = {
   "Inspection started": "Inspecci\u00f3n iniciada",
   "Task list for this site": "Lista de tareas de este sitio",
   "Nothing to check off here. This list shows the work our staff do at this site.": "Aqu\u00ed no hay nada que marcar. Esta lista muestra el trabajo que nuestro personal hace en este sitio.",
+  "This session did not open. Try again.": "Esta sesi\u00f3n no se abri\u00f3. Intente de nuevo.",
+  "This document did not open. Try again.": "Este documento no se abri\u00f3. Intente de nuevo.",
+  "This session did not start. Try again.": "Esta sesi\u00f3n no se inici\u00f3. Intente de nuevo.",
+  "The session was not closed. Try again.": "La sesi\u00f3n no se cerr\u00f3. Intente de nuevo.",
+  "This checklist did not start. Try again.": "Esta lista no se inici\u00f3. Intente de nuevo.",
+  "Issue reported. Its photo did not attach.": "Problema reportado. Su foto no se adjunt\u00f3.",
   },
 };
 
@@ -2852,6 +2858,12 @@ WORDS.fr = {
   "Inspection started": "Inspection commenc\u00e9e",
   "Task list for this site": "Liste des t\u00e2ches de ce site",
   "Nothing to check off here. This list shows the work our staff do at this site.": "Rien \u00e0 cocher ici. Cette liste montre le travail que notre personnel effectue sur ce site.",
+  "This session did not open. Try again.": "Cette s\u00e9ance ne s'est pas ouverte. R\u00e9essayez.",
+  "This document did not open. Try again.": "Ce document ne s'est pas ouvert. R\u00e9essayez.",
+  "This session did not start. Try again.": "Cette s\u00e9ance n'a pas d\u00e9marr\u00e9. R\u00e9essayez.",
+  "The session was not closed. Try again.": "La s\u00e9ance n'a pas \u00e9t\u00e9 cl\u00f4tur\u00e9e. R\u00e9essayez.",
+  "This checklist did not start. Try again.": "Cette liste n'a pas commenc\u00e9. R\u00e9essayez.",
+  "Issue reported. Its photo did not attach.": "Probl\u00e8me signal\u00e9. Sa photo n'a pas \u00e9t\u00e9 jointe.",
 };
 
 // {name} is replaced after the language is chosen, so the
