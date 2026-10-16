@@ -1322,3 +1322,5 @@ This session did not start. Try again.,Esta sesión no se inició. Intente de nu
 The session was not closed. Try again.,La sesión no se cerró. Intente de nuevo.,La séance n'a pas été clôturée. Réessayez.,"Field kit, Training session, under Close the session"
 This checklist did not start. Try again.,Esta lista no se inició. Intente de nuevo.,Cette liste n'a pas commencé. Réessayez.,"Field kit, Watch and sign off, under Start the checklist"
 Issue reported. Its photo did not attach.,Problema reportado. Su foto no se adjuntó.,Problème signalé. Sa photo n'a pas été jointe.,"Report an Issue, above the form when the issue went and its photo did not, beside Try again"
+Already done by {firstName},Ya lo hizo {firstName},Déjà fait par {firstName},"Tasks, under a step someone else checked before this phone's tap went"
+Already done,Ya está hecho,Déjà fait,"Tasks, under a step someone else checked before this phone's tap went, when the check names nobody"
