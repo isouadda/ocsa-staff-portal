@@ -1,0 +1,73 @@
+# The portal's checks on every pull request and on main (Round 1, part
+# 348, PORT-16): install from the lockfile, build, the Help guide, the
+# smoke check, the dependency report, the secret count and the bundle
+# search for keys. See audit/FINDINGS_2026-10.md, Appendix I.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The whole history: guide-check compares against the base branch,
+          # and the secret count reads every commit.
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install from the lockfile
+        run: npm ci
+      - name: Build
+        # CI=true turns every build warning into a failure.
+        env:
+          CI: "true"
+        run: npm run build
+      - name: Guide check
+        env:
+          GUIDE_BASE: origin/${{ github.base_ref || 'main' }}
+        run: npm run guide-check
+      - name: Browser for the smoke check
+        run: npx playwright install --with-deps chromium
+      - name: Smoke check
+        run: npm run smoke
+      - name: Dependencies, high and critical
+        # Reports and does not fail the run: react-scripts sits in
+        # "dependencies", so its whole toolchain counts as shipped (70 high,
+        # 2 critical on Oct 15). Once react-scripts moves to devDependencies
+        # this reads only what the bundle carries (react, react-dom,
+        # heic2any), and continue-on-error comes off.
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+      - name: No new secret in history
+        # Five lines in this repository's history hold the old Supabase
+        # public key (commits 5801546 and 390d402, removed in 78cd9b5).
+        # The count may never grow. The pattern asks for a key's own shape
+        # after each prefix, so it never counts itself or a sentence that
+        # names a prefix. Never print a match.
+        run: |
+          n=$(git log -p --all | grep -cE 'eyJhbGciOi[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|sk-ant-[A-Za-z0-9_-]{20,}|sb_secret_[A-Za-z0-9_-]{16,}|sb_publishable_[A-Za-z0-9_-]{16,}|BEGIN [A-Z ]*PRIVATE KEY-----|AIza[0-9A-Za-z_-]{35}' || true)
+          echo "secret-shaped lines in history: $n (allowed: 5)"
+          test "$n" -le 5
+      - name: No key in the bundle
+        run: |
+          if grep -lE "eyJhbGciOi|sk-ant-|sb_secret_|sb_publishable_|service_role|BEGIN [A-Z ]*PRIVATE KEY|AIza[0-9A-Za-z_-]{30}|supabase\.co" build/static/js/*.js; then
+            echo "a key-shaped value is in the built bundle"; exit 1
+          fi
+      - name: No source maps shipped
+        # Vercel serves build/ as it is; the maps carry the whole source.
+        run: test -z "$(ls build/static/js/*.map 2>/dev/null)" || echo "::warning::source maps are in build/ (set GENERATE_SOURCEMAP=false)"

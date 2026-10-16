@@ -17,24 +17,25 @@ Who can do this: anyone with an account and an email address on file
 1. On the sign in screen, tap **Forgot your PIN?** (**¿Olvidó su PIN?**) (**Code PIN oublié ?**).
 2. Type your badge number, phone number or email, and tap **Send Reset Link** (**Enviar enlace**) (**Envoyer le lien**). If your account has an email, a link is on its way. If not, no link can come, and your supervisor resets your PIN instead. The link is good for one hour.
 3. Open the link in the email you receive. It opens in the language your account is set to, and **Español** or **English** at the bottom of the card switches it. Reloading the page, or the app updating itself, keeps you on the same link.
-4. Type a new 4 digit PIN in **New PIN (4 digits)** (**PIN nuevo (4 dígitos)**) (**Nouveau code PIN (4 chiffres)**), type the same 4 digits again in **Confirm PIN** (**Confirmar PIN**) (**Confirmer le code PIN**), and tap **Save PIN** (**Guardar PIN**) (**Enregistrer le code PIN**).
+4. Type a new 4 digit PIN in **New PIN (4 digits)** (**PIN nuevo (4 dígitos)**) (**Nouveau code PIN (4 chiffres)**), type the same 4 digits again in **Confirm PIN** (**Confirmar PIN**) (**Confirmer le code PIN**), and tap **Save PIN** (**Guardar PIN**) (**Enregistrer le code PIN**). The line under the box says what makes a PIN: **4 digits. Not all the same, not in a row like 1234, and not your badge number.** (**4 dígitos. No todos iguales, no seguidos como 1234 y no su número de empleado.**) (**4 chiffres. Pas tous identiques, pas à la suite comme 1234, et pas votre numéro de badge.**)
 5. **PIN saved. Signing you in...** (**PIN guardado. Iniciando su sesión...**) (**Code PIN enregistré. Connexion en cours...**) shows, and the app opens signed in.
-If it does not work: a PIN that is not 4 digits reads **PIN must be exactly 4 digits.** (**El PIN debe tener exactamente 4 dígitos.**) (**Le code PIN doit contenir exactement 4 chiffres.**) under New PIN. When the two boxes differ, **The two PINs do not match. Type the same 4 digits in both fields.** (**Los dos PIN no coinciden. Escriba los mismos 4 dígitos en las dos casillas.**) (**Les deux codes PIN ne correspondent pas. Tapez les mêmes 4 chiffres dans les deux champs.**) shows under **Confirm PIN** (**Confirmar PIN**) (**Confirmer le code PIN**): type the same PIN in both. With no email on file, no link can reach you, as the screen says under the box: **No email on file? A link cannot reach you. Ask your supervisor to reset your PIN.** (**¿No tiene correo registrado? No le puede llegar un enlace. Pida a su supervisor que restablezca su PIN.**) (**Pas de courriel enregistré ? Aucun lien ne peut vous parvenir. Demandez à votre superviseur de réinitialiser votre code PIN.**) When OCSA refuses, the reason shows in its words. Links expire and work only once. An old link reads **This link is no longer valid. Links expire, and each one can only be used once.** (**Este enlace ya no sirve. Los enlaces vencen y cada uno se puede usar una sola vez.**) (**Ce lien n'est plus valable. Les liens expirent et chacun ne peut servir qu'une fois.**) Tap **Request a New Link** (**Pedir un enlace nuevo**) (**Demander un nouveau lien**), or ask your supervisor to reset your PIN from the dashboard. After 5 wrong tries at signing in, a reset from your supervisor also lets you sign in again.
+If it does not work: a PIN that is four of the same digit, digits in a row such as 1234 or 4321, or your badge number reads **Choose a PIN that is not repeated digits, a sequence, or your badge number** (**Elija un PIN que no sea un mismo dígito repetido, una secuencia ni su número de empleado**) (**Choisissez un code PIN qui ne soit pas un chiffre répété, une suite ou votre numéro de badge**) under New PIN, before anything is sent: choose another. A PIN that is not 4 digits reads **PIN must be exactly 4 digits.** (**El PIN debe tener exactamente 4 dígitos.**) (**Le code PIN doit contenir exactement 4 chiffres.**) under New PIN. When the two boxes differ, **The two PINs do not match. Type the same 4 digits in both fields.** (**Los dos PIN no coinciden. Escriba los mismos 4 dígitos en las dos casillas.**) (**Les deux codes PIN ne correspondent pas. Tapez les mêmes 4 chiffres dans les deux champs.**) shows under **Confirm PIN** (**Confirmar PIN**) (**Confirmer le code PIN**): type the same PIN in both. With no email on file, no link can reach you, as the screen says under the box: **No email on file? A link cannot reach you. Ask your supervisor to reset your PIN.** (**¿No tiene correo registrado? No le puede llegar un enlace. Pida a su supervisor que restablezca su PIN.**) (**Pas de courriel enregistré ? Aucun lien ne peut vous parvenir. Demandez à votre superviseur de réinitialiser votre code PIN.**) When OCSA refuses, the reason shows in its words. Links expire and work only once. An old link reads **This link is no longer valid. Links expire, and each one can only be used once.** (**Este enlace ya no sirve. Los enlaces vencen y cada uno se puede usar una sola vez.**) (**Ce lien n'est plus valable. Les liens expirent et chacun ne peut servir qu'une fois.**) Tap **Request a New Link** (**Pedir un enlace nuevo**) (**Demander un nouveau lien**), or ask your supervisor to reset your PIN from the dashboard. After 5 wrong tries at signing in, a reset from your supervisor also lets you sign in again.
 Words people use for this: forgot my pin, lost my pin, i need a new pin, locked out, reset link, confirm pin, the pins do not match, no email, the link stopped working after a reload.
 Picture: reset-pin-ask
 Picture: reset-pin-new
-Last checked: 2026-10-07
+Last checked: 2026-10-16
 
 ## Register as a new employee (staff portal)
 Who can do this: a new employee without an account
 1. On the sign in screen, tap **New Employee? Register Here** (**¿Empleado nuevo? Regístrese aquí**) (**Nouvel employé ? Inscrivez-vous ici**).
 2. The screen opens in your phone's language, and **Español** or **English** at the bottom of the card switches it. Fill in your first name, last name, phone number and email.
-3. Choose a 4 digit PIN and type it again to confirm.
+3. Choose a 4 digit PIN and type it again to confirm. The line under the box says what makes a PIN: **4 digits. Not all the same, not in a row like 1234, and not your badge number.** (**4 dígitos. No todos iguales, no seguidos como 1234 y no su número de empleado.**) (**4 chiffres. Pas tous identiques, pas à la suite comme 1234, et pas votre numéro de badge.**)
 4. Tap **Register** (**Registrarse**) (**S'inscrire**).
 5. A manager approves your account before you can sign in.
+If it does not work: a PIN that is four of the same digit or digits in a row such as 1234 or 4321 reads **Choose a PIN that is not repeated digits, a sequence, or your badge number** (**Elija un PIN que no sea un mismo dígito repetido, una secuencia ni su número de empleado**) (**Choisissez un code PIN qui ne soit pas un chiffre répété, une suite ou votre numéro de badge**) under the box, before anything is sent: choose another.
 Words people use for this: i am new, how do i get an account, sign up, create an account.
 Picture: register
-Last checked: 2026-10-02
+Last checked: 2026-10-16
 
 ## Activate your account from the email (staff portal)
 Who can do this: someone who received the welcome email
@@ -52,10 +53,10 @@ Last checked: 2026-10-07
 ## Sign out (staff portal)
 Who can do this: anyone signed in
 1. Tap the sign out button at the top right of the screen, next to the gear.
-2. Signing out clears your Help chat from this phone, so the next person to sign in on it starts fresh. Your saved reports stay in your account.
+2. Signing out clears your Help chat from this phone, so the next person to sign in on it starts fresh. Your saved reports stay in your account. Check-offs still waiting to send stay on this phone under your name, and go the next time you sign in on it (see Check off tasks with no signal).
 Words people use for this: log out, sign off, someone else needs the phone, shared phone.
 Picture: sign-out
-Last checked: 2026-10-02
+Last checked: 2026-10-16
 
 ## Start your shift at a site (staff portal)
 Who can do this: anyone signed in
@@ -170,9 +171,10 @@ Who can do this: the person the task is assigned to
 4. Describe what you did.
 5. Tap **Take Photo of Completed Task** (**Tomar foto de la tarea completada**) (**Prendre une photo de la tâche terminée**) and take the photo. The photo is required.
 6. Tap **Submit Resolution** (**Enviar resolución**) (**Envoyer la résolution**). The task leaves the list. When it came from a reported issue, the issue is resolved too.
+If it does not work: when the save does not go, for example with no signal, the reason shows and your note and photo stay where they are. Tap **Submit Resolution** (**Enviar resolución**) (**Envoyer la résolution**) again once you have signal.
 Words people use for this: finish my task, mark a task done, task assigned to me, resolve a task, photo of the work.
 Picture: assigned-task
-Last checked: 2026-10-07
+Last checked: 2026-10-16
 
 ## Say you cannot finish an assigned task (staff portal)
 Who can do this: the person the task is assigned to
@@ -181,9 +183,10 @@ Who can do this: the person the task is assigned to
 3. Tap **Cannot Resolve** (**No se puede resolver**) (**Impossible de résoudre**).
 4. Explain why it cannot be completed.
 5. Tap **Submit** (**Enviar**) (**Envoyer**). Your supervisors are told.
+If it does not work: when it does not go, for example with no signal, the reason shows and what you typed stays. Tap **Submit** (**Enviar**) (**Envoyer**) again once you have signal.
 Words people use for this: i cannot finish, cannot resolve, blocked task, something is in the way, no puedo terminar.
 Picture: assigned-cannot
-Last checked: 2026-10-07
+Last checked: 2026-10-16
 
 ## Report a problem at a site (staff portal)
 Who can do this: anyone signed in. Supervisors and admins also see the list of problems reported (see See the issues reported at your sites).
@@ -193,11 +196,11 @@ Who can do this: anyone signed in. Supervisors and admins also see the list of p
 4. Under **Zone** (**Zona**) (**Zone**), type where it is in your own words, such as a restroom or the lobby. Under **Severity** (**Gravedad**) (**Gravité**), tap how serious it is.
 5. To add a picture, tap **Take Photo or Choose from Gallery** (**Tomar foto o elegir de la galería**) (**Prendre une photo ou choisir dans la galerie**). A JPG or PNG up to 10 MB is taken.
 6. Tap **Submit Issue** (**Enviar problema**) (**Envoyer le problème**). **Issue reported** (**Problema reportado**) (**Problème signalé**) says it went, and the people set to hear about problems are told.
-If it does not work: **Enter issue title** (**Escriba un título para el problema**) (**Entrez un titre pour le problème**) means the title is empty. **Select a site** (**Elija un sitio**) (**Choisissez un site**) means no shift is open and no site was chosen. **Photo must be under 10MB** (**La foto debe pesar menos de 10 MB**) (**La photo doit faire moins de 10 Mo**) means the picture is too large; choose a smaller one.
+If it does not work: **Enter issue title** (**Escriba un título para el problema**) (**Entrez un titre pour le problème**) means the title is empty. **Select a site** (**Elija un sitio**) (**Choisissez un site**) means no shift is open and no site was chosen. **Photo must be under 10MB** (**La foto debe pesar menos de 10 MB**) (**La photo doit faire moins de 10 Mo**) means the picture is too large; choose a smaller one. When the report does not go, for example with no signal, the reason shows and the form keeps everything you typed and the photo: tap **Submit Issue** (**Enviar problema**) (**Envoyer le problème**) again once you have signal. **Issue reported. Its photo did not attach.** (**Problema reportado. Su foto no se adjuntó.**) (**Problème signalé. Sa photo n'a pas été jointe.**) means the problem went and its picture did not: tap **Try again** (**Intentar de nuevo**) (**Réessayer**) beside it to attach the picture, without reporting the problem twice.
 7. Once someone is assigned your problem, it is on their **Assigned** (**Asignadas**) (**Assignées**) list, and it opens on its sheet from there and from a notice (see Work an issue from its sheet).
 Words people use for this: something is broken, report an issue, maintenance problem, report damage, something happened at my site, issues list, where do i pick the site.
 Picture: report-issue
-Last checked: 2026-10-07
+Last checked: 2026-10-16
 
 ## Request supplies or report damaged gear (staff portal)
 Who can do this: anyone signed in, with or without a shift started
@@ -888,15 +891,17 @@ Last checked: 2026-10-02
 ## What Home shows (staff portal)
 Who can do this: anyone signed in
 1. **Home** (**Inicio**) (**Accueil**) is the first place on the bottom bar and the screen the app opens on. At the top are today's date and the time.
-2. When a client request waits for your approval or is assigned to you, one card at the top reads **{n} client requests need you** (**{n} solicitudes de clientes lo necesitan**) (**{n} demandes clients vous attendent**) (or **1 client request needs you** (**1 solicitud de cliente lo necesita**) (**1 demande client vous attend**)). Tap it to open Report (see Work a client request assigned to you, and Approve or decline a client request). For the people who approve supply requests, a card reads **Supply requests to approve ({n})** (**Solicitudes de suministros por aprobar ({n})**) (**Demandes de fournitures à approuver ({n})**) when any wait; tap it to open **Approve supplies** (**Aprobar suministros**) (**Approuver les fournitures**) (see Approve a supply request on your phone).
-3. When you have forms started and not sent, a card above that one reads **Unfinished forms ({n})** (**Formularios sin terminar ({n})**) (**Formulaires non terminés ({n})**) with each form's name and how much is answered. Tap one to pick up where you left off (see Get reminded to finish a form).
-4. With a shift open, the **Time on Site** (**Tiempo en el sitio**) (**Temps sur place**) card shows how long you have been on site, when you started, the site, building and floor, and a bar with today's tasks done out of the total, such as 3/12. **End Shift** (**Terminar turno**) (**Terminer le service**) on it ends the shift (see End your shift).
-5. Under it, **Choose a Site to Start** (**Elija un sitio para comenzar**) (**Choisissez un site pour commencer**) lists your sites, grouped under **Scheduled Today** (**Programado para hoy**) (**Prévu aujourd'hui**), **Your Assigned Sites** (**Sus sitios asignados**) (**Vos sites attribués**) and **All Other Sites** (**Todos los demás sitios**) (**Tous les autres sites**). Tap one, then **Start Shift at** (**Comenzar turno en**) (**Commencer le service à**) and its name (see Start your shift at a site). With a shift open, the heading reads **Shift Open at {site}** (**Turno abierto en {site}**) (**Service ouvert à {site}**) and the list is dimmed until the shift ends.
-6. Last comes **My Schedule** (**Mi horario**) (**Mon planning**), your week. **Week** (**Semana**) (**Semaine**) and **Month** (**Mes**) (**Mois**) change the view, the arrows move a week or a month, and **Today** (**Hoy**) (**Aujourd'hui**) comes back to this week. Tap a day to see what is on it, and tap a shift or an inspection there to open it. Time off shows here too and opens from **Schedule** (**Horario**) (**Planning**).
-7. The header at the top and the bar at the bottom are on every screen (see Use the bottom bar and More).
-Words people use for this: home screen, main screen, first screen, what is on home, where do i start, time on site, unfinished forms on home, supply requests on home, inicio, pantalla principal.
+2. Cards come next, each only while it has something for you, in the order below. First **Your first trainings** (**Sus primeras capacitaciones**) (**Vos premières formations**), while a document waits for your signature or a first-day training is ready to do (see Your first trainings). Then **1 to sign** (**1 por firmar**) (**1 à signer**) or **{n} to sign** (**{n} por firmar**) (**{n} à signer**), while the office waits for your signature on something it recorded for you, such as a key or a uniform (see Sign for something you received).
+3. Then **Unfinished forms ({n})** (**Formularios sin terminar ({n})**) (**Formulaires non terminés ({n})**), when you have forms started and not sent, with each form's name and how much is answered. Tap one to pick up where you left off (see Get reminded to finish a form).
+4. Then, when a client request waits for your approval or is assigned to you, one card reads **{n} client requests need you** (**{n} solicitudes de clientes lo necesitan**) (**{n} demandes clients vous attendent**) (or **1 client request needs you** (**1 solicitud de cliente lo necesita**) (**1 demande client vous attend**)). Tap it to open Report (see Work a client request assigned to you, and Approve or decline a client request). For the people who approve supply requests, a card reads **Supply requests to approve ({n})** (**Solicitudes de suministros por aprobar ({n})**) (**Demandes de fournitures à approuver ({n})**) when any wait; tap it to open **Approve supplies** (**Aprobar suministros**) (**Approuver les fournitures**) (see Approve a supply request on your phone).
+5. Then **1 training to do** (**1 capacitación pendiente**) (**1 formation à faire**) or **{n} trainings to do** (**{n} capacitaciones pendientes**) (**{n} formations à faire**), which opens My training. Supervisors and admins also see **1 training to sign off** (**1 capacitación por firmar**) (**1 formation à valider**) or **{n} trainings to sign off** (**{n} capacitaciones por firmar**) (**{n} formations à valider**), which opens Sign off training in the field kit (see Sign off a training).
+6. With a shift open, the **Time on Site** (**Tiempo en el sitio**) (**Temps sur place**) card shows how long you have been on site, when you started, the site, building and floor, and a bar with today's tasks done out of the total, such as 3/12. **End Shift** (**Terminar turno**) (**Terminer le service**) on it ends the shift (see End your shift).
+7. Under it, **Choose a Site to Start** (**Elija un sitio para comenzar**) (**Choisissez un site pour commencer**) lists your sites, grouped under **Scheduled Today** (**Programado para hoy**) (**Prévu aujourd'hui**), **Your Assigned Sites** (**Sus sitios asignados**) (**Vos sites attribués**) and **All Other Sites** (**Todos los demás sitios**) (**Tous les autres sites**). Tap one, then **Start Shift at** (**Comenzar turno en**) (**Commencer le service à**) and its name (see Start your shift at a site). With a shift open, the heading reads **Shift Open at {site}** (**Turno abierto en {site}**) (**Service ouvert à {site}**) and the list is dimmed until the shift ends.
+8. Last comes **My Schedule** (**Mi horario**) (**Mon planning**), your week. **Week** (**Semana**) (**Semaine**) and **Month** (**Mes**) (**Mois**) change the view, the arrows move a week or a month, and **Today** (**Hoy**) (**Aujourd'hui**) comes back to this week. Tap a day to see what is on it, and tap a shift or an inspection there to open it. Time off shows here too and opens from **Schedule** (**Horario**) (**Planning**).
+9. The header at the top and the bar at the bottom are on every screen (see Use the bottom bar and More).
+Words people use for this: home screen, main screen, first screen, what is on home, where do i start, time on site, unfinished forms on home, supply requests on home, cards on home, trainings on home, to sign on home, inicio, pantalla principal.
 Picture: home
-Last checked: 2026-10-07
+Last checked: 2026-10-16
 
 ## See a checklist task's details (staff portal)
 Who can do this: anyone with a shift started
@@ -921,13 +926,13 @@ Last checked: 2026-10-14
 ## Use the bottom bar and More (staff portal)
 Who can do this: anyone signed in
 1. The bar at the bottom holds **Home** (**Inicio**) (**Accueil**), four shortcuts and **More** (**Más**) (**Plus**). The four start as **Schedule** (**Horario**) (**Planning**), **Tasks** (**Tareas**) (**Tâches**), **Chat** (**Mensajes**) (**Messages**) and **Help** (**Ayuda**) (**Aide**).
-2. Tap **More** (**Más**) (**Plus**) for the rest: **Assigned** (**Asignadas**) (**Assignées**), **Report** (**Reportar**) (**Signaler**), **Supplies** (**Suministros**) (**Fournitures**), **Pickup** (**Turnos libres**) (**Services libres**), **Inspect** (**Inspección**) (**Inspection**), **Speak Up** (**Confianza**) (**Confiance**), **Settings** (**Ajustes**) (**Paramètres**) and **Forms** (**Formularios**) (**Formulaires**). Supervisors and admins see **Issues** (**Problemas**) (**Problèmes**) in the place of Report. **App support** (**Soporte de la aplicación**) (**Assistance de l'application**) shows there too once OCSA answers for it, and so does **Library** (**Biblioteca**) (**Bibliothèque**), for everyone, once OCSA lists the company documents. The people the office lets approve supply requests find **Approve supplies** (**Aprobar suministros**) (**Approuver les fournitures**) there too (see Approve a supply request on your phone). A tap outside closes it.
+2. Tap **More** (**Más**) (**Plus**) for the rest: **Assigned** (**Asignadas**) (**Assignées**), **Report** (**Reportar**) (**Signaler**), **Supplies** (**Suministros**) (**Fournitures**), **Pickup** (**Turnos libres**) (**Services libres**), **Inspect** (**Inspección**) (**Inspection**), **Speak Up** (**Confianza**) (**Confiance**), **Settings** (**Ajustes**) (**Paramètres**) and **Forms** (**Formularios**) (**Formulaires**). Supervisors and admins see **Issues** (**Problemas**) (**Problèmes**) in the place of Report. Below them come the places that show once OCSA has something there for you: **Safety data sheets** (**Hojas de datos de seguridad**) (**Fiches de données de sécurité**), once your sites have them; **Workspace** (**Espacio de trabajo**) (**Espace de travail**), for office accounts; **Field kit** (**Kit de campo**) (**Kit de terrain**), for supervisors and admins; **My training** (**Mi capacitación**) (**Ma formation**) and **My company property** (**Mi propiedad de la empresa**) (**Mes biens de l'entreprise**), for everyone; **App support** (**Soporte de la aplicación**) (**Assistance de l'application**); and **Library** (**Biblioteca**) (**Bibliothèque**), for everyone, once OCSA lists the company documents. The people the office lets approve supply requests find **Approve supplies** (**Aprobar suministros**) (**Approuver les fournitures**) there too (see Approve a supply request on your phone). A tap outside closes it.
 3. The four shortcuts are yours to choose: **Edit shortcuts** (**Editar accesos directos**) (**Modifier les raccourcis**) at the bottom of More changes them (see Change the shortcuts on your bottom bar). Each person keeps their own bar, and it follows you to any phone or computer you sign in on.
 4. A red number counts what is waiting: on **Chat** (**Mensajes**) (**Messages**), your unread messages; on **Assigned** (**Asignadas**) (**Assignées**), the tasks assigned to you; on **More** (**Más**) (**Plus**), what is waiting in the places under it. Past nine it reads 9+.
 5. At the top of every screen, your picture or initials open your profile, the bell opens your notifications, the gear opens **Settings** (**Ajustes**) (**Paramètres**), and the last button signs you out. While a shift is open, **ON SITE** (**EN SITIO**) (**SUR PLACE**) shows beside them.
-Words people use for this: bottom bar, menu, more button, where is supplies, where is pickup, where is the library, where is approve supplies, i cannot find it, the red number, navigation, menú, más.
+Words people use for this: bottom bar, menu, more button, where is supplies, where is pickup, where is the library, where is approve supplies, where is my training, where is the field kit, where is the workspace, where are the safety data sheets, where is my company property, i cannot find it, the red number, navigation, menú, más.
 Picture: bottom-bar-more
-Last checked: 2026-10-07
+Last checked: 2026-10-16
 
 ## Pick a person on a form (staff portal)
 Who can do this: anyone filling a form with a question about a person
@@ -1011,14 +1016,14 @@ Last checked: 2026-10-07
 
 ## Check off tasks with no signal (staff portal)
 Who can do this: anyone with a shift started
-1. Tap **Tasks** (**Tareas**) (**Tâches**) and check tasks off as always. In a basement, a closet or anywhere with no signal, each check and uncheck is kept on the phone, and the box shows it at once.
-2. While any wait, a line above the list says **Saved on this phone. It sends when you have signal.** (**Guardado en este teléfono. Se envía cuando tenga señal.**) (**Enregistré sur ce téléphone. Il part dès que vous avez du réseau.**)
-3. There is nothing else to do. Once the phone has signal again, they send by themselves, in the order you tapped, each with the time you tapped it: when the signal comes back, when you open **Tasks** (**Tareas**) (**Tâches**), and every minute while it is open. The line goes away when all have gone.
+1. Tap **Tasks** (**Tareas**) (**Tâches**) and check tasks off as always. Each check and uncheck is kept on the phone the moment you tap it, and the box shows it at once. In a basement, a closet or anywhere with weak or no signal, it waits there until it goes, even if you close the app.
+2. When one has not gone, because there is no signal, nothing answered within 15 seconds, or OCSA had a problem, a line above the list says **Saved on this phone. It sends when you have signal.** (**Guardado en este teléfono. Se envía cuando tenga señal.**) (**Enregistré sur ce téléphone. Il part dès que vous avez du réseau.**)
+3. There is nothing else to do. Once the phone has signal again, they send by themselves, in the order you tapped, each with the time you tapped it: when the signal comes back, when you open **Tasks** (**Tareas**) (**Tâches**), and every minute while you are signed in. The line goes away when all have gone.
 4. If the app was closed and you open it with no signal, it opens on the last checklist this phone had for your site, up to a day old, and keeps your checks the same way. A coworker's check there shows as checked with no name, since the phone keeps no names. The rest of the app waits for signal.
-If it does not work: a check OCSA turns down once it sends, for example one a coworker already checked, shows OCSA's reason, and the box then shows what OCSA has. Signing out sends what is waiting first, when there is signal; what cannot go within a few seconds is not kept for the next person on the phone. A phone that never had your checklist has nothing to open with no signal: wait for signal.
+If it does not work: a check OCSA turns down once it sends, for example one a coworker already checked, shows OCSA's reason under the task, and the box then shows what OCSA has. Signing out sends what is waiting first, when there is signal. What cannot go stays on this phone under your name and sends the next time you sign in on it; someone else signing in on the phone never sends yours. A phone that never had your checklist has nothing to open with no signal: wait for signal.
 Words people use for this: no signal, no service, no wifi, no internet, offline, basement, closet, elevator, it did not save, did my checks go through, saved on this phone, it sends when you have signal, sin señal, sin internet, sótano.
 Picture: tasks-no-signal
-Last checked: 2026-10-02
+Last checked: 2026-10-16
 
 ## Check or tag out equipment from its QR label (staff portal)
 Who can do this: anyone signed in who works at the item's site

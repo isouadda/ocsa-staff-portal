@@ -4566,7 +4566,7 @@ const JOURNEYS = [
   },
   {
     id: "pinrules",
-    label: "Every PIN rule and PIN error, in the person's language: Set your PIN, Change PIN, an activation link and a reset link",
+    label: "Every PIN rule and PIN error, in the person's language: Set your PIN, Change PIN, an activation link, a reset link and Register",
     run: async (open, language, expect) => {
       // The API's own rules and words (Step 285): four of one digit, a
       // run up or down with no wrap, and the badge number.
@@ -4637,7 +4637,28 @@ const JOURNEYS = [
         await clickText(reset.page, say("Save PIN", language));
         await pause(reset.page, 600);
         await said(reset, "A reset link", "PIN must be exactly 4 digits.");
+        // Round 1 (PORT-08): a reset link refuses a weak PIN on the phone
+        // too, in the same words, with nothing sent.
+        await typeNth(reset.page, 'input[type="password"]', 0, "1234");
+        await typeNth(reset.page, 'input[type="password"]', 1, "1234");
+        await clickText(reset.page, say("Save PIN", language));
+        await pause(reset.page, 600);
+        await said(reset, "A reset link", RULES[2][1]);
+        expect("A reset link sends nothing for a weak PIN", sent(reset.stub, "POST", "/api/auth/reset").length === 0, sent(reset.stub, "POST", "/api/auth/reset").length + " sent");
       } finally { await reset.context.close(); }
+
+      // Registering, the fifth PIN screen, holds the same rule.
+      const reg = await open({ signedIn: false });
+      try {
+        await clickText(reg.page, say("New Employee? Register Here", language));
+        await pause(reg.page, 700);
+        const person = ["Riley", "Invented", "0000000009", "nine@example.invalid", "1234", "1234"];
+        for (let i = 0; i < person.length; i += 1) await typeNth(reg.page, "input", i, person[i]);
+        await clickText(reg.page, say("Register", language));
+        await pause(reg.page, 900);
+        await said(reg, "Register", RULES[2][1]);
+        expect("Register sends nothing for a weak PIN", sent(reg.stub, "POST", "/api/auth/register").length === 0, sent(reg.stub, "POST", "/api/auth/register").length + " sent");
+      } finally { await reg.context.close(); }
     },
   },
   {
@@ -5819,5 +5840,209 @@ async function runJourneys(browser, base, opts) {
 }
 
 JOURNEYS.push(...weakJourneys);
+
+// --- Round 1 (part 348): nothing a cleaner does is lost ------------------
+//
+// One journey for each Now finding Round 1 fixes that no case asked
+// before: a check-off whose send stalls (PORT-04), check-offs waiting
+// through a sign-out and someone else's sign-in (PORT-05), a resolution
+// whose save fails (PORT-02), an issue whose photo does not attach
+// (PORT-01), and the guide's steps for More and Home against the screen
+// (PORT-12). Each fails on the main of part 344 and passes once its fix
+// is in.
+const CHECKOFF_PATH = /^\/api\/clock\/tasks\/[^/]+\/complete$/;
+const checkoffSends = (stub) => stub.state.calls.filter(c => c.method === "POST" && CHECKOFF_PATH.test(c.path));
+const doneLabel = (language, label) => say("Mark {name} not done", language).replace("{name}", nameIn(label, say("Mark {name} done", language)));
+const hasAria = (page, label) => page.evaluate((l) => Array.from(document.querySelectorAll("button[aria-label]")).some(x => x.getAttribute("aria-label") === l), label);
+const SAVED_LINE = "Saved on this phone. It sends when you have signal.";
+// An entry of the guide, from its title line to the next.
+const guideEntry = (title) => {
+  const text = require("fs").readFileSync(require("path").join(__dirname, "..", "guide", "APP-PORTAL.md"), "utf8");
+  const at = text.indexOf("## " + title + "\n");
+  if (at === -1) return "";
+  const end = text.indexOf("\n## ", at + 3);
+  return text.slice(at, end === -1 ? text.length : end);
+};
+const ROUND1_SUPERVISOR = Object.assign({}, PERSON, { id: "u-round1-sup", role: "supervisor" });
+
+const ROUND1_JOURNEYS = [
+  {
+    id: "stalledcheckoff",
+    label: "A check-off whose send stalls: on the phone before it is sent, no signal after 15 seconds, and sent once by itself after the app is closed and opened again",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1200);
+        const label = await taskBox(app.page, language, false);
+        // The API takes the tap and answers a minute late.
+        app.stub.state.trouble = { method: "POST", path: CHECKOFF_PATH, kind: "hold", ms: 60000 };
+        await tapAria(app.page, label);
+        await pause(app.page, 500);
+        const waiting = await pendingTaps(app.page);
+        expect("a check-off is kept on the phone before its send has an answer", waiting === 1, waiting + " on the phone while the send waits");
+        expect("the box shows the tap at once", await hasAria(app.page, doneLabel(language, label)), "the box did not change while the send waits");
+        expect("the saved line waits until a send has failed", !has(await bodyText(app.page), say(SAVED_LINE, language)), "shown while the first send waited");
+        const shown = await weakSeen(app.page, [say(SAVED_LINE, language)], 18000);
+        expect("a send with no answer in 15 seconds is no signal, and the line says the tap is saved on the phone", shown, "no line after 18 seconds");
+        expect("the tap is still on the phone once the send ran out of time", (await pendingTaps(app.page)) === 1, (await pendingTaps(app.page)) + " on the phone");
+        // The app closed and opened again with signal: the tap goes by
+        // itself and leaves the phone.
+        await app.page.reload();
+        await pause(app.page, 3000);
+        const sends = checkoffSends(app.stub);
+        const left = await pendingTaps(app.page);
+        expect("after the app opens again the tap goes by itself and leaves the phone", sends.length >= 2 && left === 0, sends.length + " sends, " + left + " on the phone");
+        expect("every send of the tap carries one clientId, so the API keeps it once", new Set(sends.map(c => c.body && c.body.clientId)).size === 1, JSON.stringify(sends.map(c => c.body)));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "signoutkeeps",
+    label: "Check-offs waiting through a sign-out: kept on the phone under the person, never sent under someone else's sign-in, and sent at the person's own next sign-in",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1200);
+        const label = await taskBox(app.page, language, false);
+        await app.context.setOffline(true); app.stub.state.offline = true;
+        await tapAria(app.page, label);
+        await pause(app.page, 900);
+        expect("a tap with no signal is kept on the phone", (await pendingTaps(app.page)) === 1, (await pendingTaps(app.page)) + " on the phone");
+        await tapAria(app.page, say("Sign out", language));
+        await pause(app.page, 1500);
+        expect("signing out with no signal keeps the tap on the phone", (await pendingTaps(app.page)) === 1, (await pendingTaps(app.page)) + " on the phone after signing out");
+        app.stub.state.offline = false; await app.context.setOffline(false);
+        // The sends tried with no signal are behind this mark.
+        const tried = checkoffSends(app.stub).length;
+        // Someone else signs in on the same phone (the suite's session
+        // comes back on a reload, as the stub's second person).
+        app.stub.state.person = Object.assign({}, SECOND_PERSON);
+        await app.page.reload();
+        await pause(app.page, 2000);
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1500);
+        expect("another person's sign-in sends nothing of the first person's", checkoffSends(app.stub).length === tried, (checkoffSends(app.stub).length - tried) + " sent under the second person");
+        expect("another person's sign-in keeps the first person's tap on the phone", (await pendingTaps(app.page)) === 1, (await pendingTaps(app.page)) + " on the phone");
+        expect("the second person's checklist does not say the first person's tap is waiting", !has(await bodyText(app.page), say(SAVED_LINE, language)), "the saved line showed for someone else's tap");
+        // The first person signs in again.
+        app.stub.state.person = Object.assign({}, PERSON);
+        await app.page.reload();
+        await pause(app.page, 3000);
+        const sends = checkoffSends(app.stub).slice(tried);
+        expect("the person's own next sign-in sends their tap once and it leaves the phone", sends.length === 1 && (await pendingTaps(app.page)) === 0, sends.length + " sent, " + (await pendingTaps(app.page)) + " on the phone");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "resolvekeeps",
+    label: "A resolution whose save fails keeps the note and the photo, says why, and is saved on Submit Resolution again with the photo sent once",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "issuetasks", language);
+        await pause(app.page, 900);
+        await openItem(app.page, "Replace the cracked light cover");
+        await pause(app.page, 700);
+        await clickText(app.page, say("Resolved", language));
+        const note = "Put a new cover on, weak signal";
+        await typeNth(app.page, ".sp-content textarea", 0, note);
+        await attachPhoto(app.page, '.sp-content input[type="file"]');
+        await pause(app.page, 700);
+        app.stub.state.trouble = { method: "PATCH", path: /^\/api\/clock\/tasks\/resolve\//, kind: "500" };
+        await clickText(app.page, say("Submit Resolution", language));
+        const said = await weakSeen(app.page, weakLines(language), 4000);
+        await pause(app.page, 600);
+        const kept = await boxValue(app.page, ".sp-content textarea", 0);
+        const photo = await app.page.evaluate(() => !!document.querySelector('.sp-content img[src^="data:"]'));
+        expect("a resolution whose save fails says why", said, "no line said it was not saved");
+        expect("a resolution whose save fails keeps the note", kept === note, JSON.stringify(kept));
+        expect("a resolution whose save fails keeps the photo", photo, "the photo is gone");
+        await clickText(app.page, say("Submit Resolution", language));
+        await pause(app.page, 1500);
+        const saves = sent(app.stub, "PATCH", "/api/clock/tasks/resolve/");
+        const ups = sent(app.stub, "POST", "/api/uploads");
+        expect("Submit Resolution again saves it, with the note", saves.length === 2 && saves[1].body && saves[1].body.resolutionNote === note && !!saves[1].body.photoUrl, JSON.stringify(saves.map(c => c.body)));
+        expect("the photo is sent once", ups.length === 1, ups.length + " uploads");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "issuephoto",
+    label: "An issue whose photo does not attach: the issue goes once, the screen says the photo did not attach, and Try again attaches it to the same issue",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await issueReady(true)(app, language);
+        app.stub.state.trouble = { method: "POST", path: /^\/api\/issues\/[^/]+\/photos$/, kind: "500" };
+        await clickText(app.page, say("Submit Issue", language));
+        await pause(app.page, 1500);
+        const line = say("Issue reported. Its photo did not attach.", language);
+        expect("the screen says the photo did not attach", has(await bodyText(app.page), line), (await bodyText(app.page)).slice(0, 220));
+        expect("the issue went once", app.stub.state.issues.length === 1, app.stub.state.issues.length + " issues");
+        await clickText(app.page, say("Try again", language));
+        await pause(app.page, 1500);
+        const issues = app.stub.state.issues;
+        expect("Try again attaches the photo to the same issue, and the line goes", issues.length === 1 && issues[0].photos.length === 1 && !has(await bodyText(app.page), line), issues.length + " issues, " + (issues[0] ? issues[0].photos.length : 0) + " photos");
+        expect("the photo is uploaded once", sent(app.stub, "POST", "/api/uploads").length === 1, sent(app.stub, "POST", "/api/uploads").length + " uploads");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "guidemore",
+    label: "Help's steps for More and Home match the screen: every place under More is named in Use the bottom bar and More, and Home's cards are named in What Home shows in the order Home draws them",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, sds: true, workspace: true, fieldKit: true, training: true, signatures: true, support: true, library: true, unfinishedForms: true, requests: true } });
+      try {
+        await pause(app.page, 2500);
+        // Home's cards, by the words each one opens with, where the screen
+        // shows them.
+        // Each card as the guide names it, with the words it reads for one.
+        const CARDS = [
+          ["Your first trainings", null],
+          ["{n} to sign", "1 to sign"],
+          ["Unfinished forms ({n})", null],
+          ["{n} client requests need you", "1 client request needs you"],
+          ["{n} trainings to do", "1 training to do"],
+        ];
+        const text = await bodyText(app.page);
+        const where = (en, one) => {
+          const re = new RegExp(say(en, language).split("{n}").map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\d+"));
+          const m = re.exec(text);
+          const i = m ? m.index : -1;
+          const j = one ? text.indexOf(say(one, language)) : -1;
+          return i === -1 ? j : j === -1 ? i : Math.min(i, j);
+        };
+        const onHome = CARDS.map(([en, one]) => ({ en: en, at: where(en, one) })).filter(c => c.at !== -1).sort((a, b) => a.at - b.at).map(c => c.en);
+        const home = guideEntry("What Home shows (staff portal)");
+        const inGuide = onHome.map(en => home.indexOf("**" + en + "**"));
+        expect("Home shows at least three of its cards here", onHome.length >= 3, JSON.stringify(onHome));
+        expect("What Home shows names every card Home shows", inGuide.every(i => i !== -1), JSON.stringify(onHome.filter((en, k) => inGuide[k] === -1)));
+        expect("What Home shows names Home's cards in the order Home draws them", inGuide.every((i, k) => k === 0 || i > inGuide[k - 1]), JSON.stringify(onHome));
+        // More, the bar's last button.
+        await app.page.evaluate(() => {
+          const bar = Array.from(document.querySelectorAll("div")).find((el) => { const st = getComputedStyle(el); return st.position === "fixed" && st.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5; });
+          const b = bar && Array.from(bar.querySelectorAll(":scope > button")).pop();
+          if (b) b.click();
+        });
+        await pause(app.page, 1500);
+        const items = await app.page.evaluate(() => {
+          const grid = Array.from(document.querySelectorAll(".sp-more div")).find(d => getComputedStyle(d).display === "grid" && d.querySelectorAll(":scope > button").length >= 5);
+          return grid ? Array.from(grid.querySelectorAll(":scope > button")).map(x => x.textContent.trim().replace(/^(9\+|\d+)/, "")) : [];
+        });
+        const more = guideEntry("Use the bottom bar and More (staff portal)");
+        const missing = items.filter(w => more.indexOf("**" + w + "**") === -1);
+        expect("More holds the places that show once OCSA answers", items.length >= 15, JSON.stringify(items));
+        expect("Use the bottom bar and More names every place under More", missing.length === 0, JSON.stringify(missing));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...ROUND1_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };

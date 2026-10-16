@@ -227,48 +227,6 @@
       "why": "A customer_concern notice has no place in the portal: NOTIF_TAB (src/App.js:10898-10941) has no entry for it and notifPlace (src/App.js:10975-10982) answers null, so a tap only marks it read and offers the dashboard, a second sign-in. Contract 2.6 says a notice tap opens the item itself. Findings: notices that open nothing."
     },
     {
-      "where": "src/App.js",
-      "check": "no Spanish entry",
-      "what": "\"This session did not open. Try again.\" has no Spanish entry",
-      "why": "Handed to fkFaultWords (src/App.js:15502), which runs tr() on it, at line 8975; src/words.js has no Spanish for it, so a Spanish screen shows it in English. audit/words.js reads helper arguments since part 344, which is how it was found."
-    },
-    {
-      "where": "src/App.js",
-      "check": "no Spanish entry",
-      "what": "\"This document did not open. Try again.\" has no Spanish entry",
-      "why": "Handed to fkFaultWords (src/App.js:15502), which runs tr() on it, at line 9162; src/words.js has no Spanish for it, so a Spanish screen shows it in English. audit/words.js reads helper arguments since part 344, which is how it was found."
-    },
-    {
-      "where": "src/App.js",
-      "check": "no Spanish entry",
-      "what": "\"This session did not start. Try again.\" has no Spanish entry",
-      "why": "Handed to fkFaultWords (src/App.js:15502), which runs tr() on it, at line 16259; src/words.js has no Spanish for it, so a Spanish screen shows it in English. audit/words.js reads helper arguments since part 344, which is how it was found."
-    },
-    {
-      "where": "src/App.js",
-      "check": "no Spanish entry",
-      "what": "\"The session was not closed. Try again.\" has no Spanish entry",
-      "why": "Handed to fkFaultWords (src/App.js:15502), which runs tr() on it, at line 16281; src/words.js has no Spanish for it, so a Spanish screen shows it in English. audit/words.js reads helper arguments since part 344, which is how it was found."
-    },
-    {
-      "where": "src/App.js",
-      "check": "no Spanish entry",
-      "what": "\"This checklist did not start. Try again.\" has no Spanish entry",
-      "why": "Handed to fkFaultWords (src/App.js:15502), which runs tr() on it, at line 16465; src/words.js has no Spanish for it, so a Spanish screen shows it in English. audit/words.js reads helper arguments since part 344, which is how it was found."
-    },
-    {
-      "where": "Weak signal: a check-off",
-      "check": "a check-off is kept on the phone (the API answering 500)",
-      "what": "the work is gone",
-      "why": "A check-off that meets a 500 (or a 502 or 503 while Railway replaces its one container) is not kept: toggleTask keeps a tap only for ERR_OFFLINE or auth.mustSetPin (src/App.js:2566), so the box goes back and a 3-second toast is all the cleaner sees. A queued tap that meets one later is deleted (src/App.js:2591-2597)."
-    },
-    {
-      "where": "Weak signal: an uncheck",
-      "check": "an uncheck is kept on the phone (the API answering 500)",
-      "what": "the work is gone",
-      "why": "The same as a check-off: an uncheck that meets a 500 is not kept (src/App.js:2566)."
-    },
-    {
       "where": "Weak signal: End Shift",
       "check": "End Shift goes by itself once the signal is back (the signal gone as the tap is made)",
       "what": "nothing was sent",
@@ -276,45 +234,15 @@
     },
     {
       "where": "Weak signal: an issue with a photo",
-      "check": "an issue with a photo is kept on the phone (the API answering 500)",
-      "what": "the work is gone",
-      "why": "submitIssue catches its own error and returns (src/App.js:2662), and handleSubmit then clears the title, details, zone and photo and closes the form (src/App.js:7696), so the report is gone when the send fails. With a photo, a drop at the photo's upload keeps the form, since uploadPhoto throws first."
-    },
-    {
-      "where": "Weak signal: an issue with a photo",
-      "check": "an issue with a photo is kept on the phone (the work kept and the answer lost, then tried again)",
-      "what": "the work is gone",
-      "why": "submitIssue catches its own error and returns (src/App.js:2662), and handleSubmit then clears the title, details, zone and photo and closes the form (src/App.js:7696), so the report is gone when the send fails. With a photo, a drop at the photo's upload keeps the form, since uploadPhoto throws first."
-    },
-    {
-      "where": "Weak signal: an issue with a photo",
       "check": "an issue with a photo reaches the API once (the work kept and the answer lost, then tried again)",
       "what": "2 records",
-      "why": "When the API keeps the issue and the answer is lost, the form is already cleared, the person reports it again, and the API gets a second issue: POST /api/issues carries no clientId (src/App.js:2662), and every admin and supervisor is told twice."
-    },
-    {
-      "where": "Weak signal: an issue with no photo",
-      "check": "an issue with no photo is kept on the phone (the signal gone as the tap is made)",
-      "what": "the work is gone",
-      "why": "submitIssue catches its own error and returns (src/App.js:2662), and handleSubmit then clears the title, details, zone and photo and closes the form (src/App.js:7696), so the report is gone when the send fails."
-    },
-    {
-      "where": "Weak signal: an issue with no photo",
-      "check": "an issue with no photo is kept on the phone (the API answering 500)",
-      "what": "the work is gone",
-      "why": "submitIssue catches its own error and returns (src/App.js:2662), and handleSubmit then clears the title, details, zone and photo and closes the form (src/App.js:7696), so the report is gone when the send fails."
-    },
-    {
-      "where": "Weak signal: an issue with no photo",
-      "check": "an issue with no photo is kept on the phone (the work kept and the answer lost, then tried again)",
-      "what": "the work is gone",
-      "why": "submitIssue catches its own error and returns (src/App.js:2662), and handleSubmit then clears the title, details, zone and photo and closes the form (src/App.js:7696), so the report is gone when the send fails."
+      "why": "When the API keeps the issue and the answer is lost, the form is kept since Round 1 (PORT-01), the person taps Submit Issue again, and the API gets a second issue: POST /api/issues carries no clientId yet, so every admin and supervisor is told twice. The clientId waits for the API's Round 2."
     },
     {
       "where": "Weak signal: an issue with no photo",
       "check": "an issue with no photo reaches the API once (the work kept and the answer lost, then tried again)",
       "what": "2 records",
-      "why": "When the API keeps the issue and the answer is lost, the form is already cleared, the person reports it again, and the API gets a second issue: POST /api/issues carries no clientId (src/App.js:2662), and every admin and supervisor is told twice."
+      "why": "When the API keeps the issue and the answer is lost, the form is kept since Round 1 (PORT-01), the person taps Submit Issue again, and the API gets a second issue: POST /api/issues carries no clientId yet, so every admin and supervisor is told twice. The clientId waits for the API's Round 2."
     },
     {
       "where": "Site walk",
