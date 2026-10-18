@@ -387,6 +387,15 @@ const SHOTS = [
     go: async (s) => { await s.hasBar(); return s.waitText(s.say("Choose a Site to Start")); } },
   { name: "end-shift", entry: E("End your shift"), o: { signedIn: true },
     go: async (s) => { await s.hasBar(); if (!(await s.waitText(s.say("End Shift")))) return false; await s.mark("button", s.say("End Shift")); return true; } },
+  // Part 355: End Shift tapped with the signal gone, kept with its line.
+  { name: "end-shift-waiting", entry: E("End your shift"), o: { signedIn: true },
+    go: async (s) => {
+      await s.hasBar();
+      if (!(await s.waitText(s.say("End Shift")))) return false;
+      await s.page.context().setOffline(true); s.stub.state.offline = true;
+      await s.tap(s.say("End Shift"));
+      return s.waitFor(() => !!document.querySelector('[data-end-waiting="1"]'));
+    } },
   { name: "sign-out", entry: E("Sign out"), o: { signedIn: true },
     go: async (s) => { await s.hasBar(); return s.mark('button[aria-label="' + s.say("Sign out") + '"]'); } },
   { name: "bottom-bar-more", entry: E("Use the bottom bar and More"), o: { signedIn: true, stub: { support: true, library: true } },
@@ -808,6 +817,12 @@ const SHOTS = [
       await s.page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaciones/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
       return s.waitText(s.say("Mark all read"));
     } },
+  // Part 355: an HR case and a client's concern, each opened from its
+  // phone alert by a supervisor, read only.
+  { name: "case-sheet", entry: E("Read an HR case from a notice"), o: { signedIn: true, path: "/?open=hr_case_assigned:case-1", stub: { person: SUPERVISOR } },
+    go: (s) => s.waitFor(() => !!document.querySelector('[data-case-sheet] [data-case-read="1"]')) },
+  { name: "client-concern", entry: E("Read a client's concern from a notice"), o: { signedIn: true, path: "/?open=customer_concern:cc-1", stub: { person: SUPERVISOR } },
+    go: (s) => s.waitFor(() => !!document.querySelector('[data-concern-sheet] [data-concern-read="1"]')) },
   { name: "text-size", entry: E("Make the text bigger"), o: { signedIn: true }, go: (s) => settingsAt(s, "Text size") },
   { name: "appearance", entry: E("Switch between light and dark"), o: { signedIn: true }, go: (s) => settingsAt(s, "Appearance") },
   { name: "language", entry: E("Switch the app to Spanish or English"), o: { signedIn: true }, go: (s) => settingsAt(s, "Language") },

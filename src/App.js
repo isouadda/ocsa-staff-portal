@@ -260,7 +260,7 @@ async function uploadPhoto(file, token) {
     });
   } finally { flightDown(); }
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-  if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(e.error || AGENT_PHOTO_FAILED); }
+  if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(ownRefusal(e.code) || e.error || AGENT_PHOTO_FAILED); }
   const data = await readJson(res);
   return data.url;
 }
@@ -273,7 +273,7 @@ async function uploadTaskMedia(file, token) {
     body: file,
   });
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-  if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(e.error || UPLOAD_FAILED); }
+  if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(ownRefusal(e.code) || e.error || UPLOAD_FAILED); }
   return readJson(res);
 }
 
@@ -408,7 +408,7 @@ async function uploadAgentPhoto(blob, token) {
     body: blob,
   });
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-  if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(e.error || AGENT_PHOTO_FAILED); }
+  if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(ownRefusal(e.code) || e.error || AGENT_PHOTO_FAILED); }
   const data = await readJson(res).catch(() => null);
   if (!data || !data.path) throw new Error(AGENT_PHOTO_FAILED);
   return data.path;
@@ -536,16 +536,55 @@ const requestInit = (opts) => {
 // sent with, so an answer to a request made before a PIN change gave
 // this phone a new token changes nothing.
 const TYPED_PIN_401 = ["PIN_INCORRECT", "auth.pinIncorrect"];
+// The refusals the API answers since its Round 1 (part 346), each in the
+// portal's own plain words with what to do next (Round 2, part 355), so a
+// cleaner reads the same sentence on every screen in every language. Every
+// other refusal keeps the API's own words, which say the next step.
+// auth.checkUnavailable (503, any route) is OCSA not reaching its own
+// records for a moment: it means try again, and nothing is lost or ended.
+const CHECK_AGAIN_WORDS = "OCSA could not check your sign-in just now. Try again in a moment.";
+const OWN_REFUSALS = {
+  "auth.givenPinExpired": "The PIN the office gave you has expired. Call the office for a new one, or tap Forgot your PIN? to choose your own by email.",
+  "auth.lockedUntilOffice": "Too many tries today, so your account is locked until the office unlocks it. Call the office, or tap Forgot your PIN? to reset it by email.",
+  "PIN_WEAK": "Choose a PIN that is not repeated digits, a sequence, or your badge number",
+  "auth.checkUnavailable": CHECK_AGAIN_WORDS,
+  "uploads.badBucket": "This photo could not be saved. Try again, and tell the office if it happens again.",
+  "issues.clientIdInvalid": "This report could not be sent as it was. Tap Submit Issue again.",
+  "tasks.resolve.alreadySettled": "This task is already finished or marked as unable to finish, so there is nothing more to send.",
+  "tasks.resolve.issueClosed": "The problem behind this task is already closed, so there is nothing more to send.",
+  "pickups.onLeave": "You have time off approved that day, so this shift cannot be yours. Pick a shift on another day.",
+};
+// A task the API says is already settled, or whose problem is closed
+// (409, since API part 346): nothing is left to send, so the form closes
+// and the list is read again, said as a notice and never as a failure.
+const settledTask = (err) => !!err && (err.code === "tasks.resolve.alreadySettled" || err.code === "tasks.resolve.issueClosed");
+const ownRefusal = (code) => (code && Object.prototype.hasOwnProperty.call(OWN_REFUSALS, code) ? OWN_REFUSALS[code] : null);
+// A refusal that means try again in a moment, never a failure.
+const checkAgain = (err) => !!err && err.code === "auth.checkUnavailable";
 const authEvent = (name, opts) => { try { return new CustomEvent(name, { detail: { token: opts.token || null } }); } catch (e) { return new Event(name); } };
 function refusalOf(status, err, opts) {
   const code = err && err.code ? String(err.code) : null;
   if (status === 401 && !opts.noAuthEvent && TYPED_PIN_401.indexOf(code) === -1) { window.dispatchEvent(authEvent("ocsa-session-expired", opts)); return new Error("Session expired"); }
   if (status === 403 && code === "auth.mustSetPin" && !opts.noAuthEvent) window.dispatchEvent(authEvent("ocsa-must-set-pin", opts));
-  const e = new Error(err.error || "Request failed"); e.status = status; e.code = code; e.body = err;
+  const e = new Error(ownRefusal(code) || err.error || "Request failed"); e.status = status; e.code = code; e.body = err;
   return e;
 }
 async function refuseUnlessOk(res, opts) {
   if (!res.ok) throw refusalOf(res.status, await readJson(res).catch(() => ({ error: "Request failed" })), opts);
+}
+
+// The portal neither reads nor shows a cost or a dollar figure to anyone
+// (Round 2, part 355; the owner's decision: supervisors see hours only).
+// The API leaves these out of every answer for anyone without
+// manage_employment (its helpers/pay.js PAY_KEYS, which are these); the
+// portal drops the same keys from every answer as it arrives, so even an
+// admin's answer holds none here, on the screen or on the phone.
+const MONEY_KEYS = new Set(["hourlyRate", "hourly_rate", "avg_rate", "grossPay", "total_cost", "ot_premium", "total_ot_premium", "regular_pay", "ot_pay", "total_pay", "cost_change_pct", "total_estimated_cost", "estimated_cost", "green_cost", "non_green_cost", "green_cost_pct", "contract_value_monthly", "contractValueMonthly", "cost_per_unit", "costPerUnit", "unit_cost", "unitCost", "monthlyPrice", "annualPrice", "monthly_price", "annual_price", "laborCostPerSquareFoot"]);
+function withoutMoney(v, depth) {
+  if ((depth || 0) > 12 || !v || typeof v !== "object") return v;
+  if (Array.isArray(v)) { v.forEach(x => withoutMoney(x, (depth || 0) + 1)); return v; }
+  Object.keys(v).forEach((k) => { if (MONEY_KEYS.has(k)) delete v[k]; else withoutMoney(v[k], (depth || 0) + 1); });
+  return v;
 }
 
 async function api(path, opts = {}) {
@@ -556,7 +595,7 @@ async function api(path, opts = {}) {
     res = await reach(API + path, init);
   } finally { flightDown(); }
   await refuseUnlessOk(res, opts);
-  return readJson(res);
+  return withoutMoney(await readJson(res));
 }
 
 // A file or several, sent as multipart form data under one name. The
@@ -575,7 +614,7 @@ async function apiUpload(path, name, files, opts = {}) {
     res = await reach(API + path, { method: "POST", headers: headers, body: form });
   } finally { flightDown(); }
   await refuseUnlessOk(res, opts);
-  return readJson(res);
+  return withoutMoney(await readJson(res));
 }
 
 // An image the API streams behind the token, as a blob: the screen makes
@@ -1389,6 +1428,19 @@ function readPending() {
 }
 function writePending(list) {
   try { if (list.length) window.localStorage.setItem(PENDING_KEY, JSON.stringify(list)); else window.localStorage.removeItem(PENDING_KEY); } catch (e) {}
+}
+// An End Shift tapped and not yet taken by the API (Round 2, PORT-06):
+// the session, whose it is, its site and the time it was tapped, and how
+// many sends it has met no answer on. It is kept on this phone like a
+// check-off, goes by itself once there is signal, after the person's
+// check-offs still waiting, and carries its tapped time as endedAt, which
+// the API takes when it is no more than 12 hours old.
+const END_KEY = "ocsa-pending-end";
+function readPendingEnd() {
+  try { const v = JSON.parse(window.localStorage.getItem(END_KEY) || "null"); return v && v.sessionId && v.endedAt ? v : null; } catch (e) { return null; }
+}
+function writePendingEnd(v) {
+  try { if (v) window.localStorage.setItem(END_KEY, JSON.stringify(v)); else window.localStorage.removeItem(END_KEY); } catch (e) {}
 }
 // The taps still waiting for one site, as each task's last tap: checked
 // or unchecked, the way the person left it.
@@ -2230,7 +2282,9 @@ export default function OCSAStaffPortal() {
   const zoom = zoomOf(textSize);
 
   useEffect(() => { const i = setInterval(() => setCurrentTime(now()), 1000); return () => clearInterval(i); }, []);
-  const showToast = useCallback((msg, type = "success") => { toastsRef.current.add(msg, type); }, []);
+  // A refusal that means try again (auth.checkUnavailable) is said as a
+  // notice, never in a failure's red, whichever screen it comes from.
+  const showToast = useCallback((msg, type = "success") => { toastsRef.current.add(msg, type === "error" && msg === tr(CHECK_AGAIN_WORDS) ? "notice" : type); }, []);
   const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); setAssignedFailed(false); } catch (err) { console.error(err); setAssignedFailed(true); } }, [token]);
   const loadSessionSites = useCallback(async (tkn) => { try { const data = await api("/api/shift-sessions/sites", { token: tkn || token }); setSessionSites(data); setSessionSitesFailed(false); } catch (err) { console.error(err); setSessionSitesFailed(true); } }, [token]);
   // One read of clock status for every path that has to redraw from the
@@ -2323,9 +2377,12 @@ export default function OCSAStaffPortal() {
           if (said) setLoginFault({ text: tr(said), lock: false });
           return;
         }
-        const open = wentNowhere(err) ? keptToOpen() : null;
+        // OCSA not able to check the sign-in for a moment (503
+        // auth.checkUnavailable) is read like no signal: the list kept on
+        // the phone opens, or the splash says to try again and does.
+        const open = wentNowhere(err) || checkAgain(err) ? keptToOpen() : null;
         if (open) { booted.current = true; setBootFault(null); openKept(open); setBooting(false); return; }
-        setBootFault(wentNowhere(err) ? ERR_OFFLINE : ERR_GENERIC);
+        setBootFault(wentNowhere(err) ? ERR_OFFLINE : checkAgain(err) ? CHECK_AGAIN_WORDS : ERR_GENERIC);
       });
   }, [hydrateSession]);
   useEffect(() => {
@@ -2394,7 +2451,8 @@ export default function OCSAStaffPortal() {
       const said = err && err.body && err.body.error ? String(err.body.error) : "";
       const code = err && err.code ? String(err.code) : "";
       if (code === "auth.invalidCredentials") wrongTries.current += 1;
-      const text = !said && wentNowhere(err) ? tr(ERR_OFFLINE) : said ? tr(said) : tr("That sign-in did not match. Check your badge, phone or email and your PIN.");
+      const own = ownRefusal(code);
+      const text = own ? tr(own) : !said && wentNowhere(err) ? tr(ERR_OFFLINE) : said ? tr(said) : tr("That sign-in did not match. Check your badge, phone or email and your PIN.");
       setLoginFault({ text: text, lock: (code === "auth.invalidCredentials" && wrongTries.current >= 3) || code === "auth.locked" });
     } finally {
       signingIn.current = false;
@@ -2492,8 +2550,12 @@ export default function OCSAStaffPortal() {
 
   const handleRegister = async (firstName, lastName, phone, email, pin) => {
     setLoading(true);
-    try { await api(signedOut("/api/auth/register", language), { method: "POST", body: { firstName, lastName, phone, email, pin } }); showToast(tr("Registration submitted. Pending supervisor approval.")); setScreen("login"); } catch (err) { showToast(tr(err.message), "error"); }
+    // A PIN the API turns away (PIN_WEAK) is said under the PIN box, the
+    // way the other four PIN screens say it, and the form stays.
+    let refused = null;
+    try { await api(signedOut("/api/auth/register", language), { method: "POST", body: { firstName, lastName, phone, email, pin } }); showToast(tr("Registration submitted. Pending supervisor approval.")); setScreen("login"); } catch (err) { if (err.code === "PIN_WEAK") refused = { pin: tr(err.message) }; else showToast(tr(err.message), "error"); }
     setLoading(false);
+    return refused;
   };
 
   // Signing out deletes this phone's subscription on the API before the
@@ -2519,7 +2581,9 @@ export default function OCSAStaffPortal() {
       // 201 is a new session. 200 is the same site already open, which
       // the API answers with that session, so it takes the same path and
       // creates nothing twice.
-      const data = await api("/api/shift-sessions", { method: "POST", body: { siteId }, token });
+      // The tap's own time, which the API takes as the start when it is no
+      // more than 12 hours old (Round 2, PORT-06).
+      const data = await api("/api/shift-sessions", { method: "POST", body: { siteId, startedAt: new Date().toISOString() }, token });
       const cs = await refreshClockStatus();
       setTasks(null); setPendingSite(null);
       // A site with shifts asks which one, over the checklist it opens on.
@@ -2537,30 +2601,64 @@ export default function OCSAStaffPortal() {
     setLoading(false);
   };
 
+  // End Shift (Round 2, PORT-06). The end is kept on this phone the moment
+  // it is confirmed, with the time it was tapped, then sent. With no
+  // signal, no answer in time or a server fault it stays, says so on
+  // Home, and goes by itself once there is signal, after the person's
+  // check-offs still waiting, since a check needs the shift open. Tapping
+  // End Shift again while it waits sends it now.
+  const [endPending, setEndPending] = useState(() => readPendingEnd());
+  const endRef = useRef(endPending);
+  const putEnd = (v) => { endRef.current = v; writePendingEnd(v); setEndPending(v); };
+  const endedHere = (data) => {
+    setClockStatus({ clockedIn: false, shift: null, session: null });
+    setSelectedSite(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set());
+    setShiftAsk(null); setShiftFault(null); setTickOverrides(new Map());
+    const endedAt = data && data.session ? data.session.endedAt : null;
+    showToast(endedAt ? tr("Shift ended at {time}", { time: formatTime(endedAt) }) : tr("Shift ended"));
+  };
+  const sendingEnd = useRef(false);
+  const sendEnd = async () => {
+    const end = endRef.current;
+    if (!end || sendingEnd.current || !token || !user || String(end.userId) !== String(user.id)) return;
+    // Check-offs first: they need the shift open.
+    if (pendingRef.current.some(mine)) return;
+    sendingEnd.current = true;
+    const tok = token;
+    setLoading(true);
+    try {
+      const data = await api("/api/shift-sessions/" + end.sessionId + "/end", { method: "POST", body: { endedAt: end.endedAt }, token: tok });
+      if (liveToken.current !== tok) return;
+      putEnd(null);
+      endedHere(data);
+    } catch (err) {
+      if (err.code === "SESSION_ALREADY_ENDED") {
+        // Ended already: by this phone's own earlier send whose answer was
+        // lost, or somewhere else. Read the server's view and redraw.
+        putEnd(null);
+        setPendingSite(null); setStartBlock(null); setTasks(null);
+        try { await refreshClockStatus(); } catch (e) { setClockStatus({ clockedIn: false, shift: null, session: null }); setSelectedSite(null); }
+        showToast(tr(Number(end.tries) > 0 ? "Shift ended" : "This shift was already ended"));
+      } else if (keepsTap(err)) {
+        if (endRef.current) putEnd({ ...endRef.current, tries: (Number(endRef.current.tries) || 0) + 1 });
+      } else { putEnd(null); showToast(tr(err.message), "error"); }
+    } finally { sendingEnd.current = false; setLoading(false); }
+  };
+  const sendEndRef = useRef(sendEnd);
+  sendEndRef.current = sendEnd;
   const handleEndSession = async () => {
+    // A tap while an end waits sends it now.
+    if (endRef.current) { sendPendingRef.current(); sendEnd(); return; }
     const shift = clockStatus?.shift;
     // /api/clock/status carries the id as shift.sessionId, with shift.id
     // and session.id holding the same value. Without one, nothing is sent.
     const id = shift?.sessionId || shift?.id || clockStatus?.session?.id;
     if (!id) { showToast(tr("Could not find your open shift. Reload and try again."), "error"); return; }
     if (!window.confirm(tr("End your shift at {site}?", { site: shift.siteName || tr("this site") }))) return;
-    setLoading(true);
-    try {
-      const data = await api("/api/shift-sessions/" + id + "/end", { method: "POST", token });
-      setClockStatus({ clockedIn: false, shift: null, session: null });
-      setSelectedSite(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set());
-      setShiftAsk(null); setShiftFault(null); setTickOverrides(new Map());
-      const endedAt = data && data.session ? data.session.endedAt : null;
-      showToast(endedAt ? tr("Shift ended at {time}", { time: formatTime(endedAt) }) : tr("Shift ended"));
-    } catch (err) {
-      if (err.code === "SESSION_ALREADY_ENDED") {
-        // Ended somewhere else already. Read the server's view and redraw.
-        setPendingSite(null); setStartBlock(null); setTasks(null);
-        try { await refreshClockStatus(); } catch (e) { setClockStatus({ clockedIn: false, shift: null, session: null }); setSelectedSite(null); }
-        showToast(tr("This shift was already ended"));
-      } else { showToast(tr(err.message), "error"); }
-    }
-    setLoading(false);
+    putEnd({ sessionId: String(id), userId: user ? user.id : null, siteId: shift.siteId || null, endedAt: new Date().toISOString(), tries: 0 });
+    // Check-offs still waiting go first; the end follows them.
+    if (pendingRef.current.some(mine)) { await sendPending(); return; }
+    await sendEnd();
   };
 
   // The request the list in tasks came back for, and the one in flight.
@@ -2644,6 +2742,8 @@ export default function OCSAStaffPortal() {
   };
   const sendingPending = useRef(false);
   const sendPending = async () => {
+    // With no check-off waiting, an End Shift waiting goes (PORT-06).
+    if (!sendingPending.current && token && user && !pendingRef.current.some(mine)) { if (endRef.current) sendEndRef.current(); return; }
     if (sendingPending.current || !token || !user || pendingRef.current.length === 0) return;
     sendingPending.current = true;
     const tok = token;
@@ -2697,6 +2797,8 @@ export default function OCSAStaffPortal() {
     // The list is read again, so a box the API turned away shows as the
     // API holds it.
     if (answered > 0 && token && liveToken.current === token) loadTasks(true);
+    // Every check-off gone: an End Shift waiting follows them.
+    if (endRef.current && liveToken.current === token && !pendingRef.current.some(mine)) sendEndRef.current();
   };
   const sendPendingRef = useRef(sendPending);
   sendPendingRef.current = sendPending;
@@ -2710,7 +2812,7 @@ export default function OCSAStaffPortal() {
   // And once the person they belong to is signed in again.
   const signedInId = user && user.id ? String(user.id) : null;
   useEffect(() => {
-    if (screen === "main" && token && signedInId && pendingRef.current.length > 0) sendPendingRef.current();
+    if (screen === "main" && token && signedInId && (pendingRef.current.length > 0 || endRef.current)) sendPendingRef.current();
   }, [screen, token, signedInId]);
   useEffect(() => {
     if (activeTab !== "tasks" || screen !== "main") return undefined;
@@ -2771,7 +2873,11 @@ export default function OCSAStaffPortal() {
   // attach comes back with photoFault, so the screen says so and can
   // attach it again without a second issue.
   const attachIssuePhoto = async (issueId, photoUrl) => { try { await api("/api/issues/" + issueId + "/photos", { method: "POST", body: { photoUrl }, token }); } finally { loadIssues(); } };
-  const submitIssue = async (title, description, zone, severity, photoUrl, siteId) => { const actualSiteId = siteId || clockStatus?.shift?.siteId; if (!actualSiteId) throw new Error("Select a site first"); const data = await api("/api/issues", { method: "POST", body: { siteId: actualSiteId, title, description, zone, severity }, token }); const issue = data && data.issue ? data.issue : null; if (photoUrl && issue) { try { await attachIssuePhoto(issue.id, photoUrl); } catch (err) { return { issue: issue, photoFault: err }; } } else loadIssues(); showToast(tr("Issue reported")); return { issue: issue }; };
+  // A report carries its own clientId (Round 2, part 355), the same on
+  // every try of it, so the API keeps it once however many times it is
+  // sent: a repeat answers the report already made, with nothing new
+  // written or told.
+  const submitIssue = async (title, description, zone, severity, photoUrl, siteId, clientId) => { const actualSiteId = siteId || clockStatus?.shift?.siteId; if (!actualSiteId) throw new Error("Select a site first"); const data = await api("/api/issues", { method: "POST", body: Object.assign({ siteId: actualSiteId, title, description, zone, severity }, clientId ? { clientId: clientId } : {}), token }); const issue = data && data.issue ? data.issue : null; if (photoUrl && issue) { try { await attachIssuePhoto(issue.id, photoUrl); } catch (err) { return { issue: issue, photoFault: err }; } } else loadIssues(); showToast(tr("Issue reported")); return { issue: issue }; };
   const loadSupplies = async () => { try { const url = clockStatus?.shift?.siteId ? "/api/supplies?site_id=" + clockStatus.shift.siteId : "/api/supplies"; const data = await api(url, { token }); setSupplies(data); setSuppliesLoaded(true); setSuppliesFailed(false); } catch (err) { console.error(err); setSuppliesFailed(true); } };
   const logSupplyUsage = async (supplyId, quantity) => { try { const data = await api("/api/supplies/log-usage", { method: "POST", body: { supplyId, quantity, siteId: clockStatus.shift.siteId, scanMethod: "manual" }, token }); showToast(data.message); setSupplyLogs(prev => [{ ...data.log, loggedAt: now().toISOString() }, ...prev]); if (data.lowStockAlert) showToast(tr("Low stock alert!"), "notice"); } catch (err) { showToast(tr(err.message), "error"); } };
   const submitSupplyRequest = async (requestType, itemName, description, urgency, supplyId) => { try { const siteId = clockStatus?.shift?.siteId || null; await api("/api/supplies/requests", { method: "POST", body: { requestType, itemName, description, urgency, supplyId, siteId }, token }); showToast(tr("Request submitted")); } catch (err) { showToast(tr(err.message), "error"); } };
@@ -2857,6 +2963,29 @@ export default function OCSAStaffPortal() {
   const openPlace = (place) => {
     if (!place) return;
     if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
+    // A case or a client's concern this person may not read opens the
+    // bell, where its notice keeps the dashboard's link.
+    if ((place.hrCase || place.concern) && !notifReadable(place, caps)) { setNotifOpen(true); return; }
+    if (place.hrCase) { setCaseAt({ id: String(place.hrCase), link: place.link || null }); setShowMore(false); return; }
+    if (place.concern) { setConcernAt({ id: String(place.concern), link: place.link || null }); setShowMore(false); return; }
+    // My tickets at the ticket, read again so a new answer shows.
+    if (place.tab === "support") { setSupportAt(place.ticket ? { id: String(place.ticket), at: Date.now() } : null); setSupportAsked(n => n + 1); }
+    // Periodic work at the task the notice names: its site is found in
+    // the list every site's periodic work answers, else the list at the
+    // site the field kit is on.
+    if (place.tab === "fieldkit" && isAdmin && place.periodic !== undefined) {
+      const task = place.periodic;
+      setFieldKitAt(at => ({ siteId: at && at.siteId ? at.siteId : null, tile: "periodic" }));
+      if (task) api("/api/periodic-work", { token }).then((d) => {
+        const hit = (wsRows(d, "items") || []).find(x => x && String(x.taskId) === task);
+        if (hit && hit.siteId) setFieldKitAt({ siteId: String(hit.siteId), tile: "periodic", periodic: task });
+      }).catch(() => {});
+      setActiveTab("fieldkit"); setShowMore(false);
+      return;
+    }
+    // Without the field kit, the checklist, where the notice's own link
+    // points.
+    if (place.tab === "fieldkit" && place.periodic !== undefined) { setActiveTab("tasks"); setShowMore(false); return; }
     if (place.issue) { openIssue(place.issue, null); return; }
     // A supply request (Step 311): opened once it is known whether this
     // person decides it.
@@ -2897,6 +3026,17 @@ export default function OCSAStaffPortal() {
     setActiveTab("equipment"); setShowMore(false);
     try { window.history.replaceState({}, "", "/"); } catch (e) {}
   }, [equipmentCode, screen, offlineOpen]);
+  // What the API lets this person do (GET /api/users/me/permissions),
+  // read once the portal is up: a map of capability to true or false,
+  // null while it is on its way, and false when the route did not
+  // answer, so the API decides at the read itself.
+  const [caps, setCaps] = useState(null);
+  useEffect(() => {
+    if (!token || screen !== "main") { setCaps(null); return undefined; }
+    let live = true;
+    api("/api/users/me/permissions", { token }).then((p) => { if (live) setCaps(p && p.capabilities && typeof p.capabilities === "object" ? p.capabilities : false); }).catch(() => { if (live) setCaps(false); });
+    return () => { live = false; };
+  }, [token, screen]);
   // The worker tells an open window where a tapped alert points.
   useEffect(() => {
     const sw = navigator.serviceWorker;
@@ -2909,13 +3049,16 @@ export default function OCSAStaffPortal() {
   // lands there once they are in.
   useEffect(() => {
     if (!openAsk || booting || screen !== "main" || !token) return;
-    setOpenAsk(null);
-    // A subject the portal has no place for, an HR case among them (Step
-    // 336), opens the bell, where its notice offers Open in the dashboard.
+    // A subject the portal has no place for opens the bell, where its
+    // notice offers Open in the dashboard. An HR case or a client's
+    // concern this person may not read opens the bell the same way (part
+    // 355), once the permissions are in, so its sheet never shows first.
     // A tap on an alert never opens another address by itself.
     const place = notifPlace(openAsk.subjectType, openAsk.subjectId);
+    if (place && (place.hrCase || place.concern) && caps === null) return;
+    setOpenAsk(null);
     if (place) openPlace(place); else if (openAsk.subjectType) setNotifOpen(true);
-  }, [openAsk, booting, screen, token]);
+  }, [openAsk, booting, screen, token, caps]);
   // The list of chats is read once the portal is up, so the Chat tab's
   // count is on the bar before Chat is ever opened, and again each time
   // the app comes back to the front, with the clock status below.
@@ -3009,6 +3152,12 @@ export default function OCSAStaffPortal() {
   // one a ticket names.
   const [support, setSupport] = useState(null);
   const [supportAsked, setSupportAsked] = useState(0);
+  // The ticket a notice opened My tickets at: { id, at }.
+  const [supportAt, setSupportAt] = useState(null);
+  // The HR case and the client's concern a notice opened: { id, link },
+  // link the notice's own to the dashboard when the bell had one.
+  const [caseAt, setCaseAt] = useState(null);
+  const [concernAt, setConcernAt] = useState(null);
   useEffect(() => {
     if (!token || screen !== "main") { setSupport(null); return undefined; }
     let live = true;
@@ -3449,10 +3598,10 @@ export default function OCSAStaffPortal() {
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
               {activeTab === "clock" && signAt && <SignScreen key={signAt.id || "list"} token={token} id={signAt.id || null} requests={signList} onOpen={openSign} onBack={() => setSignAt(null)} onChanged={() => setSignAsked(n => n + 1)} t={t} />}
               {activeTab === "property" && destCtx.property && <MyPropertyView rows={property} onSign={(id) => openSign({ id: id })} t={t} />}
-              {activeTab === "support" && destCtx.support && <SupportView token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} t={t} />}
+              {activeTab === "support" && destCtx.support && <SupportView token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} focus={supportAt} t={t} />}
               {activeTab === "supplyorders" && (destCtx.supplyOrders || !!supplyAt) && <SupplyOrdersView token={token} user={user} holder={supplyHolder === true} rows={supplyOrders} onReload={() => loadSupplyOrders()} onRow={takeSupplyOrder} at={supplyAt} onAt={setSupplyAt} getOpts={getOpts} showToast={showToast} t={t} />}
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
-              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
+              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
               {activeTab === "tasks" && <TasksView token={token} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -3531,6 +3680,8 @@ export default function OCSAStaffPortal() {
         </>
       )}
 
+      {caseAt && token && <CaseSheet key={caseAt.id} token={token} id={caseAt.id} link={caseAt.link} onClose={() => setCaseAt(null)} onRefused={() => { setCaseAt(null); setNotifOpen(true); }} t={t} />}
+      {concernAt && token && <ConcernSheet key={concernAt.id} token={token} id={concernAt.id} link={concernAt.link} onClose={() => setConcernAt(null)} onRefused={() => { setConcernAt(null); setNotifOpen(true); }} t={t} />}
       {siteListAt && token && <SiteTaskListSheet token={token} site={siteListAt} language={language} watch={isAdmin} onClose={() => setSiteListAt(null)} t={t} />}
       {notifOpen && (
         <NotificationsSheet
@@ -3538,6 +3689,7 @@ export default function OCSAStaffPortal() {
           t={t}
           locale={language}
           unread={unread}
+          caps={caps}
           onUnreadChanged={setUnread}
           onOpen={openPlace}
           onClose={() => { setNotifOpen(false); refreshUnread(); }}
@@ -3716,7 +3868,7 @@ function RegisterScreen({ onRegister, onBack, loading, t }) {
     if (shape) { setErrs({ pin: shape }); return; }
     if (pin !== pin2) { setErrs({ pin2: tr(ERR_PIN_MISMATCH) }); return; }
     setErrs({});
-    onRegister(fn, ln, ph, em, pin);
+    Promise.resolve(onRegister(fn, ln, ph, em, pin)).then((refused) => { if (refused) setErrs(refused); }).catch(() => {});
   };
   return (
     <div style={{ width: "100%", minHeight: "var(--ocsa-vh, 100vh)", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 24px" }}>
@@ -4853,7 +5005,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
 // site on the list, and each of the person's own such sites, scheduled
 // today or assigned, offers its list to read with no shift open
 // (onReadList).
-function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, onSelectSite, onStartSession, onEndSession, siteChoices, siteChoicesFailed, onRetrySites, loading, completedCount, taskCount, taskListLoaded, reference, siteReference, onReadList, watchSites, t }) {
+function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, onSelectSite, onStartSession, onEndSession, siteChoices, siteChoicesFailed, onRetrySites, loading, completedCount, taskCount, taskListLoaded, reference, siteReference, onReadList, watchSites, endWaiting, t }) {
   // The timer below is the one number on any screen wide enough to reach
   // the edge of its card, so this screen has to know the text size.
   const { textSize: clockTextSize } = useContext(TextSizeCtx);
@@ -4933,6 +5085,8 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
           {(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.goldText, marginTop: 3 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>}
           {taskListLoaded && !reference && (<div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><div style={{ flex: 1, maxWidth: 180, height: 6, borderRadius: R.pill, background: t.cardAlt, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.3s ease" }} /></div><span style={{ fontSize: 11, color: t.goldText, fontWeight: 600, fontFamily: FONT_HEAD }}>{done}/{total}</span></div>)}
           <button onClick={onEndSession} disabled={loading} style={{ ...mkPrimaryBtn(t, loading), marginTop: 16 }}>{loading ? tr("Ending...") : tr("End Shift")}</button>
+          {/* An End Shift kept on this phone (Round 2, PORT-06). */}
+          {endWaiting && !loading && <div role="status" data-end-waiting="1" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 12, padding: "10px 12px", borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}><ClockIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.5, minWidth: 0 }}>{tr("Your shift end is saved on this phone, with the time you tapped it. It sends when you have signal.")}</div></div>}
         </div>
       )}
       {startBlock && <div style={{ padding: "12px 14px", marginBottom: 16, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow, fontSize: 12, color: ink(t, ORANGE), lineHeight: 1.5 }}>{startBlock}</div>}
@@ -5739,6 +5893,125 @@ function SiteTaskListSheet({ token, site, language, watch, onClose, t }) {
         </div>
       </div>
     </div>
+  );
+}
+// Round 2 (part 355): two read-only sheets a notice opens, drawn the way
+// a site's task list is, over the screen with Close at the foot. Each is
+// read from the API as built, which decides who may read it; a reader it
+// turns away (403, or 404 for what it hides) goes back to the bell, where
+// the notice keeps the dashboard's link. Nothing is written from either;
+// opened from the bell, each offers the notice's own link to the
+// dashboard, where it is worked.
+function ReadSheet({ label, data, link, onClose, children, t }) {
+  return (
+    <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div role="dialog" aria-modal="true" aria-label={label} {...data} onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, height: "var(--ocsa-vh, 100vh)", maxHeight: "var(--ocsa-dvh, 100dvh)", display: "flex", flexDirection: "column", borderTop: "1px solid " + t.borderSolid }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px" }}>{children}</div>
+        <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
+          {link && <button type="button" data-read-dashboard="1" onClick={() => { try { window.open(link, "_blank", "noopener,noreferrer"); } catch (e) {} }} style={{ width: "100%", minHeight: 44, padding: "0 16px", marginBottom: 8, borderRadius: R.md, border: "1px solid " + t.blueBorder, background: "transparent", color: ink(t, BLUE), fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Open in the dashboard")}</button>}
+          <button type="button" onClick={onClose} style={{ width: "100%", minHeight: 44, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Close")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+// One read for a sheet: null while it is on its way, { ok } once in, a
+// fault with Try again, and a refusal handed to onRefused.
+function useSheetRead(path, token, onRefused) {
+  const [got, setGot] = useState(null);
+  const [asked, setAsked] = useState(0);
+  const refused = useRef(onRefused);
+  refused.current = onRefused;
+  useEffect(() => {
+    let live = true;
+    setGot(null);
+    api(path, { token }).then((d) => { if (live) setGot({ ok: d || {} }); }).catch((err) => {
+      if (!live) return;
+      if (err && (err.status === 403 || err.status === 404)) { refused.current(); return; }
+      setGot({ fault: err });
+    });
+    return () => { live = false; };
+  }, [path, token, asked]);
+  return [got, () => setAsked(n => n + 1)];
+}
+const readLineSt = (t) => ({ fontSize: 12, color: t.textMut, marginBottom: 12, lineHeight: 1.45 });
+const readField = (t, label, value, attr) => (value ? (<div {...(attr || {})} style={{ marginBottom: 12, minWidth: 0 }}><div style={mkLabel(t)}>{label}</div><div style={{ fontSize: 14, color: t.text, lineHeight: 1.45, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{value}</div></div>) : null);
+// An HR case (PORT-14): GET /api/hr-cases/:id, for a holder of
+// manage_cases, which the API checks; a case that names the reader is
+// hidden from them as not found. The lock screen never shows a case's
+// words (the API sends a push of any hr_case_* type as a message from the
+// office), and the sheet shows them only to whom the API answers.
+const CASE_STATUS_WORDS = { open: "Case open", in_review: "Case in review", escalated: "Case escalated", resolved: "Case resolved", closed: "Case closed" };
+const caseName = (p) => (p && typeof p === "object" && typeof p.name === "string" ? p.name.trim() : "");
+function CaseSheet({ token, id, link, onClose, onRefused, t }) {
+  const [got, again] = useSheetRead("/api/hr-cases/" + encodeURIComponent(id), token, onRefused);
+  const c = got && got.ok ? got.ok : null;
+  const about = c ? (Array.isArray(c.subjects) && c.subjects.length > 0 ? c.subjects.map(caseName).filter(Boolean).join(", ") : caseName(c.subject)) : "";
+  const updates = c && Array.isArray(c.updates) ? c.updates.filter(u => u && typeof u === "object") : [];
+  return (
+    <ReadSheet label={tr("Case")} data={{ "data-case-sheet": id }} link={link} onClose={onClose} t={t}>
+      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("Case")}</div>
+      <div style={readLineSt(t)}>{tr("Read only. The case is worked on the dashboard.")}</div>
+      {!got && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {got && got.fault && <ListFault icon={AlertIco} text={fkFaultWords(got.fault, "This case did not open. Try again.")} onRetry={again} t={t} />}
+      {c && (<div data-case-read="1">
+        {c.status && <div style={{ marginBottom: 12 }}><span data-case-status={c.status} style={trainingChipSt(t, c.status === "escalated" ? RED : c.status === "resolved" || c.status === "closed" ? GREEN : GOLD)}>{tr(CASE_STATUS_WORDS[c.status] || c.status)}</span></div>}
+        {readField(t, tr("Opened"), c.createdAt ? signedDay(c.createdAt) : "")}
+        {readField(t, tr("Filed by"), caseName(c.reportedBy))}
+        {readField(t, tr("About"), about)}
+        {readField(t, tr("Assigned to"), caseName(c.assignedTo))}
+        {readField(t, tr("Escalated to"), caseName(c.escalatedTo))}
+        {readField(t, tr("What was reported"), typeof c.summary === "string" ? c.summary.trim() : "", { "data-case-summary": "1" })}
+        {readField(t, tr("Resolution"), typeof c.resolutionNotes === "string" ? c.resolutionNotes.trim() : "")}
+        {updates.length > 0 && <div role="heading" aria-level={3} style={{ ...fkHeadSt(t), marginTop: 8 }}>{tr("Updates")}</div>}
+        {updates.map((u, i) => (
+          <div key={u.id || i} data-case-update={u.id || i} style={fkRowSt(t)}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{typeof u.kindName === "string" && u.kindName.trim() ? u.kindName.trim() : ""}</div>
+            <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{[u.occurredAt || u.createdAt ? signedDay(u.occurredAt || u.createdAt) : "", caseName(u.createdBy)].filter(Boolean).join(" - ")}</div>
+            {typeof u.body === "string" && u.body.trim() && <div style={{ fontSize: 13, color: t.textSec, marginTop: 6, lineHeight: 1.45, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{u.body.trim()}</div>}
+          </div>
+        ))}
+      </div>)}
+    </ReadSheet>
+  );
+}
+// A client's concern (PORT-10): the client's OCSA-FRM-009 report, read
+// through GET /api/forms/responses/:id by a holder of its readers
+// (view_reports), each answered question under its own section. The
+// office answers the client from the dashboard.
+const readValue = (v) => (typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : Array.isArray(v) ? v.filter(x => typeof x === "string" || typeof x === "number").join(", ") : "");
+function ConcernSheet({ token, id, link, onClose, onRefused, t }) {
+  const [got, again] = useSheetRead("/api/forms/responses/" + encodeURIComponent(id) + "?locale=" + languageToSend(), token, onRefused);
+  const r = got && got.ok ? got.ok : null;
+  const draft = r && r.draft && typeof r.draft === "object" ? r.draft : {};
+  const fields = r && Array.isArray(r.fields) ? r.fields.filter(f => f && typeof f === "object" && readValue(f.displayValue !== undefined && f.displayValue !== null ? f.displayValue : f.value)) : [];
+  // Each answer under its own section; one whose section the report does
+  // not list comes last, so no answer is left out.
+  const listed = r && Array.isArray(r.sections) ? r.sections.filter(sec => sec && typeof sec === "object" && sec.key !== null && sec.key !== undefined) : [];
+  const keys = listed.map(sec => String(sec.key));
+  const sections = listed.length > 0 ? listed.concat(fields.some(f => keys.indexOf(String(f.section || "")) === -1) ? [{ key: null, title: "", loose: true }] : []) : [{ key: null, title: "" }];
+  const from = draft.customer && typeof draft.customer === "object" && typeof draft.customer.name === "string" ? draft.customer.name.trim() : "";
+  return (
+    <ReadSheet label={tr("Client concern")} data={{ "data-concern-sheet": id }} link={link} onClose={onClose} t={t}>
+      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("Client concern")}</div>
+      <div style={readLineSt(t)}>{tr("Read only. The office answers the client from the dashboard.")}</div>
+      {!got && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {got && got.fault && <ListFault icon={AlertIco} text={fkFaultWords(got.fault, "This report did not open. Try again.")} onRetry={again} t={t} />}
+      {r && (<div data-concern-read="1">
+        {typeof draft.formName === "string" && draft.formName.trim() && <div style={{ fontSize: 13, fontWeight: 600, color: t.goldText, marginBottom: 8, fontFamily: FONT_HEAD }}>{draft.formName.trim()}</div>}
+        {from && <div style={{ fontSize: 13, color: t.textSec, marginBottom: 12 }}>{tr("From {name}", { name: from })}</div>}
+        {sections.map((sec, si) => {
+          const here = sec.loose ? fields.filter(f => keys.indexOf(String(f.section || "")) === -1) : sec.key === null ? fields : fields.filter(f => String(f.section || "") === String(sec.key));
+          if (here.length === 0) return null;
+          return (
+            <div key={sec.key || si}>
+              {sec.title && <div role="heading" aria-level={3} style={{ ...fkHeadSt(t), marginTop: si > 0 ? 16 : 4 }}>{sec.title}</div>}
+              {here.map(f => <div key={f.key}>{readField(t, typeof f.label === "string" ? f.label : "", readValue(f.displayValue !== undefined && f.displayValue !== null ? f.displayValue : f.value), { "data-concern-field": f.key })}</div>)}
+            </div>
+          );
+        })}
+      </div>)}
+    </ReadSheet>
   );
 }
 const NO_TICKS = new Set();
@@ -7255,7 +7528,7 @@ function IssueSheet({ token, user, at, tasks, onClose, onChanged, showToast, lkC
   const clear = () => { setPanel(null); setNote(""); setPhoto(null); setPreview(null); setWho(""); if (fileRef.current) fileRef.current.value = ""; };
   const takePhoto = (e) => { const file = e.target.files && e.target.files[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { showToast(tr("Photo must be under 10MB"), "error"); return; } setPhoto(file); const r = new FileReader(); r.onload = (ev) => setPreview(ev.target.result); r.readAsDataURL(file); };
   const done = (status) => { showToast(tr("Task updated to {status}", { status: taskStatusWord(status) })); clear(); onChanged(); onClose(); };
-  const fault = (err) => showToast(requestFaultOf(err, "That did not go through. Try again."), "error");
+  const fault = (err) => { if (settledTask(err)) { showToast(tr(err.message), "notice"); clear(); onChanged(); onClose(); return; } showToast(requestFaultOf(err, "That did not go through. Try again."), "error"); };
   const viaTask = (status, noteText, photoUrl) => api("/api/clock/tasks/resolve/" + encodeURIComponent(myTask.task_id), { method: "PATCH", body: { resolutionStatus: status, resolutionNote: noteText || undefined, photoUrl: photoUrl || undefined }, token });
   const viaIssue = (status, noteText) => api("/api/issues/" + encodeURIComponent(view.id), { method: "PATCH", body: Object.assign({ status: status }, noteText ? { resolutionNotes: noteText } : {}), token });
   const start = async () => {
@@ -7450,8 +7723,8 @@ function AssignedTasksView({ assignedTasks, work, onOpenIssue, onOpenRequest, fa
   // note and the photo, says why, and Submit tries again (Round 1,
   // PORT-02); a photo already up is not sent a second time.
   const photoUp = useRef(null);
-  const handleResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Describe what you did to complete this task"), "error"); return; } if (!photo) { showToast(tr("A photo of the completed task is required"), "error"); return; } setUploading(true); try { const photoUrl = photoUp.current && photoUp.current.file === photo ? photoUp.current.url : await uploadPhoto(photo, token); photoUp.current = { file: photo, url: photoUrl }; await resolveTask(taskId, "resolved", note.trim(), photoUrl); clearForm(); setDetail(null); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
-  const handleCantResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Please provide a reason"), "error"); return; } setUploading(true); try { await resolveTask(taskId, "unable_to_resolve", note.trim(), null); clearForm(); setDetail(null); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
+  const handleResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Describe what you did to complete this task"), "error"); return; } if (!photo) { showToast(tr("A photo of the completed task is required"), "error"); return; } setUploading(true); try { const photoUrl = photoUp.current && photoUp.current.file === photo ? photoUp.current.url : await uploadPhoto(photo, token); photoUp.current = { file: photo, url: photoUrl }; await resolveTask(taskId, "resolved", note.trim(), photoUrl); clearForm(); setDetail(null); } catch (err) { if (settledTask(err)) { showToast(tr(err.message), "notice"); clearForm(); setDetail(null); onRetry(); } else showToast(tr(err.message), "error"); } setUploading(false); };
+  const handleCantResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Please provide a reason"), "error"); return; } setUploading(true); try { await resolveTask(taskId, "unable_to_resolve", note.trim(), null); clearForm(); setDetail(null); } catch (err) { if (settledTask(err)) { showToast(tr(err.message), "notice"); clearForm(); setDetail(null); onRetry(); } else showToast(tr(err.message), "error"); } setUploading(false); };
   const getTaskInfo = (task) => { const isIssueLinked = !!task.source_issue_id; const title = isIssueLinked ? (task.issue_title || task.label) : task.label; const desc = isIssueLinked ? task.issue_description : task.description; const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD); const photoUrl = isIssueLinked ? task.issue_photo_url : (task.media_url || null); const mediaType = isIssueLinked ? "image" : (task.media_type || "image"); const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name; const assignedByLabel = isIssueLinked ? tr("Reported by") : tr("Assigned by"); const locationParts = [task.site_name]; if (task.building_name) locationParts.push(task.building_name); if (task.floor_number) locationParts.push(tr("Floor {n}", { n: task.floor_number })); locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || tr("General")); const locationStr = locationParts.filter(Boolean).join(" > "); return { isIssueLinked, title, desc, borderColor, photoUrl, mediaType, assignedBy, assignedByLabel, locationStr }; };
 
   const items = Array.isArray(work) ? work : assignedTasks.map(task => ({ key: "task:" + task.task_id, kind: "task", id: String(task.task_id), task: task }));
@@ -7873,6 +8146,11 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, attachI
   // already up, and its preview, until Try again attaches it.
   const [photoLeft, setPhotoLeft] = useState(null);
   const photoUp = useRef(null);
+  // The report's own clientId, made at its first send and kept through
+  // every retry of the same report until the API has it. A report typed
+  // differently is a new report and gets a new one, so it is never taken
+  // for a replay of the last.
+  const reportId = useRef(null);
   useBusy("issue form", title.trim().length > 0 || desc.trim().length > 0 || zone.trim().length > 0 || !!photo || uploading || !!photoLeft);
   const labelSt = mkLabel(t); const inputSt = mkInput(t);
   const sevOpts = getOpts("issue_severities");
@@ -7886,7 +8164,7 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, attachI
   // The form clears only once the issue is in. A send that fails keeps
   // every field and the photo, says why, and Submit Issue tries again; a
   // photo already up is not sent a second time (Round 1, PORT-01).
-  const handleSubmit = async () => { if (!title.trim()) { showToast(tr("Enter issue title"), "error"); return; } const siteId = clockStatus?.clockedIn ? clockStatus.shift.siteId : selSite; if (!siteId) { showToast(tr("Select a site"), "error"); return; } setUploading(true); try { let photoUrl = null; if (photo) { photoUrl = photoUp.current && photoUp.current.file === photo ? photoUp.current.url : await uploadPhoto(photo, token); photoUp.current = { file: photo, url: photoUrl }; } const done = await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl, siteId); if (done && done.photoFault && done.issue) setPhotoLeft({ issueId: done.issue.id, url: photoUrl, preview: photoPreview }); photoUp.current = null; setTitle(""); setDesc(""); setZone(""); setSev("medium"); setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; setShowForm(false); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
+  const handleSubmit = async () => { if (!title.trim()) { showToast(tr("Enter issue title"), "error"); return; } const siteId = clockStatus?.clockedIn ? clockStatus.shift.siteId : selSite; if (!siteId) { showToast(tr("Select a site"), "error"); return; } setUploading(true); try { let photoUrl = null; if (photo) { photoUrl = photoUp.current && photoUp.current.file === photo ? photoUp.current.url : await uploadPhoto(photo, token); photoUp.current = { file: photo, url: photoUrl }; } const sig = JSON.stringify([siteId, title.trim(), desc.trim(), zone.trim(), sev, photoUrl]); if (!reportId.current || reportId.current.sig !== sig) reportId.current = { id: newClientId(), sig: sig }; const done = await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl, siteId, reportId.current.id); if (done && done.photoFault && done.issue) setPhotoLeft({ issueId: done.issue.id, url: photoUrl, preview: photoPreview }); photoUp.current = null; reportId.current = null; setTitle(""); setDesc(""); setZone(""); setSev("medium"); setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; setShowForm(false); } catch (err) { if (err && err.code === "issues.clientIdInvalid") reportId.current = null; showToast(tr(err.message), "error"); } setUploading(false); };
   const attachAgain = async () => { if (!photoLeft || uploading) return; setUploading(true); try { await attachIssuePhoto(photoLeft.issueId, photoLeft.url); setPhotoLeft(null); showToast(tr("Photo attached")); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
   return (
     <div style={{ padding: "16px" }}>
@@ -11172,7 +11450,18 @@ function notifPlace(subjectType, subjectId) {
   if (issueSubject(subjectType) && subjectId !== null && subjectId !== undefined && subjectId !== "") return { issue: String(subjectId) };
   if (inspectionSubject(subjectType)) return subjectId === null || subjectId === undefined ? { tab: "inspect" } : { tab: "inspect", inspection: String(subjectId) };
   if (shiftSubject(subjectType)) return { tab: "schedule" };
-  if (caseSubject(subjectType)) return null;
+  // Round 2 (part 355, PORT-10 and PORT-14), from what the API answers
+  // the notice as built: an HR case, its read-only sheet for a holder of
+  // manage_cases; a client's concern, the report read-only for a reader
+  // of it; an App support ticket, My tickets at that ticket; periodic
+  // work overdue, the field kit's Periodic work at the task the notice
+  // names. Someone the API would not let read the case or the report
+  // keeps the dashboard's link on the bell (notifReadable).
+  const named = subjectId !== null && subjectId !== undefined && subjectId !== "" ? String(subjectId) : null;
+  if (caseSubject(subjectType)) return named ? { hrCase: named } : null;
+  if (subjectType === "customer_concern") return named ? { concern: named } : null;
+  if (subjectType === "support_ticket") return { tab: "support", ticket: named };
+  if (subjectType === "periodic_overdue") return { tab: "fieldkit", periodic: named };
   const tab = NOTIF_TAB[subjectType] || (trainingSubject(subjectType) ? "training" : null);
   if (!tab) return null;
   const id = subjectId === null || subjectId === undefined ? null : String(subjectId);
@@ -11193,6 +11482,17 @@ function notifPlace(subjectType, subjectId) {
   // the portal, on that topic's category page when the item is known.
   if (subjectType === "training_expiring" || subjectType === "training_reteach") return id ? { tab: tab, topic: id } : { tab: tab };
   return { tab: tab };
+}
+// Whether this person may read the place a notice opens, by the
+// capabilities the API answers them (GET /api/users/me/permissions): a
+// case needs manage_cases, a client's concern view_reports. Until they
+// are read, the place is tried, and a read the API turns away opens the
+// bell instead.
+function notifReadable(place, caps) {
+  if (!place) return false;
+  if (place.hrCase) return !caps || caps.manage_cases === true;
+  if (place.concern) return !caps || caps.view_reports === true;
+  return true;
 }
 const NOTIF_PAGE = 30;
 
@@ -11226,7 +11526,7 @@ function notifOffOrigin(link) {
 // the language itself and is read again from the top when the language
 // changes while the sheet is open; only the latest read is drawn, so a
 // page that arrives in the language just left is dropped.
-function NotificationsSheet({ token, t, locale, unread, onClose, onOpen, onUnreadChanged }) {
+function NotificationsSheet({ token, t, locale, unread, caps, onClose, onOpen, onUnreadChanged }) {
   const [rows, setRows] = useState(null);
   const [failed, setFailed] = useState(false);
   const [more, setMore] = useState(false);
@@ -11279,7 +11579,9 @@ function NotificationsSheet({ token, t, locale, unread, onClose, onOpen, onUnrea
   const openRow = async (row) => {
     await markRead(row);
     const place = notifPlace(row.subjectType, row.subjectId);
-    if (place) { onClose(); onOpen(place); }
+    // A case or a client's concern opens on its sheet with the notice's
+    // own link to the dashboard, where it is worked.
+    if (place && notifReadable(place, caps)) { onClose(); onOpen(place.hrCase || place.concern ? Object.assign({}, place, { link: notifOffOrigin(row.link) ? row.link : null }) : place); }
   };
 
   const wideBtn = { minHeight: 44, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD };
@@ -11305,7 +11607,7 @@ function NotificationsSheet({ token, t, locale, unread, onClose, onOpen, onUnrea
 
           {(rows || []).map(row => {
             const isUnread = !row.readAt;
-            const hasTab = !!notifPlace(row.subjectType, row.subjectId);
+            const hasTab = notifReadable(notifPlace(row.subjectType, row.subjectId), caps);
             // A subject the portal has no place for offers its link on the
             // dashboard; one it can open never sends the person elsewhere.
             const showDashboard = !hasTab && notifOffOrigin(row.link);
@@ -14480,7 +14782,9 @@ function supportFaults(err) {
   return out;
 }
 
-function SupportView({ token, tickets, screen, isAdmin, onFiled, t }) {
+// focus: the ticket a notice opened My tickets at, { id, at }: brought into
+// view and marked (Round 2, PORT-10).
+function SupportView({ token, tickets, screen, isAdmin, onFiled, focus, t }) {
   const [kind, setKind] = useState("");
   const [text, setText] = useState("");
   const [shot, setShot] = useState(null);
@@ -14534,6 +14838,11 @@ function SupportView({ token, tickets, screen, isAdmin, onFiled, t }) {
   const rowSt = (on) => ({ width: "100%", minHeight: TAP, marginTop: 8, padding: "10px 12px", borderRadius: R.md, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, textAlign: "left", fontSize: 14, fontFamily: FONT_BODY, lineHeight: 1.4, background: on ? t.goldBg : t.card, border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text });
   const near = text.length >= SUPPORT_TEXT_MAX - 200;
   const list = Array.isArray(tickets) ? tickets : [];
+  const focusShown = focus && list.some(x => String(x.id) === String(focus.id));
+  useEffect(() => {
+    if (!focusShown) return;
+    try { const el = document.querySelector('[data-support-focus="1"]'); if (el) el.scrollIntoView({ block: "center" }); } catch (e) {}
+  }, [focusShown, focus && focus.at]);
   const statusInk = (s) => (s === "done" ? GREEN : s === "working" ? BLUE : s === "wont_do" ? t.textMut : ORANGE);
   return (
     <div data-support="1" style={{ padding: "16px 16px 100px" }}>
@@ -14575,7 +14884,7 @@ function SupportView({ token, tickets, screen, isAdmin, onFiled, t }) {
       <div role="heading" aria-level={3} data-support-mine={list.length} style={{ ...fkHeadSt(t), marginTop: 20 }}>{tr("My tickets")}</div>
       {list.length === 0 && <div style={wsQuiet(t)}>{tr("You have not sent a ticket yet.")}</div>}
       {list.map(x => (
-        <div key={x.id} data-support-ticket={x.id} style={{ ...fkRowSt(t), minHeight: TAP }}>
+        <div key={x.id} data-support-ticket={x.id} data-support-focus={focus && String(focus.id) === String(x.id) ? "1" : undefined} aria-current={focus && String(focus.id) === String(x.id) ? "true" : undefined} style={{ ...fkRowSt(t), minHeight: TAP, ...(focus && String(focus.id) === String(x.id) ? { border: "1px solid " + t.goldBorder, background: t.goldBg } : {}) }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
             <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{supportKindWord(x.kind)}</div>
             <span data-support-status={x.status} style={{ flexShrink: 0, fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: R.pill, background: (x.status === "wont_do" ? "#8899AA" : statusInk(x.status)) + "20", color: x.status === "wont_do" ? t.textSec : ink(t, statusInk(x.status)), fontFamily: FONT_HEAD }}>{tr(SUPPORT_STATUS[x.status] || x.status)}</span>
@@ -15651,7 +15960,7 @@ function FieldKitView({ token, user, at, onAt, shiftSiteId, assignedSites, onOpe
         <div role="heading" aria-level={1} style={{ ...titleSt, marginBottom: 2 }}>{tr(tile.title)}</div>
         <div style={{ fontSize: 13, color: t.textSec, marginBottom: 12, overflowWrap: "anywhere" }}>{site.name}</div>
         {tile.id === "ppe" && <FkPpe key={site.id} token={token} site={site} showToast={showToast} t={t} />}
-        {tile.id === "periodic" && <FkPeriodic key={site.id} token={token} site={site} t={t} />}
+        {tile.id === "periodic" && <FkPeriodic key={site.id} token={token} site={site} focus={at && at.periodic ? at.periodic : null} t={t} />}
         {tile.id === "equipment" && <FkEquipment key={site.id} token={token} site={site} onOpen={onOpenEquipment} t={t} />}
         {tile.id === "review" && <FkReview key={site.id} token={token} site={site} onOpen={(id) => onAt({ siteId: site.id, tile: "review", inspection: id })} t={t} />}
         {tile.id === "signoff" && <FkSignoff key={site.id} token={token} site={site} user={user} showToast={showToast} t={t} />}
@@ -15693,7 +16002,7 @@ function FieldKitView({ token, user, at, onAt, shiftSiteId, assignedSites, onOpe
 
 // A refusal in the API's own words, whatever its code; no signal and
 // anything else in the screen's own.
-const fkSaidOf = (err) => (err && err.status && err.body && typeof err.body.error === "string" && err.body.error.trim() ? err.body.error.trim() : null);
+const fkSaidOf = (err) => (err && err.status && ownRefusal(err.code) ? tr(ownRefusal(err.code)) : err && err.status && err.body && typeof err.body.error === "string" && err.body.error.trim() ? err.body.error.trim() : null);
 const fkFaultWords = (err, fallback) => fkSaidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : fallback);
 // The site's name and the tile's look, shared by the four tiles.
 const fkHeadSt = (t) => ({ ...mkLabel(t), marginTop: 20, marginBottom: 8 });
@@ -15930,8 +16239,15 @@ function periodicItemOf(x) {
   return { id: fkText(x, ["taskId", "id"]) || label, label: label, zone: fkText(display, ["zone"]) || fkText(x, ["zone"]), period: PERIOD_OF_FREQUENCY[fkText(x, ["frequency"])] || null, lastAt: agentField(x, ["lastDoneAt"], null), by: by, dueBy: fkText(x, ["dueBy"]).slice(0, 10), state: state };
 }
 
-function FkPeriodic({ token, site, t }) {
+// focus: the task a periodic_overdue notice names (Round 2, PORT-10),
+// brought into view and marked once the list is in.
+function FkPeriodic({ token, site, focus, t }) {
   const [items, setItems] = useState(null);
+  const focusShown = !!focus && !!items && items.state === "ok" && items.list.some(x => String(x.id) === String(focus));
+  useEffect(() => {
+    if (!focusShown) return;
+    try { const el = document.querySelector('[data-fk-periodic-focus="1"]'); if (el) el.scrollIntoView({ block: "center" }); } catch (e) {}
+  }, [focusShown]);
   const [asked, setAsked] = useState(0);
   useEffect(() => {
     let live = true;
@@ -15963,7 +16279,7 @@ function FkPeriodic({ token, site, t }) {
               const section = PERIOD_SECTIONS.find(p => p.id === x.period);
               const due = x.dueBy ? wsDueText(x.dueBy) : "";
               return (
-                <div key={x.id} style={fkRowSt(t)}>
+                <div key={x.id} data-fk-periodic-item={x.id} data-fk-periodic-focus={focus && String(focus) === String(x.id) ? "1" : undefined} aria-current={focus && String(focus) === String(x.id) ? "true" : undefined} style={{ ...fkRowSt(t), ...(focus && String(focus) === String(x.id) ? { border: "1px solid " + t.goldBorder, background: t.goldBg } : {}) }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{x.label}</div>
                   <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{[section ? tr(section.often) : "", x.zone].filter(Boolean).join(", ")}</div>
                   {section && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{tr("On the checklist under {section}", { section: section.title() })}</div>}
@@ -17255,10 +17571,12 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
   // one: the inspection's site, the finding's zone in the title, the note,
   // the card and the inspection in the description, severity medium, then
   // the card's photo when one was attached. Title and description stay in
-  // English, the way the card labels are.
+  // English, the way the card labels are. Each report's clientId stays
+  // with it through Try again, so a retry never files it twice.
   const reportFor = (item) => ({
     itemId: item.id, label: item.label,
     body: {
+      clientId: newClientId(),
       siteId: active.site_id,
       title: "Inspection finding: " + (item.zone || item.label),
       description: [(notes[item.id] || "").trim(), item.label, active.template_name + ", " + String(active.scheduled_date || "").slice(0, 10)].join("\n"),
@@ -18113,7 +18431,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
         method: "POST", headers: { "Authorization": "Bearer " + token, "Content-Type": "image/jpeg" }, body: compressed
       });
       if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-      if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(e.error || UPLOAD_FAILED); }
+      if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(ownRefusal(e.code) || e.error || UPLOAD_FAILED); }
       const r = await readJson(res);
       await api("/api/users/profile/photo", { method: "POST", body: { photoUrl: r.url }, token });
       showToast(tr("Photo updated"));

@@ -11,7 +11,7 @@ const { INSPECT, languageRows } = require("./checks");
 const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES,
-  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS, EVERY_NOTICE, FIRST_NAMES } = require("./stub");
+  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS, EVERY_NOTICE, FIRST_NAMES, API_R2, apiR2Body } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -4341,9 +4341,14 @@ const JOURNEYS = [
           zone: "Lobby",
           severity: "medium",
         });
+        // Since part 355 each report carries its own clientId, which Try
+        // again sends with it; the rest is written the way Report writes it.
         const bodies = filedAt.map(i => calls[i].body);
-        expect("the first report is the first card's, written the way Report writes one", JSON.stringify(bodies[0]) === JSON.stringify(want(first, "Smudges on the left door")), JSON.stringify(bodies[0]));
-        expect("the second report is the second card's", JSON.stringify(bodies[1]) === JSON.stringify(want(second, "Mat is wet and turned up")), JSON.stringify(bodies[1]));
+        const ids = bodies.map(b => (b && typeof b.clientId === "string" && /^[0-9a-f-]{36}$/i.test(b.clientId) ? b.clientId : null));
+        const rest = bodies.map((b) => { const o = Object.assign({}, b || {}); delete o.clientId; return o; });
+        expect("the first report is the first card's, written the way Report writes one", JSON.stringify(rest[0]) === JSON.stringify(want(first, "Smudges on the left door")), JSON.stringify(bodies[0]));
+        expect("the second report is the second card's", JSON.stringify(rest[1]) === JSON.stringify(want(second, "Mat is wet and turned up")), JSON.stringify(bodies[1]));
+        expect("each report carries a clientId of its own", !!ids[0] && !!ids[1] && ids[0] !== ids[1], JSON.stringify(ids));
         expect("the one photo goes on the second report", photosAt.length === 1 && calls[photosAt[0]].path === "/api/issues/iss-2/photos" && calls[photosAt[0]].body && calls[photosAt[0]].body.photoUrl === "https://example.invalid/photo.jpg", JSON.stringify(photosAt.map(i => [calls[i].path, calls[i].body])));
         expect("the photo is sent after its report", photosAt.length === 1 && filedAt.length === 2 && photosAt[0] > filedAt[1], JSON.stringify({ reports: filedAt, photo: photosAt }));
         const said = await bodyText(app.page);
@@ -5569,6 +5574,8 @@ const weakLines = (language) => [
   "Not sent yet. Check your signal and tap Submit report again.",
   "This was not signed. Try again.",
   "Photo upload failed",
+  // Part 355: End Shift kept on the phone.
+  "Your shift end is saved on this phone, with the time you tapped it. It sends when you have signal.",
 ].map(w => say(w, language));
 const weakSeen = (page, lines, ms) => page.waitForFunction((ls) => {
   const text = document.body.innerText;
@@ -5599,7 +5606,9 @@ const boxValue = (page, selector, n) => page.evaluate(([sel, i]) => { const e = 
 // What each action is: the call it makes (path; reach adds the calls on
 // the way to it, such as a photo's upload), how a person gets to the tap,
 // the tap, and whether the work is still there. same tells two of the
-// same apart where the API does (one clientId twice is one check-off).
+// same apart where the API does (one clientId twice is one check-off),
+// and queued says a kept tap goes again by itself, so a lost answer is
+// never tried again by hand.
 // must names the questions whose no is a fault for this action: kept,
 // queue (goes by itself once the signal is back) and once (the API ends
 // up with one record). said is a must for every action.
@@ -5610,6 +5619,7 @@ const issueReady = (photo) => async (app, language) => {
   if (photo) { await attachPhoto(app.page, '.sp-content input[type="file"]'); await pause(app.page, 700); }
   return {};
 };
+const sameClientId = (calls) => { const ids = calls.map(c => c.body && c.body.clientId); return ids.filter(x => !x).length + new Set(ids.filter(Boolean)).size; };
 const WEAK_ACTIONS = [
   {
     // Since part 350 a check asks the status first, on the way to it.
@@ -5618,6 +5628,7 @@ const WEAK_ACTIONS = [
     tap: async (app, language, ctx) => { await tapAria(app.page, ctx.label); },
     kept: async (app) => (await pendingTaps(app.page)) > 0,
     same: (calls) => new Set(calls.map(c => c.body && c.body.clientId)).size,
+    queued: true,
   },
   {
     id: "uncheck", name: "an uncheck", method: "DELETE", path: /^\/api\/clock\/tasks\/[^/]+\/complete$/, must: ["kept", "queue", "once"],
@@ -5630,6 +5641,7 @@ const WEAK_ACTIONS = [
     tap: async (app, language, ctx) => { await tapAria(app.page, ctx.label); },
     kept: async (app) => (await pendingTaps(app.page)) > 0,
     same: (calls) => new Set(calls.map(c => c.body && c.body.clientId)).size,
+    queued: true,
   },
   {
     id: "startshift", name: "Start Shift", method: "POST", path: /^\/api\/shift-sessions$/, stubOptions: { clockedIn: false }, must: [],
@@ -5648,12 +5660,20 @@ const WEAK_ACTIONS = [
     ready: issueReady(true),
     tap: async (app, language) => { await clickText(app.page, say("Submit Issue", language)); },
     kept: async (app) => (await boxValue(app.page, ".sp-content input", 0)) === "A leak under the sink, weak signal",
+    // Since part 355 a report carries a clientId the API keeps it once
+    // by: sends with one clientId are one record, a send with none is one
+    // each.
+    same: sameClientId,
   },
   {
     id: "issuenophoto", name: "an issue with no photo", method: "POST", path: /^\/api\/issues$/, must: ["kept", "once"],
     ready: issueReady(false),
     tap: async (app, language) => { await clickText(app.page, say("Submit Issue", language)); },
     kept: async (app) => (await boxValue(app.page, ".sp-content input", 0)) === "A leak under the sink, weak signal",
+    // Since part 355 a report carries a clientId the API keeps it once
+    // by: sends with one clientId are one record, a send with none is one
+    // each.
+    same: sameClientId,
   },
   {
     id: "form", name: "a form submit", method: "POST", path: /^\/api\/forms\/drafts\/[^/]+\/submit$/, must: ["kept", "once"],
@@ -5766,7 +5786,7 @@ const weakJourneys = WEAK_ACTIONS.map(action => ({
             await pause(app.page, 800);
             answer.kept = await action.kept(app, language, ctx);
             if (trouble.id === "500") { const after = hits(action.path).length; await pause(app.page, 6000); answer.wentByItself = made(after) > 0; }
-            else if (!action.same) {
+            else if (!action.queued) {
               // The person tries again: the same tap if the work is still
               // there, and the work done again if it is gone. A kept
               // check-off goes again by itself.
@@ -6227,5 +6247,408 @@ const LIVE_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...LIVE_JOURNEYS);
+
+// --- Round 2 (part 355): kept once, kept with no signal, refusals and
+// notices that open something ----------------------------------------------
+//
+// One journey for each item of Round 2, each against the stub as it
+// mirrors ocsa-api's main (49262a3): an issue sent again after the API
+// kept it and answered 500 (PORT-01's clientId), End Shift tapped with the
+// signal gone (PORT-06), the refusal codes main answers since Round 1 in
+// the portal's own words, each notice type opening its place from the bell
+// and from a phone alert (PORT-10), the case sheet (PORT-14), and no money
+// anywhere a supervisor or an admin can reach. Each but the last fails on
+// the main of part 350; the last holds on it too, and stays as a guard.
+const ISSUE_PATH = /^\/api\/issues$/;
+const issueSends = (stub) => stub.state.calls.filter(c => c.method === "POST" && ISSUE_PATH.test(c.path));
+const ISSUE_TITLE = "A leak under the sink, weak signal";
+const R2_SUPERVISOR = Object.assign({}, PERSON, { id: "u-r2-sup", role: "supervisor" });
+const R2_ADMIN = Object.assign({}, ADMIN_PERSON, { id: "u-r2-admin" });
+const R2_EVERYTHING = { sds: true, workspace: true, fieldKit: true, training: true, signatures: true, support: true, library: true, unfinishedForms: true, requests: true };
+// The toasts on screen: each one's words, and whether it reads as a
+// failure (white words on red) or as a notice.
+const toastsNow = (page) => page.evaluate(() => {
+  const strip = Array.from(document.querySelectorAll("div")).find((x) => { const s = getComputedStyle(x); return s.position === "fixed" && s.top === "80px"; });
+  return strip ? Array.from(strip.children).map(k => ({ text: k.innerText.trim(), failure: getComputedStyle(k).color === "rgb(255, 255, 255)" })) : [];
+});
+const toastSaying = async (page, words, ms) => {
+  const until = Date.now() + (ms || 4000);
+  while (Date.now() < until) { const hit = (await toastsNow(page)).find(x => x.text === words); if (hit) return hit; await pause(page, 100); }
+  return null;
+};
+// The line drawn right after a PIN box, the way sign-in and Register draw
+// a refusal.
+const lineUnderPin = (page, n) => page.evaluate((i) => {
+  const box = document.querySelectorAll('input[type="password"], input[inputmode="numeric"]')[i];
+  const e = box ? box.nextElementSibling : null;
+  return e ? e.innerText.replace(/\s+/g, " ").trim() : "";
+}, n || 0);
+const ownWords = (en, language) => say(en, language);
+
+const ROUND2_JOURNEYS = [
+  {
+    id: "issueonce",
+    label: "An issue sent again after the API kept it and answered 500: one issue, the report on screen until the API has it, one clientId on every send, and a report typed differently filed as its own",
+    run: async (open, language, expect) => {
+      for (const photo of [false, true]) {
+        const what = photo ? "an issue with a photo" : "an issue";
+        const app = await open({});
+        try {
+          await issueReady(photo)(app, language);
+          app.stub.state.trouble = { method: "POST", path: ISSUE_PATH, kind: "kept500" };
+          await clickText(app.page, say("Submit Issue", language));
+          await pause(app.page, 1500);
+          expect(what + ": the report stays on screen after the 500", (await boxValue(app.page, ".sp-content input", 0)) === ISSUE_TITLE, JSON.stringify(await boxValue(app.page, ".sp-content input", 0)));
+          expect(what + ": the API kept the first send", app.stub.state.issues.length === 1, app.stub.state.issues.length + " issues");
+          await clickText(app.page, say("Submit Issue", language));
+          await pause(app.page, 1800);
+          const sends = issueSends(app.stub);
+          const issues = app.stub.state.issues;
+          expect(what + " sent again after a 500 makes one issue", issues.length === 1, issues.length + " issues from " + sends.length + " sends");
+          expect(what + ": both sends carry the same clientId", sends.length === 2 && sends.every(c => c.body && typeof c.body.clientId === "string") && new Set(sends.map(c => c.body.clientId)).size === 1, JSON.stringify(sends.map(c => c.body && c.body.clientId)));
+          expect(what + ": the report clears once the API has it", (await boxValue(app.page, ".sp-content input", 0)) === "", JSON.stringify(await boxValue(app.page, ".sp-content input", 0)));
+          if (photo) {
+            const ups = sent(app.stub, "POST", "/api/uploads").length;
+            expect("the photo goes up once and is on the one issue once", ups === 1 && issues.length === 1 && issues[0].photos.length === 1, ups + " uploads, " + (issues[0] ? issues[0].photos.length : 0) + " photos");
+          }
+          await spokenHere(app, language, expect);
+        } finally { await app.context.close(); }
+      }
+      // A report typed differently after a failure is a new report, never
+      // taken for a replay of the one before.
+      const app = await open({});
+      try {
+        await issueReady(false)(app, language);
+        app.stub.state.trouble = { method: "POST", path: ISSUE_PATH, kind: "kept500" };
+        await clickText(app.page, say("Submit Issue", language));
+        await pause(app.page, 1500);
+        await typeNth(app.page, ".sp-content input", 0, "The lobby light is out");
+        await clickText(app.page, say("Submit Issue", language));
+        await pause(app.page, 1800);
+        const issues = app.stub.state.issues;
+        expect("a report typed differently after a failure is filed as its own issue", issues.length === 2 && issues[1].body.title === "The lobby light is out", JSON.stringify(issues.map(x => x.body.title)));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "endshiftqueue",
+    label: "End Shift tapped with the signal gone: kept on the phone and said so, then sent by itself once the signal is back, after the check-off waiting before it, with the time it was tapped",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1200);
+        const label = await taskBox(app.page, language, false);
+        await app.context.setOffline(true); app.stub.state.offline = true;
+        await tapAria(app.page, label);
+        await pause(app.page, 900);
+        expect("a check-off with no signal waits on the phone", (await pendingTaps(app.page)) === 1, (await pendingTaps(app.page)) + " on the phone");
+        await openTab(app.page, "clock", language);
+        await pause(app.page, 900);
+        const tappedAt = await app.page.evaluate(() => Date.now());
+        await clickText(app.page, say("End Shift", language));
+        await pause(app.page, 1500);
+        const line = say("Your shift end is saved on this phone, with the time you tapped it. It sends when you have signal.", language);
+        const waiting = await app.page.evaluate(() => !!document.querySelector('[data-end-waiting="1"]'));
+        expect("End Shift with no signal says it is saved on the phone with the time it was tapped", waiting && has(await bodyText(app.page), line), (await bodyText(app.page)).slice(0, 260));
+        expect("End Shift with no signal is kept on the phone", await app.page.evaluate(() => { try { return !!localStorage.getItem("ocsa-pending-end"); } catch (e) { return false; } }), "nothing kept");
+        await spokenHere(app, language, expect);
+        // Time passes with no signal, then the signal comes back.
+        await pause(app.page, 3000);
+        const from = app.stub.state.calls.length;
+        const backAt = await app.page.evaluate(() => Date.now());
+        app.stub.state.offline = false; await app.context.setOffline(false);
+        await pause(app.page, 5000);
+        const calls = app.stub.state.calls.slice(from);
+        const checkAt = calls.findIndex(c => c.method === "POST" && CHECKOFF_PATH.test(c.path));
+        const endAt = calls.findIndex(c => c.method === "POST" && /^\/api\/shift-sessions\/[^/]+\/end$/.test(c.path));
+        expect("End Shift goes by itself once the signal is back", endAt !== -1, JSON.stringify(calls.map(c => c.method + " " + c.path).slice(0, 8)));
+        expect("the check-off waiting before it goes first", checkAt !== -1 && endAt !== -1 && checkAt < endAt, "check-off at " + checkAt + ", end at " + endAt);
+        const tap = app.stub.state.shiftTaps.filter(x => x.kind === "end").pop();
+        const sentAt = tap && tap.sent ? Date.parse(tap.sent) : NaN;
+        expect("the end carries the time it was tapped, and the API takes it", Number.isFinite(sentAt) && sentAt >= tappedAt - 1000 && sentAt <= tappedAt + 2000 && sentAt < backAt - 1000 && tap.taken === tap.sent, JSON.stringify({ tappedAt: new Date(tappedAt).toISOString(), backAt: new Date(backAt).toISOString(), tap: tap }));
+        const left = await app.page.evaluate(() => ({ waiting: !!document.querySelector('[data-end-waiting="1"]'), kept: (() => { try { return !!localStorage.getItem("ocsa-pending-end"); } catch (e) { return true; } })() }));
+        expect("once it has gone the line goes, nothing is left on the phone, and End Shift is gone", !left.waiting && !left.kept && (await pendingTaps(app.page)) === 0 && !has(await bodyText(app.page), say("End Shift", language)), JSON.stringify(left) + " " + (await bodyText(app.page)).slice(0, 160));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "refusalwords",
+    label: "The refusal codes main answers since Round 1, each in the portal's own words with the next step: a PIN the office gave that expired, an account locked until the office, a weak PIN at Register, a sign-in that could not be checked, a photo the API would not store, a report sent wrong, a task already settled, an issue closed and a shift on approved time off",
+    run: async (open, language, expect) => {
+      // Sign-in: the PIN the office gave has expired, and the account is
+      // locked until the office unlocks it.
+      for (const [k, en] of [["givenPinExpired", "The PIN the office gave you has expired. Call the office for a new one, or tap Forgot your PIN? to choose your own by email."], ["lockedUntilOffice", "Too many tries today, so your account is locked until the office unlocks it. Call the office, or tap Forgot your PIN? to reset it by email."]]) {
+        const app = await open({ signedIn: false });
+        try {
+          app.stub.state.refuse["POST /api/auth/login"] = { status: API_R2[k].status, body: apiR2Body(k, language), once: true };
+          await type(app.page, 'input[autocomplete="username"]', "4821");
+          await type(app.page, 'input[type="password"]', "4907");
+          await clickText(app.page, say("Sign In", language));
+          await pause(app.page, 1000);
+          const line = await lineUnderPin(app.page, 0);
+          expect(API_R2[k].code + " at sign-in is said under the PIN box in the portal's words, with what to do next", line === ownWords(en, language), JSON.stringify(line));
+          await spokenHere(app, language, expect);
+        } finally { await app.context.close(); }
+      }
+      // Register: a PIN the phone takes and the API turns away as weak.
+      const reg = await open({ signedIn: false });
+      try {
+        await clickText(reg.page, say("New Employee? Register Here", language));
+        await pause(reg.page, 700);
+        reg.stub.state.refuse["POST /api/auth/register"] = { status: 400, body: { error: language === "es" ? "Elija un PIN que no sea un mismo d\u00edgito repetido, una secuencia ni su n\u00famero de empleado" : "Choose a PIN that is not repeated digits, a sequence, or your badge number", code: "PIN_WEAK" }, once: true };
+        const person = ["Riley", "Invented", "0000000009", "nine@example.invalid", "5739", "5739"];
+        for (let i = 0; i < person.length; i += 1) await typeNth(reg.page, "input", i, person[i]);
+        await clickText(reg.page, say("Register", language));
+        await pause(reg.page, 1000);
+        const line = await lineUnderPin(reg.page, 0);
+        const toasts = await toastsNow(reg.page);
+        expect("PIN_WEAK at Register is said under the PIN box, with the form kept", line === say("Choose a PIN that is not repeated digits, a sequence, or your badge number", language) && toasts.every(x => !x.failure) && (await boxValue(reg.page, "input", 0)) === "Riley", JSON.stringify({ line: line, toasts: toasts }));
+        await spokenHere(reg, language, expect);
+      } finally { await reg.context.close(); }
+      // A sign-in the API could not check, at start and on a send: try
+      // again, never a failure.
+      // A phone with no list kept, so the first screen says it.
+      const boot = await open({ stubOptions: { refuse: { "GET /api/auth/me": { status: 503, body: apiR2Body("checkUnavailable", language), once: true } } } });
+      try {
+        await pause(boot.page, 1800);
+        const text = await bodyText(boot.page);
+        expect("auth.checkUnavailable at start says to try again in a moment, never that something went wrong", has(text, say("OCSA could not check your sign-in just now. Try again in a moment.", language)) && !has(text, say("Something went wrong on our end. Try again in a minute.", language)), text.slice(0, 220));
+        await clickText(boot.page, say("Try again", language));
+        await pause(boot.page, 1800);
+        expect("Try again then opens the portal", await boot.page.evaluate(() => !!document.querySelector(".sp-content")), (await bodyText(boot.page)).slice(0, 160));
+        // With a list kept on the phone, the app opens on it, the way it
+        // does with no signal.
+        await openTab(boot.page, "tasks", language);
+        await pause(boot.page, 1500);
+        boot.stub.state.refuse["GET /api/auth/me"] = { status: 503, body: apiR2Body("checkUnavailable", language), once: true };
+        await boot.page.reload();
+        await pause(boot.page, 2000);
+        const kept = await bodyText(boot.page);
+        expect("auth.checkUnavailable at start on a phone with a list kept opens that list, never a failure", (await boot.page.evaluate(() => !!document.querySelector(".sp-content"))) && !has(kept, say("Something went wrong on our end. Try again in a minute.", language)), kept.slice(0, 220));
+      } finally { await boot.context.close(); }
+      const busy = await open({});
+      try {
+        await issueReady(false)(busy, language);
+        busy.stub.state.refuse["POST /api/issues"] = { status: 503, body: apiR2Body("checkUnavailable", language), once: true };
+        await clickText(busy.page, say("Submit Issue", language));
+        const toast = await toastSaying(busy.page, say("OCSA could not check your sign-in just now. Try again in a moment.", language));
+        expect("auth.checkUnavailable on a send says to try again, as a notice and never as a failure", !!toast && !toast.failure, JSON.stringify(await toastsNow(busy.page)));
+        expect("the report waits on screen for the try again", (await boxValue(busy.page, ".sp-content input", 0)) === ISSUE_TITLE, JSON.stringify(await boxValue(busy.page, ".sp-content input", 0)));
+      } finally { await busy.context.close(); }
+      // A photo the API will not store.
+      const bucket = await open({});
+      try {
+        await issueReady(true)(bucket, language);
+        bucket.stub.state.refuse["POST /api/uploads"] = { status: 400, body: apiR2Body("badBucket", language), once: true };
+        await clickText(bucket.page, say("Submit Issue", language));
+        const toast = await toastSaying(bucket.page, say("This photo could not be saved. Try again, and tell the office if it happens again.", language));
+        expect("uploads.badBucket says the photo was not saved and what to do next", !!toast, JSON.stringify(await toastsNow(bucket.page)));
+        expect("the report and its photo stay for the try again", (await boxValue(bucket.page, ".sp-content input", 0)) === ISSUE_TITLE && await bucket.page.evaluate(() => !!document.querySelector('.sp-content img[src^="data:"]')), "the report is gone");
+      } finally { await bucket.context.close(); }
+      // A report sent with a clientId the API will not take: the next send
+      // makes a new one.
+      const wrong = await open({});
+      try {
+        await issueReady(false)(wrong, language);
+        wrong.stub.state.refuse["POST /api/issues"] = { status: 400, body: apiR2Body("clientIdInvalid", language), once: true };
+        await clickText(wrong.page, say("Submit Issue", language));
+        const toast = await toastSaying(wrong.page, say("This report could not be sent as it was. Tap Submit Issue again.", language));
+        expect("issues.clientIdInvalid says to tap Submit Issue again", !!toast, JSON.stringify(await toastsNow(wrong.page)));
+        await pause(wrong.page, 600);
+        await clickText(wrong.page, say("Submit Issue", language));
+        await pause(wrong.page, 1500);
+        const sends = issueSends(wrong.stub);
+        expect("Submit Issue again files the report with a new clientId", wrong.stub.state.issues.length === 1 && sends.length === 2 && sends[0].body.clientId !== sends[1].body.clientId, wrong.stub.state.issues.length + " issues, " + JSON.stringify(sends.map(c => c.body && c.body.clientId)));
+      } finally { await wrong.context.close(); }
+      // An assigned task already settled, and one whose issue is closed:
+      // nothing more to send, said as a notice, and the list read again.
+      for (const [k, en, panel] of [["alreadySettled", "This task is already finished or marked as unable to finish, so there is nothing more to send.", "Resolved"], ["issueClosed", "The problem behind this task is already closed, so there is nothing more to send.", "Cannot Resolve"]]) {
+        const app = await open({});
+        try {
+          await openTab(app.page, "issuetasks", language);
+          await pause(app.page, 900);
+          await openItem(app.page, "Replace the cracked light cover");
+          await pause(app.page, 700);
+          await clickText(app.page, say(panel, language));
+          await typeNth(app.page, ".sp-content textarea", 0, "Put a new cover on");
+          if (panel === "Resolved") { await attachPhoto(app.page, '.sp-content input[type="file"]'); await pause(app.page, 700); }
+          app.stub.state.refuse["PATCH /api/clock/tasks/resolve/at-1"] = { status: API_R2[k].status, body: apiR2Body(k, language), once: true };
+          const reads = sent(app.stub, "GET", "/api/clock/tasks/assigned").length;
+          await clickText(app.page, say(panel === "Resolved" ? "Submit Resolution" : "Submit", language));
+          const toast = await toastSaying(app.page, ownWords(en, language));
+          await pause(app.page, 900);
+          expect(API_R2[k].code + " says there is nothing more to send, as a notice", !!toast && !toast.failure, JSON.stringify(await toastsNow(app.page)));
+          expect(API_R2[k].code + " closes the task and reads the list again", !(await app.page.evaluate(() => !!document.querySelector(".sp-content textarea"))) && sent(app.stub, "GET", "/api/clock/tasks/assigned").length > reads, "the form is still open, or the list was not read again");
+        } finally { await app.context.close(); }
+      }
+      // A shift on a day of approved time off.
+      const pick = await open({});
+      try {
+        await openTab(pick.page, "pickup", language);
+        await pause(pick.page, 900);
+        for (let n = 1; n <= 5; n += 1) pick.stub.state.refuse["POST /api/pickups/pk-" + n + "/claim"] = { status: 409, body: apiR2Body("onLeave", language, { dates: "2026-10-08" }, { dates: ["2026-10-08"] }) };
+        await clickText(pick.page, say("Claim This Shift", language));
+        const toast = await toastSaying(pick.page, say("You have time off approved that day, so this shift cannot be yours. Pick a shift on another day.", language));
+        expect("pickups.onLeave says the shift is on approved time off and to pick another day", !!toast, JSON.stringify(await toastsNow(pick.page)));
+      } finally { await pick.context.close(); }
+    },
+  },
+  {
+    id: "noticeplaces",
+    label: "Notices that open something, from the bell, from a phone alert on an open window, and from a phone alert that opens the app: a support ticket at the ticket, periodic work at the task, a client's concern on its own sheet, and an HR case on the case sheet",
+    run: async (open, language, expect) => {
+      const PLACES = [
+        ["support_ticket", "st-1", '[data-support-focus="1"][data-support-ticket="st-1"]', "My tickets at the ticket"],
+        ["periodic_overdue", "pw-1", '[data-fk-periodic-focus="1"][data-fk-periodic-item="pw-1"]', "Periodic work at the task"],
+        ["customer_concern", "cc-1", '[data-concern-sheet="cc-1"] [data-concern-read="1"]', "the client's concern, read only"],
+        ["hr_case_assigned", "case-1", '[data-case-sheet="case-1"] [data-case-read="1"]', "the case, read only"],
+      ];
+      const seen = (page, sel) => page.waitForSelector(sel, { timeout: 6000 }).then(() => true).catch(() => false);
+      for (const [type, id, sel, place] of PLACES) {
+        const row = EVERY_NOTICE.find(r => r.type === type);
+        const notice = Object.assign({}, row.notice);
+        const stubOptions = Object.assign({ person: R2_SUPERVISOR, notifications: [notice] }, R2_EVERYTHING);
+        // From the bell.
+        const bell = await open({ stubOptions: stubOptions });
+        try {
+          await bell.page.waitForFunction(() => Array.from(document.querySelectorAll("button")).some(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")), null, { timeout: 8000 }).catch(() => {});
+          await bell.page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
+          await bell.page.waitForFunction((t) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.indexOf(t) !== -1), notice.title, { timeout: 6000 }).catch(() => {});
+          await bell.page.evaluate((t) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.indexOf(t) !== -1); if (b) b.click(); }, notice.title);
+          expect("a " + type + " notice on the bell opens " + place, await seen(bell.page, sel), (await bodyText(bell.page)).slice(0, 200));
+          // App support names the build and the phone, which no language
+          // reads.
+          if (type !== "support_ticket") await spokenHere(bell, language, expect);
+        } finally { await bell.context.close(); }
+        // A phone alert tapped while the app is open.
+        const live = await open({ stubOptions: stubOptions });
+        try {
+          await pause(live.page, 1500);
+          await live.page.evaluate(([t, i]) => navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { type: "ocsa-open", subjectType: t, subjectId: i } })), [type, id]);
+          expect("a " + type + " phone alert on an open app opens " + place, await seen(live.page, sel), (await bodyText(live.page)).slice(0, 200));
+        } finally { await live.context.close(); }
+        // A phone alert that opens the app.
+        const fresh = await open({ path: "/?open=" + type + ":" + id, stubOptions: stubOptions });
+        try {
+          expect("a " + type + " phone alert that opens the app opens " + place, await seen(fresh.page, sel), (await bodyText(fresh.page)).slice(0, 200));
+        } finally { await fresh.context.close(); }
+      }
+    },
+  },
+  {
+    id: "casesheet",
+    label: "The case sheet: an HR case notice opens it read only for a supervisor who holds manage_cases, in the screen's language, and a cleaner never sees it, from the bell or from a phone alert",
+    run: async (open, language, expect) => {
+      const notice = Object.assign({}, EVERY_NOTICE.find(r => r.type === "hr_case_filed").notice);
+      const sup = await open({ stubOptions: { person: R2_SUPERVISOR, notifications: [notice] } });
+      try {
+        await sup.page.waitForFunction(() => Array.from(document.querySelectorAll("button")).some(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")), null, { timeout: 8000 }).catch(() => {});
+        await sup.page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
+        await sup.page.waitForFunction((t) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.indexOf(t) !== -1), notice.title, { timeout: 6000 }).catch(() => {});
+        await sup.page.evaluate((t) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.indexOf(t) !== -1); if (b) b.click(); }, notice.title);
+        const up = await sup.page.waitForSelector('[data-case-sheet="case-1"] [data-case-read="1"]', { timeout: 6000 }).then(() => true).catch(() => false);
+        expect("an HR case notice opens the case sheet for a supervisor who holds manage_cases", up, (await bodyText(sup.page)).slice(0, 200));
+        if (up) {
+          const sheet = await sup.page.evaluate(() => {
+            const d = document.querySelector('[data-case-sheet="case-1"]');
+            return { text: d.innerText.replace(/\s+/g, " "), fields: d.querySelectorAll("input, textarea, select, [contenteditable]").length, buttons: Array.from(d.querySelectorAll("button")).map(b => b.innerText.trim()), status: (d.querySelector("[data-case-status]") || {}).textContent || "" };
+          });
+          const summary = language === "es" ? "Inventado: alguien cambia el horario del carro sin avisar al equipo." : "Invented: someone keeps changing the cart schedule without telling the crew.";
+          expect("the case sheet shows the case in the screen's language: its status, what was reported and its updates", has(sheet.text, summary) && sheet.status === say("Case in review", language) && has(sheet.text, say("Updates", language)), sheet.text.slice(0, 300));
+          expect("the case sheet is read only: nothing to type in, with the notice's Open in the dashboard and Close its only buttons", sheet.fields === 0 && sheet.buttons.length === 2 && sheet.buttons[0] === say("Open in the dashboard", language) && sheet.buttons[1] === say("Close", language), JSON.stringify(sheet.buttons) + " " + sheet.fields + " fields");
+          expect("the case sheet says it is read only and where the case is worked", has(sheet.text, say("Read only. The case is worked on the dashboard.", language)), sheet.text.slice(0, 200));
+          expect("the case sheet reads the case once, through the case route", sent(sup.stub, "GET", "/api/hr-cases/case-1").length === 1, sent(sup.stub, "GET", "/api/hr-cases/case-1").length + " reads");
+          await spokenHere(sup, language, expect);
+          await clickText(sup.page, say("Close", language));
+          await pause(sup.page, 500);
+          expect("Close takes the case sheet away", !(await sup.page.evaluate(() => !!document.querySelector("[data-case-sheet]"))), "still up");
+        }
+      } finally { await sup.context.close(); }
+      // A cleaner, from the bell and from a phone alert.
+      const cleaner = await open({ stubOptions: { notifications: [notice] } });
+      try {
+        await cleaner.page.waitForFunction(() => Array.from(document.querySelectorAll("button")).some(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")), null, { timeout: 8000 }).catch(() => {});
+        await pause(cleaner.page, 1200);
+        await cleaner.page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); });
+        await cleaner.page.waitForFunction((t) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.indexOf(t) !== -1), notice.title, { timeout: 6000 }).catch(() => {});
+        await cleaner.page.evaluate((t) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.indexOf(t) !== -1); if (b) b.click(); }, notice.title);
+        await pause(cleaner.page, 1500);
+        expect("a cleaner tapping an HR case notice never sees the case sheet, and the case is never read", !(await cleaner.page.evaluate(() => !!document.querySelector("[data-case-sheet]"))) && sent(cleaner.stub, "GET", "/api/hr-cases/").length === 0, sent(cleaner.stub, "GET", "/api/hr-cases/").length + " reads");
+      } finally { await cleaner.context.close(); }
+      const pushed = await open({ path: "/?open=hr_case_filed:case-1", stubOptions: { notifications: [notice] } });
+      try {
+        let ever = false;
+        const until = Date.now() + 4000;
+        while (Date.now() < until) { if (await pushed.page.evaluate(() => !!document.querySelector("[data-case-sheet]"))) { ever = true; break; } await pause(pushed.page, 100); }
+        const bell = await pushed.page.evaluate((w) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.trim() === w), say("Mark all read", language));
+        expect("a cleaner's phone alert about an HR case opens the bell, never the case sheet", !ever && bell && sent(pushed.stub, "GET", "/api/hr-cases/").length === 0, "sheet " + ever + ", bell " + bell + ", " + sent(pushed.stub, "GET", "/api/hr-cases/").length + " reads");
+      } finally { await pushed.context.close(); }
+    },
+  },
+  {
+    id: "nomoney",
+    label: "No money anywhere: a supervisor and an admin go through every place on the bar, under More and in the field kit, and no dollar figure or cost shows, and none is kept on the phone",
+    run: async (open, language, expect) => {
+      const MONEY = /\$\s?\d|\d\s?\$|\bUSD\b|12[.,]5|cost per unit|costo por unidad/i;
+      const KEPT = /cost_?per_?unit|unit_?cost|hourly_?rate|pay_?rate|wage|salary|labor_?cost|monthly_?price|annual_?price|"\$\s?\d/i;
+      for (const person of [R2_SUPERVISOR, R2_ADMIN]) {
+        const app = await open({ stubOptions: Object.assign({ person: person }, R2_EVERYTHING) });
+        try {
+          await pause(app.page, 2000);
+          const found = [];
+          const look = async (where) => { const text = await bodyText(app.page); const m = MONEY.exec(text); if (m) found.push(where + ": " + text.slice(Math.max(0, m.index - 40), m.index + 40)); };
+          await look("Home");
+          const bar = () => app.page.evaluate(() => {
+            const b = Array.from(document.querySelectorAll("div")).find((el) => { const s = getComputedStyle(el); return s.position === "fixed" && s.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5; });
+            return b ? b.querySelectorAll(":scope > button").length : 0;
+          });
+          const tapBar = (i) => app.page.evaluate((n) => {
+            const b = Array.from(document.querySelectorAll("div")).find((el) => { const s = getComputedStyle(el); return s.position === "fixed" && s.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5; });
+            const x = b && b.querySelectorAll(":scope > button")[n];
+            if (x) x.click();
+            return x ? x.textContent.trim() : null;
+          }, i);
+          const n = await bar();
+          for (let i = 0; i < n - 1; i += 1) { const name = await tapBar(i); await pause(app.page, 1300); await look(name); }
+          await tapBar(n - 1);
+          await pause(app.page, 900);
+          const items = await app.page.evaluate(() => {
+            const grid = Array.from(document.querySelectorAll(".sp-more div")).find(d => getComputedStyle(d).display === "grid" && d.querySelectorAll(":scope > button").length >= 5);
+            return grid ? grid.querySelectorAll(":scope > button").length : 0;
+          });
+          for (let j = 0; j < items; j += 1) {
+            await tapBar(n - 1);
+            await pause(app.page, 700);
+            const name = await app.page.evaluate((k) => {
+              const grid = Array.from(document.querySelectorAll(".sp-more div")).find(d => getComputedStyle(d).display === "grid" && d.querySelectorAll(":scope > button").length >= 5);
+              const x = grid && grid.querySelectorAll(":scope > button")[k];
+              if (x) x.click();
+              return x ? x.textContent.trim() : null;
+            }, j);
+            await pause(app.page, 1300);
+            await look(name);
+          }
+          // Every tile of the field kit.
+          if (await openTab(app.page, "fieldkit", language)) {
+            await pause(app.page, 1200);
+            for (const tile of ["Issue PPE", "Periodic work", "Equipment", "Awaiting review", "Sign off training", "Training session", "Watch and sign off"]) {
+              if (!(await clickText(app.page, say(tile, language)))) continue;
+              await pause(app.page, 1300);
+              await look("Field kit, " + tile);
+              await clickText(app.page, say("Field kit", language));
+              await pause(app.page, 700);
+            }
+          }
+          expect("no dollar figure or cost shows anywhere a " + person.role + " can reach", found.length === 0 && items >= 10, items + " places under More; " + found.join(" | ").slice(0, 200));
+          const kept = await app.page.evaluate(() => { const out = []; try { for (let i = 0; i < localStorage.length; i += 1) { const k = localStorage.key(i); out.push(k + "=" + localStorage.getItem(k)); } } catch (e) {} try { for (let i = 0; i < sessionStorage.length; i += 1) { const k = sessionStorage.key(i); out.push(k + "=" + sessionStorage.getItem(k)); } } catch (e) {} return out.join("\n"); });
+          const m = KEPT.exec(kept);
+          expect("no cost or pay figure is kept on a " + person.role + "'s phone", !m, m ? kept.slice(Math.max(0, m.index - 60), m.index + 60) : "");
+        } finally { await app.context.close(); }
+      }
+    },
+  },
+];
+JOURNEYS.push(...ROUND2_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };

@@ -171,8 +171,9 @@ block on a Saturday with no window and its weekly step;
 the training day round (Steps 335, 336 and 339), against API Steps 326
 to 331 and 337 as the training day contract gives them, in English at
 390 and Spanish at 320: on one supervisor's phone, the subscription the
-phone holds posted again with app "portal", Open in the dashboard on an
-HR case's notice alone, the unfinished inspection's notice opening that
+phone holds posted again with app "portal", an HR case's notice opening
+the case sheet with Open in the dashboard on it (part 355), the
+unfinished inspection's notice opening that
 inspection and a new shift's opening My Schedule, each of the API
 round's other notices tapped in turn with a line each (a task given
 opening Tasks on that task when the open shift's list holds it and on
@@ -774,6 +775,57 @@ the main of part 348:
 Rows carry `data-task-row` with their task id, and the followed list's
 marks `data-task-done`. A check-off asks the status first, so the weak
 check-off journey counts that read on the way to it (`reach`).
+
+## Round 2 (part 355)
+
+The stub answers the routes this round calls the way ocsa-api's main
+(49262a3) does: POST /api/issues takes a `clientId` and answers the same
+person's repeat with the first issue (200, `issues.reported`), and
+another person's with 400 `issues.clientIdInvalid`; Start and End take
+the tap's time (`startedAt`, `endedAt`, at most 12 hours old and 2
+minutes ahead, else now) and record what they were sent and what they
+took in `state.shiftTaps`; GET /api/hr-cases/:id answers a holder of
+manage_cases and 403 to anyone else; GET /api/forms/responses/cc-1
+answers a holder of view_reports. `API_R2` holds the refusals new since
+Round 1 in the API's own words, and `apiR2Body` writes one for
+`state.refuse`. The trouble kind `kept500` does the work and answers 500,
+the way a proxy's error after the API wrote reaches the phone. The weak
+issue actions count records by distinct clientId (`same`), and `queued`
+now says which actions go again by themselves. The checklist day turns
+at 4:00 AM on the company's wall clock, the way the API's
+helpers/checklistDay.js reads it, so on Nov 1 it turns at 4:00 AM too
+(PORT-07); before, the stub took four hours of milliseconds off, and the
+day turned at 3:00 AM that night.
+
+Six journeys, each failing on the main of part 350 but the last:
+
+- `issueonce`: an issue, with and without a photo, sent again after
+  `kept500` makes one issue, both sends carry one clientId, the form
+  stays until the API has it, and a report typed differently after a
+  failure is its own issue.
+- `endshiftqueue`: End Shift with no signal is kept and said, then goes
+  by itself once the signal is back, after the check-off waiting before
+  it, with the time it was tapped.
+- `refusalwords`: each refusal code in the portal's own words, with the
+  next step: `auth.givenPinExpired` and `auth.lockedUntilOffice` at
+  sign-in, `PIN_WEAK` under Register's PIN box, `auth.checkUnavailable`
+  at start and on a send as a notice, `uploads.badBucket`,
+  `issues.clientIdInvalid`, `tasks.resolve.alreadySettled`,
+  `tasks.resolve.issueClosed` and `pickups.onLeave`.
+- `noticeplaces`: a support_ticket, periodic_overdue, customer_concern
+  and hr_case notice each open their place from the bell, from a phone
+  alert on an open app, and from `?open=` at start.
+- `casesheet`: the case sheet opens read only for a supervisor, and a
+  cleaner never sees it or reads the case, from the bell or a phone
+  alert.
+- `nomoney`: a supervisor and an admin go through the bar, More and the
+  field kit's tiles, and no dollar figure or cost shows or is kept on the
+  phone. The admin's supplies carry `cost_per_unit` from the stub, as the
+  API sends it to a holder of manage_employment. The portal never showed
+  money, so this one holds on main too; it stays as a guard.
+
+The case sheet and the concern sheet share `ReadSheet`, whose case in
+the screen sweep opens a case from its phone alert.
 
 ## Known failures
 

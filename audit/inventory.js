@@ -161,6 +161,8 @@ const SHEET_CASES = [
   { id: "StartInspectionSheet#0", label: "Start an inspection" },
   { id: "InspectSectionsSheet#0", label: "Inspect, the sections of a long inspection" },
   { id: "WalkSectionsSheet#0", label: "Inspect, the sections of a walk" },
+  // Part 355: the case sheet and the client's concern share one sheet.
+  { id: "ReadSheet#0", label: "A case or a client's concern, read only" },
 ];
 
 // Every form a person can fill in and send. Required fields are the ones

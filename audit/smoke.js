@@ -181,7 +181,8 @@
 //     326 to 331 and 337 as the training day contract gives them, in
 //     English at 390 and Spanish at 320. On one supervisor's phone: the
 //     subscription the phone holds posted again with app "portal"; on the
-//     bell, Open in the dashboard on hr_case_assigned's row alone,
+//     bell, hr_case_assigned opening the case sheet with Open in the
+//     dashboard on it and no row offering the dashboard (part 355),
 //     inspection_unfinished opening that inspection and shift_assigned
 //     opening My Schedule; each of the API round's other notices tapped in
 //     turn, a line each: task_assigned opening Tasks on that task when the
@@ -2567,9 +2568,10 @@ async function timedSchedule(browser, language, width) {
 //   before one is picked; and a start answered with no id (startNoId)
 //   still ends on today's inspection there.
 // - New notices: the subscription the phone holds is posted again after
-//   sign-in with app "portal"; on the bell, hr_case_assigned shows Open in
-//   the dashboard and the others do not; inspection_unfinished opens that
-//   inspection; shift_assigned opens My Schedule.
+//   sign-in with app "portal"; on the bell, hr_case_assigned opens the case
+//   sheet with Open in the dashboard on it, and no row offers the
+//   dashboard (part 355); inspection_unfinished opens that inspection;
+//   shift_assigned opens My Schedule.
 const ROUND_SUPERVISOR = Object.assign({}, ADMIN_PERSON, { id: "u-smoke-sup", firstName: "Riley", lastName: "Example", role: "supervisor", badgeNumber: "4801", phone: "0000000008", email: "riley@example.invalid" });
 const ROUND_NOTICES = [
   { id: "n-case", subjectType: "hr_case_assigned", subjectId: "case-1", title: "A case was assigned to you", body: "Open it in Cases.", link: "https://admin.example.invalid/#cases/case-1", createdAt: "2026-10-12T17:17:00.000Z", readAt: null },
@@ -2627,7 +2629,14 @@ async function trainingDay(browser, language, width) {
   let caseRow = false, unfinished = false, shift = false;
   const dash = say(language, "Open in the dashboard");
   if (inBar && await bell()) {
-    caseRow = await rowHas(ROUND_NOTICES[0].title, dash) && !(await rowHas(ROUND_NOTICES[1].title, dash)) && !(await rowHas(ROUND_NOTICES[2].title, dash));
+    // Part 355: a supervisor who works cases taps the case's notice and
+    // reads the case on its sheet, which carries the notice's link to the
+    // dashboard; no row on the bell offers it.
+    const rows = !(await rowHas(ROUND_NOTICES[0].title, dash)) && !(await rowHas(ROUND_NOTICES[1].title, dash)) && !(await rowHas(ROUND_NOTICES[2].title, dash));
+    await tapRow(ROUND_NOTICES[0].title);
+    caseRow = rows && await waitFor(page, (w) => { const d = document.querySelector('[data-case-sheet="case-1"]'); return !!d && !!d.querySelector('[data-case-read="1"]') && Array.from(d.querySelectorAll("button")).some(b => b.innerText.trim() === w); }, dash);
+    await page.evaluate(() => { const d = document.querySelector("[data-case-sheet]"); const b = d && Array.from(d.querySelectorAll("button")).pop(); if (b) b.click(); });
+    await bell();
     await tapRow(ROUND_NOTICES[2].title);
     unfinished = await waitFor(page, () => !!document.querySelector('[data-inspect-item="is-1"]') && !!document.querySelector('[data-inspect-item="is-2"]'));
     if (await bell()) {
@@ -2635,9 +2644,9 @@ async function trainingDay(browser, language, width) {
       shift = await waitFor(page, (w) => { const c = document.querySelector(".sp-content"); return !!c && c.innerText.indexOf(w.mine) !== -1 && c.innerText.toUpperCase().indexOf(w.onSite.toUpperCase()) === -1 && !document.querySelector("[data-inspect-item]") && !document.querySelector('[role="dialog"]'); }, { mine: say(language, "My Schedule"), onSite: say(language, "Time on Site") });
     }
   }
-  check("New notices: the subscription this phone holds is posted again after sign-in with app \"portal\"; on the bell, hr_case_assigned shows Open in the dashboard and the others do not; inspection_unfinished opens that inspection; shift_assigned opens My Schedule" + tag,
+  check("New notices: the subscription this phone holds is posted again after sign-in with app \"portal\"; on the bell, hr_case_assigned opens the case sheet with Open in the dashboard on it and no row offers the dashboard; inspection_unfinished opens that inspection; shift_assigned opens My Schedule" + tag,
     appPortal && caseRow && unfinished && shift && app.errors.length === 0,
-    !appPortal ? "the subscription was posted as " + JSON.stringify(posted.map(c => c.body)) : !caseRow ? "Open in the dashboard was not on the case's row alone" : !unfinished ? "inspection_unfinished did not open the inspection" : !shift ? "shift_assigned did not open My Schedule" : app.errors[0]);
+    !appPortal ? "the subscription was posted as " + JSON.stringify(posted.map(c => c.body)) : !caseRow ? "the case did not open on its sheet with Open in the dashboard, or a row offered the dashboard" : !unfinished ? "inspection_unfinished did not open the inspection" : !shift ? "shift_assigned did not open My Schedule" : app.errors[0]);
 
   // The API round's other notices, each tapped on the bell in turn, so
   // each place is reached from somewhere else: task_assigned opens Tasks on
