@@ -1410,10 +1410,13 @@ const JOURNEYS = [
           await pause(app.page, 800);
           await pickSite(app.page, "West Building");
           await pause(app.page, 400);
+          const tappedAt = await app.page.evaluate(() => Date.now());
           await clickText(app.page, say("Start Shift", language));
           await pause(app.page, 1600);
           const started = lastSent(app.stub, "POST", "/api/shift-sessions");
-          expect("Start Shift sends the site the way it always has" + at, !!started && JSON.stringify(started.body) === JSON.stringify({ siteId: WEST }), started ? JSON.stringify(started.body) : "nothing sent");
+          // Since part 355 the start carries the tap's own time (PORT-06).
+          const sentAt = started && started.body ? Date.parse(started.body.startedAt) : NaN;
+          expect("Start Shift sends the site the way it always has, with the time it was tapped" + at, !!started && Object.keys(started.body || {}).sort().join(",") === "siteId,startedAt" && started.body.siteId === WEST && Number.isFinite(sentAt) && Math.abs(sentAt - tappedAt) <= 2000, started ? JSON.stringify(started.body) : "nothing sent");
           const sheet = await shiftSheet(app.page, language);
           expect("Start Shift at a site with shifts asks which shift" + at, sheet.up, "no sheet: " + (await bodyText(app.page)).slice(0, 160));
           if (!sheet.up) continue;
