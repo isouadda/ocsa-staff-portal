@@ -314,8 +314,11 @@ const zoneParts = (ms) => {
   zoneFormat.formatToParts(new Date(ms)).forEach((x) => { p[x.type] = Number(x.value); });
   return p;
 };
-// The checklist day an instant falls on, counted in days since 1970.
-const checklistDay = (ms) => { const p = zoneParts(ms - DAY_STARTS_HOUR * 3600 * 1000); return Math.round(Date.UTC(p.year, p.month - 1, p.day) / DAY); };
+// The checklist day an instant falls on, counted in days since 1970: the
+// company's date, the day before while its wall clock reads under 4:00
+// AM, the way the API's helpers/checklistDay.js reads it (part 355,
+// PORT-07), so the day turns at 4:00 AM on Nov 1 too.
+const checklistDay = (ms) => { const p = zoneParts(ms); return Math.round(Date.UTC(p.year, p.month - 1, p.day) / DAY) - (p.hour < DAY_STARTS_HOUR ? 1 : 0); };
 // Whether a block's days, 'wed,thu' form, take in a checklist day. A
 // block with none runs every day (Step 315).
 const WEEK_DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
@@ -1042,26 +1045,80 @@ const ACK_REPORT = {
 // marked read and left on the bell. want is what the contract asks
 // (section 2.6: a tap opens the item itself, in the app the reader
 // uses), so a row whose ours differs is a finding and is in known.json.
+// Part 355: what the API's main (49262a3) answers that the portal's
+// Round 2 reads. The refusals since the API's own Round 1 (part 346),
+// each in its helpers/words.js English and Spanish, built the way its
+// errorBody builds every refusal: { error, code, ...extra }.
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:?\d{2})$/i;
+const API_R2 = {
+  givenPinExpired: { status: 403, code: "auth.givenPinExpired", en: "This PIN has expired. Ask the office for a new one.", es: "Este PIN ya venci\u00f3. Pida uno nuevo a la oficina." },
+  lockedUntilOffice: { status: 429, code: "auth.lockedUntilOffice", en: "Too many tries today. Your account is locked until the office unlocks it. You can also reset your PIN by email from the sign-in screen.", es: "Demasiados intentos hoy. Su cuenta est\u00e1 bloqueada hasta que la oficina la desbloquee. Tambi\u00e9n puede restablecer su PIN por correo desde la pantalla de inicio de sesi\u00f3n." },
+  checkUnavailable: { status: 503, code: "auth.checkUnavailable", en: "We could not check your sign-in just now. Try again in a moment.", es: "No pudimos comprobar su sesi\u00f3n en este momento. Intente de nuevo en un momento." },
+  badBucket: { status: 400, code: "uploads.badBucket", en: "Files cannot be stored there.", es: "No se pueden guardar archivos ah\u00ed." },
+  clientIdInvalid: { status: 400, code: "issues.clientIdInvalid", en: "clientId must be the id this phone made for this report", es: "clientId debe ser el identificador que este tel\u00e9fono cre\u00f3 para este reporte" },
+  alreadySettled: { status: 409, code: "tasks.resolve.alreadySettled", en: "This task is already marked resolved or unable to resolve.", es: "Esta tarea ya est\u00e1 marcada como resuelta o como que no se puede resolver." },
+  issueClosed: { status: 409, code: "tasks.resolve.issueClosed", en: "The issue for this task is closed, declined or waiting for approval.", es: "El problema de esta tarea est\u00e1 cerrado, rechazado o esperando aprobaci\u00f3n." },
+  onLeave: { status: 409, code: "pickups.onLeave", en: "You have approved time off on {dates}.", es: "Usted tiene tiempo libre aprobado: {dates}." },
+  insufficient: { status: 403, code: "access.insufficientPermissions", en: "Insufficient permissions", es: "No tiene permiso para hacer esto" },
+};
+// The body a journey hands state.refuse for one of them.
+const apiR2Body = (k, lang, vars, extra) => Object.assign({ error: refusalIn(API_R2[k], lang, vars), code: API_R2[k].code }, extra || {});
+// The words of the invented HR case and client's concern below, in each
+// language, each Spanish one registered as its English one's twin.
+const R2_WORDS = {
+  en: {
+    summary: "Invented: someone keeps changing the cart schedule without telling the crew.", note: "Note", noteBody: "Invented: talked with the crew lead.",
+    formName: "Customer Complaint Log", role: "Building manager", section: "The concern", what: "What happened", where: "Where", whatSaid: "Invented: the lobby bins were full on Monday.", whereSaid: "Lobby",
+  },
+  es: {
+    summary: "Inventado: alguien cambia el horario del carro sin avisar al equipo.", note: "Nota", noteBody: "Inventado: habl\u00e9 con el encargado del equipo.",
+    formName: "Registro de quejas de clientes", role: "Encargado del edificio", section: "La queja", what: "Qu\u00e9 pas\u00f3", where: "D\u00f3nde", whatSaid: "Inventado: los botes del lobby estaban llenos el lunes.", whereSaid: "Lobby",
+  },
+};
+const r2w = (lang) => R2_WORDS[lang === "es" ? "es" : "en"];
+// An invented HR case as GET /api/hr-cases/:id answers it (caseView and
+// its log), in the reader's language.
+const CASE_SEED = (lang) => ({
+  id: "case-1", status: "in_review",
+  summary: r2w(lang).summary,
+  reportedBy: { id: "u-two", name: "Sam Second" }, subject: { id: "u-three", name: "Robin Third" }, subjects: [{ id: "u-three", name: "Robin Third" }],
+  aboutManagement: false, lastReader: false, assignedTo: { id: "u-audit-sup", name: "Riley Example" }, escalatedTo: null,
+  resolutionNotes: null, resolvedAt: null, firstResponseAt: iso(NOW.getTime() - 20 * 60 * 60 * 1000), ageHours: 26, clock: null,
+  createdAt: iso(NOW.getTime() - 26 * 60 * 60 * 1000), updatedAt: iso(NOW.getTime() - 20 * 60 * 60 * 1000),
+  updates: [{ id: "cu-1", kind: "note", kindName: r2w(lang).note, body: r2w(lang).noteBody, withUser: null, withName: null, occurredAt: iso(NOW.getTime() - 20 * 60 * 60 * 1000), correctsId: null, correctedBy: null, attachments: [], details: null, createdBy: { id: "u-audit-sup", name: "Riley Example" }, createdAt: iso(NOW.getTime() - 20 * 60 * 60 * 1000) }],
+});
+// An invented client's concern, an OCSA-FRM-009 filed from a customer
+// link, as GET /api/forms/responses/:id answers it (reportPayload).
+const CONCERN_SEED = (lang) => ({
+  draft: { id: "cc-1", formCode: "OCSA-FRM-009", version: 2, formName: r2w(lang).formName, source: "customer", status: "submitted", customer: { name: "Invented Client", role: r2w(lang).role, linkId: "cl-1" } },
+  sections: [{ key: "concern", title: r2w(lang).section }],
+  fields: [
+    { key: "what", label: r2w(lang).what, type: "textarea", section: "concern", value: null, displayValue: r2w(lang).whatSaid },
+    { key: "where", label: r2w(lang).where, type: "text", section: "concern", value: null, displayValue: r2w(lang).whereSaid },
+  ],
+  canSign: [], canWriteSupervisor: false, supervisorMissing: [], canVoid: false, canResend: false, canAcknowledge: true,
+});
 const STAFF_ORIGIN = "https://staff.example.invalid";
 const ADMIN_ORIGIN = "https://admin.example.invalid";
 const EVERY_NOTICE = [
   ["chat", "ch-north", null, "place"],
   ["client_request", "rq-1", STAFF_ORIGIN + "/requests/rq-1", "place"],
-  ["customer_concern", "cc-1", ADMIN_ORIGIN + "/#concerns/cc-1", "place"],
+  ["customer_concern", "cc-1", ADMIN_ORIGIN + "/#forms", "place"],
   ["document_to_sign", "OCSA-HR-001", null, "place"],
   ["issue", "iss-1", STAFF_ORIGIN + "/issues/iss-1", "place"],
   ["issue_assigned", "iss-1", STAFF_ORIGIN + "/issues/iss-1", "place"],
   ["issue_escalated", "iss-1", STAFF_ORIGIN + "/issues/iss-1", "place"],
-  ["periodic_overdue", "site-north", null, "place"],
+  ["periodic_overdue", "pw-1", STAFF_ORIGIN + "/#checklist", "place", "task"],
   ["shift_assigned", "shift-9", null, "place"],
-  ["support_ticket", "tk-1", null, "place"],
+  ["support_ticket", "st-1", STAFF_ORIGIN + "/support", "place", "working"],
   ["support_ticket_new", "tk-9", ADMIN_ORIGIN + "/#support/tk-9", "dashboard"],
   ["time_off", "to-1", null, "place"],
-  ["hr_case_assigned", "case-1", ADMIN_ORIGIN + "/#cases/case-1", "dashboard"],
-  ["hr_case_escalated", "case-1", ADMIN_ORIGIN + "/#cases/case-1", "dashboard"],
-  ["hr_case_filed", "case-1", ADMIN_ORIGIN + "/#cases/case-1", "dashboard"],
-  ["hr_case_due_soon", "case-1", ADMIN_ORIGIN + "/#cases/case-1", "dashboard"],
-  ["hr_case_overdue", "case-1", ADMIN_ORIGIN + "/#cases/case-1", "dashboard"],
+  ["hr_case_assigned", "case-1", ADMIN_ORIGIN + "/#cases/case-1", "place"],
+  ["hr_case_escalated", "case-1", ADMIN_ORIGIN + "/#cases/case-1", "place"],
+  ["hr_case_filed", "case-1", ADMIN_ORIGIN + "/#cases/case-1", "place"],
+  ["hr_case_due_soon", "case-1", ADMIN_ORIGIN + "/#cases/case-1", "place"],
+  ["hr_case_overdue", "case-1", ADMIN_ORIGIN + "/#cases/case-1", "place"],
   ["task_assigned", "task-2", null, "place"],
   ["training_assigned", "topic-1", null, "place"],
   ["training_session", "ts-9", null, "place"],
@@ -1071,7 +1128,7 @@ const EVERY_NOTICE = [
   ["inspection_finding", "iss-1", STAFF_ORIGIN + "/issues/iss-1", "place"],
   ["shift_drop", "shift-8", null, "place"],
   ["shift_claim", "shift-8", null, "place"],
-].map(([type, id, link, want], i) => ({ type: type, want: want, notice: { id: "n-every-" + i, subjectType: type, subjectId: id, title: "Invented notice " + (i + 1) + " about " + type, body: "An invented notice.", link: link, createdAt: new Date(Date.UTC(2026, 9, 1, 20, 59 - i)).toISOString(), readAt: null } }));
+].map(([type, id, link, want, key], i) => ({ type: type, want: want, notice: { id: "n-every-" + i, subjectType: type, subjectKey: key || null, subjectId: id, title: "Invented notice " + (i + 1) + " about " + type, body: "An invented notice.", link: link, createdAt: new Date(Date.UTC(2026, 9, 1, 20, 59 - i)).toISOString(), readAt: null } }));
 
 // --- Help ----------------------------------------------------------------
 //
@@ -1358,6 +1415,7 @@ function makeState(opts) {
     refuse: o.refuse || {},          // "POST /api/time-off": { status, body }, { chat: code } or { api: key }
     offline: false,                  // every call fails at the network
     trouble: null,                   // part 344: { method, path, kind: "500" | "hold" | "lose", ms, left }
+    shiftTaps: [],                   // part 355: each Start and End, the time sent and the time taken
     person: o.person || PERSON,
     accountPreferences: o.accountPreferences === undefined ? {} : o.accountPreferences,
     clockedIn: o.clockedIn !== false,
@@ -2726,7 +2784,9 @@ const TWIN_PAIRS = [
   // The inspection walk's safety form (Step 313), registered in part 344:
   // the sweep's first look at the walk's Sections sheet read its Spanish
   // as English, since these words had no twin.
-  .concat(Object.keys(WALK_WORDS.en).map(k => [WALK_WORDS.en[k], WALK_WORDS.es[k]]));
+  .concat(Object.keys(WALK_WORDS.en).map(k => [WALK_WORDS.en[k], WALK_WORDS.es[k]]))
+  // Part 355: the case and the client's concern a notice opens.
+  .concat(Object.keys(R2_WORDS.en).map(k => [R2_WORDS.en[k], R2_WORDS.es[k]]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -2870,7 +2930,9 @@ function localeRows() {
 // who does not hold manage_employment is kept here, once per route and
 // field, so the run fails on it whichever case asked. The stub serves no
 // pay figure today; this holds it to that as cases are added.
-const PAY_FIELD = /^(hourly_?rate|pay_?rate|hourly_?pay|base_?rate|rate_?of_?pay|wage|wages|salary|labor_?cost|total_?cost|cost_?per_?hour|overtime_?pay|gross_?pay)$/i;
+// Part 355: and every key the API's helpers/pay.js PAY_KEYS names, a
+// supply's cost_per_unit and a vendor's unit_cost among them.
+const PAY_FIELD = /^(hourly_?rate|pay_?rate|hourly_?pay|base_?rate|rate_?of_?pay|wage|wages|salary|labor_?cost|total_?cost|cost_?per_?hour|overtime_?pay|gross_?pay|avg_?rate|ot_?premium|total_?ot_?premium|regular_?pay|ot_?pay|total_?pay|cost_?change_?pct|total_?estimated_?cost|estimated_?cost|green_?cost|non_?green_?cost|green_?cost_?pct|contract_?value_?monthly|cost_?per_?unit|unit_?cost|monthly_?price|annual_?price|labor_?cost_?per_?square_?foot)$/i;
 const PAY_SERVED = new Map();
 function payIn(data, route, person) {
   const tier = person && (person.role === "admin" || person.role === "supervisor") ? person.role : "staff";
@@ -3147,6 +3209,14 @@ function createStub(opts) {
   // The stub's clock, which a case can move, and when a check was made. A
   // check with no time was made a minute before the clock.
   const clockNow = () => (state.now !== null ? state.now : NOW.getTime());
+  // A capability the signed-in person holds, by their tier, the way GET
+  // /api/users/me/permissions answers it.
+  const holds = (cap) => { const tier = state.person.role === "admin" || state.person.role === "supervisor" ? state.person.role : "staff"; return (CAPABILITIES[cap] || []).indexOf(tier) !== -1; };
+  const tapTime = (v) => {
+    if (typeof v !== "string" || !ISO_INSTANT.test(v.trim())) return null;
+    const t = Date.parse(v.trim());
+    return Number.isFinite(t) && t >= clockNow() - 12 * 3600000 && t <= clockNow() + 2 * 60000 ? t : null;
+  };
   // Step 255: who may own a finding at the site, as the scheduled read
   // answers owners: the person signed in first, then two invented people.
   const findingOwners = () => [
@@ -3665,6 +3735,9 @@ function createStub(opts) {
       if (tr.kind === "500") return json(500, { error: languageOf(search, state) === "es" ? ES[SERVER_ERROR] : SERVER_ERROR });
       if (tr.kind === "hold") return Object.assign(answerNow(method, pathname, search, body, headers, key), { after: new Promise(done => setTimeout(done, tr.ms || 30000)) });
       if (tr.kind === "lose") { const kept = answerNow(method, pathname, search, body, headers, key); tr.saved = kept && kept.status; return { abort: true }; }
+      // Part 355: the work kept and a 500 answered all the same, the way a
+      // proxy's 502 after the API wrote reaches the phone.
+      if (tr.kind === "kept500") { const kept = answerNow(method, pathname, search, body, headers, key); tr.saved = kept && kept.status; return json(500, { error: languageOf(search, state) === "es" ? ES[SERVER_ERROR] : SERVER_ERROR }); }
     }
     return answerNow(method, pathname, search, body, headers, key);
   }
@@ -3877,10 +3950,16 @@ function createStub(opts) {
     // Start Shift takes the site and, at a site with shifts, the shift. A
     // session starts on the stub's clock and carries no shift unless one
     // of the site's was named.
+    // Part 355: Start and End take the tap's own time, startedAt and
+    // endedAt, as the API's routes/shiftSessions.js readTapTime reads
+    // them: an ISO instant with its zone, no more than 12 hours old and
+    // no more than 2 minutes ahead; anything else is the server's time.
     if (key === "POST /api/shift-sessions") {
       if (body && OPEN_SHIFT[body.siteId]) state.site = body.siteId;
       state.clockedIn = true;
-      state.sessionStartedAt = clockNow();
+      const tapped = tapTime(body && body.startedAt);
+      state.sessionStartedAt = tapped !== null ? tapped : clockNow();
+      state.shiftTaps.push({ kind: "start", sent: body ? body.startedAt : undefined, taken: iso(state.sessionStartedAt) });
       const labels = shiftsFor(state.site, state.sessionStartedAt).map(x => x.label);
       state.shiftLabel = body && labels.indexOf(body.shiftLabel) !== -1 ? body.shiftLabel : null;
       return json(200, { message: "Shift started", session: sessionOf(), tasks: progress() });
@@ -3908,10 +3987,13 @@ function createStub(opts) {
         const r = SHIFT_REFUSALS.find(x => x.key === "ended");
         return json(r.status, { error: refusalIn(r, languageOf(search, state)), code: r.code });
       }
-      const session = Object.assign(sessionOf(), { endedAt: iso(clockNow()) });
+      const tapped = tapTime(body && body.endedAt);
+      const endedAt = Math.max(tapped !== null && tapped >= state.sessionStartedAt ? tapped : clockNow(), state.sessionStartedAt);
+      const session = Object.assign(sessionOf(), { endedAt: iso(endedAt) });
       const counted = progress();
       state.clockedIn = false;
-      return json(200, { message: "Shift ended", session: session, tasks: counted });
+      state.shiftTaps.push({ kind: "end", sent: body ? body.endedAt : undefined, taken: iso(endedAt) });
+      return json(200, { today: ymd(new Date(checklistDay(clockNow()) * DAY + 12 * 60 * 60 * 1000)), session: session, tasks: counted });
     }
     if (method === "PATCH" && /^\/api\/shift-sessions\//.test(pathname)) { state.clockedIn = false; return json(200, { message: "Shift ended" }); }
     if (key === "GET /api/sites") return json(200, state.startInspection ? START_SITES.map(x => Object.assign({}, x)) : SITES.map(withMode));
@@ -5065,11 +5147,23 @@ function createStub(opts) {
       return json(200, { message: "Issue updated", code: "issues.updated", issue: Object.assign({}, row) });
     }
     if (key === "GET /api/issues") return json(200, []);
+    // Part 355: the API's routes/issues.js as built (49262a3). A clientId,
+    // a uuid, makes the report once: the same person's repeat answers 200
+    // with the issue already made, before anything else is checked, and
+    // another person's is 400 issues.clientIdInvalid.
     if (key === "POST /api/issues") {
+      const raw = body && typeof body === "object" ? body.clientId : undefined;
+      if (raw !== undefined && raw !== null && (typeof raw !== "string" || !UUID_SHAPE.test(raw))) return json(400, { error: refusalIn(API_R2.clientIdInvalid, languageOf(search, state)), code: "issues.clientIdInvalid" });
+      const clientId = typeof raw === "string" ? raw.toLowerCase() : null;
+      if (clientId) {
+        const prior = state.issues.find(i => i.clientId === clientId);
+        if (prior && prior.by !== state.person.id) return json(400, { error: refusalIn(API_R2.clientIdInvalid, languageOf(search, state)), code: "issues.clientIdInvalid" });
+        if (prior) return json(200, { message: "Issue reported", code: "issues.reported", issue: { id: prior.id, client_id: clientId } });
+      }
       if (!body || !body.siteId || !body.title) return json(400, { error: "Site and title are required" });
-      const issue = { id: "iss-" + (state.issues.length + 1), photos: [] };
+      const issue = { id: "iss-" + (state.issues.length + 1), photos: [], clientId: clientId, by: state.person.id };
       state.issues.push(Object.assign(issue, { body: body }));
-      return json(201, { message: "Issue reported", code: "issues.reported", issue: { id: issue.id } });
+      return json(201, { message: "Issue reported", code: "issues.reported", issue: { id: issue.id, client_id: clientId } });
     }
     if (method === "POST" && /^\/api\/issues\/[^/]+\/photos$/.test(pathname)) {
       const finding = state.findings ? state.findingRows.find(r => pathname === "/api/issues/" + r.id + "/photos") : null;
@@ -5082,7 +5176,10 @@ function createStub(opts) {
       issue.photos.push(body.photoUrl);
       return json(201, { photo: { id: "ph-" + issue.photos.length, issue_id: issue.id, photo_url: body.photoUrl } });
     }
-    if (key === "GET /api/supplies") return json(200, state.supplies || [{ id: "sup-1", name: "Paper towels", qr_code: "QR-0001", unit: "rolls", is_low: true }]);
+    // Part 355: the API's GET /api/supplies sends a supply's cost_per_unit
+    // to a holder of manage_employment alone (helpers/pay.js), an admin by
+    // default, and to nobody else.
+    if (key === "GET /api/supplies") return json(200, (state.supplies || [{ id: "sup-1", name: "Paper towels", qr_code: "QR-0001", unit: "rolls", is_low: true }]).map(x => (holds("manage_employment") ? Object.assign({ cost_per_unit: "12.5000" }, x) : x)));
     if (key === "POST /api/supplies/log-usage") return json(200, { message: "Usage logged", log: { id: "log-1", supply_name: "Paper towels", quantity: 1 }, lowStockAlert: false });
     if (state.supplyOrders) { const answered = supplyOrderAnswer(method, pathname, search, body, key, lang, headers); if (answered) return answered; }
     if (state.supplyItems && (key === "GET /api/supplies/requests" || key === "POST /api/supplies/requests")) return supplyRequestAnswer(method, search, body, lang);
@@ -5224,6 +5321,23 @@ function createStub(opts) {
     //
     // The picker's list: every active person, name and id, sorted by last
     // name, with the caller left out. A case can empty it or make it fail.
+    // Part 355: GET /api/hr-cases/:id as the API's routes/hr-cases.js
+    // answers it, behind manage_cases (admins and supervisors by default),
+    // 403 access.insufficientPermissions to anyone else; and GET
+    // /api/forms/responses/:id for the client's concern a customer_concern
+    // notice names, to a holder of the form's readers, view_reports, and
+    // 404 forms.reportNotFound to anyone else. Both all invented.
+    const caseRead = method === "GET" ? /^\/api\/hr-cases\/([^/]+)$/.exec(pathname) : null;
+    if (caseRead && caseRead[1] !== "people" && caseRead[1] !== "mine") {
+      if (!holds("manage_cases")) return json(403, { error: refusalIn(API_R2.insufficient, languageOf(search, state)), code: "access.insufficientPermissions", capability: "manage_cases" });
+      if (decodeURIComponent(caseRead[1]) !== "case-1") return json(404, { error: "Case not found", code: "speakUp.caseNotFound" });
+      return json(200, CASE_SEED(languageOf(search, state)));
+    }
+    const concernRead = method === "GET" ? /^\/api\/forms\/responses\/([^/]+)$/.exec(pathname) : null;
+    if (concernRead && decodeURIComponent(concernRead[1]) === "cc-1") {
+      if (!holds("view_reports")) return json(404, { error: "Report not found", code: "forms.reportNotFound" });
+      return json(200, CONCERN_SEED(languageOf(search, state)));
+    }
     if (key === "GET /api/hr-cases/people") {
       return json(200, { people: state.staff.filter(p => p.id !== state.person.id) });
     }
@@ -5404,7 +5518,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { ACK_TOKEN, EVERY_NOTICE, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

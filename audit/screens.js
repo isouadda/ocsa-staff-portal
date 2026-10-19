@@ -401,6 +401,12 @@ const SHEET_OPENERS = {
     await page.click('[data-inspect-sections="1"]').catch(() => {});
     await pause(page, 600);
   },
+  // Part 355: an HR case, opened from its phone alert by a supervisor
+  // who works cases (see SHEET_PHONES).
+  "ReadSheet#0": async (page) => {
+    await page.waitForSelector('[data-case-sheet] [data-case-read="1"]', { timeout: 8000 }).catch(() => {});
+    await pause(page, 400);
+  },
 };
 // An inspection long enough for Sections (over INSPECT_INDEX_OVER, 20
 // cards, in src/App.js): the long inspection's five cards five times over,
@@ -426,6 +432,7 @@ const SHEET_PHONES = {
   "StartInspectionSheet#0": { stubOptions: { person: Object.assign({}, SUPERVISOR), startInspection: true } },
   "InspectSectionsSheet#0": { stubOptions: { inspections: [INSPECTION_INDEXED] } },
   "WalkSectionsSheet#0": { stubOptions: { inspectionWalk: true } },
+  "ReadSheet#0": { path: "/?open=hr_case_assigned:case-1", stubOptions: { person: Object.assign({}, SUPERVISOR) } },
 };
 
 // The Forms screen lists more than one form now, so a case says which

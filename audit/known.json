@@ -209,42 +209,6 @@
       "why": "The procedures an answer cites are named the way the API writes them, in English. Their names are the API's to send in the person's language, with Help's replies. The suite draws one for the first time in this build."
     },
     {
-      "where": "Every notice type on the bell",
-      "check": "a support_ticket notice opens a place of its own in the portal",
-      "what": "the tap is marked read and left on the bell",
-      "why": "A support_ticket notice has no place in the portal: NOTIF_TAB (src/App.js:10898-10941) has no entry for it and notifPlace (src/App.js:10975-10982) answers null, so a tap only marks it read and leaves the bell open. Contract 2.6 says a notice tap opens the item itself. Findings: notices that open nothing."
-    },
-    {
-      "where": "Every notice type on the bell",
-      "check": "a periodic_overdue notice opens a place of its own in the portal",
-      "what": "the tap is marked read and left on the bell",
-      "why": "A periodic_overdue notice has no place in the portal: NOTIF_TAB (src/App.js:10898-10941) has no entry for it and notifPlace (src/App.js:10975-10982) answers null, so a tap only marks it read and leaves the bell open. Contract 2.6 says a notice tap opens the item itself. Findings: notices that open nothing."
-    },
-    {
-      "where": "Every notice type on the bell",
-      "check": "a customer_concern notice opens a place of its own in the portal",
-      "what": "the tap offers Open in the dashboard on its row",
-      "why": "A customer_concern notice has no place in the portal: NOTIF_TAB (src/App.js:10898-10941) has no entry for it and notifPlace (src/App.js:10975-10982) answers null, so a tap only marks it read and offers the dashboard, a second sign-in. Contract 2.6 says a notice tap opens the item itself. Findings: notices that open nothing."
-    },
-    {
-      "where": "Weak signal: End Shift",
-      "check": "End Shift goes by itself once the signal is back (the signal gone as the tap is made)",
-      "what": "nothing was sent",
-      "why": "End Shift with no signal shows a toast and keeps nothing (src/App.js:2483-2510); the end is sent only when the person taps again with signal, and it sends no time of its own (src/App.js:2492), so the shift ends when the request arrives."
-    },
-    {
-      "where": "Weak signal: an issue with a photo",
-      "check": "an issue with a photo reaches the API once (the work kept and the answer lost, then tried again)",
-      "what": "2 records",
-      "why": "When the API keeps the issue and the answer is lost, the form is kept since Round 1 (PORT-01), the person taps Submit Issue again, and the API gets a second issue: POST /api/issues carries no clientId yet, so every admin and supervisor is told twice. The clientId waits for the API's Round 2."
-    },
-    {
-      "where": "Weak signal: an issue with no photo",
-      "check": "an issue with no photo reaches the API once (the work kept and the answer lost, then tried again)",
-      "what": "2 records",
-      "why": "When the API keeps the issue and the answer is lost, the form is kept since Round 1 (PORT-01), the person taps Submit Issue again, and the API gets a second issue: POST /api/issues carries no clientId yet, so every admin and supervisor is told twice. The clientId waits for the API's Round 2."
-    },
-    {
       "where": "Site walk",
       "check": "covered",
       "what": "\"Siguiente\" at",
