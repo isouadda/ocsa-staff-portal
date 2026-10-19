@@ -220,7 +220,6 @@ export const WORDS = {
   "Open the browser menu. It is usually three dots at the top right.": "Abra el men\u00fa del navegador. Casi siempre son tres puntos arriba a la derecha.",
   "PIN updated": "PIN actualizado",
   "Profile": "Perfil",
-  "Registration submitted. Pending supervisor approval.": "Registro enviado. Pendiente de aprobaci\u00f3n de su supervisor.",
   "Reload": "Volver a cargar",
   "Request submitted": "Solicitud enviada",
   "Scroll down and tap Add to Home Screen.": "Baje y toque Agregar a la pantalla de inicio.",
@@ -1524,6 +1523,31 @@ export const WORDS = {
   "This report did not open. Try again.": "Este reporte no se abri\u00f3. Intente de nuevo.",
   // Part 356: the others on shift at this site now, at the top of the checklist.
   "Also here: {names}": "Tambi\u00e9n aqu\u00ed: {names}",
+  // Part 359: My reports on Speak Up (API-63).
+  "My reports": "Mis reportes de Confianza",
+  "Each report you sent here, or the office opened for you, and where it stands.": "Cada reporte que envi\u00f3 aqu\u00ed, o que la oficina abri\u00f3 por usted, y c\u00f3mo va.",
+  "Your reports did not load.": "Sus reportes no cargaron.",
+  "You have no reports yet.": "Todav\u00eda no tiene reportes.",
+  "Sent {date}": "Enviado el {date}",
+  "Updated {date}": "Actualizado el {date}",
+  "Report received": "Reporte recibido",
+  "Being looked into": "En revisi\u00f3n",
+  "Report resolved": "Reporte resuelto",
+  "Report closed": "Reporte cerrado",
+  // Part 359: a filed report opened from its notice (API-83).
+  "Filed report": "Reporte enviado",
+  "Read only. The report is worked on the dashboard.": "Solo para leer. El reporte se trabaja desde el panel.",
+  // Part 359: Register (API-117).
+  "Thank you. A supervisor reviews each registration, and OCSA emails you once you can sign in.": "Gracias. Un supervisor revisa cada registro, y OCSA le env\u00eda un correo cuando ya pueda iniciar sesi\u00f3n.",
+  "This phone or email already has an account. Sign in with it, or tap Forgot your PIN? to choose a new PIN.": "Este tel\u00e9fono o correo ya tiene una cuenta. Inicie sesi\u00f3n con \u00e9l, o toque \u00bfOlvid\u00f3 su PIN? para elegir un PIN nuevo.",
+  // Part 359: the refusals new since Round 2.
+  "This shift already has a drop request, or it is already posted for pickup. There is nothing more to send.": "Este turno ya tiene una solicitud para dejarlo, o ya est\u00e1 publicado como turno libre. No hay nada m\u00e1s que enviar.",
+  "What you sent is too large. Use fewer or smaller photos, or shorter text, then try again.": "Lo que envi\u00f3 es demasiado grande. Use menos fotos o fotos m\u00e1s peque\u00f1as, o un texto m\u00e1s corto, y vuelva a intentarlo.",
+  "What you sent could not be read. Try again, and tell the office if it happens again.": "No se pudo leer lo que envi\u00f3. Intente de nuevo y avise a la oficina si vuelve a pasar.",
+  "This file is over {mb} MB. Choose a smaller photo or file.": "Este archivo pesa m\u00e1s de {mb} MB. Elija una foto o un archivo m\u00e1s peque\u00f1o.",
+  "This file is too large. Choose a smaller photo or file.": "Este archivo es demasiado grande. Elija una foto o un archivo m\u00e1s peque\u00f1o.",
+  "This question takes {max} photos at most. Remove one to add another.": "Esta pregunta acepta como m\u00e1ximo {max} fotos. Quite una para agregar otra.",
+  "This photo was already removed. The question now shows the photos that are kept.": "Esta foto ya se hab\u00eda quitado. La pregunta ahora muestra las fotos que se guardan.",
   },
 };
 
@@ -1648,7 +1672,6 @@ WORDS.fr = {
   "Open the browser menu. It is usually three dots at the top right.": "Ouvrez le menu du navigateur. Ce sont souvent trois points en haut \u00e0 droite.",
   "PIN updated": "Code PIN mis \u00e0 jour",
   "Profile": "Profil",
-  "Registration submitted. Pending supervisor approval.": "Inscription envoy\u00e9e. En attente de l'accord de votre superviseur.",
   "Reload": "Recharger",
   "Request submitted": "Demande envoy\u00e9e",
   "Scroll down and tap Add to Home Screen.": "Faites d\u00e9filer vers le bas et appuyez sur \u00ab\u00a0Sur l'\u00e9cran d'accueil\u00a0\u00bb.",
@@ -2926,6 +2949,31 @@ WORDS.fr = {
   "This report did not open. Try again.": "Ce rapport ne s'est pas ouvert. R\u00e9essayez.",
   // Part 356: the others on shift at this site now, at the top of the checklist.
   "Also here: {names}": "Aussi ici : {names}",
+  // Part 359: My reports on Speak Up (API-63).
+  "My reports": "Mes signalements",
+  "Each report you sent here, or the office opened for you, and where it stands.": "Chaque signalement que vous avez envoy\u00e9 ici, ou que le bureau a ouvert pour vous, et o\u00f9 il en est.",
+  "Your reports did not load.": "Vos signalements ne se sont pas charg\u00e9s.",
+  "You have no reports yet.": "Vous n'avez encore aucun signalement.",
+  "Sent {date}": "Envoy\u00e9 le {date}",
+  "Updated {date}": "Mis \u00e0 jour le {date}",
+  "Report received": "Signalement re\u00e7u",
+  "Being looked into": "En cours d'examen",
+  "Report resolved": "Signalement r\u00e9solu",
+  "Report closed": "Signalement ferm\u00e9",
+  // Part 359: a filed report opened from its notice (API-83).
+  "Filed report": "Rapport envoy\u00e9",
+  "Read only. The report is worked on the dashboard.": "Lecture seule. Le rapport est trait\u00e9 depuis le tableau de bord.",
+  // Part 359: Register (API-117).
+  "Thank you. A supervisor reviews each registration, and OCSA emails you once you can sign in.": "Merci. Un superviseur examine chaque inscription, et OCSA vous envoie un courriel d\u00e8s que vous pouvez vous connecter.",
+  "This phone or email already has an account. Sign in with it, or tap Forgot your PIN? to choose a new PIN.": "Ce t\u00e9l\u00e9phone ou ce courriel a d\u00e9j\u00e0 un compte. Connectez-vous avec, ou appuyez sur Code PIN oubli\u00e9\u00a0? pour choisir un nouveau code PIN.",
+  // Part 359: the refusals new since Round 2.
+  "This shift already has a drop request, or it is already posted for pickup. There is nothing more to send.": "Ce service a d\u00e9j\u00e0 une demande de retrait, ou il est d\u00e9j\u00e0 propos\u00e9 comme service libre. Il n'y a rien de plus \u00e0 envoyer.",
+  "What you sent is too large. Use fewer or smaller photos, or shorter text, then try again.": "Ce que vous avez envoy\u00e9 est trop volumineux. Utilisez moins de photos ou des photos plus petites, ou un texte plus court, puis r\u00e9essayez.",
+  "What you sent could not be read. Try again, and tell the office if it happens again.": "Ce que vous avez envoy\u00e9 n'a pas pu \u00eatre lu. R\u00e9essayez, et pr\u00e9venez le bureau si cela se reproduit.",
+  "This file is over {mb} MB. Choose a smaller photo or file.": "Ce fichier d\u00e9passe {mb} Mo. Choisissez une photo ou un fichier plus petit.",
+  "This file is too large. Choose a smaller photo or file.": "Ce fichier est trop volumineux. Choisissez une photo ou un fichier plus petit.",
+  "This question takes {max} photos at most. Remove one to add another.": "Cette question accepte au plus {max} photos. Retirez-en une pour en ajouter une autre.",
+  "This photo was already removed. The question now shows the photos that are kept.": "Cette photo a d\u00e9j\u00e0 \u00e9t\u00e9 retir\u00e9e. La question montre maintenant les photos gard\u00e9es.",
 };
 
 // {name} is replaced after the language is chosen, so the

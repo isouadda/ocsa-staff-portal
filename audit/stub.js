@@ -1068,6 +1068,19 @@ const API_R3 = {
   alreadyChecked: { status: 409, code: "tasks.alreadyChecked", en: "{firstName} already checked this off.", es: "{firstName} ya marc\u00f3 esta tarea." },
   sinceInvalid: { status: 400, code: "tasks.sinceInvalid", en: "since must be a date and time with its time zone, such as 2026-10-18T14:00:00Z", es: "since debe ser una fecha y hora con su zona horaria, como 2026-10-18T14:00:00Z" },
 };
+// Part 359: the refusals and answers new since Round 2 that the staff app
+// meets, word for word as ocsa-api's main (af63dca) writes them in
+// helpers/words.js, each with its status and code.
+const API_R4 = {
+  accountExists: { status: 409, code: "auth.accountExists", en: "An account with this phone or email already exists", es: "Ya existe una cuenta con este tel\u00e9fono o correo" },
+  registered: { status: 201, code: "auth.registered", en: "Registration submitted. Your account is pending supervisor approval.", es: "Registro enviado. Su cuenta espera la aprobaci\u00f3n de un supervisor." },
+  alreadyPosted: { status: 409, code: "pickups.alreadyPosted", en: "This shift already has a drop request or a posting for pickup.", es: "Este turno ya tiene una solicitud para dejarlo o ya est\u00e1 publicado como turno libre." },
+  bodyTooLarge: { status: 413, code: "common.bodyTooLarge", en: "What was sent is too large.", es: "Lo que se envi\u00f3 es demasiado grande." },
+  badBody: { status: 400, code: "common.badBody", en: "What was sent could not be read. Try again.", es: "No se pudo leer lo que se envi\u00f3. Int\u00e9ntelo de nuevo." },
+  uploadTooLarge: { status: 400, code: "uploads.tooLarge", en: "File is too large for this bucket", es: "El archivo es demasiado grande" },
+  alreadyOpen: { status: 200, code: "sessions.alreadyOpen", en: "Shift already open at {site}", es: "Ya tiene un turno abierto en {site}" },
+};
+const apiR4Body = (k, lang, vars, extra) => Object.assign({ error: refusalIn(API_R4[k], lang, vars), code: API_R4[k].code }, extra || {});
 // The body a journey hands state.refuse for one of them.
 const apiR2Body = (k, lang, vars, extra) => Object.assign({ error: refusalIn(API_R2[k], lang, vars), code: API_R2[k].code }, extra || {});
 // The words of the invented HR case and client's concern below, in each
@@ -1105,6 +1118,33 @@ const CONCERN_SEED = (lang) => ({
   ],
   canSign: [], canWriteSupervisor: false, supervisorMissing: [], canVoid: false, canResend: false, canAcknowledge: true,
 });
+// Part 359: the person's own reports as GET /api/hr-cases/mine answers
+// them (routes/hr-cases.js reporterView): id, status and the two stamps,
+// newest first, no words. Invented.
+const MY_CASES = () => [
+  { id: "hr-mine-2", status: "in_review", createdAt: new Date(NOW.getTime() - 2 * DAY).toISOString(), updatedAt: new Date(NOW.getTime() - DAY).toISOString() },
+  { id: "hr-mine-1", status: "closed", createdAt: new Date(NOW.getTime() - 20 * DAY).toISOString(), updatedAt: new Date(NOW.getTime() - 12 * DAY).toISOString() },
+];
+// Part 359: a filed report as GET /api/forms/responses/:id answers it
+// (reportPayload), the one a form notice names (helpers/formDrafts.js
+// tellFiled: subject the response id, key the form code). Invented, each
+// Spanish word registered as its English one's twin.
+const FILED_WORDS = {
+  en: { formName: "Invented spill report", section: "What happened", what: "What was spilled", where: "Where", whatSaid: "Invented: a bucket of mop water tipped over.", whereSaid: "Second floor hallway" },
+  es: { formName: "Reporte inventado de derrame", section: "Lo que pas\u00f3", what: "Qu\u00e9 se derram\u00f3", where: "D\u00f3nde", whatSaid: "Inventado: se volc\u00f3 un balde de agua del trapeador.", whereSaid: "Pasillo del segundo piso" },
+};
+const FILED_SEED = (lang) => {
+  const w = FILED_WORDS[lang === "es" ? "es" : "en"];
+  return {
+    draft: { id: "fr-1", formCode: "OCSA-FIX-102", version: 1, formName: w.formName, source: "staff", status: "submitted", siteName: "North Building", submittedAt: new Date(NOW.getTime() - 3 * 60 * 60 * 1000).toISOString() },
+    sections: [{ key: "what", title: w.section }],
+    fields: [
+      { key: "spilled", label: w.what, type: "textarea", section: "what", value: null, displayValue: w.whatSaid },
+      { key: "where", label: w.where, type: "text", section: "what", value: null, displayValue: w.whereSaid },
+    ],
+    canSign: [], canWriteSupervisor: false, supervisorMissing: [], canVoid: false, canResend: false, canAcknowledge: false,
+  };
+};
 const STAFF_ORIGIN = "https://staff.example.invalid";
 const ADMIN_ORIGIN = "https://admin.example.invalid";
 const EVERY_NOTICE = [
@@ -1134,6 +1174,11 @@ const EVERY_NOTICE = [
   ["inspection_finding", "iss-1", STAFF_ORIGIN + "/issues/iss-1", "place"],
   ["shift_drop", "shift-8", null, "place"],
   ["shift_claim", "shift-8", null, "place"],
+  // Part 359: a filed report's notice (tellFiled, its key the form code,
+  // its link the dashboard's), and the notice a reporter gets when the
+  // office opens a case for them, the shape API-63 asks for.
+  ["form", "fr-1", ADMIN_ORIGIN + "/#forms/reports/fr-1", "place", "OCSA-FIX-102"],
+  ["hr_case_opened_for", "hr-mine-2", null, "place"],
 ].map(([type, id, link, want, key], i) => ({ type: type, want: want, notice: { id: "n-every-" + i, subjectType: type, subjectKey: key || null, subjectId: id, title: "Invented notice " + (i + 1) + " about " + type, body: "An invented notice.", link: link, createdAt: new Date(Date.UTC(2026, 9, 1, 20, 59 - i)).toISOString(), readAt: null } }));
 
 // --- Help ----------------------------------------------------------------
@@ -1428,6 +1473,17 @@ function makeState(opts) {
     // null answers no othersOnShift at all, the way the API answers
     // someone with no session open at the site.
     othersOnShift: o.othersOnShift === null ? null : Array.isArray(o.othersOnShift) ? o.othersOnShift.map(x => Object.assign({}, x)) : [],
+    // Part 359: the person's own reports (GET /api/hr-cases/mine), the
+    // two invented ones unless a case gives others; the drop requests
+    // asked so far, by scheduled shift id, each an open shift the API
+    // wrote; the accounts Register finds taken, by phone digits or email,
+    // the person signed in and the staff list among them; and the
+    // date-only columns answered as the API's main sends them, that day
+    // at midnight UTC (API-96), when a case says so.
+    myCases: Array.isArray(o.myCases) ? o.myCases.map(x => Object.assign({}, x)) : MY_CASES(),
+    drops: {},
+    takenAccounts: Array.isArray(o.takenAccounts) ? o.takenAccounts.slice() : [],
+    midnightDates: o.midnightDates === true,
     listChanges: [],
     person: o.person || PERSON,
     accountPreferences: o.accountPreferences === undefined ? {} : o.accountPreferences,
@@ -2799,7 +2855,11 @@ const TWIN_PAIRS = [
   // as English, since these words had no twin.
   .concat(Object.keys(WALK_WORDS.en).map(k => [WALK_WORDS.en[k], WALK_WORDS.es[k]]))
   // Part 355: the case and the client's concern a notice opens.
-  .concat(Object.keys(R2_WORDS.en).map(k => [R2_WORDS.en[k], R2_WORDS.es[k]]));
+  .concat(Object.keys(R2_WORDS.en).map(k => [R2_WORDS.en[k], R2_WORDS.es[k]]))
+  // Part 359: the filed report a form notice opens, and the API's words
+  // for the answers new since Round 2.
+  .concat(Object.keys(FILED_WORDS.en).map(k => [FILED_WORDS.en[k], FILED_WORDS.es[k]]))
+  .concat(Object.keys(API_R4).map(k => [API_R4[k].en, API_R4[k].es]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -3850,7 +3910,19 @@ function createStub(opts) {
       return json(404, { error: "That equipment was not found.", code: "equipment.notFound" });
     }
     if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: (state.assignedSites || SITES).map(withMode), preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
-    if (key === "POST /api/auth/register") return json(200, { ok: true });
+    // Part 359: Register as routes/auth.js answers it: 409
+    // auth.accountExists for a phone (its digits) or an email (any case)
+    // that already has an account, writing nothing; else 201
+    // auth.registered with the new pending account.
+    if (key === "POST /api/auth/register") {
+      const b = body && typeof body === "object" ? body : {};
+      const digits = String(b.phone || "").replace(/[^0-9]/g, "");
+      const email = String(b.email || "").trim().toLowerCase();
+      const held = [state.person].concat(state.staff || []).map(p => [String(p.phone || "").replace(/[^0-9]/g, ""), String(p.email || "").toLowerCase()]).concat(state.takenAccounts.map(x => [String(x).replace(/[^0-9]/g, ""), String(x).toLowerCase()]));
+      if (held.some(([ph, em]) => (digits !== "" && ph === digits) || (email !== "" && em === email))) return json(409, apiR4Body("accountExists", languageOf(search, state)));
+      state.registered = (state.registered || []).concat([b]);
+      return json(201, Object.assign({ message: refusalIn(API_R4.registered, languageOf(search, state)), code: API_R4.registered.code }, { user: { id: "u-new-" + state.registered.length, firstName: String(b.firstName || ""), lastName: String(b.lastName || ""), status: "pending" } }));
+    }
     if (key === "POST /api/auth/reset/request") return json(200, { ok: true });
     if (key === "POST /api/auth/change-pin") {
       // A refusal a case asked for: its code, and its sentence in the
@@ -3916,7 +3988,7 @@ function createStub(opts) {
       return json(200, { role: state.person.role, capabilities: capabilities });
     }
     if (key === "GET /api/users/profile/me") return json(200, {
-      user: Object.assign({}, state.person, { employeeId: "OCSA-0001", preferredLanguage: "English", addressLine1: "", city: "", state: "", zipCode: "", emergencyContactName: "", emergencyContactPhone: "", birthday: "1990-08-14" }),
+      user: Object.assign({}, state.person, { employeeId: "OCSA-0001", preferredLanguage: "English", addressLine1: "", city: "", state: "", zipCode: "", emergencyContactName: "", emergencyContactPhone: "", birthday: state.midnightDates ? "1990-08-14T00:00:00.000Z" : "1990-08-14" }),
       assignments: [{ site_name: "North Building", role_at_site: "Staff", shift_name: "Evening", shift_start: "17:00", shift_end: "23:00" }],
     });
     if (key === "PATCH /api/users/profile/me") return json(200, { ok: true });
@@ -3996,6 +4068,14 @@ function createStub(opts) {
     // them: an ISO instant with its zone, no more than 12 hours old and
     // no more than 2 minutes ahead; anything else is the server's time.
     if (key === "POST /api/shift-sessions") {
+      // Part 359: a second Start at the site already open answers 200
+      // sessions.alreadyOpen with that session and its tasks, writing
+      // nothing (routes/shiftSessions.js answerOpen); another site's is
+      // 409 OPEN_SESSION_ELSEWHERE, as a case asks with state.refuse.
+      if (state.clockedIn && body && body.siteId === state.site) {
+        const lang = languageOf(search, state);
+        return json(200, { message: refusalIn(API_R4.alreadyOpen, lang, { site: OPEN_SHIFT[state.site] ? OPEN_SHIFT[state.site].siteName : "" }), code: API_R4.alreadyOpen.code, session: sessionOf(), tasks: progress() });
+      }
       if (body && OPEN_SHIFT[body.siteId]) state.site = body.siteId;
       state.clockedIn = true;
       const tapped = tapTime(body && body.startedAt);
@@ -4065,7 +4145,16 @@ function createStub(opts) {
     if (key === "GET /api/lookups") return json(200, lookupsIn(languageOf(search, state)));
 
     // --- the calendar
-    if (pathname === "/api/pickups/my-schedule") return json(200, schedule());
+    if (pathname === "/api/pickups/my-schedule") {
+      // A drop asked here is listed under pendingDrops while it waits, as
+      // routes/pickups.js lists the person's requested open shifts; one
+      // the office already posted for pickup is not.
+      const base = schedule();
+      const asked = Object.keys(state.drops).filter(id => state.drops[id].status === "requested").map(id => ({ id: state.drops[id].id, scheduledShiftId: id, status: "requested" }));
+      const out = asked.length ? Object.assign({}, base, { pendingDrops: (base.pendingDrops || []).concat(asked) }) : base;
+      if (!state.midnightDates) return json(200, out);
+      return json(200, Object.assign({}, out, { scheduled: (out.scheduled || []).map(x => Object.assign({}, x, /^\d{4}-\d{2}-\d{2}$/.test(x.scheduled_date || "") ? { scheduled_date: x.scheduled_date + "T00:00:00.000Z" } : {})) }));
+    }
     // One open shift of every origin, the first of them the one a case
     // claims, and one marked urgent, so the sweep draws every badge the
     // card can carry and the URGENT chip beside a name.
@@ -4077,7 +4166,18 @@ function createStub(opts) {
       { id: "pk-5", scheduled_date: "2026-10-12", start_time: "14:00", end_time: "18:00", site_name: "North Building", origin: "new_shift", service_category: "Day porter" },
     ]);
     if (key === "GET /api/pickups/my-pickups") return json(200, state.myPickups);
-    if (key === "POST /api/pickups/request-drop") return json(200, { ok: true });
+    // Part 359: a drop as routes/pickups.js answers it since part 357
+    // (API-52): the open shift it wrote, and a second ask for the same
+    // shift, at once or later, 409 pickups.alreadyPosted naming the open
+    // shift, nothing written.
+    if (key === "POST /api/pickups/request-drop") {
+      const id = String((body && body.scheduled_shift_id) || "");
+      if (!id) return json(400, { error: "Scheduled shift ID is required", code: "pickups.shiftIdRequired" });
+      const live = state.drops[id];
+      if (live) return json(409, apiR4Body("alreadyPosted", languageOf(search, state), null, { openShiftId: live.id, status: live.status }));
+      state.drops[id] = { id: "os-drop-" + (Object.keys(state.drops).length + 1), status: "requested" };
+      return json(200, { id: state.drops[id].id, scheduled_shift_id: id, status: "requested", origin: "voluntary_drop", site_name: "North Building" });
+    }
     if (method === "POST" && /^\/api\/pickups\/[^/]+\/claim$/.test(pathname)) return json(200, { ok: true });
     if (method === "DELETE" && /^\/api\/pickups\//.test(pathname)) return json(200, { ok: true });
 
@@ -5169,7 +5269,7 @@ function createStub(opts) {
       const actions = [].concat(mine && open ? ["resolve", "cannotFinish"] : []).concat(management && open ? [i.assigned_to ? "reassign" : "assign"] : []);
       return json(200, { issue: { id: i.id, siteId: i.site_id, siteName: i.site_name, title: i.title, description: i.description, zone: i.zone, severity: i.severity, status: i.status, source: i.source, reference: null,
         reportedAt: i.reported_at, reportedBy: { id: i.reported_by, name: i.reported_by_name }, assignedTo: i.assigned_to ? { id: i.assigned_to, name: i.assigned_to_name } : null, dueAt: i.due_at, dueState: i.due_state,
-        resolutionNotes: i.resolution_notes, photos: [], canAssign: management, actions: actions } });
+        resolutionNotes: i.resolution_notes, photos: (i.photos || []).map(x => Object.assign({}, x)), canAssign: management, actions: actions } });
     }
     if (sheetOne && method === "PATCH") {
       const b = body && typeof body === "object" ? body : {};
@@ -5390,7 +5490,16 @@ function createStub(opts) {
       if (decodeURIComponent(caseRead[1]) !== "case-1") return json(404, { error: "Case not found", code: "speakUp.caseNotFound" });
       return json(200, CASE_SEED(languageOf(search, state)));
     }
+    // Part 359: the person's own reports, as reporterView answers them.
+    if (key === "GET /api/hr-cases/mine") return json(200, { cases: state.myCases.map(x => Object.assign({}, x)) });
     const concernRead = method === "GET" ? /^\/api\/forms\/responses\/([^/]+)$/.exec(pathname) : null;
+    // Part 359: the filed report a form notice names, read by a holder of
+    // the form's readers (view_reports), 404 forms.reportNotFound to
+    // anyone else, as routes/forms.js mayRead answers.
+    if (concernRead && decodeURIComponent(concernRead[1]) === "fr-1") {
+      if (!holds("view_reports")) return json(404, { error: "Report not found", code: "forms.reportNotFound" });
+      return json(200, FILED_SEED(languageOf(search, state)));
+    }
     if (concernRead && decodeURIComponent(concernRead[1]) === "cc-1") {
       if (!holds("view_reports")) return json(404, { error: "Report not found", code: "forms.reportNotFound" });
       return json(200, CONCERN_SEED(languageOf(search, state)));
@@ -5411,6 +5520,7 @@ function createStub(opts) {
       if (ids.some(id => !state.staff.some(p => p.id === id))) return json(400, { error: HR_CASE_REFUSALS[3] });
       if (ids.length > 10) return json(400, { error: HR_CASE_REFUSALS[4] });
       state.filed.push(said);
+      state.myCases.unshift({ id: "hr-case-one", status: "open", createdAt: iso(NOW), updatedAt: iso(NOW) });
       return json(201, { id: "hr-case-one", status: "open", createdAt: iso(NOW), updatedAt: iso(NOW) });
     }
 
@@ -5575,7 +5685,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

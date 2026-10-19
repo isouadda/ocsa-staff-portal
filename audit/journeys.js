@@ -11,7 +11,7 @@ const { INSPECT, languageRows } = require("./checks");
 const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES,
-  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS, EVERY_NOTICE, FIRST_NAMES, API_R2, apiR2Body, API_R3, NOW } = require("./stub");
+  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS, EVERY_NOTICE, FIRST_NAMES, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, FILED_WORDS, SECOND_STEP_CODE, NOW } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -6840,5 +6840,404 @@ const LIVE2_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...LIVE2_JOURNEYS);
+
+// --- The API findings that need the staff app (part 359) ---------------
+//
+// Against the stub as it mirrors ocsa-api's main at af63dca, which holds
+// its Round 3 (part 357). Each journey that can fail on the main of part
+// 356 does. The ones that cannot, because main already does what the
+// finding asks of the staff app, say so in their label and stay as guards.
+const R4_SUPERVISOR = Object.assign({}, PERSON, { id: "u-r4-sup", role: "supervisor" });
+const bellButton = (page) => page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); return !!b; });
+const tapOnBell = async (app, title) => {
+  await app.page.waitForFunction(() => Array.from(document.querySelectorAll("button")).some(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")), null, { timeout: 8000 }).catch(() => {});
+  await bellButton(app.page);
+  await app.page.waitForFunction((t) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.indexOf(t) !== -1), title, { timeout: 6000 }).catch(() => {});
+  return app.page.evaluate((t) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.indexOf(t) !== -1); if (b) b.click(); return !!b; }, title);
+};
+const tapAlert = (app, type, id) => app.page.evaluate(([t, i]) => navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { type: "ocsa-open", subjectType: t, subjectId: i } })), [type, id]);
+const shows = (page, sel, ms) => page.waitForSelector(sel, { timeout: ms || 6000 }).then(() => true).catch(() => false);
+const bellOpen = (page, language) => page.evaluate((w) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.trim() === w), say("Mark all read", language));
+// The tab that reads as chosen on the bar: its name is drawn at 600.
+const chosenTab = (page) => page.evaluate(() => {
+  const bar = Array.from(document.querySelectorAll("div")).find((el) => { const s = getComputedStyle(el); return s.position === "fixed" && s.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5; });
+  const on = bar && Array.from(bar.querySelectorAll(":scope > button")).find(b => { const sp = b.querySelector("span"); return sp && getComputedStyle(sp).fontWeight === "600"; });
+  return on ? on.textContent.trim().replace(/^[\d+]+/, "") : null;
+});
+const callsTo = (stub, method, path) => stub.state.calls.filter(c => c.method === method && c.path === path);
+const noticeOf = (type) => Object.assign({}, EVERY_NOTICE.find(r => r.type === type).notice);
+// The three ways a notice is opened: the bell, a phone alert on an open
+// app, and a phone alert that opens the app at /?open=.
+const threeWays = async (open, stubOptions, type, id, title, check) => {
+  const bell = await open({ stubOptions: stubOptions });
+  try { await tapOnBell(bell, title); await check(bell, "from the bell"); } finally { await bell.context.close(); }
+  const live = await open({ stubOptions: stubOptions });
+  try { await pause(live.page, 1500); await tapAlert(live, type, id); await check(live, "from a phone alert on an open app"); } finally { await live.context.close(); }
+  const fresh = await open({ path: "/?open=" + type + ":" + id, stubOptions: stubOptions });
+  try { await check(fresh, "from a phone alert that opens the app"); } finally { await fresh.context.close(); }
+};
+
+const ROUND4_JOURNEYS = [
+  {
+    id: "deviceid",
+    label: "A deviceId on every sign-in (API-55): a staff account's sign-in carries the phone's own id, the same on the next sign-in, and an office account's code step carries the same one. Main already sends it on every sign-in, so this cannot fail on main; it waits on the API to read it",
+    run: async (open, language, expect) => {
+      const SHAPE = /^[A-Za-z0-9._:-]{8,200}$/;
+      const app = await open({ signedIn: false });
+      try {
+        await type(app.page, 'input[autocomplete="username"]', "4821");
+        await type(app.page, 'input[type="password"]', "4907");
+        await clickText(app.page, say("Sign In", language));
+        await pause(app.page, 1500);
+        const first = lastSent(app.stub, "POST", "/api/auth/login");
+        const id = first && first.body ? first.body.deviceId : null;
+        expect("a staff account's sign-in carries a deviceId of the shape the API reads", typeof id === "string" && SHAPE.test(id), first ? JSON.stringify(first.body && Object.keys(first.body)) : "nothing sent");
+        const kept = await app.page.evaluate(() => { try { return window.localStorage.getItem("ocsa-device-id"); } catch (e) { return null; } });
+        expect("the id is the phone's own, kept for the next sign-in", kept === id, JSON.stringify(kept));
+      } finally { await app.context.close(); }
+      const office = await open({ signedIn: false, stubOptions: { person: Object.assign({}, ADMIN_PERSON), secondStep: true } });
+      try {
+        await type(office.page, 'input[autocomplete="username"]', "4821");
+        await type(office.page, 'input[type="password"]', "4907");
+        await clickText(office.page, say("Sign In", language));
+        const code = await shows(office.page, "#ocsa-code");
+        if (code) await type(office.page, "#ocsa-code", SECOND_STEP_CODE);
+        await pause(office.page, 1500);
+        const login = lastSent(office.stub, "POST", "/api/auth/login");
+        const step = lastSent(office.stub, "POST", "/api/auth/second-step");
+        expect("an office account's code step carries the same deviceId as its sign-in", code && !!login && !!step && SHAPE.test(String(login.body.deviceId)) && step.body.deviceId === login.body.deviceId, JSON.stringify({ login: login && login.body && login.body.deviceId, step: step && step.body && step.body.deviceId }));
+      } finally { await office.context.close(); }
+    },
+  },
+  {
+    id: "tokenexpired",
+    label: "A token past its 12 hours (API-56): a check-off answered 401 auth.tokenExpired stays on the phone, sign-in comes back, and the check goes once the person signs in again. Main already keeps the tap, so this cannot fail on main; renewal waits on the API's route",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1500);
+        const step = await openStep(app, language);
+        if (!step) { expect("the list has a step still to do", false, "no open box"); return; }
+        app.stub.state.refuse["POST /api/clock/tasks/" + step.id + "/complete"] = { status: 401, body: { error: "Token expired", code: "auth.tokenExpired" }, once: true };
+        await tapAria(app.page, step.label);
+        await pause(app.page, 1500);
+        expect("the check-off answered 401 auth.tokenExpired stays on the phone", (await pendingTaps(app.page)) === 1, (await pendingTaps(app.page)) + " on the phone");
+        const signIn = await shows(app.page, 'input[autocomplete="username"]', 4000);
+        expect("sign-in comes back", signIn, (await bodyText(app.page)).slice(0, 160));
+        if (signIn) {
+          await type(app.page, 'input[autocomplete="username"]', "4821");
+          await type(app.page, 'input[type="password"]', "4907");
+          await clickText(app.page, say("Sign In", language));
+          let left = 1;
+          const until = Date.now() + 12000;
+          while (Date.now() < until) { left = await pendingTaps(app.page); if (left === 0) break; await pause(app.page, 300); }
+          const sends = checkoffSends(app.stub).filter(c => c.path.indexOf(step.id) !== -1).length;
+          expect("signed in again, the kept check goes and leaves the phone", left === 0 && sends >= 2, left + " on the phone, " + sends + " sends in all");
+        }
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "shiftnotices",
+    label: "Shift notices (API-62): shift_assigned opens My Schedule from the bell, from a phone alert on an open app and from one that opens the app, and so does any later shift_ type the API adds for a change or a cancel. Main already opens My Schedule for every shift_ type, so this cannot fail on main; the API's new types are its own to name",
+    run: async (open, language, expect) => {
+      for (const type of ["shift_assigned", "shift_changed", "shift_cancelled"]) {
+        const notice = { id: "n-r4-" + type, subjectType: type, subjectId: "shift-9", title: "Invented notice about " + type, body: "An invented notice.", link: null, createdAt: "2026-10-01T19:00:00.000Z", readAt: null };
+        await threeWays(open, { notifications: [notice] }, type, "shift-9", notice.title, async (app, how) => {
+          let tab = null;
+          const until = Date.now() + 5000;
+          while (Date.now() < until) { tab = await chosenTab(app.page); if (tab === say("Schedule", language)) break; await pause(app.page, 200); }
+          expect("a " + type + " notice " + how + " opens My Schedule", tab === say("Schedule", language), JSON.stringify(tab));
+        });
+      }
+    },
+  },
+  {
+    id: "myreports",
+    label: "My reports on Speak Up (API-63): each report the person sent, or the office opened for them, with its day and where it stands in plain words; none, and a list that did not load; and an hr_case_opened_for notice opens it with that report marked, from the bell and from a phone alert, never reading the office's case",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "speakup", language);
+        const up = await shows(app.page, '[data-my-reports="2"]');
+        const rows = await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-my-report]")).map(r => ({ id: r.getAttribute("data-my-report"), text: r.innerText.replace(/\s+/g, " ").trim() })));
+        expect("My reports lists the person's reports from GET /api/hr-cases/mine, newest first", up && rows.map(r => r.id).join() === "hr-mine-2,hr-mine-1" && callsTo(app.stub, "GET", "/api/hr-cases/mine").length === 1, JSON.stringify(rows));
+        const sentWord = say("Sent {date}", language).split("{")[0].trim();
+        expect("each report says the day it was sent and where it stands, in plain words and never the API's code", rows.length === 2 && has(rows[0].text, say("Being looked into", language)) && has(rows[1].text, say("Report closed", language)) && rows.every(r => has(r.text, sentWord) && !/in_review|escalated\b/.test(r.text)), JSON.stringify(rows));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const none = await open({ stubOptions: { myCases: [] } });
+      try {
+        await openTab(none.page, "speakup", language);
+        await shows(none.page, '[data-my-reports="0"]');
+        expect("with no report, My reports says so", has(await bodyText(none.page), say("You have no reports yet.", language)), (await bodyText(none.page)).slice(-200));
+      } finally { await none.context.close(); }
+      const failed = await open({ stubOptions: { refuse: { "GET /api/hr-cases/mine": { status: 500, body: { error: "Something went wrong" }, once: true } } } });
+      try {
+        await openTab(failed.page, "speakup", language);
+        await pause(failed.page, 1500);
+        const text = await bodyText(failed.page);
+        expect("a list that did not load says so and offers Try again", has(text, say("Your reports did not load.", language)), text.slice(-240));
+        await failed.page.evaluate((w) => { const b = Array.from(document.querySelectorAll("[data-my-reports] button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say("Try again", language));
+        expect("Try again reads the list again and shows it", await shows(failed.page, '[data-my-reports="2"]'), (await bodyText(failed.page)).slice(-200));
+      } finally { await failed.context.close(); }
+      const notice = noticeOf("hr_case_opened_for");
+      await threeWays(open, { notifications: [notice] }, "hr_case_opened_for", "hr-mine-2", notice.title, async (o, how) => {
+        const marked = await shows(o.page, '[data-my-report="hr-mine-2"][data-my-report-focus="1"]');
+        expect("an hr_case_opened_for notice " + how + " opens My reports with that report marked", marked, (await bodyText(o.page)).slice(0, 200));
+        expect("the notice " + how + " never reads the office's case", callsTo(o.stub, "GET", "/api/hr-cases/hr-mine-2").length === 0, callsTo(o.stub, "GET", "/api/hr-cases/hr-mine-2").length + " reads");
+      });
+    },
+  },
+  {
+    id: "filedreport",
+    label: "A filed report from its notice (API-83): a form notice opens the report read only for a reader of it, from the bell and from a phone alert, through GET /api/forms/responses/:id; anyone else keeps Open in the dashboard on the bell and never reads it, and a report the API hides opens the bell",
+    run: async (open, language, expect) => {
+      const notice = noticeOf("form");
+      const words = FILED_WORDS[language === "es" ? "es" : "en"];
+      const stubOptions = { person: R4_SUPERVISOR, notifications: [notice] };
+      await threeWays(open, stubOptions, "form", "fr-1", notice.title, async (app, how) => {
+        const up = await shows(app.page, '[data-report-sheet="fr-1"] [data-report-read="1"]');
+        expect("a form notice " + how + " opens the filed report, read only", up, (await bodyText(app.page)).slice(0, 200));
+        if (!up || how !== "from the bell") return;
+        const sheet = await app.page.evaluate(() => { const d = document.querySelector('[data-report-sheet="fr-1"]'); return { text: d.innerText.replace(/\s+/g, " "), fields: d.querySelectorAll("input, textarea, select, [contenteditable]").length, buttons: Array.from(d.querySelectorAll("button")).map(b => b.innerText.trim()) }; });
+        expect("the report sheet shows the report in the screen's language: its form, its site, the day it was sent and its answers", has(sheet.text, say("Filed report", language)) && has(sheet.text, words.formName) && has(sheet.text, "North Building") && has(sheet.text, say("Sent {date}", language).split("{")[0].trim()) && has(sheet.text, words.whatSaid) && has(sheet.text, words.whereSaid), sheet.text.slice(0, 300));
+        expect("the report sheet is read only and says where the report is worked, with the notice's Open in the dashboard and Close", sheet.fields === 0 && has(sheet.text, say("Read only. The report is worked on the dashboard.", language)) && sheet.buttons.join("|") === say("Open in the dashboard", language) + "|" + say("Close", language), JSON.stringify(sheet.buttons));
+        expect("the report is read once, through the route the API gives the staff app", callsTo(app.stub, "GET", "/api/forms/responses/fr-1").length === 1, callsTo(app.stub, "GET", "/api/forms/responses/fr-1").length + " reads");
+        await spokenHere(app, language, expect);
+      });
+      // A cleaner, who reads no filed report.
+      const cleaner = await open({ stubOptions: { notifications: [notice] } });
+      try {
+        await tapOnBell(cleaner, notice.title);
+        await pause(cleaner.page, 1500);
+        const offered = await cleaner.page.evaluate(([t, w]) => { const b = Array.from(document.querySelectorAll("button")).find(y => y.innerText.indexOf(t) !== -1); const row = b && b.parentElement; return !!row && Array.from(row.querySelectorAll("button")).some(y => y.innerText.trim() === w); }, [notice.title, say("Open in the dashboard", language)]);
+        expect("a form notice to someone who reads no report keeps Open in the dashboard on the bell, and the report is never read", !(await cleaner.page.evaluate(() => !!document.querySelector("[data-report-sheet]"))) && offered && callsTo(cleaner.stub, "GET", "/api/forms/responses/fr-1").length === 0, "offered " + offered + ", " + callsTo(cleaner.stub, "GET", "/api/forms/responses/fr-1").length + " reads");
+      } finally { await cleaner.context.close(); }
+      // A report the API hides from this reader (404): the bell, and the
+      // next tap never asks again.
+      const hidden = await open({ stubOptions: Object.assign({}, stubOptions, { refuse: { "GET /api/forms/responses/fr-1": { status: 404, body: { error: "Report not found", code: "forms.reportNotFound" } } } }) });
+      try {
+        await tapOnBell(hidden, notice.title);
+        await pause(hidden.page, 2000);
+        expect("a report the API hides closes its sheet and opens the bell", !(await hidden.page.evaluate(() => !!document.querySelector("[data-report-sheet]"))) && (await bellOpen(hidden.page, language)), (await bodyText(hidden.page)).slice(0, 200));
+        await hidden.page.evaluate((t) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.indexOf(t) !== -1); if (b) b.click(); }, notice.title);
+        await pause(hidden.page, 1200);
+        expect("tapped again, the notice stays on the bell and the report is not asked for again", callsTo(hidden.stub, "GET", "/api/forms/responses/fr-1").length === 1, callsTo(hidden.stub, "GET", "/api/forms/responses/fr-1").length + " reads");
+      } finally { await hidden.context.close(); }
+    },
+  },
+  {
+    id: "codestaff",
+    label: "The code screen for a staff role (API-85): a sign-in answered secondStep shows the code screen whatever the person's role, and the code signs them in. Main already shows it for any role, so this cannot fail on main; who gets the code is the API's to decide",
+    run: async (open, language, expect) => {
+      const app = await open({ signedIn: false, stubOptions: { secondStep: true } });
+      try {
+        await type(app.page, 'input[autocomplete="username"]', "4821");
+        await type(app.page, 'input[type="password"]', "4907");
+        await clickText(app.page, say("Sign In", language));
+        const code = await shows(app.page, "#ocsa-code");
+        expect("a staff account's sign-in answered secondStep shows the code screen", code, (await bodyText(app.page)).slice(0, 200));
+        if (code) {
+          await spokenHere(app, language, expect);
+          await type(app.page, "#ocsa-code", SECOND_STEP_CODE);
+          expect("the code signs the staff account in", await shows(app.page, ".sp-content", 8000), (await bodyText(app.page)).slice(0, 160));
+        }
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "registerwords",
+    label: "Register's words (API-117): a registration sent says a supervisor reviews it and OCSA emails once the person can sign in, words that hold whether or not the phone had an account; a phone or email that already has one is said under the email box with the next step, the form kept",
+    run: async (open, language, expect) => {
+      const reg = await open({ signedIn: false });
+      try {
+        await clickText(reg.page, say("New Employee? Register Here", language));
+        await pause(reg.page, 700);
+        const person = ["Riley", "Invented", "0000000009", "nine@example.invalid", "5739", "5739"];
+        for (let i = 0; i < person.length; i += 1) await typeNth(reg.page, "input", i, person[i]);
+        await clickText(reg.page, say("Register", language));
+        const toast = await toastSaying(reg.page, say("Thank you. A supervisor reviews each registration, and OCSA emails you once you can sign in.", language));
+        expect("a registration sent says what happens next, as a notice", !!toast && !toast.failure, JSON.stringify(await toastsNow(reg.page)));
+        expect("Register sends the registration once, and the sign-in screen comes back", callsTo(reg.stub, "POST", "/api/auth/register").length === 1 && (await shows(reg.page, 'input[autocomplete="username"]', 3000)), callsTo(reg.stub, "POST", "/api/auth/register").length + " sent");
+      } finally { await reg.context.close(); }
+      const taken = await open({ signedIn: false });
+      try {
+        await clickText(taken.page, say("New Employee? Register Here", language));
+        await pause(taken.page, 700);
+        const person = ["Riley", "Invented", "0000000000", "riley@example.invalid", "5739", "5739"];
+        for (let i = 0; i < person.length; i += 1) await typeNth(taken.page, "input", i, person[i]);
+        await clickText(taken.page, say("Register", language));
+        await pause(taken.page, 1200);
+        const line = await taken.page.evaluate(() => { const box = document.querySelector('input[type="email"]'); const e = box ? box.nextElementSibling : null; return e ? e.innerText.replace(/\s+/g, " ").trim() : ""; });
+        const toasts = await toastsNow(taken.page);
+        expect("a phone or email that already has an account is said under the email box, with the next step", line === say("This phone or email already has an account. Sign in with it, or tap Forgot your PIN? to choose a new PIN.", language), JSON.stringify(line));
+        expect("the form is kept and no failure is said", toasts.every(x => !x.failure) && (await boxValue(taken.page, "input", 0)) === "Riley", JSON.stringify(toasts));
+        await spokenHere(taken, language, expect);
+      } finally { await taken.context.close(); }
+    },
+  },
+  {
+    id: "addressguard",
+    label: "Photo addresses (API-68, API-119): on the issue sheet a photo whose address is javascript:, a data: page, a // address or a /\\ one is never drawn or linked, an https photo signed for a while is drawn with its address whole, and a notice whose link is javascript: offers no dashboard",
+    run: async (open, language, expect) => {
+      const SIGNED = "https://photos.example.invalid/sink.jpg?token=signed-for-twelve-hours";
+      const app = await open({ stubOptions: { issueSheet: true } });
+      try {
+        app.stub.state.sheetIssues[0].photos = [
+          { id: "ip-1", url: "javascript:alert(document.domain)" },
+          { id: "ip-2", url: "data:text/html,<b>invented</b>" },
+          { id: "ip-3", url: SIGNED },
+          { id: "ip-4", url: "//photos.example.invalid/no-scheme.jpg" },
+          { id: "ip-5", url: "/\\photos.example.invalid/backslash.jpg" },
+        ];
+        await openTab(app.page, "issuetasks", language);
+        await shows(app.page, '[data-work-row="issue:iss-a1"]');
+        await app.page.click('[data-work-row="issue:iss-a1"]');
+        const up = await shows(app.page, '[data-issue-sheet="iss-a1"] img');
+        const drawn = await app.page.evaluate(() => { const d = document.querySelector('[data-issue-sheet="iss-a1"]'); return d ? { imgs: Array.from(d.querySelectorAll("img")).map(i => i.getAttribute("src")), links: Array.from(d.querySelectorAll("a")).map(a => a.getAttribute("href")) } : null; });
+        const unsafe = (u) => /^\s*(javascript:|data:text|\/\/|\/\\)/i.test(String(u || ""));
+        expect("no photo address that opens a page or a script is drawn or linked", up && !!drawn && !drawn.imgs.some(unsafe) && !drawn.links.some(unsafe), JSON.stringify(drawn));
+        expect("an https photo signed for a while is drawn and linked with its address whole", !!drawn && drawn.imgs.indexOf(SIGNED) !== -1 && drawn.links.indexOf(SIGNED) !== -1 && drawn.imgs.length === 1, JSON.stringify(drawn));
+      } finally { await app.context.close(); }
+      const bad = { id: "n-r4-js", subjectType: "a_type_from_tomorrow", subjectId: "x-2", title: "Invented notice with a script for a link", body: "An invented notice.", link: "javascript:alert(document.domain)", createdAt: "2026-10-01T19:00:00.000Z", readAt: null };
+      const good = Object.assign({}, bad, { id: "n-r4-https", subjectId: "x-3", title: "Invented notice with a dashboard link", link: "https://admin.example.invalid/#reports" });
+      const bell = await open({ stubOptions: { notifications: [bad, good] } });
+      try {
+        await bell.page.waitForFunction(() => Array.from(document.querySelectorAll("button")).some(x => /notification|notificaci/i.test(x.getAttribute("aria-label") || "")), null, { timeout: 8000 }).catch(() => {});
+        await bellButton(bell.page);
+        await pause(bell.page, 1200);
+        const offers = (title) => bell.page.evaluate(([t, w]) => { const b = Array.from(document.querySelectorAll("button")).find(y => y.innerText.indexOf(t) !== -1); const row = b && b.parentElement; return !!row && Array.from(row.querySelectorAll("button")).some(y => y.innerText.trim() === w); }, [title, say("Open in the dashboard", language)]);
+        expect("a notice whose link is javascript: offers no dashboard, and an https one does", !(await offers(bad.title)) && (await offers(good.title)), "javascript: " + (await offers(bad.title)) + ", https: " + (await offers(good.title)));
+      } finally { await bell.context.close(); }
+    },
+  },
+  {
+    id: "datedays",
+    label: "Date-only columns (API-96): a birthday and an assigned due date the API sends as that day at midnight UTC show as that day on a phone in Honolulu and on one in Tokyo. Main already reads the first ten characters as the day, so this cannot fail on main; the API's own fix waits",
+    run: async (open, language, expect) => {
+      for (const zone of ["Pacific/Honolulu", "Asia/Tokyo"]) {
+        const app = await open({ timezoneId: zone, stubOptions: { midnightDates: true, assignedDue: "2026-10-02T00:00:00.000Z" } });
+        try {
+          const loc = language === "es" ? "es-US" : "en-US";
+          const days = await app.page.evaluate(([l]) => ({ born: new Date(1990, 7, 14).toLocaleDateString(l, { month: "short", day: "numeric", year: "numeric" }), bornEve: new Date(1990, 7, 13).toLocaleDateString(l, { month: "short", day: "numeric", year: "numeric" }), due: new Date(2026, 9, 2).toLocaleDateString(l, { month: "short", day: "numeric" }), dueEve: new Date(2026, 9, 1).toLocaleDateString(l, { month: "short", day: "numeric" }) }), [loc]);
+          await openTab(app.page, "profile", language);
+          await pause(app.page, 1500);
+          const profile = await bodyText(app.page);
+          expect("in " + zone + " the profile shows the birthday as August 14", has(profile, days.born) && !has(profile, days.bornEve), profile.slice(0, 400));
+          await openTab(app.page, "issuetasks", language);
+          await pause(app.page, 1200);
+          const card = await bodyText(app.page);
+          expect("in " + zone + " the assigned card reads the due day as October 2", has(card, say("Due:", language) + " " + days.due) && !has(card, say("Due:", language) + " " + days.dueEve), card.slice(0, 300));
+        } finally { await app.context.close(); }
+      }
+    },
+  },
+  {
+    id: "newrefusals",
+    label: "The refusals new since Round 2, each in plain words with the next step: a drop already asked for (409 pickups.alreadyPosted), something too large or unreadable (413 common.bodyTooLarge, 400 and 415 common.badBody), a file over the limit in megabytes (uploads.tooLarge with maxBytes), a photo question already full (400 forms.photoLimit) or a photo already gone (404 forms.photoNotFound), and a second Start Shift read as success (200 sessions.alreadyOpen)",
+    run: async (open, language, expect) => {
+      // A drop sent again after its first answer was lost, and a drop
+      // asked for a shift the office already posted for pickup.
+      for (const how of ["lost", "posted"]) {
+        const drop = await open({});
+        try {
+          if (how === "posted") drop.stub.state.drops["sh-1"] = { id: "os-office-1", status: "open" };
+          await openTab(drop.page, "schedule", language);
+          await openShiftDetail(drop.page, language, true);
+          if (how === "lost") {
+            drop.stub.state.trouble = { method: "POST", path: /^\/api\/pickups\/request-drop$/, kind: "lose" };
+            await clickText(drop.page, say("Submit Request", language));
+            await pause(drop.page, 2500);
+          }
+          const reads = callsTo(drop.stub, "GET", "/api/pickups/my-schedule").length;
+          await clickText(drop.page, say("Submit Request", language));
+          const toast = await toastSaying(drop.page, say("This shift already has a drop request, or it is already posted for pickup. There is nothing more to send.", language));
+          await pause(drop.page, 900);
+          const what = how === "lost" ? "a drop sent again after its answer was lost" : "a drop for a shift the office already posted";
+          expect(what + " says there is nothing more to send, as a notice (409 pickups.alreadyPosted)", !!toast && !toast.failure, JSON.stringify(await toastsNow(drop.page)));
+          expect(what + " closes the drop form and reads the schedule again", !(await drop.page.evaluate((w) => Array.from(document.querySelectorAll("button")).some(b => b.textContent.trim() === w && b.offsetParent !== null), say("Submit Request", language))) && callsTo(drop.stub, "GET", "/api/pickups/my-schedule").length > reads, "the form is still open, or the schedule was not read again");
+          expect(what + " writes one drop at most", Object.keys(drop.stub.state.drops).length === 1, JSON.stringify(drop.stub.state.drops));
+          if (how === "lost") await spokenHere(drop, language, expect);
+        } finally { await drop.context.close(); }
+      }
+      // Too large, and unreadable, on a report.
+      for (const [k, status, en] of [["bodyTooLarge", 413, "What you sent is too large. Use fewer or smaller photos, or shorter text, then try again."], ["badBody", 400, "What you sent could not be read. Try again, and tell the office if it happens again."], ["badBody", 415, "What you sent could not be read. Try again, and tell the office if it happens again."]]) {
+        const app = await open({});
+        try {
+          await issueReady(false)(app, language);
+          app.stub.state.refuse["POST /api/issues"] = { status: status, body: apiR4Body(k, language), once: true };
+          await clickText(app.page, say("Submit Issue", language));
+          const toast = await toastSaying(app.page, say(en, language));
+          expect(status + " " + API_R4[k].code + " says what to do next", !!toast, JSON.stringify(await toastsNow(app.page)));
+          expect(status + " " + API_R4[k].code + " keeps the report on screen", (await boxValue(app.page, ".sp-content input", 0)) === ISSUE_TITLE, JSON.stringify(await boxValue(app.page, ".sp-content input", 0)));
+        } finally { await app.context.close(); }
+      }
+      // A photo over the limit, said in megabytes.
+      for (const [status, maxBytes, en, mb] of [[400, 10485760, "This file is over {mb} MB. Choose a smaller photo or file.", 10], [413, 52428800, "This file is over {mb} MB. Choose a smaller photo or file.", 50], [400, null, "This file is too large. Choose a smaller photo or file.", null]]) {
+        const app = await open({});
+        try {
+          await issueReady(true)(app, language);
+          app.stub.state.refuse["POST /api/uploads"] = { status: status, body: apiR4Body("uploadTooLarge", language, null, maxBytes ? { maxBytes: maxBytes } : {}), once: true };
+          await clickText(app.page, say("Submit Issue", language));
+          const words = say(en, language).replace("{mb}", String(mb));
+          const toast = await toastSaying(app.page, words);
+          expect(status + " uploads.tooLarge" + (maxBytes ? " with maxBytes " + maxBytes + " says the limit, " + mb + " MB," : " with no maxBytes says the file is too large") + " and what to do next", !!toast, JSON.stringify(await toastsNow(app.page)));
+          expect("the report and its photo stay for the try again (" + status + ")", (await boxValue(app.page, ".sp-content input", 0)) === ISSUE_TITLE && await app.page.evaluate(() => !!document.querySelector('.sp-content img[src^="data:"]')), "the report is gone");
+        } finally { await app.context.close(); }
+      }
+      // A photo question filled from another phone, then a photo taken off
+      // there.
+      const form = await open({});
+      try {
+        const f = formP(language);
+        const q = f.fields.find(x => x.type === "photos");
+        const input = '.sp-content input[type="file"]';
+        const removeWord = say("Remove photo", language);
+        await openTab(form.page, "forms", language);
+        await pause(form.page, 900);
+        await startForm(form.page, f.title);
+        await attachPhotos(form.page, input, ["one.jpg", "two.jpg"]);
+        await pause(form.page, 2500);
+        const held = form.stub.state.answersP[q.key] || [];
+        form.stub.state.answersP[q.key] = held.concat([{ id: "ph-other", name: "other.jpg", bytes: 10, contentType: "image/jpeg", uploadedAt: held.length ? held[0].uploadedAt : null }]);
+        if (held[0]) form.stub.state.photoBytes["ph-other"] = form.stub.state.photoBytes[held[0].id];
+        await attachPhotos(form.page, input, ["three.jpg"]);
+        await pause(form.page, 1500);
+        const limit = fill(say("This question takes {max} photos at most. Remove one to add another.", language), { max: FORM_P_MAX_PHOTOS });
+        expect("a photo question already full says its limit and the next step", has(await bodyText(form.page), limit), (await bodyText(form.page)).slice(0, 500));
+        // one.jpg is taken off on the other phone; this phone still shows it.
+        form.stub.state.answersP[q.key] = form.stub.state.answersP[q.key].filter(p => p.name !== "one.jpg");
+        const draftReads = callsTo(form.stub, "GET", "/api/forms/drafts/draft-two").length;
+        await clickText(form.page, removeWord);
+        const gone = await toastSaying(form.page, say("This photo was already removed. The question now shows the photos that are kept.", language));
+        await pause(form.page, 1500);
+        const text = await bodyText(form.page);
+        expect("a photo already gone says so as a notice", !!gone && !gone.failure, JSON.stringify(await toastsNow(form.page)));
+        expect("the question's photos are read again and show what the API kept", callsTo(form.stub, "GET", "/api/forms/drafts/draft-two").length > draftReads && !has(text, "one.jpg") && has(text, "two.jpg") && has(text, "other.jpg"), text.slice(0, 500));
+        await spokenHere(form, language, expect);
+      } finally { await form.context.close(); }
+      // A second Start Shift after the first one's answer was lost.
+      const start = await open({ stubOptions: { clockedIn: false } });
+      try {
+        await openTab(start.page, "clock", language);
+        await pause(start.page, 800);
+        await pickSite(start.page, "South Building");
+        await pause(start.page, 400);
+        start.stub.state.trouble = { method: "POST", path: /^\/api\/shift-sessions$/, kind: "lose" };
+        await clickText(start.page, say("Start Shift", language));
+        await pause(start.page, 2500);
+        await clickText(start.page, say("Start Shift", language));
+        const words = refusalIn(API_R4.alreadyOpen, language, { site: "South Building" });
+        const toast = await toastSaying(start.page, words, 6000);
+        await pause(start.page, 900);
+        expect("a second Start Shift answered 200 sessions.alreadyOpen is read as success, in the API's words", !!toast && !toast.failure, JSON.stringify(await toastsNow(start.page)));
+        expect("it opens the shift's checklist, and only one shift was started", (await chosenTab(start.page)) === say("Tasks", language) && start.stub.state.shiftTaps.filter(x => x.kind === "start").length === 1, JSON.stringify({ tab: await chosenTab(start.page), starts: start.stub.state.shiftTaps.length }));
+      } finally { await start.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...ROUND4_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };

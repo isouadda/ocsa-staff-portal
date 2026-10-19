@@ -824,6 +824,32 @@ const SHOTS = [
     go: (s) => s.waitFor(() => !!document.querySelector('[data-case-sheet] [data-case-read="1"]')) },
   { name: "client-concern", entry: E("Read a client's concern from a notice"), o: { signedIn: true, path: "/?open=customer_concern:cc-1", stub: { person: SUPERVISOR } },
     go: (s) => s.waitFor(() => !!document.querySelector('[data-concern-sheet] [data-concern-read="1"]')) },
+  // Part 359: a filed report opened from its notice by a supervisor, My
+  // reports under Speak Up, and Register's line for a phone that already
+  // has an account.
+  { name: "filed-report", entry: E("Read a filed report from a notice"), o: { signedIn: true, path: "/?open=form:fr-1", stub: { person: SUPERVISOR } },
+    go: (s) => s.waitFor(() => !!document.querySelector('[data-report-sheet] [data-report-read="1"]')) },
+  { name: "my-reports", entry: E("Report a problem with someone at work"), o: { signedIn: true },
+    go: async (s) => {
+      if (!(await s.go("Speak Up"))) return false;
+      if (!(await s.waitFor(() => document.querySelectorAll("[data-my-report]").length === 2))) return false;
+      // The list closes the screen, so the picture is its foot.
+      await s.page.evaluate(() => window.scrollTo(0, document.scrollingElement.scrollHeight));
+      await s.pause(400);
+      return true;
+    } },
+  { name: "register-taken", entry: E("Register as a new employee"), o: {},
+    go: async (s) => {
+      await s.waitText(s.say("Sign In"));
+      await s.tap(s.say("New Employee? Register Here"));
+      if (!(await s.waitText(s.say("Register")))) return false;
+      const boxes = ["Riley", "Example", "0000000000", "riley@example.invalid", "5739", "5739"];
+      for (let i = 0; i < boxes.length; i += 1) await s.page.evaluate(([n, v]) => { const e = document.querySelectorAll("input")[n]; if (!e) return; const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; set.call(e, v); e.dispatchEvent(new Event("input", { bubbles: true })); }, [i, boxes[i]]);
+      await s.tap(s.say("Register"));
+      if (!(await s.waitText(s.say("This phone or email already has an account. Sign in with it, or tap Forgot your PIN? to choose a new PIN.")))) return false;
+      await s.show(s.say("Email Address *"), "center");
+      return true;
+    } },
   { name: "text-size", entry: E("Make the text bigger"), o: { signedIn: true }, go: (s) => settingsAt(s, "Text size") },
   { name: "appearance", entry: E("Switch between light and dark"), o: { signedIn: true }, go: (s) => settingsAt(s, "Appearance") },
   { name: "language", entry: E("Switch the app to Spanish or English"), o: { signedIn: true }, go: (s) => settingsAt(s, "Language") },

@@ -260,7 +260,7 @@ async function uploadPhoto(file, token) {
     });
   } finally { flightDown(); }
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-  if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(ownRefusal(e.code) || e.error || AGENT_PHOTO_FAILED); }
+  if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(ownRefusal(e.code, e) || e.error || AGENT_PHOTO_FAILED); }
   const data = await readJson(res);
   return data.url;
 }
@@ -273,7 +273,7 @@ async function uploadTaskMedia(file, token) {
     body: file,
   });
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-  if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(ownRefusal(e.code) || e.error || UPLOAD_FAILED); }
+  if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(ownRefusal(e.code, e) || e.error || UPLOAD_FAILED); }
   return readJson(res);
 }
 
@@ -408,7 +408,7 @@ async function uploadAgentPhoto(blob, token) {
     body: blob,
   });
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-  if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(ownRefusal(e.code) || e.error || AGENT_PHOTO_FAILED); }
+  if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(ownRefusal(e.code, e) || e.error || AGENT_PHOTO_FAILED); }
   const data = await readJson(res).catch(() => null);
   if (!data || !data.path) throw new Error(AGENT_PHOTO_FAILED);
   return data.path;
@@ -543,6 +543,10 @@ const TYPED_PIN_401 = ["PIN_INCORRECT", "auth.pinIncorrect"];
 // auth.checkUnavailable (503, any route) is OCSA not reaching its own
 // records for a moment: it means try again, and nothing is lost or ended.
 const CHECK_AGAIN_WORDS = "OCSA could not check your sign-in just now. Try again in a moment.";
+// A registration sent (API-117, part 359): what happens next, in words
+// that hold whatever the API found, since a supervisor approves each one
+// and OCSA's welcome email comes once the account can sign in.
+const REGISTERED_WORDS = "Thank you. A supervisor reviews each registration, and OCSA emails you once you can sign in.";
 const OWN_REFUSALS = {
   "auth.givenPinExpired": "The PIN the office gave you has expired. Call the office for a new one, or tap Forgot your PIN? to choose your own by email.",
   "auth.lockedUntilOffice": "Too many tries today, so your account is locked until the office unlocks it. Call the office, or tap Forgot your PIN? to reset it by email.",
@@ -553,12 +557,40 @@ const OWN_REFUSALS = {
   "tasks.resolve.alreadySettled": "This task is already finished or marked as unable to finish, so there is nothing more to send.",
   "tasks.resolve.issueClosed": "The problem behind this task is already closed, so there is nothing more to send.",
   "pickups.onLeave": "You have time off approved that day, so this shift cannot be yours. Pick a shift on another day.",
+  // Part 359: a phone or email that already has an account (API-117).
+  "auth.accountExists": "This phone or email already has an account. Sign in with it, or tap Forgot your PIN? to choose a new PIN.",
+  // The refusals new since Round 2 (part 359). A drop asked for a shift
+  // that already has one, or is already posted for pickup (409, Request
+  // Drop): nothing more to send, said as a notice.
+  "pickups.alreadyPosted": "This shift already has a drop request, or it is already posted for pickup. There is nothing more to send.",
+  // What was sent was too large for the API, or could not be read (413,
+  // and 400 or 415, any route).
+  "common.bodyTooLarge": "What you sent is too large. Use fewer or smaller photos, or shorter text, then try again.",
+  "common.badBody": "What you sent could not be read. Try again, and tell the office if it happens again.",
+  // A file over the bucket's limit (400 or 413, any upload). The answer's
+  // maxBytes is said in megabytes, filled in the reader's language here.
+  "uploads.tooLarge": (body) => {
+    const mb = body && Number(body.maxBytes) > 0 ? Number(body.maxBytes) / 1048576 : 0;
+    return mb > 0 ? tr("This file is over {mb} MB. Choose a smaller photo or file.", { mb: Number.isInteger(mb) ? mb : Math.round(mb * 10) / 10 }) : tr("This file is too large. Choose a smaller photo or file.");
+  },
+  // A question's photos already at its limit (400). The API names the
+  // limit only in its words, so the form fills {max} from the question.
+  "forms.photoLimit": (body) => (body && Number(body.max) > 0 ? tr(PHOTO_LIMIT_WORDS, { max: Number(body.max) }) : null),
+  // A photo removed that is already gone (404): the list is read again.
+  "forms.photoNotFound": "This photo was already removed. The question now shows the photos that are kept.",
 };
+const PHOTO_LIMIT_WORDS = "This question takes {max} photos at most. Remove one to add another.";
 // A task the API says is already settled, or whose problem is closed
 // (409, since API part 346): nothing is left to send, so the form closes
 // and the list is read again, said as a notice and never as a failure.
 const settledTask = (err) => !!err && (err.code === "tasks.resolve.alreadySettled" || err.code === "tasks.resolve.issueClosed");
-const ownRefusal = (code) => (code && Object.prototype.hasOwnProperty.call(OWN_REFUSALS, code) ? OWN_REFUSALS[code] : null);
+// An entry that is a function takes the refusal's body and answers words
+// already in the reader's language, or null for the API's own.
+const ownRefusal = (code, body) => {
+  if (!code || !Object.prototype.hasOwnProperty.call(OWN_REFUSALS, code)) return null;
+  const own = OWN_REFUSALS[code];
+  return typeof own === "function" ? own(body || {}) : own;
+};
 // A refusal that means try again in a moment, never a failure.
 const checkAgain = (err) => !!err && err.code === "auth.checkUnavailable";
 const authEvent = (name, opts) => { try { return new CustomEvent(name, { detail: { token: opts.token || null } }); } catch (e) { return new Event(name); } };
@@ -566,7 +598,7 @@ function refusalOf(status, err, opts) {
   const code = err && err.code ? String(err.code) : null;
   if (status === 401 && !opts.noAuthEvent && TYPED_PIN_401.indexOf(code) === -1) { window.dispatchEvent(authEvent("ocsa-session-expired", opts)); return new Error("Session expired"); }
   if (status === 403 && code === "auth.mustSetPin" && !opts.noAuthEvent) window.dispatchEvent(authEvent("ocsa-must-set-pin", opts));
-  const e = new Error(ownRefusal(code) || err.error || "Request failed"); e.status = status; e.code = code; e.body = err;
+  const e = new Error(ownRefusal(code, err) || err.error || "Request failed"); e.status = status; e.code = code; e.body = err;
   return e;
 }
 async function refuseUnlessOk(res, opts) {
@@ -580,10 +612,30 @@ async function refuseUnlessOk(res, opts) {
 // portal drops the same keys from every answer as it arrives, so even an
 // admin's answer holds none here, on the screen or on the phone.
 const MONEY_KEYS = new Set(["hourlyRate", "hourly_rate", "avg_rate", "grossPay", "total_cost", "ot_premium", "total_ot_premium", "regular_pay", "ot_pay", "total_pay", "cost_change_pct", "total_estimated_cost", "estimated_cost", "green_cost", "non_green_cost", "green_cost_pct", "contract_value_monthly", "contractValueMonthly", "cost_per_unit", "costPerUnit", "unit_cost", "unitCost", "monthlyPrice", "annualPrice", "monthly_price", "annual_price", "laborCostPerSquareFoot"]);
+// An address the API sent for a picture, a video, a file or a page
+// (API-68, part 359: the API stores some as they were sent) is kept only
+// when a browser opens it safely: https: or http:, a path on this app's
+// own origin, a data: picture, or a blob: the phone made. Anything else
+// (javascript:, data:text/html, file:, a //host with no scheme, or /\host,
+// which a browser reads as //host) becomes
+// null as the answer arrives, under any key whose name ends in url or src,
+// so no screen draws it as a link or a picture. An empty string stays.
+const ADDRESS_KEY = /(url|urls|src)$/i;
+const safeAddress = (u) => {
+  if (typeof u !== "string") return u;
+  const a = u.trim();
+  if (a === "" || /^https?:\/\//i.test(a) || /^\/(?![/\\])/.test(a) || /^data:image\/[a-z0-9.+-]+[;,]/i.test(a) || /^blob:/i.test(a)) return u;
+  return null;
+};
 function withoutMoney(v, depth) {
   if ((depth || 0) > 12 || !v || typeof v !== "object") return v;
   if (Array.isArray(v)) { v.forEach(x => withoutMoney(x, (depth || 0) + 1)); return v; }
-  Object.keys(v).forEach((k) => { if (MONEY_KEYS.has(k)) delete v[k]; else withoutMoney(v[k], (depth || 0) + 1); });
+  Object.keys(v).forEach((k) => {
+    if (MONEY_KEYS.has(k)) { delete v[k]; return; }
+    if (ADDRESS_KEY.test(k) && typeof v[k] === "string") { v[k] = safeAddress(v[k]); return; }
+    if (ADDRESS_KEY.test(k) && Array.isArray(v[k])) v[k] = v[k].filter(x => typeof x !== "string" || safeAddress(x) !== null);
+    withoutMoney(v[k], (depth || 0) + 1);
+  });
   return v;
 }
 
@@ -2452,7 +2504,7 @@ export default function OCSAStaffPortal() {
       const said = err && err.body && err.body.error ? String(err.body.error) : "";
       const code = err && err.code ? String(err.code) : "";
       if (code === "auth.invalidCredentials") wrongTries.current += 1;
-      const own = ownRefusal(code);
+      const own = ownRefusal(code, err && err.body);
       const text = own ? tr(own) : !said && wentNowhere(err) ? tr(ERR_OFFLINE) : said ? tr(said) : tr("That sign-in did not match. Check your badge, phone or email and your PIN.");
       setLoginFault({ text: text, lock: (code === "auth.invalidCredentials" && wrongTries.current >= 3) || code === "auth.locked" });
     } finally {
@@ -2554,7 +2606,7 @@ export default function OCSAStaffPortal() {
     // A PIN the API turns away (PIN_WEAK) is said under the PIN box, the
     // way the other four PIN screens say it, and the form stays.
     let refused = null;
-    try { await api(signedOut("/api/auth/register", language), { method: "POST", body: { firstName, lastName, phone, email, pin } }); showToast(tr("Registration submitted. Pending supervisor approval.")); setScreen("login"); } catch (err) { if (err.code === "PIN_WEAK") refused = { pin: tr(err.message) }; else showToast(tr(err.message), "error"); }
+    try { await api(signedOut("/api/auth/register", language), { method: "POST", body: { firstName, lastName, phone, email, pin } }); showToast(tr(REGISTERED_WORDS)); setScreen("login"); } catch (err) { if (err.code === "PIN_WEAK") refused = { pin: tr(err.message) }; else if (err.code === "auth.accountExists") refused = { email: tr(err.message) }; else showToast(tr(err.message), "error"); }
     setLoading(false);
     return refused;
   };
@@ -2956,11 +3008,15 @@ export default function OCSAStaffPortal() {
   const openPlace = (place) => {
     if (!place) return;
     if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
-    // A case or a client's concern this person may not read opens the
-    // bell, where its notice keeps the dashboard's link.
-    if ((place.hrCase || place.concern) && !notifReadable(place, caps)) { setNotifOpen(true); return; }
+    // A case, a client's concern or a filed report this person may not
+    // read, or one the API already turned away here, opens the bell,
+    // where its notice keeps the dashboard's link.
+    if ((place.hrCase || place.concern || place.report) && !notifReadable(place, caps, refusedReads)) { setNotifOpen(true); return; }
     if (place.hrCase) { setCaseAt({ id: String(place.hrCase), link: place.link || null }); setShowMore(false); return; }
     if (place.concern) { setConcernAt({ id: String(place.concern), link: place.link || null }); setShowMore(false); return; }
+    if (place.report) { setReportAt({ id: String(place.report), link: place.link || null }); setShowMore(false); return; }
+    // My reports under Speak Up, at the case the notice names (part 359).
+    if (place.tab === "speakup") setSpeakAt(place.myReport ? { id: String(place.myReport), at: Date.now() } : null);
     // My tickets at the ticket, read again so a new answer shows.
     if (place.tab === "support") { setSupportAt(place.ticket ? { id: String(place.ticket), at: Date.now() } : null); setSupportAsked(n => n + 1); }
     // Periodic work at the task the notice names: its site is found in
@@ -3048,7 +3104,7 @@ export default function OCSAStaffPortal() {
     // 355), once the permissions are in, so its sheet never shows first.
     // A tap on an alert never opens another address by itself.
     const place = notifPlace(openAsk.subjectType, openAsk.subjectId);
-    if (place && (place.hrCase || place.concern) && caps === null) return;
+    if (place && (place.hrCase || place.concern || place.report) && caps === null) return;
     setOpenAsk(null);
     if (place) openPlace(place); else if (openAsk.subjectType) setNotifOpen(true);
   }, [openAsk, booting, screen, token, caps]);
@@ -3151,6 +3207,14 @@ export default function OCSAStaffPortal() {
   // link the notice's own to the dashboard when the bell had one.
   const [caseAt, setCaseAt] = useState(null);
   const [concernAt, setConcernAt] = useState(null);
+  // A filed report a form notice opened (part 359, API-83), and the case
+  // a notice opened My reports at.
+  const [reportAt, setReportAt] = useState(null);
+  const [speakAt, setSpeakAt] = useState(null);
+  // The reads the API turned away on this phone, by readKey: the bell
+  // keeps the dashboard's link on their notices.
+  const [refusedReads, setRefusedReads] = useState(() => new Set());
+  const refuseRead = (k) => { if (k) setRefusedReads(prev => (prev.has(k) ? prev : new Set(prev).add(k))); };
   useEffect(() => {
     if (!token || screen !== "main") { setSupport(null); return undefined; }
     let live = true;
@@ -3604,7 +3668,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} token={token} user={user} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} openAt={inspectAt} onOpened={() => setInspectAt(null)} />}
-              {activeTab === "speakup" && <SpeakUpView token={token} t={t} />}
+              {activeTab === "speakup" && <SpeakUpView token={token} focus={speakAt} t={t} />}
               {activeTab === "sds" && <div style={{ padding: 16 }}><SdsBrowser initial={sdsList} onList={setSdsList} code={sdsCode} onCode={setSdsCode} t={t} /></div>}
               {activeTab === "workspace" && destCtx.workspace && <WorkspaceView token={token} user={user} projects={wsProjects} onProjects={setWsProjects} at={wsAt} onAt={setWsAt} channels={channels} onOpenChat={(id) => { chooseChat(id); setActiveTab("chat"); setShowMore(false); }} showToast={showToast} t={t} />}
               {activeTab === "training" && (destCtx.training || !!trainingAt) && <TrainingView token={token} data={training} onData={setTraining} at={trainingAt} onAt={setTrainingAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} t={t} />}
@@ -3673,8 +3737,9 @@ export default function OCSAStaffPortal() {
         </>
       )}
 
-      {caseAt && token && <CaseSheet key={caseAt.id} token={token} id={caseAt.id} link={caseAt.link} onClose={() => setCaseAt(null)} onRefused={() => { setCaseAt(null); setNotifOpen(true); }} t={t} />}
-      {concernAt && token && <ConcernSheet key={concernAt.id} token={token} id={concernAt.id} link={concernAt.link} onClose={() => setConcernAt(null)} onRefused={() => { setConcernAt(null); setNotifOpen(true); }} t={t} />}
+      {caseAt && token && <CaseSheet key={caseAt.id} token={token} id={caseAt.id} link={caseAt.link} onClose={() => setCaseAt(null)} onRefused={() => { refuseRead("case:" + caseAt.id); setCaseAt(null); setNotifOpen(true); }} t={t} />}
+      {concernAt && token && <ConcernSheet key={concernAt.id} token={token} id={concernAt.id} link={concernAt.link} kind="concern" onClose={() => setConcernAt(null)} onRefused={() => { refuseRead("concern:" + concernAt.id); setConcernAt(null); setNotifOpen(true); }} t={t} />}
+      {reportAt && token && <ConcernSheet key={"report:" + reportAt.id} token={token} id={reportAt.id} link={reportAt.link} kind="report" onClose={() => setReportAt(null)} onRefused={() => { refuseRead("report:" + reportAt.id); setReportAt(null); setNotifOpen(true); }} t={t} />}
       {siteListAt && token && <SiteTaskListSheet token={token} site={siteListAt} language={language} watch={isAdmin} onClose={() => setSiteListAt(null)} t={t} />}
       {notifOpen && (
         <NotificationsSheet
@@ -3683,6 +3748,7 @@ export default function OCSAStaffPortal() {
           locale={language}
           unread={unread}
           caps={caps}
+          refused={refusedReads}
           onUnreadChanged={setUnread}
           onOpen={openPlace}
           onClose={() => { setNotifOpen(false); refreshUnread(); }}
@@ -4980,7 +5046,13 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
                       setDetail(null);
                       showToast(tr("Drop request sent. Your supervisor will review it."));
                       loadSchedule();
-                    } catch (e) { showToast(tr(e.message) || tr("Drop request failed"), "error"); }
+                    } catch (e) {
+                      // A drop already asked for, or a shift already posted
+                      // for pickup (part 359): nothing more to send, so the
+                      // sheet closes and the schedule is read again.
+                      if (e && e.code === "pickups.alreadyPosted") { setDetail(null); showToast(tr(e.message)); loadSchedule(); }
+                      else showToast(tr(e.message) || tr("Drop request failed"), "error");
+                    }
                   }} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: RED_FILL, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD }}>{tr("Submit Request")}</button>
                 </div>
               </div>
@@ -6020,7 +6092,15 @@ function CaseSheet({ token, id, link, onClose, onRefused, t }) {
 // (view_reports), each answered question under its own section. The
 // office answers the client from the dashboard.
 const readValue = (v) => (typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : Array.isArray(v) ? v.filter(x => typeof x === "string" || typeof x === "number").join(", ") : "");
-function ConcernSheet({ token, id, link, onClose, onRefused, t }) {
+// What each read-only report sheet says and marks: a client's concern
+// (PORT-10) and, since part 359, any filed report a form notice names
+// (API-83), read through the same route by whoever the API lets read it.
+const FILED_SHEETS = {
+  concern: { title: "Client concern", line: "Read only. The office answers the client from the dashboard.", sheet: "data-concern-sheet", read: "data-concern-read", field: "data-concern-field" },
+  report: { title: "Filed report", line: "Read only. The report is worked on the dashboard.", sheet: "data-report-sheet", read: "data-report-read", field: "data-report-field" },
+};
+function ConcernSheet({ token, id, link, kind, onClose, onRefused, t }) {
+  const k = FILED_SHEETS[kind] || FILED_SHEETS.concern;
   const [got, again] = useSheetRead("/api/forms/responses/" + encodeURIComponent(id) + "?locale=" + languageToSend(), token, onRefused);
   const r = got && got.ok ? got.ok : null;
   const draft = r && r.draft && typeof r.draft === "object" ? r.draft : {};
@@ -6032,13 +6112,15 @@ function ConcernSheet({ token, id, link, onClose, onRefused, t }) {
   const sections = listed.length > 0 ? listed.concat(fields.some(f => keys.indexOf(String(f.section || "")) === -1) ? [{ key: null, title: "", loose: true }] : []) : [{ key: null, title: "" }];
   const from = draft.customer && typeof draft.customer === "object" && typeof draft.customer.name === "string" ? draft.customer.name.trim() : "";
   return (
-    <ReadSheet label={tr("Client concern")} data={{ "data-concern-sheet": id }} link={link} onClose={onClose} t={t}>
-      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("Client concern")}</div>
-      <div style={readLineSt(t)}>{tr("Read only. The office answers the client from the dashboard.")}</div>
+    <ReadSheet label={tr(k.title)} data={{ [k.sheet]: id }} link={link} onClose={onClose} t={t}>
+      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr(k.title)}</div>
+      <div style={readLineSt(t)}>{tr(k.line)}</div>
       {!got && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
       {got && got.fault && <ListFault icon={AlertIco} text={fkFaultWords(got.fault, "This report did not open. Try again.")} onRetry={again} t={t} />}
-      {r && (<div data-concern-read="1">
+      {r && (<div {...{ [k.read]: "1" }}>
         {typeof draft.formName === "string" && draft.formName.trim() && <div style={{ fontSize: 13, fontWeight: 600, color: t.goldText, marginBottom: 8, fontFamily: FONT_HEAD }}>{draft.formName.trim()}</div>}
+        {kind === "report" && typeof draft.siteName === "string" && draft.siteName.trim() && <div style={{ fontSize: 13, color: t.textSec, marginBottom: 4 }}>{draft.siteName.trim()}</div>}
+        {kind === "report" && draft.submittedAt && <div style={{ fontSize: 13, color: t.textSec, marginBottom: 12 }}>{tr("Sent {date}", { date: signedDay(draft.submittedAt) })}</div>}
         {from && <div style={{ fontSize: 13, color: t.textSec, marginBottom: 12 }}>{tr("From {name}", { name: from })}</div>}
         {sections.map((sec, si) => {
           const here = sec.loose ? fields.filter(f => keys.indexOf(String(f.section || "")) === -1) : sec.key === null ? fields : fields.filter(f => String(f.section || "") === String(sec.key));
@@ -6046,7 +6128,7 @@ function ConcernSheet({ token, id, link, onClose, onRefused, t }) {
           return (
             <div key={sec.key || si}>
               {sec.title && <div role="heading" aria-level={3} style={{ ...fkHeadSt(t), marginTop: si > 0 ? 16 : 4 }}>{sec.title}</div>}
-              {here.map(f => <div key={f.key}>{readField(t, typeof f.label === "string" ? f.label : "", readValue(f.displayValue !== undefined && f.displayValue !== null ? f.displayValue : f.value), { "data-concern-field": f.key })}</div>)}
+              {here.map(f => <div key={f.key}>{readField(t, typeof f.label === "string" ? f.label : "", readValue(f.displayValue !== undefined && f.displayValue !== null ? f.displayValue : f.value), { [k.field]: f.key })}</div>)}
             </div>
           );
         })}
@@ -7492,7 +7574,9 @@ function issueViewOf(x) {
     dueState: issueText(x, ["dueState", "due_state"]),
     photos: photos,
     resolutionNote: issueText(x, ["resolutionNotes", "resolutionNote", "resolution_notes", "resolution_note"]),
-    resolutionPhoto: issueText(x, ["resolutionPhotoUrl", "resolutionPhoto", "resolution_photo_url"]),
+    // An address under any of the three keys opens only as safeAddress
+    // allows (API-68, part 359), since resolutionPhoto ends in no url.
+    resolutionPhoto: safeAddress(issueText(x, ["resolutionPhotoUrl", "resolutionPhoto", "resolution_photo_url"])),
     linkedTaskId: linked === undefined || linked === null || linked === "" ? null : String(linked),
     actions: issueActionsOf(x.actions),
     canAssign: x.canAssign === undefined ? null : x.canAssign === true,
@@ -7653,7 +7737,7 @@ function IssueSheet({ token, user, at, tasks, onClose, onChanged, showToast, lkC
             <div style={{ marginTop: 12 }}>
               <div style={labelSt}>{tr("Photos")}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
-                {view.photos.map(p => <a key={p.id} href={p.url} target="_blank" rel="noopener noreferrer"><img src={p.url} alt="" style={{ width: 72, height: 72, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt }} /></a>)}
+                {view.photos.filter(p => p && p.url).map(p => <a key={p.id} href={p.url} target="_blank" rel="noopener noreferrer"><img src={p.url} alt="" style={{ width: 72, height: 72, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt }} /></a>)}
               </div>
             </div>
           )}
@@ -8051,7 +8135,7 @@ function ClientRequestsSection({ token, user, rows, onChanged, showToast, openId
           {r.note && <div style={{ ...lineSt, color: t.text, marginTop: 6, whiteSpace: "pre-line" }}>{r.note}</div>}
           {r.photos.length > 0 && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-              {r.photos.map(p => <a key={p.id} href={p.url} target="_blank" rel="noopener noreferrer"><img src={p.url} alt="" style={{ width: 64, height: 64, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt }} /></a>)}
+              {r.photos.filter(p => p && p.url).map(p => <a key={p.id} href={p.url} target="_blank" rel="noopener noreferrer"><img src={p.url} alt="" style={{ width: 64, height: 64, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt }} /></a>)}
             </div>
           )}
           <RequestTarget label="Respond by {when}" at={r.respondBy} state={r.respondState} t={t} />
@@ -11076,7 +11160,53 @@ const CASE_MAX = 4000;
 // Built when the counter is drawn rather than once at import,
 // because the language is not known at import time.
 const caseMaxText = () => CASE_MAX.toLocaleString(dateLocale());
-function SpeakUpView({ token, t }) {
+// My reports (part 359, API-63): every case the person filed here, or
+// that the office opened on their behalf, as GET /api/hr-cases/mine
+// answers it to its reporter: { id, status, createdAt, updatedAt }, newest
+// first, with no case words. The API carries no words for a status, so
+// these are the portal's own, said to the person who reported.
+const MY_REPORT_STATUS = { open: "Report received", in_review: "Being looked into", escalated: "Being looked into", resolved: "Report resolved", closed: "Report closed" };
+function MyReports({ token, focus, t }) {
+  const [rows, setRows] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let live = true;
+    setFailed(false);
+    api("/api/hr-cases/mine", { token }).then((d) => { if (live) setRows(Array.isArray(d && d.cases) ? d.cases.filter(c => c && c.id) : []); }).catch(() => { if (live) { setRows(null); setFailed(true); } });
+    return () => { live = false; };
+  }, [token, asked]);
+  const marked = focus && Array.isArray(rows) && rows.some(c => String(c.id) === String(focus.id));
+  useEffect(() => {
+    if (!marked) return;
+    try { const el = document.querySelector('[data-my-report-focus="1"]'); if (el) el.scrollIntoView({ block: "center" }); } catch (e) {}
+  }, [marked, focus && focus.at]);
+  const day = (v) => (v ? signedDay(v) : "");
+  return (
+    <div data-my-reports={Array.isArray(rows) ? rows.length : ""} style={{ marginTop: 22 }}>
+      <div role="heading" aria-level={3} style={fkHeadSt(t)}>{tr("My reports")}</div>
+      <div style={{ ...readLineSt(t), marginTop: -2 }}>{tr("Each report you sent here, or the office opened for you, and where it stands.")}</div>
+      {rows === null && !failed && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {failed && <ListFault icon={AlertIco} text={tr("Your reports did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />}
+      {Array.isArray(rows) && rows.length === 0 && <div style={wsQuiet(t)}>{tr("You have no reports yet.")}</div>}
+      {Array.isArray(rows) && rows.map((c) => {
+        const on = !!focus && String(focus.id) === String(c.id);
+        const closed = c.status === "resolved" || c.status === "closed";
+        return (
+          <div key={c.id} data-my-report={c.id} data-my-report-status={c.status || ""} data-my-report-focus={on ? "1" : undefined} aria-current={on ? "true" : undefined} style={{ ...fkRowSt(t), ...(on ? { border: "1.5px solid " + GOLD } : {}) }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Sent {date}", { date: day(c.createdAt) })}</div>
+              <span style={closed ? trainingChipSt(t, GREEN) : { ...trainingChipSt(t, GOLD), color: t.goldText }}>{tr(MY_REPORT_STATUS[c.status] || "Report received")}</span>
+            </div>
+            {c.updatedAt && day(c.updatedAt) !== day(c.createdAt) && <div style={{ fontSize: 12, color: t.textSec, marginTop: 4 }}>{tr("Updated {date}", { date: day(c.updatedAt) })}</div>}
+            <div style={{ fontSize: 11, color: t.textMut, marginTop: 4, wordBreak: "break-all" }}>{tr("Your reference")}: {c.id}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+function SpeakUpView({ token, focus, t }) {
   const [text, setText] = useState("");
   // The management question. null until it is answered, then true or
   // false. Send waits for an answer either way, and a Yes waits for at
@@ -11105,6 +11235,10 @@ function SpeakUpView({ token, t }) {
   // The id of the case just filed. Once set, the form is gone and the
   // confirmation is all there is; the only way back is to leave the tab.
   const [sent, setSent] = useState(null);
+  // A notice that opens My reports (part 359) brings the form and the list
+  // back from the thank-you, so the report it names is in view.
+  const focusAt = focus ? focus.at : null;
+  useEffect(() => { if (focusAt) setSent(null); }, [focusAt]);
   // One plain sentence when a send did not go through. What was typed
   // stays on screen underneath it.
   const [problem, setProblem] = useState(null);
@@ -11234,6 +11368,7 @@ function SpeakUpView({ token, t }) {
         {problem && <div style={{ padding: "10px 12px", marginBottom: 12, background: t.redSubtle, border: "1px solid " + t.redBorder, borderRadius: R.sm, fontSize: 12, color: ink(t, RED), lineHeight: 1.5 }}>{problem}</div>}
         <button onClick={send} disabled={!canSend} style={{ ...mkPrimaryBtn(t, !canSend), cursor: canSend ? "pointer" : "default" }}>{sending ? tr("Sending...") : tr("Send")}</button>
       </div>
+      <MyReports token={token} focus={focus} t={t} />
     </div>
   );
 }
@@ -11498,6 +11633,12 @@ function notifPlace(subjectType, subjectId) {
   // names. Someone the API would not let read the case or the report
   // keeps the dashboard's link on the bell (notifReadable).
   const named = subjectId !== null && subjectId !== undefined && subjectId !== "" ? String(subjectId) : null;
+  // Part 359: a case the office opened on the person's behalf (API-63's
+  // hr_case_opened_for, to the reporter, with no case words) opens My
+  // reports under Speak Up at it; a filed form's notice (type form, its
+  // subject the report, API-83) opens the report read-only.
+  if (subjectType === "hr_case_opened_for") return { tab: "speakup", myReport: named };
+  if (subjectType === "form") return named ? { report: named } : null;
   if (caseSubject(subjectType)) return named ? { hrCase: named } : null;
   if (subjectType === "customer_concern") return named ? { concern: named } : null;
   if (subjectType === "support_ticket") return { tab: "support", ticket: named };
@@ -11528,10 +11669,17 @@ function notifPlace(subjectType, subjectId) {
 // case needs manage_cases, a client's concern view_reports. Until they
 // are read, the place is tried, and a read the API turns away opens the
 // bell instead.
-function notifReadable(place, caps) {
+// A filed report needs one of the two report readers' capabilities (the
+// API's form readers, view_reports or read_incident_reports), and a read
+// the API has turned away once on this phone (refused, by readKey) keeps
+// the dashboard's link on the bell from then on.
+const readKey = (place) => (!place ? null : place.hrCase ? "case:" + place.hrCase : place.concern ? "concern:" + place.concern : place.report ? "report:" + place.report : null);
+function notifReadable(place, caps, refused) {
   if (!place) return false;
+  if (refused && readKey(place) && refused.has(readKey(place))) return false;
   if (place.hrCase) return !caps || caps.manage_cases === true;
   if (place.concern) return !caps || caps.view_reports === true;
+  if (place.report) return !caps || caps.view_reports === true || caps.read_incident_reports === true;
   return true;
 }
 const NOTIF_PAGE = 30;
@@ -11556,7 +11704,9 @@ function notifAgo(iso, nowMs) {
 function notifOffOrigin(link) {
   try {
     if (!link) return false;
-    return new URL(link, window.location.href).origin !== window.location.origin;
+    // Only an https: or http: address is opened (API-68, part 359).
+    const u = new URL(link, window.location.href);
+    return (u.protocol === "https:" || u.protocol === "http:") && u.origin !== window.location.origin;
   } catch (e) { return false; }
 }
 
@@ -11566,7 +11716,7 @@ function notifOffOrigin(link) {
 // the language itself and is read again from the top when the language
 // changes while the sheet is open; only the latest read is drawn, so a
 // page that arrives in the language just left is dropped.
-function NotificationsSheet({ token, t, locale, unread, caps, onClose, onOpen, onUnreadChanged }) {
+function NotificationsSheet({ token, t, locale, unread, caps, refused, onClose, onOpen, onUnreadChanged }) {
   const [rows, setRows] = useState(null);
   const [failed, setFailed] = useState(false);
   const [more, setMore] = useState(false);
@@ -11621,7 +11771,7 @@ function NotificationsSheet({ token, t, locale, unread, caps, onClose, onOpen, o
     const place = notifPlace(row.subjectType, row.subjectId);
     // A case or a client's concern opens on its sheet with the notice's
     // own link to the dashboard, where it is worked.
-    if (place && notifReadable(place, caps)) { onClose(); onOpen(place.hrCase || place.concern ? Object.assign({}, place, { link: notifOffOrigin(row.link) ? row.link : null }) : place); }
+    if (place && notifReadable(place, caps, refused)) { onClose(); onOpen(place.hrCase || place.concern || place.report ? Object.assign({}, place, { link: notifOffOrigin(row.link) ? row.link : null }) : place); }
   };
 
   const wideBtn = { minHeight: 44, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD };
@@ -11647,7 +11797,7 @@ function NotificationsSheet({ token, t, locale, unread, caps, onClose, onOpen, o
 
           {(rows || []).map(row => {
             const isUnread = !row.readAt;
-            const hasTab = notifReadable(notifPlace(row.subjectType, row.subjectId), caps);
+            const hasTab = notifReadable(notifPlace(row.subjectType, row.subjectId), caps, refused);
             // A subject the portal has no place for offers its link on the
             // dashboard; one it can open never sends the person elsewhere.
             const showDashboard = !hasTab && notifOffOrigin(row.link);
@@ -13880,7 +14030,11 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
         const r = await apiUpload(photoRoute(f) + "?locale=" + locale, "photos", files, { token });
         if (alive.current) takePhotoList(f, r);
       } catch (err) {
-        if (alive.current) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(err.message) }));
+        // A question already at its limit (part 359) says the limit and the
+        // next step, the limit from the answer when it names one, else the
+        // question's own, which is the API's.
+        const said = err && err.code === "forms.photoLimit" && !(err.body && Number(err.body.max) > 0) ? tr(PHOTO_LIMIT_WORDS, { max: Number(f.maxPhotos) > 0 ? Number(f.maxPhotos) : FORMS_PHOTOS_DEFAULT_MAX }) : tr(err.message);
+        if (alive.current) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: said }));
       }
     }
     if (alive.current) setPhotoBusy(prev => Object.assign({}, prev, { [f.key]: (prev[f.key] || []).filter(m => marks.indexOf(m) === -1) }));
@@ -13898,7 +14052,19 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
       const r = await api(photoRoute(f) + "/" + encodeURIComponent(photo.id) + "?locale=" + locale, { method: "DELETE", token });
       if (alive.current) takePhotoList(f, r);
     } catch (err) {
-      if (alive.current) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(err.message) }));
+      if (err && err.code === "forms.photoNotFound") {
+        // Already gone, from another phone or an earlier tap whose answer
+        // was lost (part 359): said as a notice, and the question's photos
+        // are read again from the draft, which holds what the API kept.
+        showToast(tr(err.message));
+        try {
+          const d = await api("/api/forms/drafts/" + encodeURIComponent(current.id) + "?locale=" + locale, { token });
+          const held = d && d.draft && d.draft.answers ? d.draft.answers[f.key] : null;
+          if (alive.current) takePhotoList(f, { photos: Array.isArray(held) ? held : [] });
+        } catch (e) {
+          if (alive.current) takePhotoList(f, { photos: formPhotoList(values[f.key]).filter(p => p.id !== photo.id) });
+        }
+      } else if (alive.current) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(err.message) }));
     }
     if (alive.current) setPhotoGoing(prev => { const next = Object.assign({}, prev); delete next[photo.id]; return next; });
   };
@@ -16042,7 +16208,7 @@ function FieldKitView({ token, user, at, onAt, shiftSiteId, assignedSites, onOpe
 
 // A refusal in the API's own words, whatever its code; no signal and
 // anything else in the screen's own.
-const fkSaidOf = (err) => (err && err.status && ownRefusal(err.code) ? tr(ownRefusal(err.code)) : err && err.status && err.body && typeof err.body.error === "string" && err.body.error.trim() ? err.body.error.trim() : null);
+const fkSaidOf = (err) => (err && err.status && ownRefusal(err.code, err.body) ? tr(ownRefusal(err.code, err.body)) : err && err.status && err.body && typeof err.body.error === "string" && err.body.error.trim() ? err.body.error.trim() : null);
 const fkFaultWords = (err, fallback) => fkSaidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : fallback);
 // The site's name and the tile's look, shared by the four tiles.
 const fkHeadSt = (t) => ({ ...mkLabel(t), marginTop: 20, marginBottom: 8 });
@@ -18471,7 +18637,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
         method: "POST", headers: { "Authorization": "Bearer " + token, "Content-Type": "image/jpeg" }, body: compressed
       });
       if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
-      if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(ownRefusal(e.code) || e.error || UPLOAD_FAILED); }
+      if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(ownRefusal(e.code, e) || e.error || UPLOAD_FAILED); }
       const r = await readJson(res);
       await api("/api/users/profile/photo", { method: "POST", body: { photoUrl: r.url }, token });
       showToast(tr("Photo updated"));
