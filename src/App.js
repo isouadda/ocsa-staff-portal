@@ -11196,7 +11196,7 @@ function MyReports({ token, focus, t }) {
           <div key={c.id} data-my-report={c.id} data-my-report-status={c.status || ""} data-my-report-focus={on ? "1" : undefined} aria-current={on ? "true" : undefined} style={{ ...fkRowSt(t), ...(on ? { border: "1.5px solid " + GOLD } : {}) }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
               <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Sent {date}", { date: day(c.createdAt) })}</div>
-              <span style={trainingChipSt(t, closed ? GREEN : GOLD)}>{tr(MY_REPORT_STATUS[c.status] || "Report received")}</span>
+              <span style={closed ? trainingChipSt(t, GREEN) : { ...trainingChipSt(t, GOLD), color: t.goldText }}>{tr(MY_REPORT_STATUS[c.status] || "Report received")}</span>
             </div>
             {c.updatedAt && day(c.updatedAt) !== day(c.createdAt) && <div style={{ fontSize: 12, color: t.textSec, marginTop: 4 }}>{tr("Updated {date}", { date: day(c.updatedAt) })}</div>}
             <div style={{ fontSize: 11, color: t.textMut, marginTop: 4, wordBreak: "break-all" }}>{tr("Your reference")}: {c.id}</div>
