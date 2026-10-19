@@ -887,7 +887,7 @@ leave it. `API_R4` holds the API's words for the new answers, and
 `apiR4Body` makes a body for `state.refuse`. A case can open the phone in
 another zone with `timezoneId`.
 
-Ten journeys. Five fail on the main of part 356 (78 rows in all):
+Ten journeys. Five fail on the main of part 356 (62 rows in all):
 
 - `myreports`: My reports on Speak Up lists the person's reports with the
   day and where each stands in plain words, says when there is none or
