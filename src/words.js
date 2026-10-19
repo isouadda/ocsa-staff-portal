@@ -1522,6 +1522,8 @@ export const WORDS = {
   "Client concern": "Inquietud del cliente",
   "Read only. The office answers the client from the dashboard.": "Solo para leer. La oficina le responde al cliente desde el panel.",
   "This report did not open. Try again.": "Este reporte no se abri\u00f3. Intente de nuevo.",
+  // Part 356: the others on shift at this site now, at the top of the checklist.
+  "Also here: {names}": "Tambi\u00e9n aqu\u00ed: {names}",
   },
 };
 
@@ -2922,6 +2924,8 @@ WORDS.fr = {
   "Client concern": "Pr\u00e9occupation du client",
   "Read only. The office answers the client from the dashboard.": "Lecture seule. Le bureau r\u00e9pond au client depuis le tableau de bord.",
   "This report did not open. Try again.": "Ce rapport ne s'est pas ouvert. R\u00e9essayez.",
+  // Part 356: the others on shift at this site now, at the top of the checklist.
+  "Also here: {names}": "Aussi ici : {names}",
 };
 
 // {name} is replaced after the language is chosen, so the

@@ -11,7 +11,7 @@ const { INSPECT, languageRows } = require("./checks");
 const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES,
-  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS, EVERY_NOTICE, FIRST_NAMES, API_R2, apiR2Body } = require("./stub");
+  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS, EVERY_NOTICE, FIRST_NAMES, API_R2, apiR2Body, API_R3, NOW } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -5625,8 +5625,7 @@ const issueReady = (photo) => async (app, language) => {
 const sameClientId = (calls) => { const ids = calls.map(c => c.body && c.body.clientId); return ids.filter(x => !x).length + new Set(ids.filter(Boolean)).size; };
 const WEAK_ACTIONS = [
   {
-    // Since part 350 a check asks the status first, on the way to it.
-    id: "checkoff", name: "a check-off", method: "POST", path: /^\/api\/clock\/tasks\/[^/]+\/complete$/, reach: /^\/api\/clock\/(status|tasks\/[^/]+\/complete)$/, must: ["kept", "queue", "once"],
+    id: "checkoff", name: "a check-off", method: "POST", path: /^\/api\/clock\/tasks\/[^/]+\/complete$/, must: ["kept", "queue", "once"],
     ready: async (app, language) => { await openTab(app.page, "tasks", language); await pause(app.page, 1200); return { label: await taskBox(app.page, language, false) }; },
     tap: async (app, language, ctx) => { await tapAria(app.page, ctx.label); },
     kept: async (app) => (await pendingTaps(app.page)) > 0,
@@ -6112,7 +6111,9 @@ const openStep = async (app, language) => {
 };
 const rowDone = (language, r) => !!r && labelRe(say("Mark {name} not done", language)).test(r.label || "");
 const checkedByLine = (language) => say("Checked by {firstName}", language).replace("{firstName}", FIRST_NAMES[COWORKER]);
-const coworkerChecks = (app, id) => { app.stub.state.completions.push({ taskId: id, userId: COWORKER }); };
+// The API logs each check-off as a change to the site's list (part 354),
+// which GET /api/sites/:id/tasks/changed then answers.
+const coworkerChecks = (app, id) => { app.stub.state.completions.push({ taskId: id, userId: COWORKER }); app.stub.noteChange("site-north"); };
 // Waits for a list read after the one counted, and a moment for it to draw.
 const nextRead = async (app, from, ms) => {
   const until = Date.now() + (ms || LIVE_WAIT_MS);
@@ -6163,6 +6164,10 @@ const LIVE_JOURNEYS = [
         await tapAria(app.page, step.label);
         await pause(app.page, 1500);
         const before = siteListReads(app.stub);
+        // Since part 356 the list is read again when it changed: a coworker
+        // checks another step.
+        const other = Object.keys(stepIds(app, language)).map(n => stepIds(app, language)[n]).find(x => x !== step.id);
+        if (other) coworkerChecks(app, other);
         const read = await nextRead(app, before);
         const r = await taskRow(app.page, language, step.name);
         expect("the checklist reads itself again while a tap waits", read, "no list read in " + LIVE_WAIT_MS + " ms");
@@ -6653,5 +6658,187 @@ const ROUND2_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...ROUND2_JOURNEYS);
+
+// --- The three items that waited on the API (part 356) ------------------
+//
+// Against the stub as it mirrors ocsa-api's part 354: the status answers
+// shift.othersOnShift, a check of a step on the site's shared list that
+// somebody else already checked is 409 tasks.alreadyChecked with their
+// firstName, and GET /api/sites/:id/tasks/changed?since= answers
+// { changed, at }. Each journey fails on the main of part 355, which
+// reads the status before each check and the whole list every ten
+// seconds.
+const CHANGED_PATH = /^\/api\/sites\/[^/]+\/tasks\/changed$/;
+const LIST_PATH = /^\/api\/sites\/[^/]+\/tasks$/;
+// Every answer the stub gives from here on: when, what and how it went.
+const answersOf = (app) => {
+  const out = [];
+  const handle = app.stub.handle;
+  app.stub.handle = (method, pathname, ...rest) => {
+    const a = handle(method, pathname, ...rest);
+    out.push({ method: method, path: pathname, search: rest[0] || "", status: a && !a.abort ? a.status : null, bytes: a && typeof a.body === "string" ? Buffer.byteLength(a.body) : 0, at: Date.now() });
+    return a;
+  };
+  return out;
+};
+const alsoHereLine = (page) => page.evaluate(() => { const d = document.querySelector("[data-also-here]"); return d ? d.innerText.replace(/\s+/g, " ").trim() : null; });
+const ONSHIFT = (names) => names.map((n, i) => ({ firstName: n, startedAt: new Date(NOW.getTime() - (3 - i) * 3600000).toISOString() }));
+
+const LIVE2_JOURNEYS = [
+  {
+    id: "alsohere",
+    label: "Also here: the checklist names the others on shift at this site now, from the status, refreshed with it, and shows nothing when nobody else is there or the status says nothing",
+    run: async (open, language, expect) => {
+      const names = [FIRST_NAMES["u-two"], FIRST_NAMES[COWORKER]];
+      const line = (list) => say("Also here: {names}", language).replace("{names}", list.join(", "));
+      const app = await open({ stubOptions: Object.assign({ othersOnShift: ONSHIFT(names.slice(0, 1)) }, SHARED_LIST) });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1500);
+        expect("Also here names the coworker on shift at this site", (await alsoHereLine(app.page)) === line(names.slice(0, 1)), JSON.stringify(await alsoHereLine(app.page)));
+        await spokenHere(app, language, expect);
+        // A second coworker starts and checks a step: the list and the
+        // status are read again, and the line names both.
+        app.stub.state.othersOnShift = ONSHIFT(names);
+        const step = await openStep(app, language);
+        if (step) coworkerChecks(app, step.id);
+        let seen = null;
+        const at = Date.now();
+        while (Date.now() - at < 9000) { if ((await alsoHereLine(app.page)) === line(names)) { seen = Date.now() - at; break; } await pause(app.page, 250); }
+        expect("Also here is read again with the status, and names a coworker who has just started", seen !== null, JSON.stringify(await alsoHereLine(app.page)));
+      } finally { await app.context.close(); }
+      for (const [what, others] of [["nobody else is on shift", []], ["the status says nothing of who else is on shift", null]]) {
+        const alone = await open({ stubOptions: Object.assign({ othersOnShift: others }, SHARED_LIST) });
+        try {
+          await openTab(alone.page, "tasks", language);
+          await pause(alone.page, 1500);
+          expect("Also here shows nothing when " + what, (await alsoHereLine(alone.page)) === null && !has(await bodyText(alone.page), say("Also here: {names}", language).split("{")[0].trim()), JSON.stringify(await alsoHereLine(alone.page)));
+        } finally { await alone.context.close(); }
+      }
+    },
+  },
+  {
+    id: "alreadychecked",
+    label: "Already done by, from the answer: a check the API answers 409 tasks.alreadyChecked shows Already done by and the coworker's name on the row, leaves nothing on the phone, and says no failure",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: SHARED_LIST });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1500);
+        const step = await openStep(app, language);
+        if (!step) { expect("the list has a step still to do", false, "no open box"); return; }
+        // The coworker's check lands at the API after this phone last read
+        // anything, so only the check's own answer can tell it.
+        const name = FIRST_NAMES[COWORKER];
+        app.stub.state.refuse["POST /api/clock/tasks/" + step.id + "/complete"] = { status: 409, body: { error: refusalIn(API_R3.alreadyChecked, language, { firstName: name }), code: API_R3.alreadyChecked.code, firstName: name }, once: true };
+        await tapAria(app.page, step.label);
+        await pause(app.page, 1500);
+        const row = await taskRow(app.page, language, step.name);
+        const toasts = await toastsNow(app.page);
+        const wanted = say("Already done by {firstName}", language).replace("{firstName}", name);
+        expect("a 409 tasks.alreadyChecked shows Already done by and the coworker's name on the row", !!row && has(row.text, wanted), JSON.stringify(row));
+        expect("the tap leaves the phone for good", (await pendingTaps(app.page)) === 0, (await pendingTaps(app.page)) + " on the phone");
+        expect("no failure is said, as a toast or as the saved line", toasts.every(x => !x.failure) && !has(await bodyText(app.page), say(SAVED_LINE, language)), JSON.stringify(toasts));
+        await pause(app.page, 6000);
+        expect("the tap is never sent again", checkoffSends(app.stub).filter(c => c.path.indexOf(step.id) !== -1).length === 1, checkoffSends(app.stub).length + " sends");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "nostatusfirst",
+    label: "No status read goes before a check-off: a tap on the site's shared list goes straight to the check route",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: SHARED_LIST });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1500);
+        const step = await openStep(app, language);
+        if (!step) { expect("the list has a step still to do", false, "no open box"); return; }
+        const from = app.stub.state.calls.length;
+        await tapAria(app.page, step.label);
+        await pause(app.page, 1500);
+        const calls = app.stub.state.calls.slice(from);
+        const sentAt = calls.findIndex(c => c.method === "POST" && CHECKOFF_PATH.test(c.path));
+        const before = calls.slice(0, sentAt === -1 ? calls.length : sentAt).filter(c => c.method === "GET" && c.path === "/api/clock/status").length;
+        expect("the check-off is sent", sentAt !== -1, JSON.stringify(calls.map(c => c.method + " " + c.path).slice(0, 6)));
+        expect("no status read goes before it", sentAt !== -1 && before === 0, before + " status reads before the check-off: " + JSON.stringify(calls.map(c => c.method + " " + c.path).slice(0, 6)));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "changedlive",
+    label: "A coworker's check shows within 5 seconds through the cheap check for changes, which then reads the list",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: SHARED_LIST });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 2000);
+        const step = await openStep(app, language);
+        if (!step) { expect("the list has a step still to do", false, "no open box"); return; }
+        const answers = answersOf(app);
+        const at = Date.now();
+        coworkerChecks(app, step.id);
+        let seen = null;
+        while (Date.now() - at < 9000) {
+          const r = await taskRow(app.page, language, step.name);
+          if (rowDone(language, r) && has(r.text, checkedByLine(language))) { seen = Date.now() - at; break; }
+          await pause(app.page, 200);
+        }
+        const asked = answers.filter(a => a.method === "GET" && CHANGED_PATH.test(a.path) && a.status === 200);
+        const read = answers.find(a => a.method === "GET" && LIST_PATH.test(a.path));
+        expect("a coworker's check shows within 5 seconds, with Checked by and their name", seen !== null && seen <= 5000, seen === null ? "not in 9 seconds" : seen + " ms");
+        expect("it came through the cheap check, which asked before the list was read", asked.length > 0 && !!read && asked[0].at <= read.at, JSON.stringify(answers.map(a => a.method + " " + a.path + " " + a.status).slice(0, 6)));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "changedquiet",
+    label: "With nothing changed, an open checklist reads no full list for a minute, and asks only the cheap check",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: SHARED_LIST });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 2000);
+        const answers = answersOf(app);
+        await pause(app.page, 60000);
+        const full = answers.filter(a => a.method === "GET" && LIST_PATH.test(a.path));
+        const asked = answers.filter(a => a.method === "GET" && CHANGED_PATH.test(a.path));
+        const status = answers.filter(a => a.method === "GET" && a.path === "/api/clock/status");
+        const bytes = answers.reduce((n, a) => n + a.bytes, 0);
+        expect("no full list read goes for a minute with nothing changed", full.length === 0, full.length + " full reads, " + asked.length + " cheap checks, " + bytes + " bytes in all");
+        expect("the cheap check asks about every four seconds", asked.length >= 12 && asked.length <= 16, asked.length + " cheap checks");
+        expect("no status read goes with it", status.length === 0, status.length + " status reads");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "sinceinvalid",
+    label: "A cheap check turned away (400 tasks.sinceInvalid) falls back to reading the whole list every 10 seconds, and goes back to the cheap check once it answers",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: SHARED_LIST });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 2000);
+        const answers = answersOf(app);
+        const key = "GET /api/sites/site-north/tasks/changed";
+        app.stub.state.refuse[key] = { status: 400, body: { error: refusalIn(API_R3.sinceInvalid, language), code: API_R3.sinceInvalid.code, keys: ["since"] } };
+        await pause(app.page, 27000);
+        const refused = answers.filter(a => CHANGED_PATH.test(a.path) && a.status === 400);
+        const full = answers.filter(a => LIST_PATH.test(a.path));
+        expect("the cheap check is asked and turned away", refused.length > 0, JSON.stringify(answers.map(a => a.method + " " + a.path + " " + a.status).slice(0, 6)));
+        expect("turned away, the whole list is read every 10 seconds", full.length >= 2 && full.length <= 3 && (full.length < 2 || full[1].at - full[0].at >= 9000), full.length + " full reads, " + JSON.stringify(full.map(a => a.at - full[0].at)));
+        delete app.stub.state.refuse[key];
+        await pause(app.page, 12000);
+        const from = answers.length;
+        await pause(app.page, 15000);
+        const later = answers.slice(from);
+        expect("once the cheap check answers again, the list is read only when it changed", later.some(a => CHANGED_PATH.test(a.path) && a.status === 200) && !later.some(a => LIST_PATH.test(a.path)), JSON.stringify(later.map(a => a.method + " " + a.path + " " + a.status)));
+        expect("nothing is said to the person about it", (await toastsNow(app.page)).every(x => !x.failure), JSON.stringify(await toastsNow(app.page)));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...LIVE2_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };

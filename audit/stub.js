@@ -1062,6 +1062,12 @@ const API_R2 = {
   onLeave: { status: 409, code: "pickups.onLeave", en: "You have approved time off on {dates}.", es: "Usted tiene tiempo libre aprobado: {dates}." },
   insufficient: { status: 403, code: "access.insufficientPermissions", en: "Insufficient permissions", es: "No tiene permiso para hacer esto" },
 };
+// Part 356: the two refusals the API's part 354 adds for the staff app,
+// in its own words (helpers/words.js).
+const API_R3 = {
+  alreadyChecked: { status: 409, code: "tasks.alreadyChecked", en: "{firstName} already checked this off.", es: "{firstName} ya marc\u00f3 esta tarea." },
+  sinceInvalid: { status: 400, code: "tasks.sinceInvalid", en: "since must be a date and time with its time zone, such as 2026-10-18T14:00:00Z", es: "since debe ser una fecha y hora con su zona horaria, como 2026-10-18T14:00:00Z" },
+};
 // The body a journey hands state.refuse for one of them.
 const apiR2Body = (k, lang, vars, extra) => Object.assign({ error: refusalIn(API_R2[k], lang, vars), code: API_R2[k].code }, extra || {});
 // The words of the invented HR case and client's concern below, in each
@@ -1416,6 +1422,13 @@ function makeState(opts) {
     offline: false,                  // every call fails at the network
     trouble: null,                   // part 344: { method, path, kind: "500" | "hold" | "lose", ms, left }
     shiftTaps: [],                   // part 355: each Start and End, the time sent and the time taken
+    // Part 356: who else is on shift at the site, as the status answers
+    // shift.othersOnShift, and each change to a site's list, { siteId, at },
+    // for GET /api/sites/:id/tasks/changed.
+    // null answers no othersOnShift at all, the way the API answers
+    // someone with no session open at the site.
+    othersOnShift: o.othersOnShift === null ? null : Array.isArray(o.othersOnShift) ? o.othersOnShift.map(x => Object.assign({}, x)) : [],
+    listChanges: [],
     person: o.person || PERSON,
     accountPreferences: o.accountPreferences === undefined ? {} : o.accountPreferences,
     clockedIn: o.clockedIn !== false,
@@ -3212,10 +3225,24 @@ function createStub(opts) {
   // A capability the signed-in person holds, by their tier, the way GET
   // /api/users/me/permissions answers it.
   const holds = (cap) => { const tier = state.person.role === "admin" || state.person.role === "supervisor" ? state.person.role : "staff"; return (CAPABILITIES[cap] || []).indexOf(tier) !== -1; };
+  // The stub's clock running as the phone's does: the clock a case set,
+  // moved on by the time since the stub was made. The phone's clock starts
+  // after it, so a tap the phone makes now is never ahead of it.
+  const bornAt = Date.now();
+  const runningNow = () => clockNow() + (Date.now() - bornAt);
+  // A tap's own time, kept when it is no more than 72 hours old and not
+  // ahead of the server, the check-off's own window, as the API's
+  // helpers/shiftSessions.js tapKept reads it since part 354.
   const tapTime = (v) => {
     if (typeof v !== "string" || !ISO_INSTANT.test(v.trim())) return null;
     const t = Date.parse(v.trim());
-    return Number.isFinite(t) && t >= clockNow() - 12 * 3600000 && t <= clockNow() + 2 * 60000 ? t : null;
+    return Number.isFinite(t) && t >= runningNow() - 72 * 3600000 && t <= runningNow() ? t : null;
+  };
+  // A change to a site's list, at the running clock and never two at one
+  // moment, the way the API's activity log stamps each write.
+  const noteChange = (siteId) => {
+    const last = state.listChanges.length ? state.listChanges[state.listChanges.length - 1].at : 0;
+    state.listChanges.push({ siteId: String(siteId), at: Math.max(runningNow(), last + 1) });
   };
   // Step 255: who may own a finding at the site, as the scheduled read
   // answers owners: the person signed in first, then two invented people.
@@ -3306,7 +3333,7 @@ function createStub(opts) {
 
   const clockStatus = (lang) => (state.clockedIn ? {
     clockedIn: true,
-    shift: Object.assign({ sessionId: "sess-1", id: "sess-1" }, OPEN_SHIFT[state.site], { clockInTime: iso(state.sessionStartedAt) }, modeOf(state.site) ? { checklistMode: modeOf(state.site) } : {}),
+    shift: Object.assign({ sessionId: "sess-1", id: "sess-1" }, OPEN_SHIFT[state.site], { clockInTime: iso(state.sessionStartedAt) }, modeOf(state.site) ? { checklistMode: modeOf(state.site) } : {}, Array.isArray(state.othersOnShift) ? { othersOnShift: state.othersOnShift.map(x => Object.assign({}, x)) } : {}),
     session: sessionOf(lang),
     tasks: progress(),
   } : { clockedIn: false, shift: null, session: null, tasks: null });
@@ -3912,7 +3939,19 @@ function createStub(opts) {
     if (method === "POST" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(pathname)) {
       const id = pathname.split("/")[4];
       const today = checklistDay(clockNow());
-      if (!state.completions.some(c => c.taskId === id && c.userId === state.person.id && checklistDay(atOf(c)) === today)) state.completions.push({ taskId: id, userId: state.person.id, at: clockNow() });
+      const mineToday = state.completions.some(c => c.taskId === id && c.userId === state.person.id && checklistDay(atOf(c)) === today);
+      // Part 354: a step on the site's shared list (none of the person's
+      // links) that somebody else already checked today, with no check of
+      // theirs, is 409 tasks.alreadyChecked with the first checker's first
+      // name, and nothing is written. A linked step counts each person's.
+      if (!mineToday && linkedTo(state.person.id, state.site).indexOf(id) === -1) {
+        const first = state.completions.filter(c => c.taskId === id && c.userId !== state.person.id && checklistDay(atOf(c)) === today).sort((a, b) => atOf(a) - atOf(b))[0];
+        if (first) {
+          const firstName = FIRST_NAMES[first.userId] || "";
+          return json(409, { error: refusalIn(API_R3.alreadyChecked, languageOf(search, state), { firstName: firstName }), code: API_R3.alreadyChecked.code, firstName: firstName });
+        }
+      }
+      if (!mineToday) { state.completions.push({ taskId: id, userId: state.person.id, at: clockNow() }); noteChange(state.site); }
       return json(200, { ok: true });
     }
     if (method === "DELETE" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(pathname)) {
@@ -3922,7 +3961,9 @@ function createStub(opts) {
       if (todays.length > 0 && !todays.some(c => c.userId === state.person.id)) {
         return json(NOT_YOUR_CHECK.status, { error: refusalIn(NOT_YOUR_CHECK, languageOf(search, state)), code: NOT_YOUR_CHECK.code });
       }
+      const had = state.completions.length;
       state.completions = state.completions.filter(c => !(c.taskId === id && c.userId === state.person.id && checklistDay(atOf(c)) === today));
+      if (state.completions.length !== had) noteChange(state.site);
       return json(200, { message: "Task uncompleted" });
     }
     // Step 297: resolving a task an issue made settles the issue too, as
@@ -3997,6 +4038,22 @@ function createStub(opts) {
     }
     if (method === "PATCH" && /^\/api\/shift-sessions\//.test(pathname)) { state.clockedIn = false; return json(200, { message: "Shift ended" }); }
     if (key === "GET /api/sites") return json(200, state.startInspection ? START_SITES.map(x => Object.assign({}, x)) : SITES.map(withMode));
+    // Part 354: the cheap "anything new?" read, as the API's
+    // helpers/taskListChanges.js answers it: { changed, at }, at the newest
+    // change after since as an instant with microseconds, or null when
+    // there is none. A site the stub does not hold is 403
+    // access.noSiteAccess; a since that is not an instant with its zone is
+    // 400 tasks.sinceInvalid.
+    const changedAsk = method === "GET" ? /^\/api\/sites\/([^/]+)\/tasks\/changed$/.exec(pathname) : null;
+    if (changedAsk) {
+      if (!SITES.some(x => x.siteId === changedAsk[1])) return json(403, { error: "You do not have access to this site", code: "access.noSiteAccess" });
+      const raw = new URLSearchParams(search || "").get("since");
+      const since = typeof raw === "string" && ISO_INSTANT.test(raw.trim()) && Number.isFinite(Date.parse(raw.trim())) ? Date.parse(raw.trim()) : null;
+      if (since === null) return json(400, { error: refusalIn(API_R3.sinceInvalid, languageOf(search, state)), code: API_R3.sinceInvalid.code, keys: ["since"] });
+      const after = state.listChanges.filter(c => c.siteId === changedAsk[1] && c.at > since);
+      const at = after.length ? Math.max.apply(null, after.map(c => c.at)) : null;
+      return json(200, { changed: at !== null, at: at === null ? null : new Date(at).toISOString().replace(/Z$/, "000Z") });
+    }
     if (method === "GET" && /^\/api\/sites\/[^/]+\/tasks$/.test(pathname)) return json(200, tasks(pathname.split("/")[3], search));
     // Step 324: a site's day, as API Step 319 builds GET
     // /api/sites/:siteId/shift-blocks/schedule?shift=&date=.
@@ -5505,7 +5562,7 @@ function createStub(opts) {
   // nothing is recorded: what the status would count, a list as a request
   // would get it, and the open session. A journey judges a screen by it.
   const peek = { progress: () => progress(), rows: (siteId, search) => tasks(siteId, search), session: () => sessionOf() };
-  return { handle: (method, pathname, search, body, accept, headers) => remember(handle(method, pathname, search, body, headers), method, pathname, search, accept), state: state, peek: peek };
+  return { handle: (method, pathname, search, body, accept, headers) => remember(handle(method, pathname, search, body, headers), method, pathname, search, accept), state: state, peek: peek, noteChange: noteChange };
 }
 
 function draftOf(state) {
@@ -5518,7 +5575,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

@@ -1434,7 +1434,8 @@ function writePending(list) {
 // many sends it has met no answer on. It is kept on this phone like a
 // check-off, goes by itself once there is signal, after the person's
 // check-offs still waiting, and carries its tapped time as endedAt, which
-// the API takes when it is no more than 12 hours old.
+// the API takes when it is no more than 72 hours old and not ahead of the
+// server, the check-off's own window (API part 354).
 const END_KEY = "ocsa-pending-end";
 function readPendingEnd() {
   try { const v = JSON.parse(window.localStorage.getItem(END_KEY) || "null"); return v && v.sessionId && v.endedAt ? v : null; } catch (e) { return null; }
@@ -2582,7 +2583,8 @@ export default function OCSAStaffPortal() {
       // the API answers with that session, so it takes the same path and
       // creates nothing twice.
       // The tap's own time, which the API takes as the start when it is no
-      // more than 12 hours old (Round 2, PORT-06).
+      // more than 72 hours old and not ahead of the server (Round 2,
+      // PORT-06; the window since API part 354).
       const data = await api("/api/shift-sessions", { method: "POST", body: { siteId, startedAt: new Date().toISOString() }, token });
       const cs = await refreshClockStatus();
       setTasks(null); setPendingSite(null);
@@ -2671,6 +2673,9 @@ export default function OCSAStaffPortal() {
   // the person.
   const tasksAsked = useRef(null);
   const tasksReqAsked = useRef(null);
+  // When the shift's list was last read in full (part 356), the first
+  // since the cheap check for changes asks with.
+  const tasksReadAt = useRef(0);
   const checklistAsk = checklistRequest(clockStatus, user && user.id, language);
   // The list also depends on the shift the session carries, which the API
   // reads from the session rather than from the request, so a change of
@@ -2680,7 +2685,7 @@ export default function OCSAStaffPortal() {
   // flight, which a check or an uncheck needs: the list then carries what
   // the API says was done. Only the newest request's answer is taken.
   const tasksSeq = useRef(0);
-  const loadTasks = async (again) => { const path = checklistAsk; const key = checklistKey; const lang = language; const site = clockStatus && clockStatus.shift ? String(clockStatus.shift.siteId) : null; if (!path || (again !== true && tasksReqAsked.current === key)) return; const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (mine !== tasksSeq.current) return; const got = checklistAnswer(tt); setTasks(got.rows); setTasksDay(got.day); setTasksLang(lang); setTasksMode({ site: site, mode: got.mode }); tasksAsked.current = key; setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; }); const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); if (takeStatus(cs, seq) && user && mine === tasksSeq.current && liveToken.current === token) keepChecklist(user.id, user.role, cs, tt, lang); } catch (err) { console.error(err); if (mine === tasksSeq.current) setTasksFailed(true); } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; } };
+  const loadTasks = async (again) => { const path = checklistAsk; const key = checklistKey; const lang = language; const site = clockStatus && clockStatus.shift ? String(clockStatus.shift.siteId) : null; if (!path || (again !== true && tasksReqAsked.current === key)) return; const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (mine !== tasksSeq.current) return; const got = checklistAnswer(tt); setTasks(got.rows); setTasksDay(got.day); setTasksLang(lang); setTasksMode({ site: site, mode: got.mode }); tasksAsked.current = key; tasksReadAt.current = asked; setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; }); const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); if (takeStatus(cs, seq) && user && mine === tasksSeq.current && liveToken.current === token) keepChecklist(user.id, user.role, cs, tt, lang); } catch (err) { console.error(err); if (mine === tasksSeq.current) setTasksFailed(true); } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; } };
   // A check or an uncheck, sent the way it always has been, for the row as
   // the screen draws it. A row outside the id lists is drawn from this
   // phone's own tap until the list comes back. Then the list and the
@@ -2726,20 +2731,6 @@ export default function OCSAStaffPortal() {
   // 408 and 429, a session that expired, and a PIN still to be chosen. The
   // clientId makes the next send of it safe.
   const keepsTap = (err) => !err || !err.status || err.status === 408 || err.status === 429 || err.status >= 500 || err.message === ERR_OFFLINE || err.message === "Session expired" || err.code === "auth.mustSetPin";
-  // The first name of whoever else checked a tap's step today at its
-  // site, by a status read now; "" when it names nobody, and null when
-  // nobody else has, the status is another site's, or it says nothing.
-  // Only on the site's shared list: on a list of the person's own linked
-  // steps, each person's check counts for them, and every tap goes.
-  const doneByOther = async (tap, tok) => {
-    const seq = nextStatusSeq();
-    const cs = await api(statusPath(), { token: tok });
-    takeStatus(cs, seq);
-    if (!cs || !cs.clockedIn || !cs.shift || String(cs.shift.siteId) !== String(tap.siteId) || checklistIsOwn(cs)) return null;
-    const list = cs.tasks && Array.isArray(cs.tasks.checkedToday) ? cs.tasks.checkedToday : [];
-    const c = list.find(x => x && String(x.taskId) === String(tap.taskId));
-    return c && c.byCaller === false ? String(c.firstName || "").trim() : null;
-  };
   const sendingPending = useRef(false);
   const sendPending = async () => {
     // With no check-off waiting, an End Shift waiting goes (PORT-06).
@@ -2757,20 +2748,17 @@ export default function OCSAStaffPortal() {
         let taken = false, kept = false, doneBy = null;
         inFlightTaskIds.current.add(tap.taskId);
         try {
-          // A check is asked about first (part 350): when someone else at
-          // the site checked the step since this phone last read the list,
-          // the step is theirs already and nothing is sent, so two people
-          // tapping one step make one check-off. The read brings every
-          // tick on the screen up to date too.
-          if (tap.done) doneBy = await doneByOther(tap, tok);
-          if (doneBy === null) {
-            await api(checkoffPath(tap.taskId), { method: tap.done ? "POST" : "DELETE", body: { clientId: tap.clientId, completedAt: tap.completedAt }, token: tok });
-            taken = true;
-          }
+          await api(checkoffPath(tap.taskId), { method: tap.done ? "POST" : "DELETE", body: { clientId: tap.clientId, completedAt: tap.completedAt }, token: tok });
+          taken = true;
         } catch (err) {
           // An answer whose words could not be read is still the API's: a
           // 2xx is a tap it took.
           if (err && err.status >= 200 && err.status < 300) taken = true;
+          // Somebody else at the site checked the step first (API part
+          // 354, 409 tasks.alreadyChecked with their firstName, nothing
+          // written): the step is theirs, so two people tapping one step
+          // make one check-off, and the tap leaves the phone quietly.
+          else if (tap.done && err && err.status === 409 && err.code === ALREADY_CHECKED) doneBy = err.body && typeof err.body.firstName === "string" ? err.body.firstName.trim() : "";
           else if (keepsTap(err)) kept = true;
           else if (!tap.done && err.code === "NOT_YOUR_CHECK") showRowNote(tap.taskId, tr(err.message));
           else if (err.code === CHECKLIST_NOT_TRACKED) refusedNotTracked(tap.siteId);
@@ -2923,11 +2911,16 @@ export default function OCSAStaffPortal() {
   // no list has come back asks again, the way it always has. No session,
   // no fetch.
   useEffect(() => { if (checklistKey && (tasks === null || tasksAsked.current !== checklistKey)) loadTasks(); }, [activeTab, checklistKey]);
-  // While Tasks is open on the shift's list, it reads itself again every
-  // ten seconds (part 350), the list and the status with it, so a
-  // coworker's check shows within seconds. Not while a read of it is on
-  // its way, nor opened from the copy kept for no signal.
-  useLiveRead(screen === "main" && activeTab === "tasks" && !!checklistKey && !!token && !offlineOpen, () => (tasksReqAsked.current !== null ? null : loadTasks(true)));
+  // While Tasks is open on the shift's list, it asks the API every four
+  // seconds whether anything on it changed, and reads the list and the
+  // status again only when it did (part 356, after part 350's read every
+  // ten seconds), so a coworker's check shows within seconds. Not while a
+  // read of it is on its way, nor opened from the copy kept for no signal.
+  useLiveList(screen === "main" && activeTab === "tasks" && !!checklistKey && !!token && !offlineOpen, clockStatus && clockStatus.shift ? String(clockStatus.shift.siteId) : null, token, tasksReadAt, () => (tasksReqAsked.current !== null ? null : loadTasks(true)));
+  // Who else is on shift at this site now (part 356): the status's
+  // shift.othersOnShift, first names in the API's order, read again with
+  // the status. None from the copy kept for no signal, which may be old.
+  const alsoHere = !offlineOpen && clockStatus && clockStatus.shift && Array.isArray(clockStatus.shift.othersOnShift) ? clockStatus.shift.othersOnShift.map(o => (o && typeof o.firstName === "string" ? o.firstName.trim() : "")).filter(Boolean) : NO_NAMES;
   useEffect(() => { activeChannelRef.current = activeChannel; setMessages([]); setMessagesOf(null); if (activeChannel) { loadMessages(activeChannel); markChatRead(activeChannel).then(() => setTimeout(() => loadChannels(), 600)); } }, [activeChannel]);
   // Chat opens on a chat: the one last chosen on this phone while it is
   // still on the list, or the only one when the list holds one. Never a
@@ -3603,7 +3596,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
-              {activeTab === "tasks" && <TasksView token={token} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} t={t} />}
+              {activeTab === "tasks" && <TasksView token={token} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} onOpenDocument={(d) => openLibraryDoc(d, null)} />}
@@ -5166,6 +5159,9 @@ function checklistAnswer(tt) {
 // site is tracked and the checklist is as before.
 const CHECKLIST_LINE = "Nothing to check off here. This list shows the work our staff do at this site.";
 const CHECKLIST_NOT_TRACKED = "tasks.siteNotTracked";
+// A step on the site's shared list somebody else checked first today
+// (API part 354): 409 with the first checker's firstName.
+const ALREADY_CHECKED = "tasks.alreadyChecked";
 const checklistModeOf = (x) => { if (!x || typeof x !== "object") return null; const v = x.checklistMode !== undefined ? x.checklistMode : x.checklist_mode; return v === "reference" || v === "tracked" ? v : null; };
 // A site's mode from lists of sites, each row named by siteId or id:
 // Start Shift's sites, the person's own and every site.
@@ -5441,37 +5437,75 @@ function todayCount(taskList, ticks) {
   return { done: due.filter(tk => ticks.has(tk.id)).length, total: due.length };
 }
 
-// A task list on screen reads itself again (part 350), so everyone on a
-// shift at a site sees the others' work within seconds, and a supervisor
-// watching a site sees it too: every LIVE_EVERY_MS while on is true and
-// the app is on screen, and at once when the app comes back to the
-// screen. Nothing is read while the app is in the background, the phone
-// is locked or says it has no signal, and a read never starts while the
-// last one is still on its way. read answers a promise, or null when it
-// has nothing to start, and what it reads replaces what is drawn in place.
+// A task list on screen keeps up with the site (part 350), so everyone on
+// a shift at a site sees the others' work within seconds, and a supervisor
+// watching a site sees it too. Since part 356 it asks the API's cheap
+// "anything new?" read, GET /api/sites/:id/tasks/changed, every
+// CHANGED_EVERY_MS while on is true and the app is on screen, and at once
+// when the app comes back to the screen, and reads the whole list again
+// only when the answer says changed. since is the at the API last gave
+// with a change, sent back as it came, or with none yet the time the list
+// was last read in full (readAt), less SINCE_MARGIN_MS for a phone clock a
+// little ahead; at is null when nothing changed, and since then stays.
+// Nothing is asked while the app is in the background, the phone is locked
+// or says it has no signal, and nothing starts while the last ask or read
+// is still on its way. A refusal (400 tasks.sinceInvalid among them), an
+// answer that is not one, or no answer falls back to part 350's whole read
+// every LIVE_EVERY_MS, each followed by an ask, until an ask is answered
+// again. read answers a promise, or null when it has nothing to start, and
+// what it reads replaces what is drawn in place.
+const CHANGED_EVERY_MS = 4000;
 const LIVE_EVERY_MS = 10000;
-function useLiveRead(on, read) {
+const SINCE_MARGIN_MS = 5000;
+function useLiveList(on, siteId, token, readAt, read) {
   const readRef = useRef(read);
   readRef.current = read;
   const busy = useRef(false);
+  const since = useRef(null);
+  const fallback = useRef(false);
+  useEffect(() => { since.current = null; fallback.current = false; }, [siteId]);
   useEffect(() => {
-    if (!on) return undefined;
-    const go = () => {
-      if (busy.current) return;
-      try { if (document.visibilityState === "hidden") return; } catch (e) {}
-      try { if (navigator.onLine === false) return; } catch (e) {}
+    if (!on || !siteId || !token) return undefined;
+    let stopped = false;
+    let timer = null;
+    const full = () => {
       let started = null;
       try { started = readRef.current(); } catch (e) { started = null; }
-      if (!started || typeof started.then !== "function") return;
-      busy.current = true;
-      started.catch(() => {}).then(() => { busy.current = false; });
+      return started && typeof started.then === "function" ? started.catch(() => {}) : null;
     };
-    const every = setInterval(go, LIVE_EVERY_MS);
+    const ask = () => {
+      const from = since.current || (readAt.current ? new Date(readAt.current - SINCE_MARGIN_MS).toISOString() : null);
+      if (!from) return null;
+      return api("/api/sites/" + encodeURIComponent(siteId) + "/tasks/changed?since=" + encodeURIComponent(from), { token }).then((a) => {
+        if (!a || typeof a.changed !== "boolean") throw new Error("not an answer");
+        fallback.current = false;
+        if (!a.changed) { since.current = from; return null; }
+        // A read already on its way may have left before the change, so
+        // since moves on only with a read started now.
+        const f = full();
+        if (f && typeof a.at === "string" && a.at) since.current = a.at;
+        return f;
+      }).catch(() => { fallback.current = true; since.current = null; });
+    };
+    const go = () => {
+      if (busy.current) return null;
+      try { if (document.visibilityState === "hidden") return null; } catch (e) {}
+      try { if (navigator.onLine === false) return null; } catch (e) {}
+      let p = null;
+      if (fallback.current) { const f = full(); p = f ? f.then(() => ask()) : ask(); } else p = ask();
+      if (!p) return null;
+      busy.current = true;
+      return p.catch(() => {}).then(() => { busy.current = false; });
+    };
+    const next = () => { if (!stopped) timer = setTimeout(tick, fallback.current ? LIVE_EVERY_MS : CHANGED_EVERY_MS); };
+    const tick = () => { const p = go(); if (p) p.then(next); else next(); };
+    next();
     const back = () => { try { if (document.visibilityState === "visible") go(); } catch (e) {} };
     document.addEventListener("visibilitychange", back);
-    return () => { clearInterval(every); document.removeEventListener("visibilitychange", back); };
-  }, [on]);
+    return () => { stopped = true; clearTimeout(timer); document.removeEventListener("visibilitychange", back); };
+  }, [on, siteId, token]);
 }
+const NO_NAMES = [];
 
 // The sheet that asks which shift a session is working. It sits over the
 // checklist and nowhere else, so the bottom bar and every tab stay in
@@ -5524,7 +5558,7 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
 // focus: a task a notice asked for, { id, at }; with a shift open and the
 // task on its list, its details open, else the list, and onFocused says it
 // was looked for either way.
-function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, pendingKept, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, reference, standalone, watch, focus, onFocused, t }) {
+function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, pendingKept, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, reference, standalone, watch, focus, onFocused, alsoHere, t }) {
   const [detail, setDetail] = useState(null);
   useEffect(() => {
     if (!focus) return;
@@ -5790,6 +5824,8 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
 
   return (
     <div style={{ padding: "16px" }}>
+      {/* Who else is on shift at this site now (part 356). */}
+      {Array.isArray(alsoHere) && alsoHere.length > 0 && <div data-also-here={alsoHere.length} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 12px", marginBottom: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}><PersonIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.45, minWidth: 0, overflowWrap: "anywhere" }}>{tr("Also here: {names}", { names: alsoHere.join(", ") })}</div></div>}
       {/* One quiet line while a tap waits for signal. */}
       {!reference && pendingKept && waiting.size > 0 && <div role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}><ClockIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.5, minWidth: 0 }}>{tr("Saved on this phone. It sends when you have signal.")}</div></div>}
       {/* A list to read (Step 339): its title, the site and the line
@@ -5854,8 +5890,9 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
 // the shift's list to read is, over the screen, with Close at the foot.
 // watch (part 350): a supervisor or an admin has it at a site whose list
 // is checked off too, drawn with each step done or not and who checked
-// it. While it is open and on screen it reads itself again every ten
-// seconds, so the crew's check-offs show as they are made.
+// it. While it is open and on screen it asks every four seconds whether
+// the site's list changed and reads it again when it did (part 356), so
+// the crew's check-offs show as they are made.
 function SiteTaskListSheet({ token, site, language, watch, onClose, t }) {
   const [rows, setRows] = useState(null);
   const [failed, setFailed] = useState(false);
@@ -5864,19 +5901,22 @@ function SiteTaskListSheet({ token, site, language, watch, onClose, t }) {
   const [mode, setMode] = useState(null);
   const seq = useRef(0);
   const flying = useRef(false);
+  const readAt = useRef(0);
   const load = useCallback(async () => {
     const mine = ++seq.current;
+    const asked = Date.now();
     flying.current = true;
     setFailed(false);
     try {
       const tt = await api("/api/sites/" + encodeURIComponent(site.siteId) + "/tasks?day=today&locale=" + languageToSend(language), { token });
       if (mine !== seq.current) return;
+      readAt.current = asked;
       const got = checklistAnswer(tt);
       setRows(Array.isArray(got.rows) ? got.rows : []); setDay(got.day); setLang(language); setMode(got.mode);
     } catch (e) { if (mine === seq.current) setFailed(true); } finally { if (mine === seq.current) flying.current = false; }
   }, [token, site.siteId, language]);
   useEffect(() => { load(); }, [load]);
-  useLiveRead(true, () => (flying.current ? null : load()));
+  useLiveList(true, String(site.siteId), token, readAt, () => (flying.current ? null : load()));
   const cs = { clockedIn: true, shift: { siteId: site.siteId, siteName: site.siteName, buildingName: site.buildingName || null, floorNumber: site.floorNumber || null }, session: null, tasks: null };
   // Followed, at a site whose list is checked off: a day's step is done
   // when anyone checked it today, the way the site's own list counts it.

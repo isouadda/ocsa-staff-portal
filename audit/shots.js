@@ -32,7 +32,7 @@ const fs = require("fs");
 const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp, letSheetOffer, ANDROID } = require("./browser");
-const { INSPECTION_W, ORDER_HOLDER, ADMIN_PERSON, TWIN_ES, SECOND_STEP_CODE, EQ_CODE, SUP_CODE, TRAINING_SESSION_SEED, SIGN_SEED, INSPECTION, INSPECTION_F, timeOffRow, formP, ANNOUNCEMENT } = require("./stub");
+const { INSPECTION_W, ORDER_HOLDER, ADMIN_PERSON, TWIN_ES, SECOND_STEP_CODE, EQ_CODE, SUP_CODE, TRAINING_SESSION_SEED, SIGN_SEED, INSPECTION, INSPECTION_F, timeOffRow, formP, ANNOUNCEMENT, FIRST_NAMES, NOW } = require("./stub");
 
 const { execFileSync } = require("child_process");
 const ROOT = path.join(__dirname, "..");
@@ -659,8 +659,9 @@ const SHOTS = [
     go: async (s) => { if (!(await s.go("Pickup"))) return false; await s.tap(s.say("My Pickups")); return s.waitText(s.say("Release Shift")); } },
 
   // The checklist.
-  { name: "tasks", entry: E("Check off a task on your checklist"), o: { signedIn: true },
-    go: async (s) => { if (!(await s.go("Tasks"))) return false; const w = marks(s); return s.waitFor((x) => !!eval(x.js)(x.w, false), { js: MARK_JS, w: w }); } },
+  // Part 356: with two coworkers on shift, named by Also here at the top.
+  { name: "tasks", entry: E("Check off a task on your checklist"), o: { signedIn: true, stub: { othersOnShift: [FIRST_NAMES["u-two"], FIRST_NAMES["u-three"]].map((n, i) => ({ firstName: n, startedAt: new Date(NOW.getTime() - (2 - i) * 3600000).toISOString() })) } },
+    go: async (s) => { if (!(await s.go("Tasks"))) return false; const w = marks(s); return s.waitFor((x) => !!eval(x.js)(x.w, false) && !!document.querySelector("[data-also-here]"), { js: MARK_JS, w: w }); } },
   // Step 339: North Building keeping its task list as a record, read on
   // the shift with nothing to check off.
   { name: "tasks-reference", entry: E("Check off a task on your checklist"), o: { signedIn: true, stub: { checklistModes: { "site-north": "reference" } } },
