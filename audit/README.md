@@ -827,6 +827,43 @@ Six journeys, each failing on the main of part 350 but the last:
 The case sheet and the concern sheet share `ReadSheet`, whose case in
 the screen sweep opens a case from its phone alert.
 
+## The three items that waited on the API (part 356)
+
+The stub answers what ocsa-api's part 354 adds for the portal: the status
+carries `shift.othersOnShift` from `state.othersOnShift` (null answers no
+key, as for someone with no session open at the site); a check of a step
+on the site's shared list that somebody else checked today, with none of
+the person's own, is 409 `tasks.alreadyChecked` with their `firstName`
+and writes nothing; and GET /api/sites/:id/tasks/changed?since= answers
+`{ changed, at }` from `state.listChanges`, which the stub's own
+check-off and uncheck add to and a case adds to with `stub.noteChange`
+(`coworkerChecks` does). `at` is an instant with microseconds, or null
+when nothing changed; a since that is not an instant with its zone is
+400 `tasks.sinceInvalid`. Tap times are kept 72 hours back and never
+ahead, against the stub's running clock (`runningNow`), which starts
+before the phone's. `API_R3` holds the two new refusals in the API's
+words.
+
+Six journeys, each failing on the main of part 355:
+
+- `alsohere`: Also here names a coworker on shift, then a second one once
+  a check makes the list and the status be read again; nothing shows with
+  nobody else, or with no `othersOnShift` key.
+- `alreadychecked`: a check answered 409 shows Already done by with the
+  coworker's name on the row, leaves nothing on the phone and is never
+  sent again, with no failure said.
+- `nostatusfirst`: no status read goes before a check-off.
+- `changedlive`: a coworker's check shows within 5 seconds, through a
+  cheap check that asked before the list was read.
+- `changedquiet`: with nothing changed, a minute passes with no full list
+  read and no status read, and 12 to 16 cheap checks.
+- `sinceinvalid`: a cheap check refused 400 falls back to the whole list
+  every 10 seconds, and goes back to the cheap check once it answers.
+
+`livequeued` now has a coworker check another step so the list is read
+again, since nothing else changes it, and the weak check-off journey no
+longer counts a status read on the way to the check.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
