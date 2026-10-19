@@ -864,6 +864,58 @@ Six journeys, each failing on the main of part 355:
 again, since nothing else changes it, and the weak check-off journey no
 longer counts a status read on the way to the check.
 
+## The API findings that need the staff app (part 359)
+
+The stub answers what ocsa-api's main (af63dca, its Round 3, part 357)
+answers on the routes this part calls. GET /api/hr-cases/mine answers
+`state.myCases` (two invented reports unless a case gives `myCases`),
+id, status and the two stamps, as reporterView writes them; a case filed
+from Speak Up joins it. GET /api/forms/responses/fr-1 is a filed report
+for a holder of `view_reports` and 404 `forms.reportNotFound` to anyone
+else, and `EVERY_NOTICE` carries its `form` notice and an
+`hr_case_opened_for` one, the shape finding API-63 asks for. Register is
+409 `auth.accountExists` for a phone (its digits) or an email already on
+an account (the person, the staff list, `takenAccounts`), else 201
+`auth.registered`. A drop is kept in `state.drops` and listed under
+`pendingDrops` while it waits; a second one for the same shift is 409
+`pickups.alreadyPosted` with `openShiftId` and `status`. A second Start
+Shift at the site already open is 200 `sessions.alreadyOpen` with the
+session and its tasks. The issue sheet answers an issue's `photos` as a
+case sets them, and `midnightDates` answers the birthday and the
+schedule's days as that day at midnight UTC, as the API's date columns
+leave it. `API_R4` holds the API's words for the new answers, and
+`apiR4Body` makes a body for `state.refuse`. A case can open the phone in
+another zone with `timezoneId`.
+
+Ten journeys. Five fail on the main of part 356 (78 rows in all):
+
+- `myreports`: My reports on Speak Up lists the person's reports with the
+  day and where each stands in plain words, says when there is none or
+  the list did not load, and an `hr_case_opened_for` notice opens it with
+  that report marked, from the bell and from a phone alert.
+- `filedreport`: a `form` notice opens the filed report read only for a
+  reader of it, from the bell and from a phone alert; anyone else keeps
+  Open in the dashboard, and a report the API hides opens the bell and is
+  not asked for again.
+- `registerwords`: a registration sent says what happens next in words
+  that hold whatever the API found; a phone or email already on an
+  account is said under the email box, the form kept.
+- `addressguard`: a photo address that is javascript:, a data: page or a
+  // address is never drawn or linked on the issue sheet, a signed https
+  one is, whole, and a notice whose link is javascript: offers no
+  dashboard.
+- `newrefusals`: `pickups.alreadyPosted` after a lost answer and for a
+  shift the office posted, `common.bodyTooLarge`, `common.badBody` (400
+  and 415), `uploads.tooLarge` with and without `maxBytes` (said in
+  megabytes), `forms.photoLimit` with the question's own limit,
+  `forms.photoNotFound` with the photos read again, and
+  `sessions.alreadyOpen` read as success (its rows pass on main too).
+
+Five pass on main and stay as guards, since main already does what the
+finding asks of the staff app: `deviceid` (API-55), `tokenexpired`
+(API-56), `shiftnotices` (API-62), `codestaff` (API-85) and `datedays`
+(API-96, a phone in Honolulu and one in Tokyo).
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

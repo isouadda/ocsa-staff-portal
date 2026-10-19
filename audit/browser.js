@@ -85,7 +85,10 @@ async function openApp(browser, base, opts) {
   const context = await browser.newContext(Object.assign({}, PHONE, {
     locale: (o.phone || o.language) === "es" ? "es-US" : "en-US",
     colorScheme: "dark",
-  }, o.userAgent ? { userAgent: o.userAgent } : {}));
+  }, o.userAgent ? { userAgent: o.userAgent } : {},
+  // A phone set to another zone, for a case about the day a date shows on
+  // (part 359, API-96); every other case keeps New York.
+  o.timezoneId ? { timezoneId: o.timezoneId } : {}));
 
   // Every route under /api, and the API's own index at /api itself, which
   // the supply request form reads (Step 285), so nothing reaches the
