@@ -1072,7 +1072,6 @@ const API_R3 = {
 // meets, word for word as ocsa-api's main (af63dca) writes them in
 // helpers/words.js, each with its status and code.
 const API_R4 = {
-  accountExists: { status: 409, code: "auth.accountExists", en: "An account with this phone or email already exists", es: "Ya existe una cuenta con este tel\u00e9fono o correo" },
   registered: { status: 201, code: "auth.registered", en: "Registration submitted. Your account is pending supervisor approval.", es: "Registro enviado. Su cuenta espera la aprobaci\u00f3n de un supervisor." },
   alreadyPosted: { status: 409, code: "pickups.alreadyPosted", en: "This shift already has a drop request or a posting for pickup.", es: "Este turno ya tiene una solicitud para dejarlo o ya est\u00e1 publicado como turno libre." },
   bodyTooLarge: { status: 413, code: "common.bodyTooLarge", en: "What was sent is too large.", es: "Lo que se envi\u00f3 es demasiado grande." },
@@ -1179,6 +1178,13 @@ const EVERY_NOTICE = [
   // office opens a case for them, the shape API-63 asks for.
   ["form", "fr-1", ADMIN_ORIGIN + "/#forms/reports/fr-1", "place", "OCSA-FIX-102"],
   ["hr_case_opened_for", "hr-mine-2", null, "place"],
+  // Part 369: what ocsa-api's main sends since part 363: a shift changed
+  // or cancelled (API-62, helpers/shiftNotices.js, subject the shift,
+  // the staff app's /?open=<type>:<id>), and the reporter's case resolved
+  // or closed (API-63's hr_case_closed_for, subject the case).
+  ["shift_changed", "sh-1", STAFF_ORIGIN + "/?open=shift_changed:sh-1", "place"],
+  ["shift_cancelled", "sh-gone", STAFF_ORIGIN + "/?open=shift_cancelled:sh-gone", "place"],
+  ["hr_case_closed_for", "hr-mine-1", STAFF_ORIGIN + "/?open=hr_case_closed_for:hr-mine-1", "place"],
 ].map(([type, id, link, want, key], i) => ({ type: type, want: want, notice: { id: "n-every-" + i, subjectType: type, subjectKey: key || null, subjectId: id, title: "Invented notice " + (i + 1) + " about " + type, body: "An invented notice.", link: link, createdAt: new Date(Date.UTC(2026, 9, 1, 20, 59 - i)).toISOString(), readAt: null } }));
 
 // --- Help ----------------------------------------------------------------
@@ -1484,6 +1490,11 @@ function makeState(opts) {
     drops: {},
     takenAccounts: Array.isArray(o.takenAccounts) ? o.takenAccounts.slice() : [],
     midnightDates: o.midnightDates === true,
+    // Part 369: the token POST /api/auth/renew hands back (the same one
+    // unless a case names another), and the checklist day's start GET
+    // /api/settings answers (routes/settings.js, part 363).
+    renewTo: typeof o.renewTo === "string" ? o.renewTo : "token-one",
+    dayStartsAt: typeof o.dayStartsAt === "string" ? o.dayStartsAt : "04:00",
     listChanges: [],
     person: o.person || PERSON,
     accountPreferences: o.accountPreferences === undefined ? {} : o.accountPreferences,
@@ -3910,19 +3921,29 @@ function createStub(opts) {
       return json(404, { error: "That equipment was not found.", code: "equipment.notFound" });
     }
     if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: (state.assignedSites || SITES).map(withMode), preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
-    // Part 359: Register as routes/auth.js answers it: 409
-    // auth.accountExists for a phone (its digits) or an email (any case)
-    // that already has an account, writing nothing; else 201
-    // auth.registered with the new pending account.
+    // Register as routes/auth.js answers it since part 363 (API-117): a
+    // phone (its digits) or an email (any case) that already has an
+    // account answers exactly as a new one does, 201 auth.registered with
+    // an invented id, and writes nothing (the office is told whose
+    // account it was); a new one is written pending.
     if (key === "POST /api/auth/register") {
       const b = body && typeof body === "object" ? body : {};
       const digits = String(b.phone || "").replace(/[^0-9]/g, "");
       const email = String(b.email || "").trim().toLowerCase();
       const held = [state.person].concat(state.staff || []).map(p => [String(p.phone || "").replace(/[^0-9]/g, ""), String(p.email || "").toLowerCase()]).concat(state.takenAccounts.map(x => [String(x).replace(/[^0-9]/g, ""), String(x).toLowerCase()]));
-      if (held.some(([ph, em]) => (digits !== "" && ph === digits) || (email !== "" && em === email))) return json(409, apiR4Body("accountExists", languageOf(search, state)));
-      state.registered = (state.registered || []).concat([b]);
-      return json(201, Object.assign({ message: refusalIn(API_R4.registered, languageOf(search, state)), code: API_R4.registered.code }, { user: { id: "u-new-" + state.registered.length, firstName: String(b.firstName || ""), lastName: String(b.lastName || ""), status: "pending" } }));
+      const taken = held.some(([ph, em]) => (digits !== "" && ph === digits) || (email !== "" && em === email));
+      if (taken) state.registeredTaken = (state.registeredTaken || 0) + 1;
+      else state.registered = (state.registered || []).concat([b]);
+      return json(201, Object.assign({ message: refusalIn(API_R4.registered, languageOf(search, state)), code: API_R4.registered.code }, { user: { id: taken ? "u-invented-" + state.registeredTaken : "u-new-" + state.registered.length, firstName: String(b.firstName || "").trim(), lastName: String(b.lastName || "").trim(), status: "pending" } }));
     }
+    // POST /api/auth/renew as routes/auth.js answers it since part 363
+    // (API-56): the current token in Authorization and no body, 200 {
+    // token } with a new token of 12 hours; one past them 401
+    // auth.tokenExpired (a case's refuse).
+    if (key === "POST /api/auth/renew") return json(200, { token: state.renewTo });
+    // GET /api/settings, the company row, read by anyone signed in; the
+    // portal reads checklistDayStartsAt alone (part 363).
+    if (key === "GET /api/settings") return json(200, { id: 1, timezone: "America/New_York", checklistDayStartsAt: state.dayStartsAt });
     if (key === "POST /api/auth/reset/request") return json(200, { ok: true });
     if (key === "POST /api/auth/change-pin") {
       // A refusal a case asked for: its code, and its sentence in the

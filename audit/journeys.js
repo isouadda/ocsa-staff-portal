@@ -7051,7 +7051,7 @@ const ROUND4_JOURNEYS = [
   },
   {
     id: "registerwords",
-    label: "Register's words (API-117): a registration sent says a supervisor reviews it and OCSA emails once the person can sign in, words that hold whether or not the phone had an account; a phone or email that already has one is said under the email box with the next step, the form kept",
+    label: "Register's words (API-117): a registration sent says a supervisor reviews it and OCSA emails once the person can sign in, and since part 363 a phone or email that already has an account gets the same words, the 201 the API answers it, with nothing said under the email box",
     run: async (open, language, expect) => {
       const reg = await open({ signedIn: false });
       try {
@@ -7071,11 +7071,9 @@ const ROUND4_JOURNEYS = [
         const person = ["Riley", "Invented", "0000000000", "riley@example.invalid", "5739", "5739"];
         for (let i = 0; i < person.length; i += 1) await typeNth(taken.page, "input", i, person[i]);
         await clickText(taken.page, say("Register", language));
-        await pause(taken.page, 1200);
-        const line = await taken.page.evaluate(() => { const box = document.querySelector('input[type="email"]'); const e = box ? box.nextElementSibling : null; return e ? e.innerText.replace(/\s+/g, " ").trim() : ""; });
-        const toasts = await toastsNow(taken.page);
-        expect("a phone or email that already has an account is said under the email box, with the next step", line === say("This phone or email already has an account. Sign in with it, or tap Forgot your PIN? to choose a new PIN.", language), JSON.stringify(line));
-        expect("the form is kept and no failure is said", toasts.every(x => !x.failure) && (await boxValue(taken.page, "input", 0)) === "Riley", JSON.stringify(toasts));
+        const toast = await toastSaying(taken.page, say("Thank you. A supervisor reviews each registration, and OCSA emails you once you can sign in.", language));
+        expect("a phone or email that already has an account gets the same thank-you words, as a notice", !!toast && !toast.failure, JSON.stringify(await toastsNow(taken.page)));
+        expect("and the sign-in screen comes back, the registration sent once and nothing written", callsTo(taken.stub, "POST", "/api/auth/register").length === 1 && (taken.stub.state.registered || []).length === 0 && (await shows(taken.page, 'input[autocomplete="username"]', 3000)), callsTo(taken.stub, "POST", "/api/auth/register").length + " sent");
         await spokenHere(taken, language, expect);
       } finally { await taken.context.close(); }
     },
@@ -7774,5 +7772,187 @@ const PART367_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART367_JOURNEYS);
+
+// Part 369, section 1: what ocsa-api's Round 5 (part 363) answers the
+// staff app, read at its main (ca4aafa).
+const authOf = (call) => (call && call.headers ? call.headers.authorization || "" : "");
+const keptToken = (page) => page.evaluate(() => { try { const v = JSON.parse(window.localStorage.getItem("ocsa_auth") || "null"); return v ? v.token : null; } catch (e) { return null; } });
+// The shift a shift notice names, three weeks ahead, and one the office
+// cancelled, which my-schedule no longer lists. Invented.
+const SHIFT_AHEAD = { id: "sh-ahead", scheduled_date: "2026-10-21", start_time: "06:00", end_time: "14:00", site_name: "West Building", status: "scheduled", building_name: "Annex", floor_number: "1" };
+const AHEAD_SCHEDULE = () => ({ scheduled: [{ id: "sh-1", scheduled_date: "2026-10-02", start_time: "17:00", end_time: "23:00", site_name: "North Building", status: "scheduled", building_name: "Main Hall", floor_number: "2" }, Object.assign({}, SHIFT_AHEAD)], actual: [], pickups: [] });
+const SITE_NOTICE = (type, id, title) => ({ id: "n-p369-" + type + "-" + id, subjectType: type, subjectKey: null, subjectId: id, title: title, body: "An invented notice.", link: "https://staff.example.invalid/?open=" + type + ":" + id, createdAt: "2026-10-01T21:10:00.000Z", readAt: null });
+// The two refusals part 363 adds to a task's writes (helpers/taskPhoto.js),
+// in the API's own words, with the keys and maxLength it sends.
+const TASK_REFUSALS = {
+  photoUrlInvalid: { status: 400, code: "tasks.photoUrlInvalid", en: "photoUrl must be the address the app's upload gave for this photo, at most 500 characters", es: "photoUrl debe ser la direcci\u00f3n que dio la carga de esta foto en la app, de 500 caracteres como m\u00e1ximo", extra: { keys: ["photoUrl"], maxLength: 500 } },
+  noteInvalid: { status: 400, code: "tasks.noteInvalid", en: "resolutionNote must be text of at most 2000 characters", es: "resolutionNote debe ser un texto de 2000 caracteres como m\u00e1ximo", extra: { keys: ["resolutionNote"], maxLength: 2000 } },
+};
+const taskRefusal = (k, language) => ({ status: TASK_REFUSALS[k].status, body: Object.assign({ error: language === "es" ? TASK_REFUSALS[k].es : TASK_REFUSALS[k].en, code: TASK_REFUSALS[k].code }, TASK_REFUSALS[k].extra), once: true });
+
+const PART369_S1_JOURNEYS = [
+  {
+    id: "renewopen",
+    label: "Renewal when the app opens (API-56): a phone opened on a kept session asks POST /api/auth/renew with its token before anything else, keeps the new token for every call after it, signs in again when the API says the token ran out, and opens as before when renewal cannot be reached",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { renewTo: "token-two" } });
+      try {
+        await shows(app.page, ".sp-content", 8000);
+        await pause(app.page, 1500);
+        const calls = app.stub.state.calls;
+        const renews = calls.filter(c => c.method === "POST" && c.path === "/api/auth/renew");
+        const meAt = calls.findIndex(c => c.method === "GET" && c.path === "/api/auth/me");
+        const renewAt = calls.findIndex(c => c.method === "POST" && c.path === "/api/auth/renew");
+        expect("the app opens with one renewal, under the kept token, before the person is read", renews.length === 1 && authOf(renews[0]) === "Bearer token-one" && renewAt !== -1 && meAt > renewAt, renews.length + " renewals, at " + renewAt + ", me at " + meAt);
+        const after = calls.slice(renewAt + 1).filter(c => c.path.indexOf("/api/") === 0 && authOf(c));
+        expect("every call after it carries the new token", after.length > 3 && after.every(c => authOf(c) === "Bearer token-two"), JSON.stringify(after.filter(c => authOf(c) !== "Bearer token-two").map(c => c.method + " " + c.path + " " + authOf(c)).slice(0, 4)));
+        expect("and the phone keeps the new token for its next opening", (await keptToken(app.page)) === "token-two", JSON.stringify(await keptToken(app.page)));
+      } finally { await app.context.close(); }
+      const ran = await open({ stubOptions: { refuse: { "POST /api/auth/renew": { status: 401, body: { error: "Token expired", code: "auth.tokenExpired" } } } } });
+      try {
+        const signIn = await shows(ran.page, 'input[autocomplete="username"]', 8000);
+        expect("a renewal answered 401 auth.tokenExpired brings sign-in back, and the person is never read under the old token", signIn && callsTo(ran.stub, "GET", "/api/auth/me").length === 0, (await bodyText(ran.page)).slice(0, 160));
+        await spokenHere(ran, language, expect);
+      } finally { await ran.context.close(); }
+      const down = await open({ stubOptions: { refuse: { "POST /api/auth/renew": { status: 503, body: { error: "The sign-in check is not available. Try again in a minute.", code: "auth.checkUnavailable" } } } } });
+      try {
+        const up = await shows(down.page, ".sp-content", 8000);
+        expect("a renewal that cannot be reached opens the app as before, on the kept token", up && (await keptToken(down.page)) === "token-one" && authOf(lastSent(down.stub, "GET", "/api/auth/me")) === "Bearer token-one", (await bodyText(down.page)).slice(0, 160));
+      } finally { await down.context.close(); }
+    },
+  },
+  {
+    id: "renewqueued",
+    label: "Renewal before a queued send (API-56): a check-off kept on the phone with no signal goes once the signal comes back, after a renewal, under the new token, so a long shift never ends in a sign-out with work still waiting",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { renewTo: "token-one" } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1500);
+        const step = await openStep(app, language);
+        if (!step) { expect("the list has a step still to do", false, "no open box"); return; }
+        // The session was renewed at opening; it is made older than the
+        // ten minutes between renewals, as on a long shift.
+        await app.page.evaluate(() => { try { const v = JSON.parse(window.localStorage.getItem("ocsa_auth")); v.savedAt = Date.now() - 11 * 60 * 1000; window.localStorage.setItem("ocsa_auth", JSON.stringify(v)); } catch (e) {} });
+        app.stub.state.renewTo = "token-three";
+        await app.context.setOffline(true); app.stub.state.offline = true;
+        await tapAria(app.page, step.label);
+        await pause(app.page, 900);
+        expect("a check-off with no signal is kept on the phone", (await pendingTaps(app.page)) === 1, (await pendingTaps(app.page)) + " on the phone");
+        const mark = app.stub.state.calls.length;
+        app.stub.state.offline = false; await app.context.setOffline(false);
+        let left = 1;
+        const until = Date.now() + 12000;
+        while (Date.now() < until) { left = await pendingTaps(app.page); if (left === 0) break; await pause(app.page, 300); }
+        const since = app.stub.state.calls.slice(mark);
+        const renewAt = since.findIndex(c => c.method === "POST" && c.path === "/api/auth/renew");
+        const sendAt = since.findIndex(c => c.method === "POST" && c.path.indexOf("/api/clock/tasks/" + step.id) === 0);
+        expect("the kept check-off goes once the signal is back, and leaves the phone", left === 0 && sendAt !== -1, left + " on the phone, sent at " + sendAt);
+        expect("a renewal goes first, and the check-off goes under the new token", renewAt !== -1 && renewAt < sendAt && authOf(since[sendAt]) === "Bearer token-three", "renewal at " + renewAt + ", send at " + sendAt + " under " + authOf(since[sendAt]));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "shiftat",
+    label: "A shift changed or cancelled (API-62): shift_changed opens My Schedule at that shift's week with its sheet open, three weeks ahead, and shift_cancelled says the shift is no longer on the schedule, from the bell, from a phone alert on an open app and from one that opens the app",
+    run: async (open, language, expect) => {
+      const changed = SITE_NOTICE("shift_changed", "sh-ahead", "Invented: your shift at West Building changed");
+      await threeWays(open, { schedule: AHEAD_SCHEDULE(), notifications: [changed] }, "shift_changed", "sh-ahead", changed.title, async (app, how) => {
+        const up = await shows(app.page, '[data-shift-detail="sh-ahead"]', 7000);
+        const text = up ? await app.page.evaluate(() => document.querySelector('[data-shift-detail="sh-ahead"]').innerText.replace(/\s+/g, " ")) : "";
+        expect("a shift_changed notice " + how + " opens My Schedule with that shift's sheet", up && has(text, say("Scheduled Shift", language)) && has(text, "West Building") && (await chosenTab(app.page)) === say("Schedule", language), text.slice(0, 200) || (await bodyText(app.page)).slice(0, 200));
+        if (how !== "from the bell") return;
+        await app.page.evaluate(() => { const d = document.querySelector('[data-shift-detail="sh-ahead"]'); if (d && d.parentElement) d.parentElement.click(); });
+        await pause(app.page, 600);
+        const week = await bodyText(app.page);
+        const label = await app.page.evaluate((l) => new Date(2026, 9, 19).toLocaleDateString(l, { month: "short", day: "numeric" }) + " - " + new Date(2026, 9, 25).toLocaleDateString(l, { month: "short", day: "numeric", year: "numeric" }), language === "es" ? "es-US" : "en-US");
+        expect("and the week drawn is the shift's own, Monday October 19 to Sunday October 25", has(week, label), label + " | " + week.slice(0, 300));
+        await spokenHere(app, language, expect);
+      });
+      const cancelled = SITE_NOTICE("shift_cancelled", "sh-gone", "Invented: your shift at West Building was cancelled");
+      await threeWays(open, { schedule: AHEAD_SCHEDULE(), notifications: [cancelled] }, "shift_cancelled", "sh-gone", cancelled.title, async (app, how) => {
+        const line = await shows(app.page, '[data-shift-gone="1"]', 7000);
+        const text = line ? await app.page.evaluate(() => document.querySelector('[data-shift-gone="1"]').innerText) : "";
+        expect("a shift_cancelled notice " + how + " opens My Schedule saying the shift is no longer on it", line && has(text, say("This shift is no longer on your schedule.", language)) && !(await app.page.evaluate(() => !!document.querySelector("[data-shift-detail]"))), text || (await bodyText(app.page)).slice(0, 200));
+        if (how === "from the bell") await spokenHere(app, language, expect);
+      });
+    },
+  },
+  {
+    id: "casedone",
+    label: "A reporter's case resolved or closed (API-63): hr_case_closed_for opens My reports with that report marked, from the bell, from a phone alert on an open app and from one that opens the app, and never reads the office's case",
+    run: async (open, language, expect) => {
+      const notice = SITE_NOTICE("hr_case_closed_for", "hr-mine-1", "Invented: your report was closed");
+      await threeWays(open, { notifications: [notice] }, "hr_case_closed_for", "hr-mine-1", notice.title, async (o, how) => {
+        const marked = await shows(o.page, '[data-my-report="hr-mine-1"][data-my-report-focus="1"]');
+        expect("an hr_case_closed_for notice " + how + " opens My reports with that report marked", marked, (await bodyText(o.page)).slice(0, 200));
+        expect("the notice " + how + " never reads the office's case", callsTo(o.stub, "GET", "/api/hr-cases/hr-mine-1").length === 0, callsTo(o.stub, "GET", "/api/hr-cases/hr-mine-1").length + " reads");
+      });
+    },
+  },
+  {
+    id: "filedlink",
+    label: "A filed report's notice with its staff app link (API-83): since part 363 a reader who is not an admin is linked to the staff app's /?open=form:<id>; the report opens read only with Close alone, never a dashboard button that leads back to this app, and a person who reads no report is offered nothing that leaves the app",
+    run: async (open, language, expect) => {
+      const notice = Object.assign({}, noticeOf("form"), { id: "n-p369-form", link: "https://staff.example.invalid/?open=form:fr-1", title: "Invented: a spill report was filed at North Building" });
+      await threeWays(open, { person: R4_SUPERVISOR, notifications: [notice] }, "form", "fr-1", notice.title, async (app, how) => {
+        const up = await shows(app.page, '[data-report-sheet="fr-1"] [data-report-read="1"]');
+        const buttons = up ? await app.page.evaluate(() => Array.from(document.querySelectorAll('[data-report-sheet="fr-1"] button')).map(b => b.innerText.trim())) : [];
+        expect("the report opens " + how + ", read only, with Close and no Open in the dashboard", up && buttons.join("|") === say("Close", language), JSON.stringify(buttons));
+      });
+      const cleaner = await open({ stubOptions: { notifications: [notice] } });
+      try {
+        await tapOnBell(cleaner, notice.title);
+        await pause(cleaner.page, 1500);
+        const offered = await cleaner.page.evaluate(([t, w]) => { const b = Array.from(document.querySelectorAll("button")).find(y => y.innerText.indexOf(t) !== -1); const row = b && b.parentElement; return !!row && Array.from(row.querySelectorAll("button")).some(y => y.innerText.trim() === w); }, [notice.title, say("Open in the dashboard", language)]);
+        expect("a person who reads no report is offered no dashboard for a staff app link, and the report is never read", !offered && !(await cleaner.page.evaluate(() => !!document.querySelector("[data-report-sheet]"))) && callsTo(cleaner.stub, "GET", "/api/forms/responses/fr-1").length === 0, "offered " + offered);
+      } finally { await cleaner.context.close(); }
+    },
+  },
+  {
+    id: "tasknotes",
+    label: "A task's photo and note on a write (API-68): the resolution boxes hold 2000 characters at most, and a resolve the API refuses for its photo address or its note says so in plain words, never the API's field names",
+    run: async (open, language, expect) => {
+      for (const k of ["noteInvalid", "photoUrlInvalid"]) {
+        const app = await open({});
+        try {
+          await openTab(app.page, "issuetasks", language);
+          await pause(app.page, 900);
+          await openItem(app.page, "Replace the cracked light cover");
+          await pause(app.page, 700);
+          await clickText(app.page, say("Resolved", language));
+          const cap = await app.page.evaluate(() => { const b = document.querySelector(".sp-content textarea"); return b ? b.maxLength : null; });
+          if (k === "noteInvalid") expect("the resolution box holds 2000 characters at most", cap === 2000, JSON.stringify(cap));
+          await typeNth(app.page, ".sp-content textarea", 0, "Put a new cover on");
+          await attachPhoto(app.page, '.sp-content input[type="file"]');
+          await pause(app.page, 700);
+          app.stub.state.refuse["PATCH /api/clock/tasks/resolve/at-1"] = taskRefusal(k, language);
+          await clickText(app.page, say("Submit Resolution", language));
+          const words = k === "noteInvalid" ? say("The note is too long. Keep it to {max} characters.", language).replace("{max}", "2000") : say("This photo could not be sent with the task. Take the photo again, then send it.", language);
+          const toast = await toastSaying(app.page, words, 6000);
+          expect(TASK_REFUSALS[k].code + " says what to do in plain words", !!toast, JSON.stringify(await toastsNow(app.page)));
+          expect(TASK_REFUSALS[k].code + " never shows the API's field names", !has(await bodyText(app.page), "resolutionNote") && !has(await bodyText(app.page), "photoUrl"), (await bodyText(app.page)).slice(0, 200));
+        } finally { await app.context.close(); }
+      }
+    },
+  },
+  {
+    id: "daystart",
+    label: "The checklist day's start from GET /api/settings (PORT-24, part 363): with the company's day starting at 6:00 AM, the evening's critical block, unfinished, still reads Overdue at 5:00 AM, where the 4:00 AM kept in clientConfig would have begun a new day",
+    run: async (open, language, expect) => {
+      const at = "2026-10-02T09:00:00Z";
+      const app = await open({ now: at, stubOptions: { site: "site-east", shiftLabel: "Second shift", now: at, dayStartsAt: "06:00" } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await app.page.waitForFunction(() => document.querySelectorAll("[data-block]").length > 3, null, { timeout: 8000 }).catch(() => {});
+        await pause(app.page, 900);
+        const when = await app.page.evaluate(() => { const b = document.querySelector('[data-block="Dining room reset"]'); return b ? b.getAttribute("data-block-when") : null; });
+        expect("the settings are read once the person is in", callsTo(app.stub, "GET", "/api/settings").length >= 1, callsTo(app.stub, "GET", "/api/settings").length + " reads");
+        expect("the Second shift's Dining room reset, unfinished, reads Overdue at 5:00 AM on a 6:00 AM day", when === "overdue", JSON.stringify(when));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART369_S1_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };

@@ -838,18 +838,6 @@ const SHOTS = [
       await s.pause(400);
       return true;
     } },
-  { name: "register-taken", entry: E("Register as a new employee"), o: {},
-    go: async (s) => {
-      await s.waitText(s.say("Sign In"));
-      await s.tap(s.say("New Employee? Register Here"));
-      if (!(await s.waitText(s.say("Register")))) return false;
-      const boxes = ["Riley", "Example", "0000000000", "riley@example.invalid", "5739", "5739"];
-      for (let i = 0; i < boxes.length; i += 1) await s.page.evaluate(([n, v]) => { const e = document.querySelectorAll("input")[n]; if (!e) return; const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; set.call(e, v); e.dispatchEvent(new Event("input", { bubbles: true })); }, [i, boxes[i]]);
-      await s.tap(s.say("Register"));
-      if (!(await s.waitText(s.say("This phone or email already has an account. Sign in with it, or tap Forgot your PIN? to choose a new PIN.")))) return false;
-      await s.show(s.say("Email Address *"), "center");
-      return true;
-    } },
   { name: "text-size", entry: E("Make the text bigger"), o: { signedIn: true }, go: (s) => settingsAt(s, "Text size") },
   { name: "appearance", entry: E("Switch between light and dark"), o: { signedIn: true }, go: (s) => settingsAt(s, "Appearance") },
   { name: "language", entry: E("Switch the app to Spanish or English"), o: { signedIn: true }, go: (s) => settingsAt(s, "Language") },

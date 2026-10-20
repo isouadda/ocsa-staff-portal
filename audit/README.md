@@ -975,6 +975,45 @@ Fifteen journeys, one for each finding, each failing on the main of part
 The smoke check's cleaner opens a form and then taps Help on the bar,
 which now asks before leaving the form; it answers Leave.
 
+## What Round 5 built for the staff app (part 369, section 1)
+
+The stub answers what ocsa-api's main (ca4aafa, Rounds 5 and 6) answers
+the staff app: POST /api/auth/renew hands back `{ token }`, the token a
+case names in `renewTo` ("token-one" unless it names another), and a
+case's refuse gives it 401 `auth.tokenExpired` or 503
+`auth.checkUnavailable`; GET /api/settings answers `checklistDayStartsAt`,
+"04:00" unless a case names `dayStartsAt`; POST /api/auth/register
+answers a phone or email already on file with the same 201
+`auth.registered` and an invented id, writing nothing. EVERY_NOTICE
+carries `shift_changed` and `shift_cancelled` (subject the shift) and
+`hr_case_closed_for` (subject the case), each linked to the staff app's
+`/?open=<type>:<id>` as linkByReader builds it.
+
+Seven journeys, in English and Spanish:
+
+- `renewopen` (API-56): a kept session is renewed before anything else
+  is read, the new token carried on every call after it and kept; a
+  renewal answered 401 brings sign-in back; one that cannot be reached
+  opens the app on the kept token.
+- `renewqueued` (API-56): a check-off kept with no signal goes after a
+  renewal, under the new token.
+- `shiftat` (API-62): shift_changed opens My Schedule at the shift's week
+  with its sheet open, and shift_cancelled says the shift is no longer
+  on the schedule, from the bell and both kinds of phone alert.
+- `casedone` (API-63): hr_case_closed_for opens My reports at the
+  report, never reading the office's case.
+- `filedlink` (API-83): a form notice whose link is the staff app's opens
+  the report with Close alone, and offers a person who reads no report
+  no dashboard.
+- `tasknotes` (API-68): the resolution box holds 2000 characters, and
+  `tasks.noteInvalid` and `tasks.photoUrlInvalid` are said in plain words.
+- `daystart` (PORT-24): with a 6:00 AM day start from the settings, the
+  evening's critical block still reads Overdue at 5:00 AM.
+
+`registerwords` now expects the 201 for a taken phone or email: the same
+thank-you, nothing under the email box, and the `register-taken` picture
+is gone with the line it showed.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

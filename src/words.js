@@ -1539,7 +1539,6 @@ export const WORDS = {
   "Read only. The report is worked on the dashboard.": "Solo para leer. El reporte se trabaja desde el panel.",
   // Part 359: Register (API-117).
   "Thank you. A supervisor reviews each registration, and OCSA emails you once you can sign in.": "Gracias. Un supervisor revisa cada registro, y OCSA le env\u00eda un correo cuando ya pueda iniciar sesi\u00f3n.",
-  "This phone or email already has an account. Sign in with it, or tap Forgot your PIN? to choose a new PIN.": "Este tel\u00e9fono o correo ya tiene una cuenta. Inicie sesi\u00f3n con \u00e9l, o toque \u00bfOlvid\u00f3 su PIN? para elegir un PIN nuevo.",
   // Part 359: the refusals new since Round 2.
   "This shift already has a drop request, or it is already posted for pickup. There is nothing more to send.": "Este turno ya tiene una solicitud para dejarlo, o ya est\u00e1 publicado como turno libre. No hay nada m\u00e1s que enviar.",
   "What you sent is too large. Use fewer or smaller photos, or shorter text, then try again.": "Lo que envi\u00f3 es demasiado grande. Use menos fotos o fotos m\u00e1s peque\u00f1as, o un texto m\u00e1s corto, y vuelva a intentarlo.",
@@ -1559,6 +1558,9 @@ export const WORDS = {
   "Got it": "Entendido",
   "Alerts on an iPhone come only to the app added this way.": "En un iPhone, las alertas llegan solo a la aplicaci\u00f3n agregada de esta forma.",
   "You have a new notice. Tap the bell to read it.": "Tiene un aviso nuevo. Toque la campana para leerlo.",
+  "This shift is no longer on your schedule.": "Este turno ya no est\u00e1 en su horario.",
+  "This photo could not be sent with the task. Take the photo again, then send it.": "No se pudo enviar esta foto con la tarea. Tome la foto otra vez y luego env\u00edela.",
+  "The note is too long. Keep it to {max} characters.": "La nota es demasiado larga. Escriba {max} caracteres como m\u00e1ximo.",
   },
 };
 
@@ -2976,7 +2978,6 @@ WORDS.fr = {
   "Read only. The report is worked on the dashboard.": "Lecture seule. Le rapport est trait\u00e9 depuis le tableau de bord.",
   // Part 359: Register (API-117).
   "Thank you. A supervisor reviews each registration, and OCSA emails you once you can sign in.": "Merci. Un superviseur examine chaque inscription, et OCSA vous envoie un courriel d\u00e8s que vous pouvez vous connecter.",
-  "This phone or email already has an account. Sign in with it, or tap Forgot your PIN? to choose a new PIN.": "Ce t\u00e9l\u00e9phone ou ce courriel a d\u00e9j\u00e0 un compte. Connectez-vous avec, ou appuyez sur Code PIN oubli\u00e9\u00a0? pour choisir un nouveau code PIN.",
   // Part 359: the refusals new since Round 2.
   "This shift already has a drop request, or it is already posted for pickup. There is nothing more to send.": "Ce service a d\u00e9j\u00e0 une demande de retrait, ou il est d\u00e9j\u00e0 propos\u00e9 comme service libre. Il n'y a rien de plus \u00e0 envoyer.",
   "What you sent is too large. Use fewer or smaller photos, or shorter text, then try again.": "Ce que vous avez envoy\u00e9 est trop volumineux. Utilisez moins de photos ou des photos plus petites, ou un texte plus court, puis r\u00e9essayez.",
@@ -2996,6 +2997,9 @@ WORDS.fr = {
   "Got it": "Compris",
   "Alerts on an iPhone come only to the app added this way.": "Sur un iPhone, les alertes n'arrivent qu'\u00e0 l'application ajout\u00e9e de cette fa\u00e7on.",
   "You have a new notice. Tap the bell to read it.": "Vous avez un nouvel avis. Appuyez sur la cloche pour le lire.",
+  "This shift is no longer on your schedule.": "Ce service n'est plus dans votre planning.",
+  "This photo could not be sent with the task. Take the photo again, then send it.": "Cette photo n'a pas pu \u00eatre envoy\u00e9e avec la t\u00e2che. Reprenez la photo, puis envoyez-la.",
+  "The note is too long. Keep it to {max} characters.": "La note est trop longue. Limitez-la \u00e0 {max} caract\u00e8res.",
 };
 
 // {name} is replaced after the language is chosen, so the

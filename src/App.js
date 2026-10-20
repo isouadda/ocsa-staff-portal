@@ -566,6 +566,9 @@ const CHECK_AGAIN_WORDS = "OCSA could not check your sign-in just now. Try again
 // that hold whatever the API found, since a supervisor approves each one
 // and OCSA's welcome email comes once the account can sign in.
 const REGISTERED_WORDS = "Thank you. A supervisor reviews each registration, and OCSA emails you once you can sign in.";
+// A resolve's note, at most what the API takes (helpers/taskPhoto.js
+// NOTE_MAX, part 363).
+const TASK_NOTE_MAX = 2000;
 const OWN_REFUSALS = {
   "auth.givenPinExpired": "The PIN the office gave you has expired. Call the office for a new one, or tap Forgot your PIN? to choose your own by email.",
   "auth.lockedUntilOffice": "Too many tries today, so your account is locked until the office unlocks it. Call the office, or tap Forgot your PIN? to reset it by email.",
@@ -576,8 +579,11 @@ const OWN_REFUSALS = {
   "tasks.resolve.alreadySettled": "This task is already finished or marked as unable to finish, so there is nothing more to send.",
   "tasks.resolve.issueClosed": "The problem behind this task is already closed, so there is nothing more to send.",
   "pickups.onLeave": "You have time off approved that day, so this shift cannot be yours. Pick a shift on another day.",
-  // Part 359: a phone or email that already has an account (API-117).
-  "auth.accountExists": "This phone or email already has an account. Sign in with it, or tap Forgot your PIN? to choose a new PIN.",
+  // Part 363 (API-68): a resolve's photo address or note the API would
+  // not take. The note is held to the API's 2,000 characters on the
+  // phone, so the second is met only from an older screen.
+  "tasks.photoUrlInvalid": "This photo could not be sent with the task. Take the photo again, then send it.",
+  "tasks.noteInvalid": (body) => tr("The note is too long. Keep it to {max} characters.", { max: body && Number(body.maxLength) > 0 ? Number(body.maxLength) : TASK_NOTE_MAX }),
   // The refusals new since Round 2 (part 359). A drop asked for a shift
   // that already has one, or is already posted for pickup (409, Request
   // Drop): nothing more to send, said as a notice.
@@ -1502,19 +1508,25 @@ function readEntryFromUrl() {
 // an entry screen, so the app signs in or boots the
 // stored session as it always does and the subject opens once the portal
 // is up.
+// What a staff app address opens, from its query and its path: the
+// subject, with path true for one of the paths above. null for any other.
+function openOfAddress(search, pathname) {
+  var v = new URLSearchParams(search || "").get("open");
+  if (!v) {
+    var m = /^\/(requests|issues|join|training\/c|sign|inspect|drafts|supplies)\/([A-Za-z0-9_-]+)$/.exec(String(pathname || "").replace(/\/+$/, ""));
+    if (!m) return null;
+    var types = { requests: "client_request", issues: "inspection_finding", join: "training_join", "training/c": "training_category", sign: "signature_request", inspect: "inspection", drafts: "form_draft", supplies: "supply_request" };
+    return { subjectType: types[m[1]], subjectId: m[2], path: true };
+  }
+  var at = v.indexOf(":");
+  return { subjectType: at === -1 ? v : v.slice(0, at), subjectId: at === -1 ? null : v.slice(at + 1) };
+}
 function readOpenFromUrl() {
   try {
-    var v = new URLSearchParams(window.location.search || "").get("open");
-    if (!v) {
-      var m = /^\/(requests|issues|join|training\/c|sign|inspect|drafts|supplies)\/([A-Za-z0-9_-]+)$/.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
-      if (!m) return null;
-      try { window.history.replaceState({}, "", "/"); } catch (e) {}
-      var types = { requests: "client_request", issues: "inspection_finding", join: "training_join", "training/c": "training_category", sign: "signature_request", inspect: "inspection", drafts: "form_draft", supplies: "supply_request" };
-      return { subjectType: types[m[1]], subjectId: m[2] };
-    }
-    try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
-    var at = v.indexOf(":");
-    return { subjectType: at === -1 ? v : v.slice(0, at), subjectId: at === -1 ? null : v.slice(at + 1) };
+    var asked = openOfAddress(window.location.search, window.location.pathname);
+    if (!asked) return null;
+    try { window.history.replaceState({}, "", asked.path ? "/" : window.location.pathname); } catch (e) {}
+    return { subjectType: asked.subjectType, subjectId: asked.subjectId };
   } catch (e) { return null; }
 }
 const OPEN_AT_START = readOpenFromUrl();
@@ -1695,6 +1707,28 @@ function readAuth() {
 }
 function clearAuth() {
   try { window.localStorage.removeItem(AUTH_KEY); } catch (e) {}
+}
+// When the token on this phone was last saved, or 0.
+function savedAuthAt() {
+  try { const p = JSON.parse(window.localStorage.getItem(AUTH_KEY) || "null"); return p && Number(p.savedAt) > 0 ? Number(p.savedAt) : 0; } catch (e) { return 0; }
+}
+// Renewal (API-56, POST /api/auth/renew since part 363): the token is
+// traded for a new 12-hour one when the app opens, when it comes back to
+// the front and before anything kept on the phone is sent, so a long
+// shift never ends in a sign-out with work still waiting. The last two
+// renew only a token older than RENEW_GAP_MS. Answers { token }, {
+// expired: true } for a token past its 12 hours (401), { mustSetPin: true
+// }, or null when OCSA did not answer, and the token in hand is kept.
+const RENEW_GAP_MS = 10 * 60 * 1000;
+async function renewToken(tok) {
+  try {
+    const d = await api("/api/auth/renew", { method: "POST", token: tok, noAuthEvent: true });
+    return d && typeof d.token === "string" && d.token ? { token: d.token } : null;
+  } catch (err) {
+    if (err && err.status === 401) return { expired: true };
+    if (err && err.status === 403 && err.code === "auth.mustSetPin") return { mustSetPin: true };
+    return null;
+  }
 }
 
 // ------------------------------------------------------------
@@ -2324,6 +2358,20 @@ export default function OCSAStaffPortal() {
   // started under is no longer anyone's, and it keeps nothing.
   const liveToken = useRef(token);
   liveToken.current = token;
+  // One renewal at a time; a token the API renewed is saved and used from
+  // then on. A token past its 12 hours ends the session the way a 401
+  // does, so the work kept on the phone waits for its owner (PORT-05).
+  const renewing = useRef(null);
+  const renewSession = useCallback(async (tok, force) => {
+    if (!tok) return tok;
+    if (!force && Date.now() - savedAuthAt() < RENEW_GAP_MS) return tok;
+    if (!renewing.current) renewing.current = renewToken(tok).then((r) => { renewing.current = null; return r; });
+    const r = await renewing.current;
+    if (liveToken.current !== tok) return liveToken.current;
+    if (r && r.token) { saveAuth(r.token); liveToken.current = r.token; setToken(r.token); return r.token; }
+    if (r && r.expired) { window.dispatchEvent(new CustomEvent("ocsa-session-expired", { detail: { token: tok } })); return null; }
+    return tok;
+  }, []);
   // Opened from the kept checklist with no signal: the session is kept and
   // read again as soon as there is signal.
   const [offlineOpen, setOfflineOpen] = useState(false);
@@ -2519,6 +2567,7 @@ export default function OCSAStaffPortal() {
     loadAssignedTasks(tok);
     loadSessionSites(tok);
     loadLookups(tok, wordsLanguage());
+    api("/api/settings", { token: tok }).then((st) => { if (st) takeDayStart(st.checklistDayStartsAt); }).catch(() => {});
     // The forced PIN set fires only when the API says so, strictly true.
     // mustSetPin sits at the top level of the /api/auth/me response,
     // beside user. While it is absent this branch stays dormant.
@@ -2548,7 +2597,15 @@ export default function OCSAStaffPortal() {
     // A then and a catch rather than finally, which Chrome 60 to 62 lacks:
     // a phone on one of them with a stored session would otherwise never
     // get past the splash.
-    hydrateSession(tok)
+    // Renewed first (API-56): a token past its 12 hours is read as an
+    // expired session below; one OCSA did not answer is used as it is.
+    renewToken(tok)
+      .then((r) => {
+        if (r && r.expired) throw Object.assign(new Error("Session expired"), { status: 401 });
+        const use = r && r.token ? r.token : tok;
+        if (use !== tok) { saveAuth(use); liveToken.current = use; setToken(use); }
+        return hydrateSession(use);
+      })
       .then(() => { bootBusy.current = false; booted.current = true; setBootFault(null); setBooting(false); })
       .catch((err) => {
         bootBusy.current = false;
@@ -2737,7 +2794,7 @@ export default function OCSAStaffPortal() {
     // A PIN the API turns away (PIN_WEAK) is said under the PIN box, the
     // way the other four PIN screens say it, and the form stays.
     let refused = null;
-    try { await api(signedOut("/api/auth/register", language), { method: "POST", body: { firstName, lastName, phone, email, pin } }); showToast(tr(REGISTERED_WORDS)); setScreen("login"); } catch (err) { if (err.code === "PIN_WEAK") refused = { pin: tr(err.message) }; else if (err.code === "auth.accountExists") refused = { email: tr(err.message) }; else showToast(tr(err.message), "error"); }
+    try { await api(signedOut("/api/auth/register", language), { method: "POST", body: { firstName, lastName, phone, email, pin } }); showToast(tr(REGISTERED_WORDS)); setScreen("login"); } catch (err) { if (err.code === "PIN_WEAK") refused = { pin: tr(err.message) }; else showToast(tr(err.message), "error"); }
     setLoading(false);
     return refused;
   };
@@ -2917,10 +2974,12 @@ export default function OCSAStaffPortal() {
   const sendingPending = useRef(false);
   const sendPending = async () => {
     // With no check-off waiting, an End Shift waiting goes (PORT-06).
-    if (!sendingPending.current && token && user && !pendingRef.current.some(mine)) { if (endRef.current) sendEndRef.current(); return; }
+    if (!sendingPending.current && token && user && !pendingRef.current.some(mine)) { if (endRef.current) { renewSession(token).then(() => { if (endRef.current) sendEndRef.current(); }); } return; }
     if (sendingPending.current || !token || !user || pendingRef.current.length === 0) return;
     sendingPending.current = true;
-    const tok = token;
+    // Renewed before anything waiting goes (API-56).
+    const tok = await renewSession(token);
+    if (!tok) { sendingPending.current = false; return; }
     let answered = 0;
     try {
       for (;;) {
@@ -2967,9 +3026,9 @@ export default function OCSAStaffPortal() {
     } finally { sendingPending.current = false; }
     // The list is read again, so a box the API turned away shows as the
     // API holds it.
-    if (answered > 0 && token && liveToken.current === token) loadTasks(true);
+    if (answered > 0 && tok && liveToken.current === tok) loadTasks(true);
     // Every check-off gone: an End Shift waiting follows them.
-    if (endRef.current && liveToken.current === token && !pendingRef.current.some(mine)) sendEndRef.current();
+    if (endRef.current && liveToken.current === tok && !pendingRef.current.some(mine)) sendEndRef.current();
   };
   const sendPendingRef = useRef(sendPending);
   sendPendingRef.current = sendPending;
@@ -3148,6 +3207,8 @@ export default function OCSAStaffPortal() {
     if (place.report) { setReportAt({ id: String(place.report), link: place.link || null }); setShowMore(false); return; }
     // My reports under Speak Up, at the case the notice names (part 359).
     if (place.tab === "speakup") setSpeakAt(place.myReport ? { id: String(place.myReport), at: Date.now() } : null);
+    // My Schedule at the shift a shift notice names (part 369, API-62).
+    if (place.tab === "schedule") setScheduleAt(place.shift ? { id: String(place.shift), at: Date.now() } : null);
     // My tickets at the ticket, read again so a new answer shows.
     if (place.tab === "support") { setSupportAt(place.ticket ? { id: String(place.ticket), at: Date.now() } : null); setSupportAsked(n => n + 1); }
     // Periodic work at the task the notice names: its site is found in
@@ -3265,10 +3326,10 @@ export default function OCSAStaffPortal() {
   // view. One listener, no interval.
   useEffect(() => {
     if (!token || screen !== "main") return;
-    const h = () => { if (document.visibilityState !== "visible") return; refreshClockStatus().catch(e => console.warn("Clock status:", e.message)); loadChannels(); loadClientRequests(); };
+    const h = () => { if (document.visibilityState !== "visible") return; renewSession(token); refreshClockStatus().catch(e => console.warn("Clock status:", e.message)); loadChannels(); loadClientRequests(); };
     document.addEventListener("visibilitychange", h);
     return () => document.removeEventListener("visibilitychange", h);
-  }, [token, screen, refreshClockStatus]);
+  }, [token, screen, refreshClockStatus, renewSession]);
   useEffect(() => { if (activeTab !== "chat" || !activeChannel) return; const iv = setInterval(() => loadMessages(activeChannel), 12000); return () => clearInterval(iv); }, [activeTab, activeChannel]);
 
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
@@ -3356,6 +3417,8 @@ export default function OCSAStaffPortal() {
   // A filed report a form notice opened (part 359, API-83), and the case
   // a notice opened My reports at.
   const [reportAt, setReportAt] = useState(null);
+  // The shift a shift notice opened My Schedule at (part 369), or null.
+  const [scheduleAt, setScheduleAt] = useState(null);
   const [speakAt, setSpeakAt] = useState(null);
   // The reads the API turned away on this phone, by readKey: the bell
   // keeps the dashboard's link on their notices.
@@ -3820,7 +3883,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "supplyorders" && (destCtx.supplyOrders || !!supplyAt) && <SupplyOrdersView token={token} user={user} holder={supplyHolder === true} rows={supplyOrders} onReload={() => loadSupplyOrders()} onRow={takeSupplyOrder} at={supplyAt} onAt={setSupplyAt} getOpts={getOpts} showToast={showToast} t={t} />}
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
-              {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
+              {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} at={scheduleAt} />}
               {activeTab === "tasks" && <TasksView token={token} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView userId={user && user.id} assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
@@ -4494,7 +4557,7 @@ function SetPinScreen({ token, user, onDone, onSignOut, showToast, t }) {
 const LEAVE_WORDS = { pto: "PTO (paid time off)" };
 const leaveWord = (value, label) => tr(label || LEAVE_WORDS[value] || value || "");
 
-function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasOther, onOpenInspection }) {
+function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasOther, onOpenInspection, at }) {
   const [view, setView] = useState("week");
   const [data, setData] = useState({ scheduled: [], actual: [], pickups: [] });
   // The scheduled inspections assigned to this person (Step 296), read
@@ -4586,19 +4649,45 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
       } else {
         ed = toISO(getWeekEnd());
       }
-      // The API reads the days worked from midnight UTC on the first day
-      // to midnight UTC after the last, which here ends at 8 PM on the
-      // last day. One more day asked for brings a shift started that
-      // evening. The day after shows only where the screen draws it, as
-      // the month's dimmed cell after its last day.
-      const askTo = toISO(addDays(new Date(ed + "T00:00:00"), 1));
-      const d = await api("/api/pickups/my-schedule?start_date=" + sd + "&end_date=" + askTo, { token });
+      // Since part 363 (API-96) the API reads the days worked on the
+      // company's clock, from 00:00 on the first day to 00:00 after the
+      // last, so the days asked for are the days drawn.
+      const d = await api("/api/pickups/my-schedule?start_date=" + sd + "&end_date=" + ed, { token });
       setData(d); setFailed(false);
     } catch (err) { console.error("Schedule load error:", err); setFailed(true); }
     setLoading(false);
   };
 
   useEffect(() => { loadSchedule(); }, [weekStart, view]);
+
+  // A shift notice opens the shift it names (part 369, API-62). The API
+  // has no read of one shift for its person, so the shift is looked for
+  // on the person's schedule from today through the next 13 weeks (a
+  // notice is never sent about a shift before today); found, its week
+  // is drawn and its sheet opened. A shift not there, cancelled or given
+  // to someone else, says so above the week. A read that fails leaves
+  // the week as it is.
+  const [shiftGone, setShiftGone] = useState(false);
+  useEffect(() => {
+    if (!at || !at.id || !token) return undefined;
+    let gone = false;
+    setShiftGone(false);
+    const from = todayLocal();
+    api("/api/pickups/my-schedule?start_date=" + toISO(from) + "&end_date=" + toISO(addDays(from, 91)), { token }).then((d) => {
+      if (gone) return;
+      const hit = (d && Array.isArray(d.scheduled) ? d.scheduled : []).find(s => s && String(s.id) === at.id);
+      if (!hit) { setDetail(null); setShiftGone(true); return; }
+      const day = new Date(String(hit.scheduled_date).slice(0, 10) + "T00:00:00");
+      const mon = new Date(day);
+      mon.setDate(day.getDate() - (day.getDay() === 0 ? 6 : day.getDay() - 1));
+      mon.setHours(0, 0, 0, 0);
+      setDayOpen(null);
+      setView("week");
+      setWeekStart(prev => (prev && prev.getTime() === mon.getTime() ? prev : mon));
+      setDetail({ type: "scheduled", ...hit });
+    }).catch(() => {});
+    return () => { gone = true; };
+  }, [at && at.at, token]);
 
   // Asked once when the Schedule tab opens. A 404 leaves types null and
   // shows nothing; any other failure says so with Try again.
@@ -4766,6 +4855,8 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
         </div>
         <button onClick={nextWeek} aria-label={tr("Next")} style={mkTapFrame()}><span style={stepChip}>&gt;</span></button>
       </div>
+
+      {shiftGone && <div data-shift-gone="1" role="status" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", marginBottom: 10, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.card, fontSize: 13, color: t.text }}><span style={{ flex: 1, minWidth: 0 }}>{tr("This shift is no longer on your schedule.")}</span><button onClick={() => setShiftGone(false)} style={{ minHeight: 44, minWidth: 44, padding: "0 10px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Close")}</button></div>}
 
       {loading && <div style={{ textAlign: "center", padding: 20, color: t.textMut, fontSize: 12 }}>{tr("Loading...")}</div>}
 
@@ -5120,7 +5211,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
       {/* SHIFT DETAIL MODAL */}
       {detail && (
         <div onClick={() => setDetail(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "20px 20px 30px", boxShadow: t.popShadow }}>
+          <div onClick={e => e.stopPropagation()} data-shift-detail={detail.type === "scheduled" && detail.id ? String(detail.id) : undefined} style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "20px 20px 30px", boxShadow: t.popShadow }}>
             <div style={{ width: 40, height: 4, borderRadius: 2, background: t.textMut, margin: "0 auto 16px", opacity: 0.3 }} />
             <div style={{ fontSize: 15, fontWeight: 600, color: t.text, marginBottom: 14, fontFamily: FONT_HEAD }}>
               {detail.type === "scheduled" ? tr("Scheduled Shift") : detail.type === "actual" ? tr("Worked Shift") : tr("Pickup Shift")}
@@ -5539,8 +5630,18 @@ const windowHolds = (from, to, at) => (from === null || to === null || at === nu
 // start (4:00 AM) to the same time the next morning (PORT-24): every
 // minute is counted from the day's start, so a 1:00 AM block is still to
 // come at 5:00 PM and a 10:00 PM one is over at 12:30 AM.
-const DAY_STARTS = clockMinutes(clientConfig.company.checklistDayStartsAt) || 0;
-const ofDay = (m) => (m - DAY_STARTS + 1440) % 1440;
+// The day's start is the company's, GET /api/settings checklistDayStartsAt
+// ("HH:MM", part 363), read after each sign-in and kept on the phone for
+// the next open; clientConfig's "04:00" stands until it has answered.
+const DAY_START_KEY = "ocsa-staff-day-starts";
+let dayStarts = (() => { try { const v = clockMinutes(window.localStorage.getItem(DAY_START_KEY)); if (v !== null) return v; } catch (e) {} return clockMinutes(clientConfig.company.checklistDayStartsAt) || 0; })();
+function takeDayStart(text) {
+  const v = /^\d{2}:\d{2}$/.test(String(text || "")) ? clockMinutes(text) : null;
+  if (v === null) return;
+  dayStarts = v;
+  try { window.localStorage.setItem(DAY_START_KEY, String(text)); } catch (e) {}
+}
+const ofDay = (m) => (m - dayStarts + 1440) % 1440;
 const windowPast = (from, to, at) => {
   if (from === null || to === null || at === null) return false;
   const f = ofDay(from), e = ofDay(to), a = ofDay(at);
@@ -7972,7 +8073,7 @@ function IssueSheet({ token, user, at, tasks, onClose, onChanged, showToast, lkC
           {panel === "resolve" && (
             <div style={{ marginTop: 16, padding: "12px 14px", borderRadius: R.md, background: t.greenSubtle, border: "1px solid " + t.borderSolid }}>
               <div style={{ fontSize: 10, color: ink(t, GREEN), fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Mark as Resolved")}</div>
-              <div style={{ marginBottom: 8 }}><div style={{ ...labelSt, fontSize: 10 }}>{tr("What did you do to complete this? *")}</div><textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the steps you took...")} rows={3} style={{ ...inputSt, resize: "vertical" }} /></div>
+              <div style={{ marginBottom: 8 }}><div style={{ ...labelSt, fontSize: 10 }}>{tr("What did you do to complete this? *")}</div><textarea value={note} onChange={e => setNote(e.target.value)} maxLength={TASK_NOTE_MAX} placeholder={tr("Describe the steps you took...")} rows={3} style={{ ...inputSt, resize: "vertical" }} /></div>
               <div style={{ marginBottom: 10 }}><div style={{ ...labelSt, fontSize: 10 }}>{tr("Photo of completed task *")}</div>{!preview ? (<button type="button" onClick={() => fileRef.current && fileRef.current.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, minHeight: TAP, padding: "12px", background: t.hover, border: "1px dashed " + GREEN, borderRadius: R.md, cursor: "pointer", color: ink(t, GREEN), fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={ink(t, GREEN)} /><span style={{ textAlign: "left" }}><span style={{ display: "block" }}>{tr("Take Photo of Completed Task")}</span><span style={{ display: "block", fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("Required to verify completion")}</span></span></button>) : (<div style={{ position: "relative" }}><img src={preview} alt={tr("Preview")} style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: R.md, border: "1px solid " + t.borderSolid }} /><button type="button" onClick={() => { setPhoto(null); setPreview(null); if (fileRef.current) fileRef.current.value = ""; }} aria-label={tr("Remove photo")} style={mkTapFrame({ position: "absolute", top: -2, right: -2 })}><span style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", color: "#F8F7F4", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</span></button></div>)}</div>
               <div style={{ display: "flex", gap: 8 }}><button type="button" onClick={clear} disabled={busy} style={{ ...btn(t.borderSolid), color: t.textSec }}>{tr("Cancel")}</button><button type="button" data-issue-send="resolve" onClick={resolve} disabled={busy} style={{ flex: "1 1 120px", minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: GREEN_FILL, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: busy ? 0.6 : 1 }}>{busy ? tr("Uploading...") : tr("Submit Resolution")}</button></div>
             </div>
@@ -7980,7 +8081,7 @@ function IssueSheet({ token, user, at, tasks, onClose, onChanged, showToast, lkC
           {panel === "cannot" && (
             <div style={{ marginTop: 16, padding: "12px 14px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.borderSolid }}>
               <div style={{ fontSize: 10, color: ink(t, RED), fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Explain why this cannot be completed *")}</div>
-              <textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the issue preventing completion...")} rows={3} style={{ ...inputSt, resize: "vertical", marginBottom: 8 }} />
+              <textarea value={note} onChange={e => setNote(e.target.value)} maxLength={TASK_NOTE_MAX} placeholder={tr("Describe the issue preventing completion...")} rows={3} style={{ ...inputSt, resize: "vertical", marginBottom: 8 }} />
               <div style={{ display: "flex", gap: 8 }}><button type="button" onClick={clear} disabled={busy} style={{ ...btn(t.borderSolid), color: t.textSec }}>{tr("Cancel")}</button><button type="button" data-issue-send="cannot" onClick={cannot} disabled={busy} style={{ flex: "1 1 120px", minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: RED_FILL, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: busy ? 0.6 : 1 }}>{tr("Submit")}</button></div>
             </div>
           )}
@@ -8093,13 +8194,13 @@ function AssignedTasksView({ assignedTasks, work, onOpenIssue, onOpenRequest, fa
           </div>
           {isResolving && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.greenSubtle }}>
             <div style={{ fontSize: 10, color: ink(t, GREEN), fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Mark as Resolved")}</div>
-            <div style={{ marginBottom: 8 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("What did you do to complete this? *")}</div><textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the steps you took...")} rows={3} style={{ ...inputSt, resize: "vertical" }} /></div>
+            <div style={{ marginBottom: 8 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("What did you do to complete this? *")}</div><textarea value={note} onChange={e => setNote(e.target.value)} maxLength={TASK_NOTE_MAX} placeholder={tr("Describe the steps you took...")} rows={3} style={{ ...inputSt, resize: "vertical" }} /></div>
             <div style={{ marginBottom: 10 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 4, fontFamily: FONT_HEAD }}>{tr("Photo of completed task *")}</div>{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GREEN, borderRadius: R.md, cursor: "pointer", color: ink(t, GREEN), fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={ink(t, GREEN)} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo of Completed Task")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("Required to verify completion")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: R.md, border: "1px solid " + t.borderSolid }} /><button onClick={() => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; }} aria-label={tr("Remove photo")} style={mkTapFrame({ position: "absolute", top: -2, right: -2 })}><span style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", color: "#F8F7F4", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</span></button></div>)}</div>
             <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleResolve(detail.task_id)} disabled={uploading} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: GREEN_FILL, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Resolution")}</button></div>
           </div>)}
           {isCantResolve && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.redSubtle }}>
             <div style={{ fontSize: 10, color: ink(t, RED), fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Explain why this cannot be completed *")}</div>
-            <textarea value={note} onChange={e => setNote(e.target.value)} placeholder={tr("Describe the issue preventing completion...")} rows={3} style={{ ...inputSt, resize: "vertical", marginBottom: 8 }} />
+            <textarea value={note} onChange={e => setNote(e.target.value)} maxLength={TASK_NOTE_MAX} placeholder={tr("Describe the issue preventing completion...")} rows={3} style={{ ...inputSt, resize: "vertical", marginBottom: 8 }} />
             <div style={{ display: "flex", gap: 8 }}><button onClick={() => setActivePanel(null)} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button onClick={() => handleCantResolve(detail.task_id)} disabled={uploading} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.md, border: "none", background: RED_FILL, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: uploading ? 0.6 : 1 }}>{tr("Submit")}</button></div>
           </div>)}
         </div>
@@ -11866,11 +11967,23 @@ const issueSubject = (s) => typeof s === "string" && (s === "inspection_finding"
 // so any draft or reminder subject of a form opens it, and so does the
 // portal's own address for one, /drafts/<id>.
 const draftSubject = (s) => typeof s === "string" && /^(form_)?(draft|drafts|reminder)(_|$)|^form_(draft|reminder)|^draft_reminder$|^unfinished_form$/.test(s);
+// Where a row of the bell opens: its subject's place, else the place its
+// own staff app link names (part 369, API-83), for a subject this build
+// has no place for.
+function rowPlace(row) {
+  if (!row) return null;
+  const own = notifPlace(row.subjectType, row.subjectId);
+  if (own) return own;
+  const asked = staffAppOpen(row.link);
+  return asked ? notifPlace(asked.subjectType, asked.subjectId) : null;
+}
 function notifPlace(subjectType, subjectId) {
   if (draftSubject(subjectType) && subjectId !== null && subjectId !== undefined && subjectId !== "") return { tab: "forms", draft: String(subjectId) };
   if (issueSubject(subjectType) && subjectId !== null && subjectId !== undefined && subjectId !== "") return { issue: String(subjectId) };
   if (inspectionSubject(subjectType)) return subjectId === null || subjectId === undefined ? { tab: "inspect" } : { tab: "inspect", inspection: String(subjectId) };
-  if (shiftSubject(subjectType)) return { tab: "schedule" };
+  // Part 369 (API-62): a shift notice names the shift, and My Schedule
+  // opens at it.
+  if (shiftSubject(subjectType)) return subjectId === null || subjectId === undefined || subjectId === "" ? { tab: "schedule" } : { tab: "schedule", shift: String(subjectId) };
   // Round 2 (part 355, PORT-10 and PORT-14), from what the API answers
   // the notice as built: an HR case, its read-only sheet for a holder of
   // manage_cases; a client's concern, the report read-only for a reader
@@ -11883,7 +11996,9 @@ function notifPlace(subjectType, subjectId) {
   // hr_case_opened_for, to the reporter, with no case words) opens My
   // reports under Speak Up at it; a filed form's notice (type form, its
   // subject the report, API-83) opens the report read-only.
-  if (subjectType === "hr_case_opened_for") return { tab: "speakup", myReport: named };
+  // Part 369: the reporter's notice that their case was resolved or
+  // closed (API-63's hr_case_closed_for, no case words) opens it too.
+  if (subjectType === "hr_case_opened_for" || subjectType === "hr_case_closed_for") return { tab: "speakup", myReport: named };
   if (subjectType === "form") return named ? { report: named } : null;
   if (caseSubject(subjectType)) return named ? { hrCase: named } : null;
   if (subjectType === "customer_concern") return named ? { concern: named } : null;
@@ -11955,6 +12070,22 @@ function notifOffOrigin(link) {
     return (u.protocol === "https:" || u.protocol === "http:") && u.origin !== window.location.origin;
   } catch (e) { return false; }
 }
+// A notice's link to the staff app itself (part 369, API-83): since part
+// 363 the API links a reader who is not an admin to the staff app's
+// /?open=<type>:<id> (linkByReader), at its own address, which may be
+// another address of this app. What it opens, else null. The dashboard's
+// links are #-addresses and never carry ?open=.
+function staffAppOpen(link) {
+  try {
+    if (!link) return null;
+    const u = new URL(link, window.location.href);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    return openOfAddress(u.search, u.pathname);
+  } catch (e) { return null; }
+}
+// The notice's link to the dashboard, offered as Open in the dashboard:
+// an address of another origin that is no staff app address.
+const notifDashLink = (link) => notifOffOrigin(link) && !staffAppOpen(link);
 
 // Notices are read in the screen's language, Step 206: the API renders a
 // notice's title and body in the call's locale when it keeps the notice's
@@ -12014,10 +12145,11 @@ function NotificationsSheet({ token, t, locale, unread, caps, refused, onClose, 
 
   const openRow = async (row) => {
     await markRead(row);
-    const place = notifPlace(row.subjectType, row.subjectId);
+    const place = rowPlace(row);
     // A case or a client's concern opens on its sheet with the notice's
-    // own link to the dashboard, where it is worked.
-    if (place && notifReadable(place, caps, refused)) { onClose(); onOpen(place.hrCase || place.concern || place.report ? Object.assign({}, place, { link: notifOffOrigin(row.link) ? row.link : null }) : place); }
+    // own link to the dashboard, where it is worked; a link to the staff
+    // app is this app, and the sheet offers no other (part 369).
+    if (place && notifReadable(place, caps, refused)) { onClose(); onOpen(place.hrCase || place.concern || place.report ? Object.assign({}, place, { link: notifDashLink(row.link) ? row.link : null }) : place); }
   };
 
   const wideBtn = { minHeight: 44, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD };
@@ -12043,10 +12175,12 @@ function NotificationsSheet({ token, t, locale, unread, caps, refused, onClose, 
 
           {(rows || []).map(row => {
             const isUnread = !row.readAt;
-            const hasTab = notifReadable(notifPlace(row.subjectType, row.subjectId), caps, refused);
+            const hasTab = notifReadable(rowPlace(row), caps, refused);
             // A subject the portal has no place for offers its link on the
-            // dashboard; one it can open never sends the person elsewhere.
-            const showDashboard = !hasTab && notifOffOrigin(row.link);
+            // dashboard; one it can open never sends the person elsewhere,
+            // and a link to the staff app is never offered as the
+            // dashboard (part 369).
+            const showDashboard = !hasTab && notifDashLink(row.link);
             return (
               <div key={row.id} style={{ marginBottom: 6, background: t.card, border: "1px solid " + (isUnread ? t.goldBorder : t.borderSolid), borderRadius: R.md }}>
                 <button onClick={() => openRow(row)} style={{ width: "100%", minHeight: 56, display: "flex", alignItems: "flex-start", gap: 10, padding: "12px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
