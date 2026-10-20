@@ -95,6 +95,14 @@ function useBusy(key, on) {
   useEffect(() => () => setBusy(key, false), [key]);
 }
 
+// A form that is open asks before a tap on the bottom bar or a place under
+// More takes the person away from it (PORT-21). It sets this to a function
+// given the move, and makes the move once the person says Leave and the
+// page has saved. One at a time: the form on screen.
+let leaveGuard = null;
+const guardLeaving = (fn) => { leaveGuard = fn; };
+const leaveThen = (go) => { if (leaveGuard) leaveGuard(go); else go(); };
+
 const UPDATE_BAR_ID = "ocsa-update-bar";
 
 function anySheetOpen() {
@@ -397,6 +405,17 @@ async function prepareFormPhoto(file) {
   } catch (e) {
     throw new Error(FORMS_PHOTO_UNREADABLE);
   }
+}
+
+// An issue's photo and a resolution's, read as a form's photo is read
+// (PORT-27): a HEIC made a JPEG and the whole held to 2000 pixels, about
+// 1 MB where the camera's file is 5 to 15. Answers the file to send, or
+// null once the person has been told it could not be read or is too big.
+async function readyIssuePhoto(picked, showToast) {
+  let file;
+  try { file = await prepareFormPhoto(picked); } catch (e) { showToast(tr(FORMS_PHOTO_UNREADABLE), "error"); return null; }
+  if (file.size > 10 * 1024 * 1024) { showToast(tr("Photo must be under 10MB"), "error"); return null; }
+  return file;
 }
 
 // The response carries a storage path and no URL of any kind. The path is
@@ -1262,6 +1281,95 @@ const inspectSafetyAnswerOf = (d, form) => {
     } : null)).filter(Boolean),
   };
 };
+// Work in progress, kept on this phone (PORT-20): what a person has typed
+// on a screen that sends once (an issue being reported, a resolution, a
+// Help question, an App support ticket, profile edits) and the photo taken
+// for it, by person and place, so a closed app or a reload brings it back.
+// It goes once the work is sent or the person cancels it, and after a
+// week. The photo is kept apart from the words, and a photo the phone's
+// storage cannot hold is left out while the words are still kept.
+const WORK_PREFIX = "ocsa-staff-work:";
+const WORK_MAX_MS = 7 * 24 * 60 * 60 * 1000;
+const workKey = (userId, place) => WORK_PREFIX + String(userId) + ":" + place;
+function readWork(userId, place) {
+  try {
+    const raw = window.localStorage.getItem(workKey(userId, place));
+    const v = raw ? JSON.parse(raw) : null;
+    if (!v || typeof v !== "object" || !(Date.now() - Number(v.at) < WORK_MAX_MS)) return null;
+    return v;
+  } catch (e) { return null; }
+}
+function keepWork(userId, place, fields) {
+  try {
+    if (!fields) window.localStorage.removeItem(workKey(userId, place));
+    else window.localStorage.setItem(workKey(userId, place), JSON.stringify({ at: Date.now(), fields: fields }));
+  } catch (e) {}
+}
+function readWorkPhoto(userId, place) {
+  try { const v = window.localStorage.getItem(workKey(userId, place) + ":photo"); return v && /^data:image\//.test(v) ? v : null; } catch (e) { return null; }
+}
+function keepWorkPhoto(userId, place, dataUrl) {
+  try {
+    if (!dataUrl) window.localStorage.removeItem(workKey(userId, place) + ":photo");
+    else window.localStorage.setItem(workKey(userId, place) + ":photo", dataUrl);
+  } catch (e) { try { window.localStorage.removeItem(workKey(userId, place) + ":photo"); } catch (x) {} }
+}
+// Forgotten at once, for a screen that closes in the same tap that sends
+// or drops the work, which leaves no draw for the hook to forget it in.
+function forgetWork(userId, place) {
+  if (userId === null || userId === undefined || userId === "" || !place) return;
+  keepWork(userId, place, null); keepWorkPhoto(userId, place, null);
+}
+// Profile edits carry a person's address and emergency contact, so a
+// deliberate sign-out drops them, whoever's they are; a session that ran
+// out keeps them, as it keeps the rest of the work, for its owner.
+function forgetPersonalWork() {
+  try {
+    const ls = window.localStorage;
+    const keys = [];
+    for (let i = 0; i < ls.length; i += 1) { const k = ls.key(i); if (k && k.indexOf(WORK_PREFIX) === 0 && /:profile(:photo)?$/.test(k)) keys.push(k); }
+    keys.forEach(k => ls.removeItem(k));
+  } catch (e) {}
+}
+// A kept photo, made a file again to send.
+function workPhotoFile(dataUrl) {
+  try {
+    const m = /^data:([^;,]+);base64,(.*)$/.exec(String(dataUrl || ""));
+    if (!m) return null;
+    const bin = window.atob(m[2]);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    return new File([bytes], "photo." + (m[1] === "image/png" ? "png" : "jpg"), { type: m[1] });
+  } catch (e) { return null; }
+}
+// The screen's side of it. Each time the place changes (a screen opened, a
+// sheet opened on another task), whatever was kept there is given back
+// through restore, empty when nothing was, and from then on the fields and
+// the photo are kept as they change; empty true forgets them. The write in
+// the same draw as a restore is skipped, so the state still on screen from
+// the place before is never kept under the new one.
+function useKeptWork(userId, place, fields, photo, empty, restore) {
+  const skip = useRef({ fields: false, photo: false });
+  const on = userId !== null && userId !== undefined && userId !== "" && !!place;
+  useEffect(() => {
+    if (!on) return;
+    skip.current = { fields: true, photo: true };
+    const v = readWork(userId, place);
+    restore(v && v.fields ? v.fields : null, readWorkPhoto(userId, place));
+  }, [on, userId, place]);
+  const text = JSON.stringify(fields);
+  useEffect(() => {
+    if (!on) return;
+    if (skip.current.fields) { skip.current.fields = false; return; }
+    keepWork(userId, place, empty ? null : fields);
+  }, [on, userId, place, text, empty]);
+  useEffect(() => {
+    if (!on) return;
+    if (skip.current.photo) { skip.current.photo = false; return; }
+    keepWorkPhoto(userId, place, empty ? null : photo);
+  }, [on, userId, place, photo, empty]);
+}
+
 // A walk's site checklist, kept on this phone as it is scored, by person
 // and inspection (Step 313), so leaving and coming back continues it; the
 // safety part is kept by the API as the inspector's draft. Every read and
@@ -1611,6 +1719,16 @@ const iosInBrowserTab = () => {
     return m === "ios_safari" || m === "ios_other_browser" || (m === "in_app_browser" && /iPhone|iPad|iPod/.test(String(ua)));
   } catch (e) { return false; }
 };
+// An iPhone or iPad on iOS before 16.4, which sends no alerts to a web app
+// however it is opened (PORT-29).
+const iosTooOld = () => {
+  try {
+    const m = /(?:iPhone|iPad|iPod)[^)]*?OS (\d+)[_.](\d+)/.exec(String(window.navigator.userAgent));
+    return !!m && (Number(m[1]) < 16 || (Number(m[1]) === 16 && Number(m[2]) < 4));
+  } catch (e) { return false; }
+};
+const IOS_UPDATE_LINE = "Alerts need iOS 16.4 or later. Update this iPhone in Settings, General, Software Update.";
+const IOS_HOME_LINE = "On an iPhone, alerts come only to the app on your Home Screen. Add it with Share, then Add to Home Screen, and open it from there to turn alerts on.";
 // The worker's registration: the one already there, or, on a first load
 // while it is still registering, the one ready within a few seconds.
 async function pushRegistration() {
@@ -1710,6 +1828,11 @@ async function readPushKey(token) {
 // The card after the first sign-in, remembered per person on the phone
 // once either of its buttons is tapped.
 const ALERTS_ASKED_PREFIX = "ocsa-staff-alerts-asked:";
+// An iPhone browser tab is told once why it gets no alerts (PORT-29). It
+// is the phone's, not the person's, so one key for whoever signs in.
+const IOS_TOLD_KEY = "ocsa-staff-ios-alerts-told";
+const iosTold = () => { try { return window.localStorage.getItem(IOS_TOLD_KEY) === "1"; } catch (e) { return true; } };
+const saveIosTold = () => { try { window.localStorage.setItem(IOS_TOLD_KEY, "1"); } catch (e) {} };
 const alertsAsked = (userId) => { try { return window.localStorage.getItem(ALERTS_ASKED_PREFIX + String(userId || "")) === "1"; } catch (e) { return true; } };
 const saveAlertsAsked = (userId) => { try { window.localStorage.setItem(ALERTS_ASKED_PREFIX + String(userId || ""), "1"); } catch (e) {} };
 // How long signing out waits for this phone's subscription to be deleted
@@ -2021,6 +2144,9 @@ function LanguageChoices({ value, onChange, languages, t }) {
 // one more waits its turn: it shows, for its own full time, as soon as
 // one of the three has gone.
 const TOAST_MS = 3000;
+// A failure stays longer, and carries Close (PORT-33): a person who looked
+// away for three seconds would never learn the tap did not go.
+const TOAST_ERROR_MS = 8000;
 const TOAST_MAX = 3;
 // An error toast's red, the red every filled red control is drawn in:
 // white on it reads 6.54 to 1.
@@ -2035,12 +2161,15 @@ function toastQueue(onChange) {
         q.timers.delete(one.id);
         q.shown = q.shown.filter(x => x.id !== one.id);
         pump();
-      }, TOAST_MS));
+      }, one.type === "error" ? TOAST_ERROR_MS : TOAST_MS));
     }
     onChange(q.shown);
   };
   return {
     add: (msg, type) => { q.seq += 1; q.waiting.push({ id: q.seq, msg: msg, type: type }); pump(); },
+    // Close on a failure's toast: that toast goes now, and the next one
+    // waiting takes its place.
+    drop: (id) => { const tm = q.timers.get(id); if (tm) clearTimeout(tm); q.timers.delete(id); q.shown = q.shown.filter(x => x.id !== id); pump(); },
     clear: () => { q.timers.forEach(tm => clearTimeout(tm)); q.timers.clear(); q.shown = []; q.waiting = []; onChange(q.shown); },
   };
 }
@@ -2085,6 +2214,8 @@ export default function OCSAStaffPortal() {
   const [booting, setBooting] = useState(!ENTRY && !!readAuth());
   const [activeTab, setActiveTab] = useState("clock");
   const [clockStatus, setClockStatus] = useState(null);
+  // The status read at sign-in failed, and none has landed since (PORT-25).
+  const [statusFailed, setStatusFailed] = useState(false);
   const [selectedSite, setSelectedSite] = useState(null);
   const [sessionSites, setSessionSites] = useState(null);
   // Each list that came back empty-handed, apart from a list still on its
@@ -2164,7 +2295,7 @@ export default function OCSAStaffPortal() {
   // a shift the person has just changed.
   const takeStatus = (cs, seq) => {
     if (seq !== statusSeq.current) return false;
-    setClockStatus(cs); hydrateCompleted(cs, seq);
+    setClockStatus(cs); setStatusFailed(false); hydrateCompleted(cs, seq);
     const asked = statusAskedAt.current;
     setTaken(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at >= asked) n.set(id, v); }); return n.size === prev.size ? prev : n; });
     return true;
@@ -2384,7 +2515,7 @@ export default function OCSAStaffPortal() {
     repostPhoneAlerts(tok);
     if (me.preferences && applyPrefsRef.current) applyPrefsRef.current(me.preferences, tok, me.user);
     api("/api/users/profile/me", { token: tok }).then(p => { if (p?.user?.profilePhotoUrl) setUser(prev => ({ ...prev, profilePhotoUrl: p.user.profilePhotoUrl })); }).catch(() => {});
-    try { const seq = nextStatusSeq(); const cs = await api(statusPath(), { token: tok }); if (takeStatus(cs, seq) && cs.clockedIn && cs.shift) setSelectedSite(cs.shift.siteId); } catch (e) { console.warn("Clock status:", e.message); }
+    try { const seq = nextStatusSeq(); const cs = await api(statusPath(), { token: tok }); if (takeStatus(cs, seq) && cs.clockedIn && cs.shift) setSelectedSite(cs.shift.siteId); } catch (e) { console.warn("Clock status:", e.message); setStatusFailed(true); }
     loadAssignedTasks(tok);
     loadSessionSites(tok);
     loadLookups(tok, wordsLanguage());
@@ -3106,8 +3237,23 @@ export default function OCSAStaffPortal() {
     const place = notifPlace(openAsk.subjectType, openAsk.subjectId);
     if (place && (place.hrCase || place.concern || place.report) && caps === null) return;
     setOpenAsk(null);
+    markAlertRead(openAsk.subjectType, openAsk.subjectId);
     if (place) openPlace(place); else if (openAsk.subjectType) setNotifOpen(true);
   }, [openAsk, booting, screen, token, caps]);
+  // A tapped phone alert marks its notice read, as a tap on it in the bell
+  // does (PORT-34). The alert carries the notice's subject and not its id,
+  // so the newest page of notices is read and each one still unread about
+  // that subject is marked, and the bell's count read again.
+  const markAlertRead = async (subjectType, subjectId) => {
+    if (!token || !subjectType) return;
+    const same = (v) => String(v === null || v === undefined ? "" : v);
+    try {
+      const d = await api("/api/notifications?limit=" + NOTIF_PAGE + "&locale=" + languageToSend(), { token });
+      const list = (Array.isArray(d && d.notifications) ? d.notifications : []).filter(r => r && !r.readAt && same(r.subjectType) === same(subjectType) && same(r.subjectId) === same(subjectId));
+      for (let i = 0; i < list.length; i += 1) { try { await api("/api/notifications/" + encodeURIComponent(list[i].id) + "/read", { method: "POST", token }); } catch (e) {} }
+      if (list.length > 0) refreshUnread();
+    } catch (e) {}
+  };
   // The list of chats is read once the portal is up, so the Chat tab's
   // count is on the bar before Chat is ever opened, and again each time
   // the app comes back to the front, with the clock status below.
@@ -3444,14 +3590,14 @@ export default function OCSAStaffPortal() {
     // list again after this.
     tasksSeq.current += 1;
     setOfflineOpen(false);
-    if (!keepList) forgetKept();
+    if (!keepList) { forgetKept(); forgetPersonalWork(); }
     setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null); setTasksMode(null); setNotTracked({}); setSiteListAt(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
     setChannels(null); setChannelsFailed(false); setMessages([]); setMessagesOf(null); setActiveChannel(null);
     setAgentConversation(null); setFormsDraft(null); setFieldKitAt(null); setEquipmentShown(null); setEquipmentBack(null); setInspectAt(null); setTaskFocus(null); setIssueAt(null);
     setShortcutsState({ userId: null, ids: DEFAULT_SHORTCUTS.slice() });
-    setLookups([]); setLookupsLang(null); toastsRef.current.clear(); setLoading(false);
-    setUnread(0); setNotifOpen(false); setShowMore(false); setShortcutsOpen(false); setAnnouncementOpen(null); setOpenAsk(null); setAlertsCard(null); setAlertsCardBusy(false);
+    setLookups([]); setLookupsLang(null); toastsRef.current.clear(); setLoading(false); setStatusFailed(false);
+    setUnread(0); unreadKnown.current = false; setNotifOpen(false); setShowMore(false); setShortcutsOpen(false); setAnnouncementOpen(null); setOpenAsk(null); setAlertsCard(null); setAlertsCardBusy(false);
     setActiveTab("clock");
     unreadWarned.current = false; prefsLive.current = false; chosenOnEntryRef.current = null;
     tasksAsked.current = null; tasksReqAsked.current = null; inFlightTaskIds.current = new Set();
@@ -3486,6 +3632,9 @@ export default function OCSAStaffPortal() {
     if (booting || screen !== "main" || !token || !uid || alertsCard !== null) return undefined;
     let alive = true;
     const settle = () => { if (alive) setAlertsCard("done"); };
+    // An iPhone browser tab gets no alerts at all, so the card says why
+    // once, in place of asking (PORT-29).
+    if (iosInBrowserTab() && !iosTold()) { setAlertsCard("ios"); return undefined; }
     if (alertsAsked(uid) || iosInBrowserTab() || !pushSupported() || pushPermission() !== "default") { settle(); return undefined; }
     const timer = setTimeout(settle, 6000);
     (async () => {
@@ -3500,6 +3649,7 @@ export default function OCSAStaffPortal() {
   const answerAlertsCard = async (turnOn) => {
     const key = alertsCard;
     if (!key || key === "done" || alertsCardBusy) return;
+    if (key === "ios") { saveIosTold(); setAlertsCard("done"); return; }
     if (uid) saveAlertsAsked(uid);
     if (!turnOn) { setAlertsCard("done"); return; }
     setAlertsCardBusy(true);
@@ -3509,13 +3659,22 @@ export default function OCSAStaffPortal() {
     if (r === "on") showToast(tr("Alerts are on for this phone."));
     else if (r === "failed") showToast(tr("Your settings did not save."), "error");
   };
+  // A count that rises while the app is open is said (PORT-29): the bell's
+  // own count, as last drawn, against the one just read. The first read
+  // after a sign-in only sets it.
+  const unreadRef = useRef(0);
+  const unreadKnown = useRef(false);
+  useEffect(() => { unreadRef.current = unread; }, [unread]);
   const refreshUnread = useCallback(async (tkn) => {
     const tk = tkn || token;
     if (!tk) return;
     try {
       const d = await api("/api/notifications/unread-count", { token: tk });
       const n = Number(d && d.unread);
-      setUnread(Number.isFinite(n) && n > 0 ? n : 0);
+      const next = Number.isFinite(n) && n > 0 ? n : 0;
+      if (unreadKnown.current && next > unreadRef.current && !document.hidden) showToast(tr("You have a new notice. Tap the bell to read it."), "notice");
+      unreadKnown.current = true; unreadRef.current = next;
+      setUnread(next);
     } catch (err) {
       setUnread(0);
       if (!unreadWarned.current) { unreadWarned.current = true; console.warn("Notifications:", err.message); }
@@ -3528,7 +3687,9 @@ export default function OCSAStaffPortal() {
     const tick = () => { if (!document.hidden) refreshUnread(); };
     tick();
     const iv = setInterval(tick, 60000);
-    return () => clearInterval(iv);
+    // Read again the moment the app comes back to the front (PORT-29).
+    document.addEventListener("visibilitychange", tick);
+    return () => { clearInterval(iv); document.removeEventListener("visibilitychange", tick); };
   }, [token, screen, refreshUnread]);
 
   // The app keeps itself current. showBar is true only once a reload has
@@ -3655,15 +3816,15 @@ export default function OCSAStaffPortal() {
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
               {activeTab === "clock" && signAt && <SignScreen key={signAt.id || "list"} token={token} id={signAt.id || null} requests={signList} onOpen={openSign} onBack={() => setSignAt(null)} onChanged={() => setSignAsked(n => n + 1)} t={t} />}
               {activeTab === "property" && destCtx.property && <MyPropertyView rows={property} onSign={(id) => openSign({ id: id })} t={t} />}
-              {activeTab === "support" && destCtx.support && <SupportView token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} focus={supportAt} t={t} />}
+              {activeTab === "support" && destCtx.support && <SupportView userId={user && user.id} token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} focus={supportAt} t={t} />}
               {activeTab === "supplyorders" && (destCtx.supplyOrders || !!supplyAt) && <SupplyOrdersView token={token} user={user} holder={supplyHolder === true} rows={supplyOrders} onReload={() => loadSupplyOrders()} onRow={takeSupplyOrder} at={supplyAt} onAt={setSupplyAt} getOpts={getOpts} showToast={showToast} t={t} />}
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
-              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
+              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} />}
               {activeTab === "tasks" && <TasksView token={token} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
-              {activeTab === "issuetasks" && <AssignedTasksView assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
+              {activeTab === "issuetasks" && <AssignedTasksView userId={user && user.id} assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
-              {activeTab === "agent" && <AgentView token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} onOpenDocument={(d) => openLibraryDoc(d, null)} />}
+              {activeTab === "agent" && <AgentView userId={user && user.id} token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} onOpenDocument={(d) => openLibraryDoc(d, null)} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} attachIssuePhoto={attachIssuePhoto} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} findings={findings} onFindingsChanged={() => loadFindings()} openFinding={findingOpen} onOpenIssue={openIssue} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} token={token} user={user} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
@@ -3671,7 +3832,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "speakup" && <SpeakUpView token={token} focus={speakAt} t={t} />}
               {activeTab === "sds" && <div style={{ padding: 16 }}><SdsBrowser initial={sdsList} onList={setSdsList} code={sdsCode} onCode={setSdsCode} t={t} /></div>}
               {activeTab === "workspace" && destCtx.workspace && <WorkspaceView token={token} user={user} projects={wsProjects} onProjects={setWsProjects} at={wsAt} onAt={setWsAt} channels={channels} onOpenChat={(id) => { chooseChat(id); setActiveTab("chat"); setShowMore(false); }} showToast={showToast} t={t} />}
-              {activeTab === "training" && (destCtx.training || !!trainingAt) && <TrainingView token={token} data={training} onData={setTraining} at={trainingAt} onAt={setTrainingAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} t={t} />}
+              {activeTab === "training" && <TrainingView token={token} data={training} onData={setTraining} at={trainingAt} onAt={setTrainingAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} t={t} />}
               {activeTab === "fieldkit" && destCtx.isAdmin && <FieldKitView token={token} user={user} at={fieldKitAt} onAt={setFieldKitAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} assignedSites={sites} onOpenEquipment={(code) => { setEquipmentShown(code); setEquipmentBack("fieldkit"); setActiveTab("equipment"); }} showToast={showToast} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} onToken={adoptToken} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
@@ -3692,7 +3853,7 @@ export default function OCSAStaffPortal() {
             <div className="sp-more" onClick={e => e.stopPropagation()} style={{ position: "fixed", bottom: 60, left: "50%", transform: "translateX(-50%)", maxWidth: 400, background: t.card, borderRadius: R.lg, border: "1px solid " + t.border, boxShadow: t.popShadow, zIndex: 151 }}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 4 }}>
                 {moreTabs.map(tab => { const active = activeTab === tab.id; const TabIco = tab.icon; return (
-                  <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMore(false); }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 2px", background: active ? t.goldBg : "transparent", border: active ? "1px solid " + t.goldBorder : "1px solid transparent", borderRadius: 12, cursor: "pointer" }}>
+                  <button key={tab.id} onClick={() => { const go = () => { setActiveTab(tab.id); setShowMore(false); }; if (tab.id === activeTab) go(); else leaveThen(go); }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 2px", background: active ? t.goldBg : "transparent", border: active ? "1px solid " + t.goldBorder : "1px solid transparent", borderRadius: 12, cursor: "pointer" }}>
                     <div style={{ position: "relative" }}>
                       <TabIco sz={22} c={active ? t.goldText : t.textSec} />
                       {tab.badge > 0 && <div style={mkCountBadge(t)}>{badgeText(tab.badge)}</div>}
@@ -3715,7 +3876,7 @@ export default function OCSAStaffPortal() {
               const active = activeTab === tab.id;
               const TabIco = tab.icon;
               return (
-                <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMore(false); }} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
+                <button key={tab.id} onClick={() => { const go = () => { setActiveTab(tab.id); setShowMore(false); }; if (tab.id === activeTab) go(); else leaveThen(go); }} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 0", position: "relative" }}>
                   <div style={{ position: "relative" }}>
                     <TabIco sz={22} c={active ? t.goldText : t.textMut} />
                     {tab.badge > 0 && <div style={mkCountBadge(t)}>{badgeText(tab.badge)}</div>}
@@ -3768,12 +3929,13 @@ export default function OCSAStaffPortal() {
           <div role="dialog" aria-modal="true" aria-labelledby="ocsa-alerts-card-title" onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, borderRadius: R.lg + "px " + R.lg + "px 0 0", border: "1px solid " + t.borderSolid, borderBottom: "none", padding: "18px 16px calc(16px + env(safe-area-inset-bottom, 0px))" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
               <div style={{ width: 44, height: 44, borderRadius: "50%", background: t.goldBg, border: "1px solid " + t.goldBorder, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><BellIco sz={20} c={t.goldText} /></div>
-              <div id="ocsa-alerts-card-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3 }}>{tr("Get an alert when someone messages you or assigns you an inspection?")}</div>
+              <div id="ocsa-alerts-card-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3 }}>{alertsCard === "ios" ? tr("Alerts on an iPhone") : tr("Get an alert when someone messages you or assigns you an inspection?")}</div>
             </div>
-            <div style={{ display: "flex", gap: 10 }}>
+            {alertsCard === "ios" && <div data-alerts-ios="1" style={{ fontSize: 14, color: t.text, lineHeight: 1.5, marginBottom: 16 }}>{iosTooOld() ? tr(IOS_UPDATE_LINE) : tr(IOS_HOME_LINE)}</div>}
+            {alertsCard === "ios" ? <button type="button" onClick={() => answerAlertsCard(false)} style={{ ...mkPrimaryBtn(t, false) }}>{tr("Got it")}</button> : <div style={{ display: "flex", gap: 10 }}>
               <button type="button" onClick={() => answerAlertsCard(false)} disabled={alertsCardBusy} style={{ flex: 1, minHeight: TAP, padding: "0 12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Not now")}</button>
               <button type="button" onClick={() => answerAlertsCard(true)} disabled={alertsCardBusy} style={{ flex: 1, minHeight: TAP, padding: "0 12px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: alertsCardBusy ? 0.6 : 1, fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Turn on")}</button>
-            </div>
+            </div>}
           </div>
         </div>
       )}
@@ -3795,8 +3957,11 @@ export default function OCSAStaffPortal() {
           taps: a tap on a row under a toast reaches the row. A toast that
           carries a button of its own gives that button pointerEvents
           "auto" and nothing else. Success is navy on green and a notice
-          navy on orange; an error is white on the filled red, 6.54 to 1. */}
-      <div role="status" aria-live="polite" style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", zIndex: 1000, maxWidth: "90%", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, pointerEvents: "none" }}>{toasts.map(x => (<div key={x.id} style={{ background: x.type === "error" ? TOAST_RED : x.type === "notice" ? ORANGE : GREEN, color: x.type === "error" ? "#FFFFFF" : NAVY, padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", textAlign: "center" }}>{x.msg}</div>))}</div>
+          navy on orange; an error is white on the filled red, 6.54 to 1.
+          An error stays eight seconds and carries Close (PORT-33). */}
+      <div role="status" aria-live="polite" style={{ position: "fixed", top: 80, left: "50%", transform: "translateX(-50%)", zIndex: 1000, maxWidth: "90%", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, pointerEvents: "none" }}>{toasts.map(x => (x.type === "error"
+        ? <div key={x.id} data-toast-error="1" style={{ display: "flex", alignItems: "center", gap: 4, background: TOAST_RED, color: "#FFFFFF", padding: "0 0 0 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", textAlign: "center" }}><span style={{ padding: "10px 0", minWidth: 0 }}>{x.msg}</span><button type="button" aria-label={tr("Close")} onClick={() => toastsRef.current.drop(x.id)} style={{ pointerEvents: "auto", flexShrink: 0, width: TAP, height: TAP, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: "#FFFFFF", cursor: "pointer", padding: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>
+        : <div key={x.id} style={{ background: x.type === "notice" ? ORANGE : GREEN, color: NAVY, padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", textAlign: "center" }}>{x.msg}</div>))}</div>
 
       <style>{`
         @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
@@ -4344,6 +4509,10 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
   }, [token, user && user.id]);
   const getInspectionsForDay = (ds) => inspections.filter(i => inspectionDay(i.scheduled_date) === ds);
   const [detail, setDetail] = useState(null);
+  // A drop request on its way (PORT-23): Submit Request sends it once, and
+  // a second tap while it goes sends nothing.
+  const [dropSending, setDropSending] = useState(false);
+  const dropGoing = useRef(false);
   // The day tapped on the week strip, as YYYY-MM-DD, whose sheet lists
   // everything on it. null while no day is open.
   const [dayOpen, setDayOpen] = useState(null);
@@ -4367,6 +4536,13 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
   // as it did.
   const [offTypes, setOffTypes] = useState(null);
   const [myOff, setMyOff] = useState([]);
+  // A read that failed is said in its place with Try again (PORT-26):
+  // the leave types (the whole time off part waits on them), and the
+  // person's own requests, which never read as none when they did not
+  // load. A 404 for the types is a route not offered, which shows nothing.
+  const [offTypesFailed, setOffTypesFailed] = useState(false);
+  const [myOffFailed, setMyOffFailed] = useState(false);
+  const [offTypesAsk, setOffTypesAsk] = useState(0);
   const [reqOpen, setReqOpen] = useState(false);
   const [reqForm, setReqForm] = useState(null);
   const [reqBusy, setReqBusy] = useState(false);
@@ -4424,13 +4600,14 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
 
   useEffect(() => { loadSchedule(); }, [weekStart, view]);
 
-  // Asked once when the Schedule tab opens. Any answer other than
-  // 200 leaves types null and shows nothing, with no toast.
+  // Asked once when the Schedule tab opens. A 404 leaves types null and
+  // shows nothing; any other failure says so with Try again.
   const loadMyOff = useCallback(async () => {
     try {
       const d = await api("/api/time-off/mine?status=all&limit=" + TIME_OFF_PAGE, { token });
       setMyOff(Array.isArray(d) ? d : (Array.isArray(d && d.requests) ? d.requests : []));
-    } catch (err) { setMyOff([]); }
+      setMyOffFailed(false);
+    } catch (err) { setMyOffFailed(true); }
   }, [token]);
 
   useEffect(() => {
@@ -4441,12 +4618,12 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
         const d = await api("/api/time-off/types", { token });
         const list = Array.isArray(d) ? d : (Array.isArray(d && d.types) ? d.types : null);
         if (gone || !Array.isArray(list)) return;
-        setOffTypes(list);
+        setOffTypes(list); setOffTypesFailed(false);
         loadMyOff();
-      } catch (err) { /* not live yet, nothing shows */ }
+      } catch (err) { if (!gone) setOffTypesFailed(!(err && err.status === 404)); }
     })();
     return () => { gone = true; };
-  }, [compact, token, loadMyOff]);
+  }, [compact, token, loadMyOff, offTypesAsk]);
 
   const prevWeek = () => { if (view === "month") { const n = new Date(weekStart.getFullYear(), weekStart.getMonth() - 1, 1); setWeekStart(n); } else { const n = new Date(weekStart); n.setDate(n.getDate() - 7); setWeekStart(n); } };
   const nextWeek = () => { if (view === "month") { const n = new Date(weekStart.getFullYear(), weekStart.getMonth() + 1, 1); setWeekStart(n); } else { const n = new Date(weekStart); n.setDate(n.getDate() + 7); setWeekStart(n); } };
@@ -4598,6 +4775,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
       )}
 
       {!loading && failed && <ListFault icon={CalIco} text={tr("This list did not load.")} onRetry={loadSchedule} t={t} />}
+      {!compact && !timeOffOn && offTypesFailed && <div data-timeoff-fault="types" style={{ marginBottom: 14 }}><ListFault icon={CalIco} text={tr("Time off did not load.")} onRetry={() => setOffTypesAsk(n => n + 1)} t={t} /></div>}
 
       {/* WEEK VIEW. Each day is the control: a see-through frame at
           least 44 wide around the day drawn as it was, which opens the
@@ -4721,7 +4899,8 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
       {timeOffOn && (
         <div style={{ marginTop: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("My time off")}</div>
-          {myOff.length === 0 && <div style={{ fontSize: 12, color: t.textMut, padding: "10px 0" }}>{tr("No time off requests yet.")}</div>}
+          {myOffFailed && <div data-timeoff-fault="mine"><ListFault icon={CalIco} text={tr("Your time off requests did not load.")} onRetry={loadMyOff} t={t} /></div>}
+          {!myOffFailed && myOff.length === 0 && <div style={{ fontSize: 12, color: t.textMut, padding: "10px 0" }}>{tr("No time off requests yet.")}</div>}
           {myOff.map(r => {
             const hrs = timeOffHours(r.hours);
             return (
@@ -5035,7 +5214,9 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={() => setDetail({ ...detail, dropForm: null })} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{tr("Cancel")}</button>
-                  <button onClick={async () => {
+                  <button disabled={dropSending} onClick={async () => {
+                    if (dropGoing.current) return;
+                    dropGoing.current = true; setDropSending(true);
                     try {
                       // What was typed under Specify Reason is sent, with
                       // the Notes line under it when both were filled.
@@ -5053,7 +5234,8 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
                       if (e && e.code === "pickups.alreadyPosted") { setDetail(null); showToast(tr(e.message)); loadSchedule(); }
                       else showToast(tr(e.message) || tr("Drop request failed"), "error");
                     }
-                  }} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: RED_FILL, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD }}>{tr("Submit Request")}</button>
+                    dropGoing.current = false; setDropSending(false);
+                  }} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: RED_FILL, color: "#F8F7F4", fontSize: 12, fontWeight: 600, cursor: dropSending ? "default" : "pointer", opacity: dropSending ? 0.6 : 1, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD }}>{dropSending ? tr("Sending...") : tr("Submit Request")}</button>
                 </div>
               </div>
             )}
@@ -5070,7 +5252,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
 // site on the list, and each of the person's own such sites, scheduled
 // today or assigned, offers its list to read with no shift open
 // (onReadList).
-function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, onSelectSite, onStartSession, onEndSession, siteChoices, siteChoicesFailed, onRetrySites, loading, completedCount, taskCount, taskListLoaded, reference, siteReference, onReadList, watchSites, endWaiting, t }) {
+function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, onSelectSite, onStartSession, onEndSession, siteChoices, siteChoicesFailed, onRetrySites, loading, completedCount, taskCount, taskListLoaded, reference, siteReference, onReadList, watchSites, endWaiting, statusFailed, onRetryStatus, t }) {
   // The timer below is the one number on any screen wide enough to reach
   // the edge of its card, so this screen has to know the text size.
   const { textSize: clockTextSize } = useContext(TextSizeCtx);
@@ -5154,8 +5336,11 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
           {endWaiting && !loading && <div role="status" data-end-waiting="1" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 12, padding: "10px 12px", borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}><ClockIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.5, minWidth: 0 }}>{tr("Your shift end is saved on this phone, with the time you tapped it. It sends when you have signal.")}</div></div>}
         </div>
       )}
+      {/* The status could not be read (PORT-25): whether a shift is open
+          is not known, so the site list and Start Shift wait for it. */}
+      {!clockStatus && statusFailed && <div data-status-fault="1"><ListFault icon={ClockIco} text={tr("Your shift did not load.")} onRetry={onRetryStatus} t={t} /></div>}
       {startBlock && <div style={{ padding: "12px 14px", marginBottom: 16, background: t.orangeSubtle, borderRadius: R.md, border: "1px solid " + t.orangeBorder, boxShadow: t.shadow, fontSize: 12, color: ink(t, ORANGE), lineHeight: 1.5 }}>{startBlock}</div>}
-      <div style={{ marginBottom: 16 }}>
+      {!(!clockStatus && statusFailed) && <div style={{ marginBottom: 16 }}>
         <label style={{ ...labelSt, display: "block", marginBottom: 10 }}>{ci && clockStatus.shift ? tr("Shift Open at {site}", { site: clockStatus.shift.siteName }) : tr("Choose a Site to Start")}</label>
         {!siteChoices && siteChoicesFailed && <ListFault icon={MapIco} text={tr("Your sites did not load.")} onRetry={onRetrySites} t={t} />}
         {!siteChoices && !siteChoicesFailed && <div style={emptySt}>{tr("Loading sites...")}</div>}
@@ -5164,7 +5349,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
         {siteChoices && groups.length > 0 && !ci && (
           <button onClick={() => onStartSession(pendingSite)} disabled={!pendingSite || loading} style={{ ...mkPrimaryBtn(t, loading || !pendingSite), marginTop: 4, cursor: !pendingSite || loading ? "default" : "pointer" }}>{loading ? tr("Starting...") : pendingSite ? tr("Start Shift at {site}", { site: pendingName }) : tr("Start Shift")}</button>
         )}
-      </div>
+      </div>}
     </div>
   );
 }
@@ -5350,7 +5535,17 @@ function scheduleBlocks(d, cs, rows) {
 // Whether a window holds a minute of the day, one that runs past
 // midnight included.
 const windowHolds = (from, to, at) => (from === null || to === null || at === null ? false : from <= to ? at >= from && at < to : at >= from || at < to);
-const windowPast = (from, to, at) => (from === null || to === null || at === null ? false : from <= to ? at >= to : at >= to && at < from);
+// Whether a window is over, on the checklist day, which runs from its
+// start (4:00 AM) to the same time the next morning (PORT-24): every
+// minute is counted from the day's start, so a 1:00 AM block is still to
+// come at 5:00 PM and a 10:00 PM one is over at 12:30 AM.
+const DAY_STARTS = clockMinutes(clientConfig.company.checklistDayStartsAt) || 0;
+const ofDay = (m) => (m - DAY_STARTS + 1440) % 1440;
+const windowPast = (from, to, at) => {
+  if (from === null || to === null || at === null) return false;
+  const f = ofDay(from), e = ofDay(to), a = ofDay(at);
+  return f <= e ? a >= e : a >= e && a < f;
+};
 // When and by whom work was done, the way a person says it: today,
 // yesterday, the weekday within the last six days, and a short date before
 // that, all on the company's calendar whatever zone the phone is in.
@@ -7081,7 +7276,7 @@ function AnswerPictures({ pictures, language, t }) {
   );
 }
 
-function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpenDocument, conversationId, onConversation }) {
+function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpenDocument, conversationId, onConversation, userId }) {
   // The same shape the Forms screen uses, so a Spanish screen never
   // lists English form names.
   const locale = languageToSend(language);
@@ -7092,6 +7287,8 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpen
   const setConversationId = onConversation;
   const [thread, setThread] = useState([]);
   const [text, setText] = useState("");
+  // A question being typed stays on the phone until it is sent (PORT-20).
+  useKeptWork(userId, "help", { text: text }, null, !text.trim(), (f) => { if (f && f.text) setText(f.text); });
   const [sending, setSending] = useState(false);
   const [formResponse, setFormResponse] = useState(null);
   const [submitBusy, setSubmitBusy] = useState(false);
@@ -7613,9 +7810,19 @@ function IssueSheet({ token, user, at, tasks, onClose, onChanged, showToast, lkC
   const [people, setPeople] = useState(null);
   const [who, setWho] = useState("");
   const fileRef = useRef(null);
+  const photoUp = useRef(null);
   useBusy("issue sheet", note.trim().length > 0 || !!photo || busy);
   const row = issueViewOf(at && at.row);
   const id = at ? String(at.id) : "";
+  // What is being written on the sheet stays on the phone, by issue, until
+  // it goes (PORT-20): the note, the photo and the panel they were in.
+  useKeptWork(user && user.id, id ? "issue-sheet:" + id : null, { panel: panel === "assign" ? null : panel, note: note }, preview,
+    !note.trim() && !preview, (f, p) => {
+      if (!f && !p) return;
+      const file = p ? workPhotoFile(p) : null;
+      setNote(f && f.note ? f.note : ""); setPhoto(file); setPreview(file ? p : null);
+      if (f && f.panel) setPanel(f.panel);
+    });
   useEffect(() => {
     let alive = true;
     setFailed(false);
@@ -7649,12 +7856,15 @@ function IssueSheet({ token, user, at, tasks, onClose, onChanged, showToast, lkC
   const valueSt = { fontSize: 13, color: t.text, fontWeight: 500, overflowWrap: "anywhere" };
   const btn = (c) => ({ flex: "1 1 120px", minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + c, background: "transparent", color: ink(t, c), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD });
 
-  const clear = () => { setPanel(null); setNote(""); setPhoto(null); setPreview(null); setWho(""); if (fileRef.current) fileRef.current.value = ""; };
-  const takePhoto = (e) => { const file = e.target.files && e.target.files[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { showToast(tr("Photo must be under 10MB"), "error"); return; } setPhoto(file); const r = new FileReader(); r.onload = (ev) => setPreview(ev.target.result); r.readAsDataURL(file); };
+  const clear = () => { if (id) forgetWork(user && user.id, "issue-sheet:" + id); setPanel(null); setNote(""); setPhoto(null); setPreview(null); setWho(""); if (fileRef.current) fileRef.current.value = ""; };
+  const takePhoto = async (e) => { const picked = e.target.files && e.target.files[0]; if (!picked) return; const file = await readyIssuePhoto(picked, showToast); if (!file) return; setPhoto(file); const r = new FileReader(); r.onload = (ev) => setPreview(ev.target.result); r.readAsDataURL(file); };
   const done = (status) => { showToast(tr("Task updated to {status}", { status: taskStatusWord(status) })); clear(); onChanged(); onClose(); };
   const fault = (err) => { if (settledTask(err)) { showToast(tr(err.message), "notice"); clear(); onChanged(); onClose(); return; } showToast(requestFaultOf(err, "That did not go through. Try again."), "error"); };
   const viaTask = (status, noteText, photoUrl) => api("/api/clock/tasks/resolve/" + encodeURIComponent(myTask.task_id), { method: "PATCH", body: { resolutionStatus: status, resolutionNote: noteText || undefined, photoUrl: photoUrl || undefined }, token });
-  const viaIssue = (status, noteText) => api("/api/issues/" + encodeURIComponent(view.id), { method: "PATCH", body: Object.assign({ status: status }, noteText ? { resolutionNotes: noteText } : {}), token });
+  // The resolution's photo rides on the same PATCH that resolves the issue
+  // (PORT-19), as the API has taken it since Step 298, so an issue never
+  // reads resolved with its proof photo dropped on the way.
+  const viaIssue = (status, noteText, photoUrl) => api("/api/issues/" + encodeURIComponent(view.id), { method: "PATCH", body: Object.assign({ status: status }, noteText ? { resolutionNotes: noteText } : {}, photoUrl ? { photoUrl: photoUrl } : {}), token });
   const start = async () => {
     if (busy) return;
     setBusy(true);
@@ -7667,12 +7877,13 @@ function IssueSheet({ token, user, at, tasks, onClose, onChanged, showToast, lkC
     if (!photo) { showToast(tr("A photo of the completed task is required"), "error"); return; }
     setBusy(true);
     try {
-      const photoUrl = await uploadPhoto(photo, token);
+      // A photo already uploaded for this resolve is not uploaded again
+      // on Try again.
+      const photoUrl = photoUp.current && photoUp.current.file === photo ? photoUp.current.url : await uploadPhoto(photo, token);
+      photoUp.current = { file: photo, url: photoUrl };
       if (myTask) await viaTask("resolved", note.trim(), photoUrl);
-      else {
-        await viaIssue("resolved", note.trim());
-        await api("/api/issues/" + encodeURIComponent(view.id) + "/photos", { method: "POST", body: { photoUrl: photoUrl }, token }).catch(() => {});
-      }
+      else await viaIssue("resolved", note.trim(), photoUrl);
+      photoUp.current = null;
       done("resolved");
     } catch (err) { fault(err); }
     setBusy(false);
@@ -7833,16 +8044,25 @@ function myWorkOf(tasks, findings, requests, issues, user) {
 }
 const WORK_KIND_WORDS = { task: "Task", issue: "Issue", finding: "Inspection finding", request: "Client request" };
 
-function AssignedTasksView({ assignedTasks, work, onOpenIssue, onOpenRequest, failed, onRetry, resolveTask, showToast, t, token, lkColorMap }) {
+function AssignedTasksView({ assignedTasks, work, onOpenIssue, onOpenRequest, failed, onRetry, resolveTask, showToast, t, token, lkColorMap, userId }) {
   const [detail, setDetail] = useState(null); const [activePanel, setActivePanel] = useState(null);
   const [note, setNote] = useState(""); const [photo, setPhoto] = useState(null); const [photoPreview, setPhotoPreview] = useState(null); const [uploading, setUploading] = useState(false);
   useBusy("assigned task resolution", note.trim().length > 0 || !!photo || uploading);
+  // A resolution being written stays on the phone, by task, until it is
+  // saved or Back drops it (PORT-20): the task opened again brings back
+  // its note, its photo and the panel they were in.
+  useKeptWork(userId, detail && detail.task_id !== undefined ? "resolve:" + detail.task_id : null, { panel: activePanel, note: note }, photoPreview,
+    !note.trim() && !photoPreview, (f, p) => {
+      const file = p ? workPhotoFile(p) : null;
+      setNote(f && f.note ? f.note : ""); setPhoto(file); setPhotoPreview(file ? p : null);
+      if (f && (f.panel === "resolve" || f.panel === "cantresolve")) setActivePanel(f.panel);
+    });
   const fileRef = useRef(null);
   const lkPriColors = lkColorMap("task_priorities"); const lkSevColors = lkColorMap("issue_severities");
   const priC = Object.keys(lkPriColors).length > 0 ? lkPriColors : { critical: RED, high: ORANGE, standard: GOLD }; const sevC = Object.keys(lkSevColors).length > 0 ? lkSevColors : { low: GREEN, medium: ORANGE, high: RED };
   const inputSt = mkInput(t);
-  const handlePhoto = (e) => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { showToast(tr("Photo must be under 10MB"), "error"); return; } setPhoto(file); const reader = new FileReader(); reader.onload = (ev) => setPhotoPreview(ev.target.result); reader.readAsDataURL(file); };
-  const clearForm = () => { setActivePanel(null); setNote(""); setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; };
+  const handlePhoto = async (e) => { const picked = e.target.files?.[0]; if (!picked) return; const file = await readyIssuePhoto(picked, showToast); if (!file) return; setPhoto(file); const reader = new FileReader(); reader.onload = (ev) => setPhotoPreview(ev.target.result); reader.readAsDataURL(file); };
+  const clearForm = () => { if (detail && detail.task_id !== undefined) forgetWork(userId, "resolve:" + detail.task_id); setActivePanel(null); setNote(""); setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; };
   // The form clears only once the save is in. A save that fails keeps the
   // note and the photo, says why, and Submit tries again (Round 1,
   // PORT-02); a photo already up is not sent a second time.
@@ -8276,6 +8496,21 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, attachI
   // for a replay of the last.
   const reportId = useRef(null);
   useBusy("issue form", title.trim().length > 0 || desc.trim().length > 0 || zone.trim().length > 0 || !!photo || uploading || !!photoLeft);
+  // The report being typed stays on the phone until it is in (PORT-20),
+  // with the clientId and photo address of a send already tried, so the
+  // same report sent again after the app was closed is still one issue.
+  const [sentAs, setSentAs] = useState(null);
+  useKeptWork(user && user.id, "issue", { title: title, desc: desc, sev: sev, zone: zone, site: selSite, sent: sentAs }, photoPreview,
+    !title.trim() && !desc.trim() && !zone.trim() && !photoPreview, (f, p) => {
+      if (!f && !p) return;
+      const v = f || {};
+      setTitle(v.title || ""); setDesc(v.desc || ""); setZone(v.zone || ""); if (v.sev) setSev(v.sev); if (v.site) setSelSite(v.site);
+      const file = p ? workPhotoFile(p) : null;
+      setPhoto(file); setPhotoPreview(file ? p : null);
+      if (v.sent && v.sent.rid && v.sent.rid.id) { reportId.current = v.sent.rid; setSentAs(v.sent); }
+      if (file && v.sent && v.sent.photoUrl) photoUp.current = { file: file, url: v.sent.photoUrl };
+      setShowForm(true);
+    });
   const labelSt = mkLabel(t); const inputSt = mkInput(t);
   const sevOpts = getOpts("issue_severities");
   const sevColors = lkColorMap("issue_severities");
@@ -8283,12 +8518,12 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, attachI
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
   const visibleIssues = isAdmin ? issues : issues.filter(i => i.reported_by === user?.id);
   const sevC = Object.keys(sevColors).length > 0 ? sevColors : { low: GREEN, medium: ORANGE, high: RED };
-  const handlePhoto = (e) => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { showToast(tr("Photo must be under 10MB"), "error"); return; } setPhoto(file); const reader = new FileReader(); reader.onload = (ev) => setPhotoPreview(ev.target.result); reader.readAsDataURL(file); };
+  const handlePhoto = async (e) => { const picked = e.target.files?.[0]; if (!picked) return; const file = await readyIssuePhoto(picked, showToast); if (!file) return; setPhoto(file); const reader = new FileReader(); reader.onload = (ev) => setPhotoPreview(ev.target.result); reader.readAsDataURL(file); };
   const removePhoto = () => { setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; };
   // The form clears only once the issue is in. A send that fails keeps
   // every field and the photo, says why, and Submit Issue tries again; a
   // photo already up is not sent a second time (Round 1, PORT-01).
-  const handleSubmit = async () => { if (!title.trim()) { showToast(tr("Enter issue title"), "error"); return; } const siteId = clockStatus?.clockedIn ? clockStatus.shift.siteId : selSite; if (!siteId) { showToast(tr("Select a site"), "error"); return; } setUploading(true); try { let photoUrl = null; if (photo) { photoUrl = photoUp.current && photoUp.current.file === photo ? photoUp.current.url : await uploadPhoto(photo, token); photoUp.current = { file: photo, url: photoUrl }; } const sig = JSON.stringify([siteId, title.trim(), desc.trim(), zone.trim(), sev, photoUrl]); if (!reportId.current || reportId.current.sig !== sig) reportId.current = { id: newClientId(), sig: sig }; const done = await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl, siteId, reportId.current.id); if (done && done.photoFault && done.issue) setPhotoLeft({ issueId: done.issue.id, url: photoUrl, preview: photoPreview }); photoUp.current = null; reportId.current = null; setTitle(""); setDesc(""); setZone(""); setSev("medium"); setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; setShowForm(false); } catch (err) { if (err && err.code === "issues.clientIdInvalid") reportId.current = null; showToast(tr(err.message), "error"); } setUploading(false); };
+  const handleSubmit = async () => { if (!title.trim()) { showToast(tr("Enter issue title"), "error"); return; } const siteId = clockStatus?.clockedIn ? clockStatus.shift.siteId : selSite; if (!siteId) { showToast(tr("Select a site"), "error"); return; } setUploading(true); try { let photoUrl = null; if (photo) { photoUrl = photoUp.current && photoUp.current.file === photo ? photoUp.current.url : await uploadPhoto(photo, token); photoUp.current = { file: photo, url: photoUrl }; } const sig = JSON.stringify([siteId, title.trim(), desc.trim(), zone.trim(), sev, photoUrl]); if (!reportId.current || reportId.current.sig !== sig) reportId.current = { id: newClientId(), sig: sig }; setSentAs({ rid: reportId.current, photoUrl: photoUrl }); const done = await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl, siteId, reportId.current.id); if (done && done.photoFault && done.issue) setPhotoLeft({ issueId: done.issue.id, url: photoUrl, preview: photoPreview }); photoUp.current = null; reportId.current = null; setSentAs(null); setTitle(""); setDesc(""); setZone(""); setSev("medium"); setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; setShowForm(false); } catch (err) { if (err && err.code === "issues.clientIdInvalid") reportId.current = null; showToast(tr(err.message), "error"); } setUploading(false); };
   const attachAgain = async () => { if (!photoLeft || uploading) return; setUploading(true); try { await attachIssuePhoto(photoLeft.issueId, photoLeft.url); setPhotoLeft(null); showToast(tr("Photo attached")); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
   return (
     <div style={{ padding: "16px" }}>
@@ -9405,6 +9640,17 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   );
   const title = <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("My training")}</div>;
   const faultPart = fault && <ListFault icon={BookIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />;
+  // Opened before the list has ever come back, from a notice on a phone
+  // just opened (PORT-30): the read is on its way, or it failed and says
+  // so with Try again, and nothing reads as if nothing were required.
+  if (!data) {
+    return (
+      <div data-training="waiting" style={{ padding: "14px 16px 100px" }}>
+        {title}
+        {faultPart || <div style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("Loading...")}</div>}
+      </div>
+    );
+  }
   // A category page: the category's modules in the order answered, each
   // with its status chip, the site on a per-site item, Start or Continue
   // where a lesson exists, the outside course's link, and the checklist
@@ -12109,8 +12355,8 @@ function PhoneAlertsView({ token, t, onBack }) {
   const actionBtn = (primary) => ({ width: "100%", minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: primary ? "none" : "1px solid " + t.borderSolid, background: primary ? "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")" : "transparent", color: primary ? NAVY : t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: phoneBusy ? 0.6 : 1, boxShadow: primary ? "0 6px 18px rgba(231,176,23,0.30)" : "none" });
   const choiceBtn = (picked) => ({ width: "100%", minHeight: TAP, borderRadius: R.md, cursor: "pointer", fontSize: 14, fontWeight: picked ? 600 : 500, fontFamily: FONT_HEAD, background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text, display: "flex", alignItems: "center", gap: 10, padding: "0 14px", textAlign: "left", marginBottom: 8 });
   const dot = (picked) => ({ width: 14, height: 14, flexShrink: 0, borderRadius: "50%", background: picked ? GOLD : "transparent", border: picked ? "none" : "2px solid " + t.borderSolid });
-  const phoneLine = phone === "ios" ? tr("On an iPhone, add the app to your Home Screen first, then open it from there to turn on alerts.")
-    : phone === "unsupported" ? tr("This phone cannot receive alerts.")
+  const phoneLine = phone === "ios" ? (iosTooOld() ? tr(IOS_UPDATE_LINE) : tr("On an iPhone, add the app to your Home Screen first, then open it from there to turn on alerts."))
+    : phone === "unsupported" ? (iosTooOld() ? tr(IOS_UPDATE_LINE) : tr("This phone cannot receive alerts."))
     : phone === "denied" ? tr("This phone blocked alerts for this app. Turn them on in the phone's settings.")
     : phone === "on" ? tr("Alerts are on for this phone.") : null;
   return (
@@ -12195,6 +12441,10 @@ const FORMS_ALREADY_LINE = "This report was already sent.";
 // stopped in the box rather than truncated after it is sent.
 const FORM_VALUE_MAX = 4000;
 const FORMS_LEAVE_LINE = "Leave this report? Your saved answers stay, and you can continue from Forms or Help.";
+// Said in the leave dialog when the page's last answers did not save.
+const FORMS_LEAVE_FAILED = "Your latest answers did not save. Keep filling to try again, or leave without them.";
+// The least room a form's questions keep between its head and its foot.
+const FORM_BODY_MIN = 140;
 // The customer's page, opened from a QR code with no sign-in. The public
 // side takes fewer photos than a staff form does, and smaller ones.
 // The company is the one the page's answer names (Step 252), as every
@@ -14213,10 +14463,21 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
     setSending(false);
   };
 
-  // Whatever is not saved yet is sent first, and the person leaves
-  // either way: a refusal here would strand them on a report they
-  // asked to close.
-  const leave = async () => { setConfirmLeave(false); await save(); onLeave(); };
+  // Whatever is not saved yet is sent first, and the person leaves once it
+  // is (PORT-21). A save that does not go keeps the question open and says
+  // so, with Keep filling to try again and Leave without saving, so the
+  // dialog never promises answers that were not kept. A move the bottom bar
+  // asked for (leaveTo) is made once the form has closed.
+  const leaveTo = useRef(null);
+  const [leaveFailed, setLeaveFailed] = useState(false);
+  const stayHere = () => { setConfirmLeave(false); setLeaveFailed(false); leaveTo.current = null; };
+  const goNow = () => { setConfirmLeave(false); setLeaveFailed(false); onLeave(); const go = leaveTo.current; leaveTo.current = null; if (go) go(); };
+  const leave = async () => { const after = await save(); if (!after) { setLeaveFailed(true); return; } goNow(); };
+  useEffect(() => {
+    if (isCustomer || walk) return undefined;
+    guardLeaving((go) => { leaveTo.current = go; setLeaveFailed(false); setConfirmLeave(true); });
+    return () => guardLeaving(null);
+  }, []);
   // Save and finish later (Step 297): the answers are saved as Next saves
   // them, the form closes, and the person is told it waits for them.
   // A save that does not go keeps the form open with its own line.
@@ -14702,8 +14963,14 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
   // The customer's page has no header and no bar around it, so the form
   // fills the phone on its own.
   const frame = isCustomer ? { height: "var(--ocsa-vh, 100vh)", maxHeight: "var(--ocsa-dvh, 100dvh)" } : fillsTheWindow();
+  // The questions keep FORM_BODY_MIN at least (PORT-22). Where the head
+  // and the foot leave less than that, at the Largest text size on a
+  // short phone and more so in Spanish, whose foot takes two rows, the
+  // frame scrolls as one: Next and Back are reached by scrolling, inside
+  // the frame, which ends where the bottom bar starts, so they are never
+  // drawn under it.
   return (
-    <div style={{ display: "flex", flexDirection: "column", ...frame, minHeight: 0 }}>
+    <div data-form-frame="1" style={{ display: "flex", flexDirection: "column", ...frame, minHeight: 0, overflowY: "auto" }}>
       <div style={{ padding: "12px 16px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0 }}>
         {isCustomer && customer.head}
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
@@ -14721,7 +14988,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
         </div>
       </div>
 
-      <div ref={bodyRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 16 }}>
+      <div ref={bodyRef} style={{ flex: "1 1 0", minHeight: FORM_BODY_MIN, overflowY: "auto", padding: 16 }}>
         {(review ? sendErr : saveErr) && <div style={{ padding: "10px 12px", marginBottom: 16, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text, fontSize: 13, lineHeight: 1.5 }}>{review ? sendErr : saveErr}</div>}
         {!form && <div style={{ fontSize: 13, color: t.textMut, lineHeight: 1.5 }}>{tr(FORMS_LOAD_FAILED)}</div>}
 
@@ -14828,12 +15095,14 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
       )}
 
       {confirmLeave && (
-        <div onClick={() => setConfirmLeave(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-          <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 360, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: 18, boxShadow: t.popShadow }}>
-            <div style={{ fontSize: 14, color: t.text, lineHeight: 1.5, marginBottom: 16 }}>{tr(FORMS_LEAVE_LINE)}</div>
+        <div onClick={() => { if (!saving) stayHere(); }} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div data-form-leave={leaveFailed ? "failed" : "ask"} onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 360, background: t.card, border: "1px solid " + t.border, borderRadius: R.lg, padding: 18, boxShadow: t.popShadow }}>
+            <div role={leaveFailed ? "alert" : undefined} style={{ fontSize: 14, color: t.text, lineHeight: 1.5, marginBottom: 16 }}>{leaveFailed ? tr(FORMS_LEAVE_FAILED) : tr(FORMS_LEAVE_LINE)}</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button onClick={() => setConfirmLeave(false)} style={{ ...footBtn(false, false), flex: "1 1 120px" }}>{tr("Keep filling")}</button>
-              <button onClick={leave} style={{ ...footBtn(true, false), flex: "1 1 120px" }}>{tr("Leave")}</button>
+              <button onClick={stayHere} disabled={saving} style={{ ...footBtn(false, false), flex: "1 1 120px" }}>{tr("Keep filling")}</button>
+              {leaveFailed
+                ? <button onClick={goNow} disabled={saving} style={{ ...footBtn(true, false), flex: "1 1 120px" }}>{tr("Leave without saving")}</button>
+                : <button onClick={leave} disabled={saving} style={{ ...footBtn(true, false), flex: "1 1 120px" }}>{saving ? tr("Saving...") : tr("Leave")}</button>}
             </div>
           </div>
         </div>
@@ -14990,7 +15259,7 @@ function supportFaults(err) {
 
 // focus: the ticket a notice opened My tickets at, { id, at }: brought into
 // view and marked (Round 2, PORT-10).
-function SupportView({ token, tickets, screen, isAdmin, onFiled, focus, t }) {
+function SupportView({ token, tickets, screen, isAdmin, onFiled, focus, userId, t }) {
   const [kind, setKind] = useState("");
   const [text, setText] = useState("");
   const [shot, setShot] = useState(null);
@@ -15002,6 +15271,11 @@ function SupportView({ token, tickets, screen, isAdmin, onFiled, focus, t }) {
   const live = useRef(true);
   useEffect(() => () => { live.current = false; }, []);
   useBusy("app support", sending || shotBusy || text.trim().length > 0 || !!shot);
+  // A ticket being written stays on the phone until it is sent (PORT-20).
+  useKeptWork(userId, "support", { kind: kind, text: text }, shot, !text.trim() && !shot, (f, p) => {
+    if (!f && !p) return;
+    if (f && f.kind) setKind(f.kind); if (f && f.text) setText(f.text); if (p) setShot(p);
+  });
   // The screen as the office reads it, by its English name.
   const place = destById(screen);
   const screenName = place ? place.label({ isAdmin: !!isAdmin }) : "";
@@ -17733,7 +18007,8 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
   const handlePhotoUpload = async (itemId, file) => {
     setUploadingId(itemId);
     try {
-      const result = await uploadTaskMedia(file, token);
+      // Held to a form photo's size first, as every other photo is (PORT-27).
+      const result = await uploadTaskMedia(await prepareFormPhoto(file), token);
       setUploaded(prev => ({ ...prev, [itemId]: result.url }));
       showToast(tr("Photo attached"));
     } catch (e) { showToast(tr(e.message), "error"); }
@@ -18647,23 +18922,38 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
     setUploading(false);
   };
 
+  // The boxes as they opened, so Save sends only what the person changed
+  // (PORT-18). The PATCH writes only the keys it is sent, so a field the
+  // read left out, or one this screen never draws, is never written empty.
+  const opened = useRef({});
+  // Edits not yet saved stay on the phone until Save or Cancel (PORT-20),
+  // with the boxes as they opened, so Save still sends only what changed.
+  useKeptWork(user && user.id, "profile", { form: form, opened: opened.current }, null, !editing, (f) => {
+    if (!f || !f.form) return;
+    opened.current = f.opened && typeof f.opened === "object" ? f.opened : {};
+    setForm(f.form); setEditing(true);
+  });
   const startEditing = () => {
     if (!profile) return;
     const u = profile.user;
-    setForm({
+    const boxes = {
       birthday: u.birthday ? (typeof u.birthday === "string" ? u.birthday.split("T")[0] : "") : "",
       addressLine1: u.addressLine1 || "", addressLine2: u.addressLine2 || "",
       city: u.city || "", state: u.state || "", zipCode: u.zipCode || "",
-      emergencyContactName: u.emergencyContactName || "", emergencyContactPhone: u.emergencyContactPhone || "",
-      personalNotes: u.personalNotes || ""
-    });
+      emergencyContactName: u.emergencyContactName || "", emergencyContactPhone: u.emergencyContactPhone || ""
+    };
+    opened.current = boxes;
+    setForm(boxes);
     setEditing(true);
   };
 
   const saveProfile = async () => {
+    const changed = {};
+    Object.keys(form).forEach((k) => { if ((form[k] || "") !== (opened.current[k] || "")) changed[k] = form[k] || ""; });
+    if (Object.keys(changed).length === 0) { setEditing(false); return; }
     setSaving(true);
     try {
-      await api("/api/users/profile/me", { method: "PATCH", body: form, token });
+      await api("/api/users/profile/me", { method: "PATCH", body: changed, token });
       showToast(tr("Profile updated"));
       setEditing(false);
       loadProfile();

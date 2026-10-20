@@ -5274,9 +5274,23 @@ function createStub(opts) {
     if (sheetOne && method === "PATCH") {
       const b = body && typeof body === "object" ? body : {};
       state.sheetCalls.push({ route: "issue", id: sheetOne.id, body: b });
+      // Step 298 in the API: a resolution's photo rides on the PATCH that
+      // resolves, and anything else under photoUrl is 400 issues.badDetails.
+      if (b.photoUrl !== undefined && b.photoUrl !== null && (typeof b.photoUrl !== "string" || !b.photoUrl.trim() || b.status !== "resolved")) {
+        return json(400, { error: "Some of the details are not right.", code: "issues.badDetails", keys: ["photoUrl"] });
+      }
       if (b.status) sheetOne.status = b.status;
       if (b.resolutionNotes) sheetOne.resolution_notes = b.resolutionNotes;
+      if (b.photoUrl) sheetOne.photos = (sheetOne.photos || []).concat([{ id: "ip-" + ((sheetOne.photos || []).length + 1), url: String(b.photoUrl).trim() }]);
       return json(200, { message: "Issue updated", code: "issues.updated" });
+    }
+    const sheetPhoto = state.issueSheet && method === "POST" ? state.sheetIssues.find(i => pathname === "/api/issues/" + i.id + "/photos") : null;
+    if (sheetPhoto) {
+      const b = body && typeof body === "object" ? body : {};
+      state.sheetCalls.push({ route: "photo", id: sheetPhoto.id, body: b });
+      if (!b.photoUrl) return json(400, { error: "A photo URL is required", code: "common.photoUrlRequired" });
+      sheetPhoto.photos = (sheetPhoto.photos || []).concat([{ id: "ip-" + ((sheetPhoto.photos || []).length + 1), url: String(b.photoUrl) }]);
+      return json(201, { photo: { id: "ip-" + sheetPhoto.photos.length, photo_url: String(b.photoUrl) } });
     }
     const assigning = state.issueSheet && method === "POST" ? /^\/api\/issues\/([^/]+)\/assign-as-task$/.exec(pathname) : null;
     if (assigning) {
@@ -5588,11 +5602,22 @@ function createStub(opts) {
     // --- the bell
     if (pathname === "/api/notifications/unread-count") return json(200, { unread: state.notifications.filter(n => !n.readAt).length });
     if (pathname === "/api/notifications") return json(200, { unread: state.notifications.filter(n => !n.readAt).length, notifications: state.notifications });
-    if (method === "POST" && /^\/api\/notifications\/[^/]+\/read$/.test(pathname)) return json(200, { ok: true });
-    if (key === "POST /api/notifications/read-all") return json(200, { ok: true });
+    // Stamped once, as the API's read route does (part 367, PORT-34): the
+    // count read after it is one lower.
+    if (method === "POST" && /^\/api\/notifications\/[^/]+\/read$/.test(pathname)) {
+      const id = decodeURIComponent(pathname.split("/")[3]);
+      const row = state.notifications.find(n => String(n.id) === id);
+      if (!row) return json(404, { error: "Notification not found", code: "notifications.notFound" });
+      if (!row.readAt) row.readAt = iso(clockNow());
+      return json(200, { id: row.id, readAt: row.readAt, unread: state.notifications.filter(n => !n.readAt).length });
+    }
+    if (key === "POST /api/notifications/read-all") { state.notifications.forEach((n) => { if (!n.readAt) n.readAt = iso(clockNow()); }); return json(200, { ok: true }); }
 
     // --- photos
     if (pathname === "/api/uploads") {
+      // What the phone made of a photo sent whole, read off its bytes
+      // (part 367, PORT-27): its size, its kind and its width and height.
+      if (Buffer.isBuffer(body)) state.calls[state.calls.length - 1].files = [{ bytes: body.length, kind: sniffImage(body), size: imageSize(body), ext: new URLSearchParams(search || "").get("ext") }];
       if (state.uploadsFail) return json(500, { error: "Photo upload failed" });
       return json(200, { url: "https://example.invalid/photo.jpg", path: "agent-photos/one.jpg" });
     }

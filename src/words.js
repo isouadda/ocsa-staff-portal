@@ -1548,6 +1548,17 @@ export const WORDS = {
   "This file is too large. Choose a smaller photo or file.": "Este archivo es demasiado grande. Elija una foto o un archivo m\u00e1s peque\u00f1o.",
   "This question takes {max} photos at most. Remove one to add another.": "Esta pregunta acepta como m\u00e1ximo {max} fotos. Quite una para agregar otra.",
   "This photo was already removed. The question now shows the photos that are kept.": "Esta foto ya se hab\u00eda quitado. La pregunta ahora muestra las fotos que se guardan.",
+  "Your shift did not load.": "Su turno no se carg\u00f3.",
+  "Time off did not load.": "El tiempo libre no se carg\u00f3.",
+  "Your time off requests did not load.": "Sus solicitudes de tiempo libre no se cargaron.",
+  "Your latest answers did not save. Keep filling to try again, or leave without them.": "Sus \u00faltimas respuestas no se guardaron. Siga llenando para intentarlo de nuevo, o salga sin ellas.",
+  "Leave without saving": "Salir sin guardar",
+  "Alerts need iOS 16.4 or later. Update this iPhone in Settings, General, Software Update.": "Las alertas necesitan iOS 16.4 o posterior. Actualice este iPhone en Ajustes, General, Actualizaci\u00f3n de software.",
+  "On an iPhone, alerts come only to the app on your Home Screen. Add it with Share, then Add to Home Screen, and open it from there to turn alerts on.": "En un iPhone, las alertas llegan solo a la aplicaci\u00f3n en su pantalla de inicio. Agr\u00e9guela con Compartir y luego Agregar a la pantalla de inicio, y \u00e1brala desde ah\u00ed para activar las alertas.",
+  "Alerts on an iPhone": "Alertas en un iPhone",
+  "Got it": "Entendido",
+  "Alerts on an iPhone come only to the app added this way.": "En un iPhone, las alertas llegan solo a la aplicaci\u00f3n agregada de esta forma.",
+  "You have a new notice. Tap the bell to read it.": "Tiene un aviso nuevo. Toque la campana para leerlo.",
   },
 };
 
@@ -2974,6 +2985,17 @@ WORDS.fr = {
   "This file is too large. Choose a smaller photo or file.": "Ce fichier est trop volumineux. Choisissez une photo ou un fichier plus petit.",
   "This question takes {max} photos at most. Remove one to add another.": "Cette question accepte au plus {max} photos. Retirez-en une pour en ajouter une autre.",
   "This photo was already removed. The question now shows the photos that are kept.": "Cette photo a d\u00e9j\u00e0 \u00e9t\u00e9 retir\u00e9e. La question montre maintenant les photos gard\u00e9es.",
+  "Your shift did not load.": "Votre service ne s'est pas charg\u00e9.",
+  "Time off did not load.": "Les cong\u00e9s ne se sont pas charg\u00e9s.",
+  "Your time off requests did not load.": "Vos demandes de cong\u00e9 ne se sont pas charg\u00e9es.",
+  "Your latest answers did not save. Keep filling to try again, or leave without them.": "Vos derni\u00e8res r\u00e9ponses n'ont pas \u00e9t\u00e9 enregistr\u00e9es. Continuez \u00e0 remplir pour r\u00e9essayer, ou quittez sans elles.",
+  "Leave without saving": "Quitter sans enregistrer",
+  "Alerts need iOS 16.4 or later. Update this iPhone in Settings, General, Software Update.": "Les alertes demandent iOS 16.4 ou une version plus r\u00e9cente. Mettez cet iPhone \u00e0 jour dans R\u00e9glages, G\u00e9n\u00e9ral, Mise \u00e0 jour logicielle.",
+  "On an iPhone, alerts come only to the app on your Home Screen. Add it with Share, then Add to Home Screen, and open it from there to turn alerts on.": "Sur un iPhone, les alertes n'arrivent qu'\u00e0 l'application de votre \u00e9cran d'accueil. Ajoutez-la avec \u00ab\u00a0Partager\u00a0\u00bb, puis \u00ab\u00a0Sur l'\u00e9cran d'accueil\u00a0\u00bb, et ouvrez-la depuis cet \u00e9cran pour activer les alertes.",
+  "Alerts on an iPhone": "Les alertes sur un iPhone",
+  "Got it": "Compris",
+  "Alerts on an iPhone come only to the app added this way.": "Sur un iPhone, les alertes n'arrivent qu'\u00e0 l'application ajout\u00e9e de cette fa\u00e7on.",
+  "You have a new notice. Tap the bell to read it.": "Vous avez un nouvel avis. Appuyez sur la cloche pour le lire.",
 };
 
 // {name} is replaced after the language is chosen, so the

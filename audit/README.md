@@ -916,6 +916,65 @@ finding asks of the staff app: `deviceid` (API-55), `tokenexpired`
 (API-56), `shiftnotices` (API-62), `codestaff` (API-85) and `datedays`
 (API-96, a phone in Honolulu and one in Tokyo).
 
+## The staff app's own findings (part 367)
+
+Fifteen of the October audit's Before 100 findings, the ones that need
+nothing new from the API and no decision from the owner. The stub answers
+the routes they call the way ocsa-api's main (a1e7e58) does: PATCH
+/api/issues/:id takes a resolution's `photoUrl` beside `status` resolved,
+as Step 298 built it, and refuses one with anything else, 400
+`issues.badDetails` with keys `["photoUrl"]`; POST /api/issues/:id/photos
+keeps a photo on the issue sheet's issues; POST
+/api/notifications/:id/read stamps `readAt` once and read-all stamps
+every notice, so the count read after them is lower; and a photo sent
+whole to /api/uploads (an issue's, a resolution's) reaches the stub as
+its bytes, its size, kind and width and height on the call's record as
+`files`. `openApp(browser, base, { iosAlerts: "fresh" })` opens a phone
+that has not yet told its iPhone browser tab why it gets no alerts; every
+other case is seeded as told, the way the install sheet is dismissed,
+since the suite's phone is an iPhone browser tab.
+
+Fifteen journeys, one for each finding, each failing on the main of part
+359 and passing here, in English and Spanish:
+
+- `profilechanged` (PORT-18): Save sends only what changed, never
+  personalNotes, and nothing when nothing changed.
+- `sheetphoto` (PORT-19): the issue sheet's resolve with no task for it
+  carries its photo on the PATCH, never reads resolved without it, and a
+  save that fails keeps the note and photo, uploaded once.
+- `workkept` (PORT-20): an issue being reported (sent again after a lost
+  answer and a reload as one issue), a resolution on Assigned and on an
+  issue's sheet, a Help question, an App support ticket and profile edits
+  come back after a reload.
+- `formleave` (PORT-21): Leave whose save fails stays and says so; the
+  bottom bar under a form asks first and leaves once the page saved.
+- `formroom` (PORT-22): Next and Back at the Largest size on a 375 by 667
+  phone sit above the bar once scrolled to, and a tap reaches them. The
+  three `covered` entries for the site walk came off known.json.
+- `droponce` (PORT-23): a drop request tapped three times goes once.
+- `nightoverdue` (PORT-24): East Building's evening critical block reads
+  Overdue at 12:30 AM and its morning one at 3:30 AM.
+- `statusfault` (PORT-25): a status read refused at sign-in says Your
+  shift did not load, with Try again, and no Start Shift.
+- `timeofffault` (PORT-26): the leave types and My time off failing each
+  say so, never No time off requests yet.
+- `issuephotosize` (PORT-27): a 4000 by 3000 photo and a HEIC go as JPEGs
+  of 2000 pixels at most, on Report and on Assigned.
+- `workerwaits` (PORT-28): the build's service worker, run in a sandbox of
+  its own, answers the page and a file from what it keeps within about
+  four seconds of a network that never answers, and for a 503.
+- `noticesaid` (PORT-29): a new notice is said, the bell is read again
+  when the app comes back, an iPhone browser tab is told once why it gets
+  no alerts, an older iPhone to update, and the install sheet says so.
+- `trainingcold` (PORT-30): a training notice on a phone just opened
+  opens My training with its fault and Try again.
+- `failurestays` (PORT-33): a failure's toast stays past three seconds
+  with Close.
+- `alertread` (PORT-34): a phone alert tapped marks its notice read.
+
+The smoke check's cleaner opens a form and then taps Help on the bar,
+which now asks before leaving the form; it answers Leave.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

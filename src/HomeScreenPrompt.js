@@ -175,6 +175,11 @@ export default function HomeScreenPrompt() {
             {steps.map((line, i) => <li key={i} style={{ marginBottom: 6 }}><StepLine text={line} /></li>)}
           </ol>
         )}
+        {/* An iPhone sends alerts only to the app on the Home Screen
+            (PORT-29), so the sheet says so where it asks for it. */}
+        {(mode === "ios_safari" || mode === "ios_other_browser") && (
+          <div data-a2hs-alerts="1" style={{ margin: "-6px 0 16px", fontSize: 14, color: "#4A5C70", lineHeight: 1.45 }}>{tr("Alerts on an iPhone come only to the app added this way.")}</div>
+        )}
 
         {mode === "android_prompt" && (
           <button type="button" onClick={install} style={{ ...primary, flex: "none", width: "100%", marginBottom: 10 }}>{tr("Install")}</button>
