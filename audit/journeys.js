@@ -8154,4 +8154,139 @@ const PART369_S2_JOURNEYS = [
 ];
 JOURNEYS.push(...PART369_S2_JOURNEYS);
 
+// Part 369, section 3: leave balances, against ocsa-api's main (part 365,
+// GET /api/leave/me and the leave every time off answer carries).
+const twinOf = (language, en) => (language === "es" && TWIN_ES.has(en) ? TWIN_ES.get(en) : en);
+const SICK = "Paid sick leave";
+const SICK_LINE = "40 hours on January 1 each year; a new hire gets 40 hours on the hire date; usable 90 days after the hire date; nothing carries over to the next year.";
+const hoursIn = (language, n) => say(n === 1 ? "{n} hour" : "{n} hours", language).replace("{n}", String(n));
+const offSheet = (page) => page.evaluate(() => { const d = Array.from(document.querySelectorAll('div[style*="z-index: 200"]')).pop(); return d ? d.innerText.replace(/\s+/g, " ") : ""; });
+const askOff = async (app, language, kind, from, to) => {
+  await clickText(app.page, say("Request time off", language));
+  await pause(app.page, 400);
+  await type(app.page, 'div[style*="z-index: 200"] select', kind);
+  await typeNth(app.page, 'div[style*="z-index: 200"] input[type="date"]', 0, from);
+  await typeNth(app.page, 'div[style*="z-index: 200"] input[type="date"]', 1, to);
+  await pause(app.page, 400);
+};
+
+const PART369_S3_JOURNEYS = [
+  {
+    id: "leaveshown",
+    label: "My leave balances (part 365): under My time off, each kind the person's policy tracks, in hours and in days, with the policy's own line; nothing for a person whose policy tracks none, nothing when the route is not there, and a balance that did not load says so with Try again",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "schedule", language);
+        const up = await shows(app.page, '[data-leave-balance="paid_sick"]', 8000);
+        const text = up ? await app.page.evaluate(() => document.querySelector('[data-leave-balance="paid_sick"]').innerText.replace(/\s+/g, " ")) : "";
+        expect("My time off shows paid sick leave's balance in hours and in days", up && has(text, twinOf(language, SICK)) && has(text, hoursIn(language, 40)) && has(text, say("{n} days", language).replace("{n}", "5")), text || (await bodyText(app.page)).slice(-300));
+        expect("with the policy's own line for it", has(text, twinOf(language, SICK_LINE)), text);
+        expect("read once, from GET /api/leave/me", callsTo(app.stub, "GET", "/api/leave/me").length === 1, callsTo(app.stub, "GET", "/api/leave/me").length + " reads");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      for (const [how, opts] of [["a person whose policy tracks no kind", { leaveNone: true }], ["an API with no leave route", { leaveRoute: false }]]) {
+        const none = await open({ stubOptions: opts });
+        try {
+          await openTab(none.page, "schedule", language);
+          await shows(none.page, '[data-timeoff-fault], button', 4000);
+          await pause(none.page, 1500);
+          expect(how + " sees no balance and nothing about one", !(await none.page.evaluate(() => !!document.querySelector("[data-leave-balances], [data-leave-fault]"))) && !has(await bodyText(none.page), say("Leave balances", language)), (await bodyText(none.page)).slice(-200));
+        } finally { await none.context.close(); }
+      }
+      const failed = await open({ stubOptions: { refuse: { "GET /api/leave/me": { status: 500, body: { error: "Something went wrong" }, once: true } } } });
+      try {
+        await openTab(failed.page, "schedule", language);
+        const fault = await shows(failed.page, "[data-leave-fault]", 6000);
+        expect("a balance read that failed says so", fault && has(await failed.page.evaluate(() => document.querySelector("[data-leave-fault]").innerText), say("Your leave balances did not load.", language)), (await bodyText(failed.page)).slice(-200));
+        await failed.page.evaluate((w) => { const b = Array.from(document.querySelectorAll("[data-leave-fault] button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say("Try again", language));
+        expect("and Try again shows the balance", await shows(failed.page, '[data-leave-balance="paid_sick"]', 6000), (await bodyText(failed.page)).slice(-200));
+      } finally { await failed.context.close(); }
+    },
+  },
+  {
+    id: "leaveform",
+    label: "Request time off with a balance (part 365): the form shows the picked kind's balance before sending; once sent, the request's sheet says what it would leave, with the API's warning when it goes below zero or falls in the waiting period, and the request is sent all the same",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { leaveBalance: 32 } });
+      try {
+        await openTab(app.page, "schedule", language);
+        await shows(app.page, '[data-leave-balance="paid_sick"]', 8000);
+        await askOff(app, language, "paid_sick", "2026-10-05", "2026-10-09");
+        const before = await app.page.evaluate(() => { const d = document.querySelector("[data-leave-picked]"); return d ? d.innerText.replace(/\s+/g, " ") : ""; });
+        expect("before sending, the form shows the picked kind's balance", has(before, say("{kind} balance now: {hours}.", language).replace("{kind}", twinOf(language, SICK)).replace("{hours}", hoursIn(language, 32))), before);
+        await type(app.page, 'div[style*="z-index: 200"] select', "unpaid");
+        await pause(app.page, 300);
+        expect("a kind the policy keeps no balance for shows none", !(await app.page.evaluate(() => !!document.querySelector("[data-leave-picked]"))), "a balance shows");
+        await type(app.page, 'div[style*="z-index: 200"] select', "paid_sick");
+        await clickText(app.page, say("Send request", language));
+        const state = await shows(app.page, '[data-leave-state="pending"]', 6000);
+        const after = state ? await app.page.evaluate(() => document.querySelector('[data-leave-state="pending"]').innerText.replace(/\s+/g, " ")) : "";
+        const below = language === "es" ? "Esto dejar\u00eda el saldo de " + twinOf(language, SICK) + " por debajo de cero: quedar\u00edan -8 horas." : "This would take the " + SICK + " balance below zero: -8 hours left after it.";
+        expect("once sent, the request's sheet says what it would leave", state && has(after, say("{kind}: this request is {hours}, and would leave {left}.", language).replace("{kind}", twinOf(language, SICK)).replace("{hours}", hoursIn(language, 40)).replace("{left}", hoursIn(language, -8))), after || (await offSheet(app.page)).slice(0, 300));
+        expect("with the API's warning that it goes below zero, and that the request is sent", has(after, below) && has(after, say("Your request is sent. The person who approves time off decides.", language)), after);
+        expect("the request was sent once", sent(app.stub, "POST", "/api/time-off").filter(c => c.path === "/api/time-off").length === 1, "posts");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const waiting = await open({ stubOptions: { leaveUsableFrom: "2026-11-15" } });
+      try {
+        await openTab(waiting.page, "schedule", language);
+        await shows(waiting.page, '[data-leave-balance="paid_sick"]', 8000);
+        const usable = await waiting.page.evaluate(() => document.querySelector('[data-leave-balance="paid_sick"]').innerText.replace(/\s+/g, " "));
+        const day = await waiting.page.evaluate((l) => new Date(2026, 10, 15).toLocaleDateString(l, { month: "short", day: "numeric", year: "numeric" }), language === "es" ? "es-US" : "en-US");
+        expect("a new hire's balance says from when it can be used", has(usable, say("You can use it from {date}.", language).replace("{date}", day)), usable);
+        await askOff(waiting, language, "paid_sick", "2026-10-12", "2026-10-12");
+        await clickText(waiting.page, say("Send request", language));
+        await shows(waiting.page, '[data-leave-state="pending"] [data-leave-warning]', 6000);
+        const text = await waiting.page.evaluate(() => { const d = document.querySelector('[data-leave-state="pending"]'); return d ? d.innerText.replace(/\s+/g, " ") : ""; });
+        const words = language === "es" ? "Esto cae en el per\u00edodo de espera: " + twinOf(language, SICK) + " se puede usar a partir del 15 de noviembre de 2026." : "This falls in the waiting period: " + SICK + " can be used from Nov 15, 2026.";
+        expect("a request in the waiting period carries the API's warning, and is sent", has(text, words) && sent(waiting.stub, "POST", "/api/time-off").filter(c => c.path === "/api/time-off").length === 1, text);
+      } finally { await waiting.context.close(); }
+    },
+  },
+  {
+    id: "leavesheet",
+    label: "A request's hours (part 365): an approved request's sheet says the hours it took, one whose approval the office took back says the hours given back, and the time_off notice about it opens that sheet from the bell and from a phone alert",
+    run: async (open, language, expect) => {
+      const rows = () => [
+        timeOffRow({ id: "to-taken", status: "approved", startsOn: "2026-09-21", endsOn: "2026-09-22", decidedAt: "2026-09-18T15:00:00.000Z", decidedByName: "Jordan Office" }),
+        timeOffRow({ id: "to-back", status: "cancelled", startsOn: "2026-09-14", endsOn: "2026-09-14", decidedAt: "2026-09-10T15:00:00.000Z", cancelledAt: "2026-09-12T15:00:00.000Z", givenBack: true }),
+      ];
+      const app = await open({ stubOptions: { myTimeOff: rows(), leaveBalance: 24 } });
+      try {
+        await openTab(app.page, "schedule", language);
+        await shows(app.page, '[data-leave-balance="paid_sick"]', 8000);
+        const openRow = (i) => app.page.evaluate(([heading, n]) => { const h = Array.from(document.querySelectorAll(".sp-content div")).find(d => d.textContent.trim() === heading); const list = h ? Array.from(h.parentElement.querySelectorAll(":scope > button")) : []; if (list[n]) list[n].click(); }, [say("My time off", language), i]);
+        await openRow(0);
+        const taken = await shows(app.page, '[data-leave-state="taken"]', 6000);
+        const takenText = taken ? await app.page.evaluate(() => document.querySelector('[data-leave-state="taken"]').innerText.replace(/\s+/g, " ")) : "";
+        expect("an approved request's sheet says the hours it took and the balance now", taken && has(takenText, say("{kind}: this time off took {hours}.", language).replace("{kind}", twinOf(language, SICK)).replace("{hours}", hoursIn(language, 16))) && has(takenText, say("{kind} balance now: {hours}.", language).replace("{kind}", twinOf(language, SICK)).replace("{hours}", hoursIn(language, 24))), takenText || (await offSheet(app.page)).slice(0, 300));
+        await clickText(app.page, say("Close", language));
+        await pause(app.page, 500);
+        await openRow(1);
+        const back = await shows(app.page, '[data-leave-state="givenBack"]', 6000);
+        const backText = back ? await app.page.evaluate(() => document.querySelector('[data-leave-state="givenBack"]').innerText.replace(/\s+/g, " ")) : "";
+        expect("one whose approval the office took back says the hours given back", back && has(backText, say("{kind}: {hours} went back when the office took back the approval.", language).replace("{kind}", twinOf(language, SICK)).replace("{hours}", hoursIn(language, 8))), backText || (await offSheet(app.page)).slice(0, 300));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const notice = { id: "n-p369-timeoff", subjectType: "time_off", subjectKey: null, subjectId: "to-back", title: "Invented: your approved time off was taken back", body: "Sep 14, 2026", link: "https://staff.example.invalid/#schedule", createdAt: "2026-09-12T15:01:00.000Z", readAt: null };
+      await threeWays(open, { myTimeOff: rows(), notifications: [notice] }, "time_off", "to-back", notice.title, async (o, how) => {
+        const up = await shows(o.page, '[data-leave-state="givenBack"]', 7000);
+        expect("a time_off notice " + how + " opens that request's sheet with the hours given back", up && (await chosenTab(o.page)) === say("Schedule", language), (await bodyText(o.page)).slice(0, 200));
+      });
+      // The office's own time_off notice, about someone else's request,
+      // which the dashboard works: My Schedule, never that request on the
+      // person's own sheet.
+      const theirs = Object.assign({}, notice, { id: "n-p369-theirs", subjectId: "to-theirs", title: "Invented: a time off request from a coworker" });
+      const office = await open({ stubOptions: { person: MAINT_SUP, myTimeOff: [timeOffRow({ id: "to-theirs", userId: "s-05", userName: "Eve Everett", status: "requested" })], notifications: [theirs] } });
+      try {
+        await tapOnBell(office, theirs.title);
+        await pause(office.page, 2000);
+        expect("an office time_off notice about someone else's request opens My Schedule and never their request as the person's own", (await chosenTab(office.page)) === say("Schedule", language) && !has(await bodyText(office.page), say("Cancel request", language)), (await bodyText(office.page)).slice(0, 200));
+      } finally { await office.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART369_S3_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };

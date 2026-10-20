@@ -1055,6 +1055,33 @@ Four journeys, in English and Spanish:
 - `maintnotices`: both notices open the request's sheet three ways, and
   never for someone without the capability.
 
+## My leave balances (part 369, section 3)
+
+The stub answers GET /api/leave/me the way routes/leave.js does at
+ocsa-api's main (part 365), for the handbook's policy: paid sick leave,
+tracked, 40 hours unless a case names `leaveBalance`, eight hours a day,
+the policy's own line for it, and `usableFrom` when a case names
+`leaveUsableFrom` (a new hire in the waiting period). `leaveNone: true` is
+a policy that tracks no kind, and `leaveRoute: false` an API with no
+route. POST /api/time-off and GET /api/time-off/:id carry `leave` as
+helpers/leaveBalances.js requestLeave builds it: the request's hours (its
+own, a part day's, or eight a day), what a pending one would leave, the
+`leave.warning.belowZero` and `leave.warning.inWaitingPeriod` warnings in
+the API's words, `taken` once approved, and `givenBack` for a fixture row
+whose approval the office took back.
+
+Three journeys, in English and Spanish:
+
+- `leaveshown`: My time off lists paid sick leave in hours and days with
+  its policy line; nothing for a policy that tracks none or an API with no
+  route; a read that failed says so with Try again.
+- `leaveform`: the form shows the picked kind's balance; once sent, the
+  request's sheet says what it would leave, with the below-zero warning,
+  and the waiting period's for a new hire; each request is sent once.
+- `leavesheet`: an approved request says the hours it took, one taken back
+  the hours given back, and the time_off notice opens that request three
+  ways.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

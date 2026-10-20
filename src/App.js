@@ -3209,7 +3209,7 @@ export default function OCSAStaffPortal() {
     // My reports under Speak Up, at the case the notice names (part 359).
     if (place.tab === "speakup") setSpeakAt(place.myReport ? { id: String(place.myReport), at: Date.now() } : null);
     // My Schedule at the shift a shift notice names (part 369, API-62).
-    if (place.tab === "schedule") setScheduleAt(place.shift ? { id: String(place.shift), at: Date.now() } : null);
+    if (place.tab === "schedule") setScheduleAt(place.shift ? { id: String(place.shift), at: Date.now() } : place.timeOff ? { timeOff: String(place.timeOff), at: Date.now() } : null);
     // My tickets at the ticket, read again so a new answer shows.
     if (place.tab === "support") { setSupportAt(place.ticket ? { id: String(place.ticket), at: Date.now() } : null); setSupportAsked(n => n + 1); }
     // Periodic work at the task the notice names: its site is found in
@@ -4618,6 +4618,50 @@ function SetPinScreen({ token, user, onDone, onSignOut, showToast, t }) {
 // API sends none. A type the list does not answer is never shown.
 const LEAVE_WORDS = { pto: "PTO (paid time off)" };
 const leaveWord = (value, label) => tr(label || LEAVE_WORDS[value] || value || "");
+// A person's leave balances (part 369, API part 365), as GET
+// /api/leave/me answers them: each kind the person's policy tracks, its
+// hours, its days (the API's for a balance kept in days, else the hours
+// over the policy's hours a day), the policy's own line for it, the day
+// it can first be used, and the API's notes. A kind the policy keeps no
+// balance for is left out.
+const leaveNum = (n) => { if (n === null || n === undefined || n === "") return null; const v = Number(n); return isFinite(v) ? Math.round(v * 100) / 100 : null; };
+function leaveBalancesOf(d) {
+  const lines = d && d.summary && Array.isArray(d.summary.lines) ? d.summary.lines : [];
+  return (d && Array.isArray(d.balances) ? d.balances : []).filter(b => b && typeof b === "object" && b.tracked === true && typeof b.kind === "string").map(b => {
+    const hours = leaveNum(b.balanceHours);
+    const perDay = leaveNum(b.hoursPerDay);
+    const days = leaveNum(b.balanceDays) !== null ? leaveNum(b.balanceDays) : hours !== null && perDay ? leaveNum(hours / perDay) : null;
+    const line = lines.find(l => l && l.kind === b.kind);
+    return { kind: b.kind, name: fkText(b, ["kindName"]) || b.kind, hours: hours, days: days, usableFrom: fkText(b, ["usableFrom"]) || null, line: line ? fkText(line, ["text"]) : "", notes: (Array.isArray(b.notes) ? b.notes : []).map(n => (n && typeof n === "object" ? fkText(n, ["message"]) : "")).filter(Boolean) };
+  }).filter(b => b.hours !== null);
+}
+const leaveDays = (n) => (n === 1 ? tr("{n} day", { n: String(n) }) : tr("{n} days", { n: String(n) }));
+const leaveUsableLater = (b) => !!b && !!b.usableFrom && b.usableFrom > ymdLocal(todayLocal());
+// What a request did or would do to a balance, from the leave its read,
+// its filing and its decision answer: what it would leave while it waits,
+// with the API's warnings; the hours it took once approved; the hours
+// given back once the office took the approval back.
+function TimeOffLeave({ leave, status, t }) {
+  const lv = leave && typeof leave === "object" ? leave : null;
+  if (!lv) return null;
+  const kind = fkText(lv, ["kindName"]) || fkText(lv, ["kind"]);
+  const took = timeOffHours(lv.requestHours);
+  const left = timeOffHours(lv.balanceHours);
+  const warnings = (Array.isArray(lv.warnings) ? lv.warnings : []).map(w => (w && typeof w === "object" ? fkText(w, ["message"]) : "")).filter(Boolean);
+  const box = { marginBottom: 14, padding: "10px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid };
+  const lineSt = { fontSize: 13, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" };
+  if (lv.givenBack === true && took) return (<div data-leave-state="givenBack" style={box}><div style={lineSt}>{tr("{kind}: {hours} went back when the office took back the approval.", { hours: took, kind: kind })}</div>{left && <div style={{ ...lineSt, color: t.textSec, marginTop: 4 }}>{tr("{kind} balance now: {hours}.", { kind: kind, hours: left })}</div>}</div>);
+  if (lv.taken === true && took) return (<div data-leave-state="taken" style={box}><div style={lineSt}>{tr("{kind}: this time off took {hours}.", { hours: took, kind: kind })}</div>{left && <div style={{ ...lineSt, color: t.textSec, marginTop: 4 }}>{tr("{kind} balance now: {hours}.", { kind: kind, hours: left })}</div>}</div>);
+  if (status !== "requested" || (lv.tracked !== true && warnings.length === 0)) return null;
+  const would = timeOffHours(lv.wouldLeaveHours);
+  return (
+    <div data-leave-state="pending" style={box}>
+      {took && would && <div style={lineSt}>{tr("{kind}: this request is {hours}, and would leave {left}.", { hours: took, kind: kind, left: would })}</div>}
+      {warnings.map((w, i) => <div key={i} data-leave-warning="1" role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 8, padding: "8px 10px", borderRadius: R.md, background: ORANGE + "18", border: "1px solid " + ORANGE + "60" }}><AlertIco sz={16} c={ink(t, ORANGE)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0, overflowWrap: "anywhere" }}>{w}</span></div>)}
+      {warnings.length > 0 && <div style={{ fontSize: 12, color: t.textSec, marginTop: 8, lineHeight: 1.45 }}>{tr("Your request is sent. The person who approves time off decides.")}</div>}
+    </div>
+  );
+}
 
 function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasOther, onOpenInspection, at }) {
   const [view, setView] = useState("week");
@@ -4677,6 +4721,17 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
   const [offErr, setOffErr] = useState(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const timeOffOn = !compact && Array.isArray(offTypes);
+  // My leave balances (part 369), read with the time off part: a route
+  // not offered (404) draws nothing, any other failure says so.
+  const [leaveMe, setLeaveMe] = useState(null);
+  const [leaveAsked, setLeaveAsked] = useState(0);
+  useEffect(() => {
+    if (compact || !token) return undefined;
+    let gone = false;
+    api("/api/leave/me", { token }).then((d) => { if (!gone) setLeaveMe({ state: "ok", list: leaveBalancesOf(d) }); }).catch((err) => { if (!gone) setLeaveMe(prev => (err && err.status === 404 ? { state: "none", list: [] } : prev && prev.state === "ok" ? prev : { state: "failed", list: [] })); });
+    return () => { gone = true; };
+  }, [compact, token, leaveAsked]);
+  const balances = leaveMe && leaveMe.state === "ok" ? leaveMe.list : [];
 
   // Both read straight off the schedule response, so they are empty
   // until Step 79 adds the keys and nothing on the calendar changes
@@ -4861,10 +4916,14 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
     if (String(reqForm.hours).trim() !== "") body.hours = Number(reqForm.hours);
     if (reqForm.reason.trim() !== "") body.reason = reqForm.reason.trim();
     try {
-      await api("/api/time-off", { method: "POST", body, token });
+      const d = await api("/api/time-off", { method: "POST", body, token });
       setReqOpen(false);
       showToast(tr("Time off requested. You get a notice when it is decided."));
-      loadSchedule(); loadMyOff();
+      loadSchedule(); loadMyOff(); setLeaveAsked(n => n + 1);
+      // What the request would leave, and the API's warnings, said on the
+      // request's own sheet as soon as it is sent (part 369).
+      const lv = d && d.leave && typeof d.leave === "object" ? d.leave : null;
+      if (d && d.request && typeof d.request === "object" && lv && (lv.tracked === true || (Array.isArray(lv.warnings) && lv.warnings.length > 0))) { setOffErr(null); setConfirmCancel(false); setOffDetail(Object.assign({}, d.request, { leave: lv })); }
     } catch (err) { setReqErr(tr(err.message)); }
     setReqBusy(false);
   };
@@ -4874,18 +4933,39 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
   const openOffById = async (id) => {
     if (!id) return;
     setOffErr(null); setConfirmCancel(false);
-    try { const d = await api("/api/time-off/" + encodeURIComponent(id), { token }); setOffDetail((d && d.request) ? d.request : d); }
+    try { const d = await api("/api/time-off/" + encodeURIComponent(id), { token }); setOffDetail(offWithLeave(d)); }
     catch (err) { showToast(tr(err.message), "error"); }
+  };
+  // The request with the leave its read answers beside it (part 369).
+  const offWithLeave = (d) => Object.assign({}, (d && d.request) ? d.request : d, d && d.leave && typeof d.leave === "object" ? { leave: d.leave } : {});
+  // A row of the list opens at once, and its read then adds what it did
+  // to the person's balance.
+  const readOffLeave = (id) => {
+    api("/api/time-off/" + encodeURIComponent(id), { token }).then((d) => { if (d && d.leave && typeof d.leave === "object") setOffDetail(prev => (prev && String(prev.id) === String(id) ? Object.assign({}, prev, { leave: d.leave }) : prev)); }).catch(() => {});
   };
 
   const openOffDetail = async (r) => {
     setOffErr(null); setConfirmCancel(false);
-    if (r && r.startsOn) { setOffDetail(r); return; }
+    if (r && r.startsOn) { setOffDetail(r); if (r.id) readOffLeave(r.id); return; }
     const id = r && (r.id || r);
     if (!id) return;
-    try { const d = await api("/api/time-off/" + encodeURIComponent(id), { token }); setOffDetail((d && d.request) ? d.request : d); }
+    try { const d = await api("/api/time-off/" + encodeURIComponent(id), { token }); setOffDetail(offWithLeave(d)); }
     catch (err) { showToast(tr(err.message), "error"); }
   };
+  // A time off notice (part 369): the request it names, its sheet open,
+  // when it is this person's own. The office's notices about someone
+  // else's request, which the dashboard works, open My Schedule alone,
+  // and a request that does not read says nothing.
+  useEffect(() => {
+    if (!at || !at.timeOff || !token) return undefined;
+    let gone = false;
+    api("/api/time-off/" + encodeURIComponent(at.timeOff), { token }).then((d) => {
+      const r = d && d.request && typeof d.request === "object" ? d.request : null;
+      if (gone || !r || !user || String(r.userId) !== String(user.id)) return;
+      setOffErr(null); setConfirmCancel(false); setOffDetail(offWithLeave(d));
+    }).catch(() => {});
+    return () => { gone = true; };
+  }, [at && at.at, token]);
 
   const cancelRequest = async () => {
     if (offBusy || !offDetail) return;
@@ -5052,6 +5132,23 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
       {timeOffOn && (
         <div style={{ marginTop: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("My time off")}</div>
+          {balances.length > 0 && (
+            <div data-leave-balances={balances.length} style={{ marginBottom: 12 }}>
+              <div style={mkLabel(t)}>{tr("Leave balances")}</div>
+              {balances.map(b => (
+                <div key={b.kind} data-leave-balance={b.kind} data-leave-hours={String(b.hours)} style={{ padding: "10px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}>
+                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{b.name}</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: b.hours < 0 ? ink(t, RED) : t.goldText, fontFamily: FONT_HEAD }}><span>{timeOffHours(b.hours)}</span>{b.days !== null && <span style={{ fontSize: 12, fontWeight: 500, color: t.textSec }}>{" \u00b7 "}</span>}{b.days !== null && <span style={{ fontSize: 12, fontWeight: 500, color: t.textSec }}>{leaveDays(b.days)}</span>}</div>
+                  </div>
+                  {b.line && <div data-leave-line="1" style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" }}>{b.line}</div>}
+                  {leaveUsableLater(b) && <div style={{ fontSize: 12, color: t.textMut, marginTop: 4, lineHeight: 1.45 }}>{tr("You can use it from {date}.", { date: dueDayText(b.usableFrom, { month: "short", day: "numeric", year: "numeric" }) })}</div>}
+                  {b.notes.map((n, i) => <div key={i} style={{ fontSize: 12, color: t.textMut, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" }}>{n}</div>)}
+                </div>
+              ))}
+            </div>
+          )}
+          {leaveMe && leaveMe.state === "failed" && <div data-leave-fault="1" style={{ marginBottom: 12 }}><ListFault icon={CalIco} text={tr("Your leave balances did not load.")} onRetry={() => setLeaveAsked(n => n + 1)} t={t} /></div>}
           {myOffFailed && <div data-timeoff-fault="mine"><ListFault icon={CalIco} text={tr("Your time off requests did not load.")} onRetry={loadMyOff} t={t} /></div>}
           {!myOffFailed && myOff.length === 0 && <div style={{ fontSize: 12, color: t.textMut, padding: "10px 0" }}>{tr("No time off requests yet.")}</div>}
           {myOff.map(r => {
@@ -5151,6 +5248,19 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
                 <option value="">{tr("Choose a type")}</option>
                 {offTypes.map(ty => <option key={ty.value} value={ty.value}>{leaveWord(ty.value, ty.label)}</option>)}
               </select>
+              {(() => {
+                // The balance of the kind picked, before the request goes
+                // (part 369); what it would leave comes back once it is sent.
+                const b = balances.find(x => x.kind === reqForm.leaveType);
+                if (!b) return null;
+                return (
+                  <div data-leave-picked={b.kind} style={{ fontSize: 12, color: t.textSec, marginTop: 6, lineHeight: 1.45 }}>
+                    <div>{tr("{kind} balance now: {hours}.", { kind: b.name, hours: timeOffHours(b.hours) })}</div>
+                    {leaveUsableLater(b) && <div>{tr("You can use it from {date}.", { date: dueDayText(b.usableFrom, { month: "short", day: "numeric", year: "numeric" }) })}</div>}
+                    <div style={{ color: t.textMut }}>{tr("Once you send it, the request shows what it would leave.")}</div>
+                  </div>
+                );
+              })()}
             </div>
 
             <div style={{ marginBottom: 10 }}>
@@ -5228,6 +5338,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
               {offDetail.decidedAt && <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Decided")}</div><div style={offValue}>{new Date(offDetail.decidedAt).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}</div></div>}
               {offDetail.cancelledAt && <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Cancelled")}</div><div style={offValue}>{new Date(offDetail.cancelledAt).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}</div></div>}
             </div>
+            <TimeOffLeave leave={offDetail.leave} status={offDetail.status} t={t} />
 
             <div style={{ marginBottom: 14 }}>
               <div style={offLabel}>{tr("Reason")}</div>
@@ -12102,6 +12213,9 @@ function notifPlace(subjectType, subjectId) {
   if (subjectType === "training_join") return id ? { tab: tab, join: id } : null;
   if (subjectType === "document_to_sign") return { tab: tab, doc: id };
   if (subjectType === "training_category") return id ? { tab: tab, category: id } : null;
+  // A time off notice (part 369): My Schedule, on the request it names,
+  // the one the office decided or took back.
+  if (subjectType === "time_off") return id ? { tab: tab, timeOff: id } : { tab: tab };
   if (subjectType === "signature_request") return id ? { sign: id } : null;
   // A training notice naming a topic, or an attempt on one (Step 267):
   // the portal, on that topic's category page when the item is known.

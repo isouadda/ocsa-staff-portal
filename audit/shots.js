@@ -640,9 +640,29 @@ const SHOTS = [
       await s.pause(600);
       await s.tap(s.say("Request time off"));
       if (!(await s.waitFor(() => !!document.querySelector('select option[value="pto"]')))) return false;
-      await s.page.selectOption('select:has(option[value="pto"])', "pto");
-      return s.waitFor(() => Array.from(document.querySelectorAll("div")).some(d => { const c = getComputedStyle(d); return c.position === "fixed" && c.zIndex === "200"; }));
+      // Part 369: paid sick leave, so the balance shows under Type.
+      await s.page.selectOption('select:has(option[value="pto"])', "paid_sick");
+      return s.waitFor(() => !!document.querySelector("[data-leave-picked]"));
     } },
+  // Part 369: the request's sheet once sent, what it would leave and the
+  // API's warning that it goes below zero.
+  { name: "time-off-leave", entry: E("Request time off"), o: { signedIn: true, stub: { leaveBalance: 32 } },
+    go: async (s) => {
+      if (!(await s.go("Schedule"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector("[data-leave-balance]")))) return false;
+      await s.tap(s.say("Request time off"));
+      if (!(await s.waitFor(() => !!document.querySelector('select option[value="paid_sick"]')))) return false;
+      await s.page.selectOption('select:has(option[value="paid_sick"])', "paid_sick");
+      await s.page.evaluate(() => { const boxes = Array.from(document.querySelectorAll('div[style*="z-index: 200"] input[type="date"]')); const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; [["2026-10-05", 0], ["2026-10-09", 1]].forEach(([v, i]) => { if (!boxes[i]) return; set.call(boxes[i], v); boxes[i].dispatchEvent(new Event("input", { bubbles: true })); boxes[i].dispatchEvent(new Event("change", { bubbles: true })); }); });
+      await s.pause(300);
+      await s.tap(s.say("Send request"));
+      if (!(await s.waitFor(() => !!document.querySelector('[data-leave-state="pending"] [data-leave-warning]')))) return false;
+      await s.page.evaluate(() => document.querySelector('[data-leave-state="pending"]').scrollIntoView({ block: "center" }));
+      await s.pause(300);
+      return true;
+    } },
+  { name: "leave-balances", entry: E("See your leave balances"), o: { signedIn: true },
+    go: async (s) => { if (!(await s.go("Schedule"))) return false; if (!(await s.waitFor(() => !!document.querySelector('[data-leave-balance="paid_sick"]')))) return false; await s.show(s.say("My time off")); return true; } },
   { name: "time-off-mine", entry: E("See or cancel your time off"), o: { signedIn: true, stub: { myTimeOff: [timeOffRow({ id: "to-one", status: "requested" })] } },
     go: async (s) => { if (!(await s.go("Schedule"))) return false; if (!(await s.waitText(s.say("My time off")))) return false; await s.show(s.say("My time off")); return true; } },
   { name: "time-off-cancel", entry: E("See or cancel your time off"), o: { signedIn: true, stub: { myTimeOff: [timeOffRow({ id: "to-one", status: "requested" })] } },

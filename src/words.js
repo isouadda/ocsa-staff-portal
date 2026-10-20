@@ -1620,6 +1620,17 @@ export const WORDS = {
   "Building maintenance": "Mantenimiento del edificio",
   "Send the building a repair request, and keep track of what it answers.": "Env\u00ede al edificio una solicitud de reparaci\u00f3n y siga lo que responde.",
   "That did not save. Try again.": "Eso no se guard\u00f3. Intente de nuevo.",
+  "{n} day": "{n} d\u00eda",
+  "{n} days": "{n} d\u00edas",
+  "{kind}: {hours} went back when the office took back the approval.": "{kind}: se devolvieron {hours} cuando la oficina retir\u00f3 la aprobaci\u00f3n.",
+  "{kind} balance now: {hours}.": "Saldo de {kind} ahora: {hours}.",
+  "{kind}: this time off took {hours}.": "{kind}: este tiempo libre us\u00f3 {hours}.",
+  "{kind}: this request is {hours}, and would leave {left}.": "{kind}: esta solicitud es de {hours} y dejar\u00eda {left}.",
+  "Your request is sent. The person who approves time off decides.": "Su solicitud se envi\u00f3. La persona que aprueba el tiempo libre decide.",
+  "Leave balances": "Saldos de tiempo libre",
+  "You can use it from {date}.": "Lo puede usar a partir del {date}.",
+  "Your leave balances did not load.": "Sus saldos de tiempo libre no se cargaron.",
+  "Once you send it, the request shows what it would leave.": "Una vez enviada, la solicitud muestra cu\u00e1nto le dejar\u00eda.",
   },
 };
 
@@ -3118,6 +3129,17 @@ WORDS.fr = {
   "Building maintenance": "Entretien du b\u00e2timent",
   "Send the building a repair request, and keep track of what it answers.": "Envoyez au b\u00e2timent une demande de r\u00e9paration et suivez ses r\u00e9ponses.",
   "That did not save. Try again.": "Cela ne s'est pas enregistr\u00e9. R\u00e9essayez.",
+  "{n} day": "{n} jour",
+  "{n} days": "{n} jours",
+  "{kind}: {hours} went back when the office took back the approval.": "{kind}\u00a0: {hours} ont \u00e9t\u00e9 rendues quand le bureau a retir\u00e9 l'accord.",
+  "{kind} balance now: {hours}.": "Solde de {kind} maintenant\u00a0: {hours}.",
+  "{kind}: this time off took {hours}.": "{kind}\u00a0: ce cong\u00e9 a utilis\u00e9 {hours}.",
+  "{kind}: this request is {hours}, and would leave {left}.": "{kind}\u00a0: cette demande est de {hours} et laisserait {left}.",
+  "Your request is sent. The person who approves time off decides.": "Votre demande est envoy\u00e9e. La personne qui approuve les cong\u00e9s d\u00e9cide.",
+  "Leave balances": "Soldes de cong\u00e9s",
+  "You can use it from {date}.": "Vous pouvez l'utiliser \u00e0 partir du {date}.",
+  "Your leave balances did not load.": "Vos soldes de cong\u00e9s ne se sont pas charg\u00e9s.",
+  "Once you send it, the request shows what it would leave.": "Une fois envoy\u00e9e, la demande indique ce qu'elle laisserait.",
 };
 
 // {name} is replaced after the language is chosen, so the

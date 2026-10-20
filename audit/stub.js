@@ -1219,6 +1219,21 @@ const maintRecipients = (contacts, building) => {
   const seen = new Set();
   return pick.filter(c => { const e = maintNorm(c.email); if (seen.has(e)) return false; seen.add(e); return true; }).map(c => ({ contactId: c.id, name: c.name, company: c.company, email: c.email }));
 };
+// Part 369, section 3: leave balances as ocsa-api's main (part 365,
+// routes/leave.js and helpers/leaveBalances.js) answers them for the
+// handbook's policy (OCSA-HR-002): paid sick leave, 40 hours each January
+// 1 and on the hire date, usable 90 days after it, nothing carried over.
+// The words are the API's, in English and Spanish.
+const LEAVE_WORDS = {
+  handbook: ["Employee handbook (OCSA-HR-002)", "Manual del empleado (OCSA-HR-002)"],
+  sick: ["Paid sick leave", "Permiso por enfermedad pagado"],
+  sickLine: ["40 hours on January 1 each year; a new hire gets 40 hours on the hire date; usable 90 days after the hire date; nothing carries over to the next year.", "40 horas el 1 de enero de cada a\u00f1o; una persona nueva recibe 40 horas en su fecha de contrataci\u00f3n; se puede usar 90 d\u00edas despu\u00e9s de la fecha de contrataci\u00f3n; nada pasa al a\u00f1o siguiente."],
+  holidays: ["Paid holidays: the company's holidays, as the handbook lists them.", "D\u00edas feriados pagados: los feriados de la empresa, como los indica el manual."],
+  untracked: ["No balance is kept.", "No se lleva un saldo."],
+  site: ["Invented site policy", "Pol\u00edtica inventada del sitio"],
+  belowZero: ["This would take the {kind} balance below zero: {hours} hours left after it.", "Esto dejar\u00eda el saldo de {kind} por debajo de cero: quedar\u00edan {hours} horas."],
+  waiting: ["This falls in the waiting period: {kind} can be used from {date}.", "Esto cae en el per\u00edodo de espera: {kind} se puede usar a partir del {date}."],
+};
 const STAFF_ORIGIN = "https://staff.example.invalid";
 const ADMIN_ORIGIN = "https://admin.example.invalid";
 const EVERY_NOTICE = [
@@ -1577,6 +1592,10 @@ function makeState(opts) {
     // Part 369: building maintenance: the requests, the contacts by site,
     // and what a case asks of a filing (an email that does not go, the
     // next answer lost on its way back, photos the store turns away).
+    // Part 369: the person's leave as GET /api/leave/me answers it: the
+    // handbook's paid sick hours, a balance a case may set, a usable-from
+    // day for a new hire, none tracked at all, or no route.
+    leave: { route: o.leaveRoute !== false, none: o.leaveNone === true, balance: typeof o.leaveBalance === "number" ? o.leaveBalance : 40, usableFrom: o.leaveUsableFrom || null, hireDate: o.leaveUsableFrom ? "2026-08-17" : "2024-03-04" },
     maint: { requests: MAINT_SEED(o.person || PERSON), contacts: MAINT_CONTACTS(), seq: 2, logSeq: 0, emailFails: o.maintEmailFails === true, loseNext: Number(o.maintLoseNext) || 0, photoFails: false },
     listChanges: [],
     person: o.person || PERSON,
@@ -2956,7 +2975,9 @@ const TWIN_PAIRS = [
   .concat(Object.keys(API_R4).map(k => [API_R4[k].en, API_R4[k].es]))
   // Part 369: building maintenance's names, refusals and warning.
   .concat([].concat(...Object.keys(MAINT_NAMES).map(k => MAINT_NAMES[k].map(x => [x[1], x[2]]))))
-  .concat(Object.keys(MAINT_REFUSALS).map(k => [MAINT_REFUSALS[k].en, MAINT_REFUSALS[k].es]));
+  .concat(Object.keys(MAINT_REFUSALS).map(k => [MAINT_REFUSALS[k].en, MAINT_REFUSALS[k].es]))
+  // Part 369: the leave balances' words with no placeholder.
+  .concat(["handbook", "sick", "sickLine", "holidays", "untracked", "site"].map(k => LEAVE_WORDS[k]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -2978,6 +2999,11 @@ const WORD_FIELDS = {
 };
 // The fields whose meaning depends on the route that sent them.
 const ROUTE_WORDS = [
+  // Part 369: leave balances. A kind's name, the policy's name and its
+  // lines, a note and a warning are the API's words; the person, the site
+  // and a code are not.
+  [/^GET \/api\/leave\/me$/, { kindName: "message", text: "message", holidays: "message", message: "message", note: "message", kind: "code", unit: "code", method: "code", source: "code", code: "code", role: "code", status: "code" }],
+  [/^(POST \/api\/time-off|GET \/api\/time-off\/[^/]+)$/, { kindName: "message", message: "message", kind: "code", hoursFrom: "code", code: "code", source: "code" }],
   // Part 369: building maintenance. Its names are the API's words in the
   // request's language; what people typed, the site, a building, a
   // contact and a reference are names; keys are codes.
@@ -3391,6 +3417,46 @@ function createStub(opts) {
   // --- building maintenance (part 369): the views helpers/
   // maintenanceRequests.js answers, in English; translate() serves the
   // names in Spanish to a Spanish request.
+  // Part 369: a request's leave as requestLeave answers it: the hours
+  // from the request, a part day, or eight a day; what a pending one
+  // would leave and its warnings; taken once approved, given back once
+  // the office took the approval back (the fixture's givenBack).
+  const leaveOf = (row, lang) => {
+    const es = lang === "es";
+    const L = state.leave;
+    // In English, served in the request's language on its way out; the
+    // warnings name it in that language, as the API writes them.
+    const kindName = row.leaveType === "paid_sick" ? LEAVE_WORDS.sick[0] : row.leaveTypeLabel || row.leaveType;
+    const tracked = row.leaveType === "paid_sick" && !L.none;
+    const span = Math.round((Date.parse(String(row.endsOn || row.startsOn) + "T12:00:00Z") - Date.parse(String(row.startsOn) + "T12:00:00Z")) / DAY) + 1;
+    const partHours = row.partDay && row.startTime && row.endTime ? (Number(row.endTime.slice(0, 2)) * 60 + Number(row.endTime.slice(3, 5)) - Number(row.startTime.slice(0, 2)) * 60 - Number(row.startTime.slice(3, 5))) / 60 : null;
+    const hours = row.hours !== null && row.hours !== undefined && row.hours !== "" ? Number(row.hours) : partHours !== null ? partHours : Math.max(1, span) * 8;
+    const hoursFrom = row.hours !== null && row.hours !== undefined && row.hours !== "" ? "request" : partHours !== null ? "partDay" : "schedule";
+    const pending = row.status === "requested";
+    const taken = row.status === "approved";
+    const givenBack = row.givenBack === true;
+    const balance = tracked ? L.balance : null;
+    const would = balance === null ? null : pending ? Math.round((balance - hours) * 100) / 100 : balance;
+    const warnings = [];
+    // A warning is the API's sentence with its values in it, so both of
+    // its languages are registered as twins the way every word is.
+    const warned = (pair, vars) => {
+      const en = refusalIn({ en: pair[0], es: pair[1] }, "en", Object.assign({}, vars, { kind: kindName, date: vars.dateEn || vars.date }));
+      const sp = refusalIn({ en: pair[0], es: pair[1] }, "es", Object.assign({}, vars, { kind: TWIN_ES.has(kindName) ? TWIN_ES.get(kindName) : kindName, date: vars.dateEs || vars.date }));
+      if (!TWIN_ES.has(en)) TWIN_ES.set(en, sp);
+      if (!TWIN_EN.has(sp)) TWIN_EN.set(sp, en);
+      return es ? sp : en;
+    };
+    if (pending && tracked && would < 0) warnings.push({ code: "leave.warning.belowZero", message: warned(LEAVE_WORDS.belowZero, { hours: would }) });
+    if (pending && tracked && L.usableFrom && String(row.startsOn) < L.usableFrom) {
+      const d = new Date(L.usableFrom + "T12:00:00Z");
+      const dateEs = d.getUTCDate() + " de " + ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"][d.getUTCMonth()] + " de " + d.getUTCFullYear();
+      const dateEn = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getUTCMonth()] + " " + d.getUTCDate() + ", " + d.getUTCFullYear();
+      warnings.push({ code: "leave.warning.inWaitingPeriod", message: warned(LEAVE_WORDS.waiting, { dateEn: dateEn, dateEs: dateEs }) });
+    }
+    return { kind: row.leaveType, kindName: kindName, tracked: tracked, policy: { id: null, name: LEAVE_WORDS.handbook[es ? 1 : 0], source: "default", since: null }, balanceHours: balance, requestHours: hours, hoursFrom: hoursFrom, days: null,
+      wouldLeaveHours: would, taken: taken, givenBack: givenBack, usableFrom: tracked ? L.usableFrom : null, warnings: warnings };
+  };
   const holdsMaint = () => holds("file_maintenance_requests") || state.person.fileMaintenance === true;
   const nyDay = (ms) => new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const addWorkingDays = (day, n) => { const d = new Date(day + "T12:00:00Z"); let left = n; while (left > 0) { d.setUTCDate(d.getUTCDate() + 1); const w = d.getUTCDay(); if (w !== 0 && w !== 6) left -= 1; } return d.toISOString().slice(0, 10); };
@@ -4319,15 +4385,34 @@ function createStub(opts) {
     if (method === "POST" && /^\/api\/pickups\/[^/]+\/claim$/.test(pathname)) return json(200, { ok: true });
     if (method === "DELETE" && /^\/api\/pickups\//.test(pathname)) return json(200, { ok: true });
 
+    // --- leave balances (part 365): the caller's own, anyone signed in.
+    if (key === "GET /api/leave/me") {
+      if (!state.leave.route) return json(404, { error: "Endpoint not found" });
+      const lw = (k) => LEAVE_WORDS[k][0];
+      const L = state.leave;
+      const policy = L.none ? { id: "pol-site", name: lw("site"), source: "site", since: "2026-01-01" } : { id: null, name: lw("handbook"), source: "default", since: null };
+      const sick = { kind: "paid_sick", kindName: lw("sick"), unit: "hours", hoursPerDay: 8, tracked: true, method: "january_1", startHours: 0, grantedHours: 40, usedHours: Math.max(0, 40 - L.balance), givenBackHours: 0, expiredHours: 0, adjustedHours: Math.min(0, L.balance - 40) < -40 ? L.balance : 0, balanceHours: L.balance, balanceDays: null, usableFrom: L.usableFrom, hoursPostedThrough: null, notes: [] };
+      return json(200, {
+        person: { userId: state.person.id, name: state.person.firstName + " " + state.person.lastName, role: state.person.role, status: "active", hireDate: L.hireDate, site: { id: "site-north", name: "North Building" } },
+        year: 2026, asOf: "2026-10-01", policy: policy,
+        summary: { lines: [{ kind: "paid_sick", kindName: lw("sick"), text: L.none ? lw("untracked") : lw("sickLine"), note: null }], holidays: lw("holidays"), holidayDays: [] },
+        balances: L.none ? [] : [sick], policyHistory: [],
+      });
+    }
     // --- time off
     if (key === "GET /api/time-off/types") return state.timeOffTypesLive ? json(200, { types: state.pto ? [PTO_TYPE].concat(LEAVE_TYPES) : LEAVE_TYPES }) : json(404, { error: "Endpoint not found" });
     if (pathname === "/api/time-off/mine") return json(200, { requests: state.myTimeOff });
-    if (key === "POST /api/time-off") return json(201, { request: timeOffRow({ id: "to-new", leaveType: body && body.leaveType, startsOn: body && body.startsOn, endsOn: body && body.endsOn }) });
+    // Since part 365 the filing, the read of one request and a decision
+    // answer leave (helpers/leaveBalances.js requestLeave) beside it.
+    if (key === "POST /api/time-off") {
+      const row = timeOffRow({ id: "to-new", leaveType: body && body.leaveType, startsOn: body && body.startsOn, endsOn: body && body.endsOn, partDay: !!(body && body.startTime), startTime: (body && body.startTime) || null, endTime: (body && body.endTime) || null, hours: body && body.hours !== undefined ? body.hours : null });
+      return json(201, { request: row, leave: state.leave.route ? leaveOf(row, languageOf(search, state)) : undefined });
+    }
     if (method === "POST" && /^\/api\/time-off\/[^/]+\/cancel$/.test(pathname)) return json(200, { request: timeOffRow({ status: "cancelled", cancelledAt: iso(NOW.getTime()) }) });
     if (method === "GET" && /^\/api\/time-off\/[^/]+$/.test(pathname)) {
       const id = pathname.split("/").pop();
       const row = state.myTimeOff.find(r => r.id === id);
-      return row ? json(200, { request: row }) : json(404, { error: "Request not found" });
+      return row ? json(200, Object.assign({ request: row, affectedShifts: [] }, state.leave.route ? { leave: leaveOf(row, languageOf(search, state)) } : {})) : json(404, { error: "Request not found" });
     }
 
     // --- chat, the three routes as Scout 138 read and ran them, and the
