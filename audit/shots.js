@@ -891,6 +891,44 @@ const SHOTS = [
     } },
   { name: "field-kit-periodic", entry: E("See the periodic work at a site"), o: { signedIn: true, stub: { person: SUPERVISOR, fieldKit: true, equipment: true } },
     go: async (s) => { if (!(await kitTile(s, "Periodic work"))) return false; return s.waitText(s.say("Overdue")); } },
+  // Part 369: building maintenance, at North Building's two requests.
+  { name: "maint-new", entry: E("Send a repair request to building maintenance"), o: { signedIn: true, stub: { person: SUPERVISOR, fieldKit: true } },
+    go: async (s) => {
+      if (!(await kitTile(s, "Building maintenance"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector("[data-maint-new]")))) return false;
+      await s.page.click("[data-maint-new]");
+      if (!(await s.waitFor(() => !!document.querySelector("#ocsa-maint-what")))) return false;
+      await s.type("#ocsa-maint-building", "Annex");
+      await s.type("#ocsa-maint-floor", "1");
+      await s.type("#ocsa-maint-area", s.language === "es" ? "Pasillo de atr\u00e1s" : "Back hallway");
+      await s.page.evaluate(() => { const el = document.querySelector("#ocsa-maint-category"); const set = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set; set.call(el, "plumbing"); el.dispatchEvent(new Event("change", { bubbles: true })); const u = document.querySelector('[data-maint-urgency="soon"]'); if (u) u.click(); });
+      await s.type("#ocsa-maint-what", s.language === "es" ? "Inventado: agua debajo del lavabo del pasillo." : "Invented: water under the hallway sink.");
+      if (!(await s.waitFor(() => document.querySelectorAll("[data-maint-recipient]").length === 2))) return false;
+      await s.show(s.say("It goes to"), "center");
+      return true;
+    } },
+  { name: "maint-list", entry: E("Follow a building maintenance request"), o: { signedIn: true, stub: { person: SUPERVISOR, fieldKit: true } },
+    go: async (s) => { if (!(await kitTile(s, "Building maintenance"))) return false; return s.waitFor(() => !!document.querySelector('[data-maint-row="mr-1"]') && !!document.querySelector('[data-maint-row="mr-2"]')); } },
+  { name: "maint-request", entry: E("Follow a building maintenance request"), o: { signedIn: true, stub: { person: SUPERVISOR, fieldKit: true } },
+    go: async (s) => {
+      if (!(await kitTile(s, "Building maintenance"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-maint-row="mr-2"]')))) return false;
+      await s.page.click('[data-maint-row="mr-2"]');
+      if (!(await s.waitFor(() => !!document.querySelector('[data-maint-sheet="mr-2"] [data-maint-read="1"]') && document.querySelectorAll("[data-maint-photo] img").length === 1))) return false;
+      await s.show(s.say("What happened"), "center");
+      return true;
+    } },
+  { name: "issue-maint", entry: E("Send an issue to building maintenance"), o: { signedIn: true, stub: { issueSheet: true, person: SUPERVISOR } },
+    go: async (s) => {
+      if (!(await s.go("Issues"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-issue-row="iss-b2"]')))) return false;
+      await s.page.click('[data-issue-row="iss-b2"]');
+      if (!(await s.waitFor(() => !!document.querySelector('[data-issue-sheet="iss-b2"] [data-issue-action="maintenance"]')))) return false;
+      await s.page.evaluate(() => document.querySelector('[data-issue-action="maintenance"]').scrollIntoView({ block: "center" }));
+      await s.pause(300);
+      await s.mark('[data-issue-action="maintenance"]');
+      return true;
+    } },
   { name: "field-kit-equipment", entry: E("Check a site's equipment from the field kit"), o: { signedIn: true, stub: { person: SUPERVISOR, fieldKit: true, equipment: true } },
     go: async (s) => { if (!(await kitTile(s, "Equipment"))) return false; return s.waitFor(() => !!document.querySelector("[data-fk-equipment], .sp-content button")); } },
   { name: "field-kit-review", entry: E("Sign an inspection's review line"), o: { signedIn: true, stub: { person: SUPERVISOR, fieldKit: true, equipment: true } },

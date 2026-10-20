@@ -1014,6 +1014,47 @@ Seven journeys, in English and Spanish:
 thank-you, nothing under the email box, and the `register-taken` picture
 is gone with the line it showed.
 
+## Building maintenance from the field (part 369, section 2)
+
+The stub answers `/api/maintenance-requests` the way routes/maintenance.js
+does at ocsa-api's main (part 365): every route behind
+`file_maintenance_requests` (admins and supervisors, or a person whose
+fixture carries `fileMaintenance: true`); `/options`; the list per site,
+newest first, with `ageDays`, `responseDueOn` and `noResponse` worked out
+on the New York day and two business days; one request with its
+recipients, email, photos, log, `allowedStatuses`, `canFollowUp` and
+`canResend`; `POST /` as JSON or multipart (photos under `photos`, the
+fields beside them, recorded on the call as `files` and `fields`), with
+the API's refusals in order (`maintenance.badDetails` with keys,
+`issues.notFound`, `maintenance.issueAlreadySent`, `maintenance.noContact`,
+`maintenance.photoLimit`); `/from-issue/:issueId`; `POST /:id/log`,
+`/follow-up` and `/resend`; and `/api/sites/:siteId/maintenance-contacts`.
+North Building holds MR-2026-0001 (sent, unanswered past its two business
+days) and MR-2026-0002 (scheduled, with a photo and a log), a desk for
+every building and an engineer for the Annex; South Building has no
+contact. `maintEmailFails` makes a filing's email not go, and
+`maintLoseNext: n` files the next n requests and drops their answers on
+the way back. GET /api/issues/:id carries `maintenanceRequests`, and
+EVERY_NOTICE `maintenance_status` and `maintenance_no_response`.
+
+Four journeys, in English and Spanish:
+
+- `maintfile`: the field kit's Building maintenance lists the site's
+  requests with status and age; a request with two photos, its recipients
+  shown, sent with no signal waits on the phone and is filed once, as one
+  multipart filing, when the signal comes back; a send whose answer was
+  lost is found on the site's list and never filed twice; South Building's
+  form says it has no contact and keeps Send off.
+- `maintissue`: an issue's sheet offers Send to building maintenance, the
+  form is prefilled from the issue with its photo to send, the request
+  carries `issueId` and `issuePhotoIds`, and the sheet then shows it sent;
+  someone without the capability is never offered it.
+- `maintsheet`: one request's sheet with its log; Record a response and
+  Change the status to Fixed through `POST /:id/log`; a request past its
+  answer day says so.
+- `maintnotices`: both notices open the request's sheet three ways, and
+  never for someone without the capability.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
