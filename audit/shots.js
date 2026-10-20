@@ -860,6 +860,9 @@ const SHOTS = [
     go: async (s) => { await s.hasBar(); await s.tapLabel(s.say("Profile")); return s.waitText(s.say("Emergency Contact")); } },
   { name: "phone-alerts-on", entry: E("Turn on alerts on this phone"), o: { signedIn: true, phone: { userAgent: ANDROID, push: { permission: "default" } } },
     go: async (s) => { if (!(await s.go("Settings"))) return false; await s.pause(600); await s.tap(s.say("Phone alerts")); return s.waitText(s.say("Turn on alerts on this phone")); } },
+  // Part 367 (PORT-29): an iPhone browser tab told once why it gets no alerts.
+  { name: "alerts-iphone", entry: E("Turn on alerts on this phone"), o: { signedIn: true, phone: { iosAlerts: "fresh" } },
+    go: async (s) => { await s.hasBar(); return s.waitFor(() => !!document.querySelector("[data-alerts-ios]")); } },
   { name: "phone-alerts-choose", entry: E("Choose what alerts your phone"), o: { signedIn: true, phone: { userAgent: ANDROID, push: { permission: "granted", subscribed: true } } },
     go: async (s) => { if (!(await s.go("Settings"))) return false; await s.pause(600); await s.tap(s.say("Phone alerts")); if (!(await s.waitText(s.say("Chat messages")))) return false; await s.show(s.say("Chat messages")); return true; } },
   { name: "home-screen", entry: E("Add the app to your home screen"), o: { signedIn: true, phone: { installSheet: "fresh" } },

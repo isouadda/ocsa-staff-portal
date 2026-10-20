@@ -12,8 +12,10 @@
 //
 // Every request is still asked of the network first, so a deploy is never
 // hidden behind an old copy: a good answer to the page replaces what is
-// kept, and the cache answers only when the network cannot. Every other
-// request goes to the network as if no service worker were installed.
+// kept, and the cache answers only when the network cannot, or has not
+// answered within NETWORK_MS, or answered with an error (PORT-28). Every
+// other request goes to the network as if no service worker were
+// installed.
 var SHELL_CACHE = "ocsa-shell-v2";
 var APP_PAGE = "/";
 var SDS_PAGE = "/sds";
@@ -67,8 +69,30 @@ function keepShell(page) {
     });
   })).catch(function () {});
 }
-function kept(path) {
-  return caches.open(SHELL_CACHE).then(function (c) { return c.match(path); }).then(function (hit) { return hit || Response.error(); });
+// What is kept under a path, or null when nothing is.
+function keptOrNull(path) {
+  return caches.open(SHELL_CACHE).then(function (c) { return c.match(path); }).then(function (hit) { return hit || null; }).catch(function () { return null; });
+}
+// With one bar the network can take as long as it likes, so a kept page
+// or file waits this long for it and then answers from what is kept; the
+// network's answer, when it comes, still replaces what is kept for next
+// time. With nothing kept the network is waited on as before. An answer
+// that is not ok (a 5xx from the host) gives way to the kept copy too.
+var NETWORK_MS = 4000;
+function networkOrKept(path, network) {
+  var asked = network.then(function (res) {
+    if (res && res.ok) return res;
+    return keptOrNull(path).then(function (hit) { return hit || res; });
+  });
+  return new Promise(function (resolve) {
+    var done = false;
+    var settle = function (r) { if (!done) { done = true; resolve(r); } };
+    var timer = setTimeout(function () { keptOrNull(path).then(function (hit) { if (hit) settle(hit); }); }, NETWORK_MS);
+    asked.then(function (res) { clearTimeout(timer); settle(res); }, function () {
+      clearTimeout(timer);
+      keptOrNull(path).then(function (hit) { settle(hit || Response.error()); });
+    });
+  });
 }
 
 self.addEventListener("install", function () {
@@ -96,14 +120,14 @@ self.addEventListener("fetch", function (event) {
   if (url.origin !== self.location.origin) return;
   if (req.mode === "navigate") {
     if (!isKeptPage(url.pathname)) return;
-    event.respondWith(fetch(req).then(function (res) {
-      if (res && res.ok) event.waitUntil(keepShell(res.clone()));
-      return res;
-    }).catch(function () { return kept(url.pathname === APP_PAGE ? APP_PAGE : SDS_PAGE); }));
+    var page = fetch(req);
+    // Kept from the network's own answer, whichever answered the page.
+    event.waitUntil(page.then(function (res) { return res && res.ok ? keepShell(res.clone()) : null; }).catch(function () {}));
+    event.respondWith(networkOrKept(url.pathname === APP_PAGE ? APP_PAGE : SDS_PAGE, page));
     return;
   }
   if (!isShellFile(url.pathname) || !fromKeptPage(req)) return;
-  event.respondWith(fetch(req).catch(function () { return kept(url.pathname); }));
+  event.respondWith(networkOrKept(url.pathname, fetch(req)));
 });
 
 // Phone alerts. The API pushes a small JSON payload, in the person's

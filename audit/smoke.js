@@ -430,6 +430,12 @@ async function cleaner(browser, language) {
   // Help: a question, and the stub's answer.
   const helpAt = (await barNames(page)).indexOf(say(language, "Help"));
   if (helpAt !== -1) await tapBar(page, helpAt);
+  // The form is still open, so the bar asks before it leaves it (part
+  // 367, PORT-21): Leave saves the page and goes on to Help.
+  if (await waitFor(page, () => !!document.querySelector("[data-form-leave]"), null, 2000)) {
+    await page.evaluate((w) => { const d = document.querySelector("[data-form-leave]"); const b = d && Array.from(d.querySelectorAll("button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say(language, "Leave"));
+    await waitFor(page, () => !!document.querySelector(".sp-content textarea") && !document.querySelector("[data-form-frame]"), null, 4000);
+  }
   const question = "Where are the floor pads kept?";
   app.stub.state.served.add(question);
   const typed = await page.evaluate((v) => {

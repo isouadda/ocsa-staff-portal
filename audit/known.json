@@ -207,24 +207,6 @@
       "check": "english",
       "what": "is a procedure name the API sent in English",
       "why": "The procedures an answer cites are named the way the API writes them, in English. Their names are the API's to send in the person's language, with Help's replies. The suite draws one for the first time in this build."
-    },
-    {
-      "where": "Site walk",
-      "check": "covered",
-      "what": "\"Siguiente\" at",
-      "why": "In Spanish at the Largest text size the bottom bar stands taller than the room the form keeps for the app around it (src/App.js:1754), so the form's Next at the foot of the site walk sits under the bar and a tap lands on the bar's button. The bar stays live under a form (src/App.js:3360, 3383)."
-    },
-    {
-      "where": "Site walk",
-      "check": "covered",
-      "what": "\"Atr\u00e1s\" at",
-      "why": "In Spanish at the Largest text size the bottom bar stands taller than the room the form keeps for the app around it (src/App.js:1754), so the form's Back at the foot of the site walk sits under the bar and a tap lands on the bar's button. The bar stays live under a form (src/App.js:3360, 3383)."
-    },
-    {
-      "where": "Site walk",
-      "check": "covered",
-      "what": "\"Enviar reporte\" at",
-      "why": "In Spanish at the Largest text size the bottom bar stands taller than the room the form keeps for the app around it (src/App.js:1754), so the form's Submit report at the foot of the site walk sits under the bar and a tap lands on the bar's button. The bar stays live under a form (src/App.js:3360, 3383)."
     }
   ]
 }

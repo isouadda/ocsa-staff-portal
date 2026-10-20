@@ -12,6 +12,10 @@ const clientConfig = {
     // The company's own clock, which says what today and yesterday are
     // when the checklist says who did something and when.
     timeZone: 'America/New_York',
+    // When the checklist day turns on that clock, HH:MM, the API's
+    // helpers/checklistDay.js day start. A block's window is read from
+    // here, so 1:00 AM work belongs to the night that comes after it.
+    checklistDayStartsAt: '04:00',
   },
   brand: {
     navy: '#0A1628',

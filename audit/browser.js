@@ -45,6 +45,10 @@ const LANGUAGE_KEY = "ocsa-staff-language";
 const TEXT_SIZE_KEY = "ocsa-staff-text-size";
 const THEME_KEY = "ocsa-staff-theme";
 const PROMPT_KEY = "ocsa-home-screen-prompt";
+// The phone's note that it has told an iPhone browser tab why it gets no
+// alerts (PORT-29). Seeded as told for every case, as the install sheet is
+// dismissed, unless a case asks for iosAlerts "fresh".
+const IOS_TOLD_KEY = "ocsa-staff-ios-alerts-told";
 
 // The sheet waits this long after a load before it offers itself.
 const SHEET_SETTLE_MS = 2500;
@@ -70,6 +74,8 @@ async function launch() {
 // now: another time for the phone's clock, for a case that needs the
 // morning. The case gives the stub the same time, as stubOptions.now.
 // userAgent: another phone's, ANDROID for one.
+// iosAlerts: "fresh" for a phone that has not yet told its iPhone browser
+// tab why it gets no alerts (PORT-29); every other case is seeded as told.
 // push: { permission, answer, subscribed, supported }, the phone's push
 // service as a case wants it: the permission given so far ("default",
 // "granted" or "denied"), what the person answers when the browser asks
@@ -101,7 +107,9 @@ async function openApp(browser, base, opts) {
     // A multipart body reaches the stub as the bytes the browser sent, so
     // what the phone made of a photo can be read off them. Anything else
     // is JSON, or the text it was.
-    if (/^multipart\//i.test(headers["content-type"] || "")) body = req.postDataBuffer();
+    // A photo sent whole (an issue's, a resolution's, a check's) reaches it
+    // as bytes too (part 367, PORT-27).
+    if (/^(multipart\/|image\/|application\/octet-stream)/i.test(headers["content-type"] || "")) body = req.postDataBuffer();
     else {
       const raw = req.postData();
       if (raw) { try { body = JSON.parse(raw); } catch (e) { body = raw; } }
@@ -128,7 +136,7 @@ async function openApp(browser, base, opts) {
   });
 
   await context.clock.install({ time: o.now ? new Date(o.now) : NOW });
-  await context.addInitScript(([signedIn, language, textSize, theme, sheet, keys, fresh]) => {
+  await context.addInitScript(([signedIn, language, textSize, theme, sheet, keys, fresh, iosFresh]) => {
     try {
       const ls = window.localStorage;
       // Stamped with whatever the faked clock reads, so a case that moves
@@ -143,6 +151,8 @@ async function openApp(browser, base, opts) {
       } else if (language) ls.setItem(keys.language, language); else ls.removeItem(keys.language);
       if (textSize) ls.setItem(keys.textSize, textSize); else ls.removeItem(keys.textSize);
       if (theme) ls.setItem(keys.theme, theme); else ls.removeItem(keys.theme);
+      if (!iosFresh) ls.setItem(keys.iosTold, "1");
+      else if (!window.sessionStorage.getItem("audit-ios-live")) { window.sessionStorage.setItem("audit-ios-live", "1"); ls.removeItem(keys.iosTold); }
       if (sheet === "dismissed") ls.setItem(keys.prompt, JSON.stringify({ never: true }));
       else if (sheet === "fresh" && !window.sessionStorage.getItem("audit-sheet-live")) {
         window.sessionStorage.setItem("audit-sheet-live", "1");
@@ -150,7 +160,7 @@ async function openApp(browser, base, opts) {
       }
     } catch (e) {}
   }, [o.signedIn !== false, o.language || "en", o.textSize || "standard", theme, o.installSheet || "dismissed",
-      { auth: AUTH_KEY, language: LANGUAGE_KEY, textSize: TEXT_SIZE_KEY, theme: THEME_KEY, prompt: PROMPT_KEY }, o.storeLanguage === false]);
+      { auth: AUTH_KEY, language: LANGUAGE_KEY, textSize: TEXT_SIZE_KEY, theme: THEME_KEY, prompt: PROMPT_KEY, iosTold: IOS_TOLD_KEY }, o.storeLanguage === false, o.iosAlerts === "fresh"]);
 
   // The push service, seeded on the first load of the case so a reload
   // keeps what the case has done since.
