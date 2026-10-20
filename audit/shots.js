@@ -640,9 +640,29 @@ const SHOTS = [
       await s.pause(600);
       await s.tap(s.say("Request time off"));
       if (!(await s.waitFor(() => !!document.querySelector('select option[value="pto"]')))) return false;
-      await s.page.selectOption('select:has(option[value="pto"])', "pto");
-      return s.waitFor(() => Array.from(document.querySelectorAll("div")).some(d => { const c = getComputedStyle(d); return c.position === "fixed" && c.zIndex === "200"; }));
+      // Part 369: paid sick leave, so the balance shows under Type.
+      await s.page.selectOption('select:has(option[value="pto"])', "paid_sick");
+      return s.waitFor(() => !!document.querySelector("[data-leave-picked]"));
     } },
+  // Part 369: the request's sheet once sent, what it would leave and the
+  // API's warning that it goes below zero.
+  { name: "time-off-leave", entry: E("Request time off"), o: { signedIn: true, stub: { leaveBalance: 32 } },
+    go: async (s) => {
+      if (!(await s.go("Schedule"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector("[data-leave-balance]")))) return false;
+      await s.tap(s.say("Request time off"));
+      if (!(await s.waitFor(() => !!document.querySelector('select option[value="paid_sick"]')))) return false;
+      await s.page.selectOption('select:has(option[value="paid_sick"])', "paid_sick");
+      await s.page.evaluate(() => { const boxes = Array.from(document.querySelectorAll('div[style*="z-index: 200"] input[type="date"]')); const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; [["2026-10-05", 0], ["2026-10-09", 1]].forEach(([v, i]) => { if (!boxes[i]) return; set.call(boxes[i], v); boxes[i].dispatchEvent(new Event("input", { bubbles: true })); boxes[i].dispatchEvent(new Event("change", { bubbles: true })); }); });
+      await s.pause(300);
+      await s.tap(s.say("Send request"));
+      if (!(await s.waitFor(() => !!document.querySelector('[data-leave-state="pending"] [data-leave-warning]')))) return false;
+      await s.page.evaluate(() => document.querySelector('[data-leave-state="pending"]').scrollIntoView({ block: "center" }));
+      await s.pause(300);
+      return true;
+    } },
+  { name: "leave-balances", entry: E("See your leave balances"), o: { signedIn: true },
+    go: async (s) => { if (!(await s.go("Schedule"))) return false; if (!(await s.waitFor(() => !!document.querySelector('[data-leave-balance="paid_sick"]')))) return false; await s.show(s.say("My time off")); return true; } },
   { name: "time-off-mine", entry: E("See or cancel your time off"), o: { signedIn: true, stub: { myTimeOff: [timeOffRow({ id: "to-one", status: "requested" })] } },
     go: async (s) => { if (!(await s.go("Schedule"))) return false; if (!(await s.waitText(s.say("My time off")))) return false; await s.show(s.say("My time off")); return true; } },
   { name: "time-off-cancel", entry: E("See or cancel your time off"), o: { signedIn: true, stub: { myTimeOff: [timeOffRow({ id: "to-one", status: "requested" })] } },
@@ -838,18 +858,6 @@ const SHOTS = [
       await s.pause(400);
       return true;
     } },
-  { name: "register-taken", entry: E("Register as a new employee"), o: {},
-    go: async (s) => {
-      await s.waitText(s.say("Sign In"));
-      await s.tap(s.say("New Employee? Register Here"));
-      if (!(await s.waitText(s.say("Register")))) return false;
-      const boxes = ["Riley", "Example", "0000000000", "riley@example.invalid", "5739", "5739"];
-      for (let i = 0; i < boxes.length; i += 1) await s.page.evaluate(([n, v]) => { const e = document.querySelectorAll("input")[n]; if (!e) return; const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; set.call(e, v); e.dispatchEvent(new Event("input", { bubbles: true })); }, [i, boxes[i]]);
-      await s.tap(s.say("Register"));
-      if (!(await s.waitText(s.say("This phone or email already has an account. Sign in with it, or tap Forgot your PIN? to choose a new PIN.")))) return false;
-      await s.show(s.say("Email Address *"), "center");
-      return true;
-    } },
   { name: "text-size", entry: E("Make the text bigger"), o: { signedIn: true }, go: (s) => settingsAt(s, "Text size") },
   { name: "appearance", entry: E("Switch between light and dark"), o: { signedIn: true }, go: (s) => settingsAt(s, "Appearance") },
   { name: "language", entry: E("Switch the app to Spanish or English"), o: { signedIn: true }, go: (s) => settingsAt(s, "Language") },
@@ -903,6 +911,44 @@ const SHOTS = [
     } },
   { name: "field-kit-periodic", entry: E("See the periodic work at a site"), o: { signedIn: true, stub: { person: SUPERVISOR, fieldKit: true, equipment: true } },
     go: async (s) => { if (!(await kitTile(s, "Periodic work"))) return false; return s.waitText(s.say("Overdue")); } },
+  // Part 369: building maintenance, at North Building's two requests.
+  { name: "maint-new", entry: E("Send a repair request to building maintenance"), o: { signedIn: true, stub: { person: SUPERVISOR, fieldKit: true } },
+    go: async (s) => {
+      if (!(await kitTile(s, "Building maintenance"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector("[data-maint-new]")))) return false;
+      await s.page.click("[data-maint-new]");
+      if (!(await s.waitFor(() => !!document.querySelector("#ocsa-maint-what")))) return false;
+      await s.type("#ocsa-maint-building", "Annex");
+      await s.type("#ocsa-maint-floor", "1");
+      await s.type("#ocsa-maint-area", s.language === "es" ? "Pasillo de atr\u00e1s" : "Back hallway");
+      await s.page.evaluate(() => { const el = document.querySelector("#ocsa-maint-category"); const set = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set; set.call(el, "plumbing"); el.dispatchEvent(new Event("change", { bubbles: true })); const u = document.querySelector('[data-maint-urgency="soon"]'); if (u) u.click(); });
+      await s.type("#ocsa-maint-what", s.language === "es" ? "Inventado: agua debajo del lavabo del pasillo." : "Invented: water under the hallway sink.");
+      if (!(await s.waitFor(() => document.querySelectorAll("[data-maint-recipient]").length === 2))) return false;
+      await s.show(s.say("It goes to"), "center");
+      return true;
+    } },
+  { name: "maint-list", entry: E("Follow a building maintenance request"), o: { signedIn: true, stub: { person: SUPERVISOR, fieldKit: true } },
+    go: async (s) => { if (!(await kitTile(s, "Building maintenance"))) return false; return s.waitFor(() => !!document.querySelector('[data-maint-row="mr-1"]') && !!document.querySelector('[data-maint-row="mr-2"]')); } },
+  { name: "maint-request", entry: E("Follow a building maintenance request"), o: { signedIn: true, stub: { person: SUPERVISOR, fieldKit: true } },
+    go: async (s) => {
+      if (!(await kitTile(s, "Building maintenance"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-maint-row="mr-2"]')))) return false;
+      await s.page.click('[data-maint-row="mr-2"]');
+      if (!(await s.waitFor(() => !!document.querySelector('[data-maint-sheet="mr-2"] [data-maint-read="1"]') && document.querySelectorAll("[data-maint-photo] img").length === 1))) return false;
+      await s.show(s.say("What happened"), "center");
+      return true;
+    } },
+  { name: "issue-maint", entry: E("Send an issue to building maintenance"), o: { signedIn: true, stub: { issueSheet: true, person: SUPERVISOR } },
+    go: async (s) => {
+      if (!(await s.go("Issues"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-issue-row="iss-b2"]')))) return false;
+      await s.page.click('[data-issue-row="iss-b2"]');
+      if (!(await s.waitFor(() => !!document.querySelector('[data-issue-sheet="iss-b2"] [data-issue-action="maintenance"]')))) return false;
+      await s.page.evaluate(() => document.querySelector('[data-issue-action="maintenance"]').scrollIntoView({ block: "center" }));
+      await s.pause(300);
+      await s.mark('[data-issue-action="maintenance"]');
+      return true;
+    } },
   { name: "field-kit-equipment", entry: E("Check a site's equipment from the field kit"), o: { signedIn: true, stub: { person: SUPERVISOR, fieldKit: true, equipment: true } },
     go: async (s) => { if (!(await kitTile(s, "Equipment"))) return false; return s.waitFor(() => !!document.querySelector("[data-fk-equipment], .sp-content button")); } },
   { name: "field-kit-review", entry: E("Sign an inspection's review line"), o: { signedIn: true, stub: { person: SUPERVISOR, fieldKit: true, equipment: true } },

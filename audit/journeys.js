@@ -11,7 +11,7 @@ const { INSPECT, languageRows } = require("./checks");
 const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES,
-  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS, EVERY_NOTICE, FIRST_NAMES, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, FILED_WORDS, SECOND_STEP_CODE, NOW } = require("./stub");
+  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS, EVERY_NOTICE, MAINT_NAMES, FIRST_NAMES, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, FILED_WORDS, SECOND_STEP_CODE, NOW } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -7051,7 +7051,7 @@ const ROUND4_JOURNEYS = [
   },
   {
     id: "registerwords",
-    label: "Register's words (API-117): a registration sent says a supervisor reviews it and OCSA emails once the person can sign in, words that hold whether or not the phone had an account; a phone or email that already has one is said under the email box with the next step, the form kept",
+    label: "Register's words (API-117): a registration sent says a supervisor reviews it and OCSA emails once the person can sign in, and since part 363 a phone or email that already has an account gets the same words, the 201 the API answers it, with nothing said under the email box",
     run: async (open, language, expect) => {
       const reg = await open({ signedIn: false });
       try {
@@ -7071,11 +7071,9 @@ const ROUND4_JOURNEYS = [
         const person = ["Riley", "Invented", "0000000000", "riley@example.invalid", "5739", "5739"];
         for (let i = 0; i < person.length; i += 1) await typeNth(taken.page, "input", i, person[i]);
         await clickText(taken.page, say("Register", language));
-        await pause(taken.page, 1200);
-        const line = await taken.page.evaluate(() => { const box = document.querySelector('input[type="email"]'); const e = box ? box.nextElementSibling : null; return e ? e.innerText.replace(/\s+/g, " ").trim() : ""; });
-        const toasts = await toastsNow(taken.page);
-        expect("a phone or email that already has an account is said under the email box, with the next step", line === say("This phone or email already has an account. Sign in with it, or tap Forgot your PIN? to choose a new PIN.", language), JSON.stringify(line));
-        expect("the form is kept and no failure is said", toasts.every(x => !x.failure) && (await boxValue(taken.page, "input", 0)) === "Riley", JSON.stringify(toasts));
+        const toast = await toastSaying(taken.page, say("Thank you. A supervisor reviews each registration, and OCSA emails you once you can sign in.", language));
+        expect("a phone or email that already has an account gets the same thank-you words, as a notice", !!toast && !toast.failure, JSON.stringify(await toastsNow(taken.page)));
+        expect("and the sign-in screen comes back, the registration sent once and nothing written", callsTo(taken.stub, "POST", "/api/auth/register").length === 1 && (taken.stub.state.registered || []).length === 0 && (await shows(taken.page, 'input[autocomplete="username"]', 3000)), callsTo(taken.stub, "POST", "/api/auth/register").length + " sent");
         await spokenHere(taken, language, expect);
       } finally { await taken.context.close(); }
     },
@@ -7774,5 +7772,521 @@ const PART367_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART367_JOURNEYS);
+
+// Part 369, section 1: what ocsa-api's Round 5 (part 363) answers the
+// staff app, read at its main (ca4aafa).
+const authOf = (call) => (call && call.headers ? call.headers.authorization || "" : "");
+const keptToken = (page) => page.evaluate(() => { try { const v = JSON.parse(window.localStorage.getItem("ocsa_auth") || "null"); return v ? v.token : null; } catch (e) { return null; } });
+// The shift a shift notice names, three weeks ahead, and one the office
+// cancelled, which my-schedule no longer lists. Invented.
+const SHIFT_AHEAD = { id: "sh-ahead", scheduled_date: "2026-10-21", start_time: "06:00", end_time: "14:00", site_name: "West Building", status: "scheduled", building_name: "Annex", floor_number: "1" };
+const AHEAD_SCHEDULE = () => ({ scheduled: [{ id: "sh-1", scheduled_date: "2026-10-02", start_time: "17:00", end_time: "23:00", site_name: "North Building", status: "scheduled", building_name: "Main Hall", floor_number: "2" }, Object.assign({}, SHIFT_AHEAD)], actual: [], pickups: [] });
+const SITE_NOTICE = (type, id, title) => ({ id: "n-p369-" + type + "-" + id, subjectType: type, subjectKey: null, subjectId: id, title: title, body: "An invented notice.", link: "https://staff.example.invalid/?open=" + type + ":" + id, createdAt: "2026-10-01T21:10:00.000Z", readAt: null });
+// The two refusals part 363 adds to a task's writes (helpers/taskPhoto.js),
+// in the API's own words, with the keys and maxLength it sends.
+const TASK_REFUSALS = {
+  photoUrlInvalid: { status: 400, code: "tasks.photoUrlInvalid", en: "photoUrl must be the address the app's upload gave for this photo, at most 500 characters", es: "photoUrl debe ser la direcci\u00f3n que dio la carga de esta foto en la app, de 500 caracteres como m\u00e1ximo", extra: { keys: ["photoUrl"], maxLength: 500 } },
+  noteInvalid: { status: 400, code: "tasks.noteInvalid", en: "resolutionNote must be text of at most 2000 characters", es: "resolutionNote debe ser un texto de 2000 caracteres como m\u00e1ximo", extra: { keys: ["resolutionNote"], maxLength: 2000 } },
+};
+const taskRefusal = (k, language) => ({ status: TASK_REFUSALS[k].status, body: Object.assign({ error: language === "es" ? TASK_REFUSALS[k].es : TASK_REFUSALS[k].en, code: TASK_REFUSALS[k].code }, TASK_REFUSALS[k].extra), once: true });
+
+const PART369_S1_JOURNEYS = [
+  {
+    id: "renewopen",
+    label: "Renewal when the app opens (API-56): a phone opened on a kept session asks POST /api/auth/renew with its token before anything else, keeps the new token for every call after it, signs in again when the API says the token ran out, and opens as before when renewal cannot be reached",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { renewTo: "token-two" } });
+      try {
+        await shows(app.page, ".sp-content", 8000);
+        await pause(app.page, 1500);
+        const calls = app.stub.state.calls;
+        const renews = calls.filter(c => c.method === "POST" && c.path === "/api/auth/renew");
+        const meAt = calls.findIndex(c => c.method === "GET" && c.path === "/api/auth/me");
+        const renewAt = calls.findIndex(c => c.method === "POST" && c.path === "/api/auth/renew");
+        expect("the app opens with one renewal, under the kept token, before the person is read", renews.length === 1 && authOf(renews[0]) === "Bearer token-one" && renewAt !== -1 && meAt > renewAt, renews.length + " renewals, at " + renewAt + ", me at " + meAt);
+        const after = calls.slice(renewAt + 1).filter(c => c.path.indexOf("/api/") === 0 && authOf(c));
+        expect("every call after it carries the new token", after.length > 3 && after.every(c => authOf(c) === "Bearer token-two"), JSON.stringify(after.filter(c => authOf(c) !== "Bearer token-two").map(c => c.method + " " + c.path + " " + authOf(c)).slice(0, 4)));
+        expect("and the phone keeps the new token for its next opening", (await keptToken(app.page)) === "token-two", JSON.stringify(await keptToken(app.page)));
+      } finally { await app.context.close(); }
+      const ran = await open({ stubOptions: { refuse: { "POST /api/auth/renew": { status: 401, body: { error: "Token expired", code: "auth.tokenExpired" } } } } });
+      try {
+        const signIn = await shows(ran.page, 'input[autocomplete="username"]', 8000);
+        expect("a renewal answered 401 auth.tokenExpired brings sign-in back, and the person is never read under the old token", signIn && callsTo(ran.stub, "GET", "/api/auth/me").length === 0, (await bodyText(ran.page)).slice(0, 160));
+        await spokenHere(ran, language, expect);
+      } finally { await ran.context.close(); }
+      const down = await open({ stubOptions: { refuse: { "POST /api/auth/renew": { status: 503, body: { error: "The sign-in check is not available. Try again in a minute.", code: "auth.checkUnavailable" } } } } });
+      try {
+        const up = await shows(down.page, ".sp-content", 8000);
+        expect("a renewal that cannot be reached opens the app as before, on the kept token", up && (await keptToken(down.page)) === "token-one" && authOf(lastSent(down.stub, "GET", "/api/auth/me")) === "Bearer token-one", (await bodyText(down.page)).slice(0, 160));
+      } finally { await down.context.close(); }
+    },
+  },
+  {
+    id: "renewqueued",
+    label: "Renewal before a queued send (API-56): a check-off kept on the phone with no signal goes once the signal comes back, after a renewal, under the new token, so a long shift never ends in a sign-out with work still waiting",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { renewTo: "token-one" } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1500);
+        const step = await openStep(app, language);
+        if (!step) { expect("the list has a step still to do", false, "no open box"); return; }
+        // The session was renewed at opening; it is made older than the
+        // ten minutes between renewals, as on a long shift.
+        await app.page.evaluate(() => { try { const v = JSON.parse(window.localStorage.getItem("ocsa_auth")); v.savedAt = Date.now() - 11 * 60 * 1000; window.localStorage.setItem("ocsa_auth", JSON.stringify(v)); } catch (e) {} });
+        app.stub.state.renewTo = "token-three";
+        await app.context.setOffline(true); app.stub.state.offline = true;
+        await tapAria(app.page, step.label);
+        await pause(app.page, 900);
+        expect("a check-off with no signal is kept on the phone", (await pendingTaps(app.page)) === 1, (await pendingTaps(app.page)) + " on the phone");
+        const mark = app.stub.state.calls.length;
+        app.stub.state.offline = false; await app.context.setOffline(false);
+        let left = 1;
+        const until = Date.now() + 12000;
+        while (Date.now() < until) { left = await pendingTaps(app.page); if (left === 0) break; await pause(app.page, 300); }
+        const since = app.stub.state.calls.slice(mark);
+        const renewAt = since.findIndex(c => c.method === "POST" && c.path === "/api/auth/renew");
+        const sendAt = since.findIndex(c => c.method === "POST" && c.path.indexOf("/api/clock/tasks/" + step.id) === 0);
+        expect("the kept check-off goes once the signal is back, and leaves the phone", left === 0 && sendAt !== -1, left + " on the phone, sent at " + sendAt);
+        expect("a renewal goes first, and the check-off goes under the new token", renewAt !== -1 && renewAt < sendAt && authOf(since[sendAt]) === "Bearer token-three", "renewal at " + renewAt + ", send at " + sendAt + " under " + authOf(since[sendAt]));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "shiftat",
+    label: "A shift changed or cancelled (API-62): shift_changed opens My Schedule at that shift's week with its sheet open, three weeks ahead, and shift_cancelled says the shift is no longer on the schedule, from the bell, from a phone alert on an open app and from one that opens the app",
+    run: async (open, language, expect) => {
+      const changed = SITE_NOTICE("shift_changed", "sh-ahead", "Invented: your shift at West Building changed");
+      await threeWays(open, { schedule: AHEAD_SCHEDULE(), notifications: [changed] }, "shift_changed", "sh-ahead", changed.title, async (app, how) => {
+        const up = await shows(app.page, '[data-shift-detail="sh-ahead"]', 7000);
+        const text = up ? await app.page.evaluate(() => document.querySelector('[data-shift-detail="sh-ahead"]').innerText.replace(/\s+/g, " ")) : "";
+        expect("a shift_changed notice " + how + " opens My Schedule with that shift's sheet", up && has(text, say("Scheduled Shift", language)) && has(text, "West Building") && (await chosenTab(app.page)) === say("Schedule", language), text.slice(0, 200) || (await bodyText(app.page)).slice(0, 200));
+        if (how !== "from the bell") return;
+        await app.page.evaluate(() => { const d = document.querySelector('[data-shift-detail="sh-ahead"]'); if (d && d.parentElement) d.parentElement.click(); });
+        await pause(app.page, 600);
+        const week = await bodyText(app.page);
+        const label = await app.page.evaluate((l) => new Date(2026, 9, 19).toLocaleDateString(l, { month: "short", day: "numeric" }) + " - " + new Date(2026, 9, 25).toLocaleDateString(l, { month: "short", day: "numeric", year: "numeric" }), language === "es" ? "es-US" : "en-US");
+        expect("and the week drawn is the shift's own, Monday October 19 to Sunday October 25", has(week, label), label + " | " + week.slice(0, 300));
+        await spokenHere(app, language, expect);
+      });
+      const cancelled = SITE_NOTICE("shift_cancelled", "sh-gone", "Invented: your shift at West Building was cancelled");
+      await threeWays(open, { schedule: AHEAD_SCHEDULE(), notifications: [cancelled] }, "shift_cancelled", "sh-gone", cancelled.title, async (app, how) => {
+        const line = await shows(app.page, '[data-shift-gone="1"]', 7000);
+        const text = line ? await app.page.evaluate(() => document.querySelector('[data-shift-gone="1"]').innerText) : "";
+        expect("a shift_cancelled notice " + how + " opens My Schedule saying the shift is no longer on it", line && has(text, say("This shift is no longer on your schedule.", language)) && !(await app.page.evaluate(() => !!document.querySelector("[data-shift-detail]"))), text || (await bodyText(app.page)).slice(0, 200));
+        if (how === "from the bell") await spokenHere(app, language, expect);
+      });
+    },
+  },
+  {
+    id: "casedone",
+    label: "A reporter's case resolved or closed (API-63): hr_case_closed_for opens My reports with that report marked, from the bell, from a phone alert on an open app and from one that opens the app, and never reads the office's case",
+    run: async (open, language, expect) => {
+      const notice = SITE_NOTICE("hr_case_closed_for", "hr-mine-1", "Invented: your report was closed");
+      await threeWays(open, { notifications: [notice] }, "hr_case_closed_for", "hr-mine-1", notice.title, async (o, how) => {
+        const marked = await shows(o.page, '[data-my-report="hr-mine-1"][data-my-report-focus="1"]');
+        expect("an hr_case_closed_for notice " + how + " opens My reports with that report marked", marked, (await bodyText(o.page)).slice(0, 200));
+        expect("the notice " + how + " never reads the office's case", callsTo(o.stub, "GET", "/api/hr-cases/hr-mine-1").length === 0, callsTo(o.stub, "GET", "/api/hr-cases/hr-mine-1").length + " reads");
+      });
+    },
+  },
+  {
+    id: "filedlink",
+    label: "A filed report's notice with its staff app link (API-83): since part 363 a reader who is not an admin is linked to the staff app's /?open=form:<id>; the report opens read only with Close alone, never a dashboard button that leads back to this app, and a person who reads no report is offered nothing that leaves the app",
+    run: async (open, language, expect) => {
+      const notice = Object.assign({}, noticeOf("form"), { id: "n-p369-form", link: "https://staff.example.invalid/?open=form:fr-1", title: "Invented: a spill report was filed at North Building" });
+      await threeWays(open, { person: R4_SUPERVISOR, notifications: [notice] }, "form", "fr-1", notice.title, async (app, how) => {
+        const up = await shows(app.page, '[data-report-sheet="fr-1"] [data-report-read="1"]');
+        const buttons = up ? await app.page.evaluate(() => Array.from(document.querySelectorAll('[data-report-sheet="fr-1"] button')).map(b => b.innerText.trim())) : [];
+        expect("the report opens " + how + ", read only, with Close and no Open in the dashboard", up && buttons.join("|") === say("Close", language), JSON.stringify(buttons));
+      });
+      const cleaner = await open({ stubOptions: { notifications: [notice] } });
+      try {
+        await tapOnBell(cleaner, notice.title);
+        await pause(cleaner.page, 1500);
+        const offered = await cleaner.page.evaluate(([t, w]) => { const b = Array.from(document.querySelectorAll("button")).find(y => y.innerText.indexOf(t) !== -1); const row = b && b.parentElement; return !!row && Array.from(row.querySelectorAll("button")).some(y => y.innerText.trim() === w); }, [notice.title, say("Open in the dashboard", language)]);
+        expect("a person who reads no report is offered no dashboard for a staff app link, and the report is never read", !offered && !(await cleaner.page.evaluate(() => !!document.querySelector("[data-report-sheet]"))) && callsTo(cleaner.stub, "GET", "/api/forms/responses/fr-1").length === 0, "offered " + offered);
+      } finally { await cleaner.context.close(); }
+    },
+  },
+  {
+    id: "tasknotes",
+    label: "A task's photo and note on a write (API-68): the resolution boxes hold 2000 characters at most, and a resolve the API refuses for its photo address or its note says so in plain words, never the API's field names",
+    run: async (open, language, expect) => {
+      for (const k of ["noteInvalid", "photoUrlInvalid"]) {
+        const app = await open({});
+        try {
+          await openTab(app.page, "issuetasks", language);
+          await pause(app.page, 900);
+          await openItem(app.page, "Replace the cracked light cover");
+          await pause(app.page, 700);
+          await clickText(app.page, say("Resolved", language));
+          const cap = await app.page.evaluate(() => { const b = document.querySelector(".sp-content textarea"); return b ? b.maxLength : null; });
+          if (k === "noteInvalid") expect("the resolution box holds 2000 characters at most", cap === 2000, JSON.stringify(cap));
+          await typeNth(app.page, ".sp-content textarea", 0, "Put a new cover on");
+          await attachPhoto(app.page, '.sp-content input[type="file"]');
+          await pause(app.page, 700);
+          app.stub.state.refuse["PATCH /api/clock/tasks/resolve/at-1"] = taskRefusal(k, language);
+          await clickText(app.page, say("Submit Resolution", language));
+          const words = k === "noteInvalid" ? say("The note is too long. Keep it to {max} characters.", language).replace("{max}", "2000") : say("This photo could not be sent with the task. Take the photo again, then send it.", language);
+          const toast = await toastSaying(app.page, words, 6000);
+          expect(TASK_REFUSALS[k].code + " says what to do in plain words", !!toast, JSON.stringify(await toastsNow(app.page)));
+          expect(TASK_REFUSALS[k].code + " never shows the API's field names", !has(await bodyText(app.page), "resolutionNote") && !has(await bodyText(app.page), "photoUrl"), (await bodyText(app.page)).slice(0, 200));
+        } finally { await app.context.close(); }
+      }
+    },
+  },
+  {
+    id: "daystart",
+    label: "The checklist day's start from GET /api/settings (PORT-24, part 363): with the company's day starting at 6:00 AM, the evening's critical block, unfinished, still reads Overdue at 5:00 AM, where the 4:00 AM kept in clientConfig would have begun a new day",
+    run: async (open, language, expect) => {
+      const at = "2026-10-02T09:00:00Z";
+      const app = await open({ now: at, stubOptions: { site: "site-east", shiftLabel: "Second shift", now: at, dayStartsAt: "06:00" } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await app.page.waitForFunction(() => document.querySelectorAll("[data-block]").length > 3, null, { timeout: 8000 }).catch(() => {});
+        await pause(app.page, 900);
+        const when = await app.page.evaluate(() => { const b = document.querySelector('[data-block="Dining room reset"]'); return b ? b.getAttribute("data-block-when") : null; });
+        expect("the settings are read once the person is in", callsTo(app.stub, "GET", "/api/settings").length >= 1, callsTo(app.stub, "GET", "/api/settings").length + " reads");
+        expect("the Second shift's Dining room reset, unfinished, reads Overdue at 5:00 AM on a 6:00 AM day", when === "overdue", JSON.stringify(when));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART369_S1_JOURNEYS);
+
+// Part 369, section 2: building maintenance, against ocsa-api's main
+// (part 365, routes/maintenance.js), for a supervisor, who holds
+// file_maintenance_requests by default.
+const MAINT_SUP = Object.assign({}, PERSON, { id: "u-maint-sup", role: "supervisor" });
+const maintIn = (language, list, key) => { const hit = MAINT_NAMES[list].find(x => x[0] === key); return hit ? (language === "es" ? hit[2] : hit[1]) : key; };
+const maintPosts = (stub) => stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/maintenance-requests");
+// The field kit's Building maintenance at a site, from More.
+const openMaintTile = async (app, language, siteName) => {
+  if (!(await openTab(app.page, "fieldkit", language))) return false;
+  await shows(app.page, "#ocsa-fk-site", 8000);
+  if (siteName) await app.page.evaluate((n) => { const sel = document.querySelector("#ocsa-fk-site"); const o = sel && Array.from(sel.options).find(x => x.textContent === n); if (!o) return; const set = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set; set.call(sel, o.value); sel.dispatchEvent(new Event("change", { bubbles: true })); }, siteName);
+  await pause(app.page, 500);
+  if (!(await clickText(app.page, say("Building maintenance", language)))) return false;
+  return shows(app.page, "[data-fk-maintenance]", 6000);
+};
+const pickIn = (page, sel, value) => page.evaluate(([q, v]) => { const el = document.querySelector(q); if (!el) return false; const set = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set; set.call(el, v); el.dispatchEvent(new Event("change", { bubbles: true })); return true; }, [sel, value]);
+// What a new request is filled with, every word invented.
+const fillMaint = async (app, words) => {
+  if (words.building !== undefined) await type(app.page, "#ocsa-maint-building", words.building);
+  if (words.floor !== undefined) await type(app.page, "#ocsa-maint-floor", words.floor);
+  if (words.area !== undefined) await type(app.page, "#ocsa-maint-area", words.area);
+  await pickIn(app.page, "#ocsa-maint-category", words.category);
+  await app.page.evaluate((u) => { const b = document.querySelector('[data-maint-urgency="' + u + '"]'); if (b) b.click(); }, words.urgency);
+  if (words.description !== undefined) await type(app.page, "#ocsa-maint-what", words.description);
+};
+const MAINT_WORDS = { building: "Annex", floor: "1", area: "Back hallway", category: "plumbing", urgency: "soon", description: "Invented: water under the hallway sink." };
+
+const PART369_S2_JOURNEYS = [
+  {
+    id: "maintfile",
+    label: "A maintenance request from the field kit (part 365): building, floor and area, the kind of problem, how soon, what is wrong and two camera photos, with who it goes to shown before Send; sent with no signal it waits on the phone and goes once, with its photos, when the signal comes back; a site with no contact cannot send",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: MAINT_SUP, fieldKit: true } });
+      try {
+        const tile = await openMaintTile(app, language, "North Building");
+        expect("a supervisor's field kit has Building maintenance, listing the site's requests", tile && (await shows(app.page, '[data-maint-row="mr-1"]')) && (await shows(app.page, '[data-maint-row="mr-2"]')), (await bodyText(app.page)).slice(0, 240));
+        if (!tile) return;
+        const row = await app.page.evaluate(() => { const r = document.querySelector('[data-maint-row="mr-1"]'); return r ? { text: r.innerText.replace(/\s+/g, " "), age: (r.querySelector("[data-maint-age]") || {}).getAttribute ? r.querySelector("[data-maint-age]").getAttribute("data-maint-age") : null, late: !!r.querySelector("[data-maint-noanswer]") } : null; });
+        expect("each request shows its status and its age, and one the building has not answered says so", !!row && has(row.text, maintIn(language, "statuses", "sent")) && row.age === "3" && has(row.text, say("Sent {n} days ago", language).replace("{n}", "3")) && row.late && has(row.text, say("No answer yet", language)), JSON.stringify(row));
+        await clickText(app.page, say("New request", language));
+        await shows(app.page, "#ocsa-maint-what");
+        await fillMaint(app, MAINT_WORDS);
+        await attachDrawn(app.page, "[data-maint-photo-input]", "one.jpg", 1600, 1200);
+        await pause(app.page, 900);
+        await attachDrawn(app.page, "[data-maint-photo-input]", "two.jpg", 1600, 1200);
+        await pause(app.page, 900);
+        const goes = await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-maint-recipient]")).map(x => x.getAttribute("data-maint-recipient")));
+        expect("who it goes to shows before Send: the Annex's engineer and the desk for every building", goes.join() === "desk@example.invalid,annex@example.invalid", JSON.stringify(goes));
+        expect("the two photos are on the form", (await app.page.evaluate(() => document.querySelectorAll("[data-maint-taken]").length)) === 2, "photos");
+        await spokenHere(app, language, expect);
+        await app.context.setOffline(true); app.stub.state.offline = true;
+        await clickText(app.page, say("Send", language));
+        const saved = await toastSaying(app.page, say("Saved on this phone. It sends when you have signal.", language), 8000);
+        await pause(app.page, 600);
+        expect("sent with no signal, the request waits on the phone, said so, and the form closes", !!saved && !(await app.page.evaluate(() => !!document.querySelector("#ocsa-maint-what"))) && (await shows(app.page, "[data-maint-kept]")), JSON.stringify(await toastsNow(app.page)));
+        expect("nothing is filed while there is no signal", app.stub.state.maint.requests.length === 2, app.stub.state.maint.requests.length + " requests");
+        app.stub.state.offline = false; await app.context.setOffline(false);
+        const sentWords = say("Sent to the building as {reference}.", language).replace("{reference}", "MR-2026-0003");
+        const sent = await toastSaying(app.page, sentWords, 12000);
+        await pause(app.page, 900);
+        const filed = app.stub.state.maint.requests.filter(r => r.id !== "mr-1" && r.id !== "mr-2");
+        const post = maintPosts(app.stub).filter(c => c.files && c.files.length).pop();
+        expect("with the signal back it is filed once, and said so", !!sent && filed.length === 1, filed.length + " filed; " + JSON.stringify(await toastsNow(app.page)));
+        expect("as one multipart filing carrying both photos, as JPEGs, and every field", !!post && post.files.length === 2 && post.files.every(f => f.kind && f.kind.ext === "jpg") && post.fields.siteId === "site-north" && post.fields.building === "Annex" && post.fields.floor === "1" && post.fields.area === "Back hallway" && post.fields.category === "plumbing" && post.fields.urgency === "soon" && post.fields.description === MAINT_WORDS.description, post ? JSON.stringify(post.fields) + " " + post.files.length : "no multipart post");
+        expect("it leaves the phone and the site's list shows it", !(await app.page.evaluate(() => !!document.querySelector("[data-maint-kept]"))) && (await shows(app.page, '[data-maint-row="mr-3"]')), (await bodyText(app.page)).slice(0, 200));
+      } finally { await app.context.close(); }
+      // An answer lost on its way back: the request was filed and the
+      // phone never heard; it reads the site's requests before trying
+      // again, finds it, and sends nothing more.
+      const lost = await open({ stubOptions: { person: MAINT_SUP, fieldKit: true, maintLoseNext: 1 } });
+      try {
+        if (!(await openMaintTile(lost, language, "North Building"))) { expect("the tile opens", false, "no tile"); return; }
+        await clickText(lost.page, say("New request", language));
+        await shows(lost.page, "#ocsa-maint-what");
+        await fillMaint(lost, Object.assign({}, MAINT_WORDS, { building: "", floor: "", area: "Lobby" }));
+        await clickText(lost.page, say("Send", language));
+        await toastSaying(lost.page, say("Saved on this phone. It sends when you have signal.", language), 8000);
+        await lost.page.evaluate(() => window.dispatchEvent(new Event("online")));
+        const sent = await toastSaying(lost.page, say("Sent to the building as {reference}.", language).replace("{reference}", "MR-2026-0003"), 12000);
+        await pause(lost.page, 900);
+        const filed = lost.stub.state.maint.requests.filter(r => r.id !== "mr-1" && r.id !== "mr-2");
+        expect("a send whose answer was lost is found on the site's list, and filed once in all", !!sent && filed.length === 1 && maintPosts(lost.stub).length === 1, filed.length + " filed, " + maintPosts(lost.stub).length + " posts");
+      } finally { await lost.context.close(); }
+      // South Building has no maintenance contact.
+      const none = await open({ stubOptions: { person: MAINT_SUP, fieldKit: true } });
+      try {
+        if (!(await openMaintTile(none, language, "South Building"))) { expect("the tile opens at South Building", false, "no tile"); return; }
+        await clickText(none.page, say("New request", language));
+        await shows(none.page, "#ocsa-maint-what");
+        await fillMaint(none, MAINT_WORDS);
+        await pause(none.page, 600);
+        const text = await none.page.evaluate(() => document.querySelector("[data-maint-goes-to]").innerText);
+        const off = await none.page.evaluate(() => { const b = document.querySelector("[data-maint-send]"); return !!b && b.disabled; });
+        expect("a site with no contact says so, and Send stays off", has(text, say("This site has no maintenance contact yet. Ask the office to add one before sending.", language)) && off, text);
+      } finally { await none.context.close(); }
+    },
+  },
+  {
+    id: "maintissue",
+    label: "From an issue (part 365): the issue's sheet offers Send to building maintenance, the form opens with the issue's area and words and its photos to send, the request carries the issue, and the sheet then shows it sent and offers it no more",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: MAINT_SUP, issueSheet: true } });
+      try {
+        app.stub.state.sheetIssues.find(i => i.id === "iss-b2").photos = [{ id: "ip-7", url: "https://photos.example.invalid/handrail.jpg" }];
+        await openTab(app.page, "issues", language);
+        await pause(app.page, 1200);
+        await app.page.evaluate(() => { const b = document.querySelector('[data-issue-row="iss-b2"]'); if (b) b.click(); });
+        const up = await shows(app.page, '[data-issue-sheet="iss-b2"] [data-issue-action="maintenance"]', 8000);
+        expect("the issue's sheet offers Send to building maintenance", up && has(await app.page.evaluate(() => document.querySelector('[data-issue-action="maintenance"]').innerText), say("Send to building maintenance", language)), (await bodyText(app.page)).slice(0, 200));
+        if (!up) return;
+        await app.page.evaluate(() => document.querySelector('[data-issue-action="maintenance"]').click());
+        await shows(app.page, "#ocsa-maint-what");
+        await pause(app.page, 800);
+        const pre = await app.page.evaluate(() => ({ area: document.querySelector("#ocsa-maint-area").value, what: document.querySelector("#ocsa-maint-what").value, photos: document.querySelectorAll("[data-maint-issue-photo]").length }));
+        expect("the form is prefilled with the issue's area, its title and words, and offers its photo", pre.area === "Stairwell" && pre.what === "Invented loose handrail on the stairs\n\nThe handrail on the east stairs moves, invented." && pre.photos === 1, JSON.stringify(pre));
+        await fillMaint(app, { category: "safety", urgency: "urgent_safety" });
+        await app.page.evaluate(() => document.querySelector('[data-maint-issue-photo="ip-7"]').click());
+        await clickText(app.page, say("Send", language));
+        const sent = await toastSaying(app.page, say("Sent to the building as {reference}.", language).replace("{reference}", "MR-2026-0003"), 8000);
+        const post = maintPosts(app.stub).pop();
+        expect("the request goes once, carrying the issue and its photo", !!sent && maintPosts(app.stub).length === 1 && post.body && post.body.issueId === "iss-b2" && Array.isArray(post.body.issuePhotoIds) && post.body.issuePhotoIds.join() === "ip-7" && post.body.siteId === "site-north", post ? JSON.stringify(post.body) : "nothing");
+        const shown = await shows(app.page, '[data-issue-sheet="iss-b2"] [data-issue-maint-request="mr-3"]', 6000);
+        expect("the issue's sheet then shows it sent, and offers it no more", shown && !(await app.page.evaluate(() => !!document.querySelector('[data-issue-action="maintenance"]'))) && has(await app.page.evaluate(() => document.querySelector('[data-issue-maint-request="mr-3"]').innerText), say("Sent to the building as {reference}.", language).replace("{reference}", "MR-2026-0003")), (await bodyText(app.page)).slice(0, 300));
+        await app.page.evaluate(() => document.querySelector('[data-issue-maint-request="mr-3"]').click());
+        expect("and opens that request's sheet", await shows(app.page, '[data-maint-sheet="mr-3"] [data-maint-read="1"]'), (await bodyText(app.page)).slice(0, 200));
+      } finally { await app.context.close(); }
+      const cleaner = await open({ path: "/?open=issue:iss-a1", stubOptions: { issueSheet: true } });
+      try {
+        const sheet = await shows(cleaner.page, '[data-issue-sheet="iss-a1"]', 8000);
+        await pause(cleaner.page, 1200);
+        expect("someone without file_maintenance_requests is offered no Send to building maintenance on an issue's sheet", sheet && !(await cleaner.page.evaluate(() => !!document.querySelector('[data-issue-action="maintenance"]'))), "sheet " + sheet);
+      } finally { await cleaner.context.close(); }
+    },
+  },
+  {
+    id: "maintsheet",
+    label: "One request's sheet (part 365): its status, what is wrong, when and to whom it was emailed, its photos and its log; Record a response by phone with what they said, and Change the status to Fixed, each through POST /:id/log, the sheet drawn again from the answer",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: MAINT_SUP, fieldKit: true } });
+      try {
+        if (!(await openMaintTile(app, language, "North Building"))) { expect("the tile opens", false, "no tile"); return; }
+        await app.page.evaluate(() => document.querySelector('[data-maint-row="mr-2"]').click());
+        const up = await shows(app.page, '[data-maint-sheet="mr-2"] [data-maint-read="1"]');
+        const text = up ? await app.page.evaluate(() => document.querySelector('[data-maint-sheet="mr-2"]').innerText.replace(/\s+/g, " ")) : "";
+        expect("the sheet shows the request: its status, kind, where, what is wrong, who it went to, a photo and its log", up && has(text, "MR-2026-0002") && has(text, maintIn(language, "statuses", "scheduled")) && has(text, maintIn(language, "categories", "lighting")) && has(text, "Invented: two lights out by the back door.") && has(text, "annex@example.invalid") && (await app.page.evaluate(() => document.querySelectorAll("[data-maint-photo]").length)) === 1 && (await app.page.evaluate(() => document.querySelectorAll("[data-maint-log]").length)) === 3, text.slice(0, 400));
+        if (!up) return;
+        await spokenHere(app, language, expect);
+        await app.page.evaluate(() => document.querySelector('[data-maint-action="response"]').click());
+        await shows(app.page, "#ocsa-maint-channel");
+        await pickIn(app.page, "#ocsa-maint-channel", "phone");
+        await type(app.page, "#ocsa-maint-body", "Invented: the engineer is on the way.");
+        await app.page.evaluate(() => document.querySelector("[data-maint-save]").click());
+        await toastSaying(app.page, say("Saved.", language), 6000);
+        const resp = sent(app.stub, "POST", "/api/maintenance-requests/mr-2/log").pop();
+        expect("Record a response sends kind response, the channel and the words", !!resp && resp.body.kind === "response" && resp.body.channel === "phone" && resp.body.body === "Invented: the engineer is on the way.", resp ? JSON.stringify(resp.body) : "nothing");
+        expect("and the sheet shows it in the log", (await app.page.evaluate(() => document.querySelectorAll('[data-maint-sheet="mr-2"] [data-maint-log]').length)) === 4, "log");
+        await app.page.evaluate(() => document.querySelector('[data-maint-action="status"]').click());
+        await shows(app.page, "#ocsa-maint-to");
+        await pickIn(app.page, "#ocsa-maint-to", "fixed");
+        await app.page.evaluate(() => document.querySelector("[data-maint-save]").click());
+        await app.page.waitForFunction(() => { const c = document.querySelector('[data-maint-sheet="mr-2"] [data-maint-status]'); return !!c && c.getAttribute("data-maint-status") === "fixed"; }, null, { timeout: 6000 }).catch(() => {});
+        const moved = sent(app.stub, "POST", "/api/maintenance-requests/mr-2/log").pop();
+        const chip = await app.page.evaluate(() => { const c = document.querySelector('[data-maint-sheet="mr-2"] [data-maint-status]'); return c ? c.getAttribute("data-maint-status") + "|" + c.innerText : ""; });
+        expect("Change the status to Fixed sends kind status, and the sheet reads Fixed", !!moved && moved.body.kind === "status" && moved.body.status === "fixed" && chip === "fixed|" + maintIn(language, "statuses", "fixed").toUpperCase(), chip + " " + (moved ? JSON.stringify(moved.body) : ""));
+      } finally { await app.context.close(); }
+      const late = await open({ stubOptions: { person: MAINT_SUP, fieldKit: true, maintEmailFails: true } });
+      try {
+        if (!(await openMaintTile(late, language, "North Building"))) return;
+        await late.page.evaluate(() => document.querySelector('[data-maint-row="mr-1"]').click());
+        await shows(late.page, '[data-maint-sheet="mr-1"] [data-maint-read="1"]');
+        const text = await late.page.evaluate(() => document.querySelector('[data-maint-sheet="mr-1"]').innerText.replace(/\s+/g, " "));
+        const due = await late.page.evaluate((l) => new Date(2026, 8, 30).toLocaleDateString(l, { month: "short", day: "numeric" }), language === "es" ? "es-US" : "en-US");
+        expect("a request past its two business days says the building has not answered, and by when it was asked to", has(text, say("No answer from the building yet. It was asked to answer by {date}.", language).replace("{date}", due)), text.slice(0, 300));
+        expect("and offers a follow-up", await late.page.evaluate(() => !!document.querySelector('[data-maint-action="follow-up"]')), "no follow-up");
+      } finally { await late.context.close(); }
+    },
+  },
+  {
+    id: "maintnotices",
+    label: "Notices about a request (part 365): maintenance_status and maintenance_no_response open the request's sheet from the bell, from a phone alert on an open app and from one that opens the app; someone without file_maintenance_requests stays on the bell and the request is never read",
+    run: async (open, language, expect) => {
+      for (const [type, id] of [["maintenance_status", "mr-2"], ["maintenance_no_response", "mr-1"]]) {
+        const notice = Object.assign({}, noticeOf(type), { title: "Invented notice about " + type });
+        await threeWays(open, { person: MAINT_SUP, notifications: [notice] }, type, id, notice.title, async (app, how) => {
+          const up = await shows(app.page, '[data-maint-sheet="' + id + '"] [data-maint-read="1"]', 7000);
+          expect("a " + type + " notice " + how + " opens the request's sheet", up, (await bodyText(app.page)).slice(0, 200));
+        });
+        const cleaner = await open({ stubOptions: { notifications: [notice] } });
+        try {
+          await tapOnBell(cleaner, notice.title);
+          await pause(cleaner.page, 1500);
+          expect("a " + type + " notice to someone who files no requests opens no sheet and reads nothing", !(await cleaner.page.evaluate(() => !!document.querySelector("[data-maint-sheet]"))) && callsTo(cleaner.stub, "GET", "/api/maintenance-requests/" + id).length === 0, callsTo(cleaner.stub, "GET", "/api/maintenance-requests/" + id).length + " reads");
+        } finally { await cleaner.context.close(); }
+      }
+    },
+  },
+];
+JOURNEYS.push(...PART369_S2_JOURNEYS);
+
+// Part 369, section 3: leave balances, against ocsa-api's main (part 365,
+// GET /api/leave/me and the leave every time off answer carries).
+const twinOf = (language, en) => (language === "es" && TWIN_ES.has(en) ? TWIN_ES.get(en) : en);
+const SICK = "Paid sick leave";
+const SICK_LINE = "40 hours on January 1 each year; a new hire gets 40 hours on the hire date; usable 90 days after the hire date; nothing carries over to the next year.";
+const hoursIn = (language, n) => say(n === 1 ? "{n} hour" : "{n} hours", language).replace("{n}", String(n));
+const offSheet = (page) => page.evaluate(() => { const d = Array.from(document.querySelectorAll('div[style*="z-index: 200"]')).pop(); return d ? d.innerText.replace(/\s+/g, " ") : ""; });
+const askOff = async (app, language, kind, from, to) => {
+  await clickText(app.page, say("Request time off", language));
+  await pause(app.page, 400);
+  await type(app.page, 'div[style*="z-index: 200"] select', kind);
+  await typeNth(app.page, 'div[style*="z-index: 200"] input[type="date"]', 0, from);
+  await typeNth(app.page, 'div[style*="z-index: 200"] input[type="date"]', 1, to);
+  await pause(app.page, 400);
+};
+
+const PART369_S3_JOURNEYS = [
+  {
+    id: "leaveshown",
+    label: "My leave balances (part 365): under My time off, each kind the person's policy tracks, in hours and in days, with the policy's own line; nothing for a person whose policy tracks none, nothing when the route is not there, and a balance that did not load says so with Try again",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "schedule", language);
+        const up = await shows(app.page, '[data-leave-balance="paid_sick"]', 8000);
+        const text = up ? await app.page.evaluate(() => document.querySelector('[data-leave-balance="paid_sick"]').innerText.replace(/\s+/g, " ")) : "";
+        expect("My time off shows paid sick leave's balance in hours and in days", up && has(text, twinOf(language, SICK)) && has(text, hoursIn(language, 40)) && has(text, say("{n} days", language).replace("{n}", "5")), text || (await bodyText(app.page)).slice(-300));
+        expect("with the policy's own line for it", has(text, twinOf(language, SICK_LINE)), text);
+        expect("read once, from GET /api/leave/me", callsTo(app.stub, "GET", "/api/leave/me").length === 1, callsTo(app.stub, "GET", "/api/leave/me").length + " reads");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      for (const [how, opts] of [["a person whose policy tracks no kind", { leaveNone: true }], ["an API with no leave route", { leaveRoute: false }]]) {
+        const none = await open({ stubOptions: opts });
+        try {
+          await openTab(none.page, "schedule", language);
+          await shows(none.page, '[data-timeoff-fault], button', 4000);
+          await pause(none.page, 1500);
+          expect(how + " sees no balance and nothing about one", !(await none.page.evaluate(() => !!document.querySelector("[data-leave-balances], [data-leave-fault]"))) && !has(await bodyText(none.page), say("Leave balances", language)), (await bodyText(none.page)).slice(-200));
+        } finally { await none.context.close(); }
+      }
+      const failed = await open({ stubOptions: { refuse: { "GET /api/leave/me": { status: 500, body: { error: "Something went wrong" }, once: true } } } });
+      try {
+        await openTab(failed.page, "schedule", language);
+        const fault = await shows(failed.page, "[data-leave-fault]", 6000);
+        expect("a balance read that failed says so", fault && has(await failed.page.evaluate(() => document.querySelector("[data-leave-fault]").innerText), say("Your leave balances did not load.", language)), (await bodyText(failed.page)).slice(-200));
+        await failed.page.evaluate((w) => { const b = Array.from(document.querySelectorAll("[data-leave-fault] button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say("Try again", language));
+        expect("and Try again shows the balance", await shows(failed.page, '[data-leave-balance="paid_sick"]', 6000), (await bodyText(failed.page)).slice(-200));
+      } finally { await failed.context.close(); }
+    },
+  },
+  {
+    id: "leaveform",
+    label: "Request time off with a balance (part 365): the form shows the picked kind's balance before sending; once sent, the request's sheet says what it would leave, with the API's warning when it goes below zero or falls in the waiting period, and the request is sent all the same",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { leaveBalance: 32 } });
+      try {
+        await openTab(app.page, "schedule", language);
+        await shows(app.page, '[data-leave-balance="paid_sick"]', 8000);
+        await askOff(app, language, "paid_sick", "2026-10-05", "2026-10-09");
+        const before = await app.page.evaluate(() => { const d = document.querySelector("[data-leave-picked]"); return d ? d.innerText.replace(/\s+/g, " ") : ""; });
+        expect("before sending, the form shows the picked kind's balance", has(before, say("{kind} balance now: {hours}.", language).replace("{kind}", twinOf(language, SICK)).replace("{hours}", hoursIn(language, 32))), before);
+        await type(app.page, 'div[style*="z-index: 200"] select', "unpaid");
+        await pause(app.page, 300);
+        expect("a kind the policy keeps no balance for shows none", !(await app.page.evaluate(() => !!document.querySelector("[data-leave-picked]"))), "a balance shows");
+        await type(app.page, 'div[style*="z-index: 200"] select', "paid_sick");
+        await clickText(app.page, say("Send request", language));
+        const state = await shows(app.page, '[data-leave-state="pending"]', 6000);
+        const after = state ? await app.page.evaluate(() => document.querySelector('[data-leave-state="pending"]').innerText.replace(/\s+/g, " ")) : "";
+        const below = language === "es" ? "Esto dejar\u00eda el saldo de " + twinOf(language, SICK) + " por debajo de cero: quedar\u00edan -8 horas." : "This would take the " + SICK + " balance below zero: -8 hours left after it.";
+        expect("once sent, the request's sheet says what it would leave", state && has(after, say("{kind}: this request is {hours}, and would leave {left}.", language).replace("{kind}", twinOf(language, SICK)).replace("{hours}", hoursIn(language, 40)).replace("{left}", hoursIn(language, -8))), after || (await offSheet(app.page)).slice(0, 300));
+        expect("with the API's warning that it goes below zero, and that the request is sent", has(after, below) && has(after, say("Your request is sent. The person who approves time off decides.", language)), after);
+        expect("the request was sent once", sent(app.stub, "POST", "/api/time-off").filter(c => c.path === "/api/time-off").length === 1, "posts");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const waiting = await open({ stubOptions: { leaveUsableFrom: "2026-11-15" } });
+      try {
+        await openTab(waiting.page, "schedule", language);
+        await shows(waiting.page, '[data-leave-balance="paid_sick"]', 8000);
+        const usable = await waiting.page.evaluate(() => document.querySelector('[data-leave-balance="paid_sick"]').innerText.replace(/\s+/g, " "));
+        const day = await waiting.page.evaluate((l) => new Date(2026, 10, 15).toLocaleDateString(l, { month: "short", day: "numeric", year: "numeric" }), language === "es" ? "es-US" : "en-US");
+        expect("a new hire's balance says from when it can be used", has(usable, say("You can use it from {date}.", language).replace("{date}", day)), usable);
+        await askOff(waiting, language, "paid_sick", "2026-10-12", "2026-10-12");
+        await clickText(waiting.page, say("Send request", language));
+        await shows(waiting.page, '[data-leave-state="pending"] [data-leave-warning]', 6000);
+        const text = await waiting.page.evaluate(() => { const d = document.querySelector('[data-leave-state="pending"]'); return d ? d.innerText.replace(/\s+/g, " ") : ""; });
+        const words = language === "es" ? "Esto cae en el per\u00edodo de espera: " + twinOf(language, SICK) + " se puede usar a partir del 15 de noviembre de 2026." : "This falls in the waiting period: " + SICK + " can be used from Nov 15, 2026.";
+        expect("a request in the waiting period carries the API's warning, and is sent", has(text, words) && sent(waiting.stub, "POST", "/api/time-off").filter(c => c.path === "/api/time-off").length === 1, text);
+      } finally { await waiting.context.close(); }
+    },
+  },
+  {
+    id: "leavesheet",
+    label: "A request's hours (part 365): an approved request's sheet says the hours it took, one whose approval the office took back says the hours given back, and the time_off notice about it opens that sheet from the bell and from a phone alert",
+    run: async (open, language, expect) => {
+      const rows = () => [
+        timeOffRow({ id: "to-taken", status: "approved", startsOn: "2026-09-21", endsOn: "2026-09-22", decidedAt: "2026-09-18T15:00:00.000Z", decidedByName: "Jordan Office" }),
+        timeOffRow({ id: "to-back", status: "cancelled", startsOn: "2026-09-14", endsOn: "2026-09-14", decidedAt: "2026-09-10T15:00:00.000Z", cancelledAt: "2026-09-12T15:00:00.000Z", givenBack: true }),
+      ];
+      const app = await open({ stubOptions: { myTimeOff: rows(), leaveBalance: 24 } });
+      try {
+        await openTab(app.page, "schedule", language);
+        await shows(app.page, '[data-leave-balance="paid_sick"]', 8000);
+        const openRow = (i) => app.page.evaluate(([heading, n]) => { const h = Array.from(document.querySelectorAll(".sp-content div")).find(d => d.textContent.trim() === heading); const list = h ? Array.from(h.parentElement.querySelectorAll(":scope > button")) : []; if (list[n]) list[n].click(); }, [say("My time off", language), i]);
+        await openRow(0);
+        const taken = await shows(app.page, '[data-leave-state="taken"]', 6000);
+        const takenText = taken ? await app.page.evaluate(() => document.querySelector('[data-leave-state="taken"]').innerText.replace(/\s+/g, " ")) : "";
+        expect("an approved request's sheet says the hours it took and the balance now", taken && has(takenText, say("{kind}: this time off took {hours}.", language).replace("{kind}", twinOf(language, SICK)).replace("{hours}", hoursIn(language, 16))) && has(takenText, say("{kind} balance now: {hours}.", language).replace("{kind}", twinOf(language, SICK)).replace("{hours}", hoursIn(language, 24))), takenText || (await offSheet(app.page)).slice(0, 300));
+        await clickText(app.page, say("Close", language));
+        await pause(app.page, 500);
+        await openRow(1);
+        const back = await shows(app.page, '[data-leave-state="givenBack"]', 6000);
+        const backText = back ? await app.page.evaluate(() => document.querySelector('[data-leave-state="givenBack"]').innerText.replace(/\s+/g, " ")) : "";
+        expect("one whose approval the office took back says the hours given back", back && has(backText, say("{kind}: {hours} went back when the office took back the approval.", language).replace("{kind}", twinOf(language, SICK)).replace("{hours}", hoursIn(language, 8))), backText || (await offSheet(app.page)).slice(0, 300));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const notice = { id: "n-p369-timeoff", subjectType: "time_off", subjectKey: null, subjectId: "to-back", title: "Invented: your approved time off was taken back", body: "Sep 14, 2026", link: "https://staff.example.invalid/#schedule", createdAt: "2026-09-12T15:01:00.000Z", readAt: null };
+      await threeWays(open, { myTimeOff: rows(), notifications: [notice] }, "time_off", "to-back", notice.title, async (o, how) => {
+        const up = await shows(o.page, '[data-leave-state="givenBack"]', 7000);
+        expect("a time_off notice " + how + " opens that request's sheet with the hours given back", up && (await chosenTab(o.page)) === say("Schedule", language), (await bodyText(o.page)).slice(0, 200));
+      });
+      // The office's own time_off notice, about someone else's request,
+      // which the dashboard works: My Schedule, never that request on the
+      // person's own sheet.
+      const theirs = Object.assign({}, notice, { id: "n-p369-theirs", subjectId: "to-theirs", title: "Invented: a time off request from a coworker" });
+      const office = await open({ stubOptions: { person: MAINT_SUP, myTimeOff: [timeOffRow({ id: "to-theirs", userId: "s-05", userName: "Eve Everett", status: "requested" })], notifications: [theirs] } });
+      try {
+        await tapOnBell(office, theirs.title);
+        await pause(office.page, 2000);
+        expect("an office time_off notice about someone else's request opens My Schedule and never their request as the person's own", (await chosenTab(office.page)) === say("Schedule", language) && !has(await bodyText(office.page), say("Cancel request", language)), (await bodyText(office.page)).slice(0, 200));
+      } finally { await office.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART369_S3_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };

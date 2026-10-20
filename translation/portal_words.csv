@@ -1364,7 +1364,6 @@ Report closed,Reporte cerrado,Signalement fermé,"Speak Up, My reports: a report
 Filed report,Reporte enviado,Rapport envoyé,"The filed report sheet, opened from a notice, its title"
 Read only. The report is worked on the dashboard.,Solo para leer. El reporte se trabaja desde el panel.,Lecture seule. Le rapport est traité depuis le tableau de bord.,"The filed report sheet, under its title"
 "Thank you. A supervisor reviews each registration, and OCSA emails you once you can sign in.","Gracias. Un supervisor revisa cada registro, y OCSA le envía un correo cuando ya pueda iniciar sesión.","Merci. Un superviseur examine chaque inscription, et OCSA vous envoie un courriel dès que vous pouvez vous connecter.","Register, after a registration is sent"
-"This phone or email already has an account. Sign in with it, or tap Forgot your PIN? to choose a new PIN.","Este teléfono o correo ya tiene una cuenta. Inicie sesión con él, o toque ¿Olvidó su PIN? para elegir un PIN nuevo.","Ce téléphone ou ce courriel a déjà un compte. Connectez-vous avec, ou appuyez sur Code PIN oublié ? pour choisir un nouveau code PIN.","Register, under the email box, when the phone or email already has an account"
 "This shift already has a drop request, or it is already posted for pickup. There is nothing more to send.","Este turno ya tiene una solicitud para dejarlo, o ya está publicado como turno libre. No hay nada más que enviar.","Ce service a déjà une demande de retrait, ou il est déjà proposé comme service libre. Il n'y a rien de plus à envoyer.","My Schedule, a shift's Request Drop, when the shift already has a drop request or a pickup posting"
 "What you sent is too large. Use fewer or smaller photos, or shorter text, then try again.","Lo que envió es demasiado grande. Use menos fotos o fotos más pequeñas, o un texto más corto, y vuelva a intentarlo.","Ce que vous avez envoyé est trop volumineux. Utilisez moins de photos ou des photos plus petites, ou un texte plus court, puis réessayez.","Any screen, when what was sent is too large for OCSA"
 "What you sent could not be read. Try again, and tell the office if it happens again.",No se pudo leer lo que envió. Intente de nuevo y avise a la oficina si vuelve a pasar.,"Ce que vous avez envoyé n'a pas pu être lu. Réessayez, et prévenez le bureau si cela se reproduit.","Any screen, when what was sent could not be read"
@@ -1383,3 +1382,76 @@ Alerts on an iPhone,Alertas en un iPhone,Les alertes sur un iPhone,"The first si
 Got it,Entendido,Compris,"The first sign-in card, on an iPhone browser tab"
 Alerts on an iPhone come only to the app added this way.,"En un iPhone, las alertas llegan solo a la aplicación agregada de esta forma.","Sur un iPhone, les alertes n'arrivent qu'à l'application ajoutée de cette façon.","App wide, the install sheet on an iPhone"
 You have a new notice. Tap the bell to read it.,Tiene un aviso nuevo. Toque la campana para leerlo.,Vous avez un nouvel avis. Appuyez sur la cloche pour le lire.,"App wide, when a notice comes while the app is open"
+This shift is no longer on your schedule.,Este turno ya no está en su horario.,Ce service n'est plus dans votre planning.,"My Schedule, opened from a shift notice about a shift that is off the schedule"
+"This photo could not be sent with the task. Take the photo again, then send it.",No se pudo enviar esta foto con la tarea. Tome la foto otra vez y luego envíela.,"Cette photo n'a pas pu être envoyée avec la tâche. Reprenez la photo, puis envoyez-la.",A check-off or a resolve the API refused for its photo address
+The note is too long. Keep it to {max} characters.,La nota es demasiado larga. Escriba {max} caracteres como máximo.,La note est trop longue. Limitez-la à {max} caractères.,A check-off or a resolve the API refused for its note
+This request was not sent.,Esta solicitud no se envió.,Cette demande n'a pas été envoyée.,"Field kit, Building maintenance, a request kept on the phone the API turned away"
+Sent to the building as {reference}.,Se envió al edificio como {reference}.,Envoyée au bâtiment sous le numéro {reference}.,"After a maintenance request is filed, and on an issue's sheet"
+Send to building maintenance,Enviar a mantenimiento del edificio,Envoyer à l'entretien du bâtiment,"An issue's sheet, for a holder of file_maintenance_requests"
+Floor {floor},Piso {floor},Étage {floor},"Building maintenance, where in the building"
+Sent today,Enviada hoy,Envoyée aujourd'hui,"Building maintenance, a request's age"
+Sent 1 day ago,Enviada hace 1 día,Envoyée il y a 1 jour,"Building maintenance, a request's age"
+Sent {n} days ago,Enviada hace {n} días,Envoyée il y a {n} jours,"Building maintenance, a request's age"
+"The photos kept with this request are no longer on this phone. Take them again, then send it.",Las fotos guardadas con esta solicitud ya no están en este teléfono. Tómelas otra vez y luego envíela.,"Les photos gardées avec cette demande ne sont plus sur ce téléphone. Reprenez-les, puis envoyez-la.","Building maintenance, a kept request whose photos the phone lost"
+Sent to the building.,Se envió al edificio.,Envoyée au bâtiment.,After a maintenance request is filed
+New request,Solicitud nueva,Nouvelle demande,"Field kit, Building maintenance"
+This request was not sent. {reason},Esta solicitud no se envió. {reason},Cette demande n'a pas été envoyée. {reason},"Field kit, Building maintenance, a kept request the API turned away"
+Change and send,Cambiar y enviar,Modifier et envoyer,"Field kit, Building maintenance, a kept request the API turned away"
+Requests at this site,Solicitudes en este sitio,Demandes pour ce site,"Field kit, Building maintenance"
+No requests sent to the building yet.,Todavía no se han enviado solicitudes al edificio.,Aucune demande envoyée au bâtiment pour l'instant.,"Field kit, Building maintenance, an empty list"
+No answer yet,Sin respuesta todavía,Pas encore de réponse,"Field kit, Building maintenance, a request past its answer day"
+A request takes {max} photos at most.,Una solicitud acepta como máximo {max} fotos.,Une demande accepte au plus {max} photos.,"New maintenance request, a photo past the limit"
+Choose what kind of problem it is.,Elija qué tipo de problema es.,Choisissez le type de problème.,"New maintenance request, under Kind of problem"
+Choose how soon it needs fixing.,Elija qué tan pronto hay que repararlo.,Choisissez dans quel délai il faut le réparer.,"New maintenance request, under Urgency"
+Say what is wrong.,Diga qué está mal.,Dites ce qui ne va pas.,"New maintenance request, under What is wrong"
+New request to building maintenance,Solicitud nueva a mantenimiento del edificio,Nouvelle demande à l'entretien du bâtiment,"New maintenance request, its title"
+This issue was already sent to the building as {reference}.,Este problema ya se envió al edificio como {reference}.,Ce problème a déjà été envoyé au bâtiment sous le numéro {reference}.,New maintenance request from an issue already sent
+Open the request,Abrir la solicitud,Ouvrir la demande,New maintenance request from an issue already sent
+The request form did not load. It needs signal the first time.,El formulario de la solicitud no se cargó. La primera vez necesita señal.,Le formulaire de demande ne s'est pas chargé. Il a besoin du réseau la première fois.,"New maintenance request, its lists not loaded"
+Area,Área,Zone,New maintenance request
+Kind of problem,Tipo de problema,Type de problème,New maintenance request
+Choose,Elegir,Choisir,"New maintenance request, and a request's sheet, the first choice of a list"
+Send the issue's photos too:,Enviar también las fotos del problema:,Envoyer aussi les photos du problème :,New maintenance request from an issue with photos
+{n} of {max} photos,{n} de {max} fotos,{n} sur {max} photos,"New maintenance request, under Photos"
+It goes to,Se envía a,Elle sera envoyée à,"New maintenance request, above Send"
+Who it goes to did not load.,No se cargó a quién se envía.,Les destinataires ne se sont pas chargés.,"New maintenance request, above Send"
+This site has no maintenance contact yet. Ask the office to add one before sending.,Este sitio todavía no tiene un contacto de mantenimiento. Pida a la oficina que agregue uno antes de enviar.,Ce site n'a pas encore de contact d'entretien. Demandez au bureau d'en ajouter un avant d'envoyer.,"New maintenance request, a site with no contact"
+This list is the one this phone last read. The request goes to whoever is on the site's list when it is sent.,Esta es la lista que este teléfono leyó la última vez. La solicitud va a quien esté en la lista del sitio cuando se envíe.,Cette liste est celle que ce téléphone a lue la dernière fois. La demande part aux personnes inscrites sur la liste du site au moment de l'envoi.,New maintenance request opened with no signal
+Choose how the building answered.,Elija cómo respondió el edificio.,Choisissez comment le bâtiment a répondu.,"A maintenance request's sheet, Record a response"
+Choose where the request stands now.,Elija cómo va la solicitud ahora.,Choisissez où en est la demande maintenant.,"A maintenance request's sheet, Change the status"
+Write the note first.,Escriba primero la nota.,Écrivez d'abord la note.,"A maintenance request's sheet, Add a note"
+Nothing changed. The request is already at that status.,No cambió nada. La solicitud ya tiene ese estado.,Rien n'a changé. La demande a déjà ce statut.,"A maintenance request's sheet, a status it already has"
+Saved.,Guardado.,Enregistré.,"A maintenance request's sheet, after a save"
+Follow-up sent to the building.,Se envió un seguimiento al edificio.,Relance envoyée au bâtiment.,"A maintenance request's sheet, Send a follow-up"
+Sent to the building again.,Se envió otra vez al edificio.,Envoyée de nouveau au bâtiment.,"A maintenance request's sheet, Send the email again"
+Maintenance request,Solicitud de mantenimiento,Demande d'entretien,A maintenance request's sheet
+Sent {date} by {name},Enviada el {date} por {name},Envoyée le {date} par {name},A maintenance request's sheet
+No answer from the building yet. It was asked to answer by {date}.,El edificio todavía no ha respondido. Se le pidió responder a más tardar el {date}.,Le bâtiment n'a pas encore répondu. Il devait répondre au plus tard le {date}.,"A maintenance request's sheet, past its answer day"
+The building is asked to answer by {date}.,Se pide al edificio que responda a más tardar el {date}.,Le bâtiment doit répondre au plus tard le {date}.,A maintenance request's sheet
+Scheduled for {date},Programada para el {date},Prévue le {date},A maintenance request's sheet
+Emailed to the building {when}.,Se envió por correo al edificio {when}.,Envoyée par courriel au bâtiment {when}.,A maintenance request's sheet
+The email to the building did not go.,El correo al edificio no se envió.,Le courriel au bâtiment n'est pas parti.,A maintenance request's sheet
+Sent to,Enviada a,Envoyée à,A maintenance request's sheet
+Record a response,Anotar una respuesta,Noter une réponse,A maintenance request's sheet
+Change the status,Cambiar el estado,Changer le statut,A maintenance request's sheet
+Add a note,Agregar una nota,Ajouter une note,A maintenance request's sheet
+Send the email again,Enviar el correo otra vez,Renvoyer le courriel,"A maintenance request's sheet, an email that did not go"
+Send a follow-up,Enviar un seguimiento,Envoyer une relance,A maintenance request's sheet
+How the building answered,Cómo respondió el edificio,Comment le bâtiment a répondu,"A maintenance request's sheet, Record a response"
+Where it stands now,Cómo va ahora,Où elle en est,"A maintenance request's sheet, Change the status"
+The day they will come,El día que vendrán,Le jour de leur passage,"A maintenance request's sheet, Change the status to scheduled"
+What they said,Lo que dijeron,Ce qu'ils ont dit,"A maintenance request's sheet, Record a response"
+Building maintenance,Mantenimiento del edificio,Entretien du bâtiment,"Field kit, a tile and its page"
+"Send the building a repair request, and keep track of what it answers.",Envíe al edificio una solicitud de reparación y siga lo que responde.,Envoyez au bâtiment une demande de réparation et suivez ses réponses.,"Field kit, the Building maintenance tile"
+That did not save. Try again.,Eso no se guardó. Intente de nuevo.,Cela ne s'est pas enregistré. Réessayez.,"A maintenance request's sheet, a save that did not go"
+{n} day,{n} día,{n} jour,"My time off, a leave balance in days"
+{n} days,{n} días,{n} jours,"My time off, a leave balance in days"
+{kind}: {hours} went back when the office took back the approval.,{kind}: se devolvieron {hours} cuando la oficina retiró la aprobación.,{kind} : {hours} ont été rendues quand le bureau a retiré l'accord.,"A time off request's sheet, an approval the office took back"
+{kind} balance now: {hours}.,Saldo de {kind} ahora: {hours}.,Solde de {kind} maintenant : {hours}.,"Request time off, under Type, and a request's sheet"
+{kind}: this time off took {hours}.,{kind}: este tiempo libre usó {hours}.,{kind} : ce congé a utilisé {hours}.,"A time off request's sheet, once approved"
+"{kind}: this request is {hours}, and would leave {left}.",{kind}: esta solicitud es de {hours} y dejaría {left}.,{kind} : cette demande est de {hours} et laisserait {left}.,"A time off request's sheet, while it waits"
+Your request is sent. The person who approves time off decides.,Su solicitud se envió. La persona que aprueba el tiempo libre decide.,Votre demande est envoyée. La personne qui approuve les congés décide.,"A time off request's sheet, under the API's warning"
+Leave balances,Saldos de tiempo libre,Soldes de congés,My time off
+You can use it from {date}.,Lo puede usar a partir del {date}.,Vous pouvez l'utiliser à partir du {date}.,"My time off and Request time off, a balance in its waiting period"
+Your leave balances did not load.,Sus saldos de tiempo libre no se cargaron.,Vos soldes de congés ne se sont pas chargés.,"My time off, the balances not loaded"
+"Once you send it, the request shows what it would leave.","Una vez enviada, la solicitud muestra cuánto le dejaría.","Une fois envoyée, la demande indique ce qu'elle laisserait.","Request time off, under Type"

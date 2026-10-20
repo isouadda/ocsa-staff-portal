@@ -14,7 +14,10 @@ const clientConfig = {
     timeZone: 'America/New_York',
     // When the checklist day turns on that clock, HH:MM, the API's
     // helpers/checklistDay.js day start. A block's window is read from
-    // here, so 1:00 AM work belongs to the night that comes after it.
+    // it, so 1:00 AM work belongs to the night that comes after it. Since
+    // part 369 the day start GET /api/settings answers
+    // (checklistDayStartsAt) is read in its place, and kept on the phone;
+    // this one counts only until the API has answered once.
     checklistDayStartsAt: '04:00',
   },
   brand: {

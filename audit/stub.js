@@ -404,6 +404,9 @@ const CAPABILITIES = {
   approve_time_off: [], manage_supplies: ["admin"], manage_vendors: ["admin"], view_reports: ["admin", "supervisor"],
   read_incident_reports: ["admin", "supervisor"], export_payroll: ["admin"], manage_admins: [], send_announcements: ["admin"],
   view_help_insights: ["admin"],
+  // Part 369 (API part 365): building maintenance, admins and supervisors
+  // by default, anyone else by name.
+  file_maintenance_requests: ["admin", "supervisor"],
 };
 
 // One scheduled inspection and the items it asks about. The template's
@@ -1072,7 +1075,6 @@ const API_R3 = {
 // meets, word for word as ocsa-api's main (af63dca) writes them in
 // helpers/words.js, each with its status and code.
 const API_R4 = {
-  accountExists: { status: 409, code: "auth.accountExists", en: "An account with this phone or email already exists", es: "Ya existe una cuenta con este tel\u00e9fono o correo" },
   registered: { status: 201, code: "auth.registered", en: "Registration submitted. Your account is pending supervisor approval.", es: "Registro enviado. Su cuenta espera la aprobaci\u00f3n de un supervisor." },
   alreadyPosted: { status: 409, code: "pickups.alreadyPosted", en: "This shift already has a drop request or a posting for pickup.", es: "Este turno ya tiene una solicitud para dejarlo o ya est\u00e1 publicado como turno libre." },
   bodyTooLarge: { status: 413, code: "common.bodyTooLarge", en: "What was sent is too large.", es: "Lo que se envi\u00f3 es demasiado grande." },
@@ -1145,6 +1147,93 @@ const FILED_SEED = (lang) => {
     canSign: [], canWriteSupervisor: false, supervisorMissing: [], canVoid: false, canResend: false, canAcknowledge: false,
   };
 };
+// Part 369, section 2: building maintenance as ocsa-api's main (part 365,
+// routes/maintenance.js and helpers/maintenanceRequests.js) answers it.
+// The names are the API's English words, served in Spanish to a Spanish
+// request through their twins, the way the live API names them in the
+// reader's language (helpers/words.js maintenance.*). Every person, site,
+// contact and request below is invented.
+const MAINT_NAMES = {
+  categories: [["plumbing", "Plumbing", "Plomer\u00eda"], ["electrical", "Electrical", "El\u00e9ctrico"], ["lighting", "Lighting", "Iluminaci\u00f3n"], ["hvac", "HVAC", "Calefacci\u00f3n y aire acondicionado"], ["doors_locks", "Doors and locks", "Puertas y cerraduras"], ["leak_water", "Leak or water", "Fuga o agua"], ["pests", "Pests", "Plagas"], ["elevator", "Elevator", "Ascensor"], ["safety", "Safety", "Seguridad"], ["other", "Other", "Otro"]],
+  urgencies: [["routine", "Routine", "De rutina"], ["soon", "Soon", "Pronto"], ["urgent_safety", "Urgent, safety", "Urgente, seguridad"]],
+  statuses: [["sent", "Sent", "Enviada"], ["acknowledged", "Acknowledged", "Recibida por el edificio"], ["scheduled", "Scheduled", "Programada"], ["fixed", "Fixed", "Reparada"], ["closed", "Closed", "Cerrada"], ["cancelled", "Cancelled", "Cancelada"]],
+  channels: [["phone", "By phone", "Por tel\u00e9fono"], ["email", "By email", "Por correo"], ["in_person", "In person", "En persona"]],
+  logKinds: [["response", "Response received", "Respuesta recibida"], ["note", "Note", "Nota"], ["status", "Status change", "Cambio de estado"], ["scheduled", "Scheduled date", "Fecha programada"], ["photo", "Photos", "Fotos"]],
+  emailKind: [["email", "Email", "Correo"]],
+};
+// The refusals and the warning the staff app meets, word for word as the
+// API's helpers/words.js writes them.
+const MAINT_REFUSALS = {
+  badDetails: { status: 400, code: "maintenance.badDetails", en: "Some details are missing or not valid.", es: "Faltan algunos datos o no son v\u00e1lidos." },
+  noContact: { status: 409, code: "maintenance.noContact", en: "This site has no active maintenance contact. Add one before sending a request.", es: "Este sitio no tiene un contacto de mantenimiento activo. Agregue uno antes de enviar una solicitud." },
+  issueAlreadySent: { status: 409, code: "maintenance.issueAlreadySent", en: "This issue was already sent to the building as {reference}.", es: "Este problema ya se envi\u00f3 al edificio como {reference}." },
+  photoLimit: { status: 400, code: "maintenance.photoLimit", en: "A maintenance request takes {max} photos at most.", es: "Una solicitud de mantenimiento acepta como m\u00e1ximo {max} fotos." },
+  requestDone: { status: 409, code: "maintenance.requestDone", en: "This request is closed or cancelled.", es: "Esta solicitud est\u00e1 cerrada o cancelada." },
+  notFound: { status: 404, code: "maintenance.notFound", en: "Maintenance request not found", es: "No se encontr\u00f3 la solicitud de mantenimiento" },
+  photoNotStored: { status: 502, code: "maintenance.photoNotStored", en: "A photo could not be saved, so nothing was sent. Try again.", es: "No se pudo guardar una foto, as\u00ed que no se envi\u00f3 nada. Int\u00e9ntelo de nuevo." },
+  alreadySent: { status: 409, code: "maintenance.alreadySent", en: "The email for this request already went. Send a follow-up to write again.", es: "El correo de esta solicitud ya se envi\u00f3. Env\u00ede un seguimiento para escribir de nuevo." },
+  followUpSentToday: { status: 409, code: "maintenance.followUpSentToday", en: "A follow-up on this request already went today.", es: "Ya se envi\u00f3 hoy un seguimiento de esta solicitud." },
+  emailNotSent: { status: 201, code: "maintenance.emailNotSent", en: "The request is saved, and its email did not go. Send it again from the request.", es: "La solicitud se guard\u00f3 y su correo no se envi\u00f3. Env\u00edelo de nuevo desde la solicitud." },
+  noSiteAccess: { status: 403, code: "access.noSiteAccess", en: "You do not have access to this site", es: "No tiene acceso a este sitio" },
+};
+// The building's contacts at each site (GET /api/sites/:siteId/
+// maintenance-contacts): North has a desk for every building and an
+// engineer for the Annex alone, West one desk, South none.
+const MAINT_CONTACTS = () => ({
+  "site-north": [
+    { id: "mc-1", siteId: "site-north", name: "Invented Facilities Desk", company: "Invented Property Co.", email: "desk@example.invalid", phone: null, building: null, isPrimary: true, isActive: true },
+    { id: "mc-2", siteId: "site-north", name: "Invented Annex Engineer", company: "Invented Property Co.", email: "annex@example.invalid", phone: null, building: "Annex", isPrimary: false, isActive: true },
+  ],
+  "site-west": [
+    { id: "mc-3", siteId: "site-west", name: "Invented West Desk", company: null, email: "west@example.invalid", phone: null, building: null, isPrimary: true, isActive: true },
+  ],
+  "site-south": [],
+});
+// Two requests already at North: one the building has not answered past
+// its two business days, and one it scheduled, with its log.
+const MAINT_SEED = (person) => {
+  const by = { id: person.id, name: person.firstName + " " + person.lastName };
+  const desk = [{ contactId: "mc-1", name: "Invented Facilities Desk", company: "Invented Property Co.", email: "desk@example.invalid" }];
+  return [
+    { id: "mr-1", reference: "MR-2026-0001", siteId: "site-north", siteName: "North Building", building: "Main Hall", floor: "2", area: "Restroom", category: "plumbing", urgency: "soon", status: "sent", description: "Invented: the second sink drips all night.", issueId: null, filedAt: "2026-09-28T14:00:00.000Z", filedBy: by, firstResponseAt: null, scheduledFor: null, fixedAt: null, closedAt: null, cancelledAt: null, recipients: desk,
+      photos: [], log: [{ id: "ml-1", kind: "email", channel: null, body: null, fromStatus: null, toStatus: null, scheduledFor: null, occurredAt: "2026-09-28T14:00:05.000Z", createdAt: "2026-09-28T14:00:05.000Z", createdBy: null, photos: [], email: { which: "filed", status: "sent", to: ["desk@example.invalid"], cc: null, photoCount: 0 } }], followUps: [] },
+    { id: "mr-2", reference: "MR-2026-0002", siteId: "site-north", siteName: "North Building", building: "Annex", floor: "1", area: "Hallway", category: "lighting", urgency: "routine", status: "scheduled", description: "Invented: two lights out by the back door.", issueId: null, filedAt: "2026-09-24T13:00:00.000Z", filedBy: by, firstResponseAt: "2026-09-25T15:00:00.000Z", scheduledFor: "2026-10-06", fixedAt: null, closedAt: null, cancelledAt: null, recipients: desk.concat([{ contactId: "mc-2", name: "Invented Annex Engineer", company: "Invented Property Co.", email: "annex@example.invalid" }]),
+      photos: [{ id: "mp-1", name: "photo-1.jpg", contentType: "image/jpeg", size: 1200, logId: null, createdAt: "2026-09-24T13:00:00.000Z" }],
+      log: [
+        { id: "ml-2", kind: "email", channel: null, body: null, fromStatus: null, toStatus: null, scheduledFor: null, occurredAt: "2026-09-24T13:00:05.000Z", createdAt: "2026-09-24T13:00:05.000Z", createdBy: null, photos: [], email: { which: "filed", status: "sent", to: ["desk@example.invalid", "annex@example.invalid"], cc: null, photoCount: 1 } },
+        { id: "ml-3", kind: "response", channel: "phone", body: "Invented: the engineer will come Tuesday.", fromStatus: null, toStatus: null, scheduledFor: null, occurredAt: "2026-09-25T15:00:00.000Z", createdAt: "2026-09-25T15:02:00.000Z", createdBy: by, photos: [], email: null },
+        { id: "ml-4", kind: "status", channel: null, body: null, fromStatus: "sent", toStatus: "scheduled", scheduledFor: "2026-10-06", occurredAt: "2026-09-25T15:03:00.000Z", createdAt: "2026-09-25T15:03:00.000Z", createdBy: by, photos: [], email: null },
+      ], followUps: [] },
+  ];
+};
+const maintName = (list, key) => { const hit = MAINT_NAMES[list].find(x => x[0] === key); return hit ? hit[1] : key; };
+// Who a request goes to (helpers/maintenanceRequests.js recipientsOf):
+// the site's active contacts, primary first; with a building named that
+// some contact's building matches, those and the contacts with no
+// building; each address once.
+const maintNorm = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+const maintRecipients = (contacts, building) => {
+  const active = contacts.filter(c => c.isActive).slice().sort((a, b) => (a.isPrimary === b.isPrimary ? a.name.toLowerCase().localeCompare(b.name.toLowerCase()) : a.isPrimary ? -1 : 1));
+  const b = maintNorm(building);
+  const pick = b && active.some(c => maintNorm(c.building) === b) ? active.filter(c => maintNorm(c.building) === b || !maintNorm(c.building)) : active;
+  const seen = new Set();
+  return pick.filter(c => { const e = maintNorm(c.email); if (seen.has(e)) return false; seen.add(e); return true; }).map(c => ({ contactId: c.id, name: c.name, company: c.company, email: c.email }));
+};
+// Part 369, section 3: leave balances as ocsa-api's main (part 365,
+// routes/leave.js and helpers/leaveBalances.js) answers them for the
+// handbook's policy (OCSA-HR-002): paid sick leave, 40 hours each January
+// 1 and on the hire date, usable 90 days after it, nothing carried over.
+// The words are the API's, in English and Spanish.
+const LEAVE_WORDS = {
+  handbook: ["Employee handbook (OCSA-HR-002)", "Manual del empleado (OCSA-HR-002)"],
+  sick: ["Paid sick leave", "Permiso por enfermedad pagado"],
+  sickLine: ["40 hours on January 1 each year; a new hire gets 40 hours on the hire date; usable 90 days after the hire date; nothing carries over to the next year.", "40 horas el 1 de enero de cada a\u00f1o; una persona nueva recibe 40 horas en su fecha de contrataci\u00f3n; se puede usar 90 d\u00edas despu\u00e9s de la fecha de contrataci\u00f3n; nada pasa al a\u00f1o siguiente."],
+  holidays: ["Paid holidays: the company's holidays, as the handbook lists them.", "D\u00edas feriados pagados: los feriados de la empresa, como los indica el manual."],
+  untracked: ["No balance is kept.", "No se lleva un saldo."],
+  site: ["Invented site policy", "Pol\u00edtica inventada del sitio"],
+  belowZero: ["This would take the {kind} balance below zero: {hours} hours left after it.", "Esto dejar\u00eda el saldo de {kind} por debajo de cero: quedar\u00edan {hours} horas."],
+  waiting: ["This falls in the waiting period: {kind} can be used from {date}.", "Esto cae en el per\u00edodo de espera: {kind} se puede usar a partir del {date}."],
+};
 const STAFF_ORIGIN = "https://staff.example.invalid";
 const ADMIN_ORIGIN = "https://admin.example.invalid";
 const EVERY_NOTICE = [
@@ -1179,6 +1268,17 @@ const EVERY_NOTICE = [
   // office opens a case for them, the shape API-63 asks for.
   ["form", "fr-1", ADMIN_ORIGIN + "/#forms/reports/fr-1", "place", "OCSA-FIX-102"],
   ["hr_case_opened_for", "hr-mine-2", null, "place"],
+  // Part 369: what ocsa-api's main sends since part 363: a shift changed
+  // or cancelled (API-62, helpers/shiftNotices.js, subject the shift,
+  // the staff app's /?open=<type>:<id>), and the reporter's case resolved
+  // or closed (API-63's hr_case_closed_for, subject the case).
+  ["shift_changed", "sh-1", STAFF_ORIGIN + "/?open=shift_changed:sh-1", "place"],
+  ["shift_cancelled", "sh-gone", STAFF_ORIGIN + "/?open=shift_cancelled:sh-gone", "place"],
+  ["hr_case_closed_for", "hr-mine-1", STAFF_ORIGIN + "/?open=hr_case_closed_for:hr-mine-1", "place"],
+  // Part 369 (API part 365): a building maintenance request's status
+  // moved, and the building has not answered in time, subject the request.
+  ["maintenance_status", "mr-2", STAFF_ORIGIN + "/?open=maintenance_status:mr-2", "place"],
+  ["maintenance_no_response", "mr-1", STAFF_ORIGIN + "/?open=maintenance_no_response:mr-1", "place"],
 ].map(([type, id, link, want, key], i) => ({ type: type, want: want, notice: { id: "n-every-" + i, subjectType: type, subjectKey: key || null, subjectId: id, title: "Invented notice " + (i + 1) + " about " + type, body: "An invented notice.", link: link, createdAt: new Date(Date.UTC(2026, 9, 1, 20, 59 - i)).toISOString(), readAt: null } }));
 
 // --- Help ----------------------------------------------------------------
@@ -1484,6 +1584,19 @@ function makeState(opts) {
     drops: {},
     takenAccounts: Array.isArray(o.takenAccounts) ? o.takenAccounts.slice() : [],
     midnightDates: o.midnightDates === true,
+    // Part 369: the token POST /api/auth/renew hands back (the same one
+    // unless a case names another), and the checklist day's start GET
+    // /api/settings answers (routes/settings.js, part 363).
+    renewTo: typeof o.renewTo === "string" ? o.renewTo : "token-one",
+    dayStartsAt: typeof o.dayStartsAt === "string" ? o.dayStartsAt : "04:00",
+    // Part 369: building maintenance: the requests, the contacts by site,
+    // and what a case asks of a filing (an email that does not go, the
+    // next answer lost on its way back, photos the store turns away).
+    // Part 369: the person's leave as GET /api/leave/me answers it: the
+    // handbook's paid sick hours, a balance a case may set, a usable-from
+    // day for a new hire, none tracked at all, or no route.
+    leave: { route: o.leaveRoute !== false, none: o.leaveNone === true, balance: typeof o.leaveBalance === "number" ? o.leaveBalance : 40, usableFrom: o.leaveUsableFrom || null, hireDate: o.leaveUsableFrom ? "2026-08-17" : "2024-03-04" },
+    maint: { requests: MAINT_SEED(o.person || PERSON), contacts: MAINT_CONTACTS(), seq: 2, logSeq: 0, emailFails: o.maintEmailFails === true, loseNext: Number(o.maintLoseNext) || 0, photoFails: false },
     listChanges: [],
     person: o.person || PERSON,
     accountPreferences: o.accountPreferences === undefined ? {} : o.accountPreferences,
@@ -2859,7 +2972,12 @@ const TWIN_PAIRS = [
   // Part 359: the filed report a form notice opens, and the API's words
   // for the answers new since Round 2.
   .concat(Object.keys(FILED_WORDS.en).map(k => [FILED_WORDS.en[k], FILED_WORDS.es[k]]))
-  .concat(Object.keys(API_R4).map(k => [API_R4[k].en, API_R4[k].es]));
+  .concat(Object.keys(API_R4).map(k => [API_R4[k].en, API_R4[k].es]))
+  // Part 369: building maintenance's names, refusals and warning.
+  .concat([].concat(...Object.keys(MAINT_NAMES).map(k => MAINT_NAMES[k].map(x => [x[1], x[2]]))))
+  .concat(Object.keys(MAINT_REFUSALS).map(k => [MAINT_REFUSALS[k].en, MAINT_REFUSALS[k].es]))
+  // Part 369: the leave balances' words with no placeholder.
+  .concat(["handbook", "sick", "sickLine", "holidays", "untracked", "site"].map(k => LEAVE_WORDS[k]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -2881,6 +2999,17 @@ const WORD_FIELDS = {
 };
 // The fields whose meaning depends on the route that sent them.
 const ROUTE_WORDS = [
+  // Part 369: leave balances. A kind's name, the policy's name and its
+  // lines, a note and a warning are the API's words; the person, the site
+  // and a code are not.
+  [/^GET \/api\/leave\/me$/, { kindName: "message", text: "message", holidays: "message", message: "message", note: "message", kind: "code", unit: "code", method: "code", source: "code", code: "code", role: "code", status: "code" }],
+  [/^(POST \/api\/time-off|GET \/api\/time-off\/[^/]+)$/, { kindName: "message", message: "message", kind: "code", hoursFrom: "code", code: "code", source: "code" }],
+  // Part 369: building maintenance. Its names are the API's words in the
+  // request's language; what people typed, the site, a building, a
+  // contact and a reference are names; keys are codes.
+  [/^GET \/api\/maintenance-requests\/options$/, { name: "message", key: "code" }],
+  [/^[A-Z]+ \/api\/(maintenance-requests|sites\/[^/]+\/maintenance-contacts)/, { name: "name", categoryName: "message", urgencyName: "message", statusName: "message", kindName: "message", channelName: "message", toStatusName: "message", message: "message",
+    key: "code", category: "code", urgency: "code", status: "code", kind: "code", channel: "code", fromStatus: "code", toStatus: "code", which: "code", reference: "name", siteName: "name", building: "name", floor: "name", area: "name", description: "name", body: "name", company: "name", email: "name", to: "name", contentType: "code" }],
   // A shift's and a block's keys are codes; their display names are the
   // words, in the request's language. See LIVE_KINDS.
   [/^GET \/api\/sites\/[^/]+\/tasks$/, { label: "to-do item", shift_label: "code", block_label: "code", shift: "shift header", block: "shift header" }],
@@ -3285,6 +3414,70 @@ function createStub(opts) {
   // A capability the signed-in person holds, by their tier, the way GET
   // /api/users/me/permissions answers it.
   const holds = (cap) => { const tier = state.person.role === "admin" || state.person.role === "supervisor" ? state.person.role : "staff"; return (CAPABILITIES[cap] || []).indexOf(tier) !== -1; };
+  // --- building maintenance (part 369): the views helpers/
+  // maintenanceRequests.js answers, in English; translate() serves the
+  // names in Spanish to a Spanish request.
+  // Part 369: a request's leave as requestLeave answers it: the hours
+  // from the request, a part day, or eight a day; what a pending one
+  // would leave and its warnings; taken once approved, given back once
+  // the office took the approval back (the fixture's givenBack).
+  const leaveOf = (row, lang) => {
+    const es = lang === "es";
+    const L = state.leave;
+    // In English, served in the request's language on its way out; the
+    // warnings name it in that language, as the API writes them.
+    const kindName = row.leaveType === "paid_sick" ? LEAVE_WORDS.sick[0] : row.leaveTypeLabel || row.leaveType;
+    const tracked = row.leaveType === "paid_sick" && !L.none;
+    const span = Math.round((Date.parse(String(row.endsOn || row.startsOn) + "T12:00:00Z") - Date.parse(String(row.startsOn) + "T12:00:00Z")) / DAY) + 1;
+    const partHours = row.partDay && row.startTime && row.endTime ? (Number(row.endTime.slice(0, 2)) * 60 + Number(row.endTime.slice(3, 5)) - Number(row.startTime.slice(0, 2)) * 60 - Number(row.startTime.slice(3, 5))) / 60 : null;
+    const hours = row.hours !== null && row.hours !== undefined && row.hours !== "" ? Number(row.hours) : partHours !== null ? partHours : Math.max(1, span) * 8;
+    const hoursFrom = row.hours !== null && row.hours !== undefined && row.hours !== "" ? "request" : partHours !== null ? "partDay" : "schedule";
+    const pending = row.status === "requested";
+    const taken = row.status === "approved";
+    const givenBack = row.givenBack === true;
+    const balance = tracked ? L.balance : null;
+    const would = balance === null ? null : pending ? Math.round((balance - hours) * 100) / 100 : balance;
+    const warnings = [];
+    // A warning is the API's sentence with its values in it, so both of
+    // its languages are registered as twins the way every word is.
+    const warned = (pair, vars) => {
+      const en = refusalIn({ en: pair[0], es: pair[1] }, "en", Object.assign({}, vars, { kind: kindName, date: vars.dateEn || vars.date }));
+      const sp = refusalIn({ en: pair[0], es: pair[1] }, "es", Object.assign({}, vars, { kind: TWIN_ES.has(kindName) ? TWIN_ES.get(kindName) : kindName, date: vars.dateEs || vars.date }));
+      if (!TWIN_ES.has(en)) TWIN_ES.set(en, sp);
+      if (!TWIN_EN.has(sp)) TWIN_EN.set(sp, en);
+      return es ? sp : en;
+    };
+    if (pending && tracked && would < 0) warnings.push({ code: "leave.warning.belowZero", message: warned(LEAVE_WORDS.belowZero, { hours: would }) });
+    if (pending && tracked && L.usableFrom && String(row.startsOn) < L.usableFrom) {
+      const d = new Date(L.usableFrom + "T12:00:00Z");
+      const dateEs = d.getUTCDate() + " de " + ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"][d.getUTCMonth()] + " de " + d.getUTCFullYear();
+      const dateEn = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getUTCMonth()] + " " + d.getUTCDate() + ", " + d.getUTCFullYear();
+      warnings.push({ code: "leave.warning.inWaitingPeriod", message: warned(LEAVE_WORDS.waiting, { dateEn: dateEn, dateEs: dateEs }) });
+    }
+    return { kind: row.leaveType, kindName: kindName, tracked: tracked, policy: { id: null, name: LEAVE_WORDS.handbook[es ? 1 : 0], source: "default", since: null }, balanceHours: balance, requestHours: hours, hoursFrom: hoursFrom, days: null,
+      wouldLeaveHours: would, taken: taken, givenBack: givenBack, usableFrom: tracked ? L.usableFrom : null, warnings: warnings };
+  };
+  const holdsMaint = () => holds("file_maintenance_requests") || state.person.fileMaintenance === true;
+  const nyDay = (ms) => new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const addWorkingDays = (day, n) => { const d = new Date(day + "T12:00:00Z"); let left = n; while (left > 0) { d.setUTCDate(d.getUTCDate() + 1); const w = d.getUTCDay(); if (w !== 0 && w !== 6) left -= 1; } return d.toISOString().slice(0, 10); };
+  const maintView = (r) => {
+    const filedDay = nyDay(Date.parse(r.filedAt));
+    const today = nyDay(clockNow());
+    const age = Math.max(0, Math.round((Date.parse(today + "T12:00:00Z") - Date.parse(filedDay + "T12:00:00Z")) / DAY));
+    const dueOn = r.status === "sent" && !r.firstResponseAt ? addWorkingDays(filedDay, 2) : null;
+    return { id: r.id, reference: r.reference, siteId: r.siteId, siteName: r.siteName, building: r.building, floor: r.floor, area: r.area, category: r.category, categoryName: maintName("categories", r.category), urgency: r.urgency, urgencyName: maintName("urgencies", r.urgency), status: r.status, statusName: maintName("statuses", r.status),
+      description: r.description, issueId: r.issueId, filedAt: r.filedAt, filedBy: r.filedBy, firstResponseAt: r.firstResponseAt, scheduledFor: r.scheduledFor, fixedAt: r.fixedAt, closedAt: r.closedAt, cancelledAt: r.cancelledAt, ageDays: age, responseDueOn: dueOn, noResponse: !!dueOn && today > dueOn, photoCount: r.photos.length };
+  };
+  const maintLogView = (e) => Object.assign({}, e, { kindName: e.kind === "email" ? maintName("emailKind", "email") : maintName("logKinds", e.kind), channelName: e.channel ? maintName("channels", e.channel) : null, toStatusName: e.toStatus ? maintName("statuses", e.toStatus) : null, email: e.email ? Object.assign({}, e.email) : null });
+  const maintDetail = (r) => {
+    const done = r.status === "closed" || r.status === "cancelled";
+    const filed = r.log.filter(e => e.kind === "email" && e.email && e.email.which === "filed").pop();
+    const ups = r.log.filter(e => e.kind === "email" && e.email && e.email.which === "followUp" && e.email.status === "sent");
+    const email = filed ? { status: filed.email.status, at: filed.email.status === "sent" ? filed.occurredAt : null, to: filed.email.to.slice(), cc: filed.email.cc } : { status: "notSent", at: null, to: [], cc: null };
+    return Object.assign(maintView(r), { recipients: r.recipients.map(c => Object.assign({}, c)), email: email, followUpCount: ups.length, lastFollowUpAt: ups.length ? ups[ups.length - 1].occurredAt : null,
+      photos: r.photos.map(p => ({ id: p.id, name: p.name, contentType: p.contentType, size: p.size, inEmail: p.logId === null, logId: p.logId, createdAt: p.createdAt })), log: r.log.map(maintLogView),
+      allowedStatuses: done ? [] : ["acknowledged", "scheduled", "fixed", "closed", "cancelled"].filter(s => s !== r.status), canFollowUp: !done, canResend: !done && email.status !== "sent" });
+  };
   // The stub's clock running as the phone's does: the clock a case set,
   // moved on by the time since the stub was made. The phone's clock starts
   // after it, so a tap the phone makes now is never ahead of it.
@@ -3910,19 +4103,29 @@ function createStub(opts) {
       return json(404, { error: "That equipment was not found.", code: "equipment.notFound" });
     }
     if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: (state.assignedSites || SITES).map(withMode), preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
-    // Part 359: Register as routes/auth.js answers it: 409
-    // auth.accountExists for a phone (its digits) or an email (any case)
-    // that already has an account, writing nothing; else 201
-    // auth.registered with the new pending account.
+    // Register as routes/auth.js answers it since part 363 (API-117): a
+    // phone (its digits) or an email (any case) that already has an
+    // account answers exactly as a new one does, 201 auth.registered with
+    // an invented id, and writes nothing (the office is told whose
+    // account it was); a new one is written pending.
     if (key === "POST /api/auth/register") {
       const b = body && typeof body === "object" ? body : {};
       const digits = String(b.phone || "").replace(/[^0-9]/g, "");
       const email = String(b.email || "").trim().toLowerCase();
       const held = [state.person].concat(state.staff || []).map(p => [String(p.phone || "").replace(/[^0-9]/g, ""), String(p.email || "").toLowerCase()]).concat(state.takenAccounts.map(x => [String(x).replace(/[^0-9]/g, ""), String(x).toLowerCase()]));
-      if (held.some(([ph, em]) => (digits !== "" && ph === digits) || (email !== "" && em === email))) return json(409, apiR4Body("accountExists", languageOf(search, state)));
-      state.registered = (state.registered || []).concat([b]);
-      return json(201, Object.assign({ message: refusalIn(API_R4.registered, languageOf(search, state)), code: API_R4.registered.code }, { user: { id: "u-new-" + state.registered.length, firstName: String(b.firstName || ""), lastName: String(b.lastName || ""), status: "pending" } }));
+      const taken = held.some(([ph, em]) => (digits !== "" && ph === digits) || (email !== "" && em === email));
+      if (taken) state.registeredTaken = (state.registeredTaken || 0) + 1;
+      else state.registered = (state.registered || []).concat([b]);
+      return json(201, Object.assign({ message: refusalIn(API_R4.registered, languageOf(search, state)), code: API_R4.registered.code }, { user: { id: taken ? "u-invented-" + state.registeredTaken : "u-new-" + state.registered.length, firstName: String(b.firstName || "").trim(), lastName: String(b.lastName || "").trim(), status: "pending" } }));
     }
+    // POST /api/auth/renew as routes/auth.js answers it since part 363
+    // (API-56): the current token in Authorization and no body, 200 {
+    // token } with a new token of 12 hours; one past them 401
+    // auth.tokenExpired (a case's refuse).
+    if (key === "POST /api/auth/renew") return json(200, { token: state.renewTo });
+    // GET /api/settings, the company row, read by anyone signed in; the
+    // portal reads checklistDayStartsAt alone (part 363).
+    if (key === "GET /api/settings") return json(200, { id: 1, timezone: "America/New_York", checklistDayStartsAt: state.dayStartsAt });
     if (key === "POST /api/auth/reset/request") return json(200, { ok: true });
     if (key === "POST /api/auth/change-pin") {
       // A refusal a case asked for: its code, and its sentence in the
@@ -3985,6 +4188,7 @@ function createStub(opts) {
       // Step 311: approve_supplies is held by name, as on live, never by
       // a role.
       capabilities.approve_supplies = state.person.approveSupplies === true;
+      if (state.person.fileMaintenance === true) capabilities.file_maintenance_requests = true;
       return json(200, { role: state.person.role, capabilities: capabilities });
     }
     if (key === "GET /api/users/profile/me") return json(200, {
@@ -4181,15 +4385,34 @@ function createStub(opts) {
     if (method === "POST" && /^\/api\/pickups\/[^/]+\/claim$/.test(pathname)) return json(200, { ok: true });
     if (method === "DELETE" && /^\/api\/pickups\//.test(pathname)) return json(200, { ok: true });
 
+    // --- leave balances (part 365): the caller's own, anyone signed in.
+    if (key === "GET /api/leave/me") {
+      if (!state.leave.route) return json(404, { error: "Endpoint not found" });
+      const lw = (k) => LEAVE_WORDS[k][0];
+      const L = state.leave;
+      const policy = L.none ? { id: "pol-site", name: lw("site"), source: "site", since: "2026-01-01" } : { id: null, name: lw("handbook"), source: "default", since: null };
+      const sick = { kind: "paid_sick", kindName: lw("sick"), unit: "hours", hoursPerDay: 8, tracked: true, method: "january_1", startHours: 0, grantedHours: 40, usedHours: Math.max(0, 40 - L.balance), givenBackHours: 0, expiredHours: 0, adjustedHours: Math.min(0, L.balance - 40) < -40 ? L.balance : 0, balanceHours: L.balance, balanceDays: null, usableFrom: L.usableFrom, hoursPostedThrough: null, notes: [] };
+      return json(200, {
+        person: { userId: state.person.id, name: state.person.firstName + " " + state.person.lastName, role: state.person.role, status: "active", hireDate: L.hireDate, site: { id: "site-north", name: "North Building" } },
+        year: 2026, asOf: "2026-10-01", policy: policy,
+        summary: { lines: [{ kind: "paid_sick", kindName: lw("sick"), text: L.none ? lw("untracked") : lw("sickLine"), note: null }], holidays: lw("holidays"), holidayDays: [] },
+        balances: L.none ? [] : [sick], policyHistory: [],
+      });
+    }
     // --- time off
     if (key === "GET /api/time-off/types") return state.timeOffTypesLive ? json(200, { types: state.pto ? [PTO_TYPE].concat(LEAVE_TYPES) : LEAVE_TYPES }) : json(404, { error: "Endpoint not found" });
     if (pathname === "/api/time-off/mine") return json(200, { requests: state.myTimeOff });
-    if (key === "POST /api/time-off") return json(201, { request: timeOffRow({ id: "to-new", leaveType: body && body.leaveType, startsOn: body && body.startsOn, endsOn: body && body.endsOn }) });
+    // Since part 365 the filing, the read of one request and a decision
+    // answer leave (helpers/leaveBalances.js requestLeave) beside it.
+    if (key === "POST /api/time-off") {
+      const row = timeOffRow({ id: "to-new", leaveType: body && body.leaveType, startsOn: body && body.startsOn, endsOn: body && body.endsOn, partDay: !!(body && body.startTime), startTime: (body && body.startTime) || null, endTime: (body && body.endTime) || null, hours: body && body.hours !== undefined ? body.hours : null });
+      return json(201, { request: row, leave: state.leave.route ? leaveOf(row, languageOf(search, state)) : undefined });
+    }
     if (method === "POST" && /^\/api\/time-off\/[^/]+\/cancel$/.test(pathname)) return json(200, { request: timeOffRow({ status: "cancelled", cancelledAt: iso(NOW.getTime()) }) });
     if (method === "GET" && /^\/api\/time-off\/[^/]+$/.test(pathname)) {
       const id = pathname.split("/").pop();
       const row = state.myTimeOff.find(r => r.id === id);
-      return row ? json(200, { request: row }) : json(404, { error: "Request not found" });
+      return row ? json(200, Object.assign({ request: row, affectedShifts: [] }, state.leave.route ? { leave: leaveOf(row, languageOf(search, state)) } : {})) : json(404, { error: "Request not found" });
     }
 
     // --- chat, the three routes as Scout 138 read and ran them, and the
@@ -5269,7 +5492,9 @@ function createStub(opts) {
       const actions = [].concat(mine && open ? ["resolve", "cannotFinish"] : []).concat(management && open ? [i.assigned_to ? "reassign" : "assign"] : []);
       return json(200, { issue: { id: i.id, siteId: i.site_id, siteName: i.site_name, title: i.title, description: i.description, zone: i.zone, severity: i.severity, status: i.status, source: i.source, reference: null,
         reportedAt: i.reported_at, reportedBy: { id: i.reported_by, name: i.reported_by_name }, assignedTo: i.assigned_to ? { id: i.assigned_to, name: i.assigned_to_name } : null, dueAt: i.due_at, dueState: i.due_state,
-        resolutionNotes: i.resolution_notes, photos: (i.photos || []).map(x => Object.assign({}, x)), canAssign: management, actions: actions } });
+        resolutionNotes: i.resolution_notes, photos: (i.photos || []).map(x => Object.assign({}, x)), canAssign: management, actions: actions,
+        // Part 365 in the API: the building requests sent from it.
+        maintenanceRequests: state.maint.requests.filter(r => r.issueId === i.id).map(r => ({ id: r.id, reference: r.reference, status: r.status, statusName: maintName("statuses", r.status), filedAt: r.filedAt })) } });
     }
     if (sheetOne && method === "PATCH") {
       const b = body && typeof body === "object" ? body : {};
@@ -5613,6 +5838,152 @@ function createStub(opts) {
     }
     if (key === "POST /api/notifications/read-all") { state.notifications.forEach((n) => { if (!n.readAt) n.readAt = iso(clockNow()); }); return json(200, { ok: true }); }
 
+    // --- building maintenance (part 369), as routes/maintenance.js
+    // answers it: every route behind file_maintenance_requests (admins
+    // and supervisors, or a person granted it by name).
+    if (pathname === "/api/maintenance-requests" || pathname.indexOf("/api/maintenance-requests/") === 0 || /^\/api\/sites\/[^/]+\/maintenance-contacts$/.test(pathname)) {
+      const lang = languageOf(search, state);
+      const refuse = (k, vars, extra) => json(MAINT_REFUSALS[k].status, Object.assign({ error: refusalIn(MAINT_REFUSALS[k], lang, vars), code: MAINT_REFUSALS[k].code }, extra || {}));
+      if (!holdsMaint()) return json(403, { error: lang === "es" ? "No tiene permiso para hacer esto" : "Insufficient permissions", code: "access.insufficientPermissions", capability: "file_maintenance_requests" });
+      const contactsRoute = /^\/api\/sites\/([^/]+)\/maintenance-contacts$/.exec(pathname);
+      if (contactsRoute && method === "GET") {
+        const list = state.maint.contacts[contactsRoute[1]];
+        if (!list) return json(404, { error: "Site not found", code: "sites.notFound" });
+        return json(200, { contacts: list.filter(c => c.isActive).map(c => Object.assign({ createdAt: "2026-09-01T12:00:00.000Z", updatedAt: "2026-09-01T12:00:00.000Z" }, c)) });
+      }
+      const q = new URLSearchParams(search || "");
+      if (key === "GET /api/maintenance-requests/options") {
+        const named = (k) => MAINT_NAMES[k].map(([key, en]) => ({ key: key, name: en }));
+        return json(200, { categories: named("categories"), urgencies: named("urgencies"), statuses: named("statuses"), channels: named("channels"), logKinds: named("logKinds"), maxPhotos: 6, responseDays: 2 });
+      }
+      if (key === "GET /api/maintenance-requests") {
+        const site = q.get("siteId");
+        const limit = Math.max(1, Math.min(100, Number(q.get("limit")) || 50));
+        const from = /^c(\d+)$/.test(q.get("cursor") || "") ? Number(q.get("cursor").slice(1)) : 0;
+        const all = state.maint.requests.filter(r => !site || r.siteId === site).slice().sort((a, b) => (a.filedAt < b.filedAt ? 1 : a.filedAt > b.filedAt ? -1 : 0));
+        const page = all.slice(from, from + limit);
+        return json(200, { requests: page.map(maintView), nextCursor: from + limit < all.length ? "c" + (from + limit) : null });
+      }
+      const fromIssue = /^\/api\/maintenance-requests\/from-issue\/([^/]+)$/.exec(pathname);
+      if (fromIssue && method === "GET") {
+        const i = state.sheetIssues.find(x => x.id === fromIssue[1]);
+        if (!i) return json(404, { error: lang === "es" ? "No se encontr\u00f3 el problema" : "Issue not found", code: "issues.notFound" });
+        const held = state.maint.requests.filter(r => r.issueId === i.id && r.status !== "cancelled").sort((a, b) => (a.filedAt < b.filedAt ? 1 : -1))[0];
+        return json(200, {
+          prefill: { issueId: i.id, siteId: i.site_id, siteName: i.site_name, building: null, floor: null, area: i.zone || null, category: null, urgency: null, description: [String(i.title || "").trim(), String(i.description || "").trim()].filter(Boolean).join("\n\n").slice(0, 4000) },
+          issuePhotos: (i.photos || []).map(p => ({ id: p.id, url: p.url })),
+          contacts: (state.maint.contacts[i.site_id] || []).filter(c => c.isActive),
+          existing: held ? { id: held.id, reference: held.reference, status: held.status, statusName: maintName("statuses", held.status) } : null,
+        });
+      }
+      if (key === "POST /api/maintenance-requests") {
+        const parts = multipartParts(body, headers);
+        const multi = /^multipart\//i.test(String(headers["content-type"] || ""));
+        const b = multi ? parts.filter(p => p.filename === null).reduce((o, p) => { o[p.name] = p.bytes.toString("utf8"); return o; }, {}) : (body && typeof body === "object" ? body : {});
+        const files = parts.filter(p => p.filename !== null && p.name === "photos");
+        state.calls[state.calls.length - 1].files = files.map(p => ({ name: p.filename, type: p.type, bytes: p.bytes.length, kind: sniffImage(p.bytes), size: imageSize(p.bytes) }));
+        state.calls[state.calls.length - 1].fields = b;
+        if (files.length > 6) return refuse("photoLimit", { max: 6 }, { max: 6 });
+        const keys = [];
+        const text = (k, max) => { const v = b[k]; if (v === undefined || v === null || v === "") return null; if (typeof v !== "string" || v.trim().length > max) { keys.push(k); return null; } return v.trim() || null; };
+        const siteId = b.siteId === undefined || b.siteId === null || b.siteId === "" ? null : String(b.siteId).trim();
+        const building = text("building", 200), floor = text("floor", 100), area = text("area", 200);
+        if (!MAINT_NAMES.categories.some(x => x[0] === b.category)) keys.push("category");
+        if (!MAINT_NAMES.urgencies.some(x => x[0] === b.urgency)) keys.push("urgency");
+        const description = typeof b.description === "string" ? b.description.trim() : "";
+        if (!description || description.length > 4000) keys.push("description");
+        const issueId = b.issueId === undefined || b.issueId === null || b.issueId === "" ? null : String(b.issueId).trim();
+        const issuePhotoIds = Array.isArray(b.issuePhotoIds) ? b.issuePhotoIds.map(String) : typeof b.issuePhotoIds === "string" ? b.issuePhotoIds.split(",").map(x => x.trim()).filter(Boolean) : [];
+        if (issuePhotoIds.length > 0 && !issueId) keys.push("issuePhotoIds");
+        if (keys.length) return refuse("badDetails", null, { keys: keys });
+        let site = siteId;
+        const issue = issueId ? state.sheetIssues.find(x => x.id === issueId) : null;
+        if (issueId && !issue) return json(404, { error: lang === "es" ? "No se encontr\u00f3 el problema" : "Issue not found", code: "issues.notFound" });
+        if (issue) { if (site && site !== issue.site_id) return refuse("badDetails", null, { keys: ["issueId"] }); site = issue.site_id; }
+        if (!site) return refuse("badDetails", null, { keys: ["siteId"] });
+        const siteRow = SITES.find(s => s.siteId === site);
+        if (!siteRow) return json(404, { error: "Site not found", code: "sites.notFound" });
+        const held = issue ? state.maint.requests.find(r => r.issueId === issue.id && r.status !== "cancelled") : null;
+        if (held) return refuse("issueAlreadySent", { reference: held.reference }, { requestId: held.id, reference: held.reference });
+        const recipients = maintRecipients(state.maint.contacts[site] || [], building);
+        if (recipients.length === 0) return refuse("noContact", null, { siteId: site });
+        const fromIssuePhotos = issuePhotoIds.map(pid => (issue.photos || []).find(p => p.id === pid));
+        if (fromIssuePhotos.some(p => !p)) return refuse("badDetails", null, { keys: ["issuePhotoIds"] });
+        if (files.length + fromIssuePhotos.length > 6) return refuse("photoLimit", { max: 6 }, { max: 6 });
+        if (files.some(p => !sniffImage(p.bytes))) return json(400, { error: lang === "es" ? "Use una foto JPG, PNG, HEIC o WebP." : "Use a JPG, PNG, HEIC or WebP photo.", code: "forms.photoType" });
+        if (state.maint.photoFails) return refuse("photoNotStored");
+        state.maint.seq += 1;
+        const n = state.maint.seq;
+        const at = iso(clockNow());
+        const id = "mr-" + n;
+        const photos = files.map((p, i) => ({ id: "mp-" + n + "-" + (i + 1), name: p.filename || "photo.jpg", contentType: sniffImage(p.bytes).contentType, size: p.bytes.length, logId: null, createdAt: at })).concat(fromIssuePhotos.map((p, i) => ({ id: "mp-" + n + "-i" + (i + 1), name: "issue-photo.jpg", contentType: "image/jpeg", size: 1200, logId: null, createdAt: at })));
+        const emailStatus = state.maint.emailFails ? "failed" : "sent";
+        const r = { id: id, reference: "MR-2026-" + String(n).padStart(4, "0"), siteId: site, siteName: siteRow.siteName, building: building, floor: floor, area: area, category: b.category, urgency: b.urgency, status: "sent", description: description, issueId: issue ? issue.id : null, filedAt: at, filedBy: { id: state.person.id, name: state.person.firstName + " " + state.person.lastName }, firstResponseAt: null, scheduledFor: null, fixedAt: null, closedAt: null, cancelledAt: null, recipients: recipients,
+          photos: photos, log: [{ id: "ml-" + n + "-1", kind: "email", channel: null, body: null, fromStatus: null, toStatus: null, scheduledFor: null, occurredAt: at, createdAt: at, createdBy: null, photos: [], email: { which: "filed", status: emailStatus, to: recipients.map(c => c.email), cc: null, photoCount: photos.length } }], followUps: [] };
+        state.maint.requests.push(r);
+        // An answer lost on its way back: the request is filed and the
+        // phone never hears so (a case's loseNext).
+        if (state.maint.loseNext) { state.maint.loseNext -= 1; return { abort: true }; }
+        const email = { status: emailStatus, sentMessageId: emailStatus === "sent" ? "sm-" + n : null, to: recipients.map(c => c.email), cc: null, at: emailStatus === "sent" ? at : null };
+        return json(201, Object.assign({ request: maintDetail(r), email: email }, emailStatus === "sent" ? {} : { warning: { message: refusalIn(MAINT_REFUSALS.emailNotSent, lang), code: MAINT_REFUSALS.emailNotSent.code } }));
+      }
+      const one = /^\/api\/maintenance-requests\/([^/]+)(\/[a-z-]+)?(\/[^/]+)?$/.exec(pathname);
+      const r = one ? state.maint.requests.find(x => x.id === one[1]) : null;
+      if (one && !r) return refuse("notFound");
+      if (r && !one[2] && method === "GET") return json(200, maintDetail(r));
+      const done = r ? r.status === "closed" || r.status === "cancelled" : false;
+      if (r && one[2] === "/photos" && one[3] && method === "GET") return image("image/png", ONE_PIXEL_PNG);
+      if (r && one[2] === "/log" && method === "POST") {
+        const parts = multipartParts(body, headers);
+        const multi = /^multipart\//i.test(String(headers["content-type"] || ""));
+        const b = multi ? parts.filter(p => p.filename === null).reduce((o, p) => { o[p.name] = p.bytes.toString("utf8"); return o; }, {}) : (body && typeof body === "object" ? body : {});
+        const kinds = ["response", "note", "status", "scheduled", "photo"];
+        if (kinds.indexOf(b.kind) === -1) return refuse("badDetails", null, { keys: ["kind"] });
+        const keys = [];
+        const words = typeof b.body === "string" ? b.body.trim() : "";
+        if (b.body !== undefined && b.body !== null && typeof b.body !== "string") keys.push("body");
+        if (b.kind === "note" && (!words || words.length > 4000)) keys.push("body");
+        if (words.length > 4000 && keys.indexOf("body") === -1) keys.push("body");
+        if (b.kind === "response" && ["phone", "email", "in_person"].indexOf(b.channel) === -1) keys.push("channel");
+        const day = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.trim()) ? v.trim() : null;
+        if (b.kind === "status" && ["acknowledged", "scheduled", "fixed", "closed", "cancelled"].indexOf(b.status) === -1) keys.push("status");
+        if (b.kind === "status" && b.scheduledFor && (b.status !== "scheduled" || !day(b.scheduledFor))) keys.push("scheduledFor");
+        if (b.kind === "scheduled" && !day(b.scheduledFor)) keys.push("scheduledFor");
+        if (keys.length) return refuse("badDetails", null, { keys: keys });
+        if ((b.kind === "status" || b.kind === "scheduled") && done) return refuse("requestDone", null, { status: r.status });
+        const at = iso(clockNow());
+        const by = { id: state.person.id, name: state.person.firstName + " " + state.person.lastName };
+        if (b.kind === "status" && b.status === r.status && !b.scheduledFor) return json(200, { entry: null, unchanged: true, request: maintDetail(r) });
+        state.maint.logSeq += 1;
+        const entry = { id: "ml-x" + state.maint.logSeq, kind: b.kind === "status" && b.status === r.status ? "scheduled" : b.kind, channel: b.kind === "response" ? b.channel : null, body: words || null, fromStatus: null, toStatus: null, scheduledFor: day(b.scheduledFor), occurredAt: at, createdAt: at, createdBy: by, photos: [], email: null };
+        if (b.kind === "status" && b.status !== r.status) {
+          entry.fromStatus = r.status; entry.toStatus = b.status;
+          if (b.status !== "cancelled" && !r.firstResponseAt) r.firstResponseAt = at;
+          if (b.status === "fixed") r.fixedAt = at;
+          if (b.status === "acknowledged" || b.status === "scheduled") r.fixedAt = null;
+          if (b.status === "closed") r.closedAt = at;
+          if (b.status === "cancelled") r.cancelledAt = at;
+          r.status = b.status;
+        }
+        if (entry.scheduledFor) { r.scheduledFor = entry.scheduledFor; if (!r.firstResponseAt) r.firstResponseAt = at; }
+        if (b.kind === "response" && !r.firstResponseAt) r.firstResponseAt = at;
+        r.log.push(entry);
+        return json(201, { entry: maintLogView(entry), unchanged: false, request: maintDetail(r) });
+      }
+      if (r && (one[2] === "/follow-up" || one[2] === "/resend") && method === "POST") {
+        if (done) return refuse("requestDone", null, { status: r.status });
+        const filed = r.log.filter(e => e.kind === "email" && e.email.which === "filed").pop();
+        if (one[2] === "/resend" && filed && filed.email.status === "sent") return refuse("alreadySent");
+        if (one[2] === "/follow-up" && r.followUps.indexOf(ymd(new Date(clockNow()))) !== -1) return refuse("followUpSentToday");
+        const at = iso(clockNow());
+        state.maint.logSeq += 1;
+        if (one[2] === "/follow-up") r.followUps.push(ymd(new Date(clockNow())));
+        r.log.push({ id: "ml-x" + state.maint.logSeq, kind: "email", channel: null, body: null, fromStatus: null, toStatus: null, scheduledFor: null, occurredAt: at, createdAt: at, createdBy: null, photos: [], email: { which: one[2] === "/resend" ? "filed" : "followUp", status: "sent", to: r.recipients.map(c => c.email), cc: null, photoCount: 0 } });
+        return json(200, { request: maintDetail(r), email: { status: "sent", sentMessageId: "sm-x" + state.maint.logSeq, to: r.recipients.map(c => c.email), cc: null, at: at } });
+      }
+      return json(404, { error: "Endpoint not found" });
+    }
+
     // --- photos
     if (pathname === "/api/uploads") {
       // What the phone made of a photo sent whole, read off its bytes
@@ -5710,7 +6081,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

@@ -975,6 +975,113 @@ Fifteen journeys, one for each finding, each failing on the main of part
 The smoke check's cleaner opens a form and then taps Help on the bar,
 which now asks before leaving the form; it answers Leave.
 
+## What Round 5 built for the staff app (part 369, section 1)
+
+The stub answers what ocsa-api's main (ca4aafa, Rounds 5 and 6) answers
+the staff app: POST /api/auth/renew hands back `{ token }`, the token a
+case names in `renewTo` ("token-one" unless it names another), and a
+case's refuse gives it 401 `auth.tokenExpired` or 503
+`auth.checkUnavailable`; GET /api/settings answers `checklistDayStartsAt`,
+"04:00" unless a case names `dayStartsAt`; POST /api/auth/register
+answers a phone or email already on file with the same 201
+`auth.registered` and an invented id, writing nothing. EVERY_NOTICE
+carries `shift_changed` and `shift_cancelled` (subject the shift) and
+`hr_case_closed_for` (subject the case), each linked to the staff app's
+`/?open=<type>:<id>` as linkByReader builds it.
+
+Seven journeys, in English and Spanish:
+
+- `renewopen` (API-56): a kept session is renewed before anything else
+  is read, the new token carried on every call after it and kept; a
+  renewal answered 401 brings sign-in back; one that cannot be reached
+  opens the app on the kept token.
+- `renewqueued` (API-56): a check-off kept with no signal goes after a
+  renewal, under the new token.
+- `shiftat` (API-62): shift_changed opens My Schedule at the shift's week
+  with its sheet open, and shift_cancelled says the shift is no longer
+  on the schedule, from the bell and both kinds of phone alert.
+- `casedone` (API-63): hr_case_closed_for opens My reports at the
+  report, never reading the office's case.
+- `filedlink` (API-83): a form notice whose link is the staff app's opens
+  the report with Close alone, and offers a person who reads no report
+  no dashboard.
+- `tasknotes` (API-68): the resolution box holds 2000 characters, and
+  `tasks.noteInvalid` and `tasks.photoUrlInvalid` are said in plain words.
+- `daystart` (PORT-24): with a 6:00 AM day start from the settings, the
+  evening's critical block still reads Overdue at 5:00 AM.
+
+`registerwords` now expects the 201 for a taken phone or email: the same
+thank-you, nothing under the email box, and the `register-taken` picture
+is gone with the line it showed.
+
+## Building maintenance from the field (part 369, section 2)
+
+The stub answers `/api/maintenance-requests` the way routes/maintenance.js
+does at ocsa-api's main (part 365): every route behind
+`file_maintenance_requests` (admins and supervisors, or a person whose
+fixture carries `fileMaintenance: true`); `/options`; the list per site,
+newest first, with `ageDays`, `responseDueOn` and `noResponse` worked out
+on the New York day and two business days; one request with its
+recipients, email, photos, log, `allowedStatuses`, `canFollowUp` and
+`canResend`; `POST /` as JSON or multipart (photos under `photos`, the
+fields beside them, recorded on the call as `files` and `fields`), with
+the API's refusals in order (`maintenance.badDetails` with keys,
+`issues.notFound`, `maintenance.issueAlreadySent`, `maintenance.noContact`,
+`maintenance.photoLimit`); `/from-issue/:issueId`; `POST /:id/log`,
+`/follow-up` and `/resend`; and `/api/sites/:siteId/maintenance-contacts`.
+North Building holds MR-2026-0001 (sent, unanswered past its two business
+days) and MR-2026-0002 (scheduled, with a photo and a log), a desk for
+every building and an engineer for the Annex; South Building has no
+contact. `maintEmailFails` makes a filing's email not go, and
+`maintLoseNext: n` files the next n requests and drops their answers on
+the way back. GET /api/issues/:id carries `maintenanceRequests`, and
+EVERY_NOTICE `maintenance_status` and `maintenance_no_response`.
+
+Four journeys, in English and Spanish:
+
+- `maintfile`: the field kit's Building maintenance lists the site's
+  requests with status and age; a request with two photos, its recipients
+  shown, sent with no signal waits on the phone and is filed once, as one
+  multipart filing, when the signal comes back; a send whose answer was
+  lost is found on the site's list and never filed twice; South Building's
+  form says it has no contact and keeps Send off.
+- `maintissue`: an issue's sheet offers Send to building maintenance, the
+  form is prefilled from the issue with its photo to send, the request
+  carries `issueId` and `issuePhotoIds`, and the sheet then shows it sent;
+  someone without the capability is never offered it.
+- `maintsheet`: one request's sheet with its log; Record a response and
+  Change the status to Fixed through `POST /:id/log`; a request past its
+  answer day says so.
+- `maintnotices`: both notices open the request's sheet three ways, and
+  never for someone without the capability.
+
+## My leave balances (part 369, section 3)
+
+The stub answers GET /api/leave/me the way routes/leave.js does at
+ocsa-api's main (part 365), for the handbook's policy: paid sick leave,
+tracked, 40 hours unless a case names `leaveBalance`, eight hours a day,
+the policy's own line for it, and `usableFrom` when a case names
+`leaveUsableFrom` (a new hire in the waiting period). `leaveNone: true` is
+a policy that tracks no kind, and `leaveRoute: false` an API with no
+route. POST /api/time-off and GET /api/time-off/:id carry `leave` as
+helpers/leaveBalances.js requestLeave builds it: the request's hours (its
+own, a part day's, or eight a day), what a pending one would leave, the
+`leave.warning.belowZero` and `leave.warning.inWaitingPeriod` warnings in
+the API's words, `taken` once approved, and `givenBack` for a fixture row
+whose approval the office took back.
+
+Three journeys, in English and Spanish:
+
+- `leaveshown`: My time off lists paid sick leave in hours and days with
+  its policy line; nothing for a policy that tracks none or an API with no
+  route; a read that failed says so with Try again.
+- `leaveform`: the form shows the picked kind's balance; once sent, the
+  request's sheet says what it would leave, with the below-zero warning,
+  and the waiting period's for a new hire; each request is sent once.
+- `leavesheet`: an approved request says the hours it took, one taken back
+  the hours given back, and the time_off notice opens that request three
+  ways.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
