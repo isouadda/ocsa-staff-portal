@@ -1510,8 +1510,13 @@ function readEntryFromUrl() {
 // is up.
 // What a staff app address opens, from its query and its path: the
 // subject, with path true for one of the paths above. null for any other.
+// Since part 373 a tapped phone alert that opens the app adds the notice's
+// subjectKey as key= (a shift notice's day, API part 371) and its
+// notificationId as notice= (API part 370), so the notice it told of is
+// the one marked read.
 function openOfAddress(search, pathname) {
-  var v = new URLSearchParams(search || "").get("open");
+  var q = new URLSearchParams(search || "");
+  var v = q.get("open");
   if (!v) {
     var m = /^\/(requests|issues|join|training\/c|sign|inspect|drafts|supplies)\/([A-Za-z0-9_-]+)$/.exec(String(pathname || "").replace(/\/+$/, ""));
     if (!m) return null;
@@ -1519,14 +1524,14 @@ function openOfAddress(search, pathname) {
     return { subjectType: types[m[1]], subjectId: m[2], path: true };
   }
   var at = v.indexOf(":");
-  return { subjectType: at === -1 ? v : v.slice(0, at), subjectId: at === -1 ? null : v.slice(at + 1) };
+  return { subjectType: at === -1 ? v : v.slice(0, at), subjectId: at === -1 ? null : v.slice(at + 1), subjectKey: q.get("key") || null, notificationId: q.get("notice") || null };
 }
 function readOpenFromUrl() {
   try {
     var asked = openOfAddress(window.location.search, window.location.pathname);
     if (!asked) return null;
     try { window.history.replaceState({}, "", asked.path ? "/" : window.location.pathname); } catch (e) {}
-    return { subjectType: asked.subjectType, subjectId: asked.subjectId };
+    return { subjectType: asked.subjectType, subjectId: asked.subjectId, subjectKey: asked.subjectKey || null, notificationId: asked.notificationId || null };
   } catch (e) { return null; }
 }
 const OPEN_AT_START = readOpenFromUrl();
@@ -3209,7 +3214,7 @@ export default function OCSAStaffPortal() {
     // My reports under Speak Up, at the case the notice names (part 359).
     if (place.tab === "speakup") setSpeakAt(place.myReport ? { id: String(place.myReport), at: Date.now() } : null);
     // My Schedule at the shift a shift notice names (part 369, API-62).
-    if (place.tab === "schedule") setScheduleAt(place.shift ? { id: String(place.shift), at: Date.now() } : place.timeOff ? { timeOff: String(place.timeOff), at: Date.now() } : null);
+    if (place.tab === "schedule") setScheduleAt(place.shift ? { id: String(place.shift), day: place.day || null, at: Date.now() } : place.timeOff ? { timeOff: String(place.timeOff), at: Date.now() } : null);
     // My tickets at the ticket, read again so a new answer shows.
     if (place.tab === "support") { setSupportAt(place.ticket ? { id: String(place.ticket), at: Date.now() } : null); setSupportAsked(n => n + 1); }
     // Periodic work at the task the notice names: its site is found in
@@ -3299,7 +3304,7 @@ export default function OCSAStaffPortal() {
       const tok = await renewSession(token);
       if (!tok) return;
       for (const entry of mine) {
-        const res = await fileMaint(entry, tok, user.id, () => {
+        const res = await fileMaint(entry, tok, () => {
           entry.tries = (Number(entry.tries) || 0) + 1;
           entry.triedAt = entry.triedAt || Date.now();
           putMaintBox(readMaintBox().map(x => (x.clientId === entry.clientId ? Object.assign({}, x, { tries: entry.tries, triedAt: entry.triedAt }) : x)));
@@ -3335,7 +3340,7 @@ export default function OCSAStaffPortal() {
   useEffect(() => {
     const sw = navigator.serviceWorker;
     if (!sw || !sw.addEventListener) return undefined;
-    const onMsg = (e) => { const d = e && e.data; if (d && d.type === "ocsa-open" && d.subjectType) setOpenAsk({ subjectType: String(d.subjectType), subjectId: d.subjectId == null ? null : String(d.subjectId) }); };
+    const onMsg = (e) => { const d = e && e.data; if (d && d.type === "ocsa-open" && d.subjectType) setOpenAsk({ subjectType: String(d.subjectType), subjectId: d.subjectId == null ? null : String(d.subjectId), subjectKey: d.subjectKey == null ? null : String(d.subjectKey), notificationId: d.notificationId == null ? null : String(d.notificationId) }); };
     sw.addEventListener("message", onMsg);
     return () => sw.removeEventListener("message", onMsg);
   }, []);
@@ -3348,18 +3353,26 @@ export default function OCSAStaffPortal() {
     // concern this person may not read opens the bell the same way (part
     // 355), once the permissions are in, so its sheet never shows first.
     // A tap on an alert never opens another address by itself.
-    const place = notifPlace(openAsk.subjectType, openAsk.subjectId);
+    const place = notifPlace(openAsk.subjectType, openAsk.subjectId, openAsk.subjectKey);
     if (place && (place.hrCase || place.concern || place.report || place.maintenance) && caps === null) return;
     setOpenAsk(null);
-    markAlertRead(openAsk.subjectType, openAsk.subjectId);
+    markAlertRead(openAsk);
     if (place) openPlace(place); else if (openAsk.subjectType) setNotifOpen(true);
   }, [openAsk, booting, screen, token, caps]);
   // A tapped phone alert marks its notice read, as a tap on it in the bell
-  // does (PORT-34). The alert carries the notice's subject and not its id,
-  // so the newest page of notices is read and each one still unread about
-  // that subject is marked, and the bell's count read again.
-  const markAlertRead = async (subjectType, subjectId) => {
+  // does (PORT-34), and the bell's count is read again. Since API part 370
+  // the alert carries the id of the notice it told of, notificationId, and
+  // that notice alone is marked (part 373). An alert with none, one sent
+  // before part 370 or a push about no single notice, is matched by its
+  // subject as before: the newest page of notices is read and each one
+  // still unread about that subject is marked.
+  const markAlertRead = async ({ subjectType, subjectId, notificationId }) => {
     if (!token || !subjectType) return;
+    if (notificationId) {
+      try { await api("/api/notifications/" + encodeURIComponent(notificationId) + "/read", { method: "POST", token }); } catch (e) {}
+      refreshUnread();
+      return;
+    }
     const same = (v) => String(v === null || v === undefined ? "" : v);
     try {
       const d = await api("/api/notifications?limit=" + NOTIF_PAGE + "&locale=" + languageToSend(), { token });
@@ -4640,8 +4653,9 @@ const leaveUsableLater = (b) => !!b && !!b.usableFrom && b.usableFrom > ymdLocal
 // What a request did or would do to a balance, from the leave its read,
 // its filing and its decision answer: what it would leave while it waits,
 // with the API's warnings; the hours it took once approved; the hours
-// given back once the office took the approval back.
-function TimeOffLeave({ leave, status, t }) {
+// given back once the office took the approval back. before: the same,
+// read for a request not sent yet (part 373), on the request form.
+function TimeOffLeave({ leave, status, before, t }) {
   const lv = leave && typeof leave === "object" ? leave : null;
   if (!lv) return null;
   const kind = fkText(lv, ["kindName"]) || fkText(lv, ["kind"]);
@@ -4658,7 +4672,7 @@ function TimeOffLeave({ leave, status, t }) {
     <div data-leave-state="pending" style={box}>
       {took && would && <div style={lineSt}>{tr("{kind}: this request is {hours}, and would leave {left}.", { hours: took, kind: kind, left: would })}</div>}
       {warnings.map((w, i) => <div key={i} data-leave-warning="1" role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 8, padding: "8px 10px", borderRadius: R.md, background: ORANGE + "18", border: "1px solid " + ORANGE + "60" }}><AlertIco sz={16} c={ink(t, ORANGE)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0, overflowWrap: "anywhere" }}>{w}</span></div>)}
-      {warnings.length > 0 && <div style={{ fontSize: 12, color: t.textSec, marginTop: 8, lineHeight: 1.45 }}>{tr("Your request is sent. The person who approves time off decides.")}</div>}
+      {warnings.length > 0 && <div style={{ fontSize: 12, color: t.textSec, marginTop: 8, lineHeight: 1.45 }}>{before ? tr("You can still send it. The person who approves time off decides.") : tr("Your request is sent. The person who approves time off decides.")}</div>}
     </div>
   );
 }
@@ -4777,32 +4791,41 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
 
   useEffect(() => { loadSchedule(); }, [weekStart, view]);
 
-  // A shift notice opens the shift it names (part 369, API-62). The API
-  // has no read of one shift for its person, so the shift is looked for
-  // on the person's schedule from today through the next 13 weeks (a
-  // notice is never sent about a shift before today); found, its week
-  // is drawn and its sheet opened. A shift not there, cancelled or given
-  // to someone else, says so above the week. A read that fails leaves
-  // the week as it is.
-  const [shiftGone, setShiftGone] = useState(false);
+  // A shift notice opens the shift it names (part 369, API-62). Since part
+  // 373 (API part 371) a shift changed or cancelled carries the shift's
+  // day as its subjectKey, so the week of that day is drawn at once, and
+  // the shift itself is read from GET /api/pickups/my-schedule/:shiftId,
+  // the person's own shift, a cancelled one included. Found, its week is
+  // drawn and its sheet opened. A 404 (no longer the person's, or gone)
+  // and a cancelled shift say so above the week with the day when it is
+  // known. Any other failure leaves the week at the notice's day.
+  const [shiftGone, setShiftGone] = useState(null);
+  const showWeekOf = (ymdText) => {
+    const day = new Date(String(ymdText).slice(0, 10) + "T00:00:00");
+    if (isNaN(day.getTime())) return;
+    const mon = new Date(day);
+    mon.setDate(day.getDate() - (day.getDay() === 0 ? 6 : day.getDay() - 1));
+    mon.setHours(0, 0, 0, 0);
+    setDayOpen(null);
+    setView("week");
+    setWeekStart(prev => (prev && prev.getTime() === mon.getTime() ? prev : mon));
+  };
   useEffect(() => {
     if (!at || !at.id || !token) return undefined;
     let gone = false;
-    setShiftGone(false);
-    const from = todayLocal();
-    api("/api/pickups/my-schedule?start_date=" + toISO(from) + "&end_date=" + toISO(addDays(from, 91)), { token }).then((d) => {
+    setShiftGone(null);
+    if (at.day) showWeekOf(at.day);
+    api("/api/pickups/my-schedule/" + encodeURIComponent(at.id), { token }).then((hit) => {
       if (gone) return;
-      const hit = (d && Array.isArray(d.scheduled) ? d.scheduled : []).find(s => s && String(s.id) === at.id);
-      if (!hit) { setDetail(null); setShiftGone(true); return; }
-      const day = new Date(String(hit.scheduled_date).slice(0, 10) + "T00:00:00");
-      const mon = new Date(day);
-      mon.setDate(day.getDate() - (day.getDay() === 0 ? 6 : day.getDay() - 1));
-      mon.setHours(0, 0, 0, 0);
-      setDayOpen(null);
-      setView("week");
-      setWeekStart(prev => (prev && prev.getTime() === mon.getTime() ? prev : mon));
+      const day = hit && hit.scheduled_date ? String(hit.scheduled_date).slice(0, 10) : at.day || null;
+      if (!hit || !hit.id || hit.status === "cancelled") { setDetail(null); if (day) showWeekOf(day); setShiftGone({ day: day }); return; }
+      showWeekOf(hit.scheduled_date);
       setDetail({ type: "scheduled", ...hit });
-    }).catch(() => {});
+    }).catch((err) => {
+      if (gone || !err || err.status !== 404) return;
+      setDetail(null);
+      setShiftGone({ day: at.day || null });
+    });
     return () => { gone = true; };
   }, [at && at.at, token]);
 
@@ -4906,15 +4929,47 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
     return { ...prev, endsOn: v, partDay: same ? prev.partDay : false, startTime: same ? prev.startTime : "", endTime: same ? prev.endTime : "" };
   });
 
+  // The body a request is sent with, and previewed with. leaveType rides
+  // along even when empty, so the API's own words answer rather than a
+  // second rule written here.
+  const requestBody = (f) => {
+    const body = { leaveType: f.leaveType, startsOn: f.startsOn, endsOn: f.endsOn };
+    if (f.partDay) { body.startTime = f.startTime; body.endTime = f.endTime; }
+    if (String(f.hours).trim() !== "") body.hours = Number(f.hours);
+    if (f.reason.trim() !== "") body.reason = f.reason.trim();
+    return body;
+  };
+  // What the request would leave, before Send (API part 371): POST
+  // /api/time-off/preview takes the same body and answers { leave } as the
+  // filed request would carry it, its warnings with it, writing nothing.
+  // Read again a moment after the type, the days, the times or the hours
+  // change, once a type and both days are chosen (and both times, for
+  // part of a day). A refusal is what Send would say, in the API's words.
+  // An API with no preview route, or a read that fails, shows nothing new,
+  // and what the request would leave shows once it is sent, as before.
+  const [preview, setPreview] = useState(null);
+  const previewAsk = reqOpen && reqForm && reqForm.leaveType && reqForm.startsOn && reqForm.endsOn && (!reqForm.partDay || (reqForm.startTime && reqForm.endTime))
+    ? JSON.stringify(Object.assign(requestBody(reqForm), { reason: undefined })) : null;
+  useEffect(() => {
+    if (!previewAsk || !token) { setPreview(null); return undefined; }
+    let live = true;
+    const wait = setTimeout(() => {
+      api("/api/time-off/preview", { method: "POST", body: JSON.parse(previewAsk), token }).then((d) => {
+        if (live) setPreview({ ask: previewAsk, state: "ok", leave: d && d.leave && typeof d.leave === "object" ? d.leave : null });
+      }).catch((err) => {
+        if (!live) return;
+        if (err && (err.status === 400 || err.status === 409) && err.message) setPreview({ ask: previewAsk, state: "refused", said: tr(err.message) });
+        else setPreview({ ask: previewAsk, state: err && err.status === 404 ? "none" : "failed" });
+      });
+    }, 400);
+    return () => { live = false; clearTimeout(wait); };
+  }, [previewAsk, token]);
+  const previewNow = preview && preview.ask === previewAsk ? preview : null;
+
   const sendRequest = async () => {
     if (reqBusy) return;
     setReqBusy(true); setReqErr(null);
-    // leaveType rides along even when empty, so the API's own words
-    // answer rather than a second rule written here.
-    const body = { leaveType: reqForm.leaveType, startsOn: reqForm.startsOn, endsOn: reqForm.endsOn };
-    if (reqForm.partDay) { body.startTime = reqForm.startTime; body.endTime = reqForm.endTime; }
-    if (String(reqForm.hours).trim() !== "") body.hours = Number(reqForm.hours);
-    if (reqForm.reason.trim() !== "") body.reason = reqForm.reason.trim();
+    const body = requestBody(reqForm);
     try {
       const d = await api("/api/time-off", { method: "POST", body, token });
       setReqOpen(false);
@@ -4998,7 +5053,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
         <button onClick={nextWeek} aria-label={tr("Next")} style={mkTapFrame()}><span style={stepChip}>&gt;</span></button>
       </div>
 
-      {shiftGone && <div data-shift-gone="1" role="status" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", marginBottom: 10, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.card, fontSize: 13, color: t.text }}><span style={{ flex: 1, minWidth: 0 }}>{tr("This shift is no longer on your schedule.")}</span><button onClick={() => setShiftGone(false)} style={{ minHeight: 44, minWidth: 44, padding: "0 10px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Close")}</button></div>}
+      {shiftGone && <div data-shift-gone="1" data-shift-gone-day={shiftGone.day || ""} role="status" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", marginBottom: 10, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.card, fontSize: 13, color: t.text }}><span style={{ flex: 1, minWidth: 0 }}>{shiftGone.day ? tr("Your shift on {day} is no longer on your schedule.", { day: dueDayText(shiftGone.day, { weekday: "long", month: "short", day: "numeric" }) }) : tr("This shift is no longer on your schedule.")}</span><button onClick={() => setShiftGone(null)} style={{ minHeight: 44, minWidth: 44, padding: "0 10px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Close")}</button></div>}
 
       {loading && <div style={{ textAlign: "center", padding: 20, color: t.textMut, fontSize: 12 }}>{tr("Loading...")}</div>}
 
@@ -5250,14 +5305,17 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
               </select>
               {(() => {
                 // The balance of the kind picked, before the request goes
-                // (part 369); what it would leave comes back once it is sent.
+                // (part 369). What it would leave is read before Send
+                // (part 373, below), and shows once it is sent when the
+                // API has no preview.
                 const b = balances.find(x => x.kind === reqForm.leaveType);
                 if (!b) return null;
+                const later = previewNow && (previewNow.state === "none" || previewNow.state === "failed");
                 return (
                   <div data-leave-picked={b.kind} style={{ fontSize: 12, color: t.textSec, marginTop: 6, lineHeight: 1.45 }}>
                     <div>{tr("{kind} balance now: {hours}.", { kind: b.name, hours: timeOffHours(b.hours) })}</div>
                     {leaveUsableLater(b) && <div>{tr("You can use it from {date}.", { date: dueDayText(b.usableFrom, { month: "short", day: "numeric", year: "numeric" }) })}</div>}
-                    <div style={{ color: t.textMut }}>{tr("Once you send it, the request shows what it would leave.")}</div>
+                    {later && <div style={{ color: t.textMut }}>{tr("Once you send it, the request shows what it would leave.")}</div>}
                   </div>
                 );
               })()}
@@ -5308,6 +5366,10 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
               <textarea rows={3} maxLength={1000} value={reqForm.reason} onChange={e => setReqForm({ ...reqForm, reason: e.target.value })} style={{ ...mkInput(t), minHeight: 72, resize: "vertical", lineHeight: 1.5 }} />
               <div style={{ fontSize: 11, color: t.textMut, marginTop: 6, lineHeight: 1.4 }}>{tr("Only you and the person who approves time off can read this.")}</div>
             </div>
+
+            {/* What it would leave, read before Send (part 373). */}
+            {previewNow && previewNow.state === "ok" && previewNow.leave && <div data-leave-preview="1"><TimeOffLeave leave={previewNow.leave} status="requested" before t={t} /></div>}
+            {previewNow && previewNow.state === "refused" && <div data-leave-preview="refused" role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14, padding: "8px 10px", borderRadius: R.md, background: ORANGE + "18", border: "1px solid " + ORANGE + "60" }}><AlertIco sz={16} c={ink(t, ORANGE)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0, overflowWrap: "anywhere" }}>{previewNow.said}</span></div>}
 
             <div style={{ fontSize: 11, color: t.textMut, marginBottom: 14, lineHeight: 1.4 }}>{tr("You get a notice in the app when your request is decided.")}</div>
 
@@ -12162,18 +12224,22 @@ const draftSubject = (s) => typeof s === "string" && /^(form_)?(draft|drafts|rem
 // has no place for.
 function rowPlace(row) {
   if (!row) return null;
-  const own = notifPlace(row.subjectType, row.subjectId);
+  const own = notifPlace(row.subjectType, row.subjectId, row.subjectKey);
   if (own) return own;
   const asked = staffAppOpen(row.link);
   return asked ? notifPlace(asked.subjectType, asked.subjectId) : null;
 }
-function notifPlace(subjectType, subjectId) {
+function notifPlace(subjectType, subjectId, subjectKey) {
   if (draftSubject(subjectType) && subjectId !== null && subjectId !== undefined && subjectId !== "") return { tab: "forms", draft: String(subjectId) };
   if (issueSubject(subjectType) && subjectId !== null && subjectId !== undefined && subjectId !== "") return { issue: String(subjectId) };
   if (inspectionSubject(subjectType)) return subjectId === null || subjectId === undefined ? { tab: "inspect" } : { tab: "inspect", inspection: String(subjectId) };
   // Part 369 (API-62): a shift notice names the shift, and My Schedule
-  // opens at it.
-  if (shiftSubject(subjectType)) return subjectId === null || subjectId === undefined || subjectId === "" ? { tab: "schedule" } : { tab: "schedule", shift: String(subjectId) };
+  // opens at it. Since part 373 a shift changed or cancelled carries the
+  // shift's day as its subjectKey (API part 371), and the week opens on it.
+  if (shiftSubject(subjectType)) {
+    if (subjectId === null || subjectId === undefined || subjectId === "") return { tab: "schedule" };
+    return Object.assign({ tab: "schedule", shift: String(subjectId) }, typeof subjectKey === "string" && /^\d{4}-\d{2}-\d{2}$/.test(subjectKey) ? { day: subjectKey } : {});
+  }
   // Round 2 (part 355, PORT-10 and PORT-14), from what the API answers
   // the notice as built: an HR case, its read-only sheet for a holder of
   // manage_cases; a client's concern, the report read-only for a reader
@@ -16835,7 +16901,7 @@ const fkRowSt = (t) => ({ padding: "10px 12px", marginBottom: 8, borderRadius: R
 // whoever the API lets file one (file_maintenance_requests: admins and
 // supervisors by default, anyone else by name), at a site they may read.
 // The lists come from GET /api/maintenance-requests/options, who it goes
-// to from the site's contacts, and the filing is POST
+// to from the site's contacts route, and the filing is POST
 // /api/maintenance-requests, multipart with its photos under photos.
 // Once filed, a request lives on the API: the site's list, one request's
 // sheet with its log, and POST /:id/log for what the building answered.
@@ -16849,12 +16915,12 @@ const MAINT_BODY_MAX = 4000;
 const MAINT_PHOTOS_MAX = 6;
 const MAINT_LIST_STEP = 20;
 const MAINT_BLANK = { building: "", floor: "", area: "", category: "", urgency: "", description: "" };
-// The lists and each site's contacts, kept on this phone as last read,
-// so a form opened where there is no signal still names its choices and
-// who the request goes to.
+// The lists and who a request goes to at each site, kept on this phone as
+// last read, so a form opened where there is no signal still names its
+// choices and who the request goes to.
 const MAINT_LISTS_KEY = "ocsa-staff-maint-lists";
 function readMaintLists() {
-  try { const v = JSON.parse(window.localStorage.getItem(MAINT_LISTS_KEY) || "null"); return v && typeof v === "object" ? { options: v.options || {}, contacts: v.contacts || {} } : { options: {}, contacts: {} }; } catch (e) { return { options: {}, contacts: {} }; }
+  try { const v = JSON.parse(window.localStorage.getItem(MAINT_LISTS_KEY) || "null"); return v && typeof v === "object" ? { options: v.options || {}, goesTo: v.goesTo && typeof v.goesTo === "object" ? v.goesTo : {} } : { options: {}, goesTo: {} }; } catch (e) { return { options: {}, goesTo: {} }; }
 }
 function keepMaintLists(change) {
   try { const v = readMaintLists(); change(v); window.localStorage.setItem(MAINT_LISTS_KEY, JSON.stringify(v)); } catch (e) {}
@@ -16882,27 +16948,37 @@ function maintContactOf(x) {
   if (!email || x.isActive === false) return null;
   return { id: fkText(x, ["id", "contactId"]) || email, name: fkText(x, ["name"]), company: fkText(x, ["company"]), email: email, building: fkText(x, ["building"]), isPrimary: x.isPrimary === true };
 }
-// Who a request will go to, shown before it is sent: the site's active
-// contacts, and with a building named that some contact's building
-// matches, those and the contacts with no building, each address once,
-// the rule the API files by (helpers/maintenanceRequests.js
-// recipientsOf). The request's own answer names who it went to.
-function maintRecipients(contacts, building) {
-  const active = (Array.isArray(contacts) ? contacts : []).map(maintContactOf).filter(Boolean);
-  const b = maintNorm(building);
-  const pick = b && active.some(c => maintNorm(c.building) === b) ? active.filter(c => maintNorm(c.building) === b || !maintNorm(c.building)) : active;
-  const seen = new Set();
-  return pick.filter(c => { const e = maintNorm(c.email); if (seen.has(e)) return false; seen.add(e); return true; });
-}
-async function readMaintContacts(token, siteId) {
+// Who a request will go to, shown before it is sent, as the API picks it
+// (GET /api/sites/:siteId/maintenance-contacts?building=, API part 371):
+// recipients, the contacts a filing about that building at the site would
+// be mailed to now, and cc, the office's address it copies, both from the
+// filing's own pick, so what the form shows is what the filing does. Each
+// answer is kept on this phone by site and building, the last few of each
+// site. With no signal, the answer kept for that building is shown; a
+// building this phone never asked about, at a site whose contacts it has
+// read, says who it goes to shows once there is signal, and the request
+// can still wait on the phone to go.
+const MAINT_GOES_KEPT = 12;
+async function readMaintGoesTo(token, siteId, building) {
+  const b = String(building || "").trim();
+  const at = maintNorm(b);
   try {
-    const d = await api("/api/sites/" + encodeURIComponent(siteId) + "/maintenance-contacts", { token });
-    const list = (Array.isArray(d && d.contacts) ? d.contacts : []).map(maintContactOf).filter(Boolean);
-    keepMaintLists(v => { v.contacts[siteId] = list; });
-    return { list: list, kept: false };
+    const d = await api("/api/sites/" + encodeURIComponent(siteId) + "/maintenance-contacts?building=" + encodeURIComponent(b), { token });
+    const list = (Array.isArray(d && d.recipients) ? d.recipients : []).map(maintContactOf).filter(Boolean);
+    const cc = d && typeof d.cc === "string" && d.cc.trim() ? d.cc.trim() : null;
+    keepMaintLists(v => {
+      const site = Object.assign({}, v.goesTo[siteId] || {});
+      site[at] = { list: list, cc: cc, savedAt: Date.now() };
+      Object.keys(site).sort((x, y) => Number(site[y].savedAt) - Number(site[x].savedAt)).slice(MAINT_GOES_KEPT).forEach(k => { delete site[k]; });
+      v.goesTo[siteId] = site;
+    });
+    return { list: list, cc: cc, kept: false, unknown: false };
   } catch (err) {
-    const kept = readMaintLists().contacts[siteId];
-    if (Array.isArray(kept) && !(err && err.status)) return { list: kept, kept: true };
+    if (err && err.status) throw err;
+    const site = readMaintLists().goesTo[siteId] || {};
+    const kept = site[at];
+    if (kept && Array.isArray(kept.list)) return { list: kept.list, cc: kept.cc || null, kept: true, unknown: false };
+    if (Object.keys(site).some(k => site[k] && Array.isArray(site[k].list) && site[k].list.length > 0)) return { list: [], cc: null, kept: true, unknown: true };
     throw err;
   }
 }
@@ -16935,10 +17011,9 @@ function MaintChip({ status, name, t }) {
 // is signal, the way a check-off waits: its words in local storage, by
 // person, and its photos in the phone's own database (IndexedDB), which
 // holds pictures local storage cannot. Each carries a clientId of its
-// own. The API's route reads none yet, so a send whose answer never came
-// is sent again only after the site's requests are read for it: one filed
-// by this person since the first try, with the same words, is that
-// request, and nothing more goes.
+// own, sent with every try (API part 371): a send whose answer never came
+// goes again with the same clientId, and the API answers that one with
+// the request it already filed (repeat: true), filing nothing more.
 const MAINT_BOX_KEY = "ocsa-staff-maint-outbox";
 function readMaintBox() {
   try { const v = JSON.parse(window.localStorage.getItem(MAINT_BOX_KEY) || "[]"); return Array.isArray(v) ? v.filter(x => x && x.clientId && x.siteId && x.fields && typeof x.fields === "object") : []; } catch (e) { return []; }
@@ -16995,28 +17070,18 @@ async function dropMaintPhotos(clientId, count) {
   maintHeldPhotos.delete(clientId);
   if (count > 0) await maintPhotoWork("readwrite", (store) => { for (let i = 0; i < count; i += 1) store.delete(clientId + ":" + i); });
 }
-// The request on the API that a send whose answer never came became.
-const maintSame = (r, entry, me) => !!r && !!r.filedBy && String(r.filedBy.id) === String(me) && maintNorm(r.description) === maintNorm(entry.fields.description)
-  && r.category === entry.fields.category && r.urgency === entry.fields.urgency && maintNorm(r.building) === maintNorm(entry.fields.building)
-  && maintNorm(r.floor) === maintNorm(entry.fields.floor) && maintNorm(r.area) === maintNorm(entry.fields.area) && Date.parse(r.filedAt) >= Number(entry.triedAt || 0) - 10 * 60 * 1000;
 // One filing. Answers what became of it: sent, with the request and the
-// API's warning when its email did not go; already, an issue the
+// API's warning when its email did not go (a repeat of a clientId the API
+// already filed is the request it filed then); already, an issue the
 // building already has a request for; refused, in the API's words with
 // the keys it named; or waiting, no signal or the API not able to take
 // it now, which leaves it on the phone. onTried runs as it leaves.
-async function fileMaint(entry, token, me, onTried) {
-  if (Number(entry.tries) > 0 && !entry.issueId) {
-    let rows;
-    try { const d = await api(MAINT_BASE + "?siteId=" + encodeURIComponent(entry.siteId) + "&limit=" + MAINT_LIST_STEP, { token }); rows = Array.isArray(d && d.requests) ? d.requests.map(maintRequestOf).filter(Boolean) : []; }
-    catch (err) { return { state: "waiting" }; }
-    const hit = rows.find(r => maintSame(r, entry, me));
-    if (hit) return { state: "sent", request: hit };
-  }
+async function fileMaint(entry, token, onTried) {
   const photos = await readMaintPhotos(entry.clientId, Number(entry.photoCount) || 0);
   if (photos === null) return { state: "refused", said: tr("The photos kept with this request are no longer on this phone. Take them again, then send it.") };
   onTried();
   const f = entry.fields;
-  const body = { siteId: entry.siteId, category: f.category, urgency: f.urgency, description: f.description.trim() };
+  const body = { siteId: entry.siteId, clientId: entry.clientId, category: f.category, urgency: f.urgency, description: f.description.trim() };
   ["building", "floor", "area"].forEach(k => { if (String(f[k] || "").trim()) body[k] = String(f[k]).trim(); });
   if (entry.issueId) body.issueId = entry.issueId;
   const issuePhotoIds = Array.isArray(entry.issuePhotoIds) ? entry.issuePhotoIds : [];
@@ -17127,7 +17192,9 @@ function MaintenanceForm({ token, user, at, onClose, onQueued, onSent, onOpenReq
   const [optsAsked, setOptsAsked] = useState(0);
   const [site, setSite] = useState(kept ? { id: kept.siteId, name: kept.siteName || "" } : at && at.siteId ? { id: String(at.siteId), name: at.siteName || "" } : null);
   const [issue, setIssue] = useState(null);
-  const [contacts, setContacts] = useState(null);
+  // Who it goes to, as the API picks it for the building typed, read
+  // again a moment after the building stops changing.
+  const [goes, setGoes] = useState(null);
   const [contactsAsked, setContactsAsked] = useState(0);
   const [form, setForm] = useState(kept ? Object.assign({}, MAINT_BLANK, kept.fields) : MAINT_BLANK);
   const [photos, setPhotos] = useState([]);
@@ -17145,7 +17212,7 @@ function MaintenanceForm({ token, user, at, onClose, onQueued, onSent, onOpenReq
     return () => { live = false; };
   }, [token, optsAsked]);
   // From an issue: its site, its words and photos as the API prefills
-  // them, its site's contacts, and a request already sent from it.
+  // them, and a request already sent from it.
   useEffect(() => {
     if (!fromIssue) return undefined;
     let live = true;
@@ -17155,17 +17222,18 @@ function MaintenanceForm({ token, user, at, onClose, onQueued, onSent, onOpenReq
       const existing = d && d.existing && typeof d.existing === "object" && d.existing.id ? { id: String(d.existing.id), reference: fkText(d.existing, ["reference"]), statusName: fkText(d.existing, ["statusName"]) } : null;
       setIssue({ state: "ok", existing: existing, photos: (Array.isArray(d && d.issuePhotos) ? d.issuePhotos : []).filter(x => x && x.id && typeof x.url === "string" && x.url).map(x => ({ id: String(x.id), url: x.url })) });
       setSite({ id: fkText(p, ["siteId"]), name: fkText(p, ["siteName"]) });
-      setContacts({ state: "ok", list: (Array.isArray(d && d.contacts) ? d.contacts : []).map(maintContactOf).filter(Boolean), kept: false });
       if (!kept) setForm(prev => (prev.description.trim() || prev.area.trim() ? prev : Object.assign({}, prev, { area: fkText(p, ["area"]).slice(0, MAINT_AREA_MAX), description: fkText(p, ["description"]).slice(0, MAINT_DESC_MAX) })));
     }).catch((err) => { if (live) setIssue({ state: "failed", err: err }); });
     return () => { live = false; };
   }, [fromIssue, token, contactsAsked]);
   useEffect(() => {
-    if (fromIssue || !site || !site.id) return undefined;
+    if (!site || !site.id) return undefined;
     let live = true;
-    readMaintContacts(token, site.id).then(r => { if (live) setContacts({ state: "ok", list: r.list, kept: r.kept }); }).catch(() => { if (live) setContacts({ state: "failed" }); });
-    return () => { live = false; };
-  }, [fromIssue, site && site.id, token, contactsAsked]);
+    const wait = setTimeout(() => {
+      readMaintGoesTo(token, site.id, form.building).then(r => { if (live) setGoes(Object.assign({ state: "ok" }, r)); }).catch(() => { if (live) setGoes({ state: "failed" }); });
+    }, goes ? 500 : 0);
+    return () => { live = false; clearTimeout(wait); };
+  }, [site && site.id, maintNorm(form.building), token, contactsAsked]);
   // A request changed and sent again brings back the photos it kept.
   useEffect(() => {
     if (!kept) return;
@@ -17173,7 +17241,7 @@ function MaintenanceForm({ token, user, at, onClose, onQueued, onSent, onOpenReq
   }, [kept && kept.clientId]);
   const o = opts && opts.state === "ok" ? opts.o : null;
   const max = o ? o.maxPhotos : MAINT_PHOTOS_MAX;
-  const goesTo = contacts && contacts.state === "ok" ? maintRecipients(contacts.list, form.building) : [];
+  const goesTo = goes && goes.state === "ok" ? goes.list : [];
   const existing = issue && issue.state === "ok" ? issue.existing : null;
   const set = (k, v) => { setForm(prev => Object.assign({}, prev, { [k]: v })); setFaults(prev => { const n = Object.assign({}, prev); delete n[k]; delete n.top; return n; }); };
   const addPhoto = async (e) => {
@@ -17197,7 +17265,7 @@ function MaintenanceForm({ token, user, at, onClose, onQueued, onSent, onOpenReq
     const files = photos.map(p => p.file);
     setSending(true);
     maintHeldPhotos.set(entry.clientId, files);
-    const res = await fileMaint(entry, token, user ? user.id : "", () => { entry.tries = (Number(entry.tries) || 0) + 1; entry.triedAt = entry.triedAt || Date.now(); });
+    const res = await fileMaint(entry, token, () => { entry.tries = (Number(entry.tries) || 0) + 1; entry.triedAt = entry.triedAt || Date.now(); });
     setSending(false);
     if (res.state === "refused") {
       const next = {};
@@ -17217,7 +17285,7 @@ function MaintenanceForm({ token, user, at, onClose, onQueued, onSent, onOpenReq
   };
   const fieldFault = (k) => (faults[k] ? <div role="alert" style={mkFieldErr(t)}>{faults[k]}</div> : null);
   const pickSt = (on) => ({ display: "flex", alignItems: "center", gap: 8, minHeight: TAP, padding: "6px 10px", borderRadius: R.md, border: "1px solid " + (on ? t.goldBorder : t.borderSolid), background: on ? t.goldBg : "transparent", color: t.text, cursor: "pointer", fontSize: 13 });
-  const ready = !!o && !!site && !!site.id && !existing && contacts && contacts.state === "ok" && goesTo.length > 0;
+  const ready = !!o && !!site && !!site.id && !existing && !!goes && goes.state === "ok" && (goesTo.length > 0 || goes.unknown);
   return (
     <WsSheet id="ocsa-maint-form" title={tr("New request to building maintenance")} onClose={close} t={t} footer={<>
       <button type="button" data-maint-cancel="1" onClick={() => { if (sending) return; if (place) forgetWork(user && user.id, place); onClose(); }} disabled={sending} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
@@ -17292,16 +17360,18 @@ function MaintenanceForm({ token, user, at, onClose, onQueued, onSent, onOpenReq
           <div style={{ fontSize: 11, color: t.textMut, marginBottom: 12 }}>{tr("{n} of {max} photos", { n: photos.length + issuePick.length, max: max })}</div>
           <div role="heading" aria-level={3} style={{ ...mkLabel(t), marginTop: 4 }}>{tr("It goes to")}</div>
           <div data-maint-goes-to={goesTo.length}>
-            {!contacts && <div style={{ fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
-            {contacts && contacts.state === "failed" && <ListFault icon={DropIco} text={tr("Who it goes to did not load.")} onRetry={() => setContactsAsked(n => n + 1)} t={t} />}
-            {contacts && contacts.state === "ok" && goesTo.length === 0 && <div role="alert" style={{ fontSize: 13, color: ink(t, RED), lineHeight: 1.45 }}>{tr("This site has no maintenance contact yet. Ask the office to add one before sending.")}</div>}
+            {!goes && <div style={{ fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
+            {goes && goes.state === "failed" && <ListFault icon={DropIco} text={tr("Who it goes to did not load.")} onRetry={() => setContactsAsked(n => n + 1)} t={t} />}
+            {goes && goes.state === "ok" && goes.unknown && <div data-maint-goes-later="1" style={mkHelp(t)}>{tr("This phone has no signal, so who it goes to shows once it does. The request goes to the site's contacts for this building when it is sent.")}</div>}
+            {goes && goes.state === "ok" && !goes.unknown && goesTo.length === 0 && <div role="alert" style={{ fontSize: 13, color: ink(t, RED), lineHeight: 1.45 }}>{tr("This site has no maintenance contact yet. Ask the office to add one before sending.")}</div>}
             {goesTo.map(c => (
               <div key={c.email} data-maint-recipient={c.email} style={{ padding: "8px 10px", marginBottom: 6, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: t.text, overflowWrap: "anywhere" }}>{[c.name, c.company].filter(Boolean).join(", ") || c.email}</div>
                 <div style={{ fontSize: 12, color: t.textSec, overflowWrap: "anywhere" }}>{c.email}</div>
               </div>
             ))}
-            {contacts && contacts.state === "ok" && contacts.kept && goesTo.length > 0 && <div style={mkHelp(t)}>{tr("This list is the one this phone last read. The request goes to whoever is on the site's list when it is sent.")}</div>}
+            {goes && goes.state === "ok" && goes.cc && goesTo.length > 0 && <div data-maint-cc={goes.cc} style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, marginBottom: 6, overflowWrap: "anywhere" }}>{tr("A copy goes to the office at {email}.", { email: goes.cc })}</div>}
+            {goes && goes.state === "ok" && goes.kept && !goes.unknown && goesTo.length > 0 && <div style={mkHelp(t)}>{tr("This list is the one this phone last read. The request goes to whoever is on the site's list when it is sent.")}</div>}
           </div>
         </>}
         {faults.top && <WsFault text={faults.top} t={t} />}

@@ -1272,8 +1272,11 @@ const EVERY_NOTICE = [
   // or cancelled (API-62, helpers/shiftNotices.js, subject the shift,
   // the staff app's /?open=<type>:<id>), and the reporter's case resolved
   // or closed (API-63's hr_case_closed_for, subject the case).
-  ["shift_changed", "sh-1", STAFF_ORIGIN + "/?open=shift_changed:sh-1", "place"],
-  ["shift_cancelled", "sh-gone", STAFF_ORIGIN + "/?open=shift_cancelled:sh-gone", "place"],
+  // Since part 371 both carry the shift's day as subjectKey: the day
+  // shift_changed's shift now runs, and the day shift_cancelled's would
+  // have run.
+  ["shift_changed", "sh-1", STAFF_ORIGIN + "/?open=shift_changed:sh-1", "place", "2026-10-02"],
+  ["shift_cancelled", "sh-gone", STAFF_ORIGIN + "/?open=shift_cancelled:sh-gone", "place", "2026-10-09"],
   ["hr_case_closed_for", "hr-mine-1", STAFF_ORIGIN + "/?open=hr_case_closed_for:hr-mine-1", "place"],
   // Part 369 (API part 365): a building maintenance request's status
   // moved, and the building has not answered in time, subject the request.
@@ -1596,8 +1599,16 @@ function makeState(opts) {
     // handbook's paid sick hours, a balance a case may set, a usable-from
     // day for a new hire, none tracked at all, or no route.
     leave: { route: o.leaveRoute !== false, none: o.leaveNone === true, balance: typeof o.leaveBalance === "number" ? o.leaveBalance : 40, usableFrom: o.leaveUsableFrom || null, hireDate: o.leaveUsableFrom ? "2026-08-17" : "2024-03-04" },
-    maint: { requests: MAINT_SEED(o.person || PERSON), contacts: MAINT_CONTACTS(), seq: 2, logSeq: 0, emailFails: o.maintEmailFails === true, loseNext: Number(o.maintLoseNext) || 0, photoFails: false },
+    maint: { requests: MAINT_SEED(o.person || PERSON), contacts: MAINT_CONTACTS(), seq: 2, logSeq: 0, emailFails: o.maintEmailFails === true, loseNext: Number(o.maintLoseNext) || 0, photoFails: false,
+      // Part 371: the office's address a filing copies (officeCopy), as
+      // the contacts read's preview answers it.
+      cc: o.maintCc === null ? null : typeof o.maintCc === "string" ? o.maintCc : "office-copy@example.invalid" },
     listChanges: [],
+    // Part 373: an API with POST /api/time-off/preview (part 371) unless a
+    // case says not, and the person's shifts the office cancelled, which
+    // GET /api/pickups/my-schedule/:shiftId still answers.
+    previewRoute: o.previewRoute !== false,
+    cancelledShifts: Array.isArray(o.cancelledShifts) ? o.cancelledShifts.map(x => Object.assign({}, x)) : [],
     person: o.person || PERSON,
     accountPreferences: o.accountPreferences === undefined ? {} : o.accountPreferences,
     clockedIn: o.clockedIn !== false,
@@ -3003,7 +3014,7 @@ const ROUTE_WORDS = [
   // lines, a note and a warning are the API's words; the person, the site
   // and a code are not.
   [/^GET \/api\/leave\/me$/, { kindName: "message", text: "message", holidays: "message", message: "message", note: "message", kind: "code", unit: "code", method: "code", source: "code", code: "code", role: "code", status: "code" }],
-  [/^(POST \/api\/time-off|GET \/api\/time-off\/[^/]+)$/, { kindName: "message", message: "message", kind: "code", hoursFrom: "code", code: "code", source: "code" }],
+  [/^(POST \/api\/time-off|POST \/api\/time-off\/preview|GET \/api\/time-off\/[^/]+)$/, { kindName: "message", message: "message", kind: "code", hoursFrom: "code", code: "code", source: "code" }],
   // Part 369: building maintenance. Its names are the API's words in the
   // request's language; what people typed, the site, a building, a
   // contact and a reference are names; keys are codes.
@@ -4353,11 +4364,29 @@ function createStub(opts) {
       // A drop asked here is listed under pendingDrops while it waits, as
       // routes/pickups.js lists the person's requested open shifts; one
       // the office already posted for pickup is not.
-      const base = schedule();
+      // Part 373: the scheduled lane holds the days asked for, as
+      // routes/pickups.js reads start_date and end_date, so a shift past
+      // the range is not on the answer.
+      const range = new URLSearchParams(search || "");
+      const from = /^\d{4}-\d{2}-\d{2}$/.test(range.get("start_date") || "") ? range.get("start_date") : null;
+      const to = /^\d{4}-\d{2}-\d{2}$/.test(range.get("end_date") || "") ? range.get("end_date") : null;
+      const whole = schedule();
+      const base = from && to ? Object.assign({}, whole, { scheduled: (whole.scheduled || []).filter(x => { const d = String(x.scheduled_date || "").slice(0, 10); return d >= from && d <= to; }) }) : whole;
       const asked = Object.keys(state.drops).filter(id => state.drops[id].status === "requested").map(id => ({ id: state.drops[id].id, scheduledShiftId: id, status: "requested" }));
       const out = asked.length ? Object.assign({}, base, { pendingDrops: (base.pendingDrops || []).concat(asked) }) : base;
       if (!state.midnightDates) return json(200, out);
       return json(200, Object.assign({}, out, { scheduled: (out.scheduled || []).map(x => Object.assign({}, x, /^\d{4}-\d{2}-\d{2}$/.test(x.scheduled_date || "") ? { scheduled_date: x.scheduled_date + "T00:00:00.000Z" } : {})) }));
+    }
+    // Part 371 (the staff app's A4): one of the caller's own scheduled
+    // shifts, the row the scheduled lane answers, a cancelled one included
+    // (a case's cancelledShifts); anyone else's or none is 404
+    // shifts.notFound. The API also answers 404 for an id that is not a
+    // uuid; the stub's invented ids are read as they are.
+    const oneShift = /^\/api\/pickups\/my-schedule\/([^/]+)$/.exec(pathname);
+    if (method === "GET" && oneShift) {
+      const hit = (schedule().scheduled || []).concat(state.cancelledShifts).find(x => x && String(x.id) === oneShift[1]);
+      if (!hit) return json(404, { error: languageOf(search, state) === "es" ? "No se encontr\u00f3 el turno" : "Shift not found", code: "shifts.notFound" });
+      return json(200, Object.assign({ site_id: "site-north", service_category: null, notes: null }, hit));
     }
     // One open shift of every origin, the first of them the one a case
     // claims, and one marked urgent, so the sweep draws every badge the
@@ -4404,6 +4433,15 @@ function createStub(opts) {
     if (pathname === "/api/time-off/mine") return json(200, { requests: state.myTimeOff });
     // Since part 365 the filing, the read of one request and a decision
     // answer leave (helpers/leaveBalances.js requestLeave) beside it.
+    // Part 371 (the staff app's A2): the filing's body, answered 200
+    // { leave } as the filed request would carry it, writing nothing; the
+    // same refusals as the filing (a case's refuse). previewRoute false is
+    // an API without it.
+    if (key === "POST /api/time-off/preview") {
+      if (!state.previewRoute) return json(404, { error: "Endpoint not found" });
+      const row = timeOffRow({ id: "to-preview", leaveType: body && body.leaveType, startsOn: body && body.startsOn, endsOn: body && body.endsOn, partDay: !!(body && body.startTime), startTime: (body && body.startTime) || null, endTime: (body && body.endTime) || null, hours: body && body.hours !== undefined ? body.hours : null });
+      return json(200, { leave: state.leave.route ? leaveOf(row, languageOf(search, state)) : null });
+    }
     if (key === "POST /api/time-off") {
       const row = timeOffRow({ id: "to-new", leaveType: body && body.leaveType, startsOn: body && body.startsOn, endsOn: body && body.endsOn, partDay: !!(body && body.startTime), startTime: (body && body.startTime) || null, endTime: (body && body.endTime) || null, hours: body && body.hours !== undefined ? body.hours : null });
       return json(201, { request: row, leave: state.leave.route ? leaveOf(row, languageOf(search, state)) : undefined });
@@ -5849,7 +5887,18 @@ function createStub(opts) {
       if (contactsRoute && method === "GET") {
         const list = state.maint.contacts[contactsRoute[1]];
         if (!list) return json(404, { error: "Site not found", code: "sites.notFound" });
-        return json(200, { contacts: list.filter(c => c.isActive).map(c => Object.assign({ createdAt: "2026-09-01T12:00:00.000Z", updatedAt: "2026-09-01T12:00:00.000Z" }, c)) });
+        const out = { contacts: list.filter(c => c.isActive).map(c => Object.assign({ createdAt: "2026-09-01T12:00:00.000Z", updatedAt: "2026-09-01T12:00:00.000Z" }, c)) };
+        // Part 371 (the staff app's A3): a query carrying building (blank
+        // meaning none) also answers recipients, the filing's own pick for
+        // that building now, and cc, the office's address it copies; 400
+        // maintenance.badFilter keys ["building"] past 200 characters.
+        const cq = new URLSearchParams(search || "");
+        if (cq.has("building")) {
+          const asked = cq.get("building").trim();
+          if (asked.length > 200) return json(400, { error: lang === "es" ? "Revise los filtros: building" : "Check the filters: building", code: "maintenance.badFilter", keys: ["building"] });
+          Object.assign(out, { recipients: maintRecipients(list, asked || null), cc: state.maint.cc });
+        }
+        return json(200, out);
       }
       const q = new URLSearchParams(search || "");
       if (key === "GET /api/maintenance-requests/options") {
@@ -5895,7 +5944,19 @@ function createStub(opts) {
         const issueId = b.issueId === undefined || b.issueId === null || b.issueId === "" ? null : String(b.issueId).trim();
         const issuePhotoIds = Array.isArray(b.issuePhotoIds) ? b.issuePhotoIds.map(String) : typeof b.issuePhotoIds === "string" ? b.issuePhotoIds.split(",").map(x => x.trim()).filter(Boolean) : [];
         if (issuePhotoIds.length > 0 && !issueId) keys.push("issuePhotoIds");
+        // Part 371 (the staff app's A1): clientId, 8 to 64 of A-Za-z0-9_-.
+        const clientId = b.clientId === undefined || b.clientId === null ? null : typeof b.clientId === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(b.clientId) ? b.clientId : false;
+        if (clientId === false) keys.push("clientId");
         if (keys.length) return refuse("badDetails", null, { keys: keys });
+        // The same clientId again from the same filer answers 200 with the
+        // first request and its filing's email as the log holds it, read
+        // before anything else, and files, mails and logs nothing.
+        const prior = clientId ? state.maint.requests.find(r => r.clientId === clientId && r.filedBy && r.filedBy.id === state.person.id) : null;
+        if (prior) {
+          const filed = prior.log.filter(e => e.kind === "email" && e.email && e.email.which === "filed").pop();
+          const email = filed ? { status: filed.email.status, sentMessageId: filed.email.status === "sent" ? "sm-" + prior.id : null, to: filed.email.to, cc: filed.email.cc, at: filed.createdAt } : { status: "notSent", sentMessageId: null, to: [], cc: null, at: null };
+          return json(200, Object.assign({ request: maintDetail(prior), email: email, repeat: true }, email.status === "failed" || email.status === "suppressed" ? { warning: { message: refusalIn(MAINT_REFUSALS.emailNotSent, lang), code: MAINT_REFUSALS.emailNotSent.code } } : {}));
+        }
         let site = siteId;
         const issue = issueId ? state.sheetIssues.find(x => x.id === issueId) : null;
         if (issueId && !issue) return json(404, { error: lang === "es" ? "No se encontr\u00f3 el problema" : "Issue not found", code: "issues.notFound" });
@@ -5918,14 +5979,14 @@ function createStub(opts) {
         const id = "mr-" + n;
         const photos = files.map((p, i) => ({ id: "mp-" + n + "-" + (i + 1), name: p.filename || "photo.jpg", contentType: sniffImage(p.bytes).contentType, size: p.bytes.length, logId: null, createdAt: at })).concat(fromIssuePhotos.map((p, i) => ({ id: "mp-" + n + "-i" + (i + 1), name: "issue-photo.jpg", contentType: "image/jpeg", size: 1200, logId: null, createdAt: at })));
         const emailStatus = state.maint.emailFails ? "failed" : "sent";
-        const r = { id: id, reference: "MR-2026-" + String(n).padStart(4, "0"), siteId: site, siteName: siteRow.siteName, building: building, floor: floor, area: area, category: b.category, urgency: b.urgency, status: "sent", description: description, issueId: issue ? issue.id : null, filedAt: at, filedBy: { id: state.person.id, name: state.person.firstName + " " + state.person.lastName }, firstResponseAt: null, scheduledFor: null, fixedAt: null, closedAt: null, cancelledAt: null, recipients: recipients,
+        const r = { id: id, clientId: clientId || null, reference: "MR-2026-" + String(n).padStart(4, "0"), siteId: site, siteName: siteRow.siteName, building: building, floor: floor, area: area, category: b.category, urgency: b.urgency, status: "sent", description: description, issueId: issue ? issue.id : null, filedAt: at, filedBy: { id: state.person.id, name: state.person.firstName + " " + state.person.lastName }, firstResponseAt: null, scheduledFor: null, fixedAt: null, closedAt: null, cancelledAt: null, recipients: recipients,
           photos: photos, log: [{ id: "ml-" + n + "-1", kind: "email", channel: null, body: null, fromStatus: null, toStatus: null, scheduledFor: null, occurredAt: at, createdAt: at, createdBy: null, photos: [], email: { which: "filed", status: emailStatus, to: recipients.map(c => c.email), cc: null, photoCount: photos.length } }], followUps: [] };
         state.maint.requests.push(r);
         // An answer lost on its way back: the request is filed and the
         // phone never hears so (a case's loseNext).
         if (state.maint.loseNext) { state.maint.loseNext -= 1; return { abort: true }; }
         const email = { status: emailStatus, sentMessageId: emailStatus === "sent" ? "sm-" + n : null, to: recipients.map(c => c.email), cc: null, at: emailStatus === "sent" ? at : null };
-        return json(201, Object.assign({ request: maintDetail(r), email: email }, emailStatus === "sent" ? {} : { warning: { message: refusalIn(MAINT_REFUSALS.emailNotSent, lang), code: MAINT_REFUSALS.emailNotSent.code } }));
+        return json(201, Object.assign({ request: maintDetail(r), email: email }, clientId ? { repeat: false } : {}, emailStatus === "sent" ? {} : { warning: { message: refusalIn(MAINT_REFUSALS.emailNotSent, lang), code: MAINT_REFUSALS.emailNotSent.code } }));
       }
       const one = /^\/api\/maintenance-requests\/([^/]+)(\/[a-z-]+)?(\/[^/]+)?$/.exec(pathname);
       const r = one ? state.maint.requests.find(x => x.id === one[1]) : null;

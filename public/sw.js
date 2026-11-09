@@ -149,7 +149,10 @@ self.addEventListener("push", function (event) {
     icon: ICON,
     badge: BADGE,
     lang: data.locale === "es" ? "es" : "en",
-    data: { subjectType: data.subjectType || null, subjectId: data.subjectId || null },
+    // Part 373: the notice's subjectKey (a shift notice's day, API part
+    // 371) and the id of the notice the push tells of (API part 370), so
+    // a tap opens the day and marks that notice read.
+    data: { subjectType: data.subjectType || null, subjectId: data.subjectId || null, subjectKey: data.subjectKey || null, notificationId: data.notificationId || null },
   };
   // renotify is refused without a tag, so both go together.
   if (tag) { options.tag = tag; options.renotify = true; }
@@ -158,14 +161,17 @@ self.addEventListener("push", function (event) {
 
 // A tap on an alert focuses an open portal window and tells it where to
 // go, or opens one with the place in the address. The app opens the same
-// place the bell would.
+// place the bell would. The notice's subjectKey and id ride along as key=
+// and notice= (part 373).
 self.addEventListener("notificationclick", function (event) {
   event.notification.close();
   var d = event.notification.data || {};
   var subjectType = d.subjectType ? String(d.subjectType) : null;
   var subjectId = d.subjectId ? String(d.subjectId) : null;
-  var message = { type: "ocsa-open", subjectType: subjectType, subjectId: subjectId };
-  var address = "/" + (subjectType ? "?open=" + encodeURIComponent(subjectType + (subjectId ? ":" + subjectId : "")) : "");
+  var subjectKey = d.subjectKey ? String(d.subjectKey) : null;
+  var notificationId = d.notificationId ? String(d.notificationId) : null;
+  var message = { type: "ocsa-open", subjectType: subjectType, subjectId: subjectId, subjectKey: subjectKey, notificationId: notificationId };
+  var address = "/" + (subjectType ? "?open=" + encodeURIComponent(subjectType + (subjectId ? ":" + subjectId : "")) + (subjectKey ? "&key=" + encodeURIComponent(subjectKey) : "") + (notificationId ? "&notice=" + encodeURIComponent(notificationId) : "") : "");
   event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (list) {
     var win = null;
     for (var i = 0; i < list.length; i++) {

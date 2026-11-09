@@ -644,8 +644,9 @@ const SHOTS = [
       await s.page.selectOption('select:has(option[value="pto"])', "paid_sick");
       return s.waitFor(() => !!document.querySelector("[data-leave-picked]"));
     } },
-  // Part 369: the request's sheet once sent, what it would leave and the
-  // API's warning that it goes below zero.
+  // Part 369: what the request would leave and the API's warning that it
+  // goes below zero; since part 373 on the form, before Send, from POST
+  // /api/time-off/preview.
   { name: "time-off-leave", entry: E("Request time off"), o: { signedIn: true, stub: { leaveBalance: 32 } },
     go: async (s) => {
       if (!(await s.go("Schedule"))) return false;
@@ -654,10 +655,8 @@ const SHOTS = [
       if (!(await s.waitFor(() => !!document.querySelector('select option[value="paid_sick"]')))) return false;
       await s.page.selectOption('select:has(option[value="paid_sick"])', "paid_sick");
       await s.page.evaluate(() => { const boxes = Array.from(document.querySelectorAll('div[style*="z-index: 200"] input[type="date"]')); const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; [["2026-10-05", 0], ["2026-10-09", 1]].forEach(([v, i]) => { if (!boxes[i]) return; set.call(boxes[i], v); boxes[i].dispatchEvent(new Event("input", { bubbles: true })); boxes[i].dispatchEvent(new Event("change", { bubbles: true })); }); });
-      await s.pause(300);
-      await s.tap(s.say("Send request"));
-      if (!(await s.waitFor(() => !!document.querySelector('[data-leave-state="pending"] [data-leave-warning]')))) return false;
-      await s.page.evaluate(() => document.querySelector('[data-leave-state="pending"]').scrollIntoView({ block: "center" }));
+      if (!(await s.waitFor(() => !!document.querySelector('[data-leave-preview="1"] [data-leave-warning]')))) return false;
+      await s.page.evaluate(() => document.querySelector('[data-leave-preview="1"]').scrollIntoView({ block: "center" }));
       await s.pause(300);
       return true;
     } },
