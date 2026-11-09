@@ -1187,6 +1187,64 @@ where the entry is not there:
   with Needs a fix, sent with no note, then with no signature, then
   signed and sent, to Done.
 
+## The shift's own checklist (part 375, section 1)
+
+The stub answers what ocsa-api's main (481723b, Round 9, part 374)
+answers the staff app about named shifts. Behind `namedShifts`, North
+Building names three shifts, Day shift 7:00 AM to 3:00 PM, Evening shift
+3:00 PM to 11:00 PM and Night shift 11:00 PM to 7:00 AM, each with its
+Spanish and French, as `helpers/shiftRuns.js` reads `site_shifts`. A
+session joins a run: Start Shift's `shiftLabel` when one is sent (a
+label the site does not have is 400 `sessions.shiftInvalid`), else the
+shift starting within 30 minutes, else the one running (the stub holds
+no schedule to match by its times); a session open from the start is in
+the run its start picks, or the one `sessionRun` names. PATCH
+/api/shift-sessions/:id/shift moves it to that shift's current run. A
+check-off carries its session's run; a seeded check with none is read in
+the run whose hours hold it. At a site with named shifts a daily item
+(frequency daily, as its block makes it) counts only the checks of the
+same run on the ring, `checkedToday`, the task read and the refusals
+`tasks.alreadyChecked` and `NOT_YOUR_CHECK`, and a check of it in a new
+run is answered 201. The status (at its top and on its session), every
+session answer and every row of GET /api/sites/:id/tasks carry
+`shiftRun` (`{ label, display, startsAt, endsAt, runDate }`, null with
+none); every row carries `doneEarlier` (`{ at, shiftLabel, firstName }`,
+the latest check of a daily item before the run began, within 24 hours,
+else null) and `shiftLabels` (null); every session answer carries
+`endNote` (null: a person ends a session in the stub). GET
+/api/sites/:siteId/shifts answers `{ shifts }` as the API's shiftView
+does, [] at a site with none.
+
+Four journeys, in English and Spanish, each failing on the main of part
+373:
+
+- `shiftrunline`: the top of the checklist reads Evening shift, 3:00 PM
+  to 11:00 PM, the shift's own name in the person's language and its
+  hours on the company's clock; a site with no named shifts reads no run.
+- `shiftearlier`: a daily item the day shift checked at 2:40 PM reads
+  Day shift did this at 2:40 PM in a small grey line, its box open and
+  off the ring; checking it again is taken (201) and the line goes.
+- `shiftfresh`: a tap still waiting goes before a change of shift, in
+  the run it was made in; one that cannot go is dropped with its run and
+  never sent into the next; the night shift's list reads open and says
+  it is the night shift's; the copy kept for no signal is kept under the
+  new run alone and opens with no signal without the last run's ticks;
+  and a tap kept from an earlier session's run is never drawn on the new
+  run's list, still waiting to go, since the API files a tap sent late
+  in the session open when it was made.
+- `shiftpicked`: Start Shift sends no shift; the sheet offers the site's
+  named shifts from GET /api/sites/:siteId/shifts with their hours, the
+  API's pick already chosen and said to be picked; one tap on Use this
+  shift keeps it with nothing sent, and choosing another goes through
+  the change of shift.
+
+What the staff app cannot show yet: a session the API closed. The
+status answers no session once one is closed, GET
+/api/shift-sessions/today answers the open one alone, and End Shift's
+409 `SESSION_ALREADY_ENDED` carries no session, so `endNote` reaches the
+phone on no answer it reads. The portal says it the moment one does
+(`sessionEndLine`), and the pull request lists what it waits on.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

@@ -1718,16 +1718,22 @@ function writePendingEnd(v) {
 }
 // The taps still waiting for one site, as each task's last tap: checked
 // or unchecked, the way the person left it.
-function pendingTicksFor(list, siteId, userId) {
+// Part 375: a tap on a day's item carries the shift run it was made in
+// (run, null at a site with no named shifts). One made in another run
+// is never drawn on this run's list: the next shift starts fresh. It
+// still goes, since the API files a late tap in the session open when it
+// was made.
+const tapOfRun = (x, runKey) => !x.counted || (x.run || null) === (runKey || null);
+function pendingTicksFor(list, siteId, userId, runKey) {
   const m = new Map();
-  (list || []).forEach(x => { if ((!siteId || String(x.siteId) === String(siteId)) && (!userId || !x.userId || String(x.userId) === String(userId))) m.set(x.taskId, x.done); });
+  (list || []).forEach(x => { if ((!siteId || String(x.siteId) === String(siteId)) && (!userId || !x.userId || String(x.userId) === String(userId)) && tapOfRun(x, runKey)) m.set(x.taskId, x.done); });
   return m;
 }
 // Whether one of those taps has been tried and kept, which the checklist
 // says under its title. A tap still on its first send is not one, so the
 // line never flickers past a tap on good signal.
-function pendingKeptFor(list, siteId, userId) {
-  return (list || []).some(x => Number(x.tries) > 0 && (!siteId || String(x.siteId) === String(siteId)) && (!userId || !x.userId || String(x.userId) === String(userId)));
+function pendingKeptFor(list, siteId, userId, runKey) {
+  return (list || []).some(x => Number(x.tries) > 0 && (!siteId || String(x.siteId) === String(siteId)) && (!userId || !x.userId || String(x.userId) === String(userId)) && tapOfRun(x, runKey));
 }
 // The checklist's last answer for each site, with the status it was read
 // under, so the checklist opens with no signal at all and takes taps into
@@ -1747,13 +1753,20 @@ function withoutNames(v) {
 function readKept() {
   try { const v = JSON.parse(window.localStorage.getItem(KEPT_KEY) || "null"); return v && typeof v === "object" && v.lists ? v : null; } catch (e) { return null; }
 }
+// Part 375: at a site with named shifts the list is kept under its shift
+// run as well as its site, and keeping one run's list drops the site's
+// list of any other run, so a list opened with no signal never shows the
+// last shift's ticks as this one's.
+const keptListKey = (siteId, clock) => { const run = runKeyOf(statusRun(clock)); return String(siteId) + (run ? "#" + run : ""); };
 function keepChecklist(userId, role, clock, answer, lang) {
   try {
     const siteId = clock && clock.shift ? clock.shift.siteId : null;
     if (!userId || !siteId) return;
     const was = readKept();
     const lists = was && String(was.userId) === String(userId) ? was.lists : {};
-    lists[siteId] = { answer: withoutNames(answer), lang: lang, savedAt: Date.now() };
+    const key = keptListKey(siteId, clock);
+    Object.keys(lists).forEach(k => { if (k !== key && (k === String(siteId) || k.indexOf(String(siteId) + "#") === 0)) delete lists[k]; });
+    lists[key] = { answer: withoutNames(answer), lang: lang, savedAt: Date.now() };
     Object.keys(lists).sort((a, b) => lists[b].savedAt - lists[a].savedAt).slice(KEPT_SITES).forEach(k => { delete lists[k]; });
     window.localStorage.setItem(KEPT_KEY, JSON.stringify({ userId: userId, role: role || null, clock: withoutNames(clock), lists: lists }));
   } catch (e) {}
@@ -1761,11 +1774,24 @@ function keepChecklist(userId, role, clock, answer, lang) {
 function forgetKept() {
   try { window.localStorage.removeItem(KEPT_KEY); } catch (e) {}
 }
-// The kept list for the shift the kept status names, while it is fresh.
+// The moment the run changes: the site's list kept under any other run
+// goes at once, before the new run's list has been read to keep.
+function dropKeptRuns(siteId, runKey) {
+  try {
+    const was = readKept();
+    if (!was || !siteId) return;
+    const keep = String(siteId) + (runKey ? "#" + runKey : "");
+    let dropped = false;
+    Object.keys(was.lists).forEach(k => { if (k !== keep && (k === String(siteId) || k.indexOf(String(siteId) + "#") === 0)) { delete was.lists[k]; dropped = true; } });
+    if (dropped) window.localStorage.setItem(KEPT_KEY, JSON.stringify(was));
+  } catch (e) {}
+}
+// The kept list for the shift the kept status names, and its run, while
+// it is fresh.
 function keptToOpen() {
   const kept = readKept();
   const siteId = kept && kept.clock && kept.clock.clockedIn && kept.clock.shift ? kept.clock.shift.siteId : null;
-  const list = siteId ? kept.lists[siteId] : null;
+  const list = siteId ? kept.lists[keptListKey(siteId, kept.clock)] : null;
   return list && Date.now() - Number(list.savedAt) < KEPT_MAX_MS ? { kept: kept, list: list } : null;
 }
 const checkoffPath = (taskId) => "/api/clock/tasks/" + encodeURIComponent(taskId) + "/complete";
@@ -2450,6 +2476,14 @@ export default function OCSAStaffPortal() {
   // hold only today's due items, so a status read would otherwise take the
   // tick straight back off.
   const [tickOverrides, setTickOverrides] = useState(new Map());
+  // Part 375: the shift run the open session joined, as a key, null at a
+  // site with no named shifts; and the site's named shifts, read once per
+  // site and language from GET /api/sites/:siteId/shifts while the
+  // session is in a run, { site, lang, list }, or null.
+  const runNow = runKeyOf(statusRun(clockStatus));
+  const shiftSiteId = clockStatus && clockStatus.clockedIn && clockStatus.shift ? String(clockStatus.shift.siteId) : null;
+  const sessionIdNow = clockStatus && clockStatus.clockedIn ? String((clockStatus.session && clockStatus.session.id) || (clockStatus.shift && (clockStatus.shift.sessionId || clockStatus.shift.id)) || "") || null : null;
+  const [namedShifts, setNamedShifts] = useState(null);
   // Taps waiting for signal, oldest first, as kept on this phone. The ref
   // is what a send reads, so two sends never take the same tap.
   const [pending, setPending] = useState(() => readPending());
@@ -2930,7 +2964,9 @@ export default function OCSAStaffPortal() {
       const cs = await refreshClockStatus();
       setTasks(null); setPendingSite(null);
       // A site with shifts asks which one, over the checklist it opens on.
-      setShiftFault(null); setShiftAsk(sessionShifts(cs).length > 0 ? "start" : null);
+      // Since part 375 a session in a shift run asks too, on the API's pick,
+      // once the site's named shifts give it more than one to choose from.
+      setShiftFault(null); setShiftAsk(sessionShifts(cs).length > 0 || statusRun(cs) ? "start" : null);
       showToast(tr(data.message) || tr("Shift started")); setActiveTab("tasks");
     } catch (err) {
       if (err.code === "OPEN_SESSION_ELSEWHERE") {
@@ -2958,7 +2994,9 @@ export default function OCSAStaffPortal() {
     setSelectedSite(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set());
     setShiftAsk(null); setShiftFault(null); setTickOverrides(new Map());
     const endedAt = data && data.session ? data.session.endedAt : null;
-    showToast(endedAt ? tr("Shift ended at {time}", { time: formatTime(endedAt) }) : tr("Shift ended"));
+    // Part 375: a session the API closed reads when, and the API's note.
+    const closed = sessionEndLine(data && data.session);
+    showToast(closed || (endedAt ? tr("Shift ended at {time}", { time: formatTime(endedAt) }) : tr("Shift ended")), closed ? "notice" : undefined);
   };
   const sendingEnd = useRef(false);
   const sendEnd = async () => {
@@ -2981,7 +3019,10 @@ export default function OCSAStaffPortal() {
         putEnd(null);
         setPendingSite(null); setStartBlock(null); setTasks(null);
         try { await refreshClockStatus(); } catch (e) { setClockStatus({ clockedIn: false, shift: null, session: null }); setSelectedSite(null); }
-        showToast(tr(Number(end.tries) > 0 ? "Shift ended" : "This shift was already ended"));
+        // Part 375: ended by the API (endNote), when the answer carries the
+        // session, says so with its note.
+        const closed = sessionEndLine(err.body && err.body.session);
+        showToast(closed || tr(Number(end.tries) > 0 ? "Shift ended" : "This shift was already ended"), closed ? "notice" : undefined);
       } else if (keepsTap(err)) {
         if (endRef.current) putEnd({ ...endRef.current, tries: (Number(endRef.current.tries) || 0) + 1 });
       } else { putEnd(null); showToast(tr(err.message), "error"); }
@@ -3021,7 +3062,42 @@ export default function OCSAStaffPortal() {
   // The list also depends on the shift the session carries, which the API
   // reads from the session rather than from the request, so a change of
   // shift asks for the list again.
-  const checklistKey = checklistAsk ? checklistAsk + "#" + (sessionShiftLabel(clockStatus) || "") : null;
+  // Part 375: and the run the session is in, so a new run reads its own.
+  const checklistKey = checklistAsk ? checklistAsk + "#" + (sessionShiftLabel(clockStatus) || "") + "#" + (runNow || "") : null;
+  // Ticks from the last run never carry over (part 375). When the run
+  // changes, by a new session or a change of shift, every tick this phone
+  // holds for the last run's list goes: what the API took, what this phone
+  // drew over a row, the list itself until the new run's comes back, and
+  // the list kept for no signal. A tap of the last run's daily list still
+  // waiting to go is dropped when the same session moved to the new run,
+  // since the API would file it there; under an earlier session it still
+  // goes, filed in that session, and is never drawn here.
+  const lastRun = useRef(null);
+  useEffect(() => {
+    if (!runNow) return;
+    const was = lastRun.current;
+    lastRun.current = { run: runNow, session: sessionIdNow, site: shiftSiteId };
+    if (!was || was.run === runNow) return;
+    setTaken(new Map()); setTickOverrides(new Map());
+    setTasks(null); setTasksDay(null); tasksAsked.current = null;
+    if (was.session && was.session === sessionIdNow) {
+      const left = pendingRef.current.filter(x => !(x.counted && x.run === was.run && String(x.sessionId || "") === was.session));
+      if (left.length !== pendingRef.current.length) putPending(left);
+    }
+    dropKeptRuns(shiftSiteId, runNow);
+  }, [runNow, sessionIdNow]);
+  // The site's named shifts, for the sheet and for naming the last shift,
+  // read once per site and language while the session is in a run. A read
+  // that fails leaves the sheet with the session's own shifts.
+  useEffect(() => {
+    if (!runNow || !shiftSiteId || !token) return undefined;
+    if (namedShifts && namedShifts.site === shiftSiteId && namedShifts.lang === language) return undefined;
+    let on = true;
+    api("/api/sites/" + encodeURIComponent(shiftSiteId) + "/shifts?locale=" + languageToSend(language), { token })
+      .then(d => { if (on) setNamedShifts({ site: shiftSiteId, lang: language, list: namedShiftsOf(d) }); })
+      .catch(() => {});
+    return () => { on = false; };
+  }, [runNow, shiftSiteId, language, token]);
   // again reads the list once more even while the same request is in
   // flight, which a check or an uncheck needs: the list then carries what
   // the API says was done. Only the newest request's answer is taken.
@@ -3053,8 +3129,10 @@ export default function OCSAStaffPortal() {
     // so a tap is never lost to an app closed while its send waits, and
     // it goes behind any taps already waiting, so they reach the API in
     // the order they were made. A tap made while nothing is waiting says
-    // Task completed or Task unchecked once it is in.
-    const tap = { taskId: taskId, siteId: clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, userId: user ? user.id : null, clientId: newClientId(), completedAt: new Date().toISOString(), done: !done };
+    // Task completed or Task unchecked once it is in. Since part 375 it
+    // also keeps whether it is a day's item, the shift run and the session
+    // it was made in, so it is never drawn on the next run's list.
+    const tap = { taskId: taskId, siteId: clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, userId: user ? user.id : null, clientId: newClientId(), completedAt: new Date().toISOString(), done: !done, counted: counted, run: runNow, sessionId: sessionIdNow };
     if (!pendingRef.current.some(x => x.tries > 0 && mine(x))) freshTaps.current.add(tap.clientId);
     putPending(pendingRef.current.concat([tap]));
     sendPending();
@@ -3115,7 +3193,7 @@ export default function OCSAStaffPortal() {
         }
         answered += 1;
         if (taken && fresh) showToast(tr(tap.done ? "Task completed" : "Task unchecked"));
-        if (taken) setTaken(prev => new Map(prev).set(tap.taskId, { done: tap.done, at: Date.now(), siteId: tap.siteId, userId: tap.userId }));
+        if (taken) setTaken(prev => new Map(prev).set(tap.taskId, { done: tap.done, at: Date.now(), siteId: tap.siteId, userId: tap.userId, counted: !!tap.counted, run: tap.run || null }));
         // Someone else's already: the tap leaves quietly, the row says who
         // did it, and the box shows their check.
         if (doneBy !== null) {
@@ -3172,8 +3250,13 @@ export default function OCSAStaffPortal() {
     if (inUse && label === inUse) { setShiftAsk(null); setShiftFault(null); return; }
     setShiftBusy(true); setShiftFault(null);
     try {
+      // Part 375: the taps still waiting go first, while the session is
+      // still in the run they were made in. The API files a tap sent late
+      // in the session open at its moment, which a change of shift moves
+      // to the new run.
+      if (pendingRef.current.some(mine)) { try { await Promise.race([sendPending(), new Promise(resolve => setTimeout(resolve, SIGN_OUT_PUSH_MS))]); } catch (e) {} }
       const data = await api("/api/shift-sessions/" + id + "/shift?locale=" + languageToSend(language), { method: "PATCH", body: { shiftLabel: label }, token });
-      if (data && data.session) { const seq = nextStatusSeq(); takeStatus({ ...cs, session: data.session, tasks: data.tasks || cs.tasks }, seq); }
+      if (data && data.session) { const seq = nextStatusSeq(); takeStatus({ ...cs, session: data.session, shiftRun: Object.prototype.hasOwnProperty.call(data.session, "shiftRun") ? data.session.shiftRun : cs.shiftRun, tasks: data.tasks || cs.tasks }, seq); }
       else await refreshClockStatus();
       setShiftAsk(null);
     } catch (err) {
@@ -3957,11 +4040,11 @@ export default function OCSAStaffPortal() {
   const pendingTicks = (() => {
     const site = clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null;
     const m = new Map();
-    taken.forEach((v, id) => { if ((!site || String(v.siteId) === String(site)) && (!user || !v.userId || String(v.userId) === String(user.id))) m.set(id, v.done); });
-    pendingTicksFor(pending, site, user && user.id).forEach((done, id) => m.set(id, done));
+    taken.forEach((v, id) => { if ((!site || String(v.siteId) === String(site)) && (!user || !v.userId || String(v.userId) === String(user.id)) && tapOfRun(v, runNow)) m.set(id, v.done); });
+    pendingTicksFor(pending, site, user && user.id, runNow).forEach((done, id) => m.set(id, done));
     return m;
   })();
-  const pendingKept = pendingKeptFor(pending, clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, user && user.id);
+  const pendingKept = pendingKeptFor(pending, clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, user && user.id, runNow);
   const shownCompleted = pendingTicks.size === 0 ? completedTaskIds : (() => { const n = new Set(completedTaskIds); pendingTicks.forEach((on, id) => { if (on) n.add(id); else n.delete(id); }); return n; })();
   const homeCounts = Array.isArray(tasks) ? todayCount(tasks, shownCompleted) : null;
   // Step 339: whether the open shift's site keeps its task list as a
@@ -3973,10 +4056,20 @@ export default function OCSAStaffPortal() {
   // The sheet that asks which shift, while it is needed: after Start Shift
   // or Change shift, and whenever the session at a site with shifts
   // carries none.
-  const siteShifts = sessionShifts(clockStatus);
+  // Part 375: at a site with named shifts the choices also carry the
+  // site's named shifts, and the API's pick at Start Shift is the shift
+  // the session already carries, so one tap on Use this shift keeps it.
+  const siteShifts = shiftChoicesOf(sessionShifts(clockStatus), runNow && namedShifts && namedShifts.site === shiftSiteId ? namedShifts.list : null);
   const shiftSheet = siteShifts.length > 0 && (!!shiftAsk || !sessionShiftLabel(clockStatus))
-    ? { shifts: siteShifts, mode: shiftAsk || "ask", busy: shiftBusy, fault: shiftFault, onUse: chooseShift, onChoose: () => setShiftFault(null) }
+    ? { shifts: siteShifts, mode: shiftAsk || "ask", busy: shiftBusy, fault: shiftFault, onUse: chooseShift, onChoose: () => setShiftFault(null), picked: !!statusRun(clockStatus) }
     : null;
+  // Every shift's name in the person's language, for the line saying what
+  // the last shift did.
+  const shiftNames = new Map();
+  siteShifts.forEach(s => shiftNames.set(String(s.label).toLowerCase(), s.displayLabel || s.label));
+  if (namedShifts && namedShifts.site === shiftSiteId) namedShifts.list.forEach(n => { if (!shiftNames.has(n.label.toLowerCase())) shiftNames.set(n.label.toLowerCase(), n.display); });
+  const runShown = statusRun(clockStatus);
+  if (runShown) shiftNames.set(runShown.label.toLowerCase(), runShown.display);
 
   return (
     <TextSizeCtx.Provider value={{ textSize, setTextSize }}>
@@ -4046,7 +4139,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} at={scheduleAt} />}
-              {activeTab === "tasks" && <TasksView token={token} rereadList={() => (checklistAsk ? api(checklistAsk, { token }) : Promise.reject(Object.assign(new Error(ERR_GENERIC), { status: 404 })))} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
+              {activeTab === "tasks" && <TasksView token={token} rereadList={() => (checklistAsk ? api(checklistAsk, { token }) : Promise.reject(Object.assign(new Error(ERR_GENERIC), { status: 404 })))} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} shiftChoices={siteShifts} shiftNames={shiftNames} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView userId={user && user.id} assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView userId={user && user.id} token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} onOpenDocument={(d) => openLibraryDoc(d, null)} />}
@@ -5789,6 +5882,92 @@ function sessionShifts(cs) {
 // The shift the open session carries, or null.
 const sessionShiftLabel = (cs) => (cs && cs.clockedIn && cs.session && cs.session.shiftLabel ? cs.session.shiftLabel : null);
 
+// --- The shift's own list (part 375, API Round 9, part 374) -------------
+// At a site with named shifts a session joins a shift run: one shift, one
+// start date. People in one run share one daily list, and the next run
+// starts it fresh. The status (at its top and on its session), every
+// session answer and every row of the task read carry the run as
+// shiftRun: { label, display, startsAt, endsAt, runDate }, display the
+// shift's name in the language asked for and startsAt and endsAt
+// instants. null at a site with no named shifts, which reads as before.
+function shiftRunOf(v) {
+  if (!v || typeof v !== "object" || typeof v.label !== "string" || !v.label.trim()) return null;
+  if (!Number.isFinite(Date.parse(v.startsAt)) || !Number.isFinite(Date.parse(v.endsAt))) return null;
+  const display = typeof v.display === "string" && v.display.trim() ? v.display.trim() : v.label.trim();
+  return { label: v.label.trim(), display: display, startsAt: v.startsAt, endsAt: v.endsAt, runDate: typeof v.runDate === "string" && YMD_RE.test(v.runDate) ? v.runDate : null };
+}
+// The run the open session joined, from the status: its session's, which
+// a change of shift answers with, else the status's own.
+const statusRun = (cs) => {
+  if (!cs || !cs.clockedIn) return null;
+  if (cs.session && typeof cs.session === "object" && Object.prototype.hasOwnProperty.call(cs.session, "shiftRun")) return shiftRunOf(cs.session.shiftRun);
+  return shiftRunOf(cs.shiftRun);
+};
+// The run a list was read for, from its rows, which all carry the same.
+function rowsRun(rows) {
+  if (!Array.isArray(rows)) return null;
+  const hit = rows.find(r => r && r.shiftRun);
+  return hit ? shiftRunOf(hit.shiftRun) : null;
+}
+// One run told from another: its shift and its start date. Everything
+// this phone keeps of a daily list is kept under it.
+const runKeyOf = (run) => (run ? String(run.label).toLowerCase() + "|" + (run.runDate || String(run.startsAt)) : null);
+// A time on the company's clock, kept on one line.
+function companyClockTime(v) {
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit", timeZone: clientConfig.company.timeZone }).replace(/\s/g, "\u00a0");
+}
+// Whose list it is, at the top of the checklist: the shift's own name in
+// the person's language, and its hours on the company's clock.
+const shiftRunLine = (run) => tr("{shift}, {start} to {end}", { shift: run.display, start: companyClockTime(run.startsAt), end: companyClockTime(run.endsAt) });
+// What the last shift did (doneEarlier on a daily item): the latest check
+// before this run began, within a day. Information only: it never counts
+// as done, and the box stays open for this run.
+function doneEarlierOf(v) {
+  if (!v || typeof v !== "object" || !Number.isFinite(Date.parse(v.at))) return null;
+  return { at: v.at, shiftLabel: typeof v.shiftLabel === "string" && v.shiftLabel.trim() ? v.shiftLabel.trim() : null };
+}
+// The line under the item: the shift by its name in the person's
+// language where this phone knows it, else as the API wrote it.
+function doneEarlierLine(early, names) {
+  const time = companyClockTime(early.at);
+  if (!early.shiftLabel) return tr("Done before this shift, at {time}", { time: time });
+  const name = names && names.get(early.shiftLabel.toLowerCase());
+  return tr("{shift} did this at {time}", { shift: name || early.shiftLabel, time: time });
+}
+// The shifts the sheet offers: the site's shifts from its blocks, as the
+// session carries them, and the site's named shifts from GET
+// /api/sites/:siteId/shifts that its blocks do not name, each by its name
+// in the person's language with its hours. A named shift's hours are its
+// run's, so they win over a block's window for the same label. Nothing
+// when there are fewer than two to choose from.
+function shiftChoicesOf(blockShifts, named) {
+  const byLabel = new Map((named || []).map(n => [String(n.label).toLowerCase(), n]));
+  const hoursOf = (n) => (n.startTime && n.endTime ? { startsAt: n.startTime, endsAt: n.endTime } : null);
+  const out = (blockShifts || []).map((s) => {
+    const n = byLabel.get(String(s.label).toLowerCase());
+    if (!n) return s;
+    byLabel.delete(String(s.label).toLowerCase());
+    return { ...s, displayLabel: n.display || s.displayLabel || s.label, window: hoursOf(n) || s.window };
+  });
+  byLabel.forEach((n) => { out.push({ label: n.label, displayLabel: n.display || n.label, suggested: false, window: hoursOf(n), named: true }); });
+  return out.length > 1 ? out : [];
+}
+// The site's named shifts as GET /api/sites/:siteId/shifts answers them,
+// the active ones in order: { label, display, startTime, endTime }.
+function namedShiftsOf(d) {
+  const list = d && Array.isArray(d.shifts) ? d.shifts : [];
+  return list.filter(s => s && typeof s.label === "string" && s.label.trim() && s.active !== false).map(s => ({ label: s.label.trim(), display: typeof s.display === "string" && s.display.trim() ? s.display.trim() : s.label.trim(), startTime: typeof s.startTime === "string" ? s.startTime : null, endTime: typeof s.endTime === "string" ? s.endTime : null }));
+}
+// A session the API closed (part 374's session_close, endNote set): when
+// it was closed, on the company's clock, and the API's note.
+function sessionEndLine(session) {
+  if (!session || typeof session !== "object" || typeof session.endNote !== "string" || !session.endNote.trim()) return null;
+  const at = Number.isFinite(Date.parse(session.endedAt)) ? companyClockTime(session.endedAt) : "";
+  return (at ? tr("Closed automatically at {time}.", { time: at }) : tr("Closed automatically.")) + " " + session.endNote.trim();
+}
+
 // Which list the checklist reads, decided here and nowhere else. A
 // manager can link a person to particular items at a site. A person with
 // links reads their own items and their own ticks, whether or not any of
@@ -6213,26 +6392,32 @@ const NO_NAMES = [];
 // session that carries none, it starts on the shift the session's start
 // time suggests and says so; opened from Change shift, on the shift in
 // use. Each shift is drawn by its own name with its hours under it.
-function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) {
+// picked (part 375): the session is in a shift run, so the API already
+// picked its shift at Start Shift, from the person's schedule, else the
+// shift starting within 30 minutes or running now. The sheet starts on
+// that pick and says so, and Use this shift keeps it with nothing sent.
+function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, picked, t }) {
   const suggested = shifts.find(s => s.suggested) || null;
   const first = mode === "change" ? current : (current || (suggested ? suggested.label : null));
   const [chosen, setChosen] = useState(first);
   useBusy("shift choice", chosen !== first);
-  const byTime = mode !== "change" && !!suggested && first === suggested.label;
+  const byApi = mode !== "change" && !!picked && !!current && first === current;
+  const byTime = !byApi && mode !== "change" && !!suggested && first === suggested.label;
   return (
     <div style={{ padding: "16px" }}>
       <div style={{ background: t.card, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow, padding: "18px 16px" }}>
         <div id="ocsa-shift-sheet-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, lineHeight: 1.35, fontFamily: FONT_HEAD }}>{tr("Which shift are you working?")}</div>
         {byTime && <div style={{ fontSize: 12, color: t.textSec, marginTop: 6, lineHeight: 1.45 }}>{tr("Chosen by the time you started. Change it if it is wrong.")}</div>}
+        {byApi && <div data-shift-picked="1" style={{ fontSize: 12, color: t.textSec, marginTop: 6, lineHeight: 1.45 }}>{tr("Picked from your schedule and the time you started. Change it if it is wrong.")}</div>}
         <div role="radiogroup" aria-labelledby="ocsa-shift-sheet-title" style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
           {shifts.map(s => {
-            const picked = chosen === s.label;
+            const on = chosen === s.label;
             const hours = s.window && s.window.startsAt && s.window.endsAt ? tr("{start} to {end}", { start: clockTimeKept(s.window.startsAt), end: clockTimeKept(s.window.endsAt) }) : null;
             return (
-              <button key={s.label} type="button" role="radio" aria-checked={picked} onClick={() => { setChosen(s.label); onChoose(); }} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: TAP, padding: "11px 14px", borderRadius: R.md, cursor: "pointer", textAlign: "left", background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text }}>
-                <span style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: picked ? GOLD : "transparent", border: picked ? "none" : "2px solid " + t.borderSolid }} />
+              <button key={s.label} type="button" role="radio" data-shift-choice={s.label} aria-checked={on} onClick={() => { setChosen(s.label); onChoose(); }} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: TAP, padding: "11px 14px", borderRadius: R.md, cursor: "pointer", textAlign: "left", background: on ? t.goldBg : t.card, border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text }}>
+                <span style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: on ? GOLD : "transparent", border: on ? "none" : "2px solid " + t.borderSolid }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: "block", fontSize: 14, fontWeight: picked ? 600 : 500, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{s.displayLabel || s.label}</span>
+                  <span style={{ display: "block", fontSize: 14, fontWeight: on ? 600 : 500, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{s.displayLabel || s.label}</span>
                   {hours && <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2 }}>{hours}</span>}
                 </span>
               </button>
@@ -6257,7 +6442,7 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
 // focus: a task a notice asked for, { id, at }; with a shift open and the
 // task on its list, its details open, else the list, and onFocused says it
 // was looked for either way.
-function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, pendingKept, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, reference, standalone, watch, focus, onFocused, alsoHere, rereadList, t }) {
+function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, pendingKept, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, shiftChoices, shiftNames, onChangeShift, nowMs, reference, standalone, watch, focus, onFocused, alsoHere, rereadList, t }) {
   const [detail, setDetail] = useState(null);
   useEffect(() => {
     if (!focus) return;
@@ -6367,15 +6552,23 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
   const rowLineSt = { fontSize: 11, color: t.textSec, marginTop: 3, lineHeight: 1.4 };
   // The shift in use at a site with shifts, by its own name, under the top
   // card, with the way to change it. Nothing at a site with fewer than two.
-  const siteShifts = sessionShifts(clockStatus);
+  // Part 375: at a site with named shifts the row says whose list this
+  // is, from the run: the shift's own name in the person's language and
+  // its hours on the company's clock. Its choices carry the site's named
+  // shifts too. A list read from Home with no shift open says the run it
+  // was read for, with nothing to change.
+  const siteShifts = standalone ? [] : (Array.isArray(shiftChoices) ? shiftChoices : sessionShifts(clockStatus));
   const inUse = sessionShiftLabel(clockStatus);
   const inUseShift = siteShifts.find(s => s.label === inUse) || null;
-  const shiftRow = siteShifts.length > 0 && inUse ? (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 16, padding: "6px 6px 6px 14px", background: t.card, borderRadius: R.md, border: "1px solid " + t.borderSolid, boxShadow: t.shadow }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "1 1 140px", minWidth: 0 }}><ClockIco sz={16} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{inUseShift && inUseShift.displayLabel ? inUseShift.displayLabel : inUse}</span></div>
-      <button type="button" onClick={onChangeShift} style={{ minHeight: TAP, padding: "0 14px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Change shift")}</button>
+  const run = statusRun(clockStatus) || rowsRun(tasks);
+  const shiftRow = (siteShifts.length > 0 && inUse) || run ? (
+    <div data-shift-row="1" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 16, padding: siteShifts.length > 0 ? "6px 6px 6px 14px" : "10px 14px", background: t.card, borderRadius: R.md, border: "1px solid " + t.borderSolid, boxShadow: t.shadow }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "1 1 140px", minWidth: 0 }}><ClockIco sz={16} c={t.goldText} style={{ flexShrink: 0 }} /><span data-shift-run={run ? run.label : undefined} style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{run ? shiftRunLine(run) : inUseShift && inUseShift.displayLabel ? inUseShift.displayLabel : inUse}</span></div>
+      {siteShifts.length > 0 && <button type="button" onClick={onChangeShift} style={{ minHeight: TAP, padding: "0 14px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Change shift")}</button>}
     </div>
   ) : null;
+  // What the last shift did on a day's item still open for this run.
+  const earlierOf = (tk) => { const e = doneEarlierOf(tk && tk.doneEarlier); return e ? doneEarlierLine(e, shiftNames) : null; };
 
   // One item's detail: its name, where it is, who checked it and when
   // once someone has, its instructions, picture or video and due date, and
@@ -6426,7 +6619,7 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
     </div>
   );
   // Until the session carries a shift, the sheet sits where the list goes.
-  if (shiftSheet) return <ShiftSheet key={shiftSheet.mode + "|" + (inUse || "")} shifts={shiftSheet.shifts} current={inUse} mode={shiftSheet.mode} busy={shiftSheet.busy} fault={shiftSheet.fault} onUse={shiftSheet.onUse} onChoose={shiftSheet.onChoose} t={t} />;
+  if (shiftSheet) return <ShiftSheet key={shiftSheet.mode + "|" + (inUse || "")} shifts={shiftSheet.shifts} current={inUse} mode={shiftSheet.mode} busy={shiftSheet.busy} fault={shiftSheet.fault} onUse={shiftSheet.onUse} onChoose={shiftSheet.onChoose} picked={shiftSheet.picked} t={t} />;
   if (!loaded && tasksFailed) return (
     <div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow, margin: 16 }}>
       <CheckIco sz={40} c={t.borderSolid} />
@@ -6516,7 +6709,7 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
     const current = rows.find(tk => tk.id === detail.id) || rowNow(detail);
     const done = isDone(current);
     const lock = lockOf(current, done);
-    const byWho = done ? whenOf(current) || (lock === "other" || watch ? checkedBy(current) : null) : null;
+    const byWho = done ? whenOf(current) || (lock === "other" || watch ? checkedBy(current) : null) : earlierOf(current);
     if (watch) return drawDetail(detail, byWho, null);
     return drawDetail(detail, byWho, lock !== "earlier" && <button onClick={() => { tap(current, done, lock); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? tr("Uncheck Task") : tr("Mark Complete")}</button>);
   }
@@ -6541,7 +6734,7 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{watch ? tr("Task list for this site") : tr("Your Assignment")}</div><div style={{ fontSize: 15, fontWeight: 600, marginTop: 3, color: t.text, fontFamily: FONT_HEAD }}>{clockStatus.shift.siteName}</div>{(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.textSec, marginTop: 2 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>}</div><div style={{ background: pct === 100 ? t.greenSubtle : t.card, padding: "6px 14px", borderRadius: R.pill, border: "1px solid " + (pct === 100 ? t.greenBorder : t.borderSolid) }}><div style={{ fontSize: 18, fontWeight: 600, color: ink(t, pct === 100 ? GREEN : t.goldText), fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</div></div></div>
         <div style={{ height: 5, borderRadius: R.pill, background: t.cardAlt, marginTop: 12, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.4s ease" }} /></div>
       </div>}
-      {!standalone && shiftRow}
+      {shiftRow}
       {listSections.map((sec, si) => (
         <div key={sec.id} ref={sec.plan && !reference && !standalone ? planRef : undefined} style={{ marginTop: si > 0 ? 22 : 0 }}>
           <div style={periodHeadSt}><div role="heading" aria-level={2} style={periodTitleSt}>{sec.title}</div>{sec.count && <div style={periodCountSt}>{sec.count}</div>}</div>
@@ -6552,6 +6745,7 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
             // Who did it and when for periodic work and a day's work done
             // before today; for a coworker's check today, who made it.
             const when = done ? whenOf(task) || (lock === "other" || watch ? checkedBy(task) : null) : null;
+            const earlier = !done ? earlierOf(task) : null;
             const note = rowNote && rowNote.id === task.id ? rowNote.text : null;
             const hasInfo = task.has_details || w.description || task.media_url;
             const often = howOften(task);
@@ -6569,6 +6763,7 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
                   <button type="button" onClick={() => hasInfo ? setDetail(task) : watch ? null : tap(task, done, lock)} style={mkTapFrame({ display: "flex", flexDirection: "column", alignItems: "stretch", width: "100%", textAlign: "left", fontFamily: FONT_BODY, cursor: watch && !hasInfo ? "default" : "pointer" })}>
                     <span style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{w.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</span>
                     {when && <span style={{ ...rowLineSt, display: "block" }}>{when}</span>}
+                    {earlier && <span data-done-earlier={task.id} style={{ ...rowLineSt, display: "block", color: t.textSec }}>{earlier}</span>}
                   </button>
                   {note && <div role="alert" style={{ ...rowLineSt, color: t.text, fontWeight: 600 }}>{note}</div>}
                 </div>
