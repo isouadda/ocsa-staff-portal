@@ -1166,6 +1166,27 @@ request's photos and a signature are read behind the token and never
 run out; a lesson's pictures are links of their own, signed for twelve
 hours, which the lesson already says are missing when they do not load.
 
+## A Help gap from support tickets (part 373, section 3)
+
+Support tickets asked how to fill out an inspection from the staff app.
+The guide already held Do an inspection assigned to you, long, with the
+safety walk; Fill out an inspection, the guide's last entry, is the short
+how-to, with two pictures of steps the older pictures do not show: a card
+scored low with Needs a fix and its note (`inspection-fill-card`), and
+the signature with Submit Inspection (`inspection-fill-send`), both on
+the stub's inspection with no safety walk.
+
+One journey, in English and Spanish, failing on the main of part 369,
+where the entry is not there:
+
+- `inspectguide`: the entry is the guide's last, names its two pictures,
+  each taken in both languages, and carries the words people ask with;
+  every name its steps give is on the screens those steps walk through
+  in the screen's language: More, Inspect with Start an inspection, an
+  inspection with the safety walk, and one without, a card scored 3 of 5
+  with Needs a fix, sent with no note, then with no signature, then
+  signed and sent, to Done.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

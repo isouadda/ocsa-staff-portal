@@ -11,7 +11,7 @@ const { INSPECT, languageRows } = require("./checks");
 const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES,
-  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS, EVERY_NOTICE, MAINT_NAMES, FIRST_NAMES, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, FILED_WORDS, SECOND_STEP_CODE, NOW } = require("./stub");
+  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS, EVERY_NOTICE, MAINT_NAMES, FIRST_NAMES, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, FILED_WORDS, SECOND_STEP_CODE, NOW, INSPECTION_W, INSPECTION_PLAIN } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -8633,5 +8633,90 @@ const PART373_S2_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART373_S2_JOURNEYS);
+
+// Part 373, section 3: the Help gap the support tickets showed, filling
+// out an inspection. The entry's steps are walked on the screen.
+const FILL_TITLE = "Fill out an inspection (staff portal)";
+const shotFile = (name, l) => require("path").join(__dirname, "..", "public", "guide-shots", name + "." + l + ".jpg");
+const tapBack = (page, language) => page.evaluate((l) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.getAttribute("aria-label") === l); if (b) b.click(); return !!b; }, say("Back", language));
+const openInspectionNamed = async (app, name) => {
+  await app.page.waitForFunction((n) => Array.from(document.querySelectorAll(".sp-content button")).some(b => b.innerText.indexOf(n) !== -1), name, { timeout: 6000 }).catch(() => {});
+  await app.page.evaluate((n) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.indexOf(n) !== -1); if (b) b.click(); }, name);
+  return shows(app.page, "[data-inspect-item]", 8000);
+};
+const drawOn = async (page, selector) => {
+  await page.evaluate((q) => { const c = document.querySelector(q); if (c) c.scrollIntoView({ block: "center" }); }, selector);
+  await pause(page, 300);
+  const box = await page.$(selector);
+  const r = box ? await box.boundingBox() : null;
+  if (!r) return false;
+  await page.mouse.move(r.x + r.width * 0.2, r.y + r.height * 0.6);
+  await page.mouse.down();
+  await page.mouse.move(r.x + r.width * 0.5, r.y + r.height * 0.3, { steps: 6 });
+  await page.mouse.move(r.x + r.width * 0.8, r.y + r.height * 0.6, { steps: 6 });
+  await page.mouse.up();
+  await pause(page, 300);
+  return true;
+};
+
+const PART373_S3_JOURNEYS = [
+  {
+    id: "inspectguide",
+    label: "Help's steps for filling out an inspection match the screen (part 373): the guide has Fill out an inspection, at the end, with its two pictures in both languages and the words people ask with, and every name its steps give is on the screens those steps walk through, in the screen's language",
+    run: async (open, language, expect) => {
+      const entry = guideEntry(FILL_TITLE);
+      expect("the guide has an entry for filling out an inspection", !!entry, "no entry titled " + FILL_TITLE);
+      if (!entry) return;
+      const whole = require("fs").readFileSync(require("path").join(__dirname, "..", "guide", "APP-PORTAL.md"), "utf8");
+      expect("it is the last entry, as a new entry is added", whole.lastIndexOf("\n## ") === whole.indexOf("\n## " + FILL_TITLE), "not last");
+      const pictures = ["inspection-fill-card", "inspection-fill-send"];
+      expect("with its two pictures, each taken in English and Spanish", pictures.every(n => entry.indexOf("\nPicture: " + n + "\n") !== -1 && ["en", "es"].every(l => require("fs").existsSync(shotFile(n, l)))), JSON.stringify(pictures));
+      expect("and the words people ask with, in English and Spanish", has(entry, "fill out an inspection") && has(entry, "llenar la inspecci\u00f3n"), entry.split("\n").find(x => x.indexOf("Words people use") === 0) || "");
+      const names = Array.from(entry.matchAll(/\*\*([^*]+)\*\* \(\*\*([^*]+)\*\*\) \(\*\*([^*]+)\*\*\)/g)).map(m => (language === "es" ? m[2] : m[1]));
+      const seen = [];
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true, startInspection: true } });
+      try {
+        await pause(app.page, 1500);
+        seen.push(await bodyText(app.page));
+        await openTab(app.page, "inspect", language);
+        await pause(app.page, 1200);
+        seen.push(await bodyText(app.page));
+        // With the safety walk: its cards, and Next: Safety walk at the end.
+        if (await openInspectionNamed(app, INSPECTION_W.template_name)) {
+          await pause(app.page, 600);
+          seen.push(await bodyText(app.page));
+          await tapBack(app.page, language);
+          await pause(app.page, 900);
+        }
+        // Without: a card scored under 80 percent with Needs a fix on, sent
+        // with no note and no signature, then with both.
+        const plain = await openInspectionNamed(app, INSPECTION_PLAIN.template_name);
+        expect("the steps open an inspection from Inspect", plain, (await bodyText(app.page)).slice(0, 200));
+        if (!plain) return;
+        await type(app.page, '[data-inspect-item] input[type="range"]', "3");
+        await app.page.evaluate(() => { const b = document.querySelector('[data-inspect-item] button[role="switch"]'); if (b && b.getAttribute("aria-checked") !== "true") b.click(); });
+        await pause(app.page, 400);
+        seen.push(await bodyText(app.page));
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-submit]"); if (b) b.click(); });
+        await pause(app.page, 900);
+        seen.push(await bodyText(app.page));
+        await type(app.page, '[data-inspect-item] input:not([type])', "Invented: the lobby floor is wet by the door.");
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-submit]"); if (b) b.click(); });
+        await pause(app.page, 900);
+        seen.push(await bodyText(app.page));
+        await drawOn(app.page, "[data-inspect-signature] canvas");
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-submit]"); if (b) b.click(); });
+        await shows(app.page, "[data-inspect-sent]", 8000);
+        await pause(app.page, 600);
+        seen.push(await bodyText(app.page));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const all = seen.join(" | ");
+      const missing = Array.from(new Set(names)).filter(n => !has(all, n));
+      expect("every name the entry's steps give is on the screens they walk through", names.length >= 15 && missing.length === 0, names.length + " names; not on the screen: " + JSON.stringify(missing));
+    },
+  },
+];
+JOURNEYS.push(...PART373_S3_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };

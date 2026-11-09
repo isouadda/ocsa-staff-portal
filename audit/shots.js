@@ -32,7 +32,7 @@ const fs = require("fs");
 const path = require("path");
 const { serve } = require("./serve");
 const { launch, openApp, letSheetOffer, ANDROID } = require("./browser");
-const { INSPECTION_W, ORDER_HOLDER, ADMIN_PERSON, TWIN_ES, SECOND_STEP_CODE, EQ_CODE, SUP_CODE, TRAINING_SESSION_SEED, SIGN_SEED, INSPECTION, INSPECTION_F, timeOffRow, formP, ANNOUNCEMENT, FIRST_NAMES, NOW } = require("./stub");
+const { INSPECTION_W, INSPECTION_PLAIN, ORDER_HOLDER, ADMIN_PERSON, TWIN_ES, SECOND_STEP_CODE, EQ_CODE, SUP_CODE, TRAINING_SESSION_SEED, SIGN_SEED, INSPECTION, INSPECTION_F, timeOffRow, formP, ANNOUNCEMENT, FIRST_NAMES, NOW } = require("./stub");
 
 const { execFileSync } = require("child_process");
 const ROOT = path.join(__dirname, "..");
@@ -1078,7 +1078,44 @@ const SHOTS = [
   guideForm("form-change-of-service", E("Log a change of service request"), "Change of Service Request", "Solicitud de cambio de servicio"),
   guideForm("form-site-orientation", E("Give a site orientation"), "Site-Specific Orientation Checklist", "Lista de orientaci\u00f3n espec\u00edfica del sitio"),
   guideForm("form-call-intake", E("Log a customer contact"), "Call Intake and Communication Log", "Registro de llamadas y comunicaciones"),
+
+  // Part 373: filling out an inspection, the Help gap the support tickets
+  // showed, on the stub's inspection with no safety walk: a card scored
+  // low with Needs a fix and its note, and the end with the signature and
+  // Submit Inspection.
+  { name: "inspection-fill-card", entry: E("Fill out an inspection"), o: { signedIn: true, stub: { inspectionWalk: true } },
+    go: async (s) => {
+      if (!(await openPlainInspection(s))) return false;
+      await s.type('[data-inspect-item] input[type="range"]', "3");
+      await s.page.evaluate(() => { const b = document.querySelector('[data-inspect-item] button[role="switch"]'); if (b && b.getAttribute("aria-checked") !== "true") b.click(); });
+      await s.pause(300);
+      await s.type('[data-inspect-item] input:not([type])', s.language === "es" ? "Inventado: el piso de la entrada est\u00e1 mojado." : "Invented: the lobby floor is wet by the door.");
+      if (!(await s.waitFor(() => !!document.querySelector("[data-inspect-finding]")))) return false;
+      await s.page.evaluate(() => { document.querySelector("[data-inspect-item]").scrollIntoView({ block: "start" }); window.scrollBy(0, -96); });
+      await s.pause(300);
+      await s.mark('[data-inspect-item] button[role="switch"]');
+      return true;
+    } },
+  { name: "inspection-fill-send", entry: E("Fill out an inspection"), o: { signedIn: true, stub: { inspectionWalk: true } },
+    go: async (s) => {
+      if (!(await openPlainInspection(s))) return false;
+      await s.type('[data-inspect-item] input[type="range"]', "5");
+      await s.page.evaluate(() => document.querySelector("[data-inspect-signature] canvas").scrollIntoView({ block: "center" }));
+      await s.pause(300);
+      if (!(await s.sign("[data-inspect-signature] canvas"))) return false;
+      await s.page.evaluate(() => { const sel = window.getSelection && window.getSelection(); if (sel) sel.removeAllRanges(); document.querySelector("[data-inspect-submit]").scrollIntoView({ block: "center" }); });
+      await s.pause(300);
+      await s.mark("[data-inspect-submit]");
+      return true;
+    } },
 ];
+// The stub's inspection with no safety walk, opened from Inspect.
+async function openPlainInspection(s) {
+  if (!(await s.go("Inspect"))) return false;
+  if (!(await s.waitText(INSPECTION_PLAIN.template_name))) return false;
+  await s.tap(INSPECTION_PLAIN.template_name);
+  return s.waitFor(() => !document.querySelector("[data-inspect-walk]") && !!document.querySelector("[data-inspect-item]") && !!document.querySelector("[data-inspect-signature]"));
+}
 
 // The ladders lesson from the safety category's page.
 async function openLadders(s) {
