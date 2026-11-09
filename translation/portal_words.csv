@@ -1465,3 +1465,4 @@ Your shift on {day} is no longer on your schedule.,Su turno del {day} ya no est�
 Picked from your schedule and the time you started. Change it if it is wrong.,Elegido según su horario y la hora en que empezó. Cámbielo si no es correcto.,Choisi selon votre planning et l'heure où vous avez commencé. Changez-le s'il n'est pas bon.,"Tasks, Which shift are you working? after Start Shift"
 Closed automatically at {time}.,Cerrado automáticamente a las {time}.,Fermé automatiquement à {time}.,"A shift the office's system closed, with its note"
 Closed automatically.,Cerrado automáticamente.,Fermé automatiquement.,"A shift the office's system closed, with its note"
+Tries used: {n},Intentos usados: {n},Essais utilisés : {n},"My training, beside the tries left on a lesson, and a lesson's result"

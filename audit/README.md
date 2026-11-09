@@ -1245,6 +1245,38 @@ status answers no session once one is closed, GET
 phone on no answer it reads. The portal says it the moment one does
 (`sessionEndLine`), and the pull request lists what it waits on.
 
+## Training answers from API Round 9 (part 375, section 2)
+
+The stub's lesson routes answer as ocsa-api's main (481723b) does.
+Answers sent to an attempt already scored or void are 409
+`training.attemptClosed` with `{ attempt }` as it stands. An
+acknowledgement sent again to an attempt already acknowledged, and not
+void, answers 200 with the attempt and its record, as the first did;
+`ackNotStored: n` answers the next n acknowledgements 503
+`training.signatureNotStored`, nothing stamped; `ackLoseNext` and
+`answersLoseNext` take the next send and lose its answer on the way
+back. Both refusals carry the API's own words in English and Spanish,
+from its `translation/api_words.csv`. Every attempt answered carries
+`attemptsLeft`, and a new attempt's number is one past every attempt of
+the person's on the version, voided ones included;
+`trainingVoided: n` voids n attempts on the ladders lesson numbered from
+101, as the office moved them live, so the next one is 104.
+
+Three journeys, in English and Spanish, each failing on the main of part
+373:
+
+- `quizclosed`: Submit tapped twice at once sends once; a send whose
+  answer was lost, sent again, meets the closed quiz, and the screen
+  shows that attempt's result, passed and ready to sign, under the API's
+  words, with the questions taking no more taps.
+- `signagain`: Sign tapped twice at once sends once; a signature storage
+  could not take reads the API's words with the box kept and emptied, so
+  the person signs again; a signature whose answer was lost, sent again,
+  is answered 200 and reads as done.
+- `triesused`: My training and a lesson's result read the tries used and
+  the tries left, and no attempt number shows, though three voided
+  attempts pushed the next one to 104.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

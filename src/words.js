@@ -1641,6 +1641,7 @@ export const WORDS = {
   "Picked from your schedule and the time you started. Change it if it is wrong.": "Elegido seg\u00fan su horario y la hora en que empez\u00f3. C\u00e1mbielo si no es correcto.",
   "Closed automatically at {time}.": "Cerrado autom\u00e1ticamente a las {time}.",
   "Closed automatically.": "Cerrado autom\u00e1ticamente.",
+  "Tries used: {n}": "Intentos usados: {n}",
   },
 };
 
@@ -3160,6 +3161,7 @@ WORDS.fr = {
   "Picked from your schedule and the time you started. Change it if it is wrong.": "Choisi selon votre planning et l'heure o\u00f9 vous avez commenc\u00e9. Changez-le s'il n'est pas bon.",
   "Closed automatically at {time}.": "Ferm\u00e9 automatiquement \u00e0 {time}.",
   "Closed automatically.": "Ferm\u00e9 automatiquement.",
+  "Tries used: {n}": "Essais utilis\u00e9s\u00a0: {n}",
 };
 
 // {name} is replaced after the language is chosen, so the

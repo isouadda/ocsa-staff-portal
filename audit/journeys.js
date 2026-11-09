@@ -8900,4 +8900,120 @@ const PART375_S1_JOURNEYS = [
 const NORTH_KEPT_NIGHT = NORTH + "#night shift|2026-10-01";
 JOURNEYS.push(...PART375_S1_JOURNEYS);
 
+
+// --- Round 8 of the staff app (part 375), section 2 -----------------------
+//
+// Training answers from API Round 9 (part 374): a closed quiz's 409 with
+// its attempt, a signature storage did not take (503), the same
+// acknowledgement answered 200 again, and tries in place of attempt
+// numbers. Each journey fails on the main of part 373 and passes here.
+const waitOn = (page, fn, arg, ms) => page.waitForFunction(fn, arg, { timeout: ms || 8000 }).then(() => true).catch(() => false);
+// From Home's card to the ladders lesson's questions, answered with picks;
+// the last pick submits. twice: the last Submit tapped twice at once.
+const lessonFromHome = async (app) => {
+  if (!(await waitOn(app.page, () => !!document.querySelector('[data-training-card="todo"]'), null, 10000))) return false;
+  await app.page.click('[data-training-card="todo"]');
+  if (!(await waitOn(app.page, () => !!document.querySelector('[data-training-start="tp-1:"]')))) return false;
+  await app.page.click('[data-training-start="tp-1:"]');
+  return waitOn(app.page, () => !!document.querySelector('[data-lesson="read"] [data-lesson-next="read"]'));
+};
+const answerLesson = async (app, picks, twice) => {
+  await app.page.click('[data-lesson-next="read"]');
+  for (let i = 0; i < picks.length; i += 1) {
+    if (!(await waitOn(app.page, (n) => { const c = document.querySelector('[data-lesson="ask"]'); return !!c && c.getAttribute("data-lesson-question") === String(n); }, i + 1))) return false;
+    await app.page.click('[data-lesson-option="' + picks[i] + '"]');
+    if (i < picks.length - 1) await app.page.click('[data-lesson-next="' + (i + 1) + '"]');
+    else if (twice) await app.page.evaluate(() => { const b = document.querySelector('[data-lesson-submit="1"]'); b.click(); b.click(); });
+    else await app.page.click('[data-lesson-submit="1"]');
+  }
+  return true;
+};
+const PASS = ["a", "a", "a", "a", "a"];
+const FAIL = ["a", "b", "b", "a", "a"];
+const answersSent = (stub) => stub.state.calls.filter(c => c.method === "POST" && /^\/api\/training\/attempts\/[^/]+\/answers$/.test(c.path));
+const acksSent = (stub) => stub.state.calls.filter(c => c.method === "POST" && /^\/api\/training\/attempts\/[^/]+\/acknowledge$/.test(c.path));
+const trainingWords = (key, language) => { const r = require("./stub").TRAINING_REFUSALS[key]; return language === "es" ? r.es : r.en; };
+const PART375_S2_JOURNEYS = [
+  {
+    id: "quizclosed",
+    label: "A closed quiz (API part 374): Submit tapped twice at once sends once; a send whose answer was lost, sent again, meets 409 training.attemptClosed with the attempt, and the screen shows that attempt's result in the API's words, with the questions taking no more taps",
+    run: async (open, language, expect) => {
+      const once = await open({ stubOptions: { training: true } });
+      try {
+        if (!(await lessonFromHome(once))) { expect("the lesson opens from Home", false, (await bodyText(once.page)).slice(0, 200)); return; }
+        await answerLesson(once, PASS, true);
+        await waitOn(once.page, () => !!document.querySelector('[data-lesson="sign"]'));
+        await pause(once.page, 600);
+        expect("Submit tapped twice at once sends the answers once", answersSent(once.stub).length === 1, answersSent(once.stub).length + " sends");
+      } finally { await once.context.close(); }
+      const lost = await open({ stubOptions: { training: true, answersLoseNext: 1 } });
+      try {
+        if (!(await lessonFromHome(lost))) { expect("the lesson opens from Home", false, (await bodyText(lost.page)).slice(0, 200)); return; }
+        await answerLesson(lost, PASS);
+        await pause(lost.page, 1500);
+        const still = await lost.page.evaluate(() => !!document.querySelector('[data-lesson="ask"]'));
+        await lost.page.click('[data-lesson-submit="1"]').catch(() => {});
+        const shown = await waitOn(lost.page, () => !!document.querySelector('[data-lesson="sign"]'));
+        const note = await textAt(lost.page, "[data-lesson-closed]");
+        expect("the answer lost, Submit again meets the closed quiz and shows the attempt's result: passed, ready to sign", still && shown && answersSent(lost.stub).length === 2 && has(await bodyText(lost.page), say("You passed.", language)), "asked again " + still + ", sign " + shown + ", " + answersSent(lost.stub).length + " sends");
+        expect("in the API's own words", flat(note) === flat(trainingWords("training.attemptClosed", language)), String(note));
+        expect("and the questions take no more taps", !(await lost.page.evaluate(() => !!document.querySelector("[data-lesson-option], [data-lesson-submit]"))), "still offered");
+        await spokenHere(lost, language, expect);
+      } finally { await lost.context.close(); }
+    },
+  },
+  {
+    id: "signagain",
+    label: "A signature that did not save (API part 374): Sign tapped twice at once sends once; 503 training.signatureNotStored reads the API's words with the box kept and empty to sign again; a signature whose answer was lost, sent again, is answered 200 and reads as done",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { training: true, ackNotStored: 1, ackLoseNext: 1 } });
+      try {
+        if (!(await lessonFromHome(app))) { expect("the lesson opens from Home", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        await answerLesson(app, PASS);
+        if (!(await waitOn(app.page, () => !!document.querySelector('[data-lesson="sign"] [data-lesson-signature="1"] canvas')))) { expect("the pass asks for a signature", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        await drawOn(app.page, '[data-lesson-signature="1"] canvas');
+        await app.page.evaluate(() => { const b = document.querySelector('[data-lesson-sign="1"]'); b.click(); b.click(); });
+        await pause(app.page, 1500);
+        expect("Sign tapped twice at once sends once", acksSent(app.stub).length === 1, acksSent(app.stub).length + " sends");
+        const said = await app.page.evaluate(() => { const c = document.querySelector('[data-lesson="sign"]'); return c ? c.innerText : ""; });
+        expect("a signature that did not save reads the API's words", has(said, trainingWords("training.signatureNotStored", language)), said.slice(0, 300));
+        const box = await app.page.evaluate(() => { const c = document.querySelector('[data-lesson-signature="1"] canvas'); if (!c) return null; const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data; let ink = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0 && d[i] < 160) ink += 1; return ink; });
+        expect("the signature box stays, emptied for the person to sign again", box === 0, "ink " + box);
+        await drawOn(app.page, '[data-lesson-signature="1"] canvas');
+        await app.page.click('[data-lesson-sign="1"]');
+        await pause(app.page, 1500);
+        const lostSaid = await app.page.evaluate(() => !!document.querySelector('[data-lesson="sign"]'));
+        await app.page.click('[data-lesson-sign="1"]').catch(() => {});
+        const done = await waitOn(app.page, () => !!document.querySelector('[data-lesson="done"]'));
+        expect("a signature whose answer was lost, sent again, is answered 200 and reads as done", lostSaid && done && acksSent(app.stub).length === 3 && app.stub.state.trainingAttempts.some(a => a.acknowledgedAt), "kept " + lostSaid + ", done " + done + ", " + acksSent(app.stub).length + " sends");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "triesused",
+    label: "Tries, never attempt numbers (API part 374): My training and a lesson's result read the tries used and the tries left from attemptsUsed and attemptsLeft, and no attempt number shows, though voided attempts pushed the next one to 104",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { training: true, trainingVoided: 3 } });
+      try {
+        if (!(await waitOn(app.page, () => !!document.querySelector('[data-training-card="todo"]'), null, 10000))) { expect("Home offers My training", false, ""); return; }
+        await app.page.click('[data-training-card="todo"]');
+        await waitOn(app.page, () => !!document.querySelector('[data-training-start="tp-1:"]'));
+        const row = await app.page.evaluate(() => { const b = document.querySelector('[data-training-start="tp-1:"]'); return b ? b.parentElement.innerText : ""; });
+        expect("My training reads the tries used and the tries left", has(row, say("Tries used: {n}", language).replace("{n}", "0")) && has(row, say("{n} tries left", language).replace("{n}", "3")), row);
+        await app.page.click('[data-training-start="tp-1:"]');
+        await waitOn(app.page, () => !!document.querySelector('[data-lesson="read"] [data-lesson-next="read"]'));
+        await answerLesson(app, FAIL);
+        const failed = await waitOn(app.page, () => !!document.querySelector('[data-lesson="result"]'));
+        const made = app.stub.state.trainingAttempts.filter(a => !a.voidedAt && a.personId === app.stub.state.person.id && a.versionId === "lv-1").pop();
+        const text = await bodyText(app.page);
+        expect("the result reads the tries used and the tries left", failed && has(text, say("Tries used: {n}", language).replace("{n}", "1")) && has(text, say("{n} tries left", language).replace("{n}", "2")), text.slice(0, 300));
+        expect("and never the attempt's own number", !!made && made.attemptNo === 104 && !/\b10[1-4]\b/.test(text), (made ? made.attemptNo : "none") + " | " + text.slice(0, 200));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART375_S2_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };

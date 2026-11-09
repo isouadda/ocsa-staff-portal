@@ -655,6 +655,10 @@ const TRAINING_REFUSALS = {
   "training.demonstrationRequired": { status: 400, en: "Watch the person do it before you sign.", es: "Vea a la persona hacerlo antes de firmar." },
   "training.attemptNotFound": { status: 404, en: "This attempt was not found.", es: "No se encontr\u00f3 este intento." },
   "training.noAccess": { status: 403, en: "You cannot see this.", es: "No puede ver esto." },
+  // Part 375 (API part 374): the API's own words, from its
+  // translation/api_words.csv.
+  "training.attemptClosed": { status: 409, en: "This quiz is already finished, so it takes no more answers. Here is how it stands.", es: "Este cuestionario ya termin\u00f3 y no acepta m\u00e1s respuestas. As\u00ed est\u00e1 ahora." },
+  "training.signatureNotStored": { status: 503, en: "Your signature could not be saved just now. Nothing was lost: sign again.", es: "No se pudo guardar su firma en este momento. No se perdi\u00f3 nada: firme de nuevo." },
 };
 // Step 264: the Step 262 contract's answers behind the training switch,
 // every value invented. A session another trainer opened at North
@@ -1756,6 +1760,15 @@ function makeState(opts) {
     // Step 258: an API with Step 256 built, which answers GET
     // /api/training/me; trainingNone answers it with nothing required.
     training: o.training === true || o.trainingNone === true,
+    // Part 375 (API part 374): the next n acknowledgements whose signature
+    // storage does not take in time (503 training.signatureNotStored,
+    // nothing stamped); the next n acknowledgements and answers taken
+    // whose answer is lost on the way back; and n attempts on the ladders
+    // lesson voided and moved past 100, as the office did live.
+    ackNotStored: Number(o.ackNotStored) || 0,
+    ackLoseNext: Number(o.ackLoseNext) || 0,
+    answersLoseNext: Number(o.answersLoseNext) || 0,
+    trainingVoided: Number(o.trainingVoided) || 0,
     trainingNone: o.trainingNone === true,
     // Step 261: every attempt on a lesson, seeded with the one another
     // person passed and signed, waiting for a supervisor's sign-off.
@@ -3076,7 +3089,9 @@ const TWIN_PAIRS = [
   .concat([].concat(...Object.keys(MAINT_NAMES).map(k => MAINT_NAMES[k].map(x => [x[1], x[2]]))))
   .concat(Object.keys(MAINT_REFUSALS).map(k => [MAINT_REFUSALS[k].en, MAINT_REFUSALS[k].es]))
   // Part 369: the leave balances' words with no placeholder.
-  .concat(["handbook", "sick", "sickLine", "holidays", "untracked", "site"].map(k => LEAVE_WORDS[k]));
+  .concat(["handbook", "sick", "sickLine", "holidays", "untracked", "site"].map(k => LEAVE_WORDS[k]))
+  // Part 375: the training refusals API part 374 added.
+  .concat(["training.attemptClosed", "training.signatureNotStored"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -3420,6 +3435,12 @@ function createStub(opts) {
       state.run = asked ? runOfShiftAt(asked, state.sessionStartedAt) : runPick(named, state.sessionStartedAt);
       if (state.run && (opts || {}).shiftLabel === undefined) state.shiftLabel = state.run.label;
     }
+  }
+  // Part 375: voided attempts on the first lesson, numbered past 100 as the
+  // office moved them live; they give their tries back.
+  for (let i = 0; i < state.trainingVoided; i += 1) {
+    const l = TRAINING_LESSONS[0];
+    state.trainingAttempts.push({ id: "ta-void-" + (i + 1), versionId: l.versionId, topicId: l.topicId, personId: state.person.id, personName: state.person.firstName + " " + state.person.lastName, attemptNo: 101 + i, locale: "en", siteId: null, startedAt: "2026-09-20T15:00:00Z", scoredAt: "2026-09-20T15:10:00Z", scorePercent: 40, passed: false, missed: [], acknowledgedAt: null, awaitingTrainer: false, trainerSignedAt: null, trainerId: null, trainerName: null, demonstrated: false, voidedAt: "2026-09-21T12:00:00Z" });
   }
 
   // --- Help's answer, as the API writes it
@@ -4097,8 +4118,18 @@ function createStub(opts) {
   // attempt as the routes answer it, with no correct value anywhere.
   function lessonAttempts(lesson) { return state.trainingAttempts.filter(a => a.versionId === lesson.versionId && a.personId === state.person.id && !a.voidedAt); }
   function lessonTries(lesson) { const used = lessonAttempts(lesson).length; return { used: used, left: Math.max(0, lesson.maxAttempts - used) }; }
+  // Part 375: an attempt's number is one past every attempt of the
+  // person's on the version, voided ones included (trainingAttempts.js
+  // startAttempt), so voided attempts moved past 100 push it there.
+  function nextAttemptNo(lesson) { return state.trainingAttempts.filter(a => a.versionId === lesson.versionId && a.personId === state.person.id).reduce((m, a) => Math.max(m, Number(a.attemptNo) || 0), 0) + 1; }
+  // The answer carries attemptsLeft beside the contract's keys, as the
+  // API's attemptAnswer adds it.
   function attemptView(a) {
     const topic = TRAINING_ME.items.find(i => i.topicId === a.topicId);
+    const lessonOf = TRAINING_LESSONS.find(l => l.versionId === a.versionId);
+    return Object.assign(attemptViewBare(a, topic), lessonOf ? { attemptsLeft: lessonTries(lessonOf).left } : {});
+  }
+  function attemptViewBare(a, topic) {
     return { id: a.id, versionId: a.versionId, topicId: a.topicId, topicName: topic ? topic.name : "", attemptNo: a.attemptNo, locale: a.locale, startedAt: a.startedAt, scoredAt: a.scoredAt, scorePercent: a.scorePercent, passed: a.passed, missed: a.missed.slice(), acknowledgedAt: a.acknowledgedAt, awaitingTrainer: a.awaitingTrainer, trainerSignedAt: a.trainerSignedAt, trainer: a.trainerName ? { name: a.trainerName } : null, demonstrated: a.demonstrated, siteId: a.siteId, voidedAt: a.voidedAt };
   }
   function handle(method, pathname, search, body, headers) {
@@ -5613,7 +5644,7 @@ function createStub(opts) {
         if (open) return json(201, { attempt: attemptView(open) });
         const tries = lessonTries(lesson);
         if (tries.left <= 0) return refuse("training.noAttemptsLeft");
-        const made = { id: "ta-made-" + (state.trainingAttempts.length + 1), versionId: lesson.versionId, topicId: lesson.topicId, personId: state.person.id, personName: state.person.firstName + " " + state.person.lastName, attemptNo: tries.used + 1, locale: body.locale === "es" ? "es" : "en", siteId: body.siteId || null, startedAt: new Date().toISOString(), scoredAt: null, scorePercent: null, passed: null, missed: [], acknowledgedAt: null, awaitingTrainer: false, trainerSignedAt: null, trainerId: null, trainerName: null, demonstrated: false, voidedAt: null };
+        const made = { id: "ta-made-" + (state.trainingAttempts.length + 1), versionId: lesson.versionId, topicId: lesson.topicId, personId: state.person.id, personName: state.person.firstName + " " + state.person.lastName, attemptNo: nextAttemptNo(lesson), locale: body.locale === "es" ? "es" : "en", siteId: body.siteId || null, startedAt: new Date().toISOString(), scoredAt: null, scorePercent: null, passed: null, missed: [], acknowledgedAt: null, awaitingTrainer: false, trainerSignedAt: null, trainerId: null, trainerName: null, demonstrated: false, voidedAt: null };
         state.trainingAttempts.push(made);
         return json(201, { attempt: attemptView(made) });
       }
@@ -5625,7 +5656,9 @@ function createStub(opts) {
         const b = body && typeof body === "object" ? body : {};
         if (act[2] === "answers") {
           if (a.personId !== state.person.id) return refuse("training.noAccess");
-          if (a.scoredAt) return refuse("training.notReady");
+          // Part 374: an attempt already scored or void is 409
+          // training.attemptClosed with the attempt as it stands.
+          if (a.scoredAt || a.voidedAt) return refuse("training.attemptClosed", { attempt: attemptView(a) });
           const given = b.answers && typeof b.answers === "object" ? b.answers : {};
           const keys = lesson.questions.filter(qn => typeof given[qn.key] !== "string" || !qn.options.some(o => o.value === given[qn.key])).map(qn => "answers." + qn.key);
           if (keys.length > 0) return refuse("training.badAnswers", { keys: keys });
@@ -5633,6 +5666,7 @@ function createStub(opts) {
           a.scorePercent = Math.round((lesson.questions.length - a.missed.length) * 100 / lesson.questions.length);
           a.passed = a.scorePercent >= lesson.passPercent;
           a.scoredAt = new Date().toISOString();
+          if (state.answersLoseNext > 0) { state.answersLoseNext -= 1; return { abort: true }; }
           return json(200, { attempt: attemptView(a) });
         }
         const raw = typeof b.signature === "string" ? b.signature.trim() : "";
@@ -5641,13 +5675,20 @@ function createStub(opts) {
         const png = !!bytes && !!sniffImage(bytes) && sniffImage(bytes).ext === "png" && bytes.length <= SIGNATURE_MAX_BYTES;
         if (act[2] === "acknowledge") {
           if (a.personId !== state.person.id) return refuse("training.noAccess");
+          const record = () => (lesson.needsTrainer ? null : { id: "tr-made-" + a.id, name: TRAINING_ME.items.find(i => i.topicId === a.topicId).name, completedDate: "2026-10-05", expiresOn: null, score: a.scorePercent + "%", siteName: null, locale: a.locale });
+          // Part 374: the same acknowledgement sent again answers 200 with
+          // the attempt and its record, as the first did.
+          if (a.acknowledgedAt && !a.voidedAt) return json(200, { attempt: attemptView(a), record: record() });
+          if (a.voidedAt) return refuse("training.notReady");
           if (!a.passed) return refuse("training.notPassed");
           if (!png) return refuse("training.signatureRequired");
           state.calls[state.calls.length - 1].signature = { bytes: bytes.length, size: imageSize(bytes) };
+          // Part 374: storage did not take the signature in 10 seconds.
+          if (state.ackNotStored > 0) { state.ackNotStored -= 1; return refuse("training.signatureNotStored"); }
           a.acknowledgedAt = new Date().toISOString();
           a.awaitingTrainer = lesson.needsTrainer;
-          const record = lesson.needsTrainer ? null : { id: "tr-made-" + a.id, name: TRAINING_ME.items.find(i => i.topicId === a.topicId).name, completedDate: "2026-10-05", expiresOn: null, score: a.scorePercent + "%", siteName: null, locale: a.locale };
-          return json(200, { attempt: attemptView(a), record: record });
+          if (state.ackLoseNext > 0) { state.ackLoseNext -= 1; return { abort: true }; }
+          return json(200, { attempt: attemptView(a), record: record() });
         }
         if (!management) return refuse("training.noAccess");
         if (a.personId === state.person.id) return refuse("training.cannotSignOwn");

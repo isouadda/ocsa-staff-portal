@@ -10109,6 +10109,10 @@ const trainingToDo = (data) => (data ? data.items.filter(i => trainingTakeable(i
 const trainingDay = (d) => (d ? dueDayText(d, { month: "short", day: "numeric", year: "numeric" }) : "");
 const TRAINING_GIVEN_IN = { en: () => tr("Given in English"), es: () => tr("Given in Spanish"), fr: () => tr("Given in French") };
 const trainingTries = (n) => (n === 1 ? tr("1 try left") : tr("{n} tries left", { n: n }));
+// Part 375: tries used, beside the tries left, from attemptsUsed. An
+// attempt's own number (attemptNo) is never shown: voided attempts give
+// their try back but keep their numbers, which can run past 100.
+const trainingTriesUsed = (n) => tr("Tries used: {n}", { n: Math.max(0, Number(n) || 0) });
 
 function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   // Read again each time the screen opens, and each time a lesson is
@@ -10196,7 +10200,10 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
       {trainingTakeable(i) && TRAINING_CAN_START.indexOf(i.status) !== -1 && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
           <button type="button" data-training-start={i.id} onClick={() => openLesson(i)} style={{ ...goldBtn, flex: "1 1 120px" }}>{i.status === "inProgress" ? tr("Continue the lesson") : tr("Start the lesson")}</button>
-          <span data-training-tries={i.lesson.attemptsLeft} style={{ ...lineSt, marginTop: 0, flex: "1 1 80px", minWidth: 0 }}>{trainingTries(i.lesson.attemptsLeft)}</span>
+          <span style={{ ...lineSt, marginTop: 0, flex: "1 1 80px", minWidth: 0, display: "flex", flexDirection: "column" }}>
+            <span data-training-tries={i.lesson.attemptsLeft}>{trainingTries(i.lesson.attemptsLeft)}</span>
+            <span data-training-used={i.lesson.attemptsUsed}>{trainingTriesUsed(i.lesson.attemptsUsed)}</span>
+          </span>
         </div>
       )}
       {i.linkUrl && (
@@ -11458,6 +11465,12 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
   const [outcome, setOutcome] = useState(null);
   // Bumped by Try again and by Read it again: a fresh attempt and reading.
   const [asked, setAsked] = useState(0);
+  // Part 375: one send at a time, so a second tap on Submit or Sign before
+  // the screen has drawn the first as sending sends nothing; and the API's
+  // words when it answered that the quiz was already closed (409
+  // training.attemptClosed), said over the result it sent.
+  const sending = useRef(false);
+  const [closedNote, setClosedNote] = useState(null);
   // A picture open full screen (Step 267), and the pictures that did not
   // load, which show their alt text in a box instead.
   const [picture, setPicture] = useState(null);
@@ -11476,7 +11489,7 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
   useEffect(() => {
     let on = true;
     (async () => {
-      setPhase("loading"); setFault(null); setAnswers({}); setQi(0); setStrokes([]); setPng(null); setOutcome(null);
+      setPhase("loading"); setFault(null); setAnswers({}); setQi(0); setStrokes([]); setPng(null); setOutcome(null); setClosedNote(null);
       try {
         // The reading first, in the screen's language where the lesson
         // holds it, so the attempt is opened in the language read.
@@ -11502,33 +11515,57 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
       if (live.current) setFault(fkFaultWords(err, "This lesson did not open. Try again."));
     } finally { if (live.current) setBusy(false); }
   };
+  // The screen an attempt the API scored stands on: signing a pass not
+  // yet signed, Done for one signed, the result for a fail, and a void
+  // one's line with nothing to tap.
+  const standOn = async (a) => {
+    // On a fail, the tries used and left are read again from the lesson;
+    // when that read fails, one fewer than before is said.
+    let l = les;
+    if (a.passed !== true && !a.voidedAt) { try { l = (await readLesson(les.locale)) || les; } catch (e) { l = { ...les, attemptsUsed: les.attemptsUsed + 1, attemptsLeft: Math.max(0, les.attemptsLeft - 1) }; } }
+    if (!live.current) return;
+    setAttempt(a); setLes(l);
+    if (a.voidedAt) setPhase("closed");
+    else if (a.passed === true && a.acknowledgedAt) { setOutcome({ waiting: a.awaitingTrainer === true }); setPhase("done"); }
+    else setPhase(a.passed === true ? "sign" : "result");
+  };
   const submit = async () => {
-    if (busy || !attempt || !les) return;
+    if (busy || sending.current || !attempt || !les) return;
+    sending.current = true;
     setBusy(true); setFault(null);
     try {
       const a = trainingAttemptOf((await api("/api/training/attempts/" + encodeURIComponent(attempt.id) + "/answers", { method: "POST", body: { answers: answers }, token }) || {}).attempt);
       if (!a) throw new Error(ERR_GENERIC);
-      // On a fail, the tries left are read again from the lesson; when
-      // that read fails, one fewer than before is said.
-      let l = les;
-      if (!a.passed) { try { l = (await readLesson(les.locale)) || les; } catch (e) { l = { ...les, attemptsLeft: Math.max(0, les.attemptsLeft - 1) }; } }
-      if (live.current) { setAttempt(a); setLes(l); setPhase(a.passed ? "sign" : "result"); }
+      await standOn(a);
     } catch (err) {
-      if (live.current) setFault(fkFaultWords(err, "Your answers were not sent. Try again."));
-    } finally { if (live.current) setBusy(false); }
+      // Part 375: the quiz was already closed (scored by an earlier send
+      // whose answer was lost, or void). The API sends the attempt as it
+      // stands: its result is shown, in the API's words, and the
+      // questions take no more taps.
+      const closed = err && err.status === 409 && err.code === "training.attemptClosed" ? trainingAttemptOf(err.body && err.body.attempt) : null;
+      if (closed && live.current) { setClosedNote(fkSaidOf(err)); await standOn(closed); }
+      else if (live.current) setFault(fkFaultWords(err, "Your answers were not sent. Try again."));
+    } finally { sending.current = false; if (live.current) setBusy(false); }
   };
   const sign = async () => {
-    if (busy || !attempt) return;
+    if (busy || sending.current || !attempt) return;
     if (!png) { setFault(tr("Sign before you send.")); return; }
+    sending.current = true;
     setBusy(true); setFault(null);
     try {
+      // The same acknowledgement sent again (its first answer lost) is
+      // answered 200 as the first was, and reads as done the same way.
       const d = await api("/api/training/attempts/" + encodeURIComponent(attempt.id) + "/acknowledge", { method: "POST", body: { signature: png }, token });
       const a = trainingAttemptOf(d && d.attempt) || attempt;
       const record = !!(d && d.record && typeof d.record === "object");
       if (live.current) { setAttempt(a); setOutcome({ waiting: a.awaitingTrainer === true || (!record && les.needsTrainer) }); setPhase("done"); }
     } catch (err) {
+      // Part 375: a signature storage could not take in time (503
+      // training.signatureNotStored, nothing stamped): the API's words,
+      // the box kept and emptied, so the person signs again.
+      if (live.current && err && err.code === "training.signatureNotStored") { setStrokes([]); setPng(null); }
       if (live.current) setFault(fkFaultWords(err, "This was not signed. Try again."));
-    } finally { if (live.current) setBusy(false); }
+    } finally { sending.current = false; if (live.current) setBusy(false); }
   };
   // Back goes to My training, or to the category page the lesson was
   // opened from (Step 267), named on the way back.
@@ -11550,7 +11587,7 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
     <div>
       {back}
       <div role="heading" aria-level={1} style={titleSt}>{les && les.title ? les.title : item.name}</div>
-      {(item.docCode || item.docSection) && <div style={smallSt}>{[item.docCode, item.docSection].filter(Boolean).join(" ")}</div>}
+      {(item.docCode || item.docSection) && <div style={smallSt}>{[item.docCode, item.docSection].filter(Boolean).map((x, n) => <span key={n}>{n > 0 ? " " : ""}{x}</span>)}</div>}
     </div>
   );
   if (phase === "loading" || phase === "fault") {
@@ -11645,15 +11682,29 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
       </div>
     );
   }
+  // Part 375: the API's words over a result it sent with 409
+  // training.attemptClosed.
+  const closedLine = closedNote ? <div data-lesson-closed="1" role="status" style={{ ...fkRowSt(t), marginTop: 12, marginBottom: 0, fontSize: 14, color: t.text, lineHeight: 1.45, overflowWrap: "anywhere" }}>{closedNote}</div> : null;
+  if (phase === "closed") {
+    return (
+      <div data-lesson="closed" style={{ padding: "16px 16px 100px" }}>
+        {head}
+        {closedLine}
+        {backBtn}
+      </div>
+    );
+  }
   if (phase === "result") {
     const missed = attempt.missed.length;
     const left = les.attemptsLeft;
     return (
-      <div data-lesson="result" data-lesson-tries={left} style={{ padding: "16px 16px 100px" }}>
+      <div data-lesson="result" data-lesson-tries={left} data-lesson-used={les.attemptsUsed} style={{ padding: "16px 16px 100px" }}>
         {head}
+        {closedLine}
         <div role="heading" aria-level={2} style={{ ...titleSt, marginTop: 14, color: wsLateInk(t) }}>{tr("Not passed.")}</div>
         {scoreLines}
         <div style={lineSt}>{missed === 1 ? tr("You missed 1 question.") : tr("You missed {n} questions.", { n: missed })}</div>
+        <div style={lineSt}>{trainingTriesUsed(les.attemptsUsed)}</div>
         {left > 0 && <div style={{ ...lineSt, fontWeight: 600, color: t.text }}>{trainingTries(left)}</div>}
         {left === 0 && <div style={{ ...lineSt, fontWeight: 600, color: t.text }}>{tr("Ask your supervisor for an in-person session.")}</div>}
         {fault && <WsFault text={fault} t={t} />}
@@ -11666,6 +11717,7 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
     return (
       <div data-lesson="sign" style={{ padding: "16px 16px 100px" }}>
         {head}
+        {closedLine}
         <div role="heading" aria-level={2} style={{ ...titleSt, marginTop: 14, color: ink(t, GREEN) }}>{tr("You passed.")}</div>
         {scoreLines}
         {les.acknowledgement && <div style={{ ...bodySt, marginTop: 14 }}>{les.acknowledgement}</div>}
@@ -11687,6 +11739,7 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
   return (
     <div data-lesson="done" data-lesson-waiting={outcome && outcome.waiting ? "1" : "0"} style={{ padding: "16px 16px 100px" }}>
       {head}
+      {closedLine}
       <div role="heading" aria-level={2} style={{ ...titleSt, marginTop: 14, color: outcome && outcome.waiting ? ink(t, BLUE) : ink(t, GREEN) }}>{outcome && outcome.waiting ? (item.signoffBy ? tr("Your trainer signs this off in the {name} checklist.", { name: item.signoffBy.name }) : tr("Waiting for your trainer. Show them you can do it, and they sign it off.")) : tr("Done. It is on your record.")}</div>
       {scoreLines}
       {backBtn}
