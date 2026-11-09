@@ -948,7 +948,17 @@ const ORIGIN_WORDS = {
   callout: () => tr("Callout"), no_show: () => tr("No-Show"), extra_coverage: () => tr("Extra Coverage"),
   voluntary_drop: () => tr("Voluntary Drop"), new_shift: () => tr("New Shift"),
 };
+// PORT-66 (part 375): a problem the inspection card files is titled in
+// English on purpose ("Inspection finding: <zone>"), so the API holds one
+// title whoever reads it. It is drawn in the reader's language, the zone
+// as it came.
+const FINDING_TITLE_RE = /^Inspection finding: ([\s\S]+)$/;
+const shownIssueTitle = (title) => { const m = typeof title === "string" ? FINDING_TITLE_RE.exec(title) : null; return m ? tr("Inspection finding: {place}", { place: m[1] }) : title; };
 // The word in the toast that says what an assigned task became.
+// PORT-65 (part 375): what a toast says once an assigned task's status
+// is taken. Cannot Resolve sends the problem up to the office with the
+// reason, so it says that, never "Task updated to unable to resolve".
+const taskUpdatedWords = (s) => (s === "unable_to_resolve" ? tr("Sent up as not done. The office sees your reason.") : tr("Task updated to {status}", { status: taskStatusWord(s) }));
 const taskStatusWord = (s) => (s === "in_progress" ? tr("in progress") : s === "resolved" ? tr("resolved") : s === "unable_to_resolve" ? tr("unable to resolve") : tr(String(s).replace(/_/g, " ")));
 // A time of day the API sends as HH:MM or HH:MM:SS, drawn the way every
 // other time is, in the reader's language. Anything else is drawn as sent.
@@ -2533,6 +2543,9 @@ export default function OCSAStaffPortal() {
   // The chat the messages in hand belong to, so one chat's messages are
   // never drawn under another while its own are on their way.
   const [messagesOf, setMessagesOf] = useState(null);
+  // PORT-54 (part 375): the chat whose messages did not load, so it says
+  // so with Try again in place of a blank screen.
+  const [messagesFailedOf, setMessagesFailedOf] = useState(null);
   const [activeChannel, setActiveChannel] = useState(null);
   const activeChannelRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(now());
@@ -3086,6 +3099,25 @@ export default function OCSAStaffPortal() {
     }
     dropKeptRuns(shiftSiteId, runNow);
   }, [runNow, sessionIdNow]);
+  // PORT-53 (part 375): a list whose checklist day has ended is read again
+  // with the status, once the clock passes the day's start or the app
+  // comes back to the front, so after 4:00 AM the rows are the new day's
+  // and the ring matches them. Once per day turned, never from the copy
+  // kept for no signal, and only for a list that says its day.
+  const dayAsked = useRef(null);
+  useEffect(() => {
+    const check = () => {
+      try { if (document.visibilityState === "hidden") return; } catch (e) {}
+      if (!checklistKey || !tasksDay || offlineOpen) return;
+      const today = checklistDayNow(Date.now());
+      if (today === tasksDay || dayAsked.current === tasksDay + ">" + today) return;
+      dayAsked.current = tasksDay + ">" + today;
+      loadTasks(true);
+    };
+    check();
+    document.addEventListener("visibilitychange", check);
+    return () => document.removeEventListener("visibilitychange", check);
+  }, [checklistKey, tasksDay, offlineOpen, Math.floor(currentTime.getTime() / 60000)]);
   // The site's named shifts, for the sheet and for naming the last shift,
   // read once per site and language while the session is in a run. A read
   // that fails leaves the sheet with the session's own shifts.
@@ -3281,7 +3313,7 @@ export default function OCSAStaffPortal() {
   const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); setIssuesFailed(false); } catch (err) { console.error(err); setIssuesFailed(true); } };
   // A save that fails throws, so the screen keeps the note and the photo
   // for the next try (Round 1, PORT-02).
-  const resolveAssignedTask = async (taskId, status, note, photoUrl) => { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast(tr("Task updated to {status}", { status: taskStatusWord(status) })); loadAssignedTasks(); };
+  const resolveAssignedTask = async (taskId, status, note, photoUrl) => { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast(taskUpdatedWords(status)); loadAssignedTasks(); };
   // A report that does not go throws, so the form keeps what was typed
   // and the photo (Round 1, PORT-01). An issue made whose photo did not
   // attach comes back with photoFault, so the screen says so and can
@@ -3313,8 +3345,8 @@ export default function OCSAStaffPortal() {
   // so a slow answer for one chat never lands under another. Anything in
   // the list that is not a message is left out; a message missing a field
   // is kept and drawn with what it has. Returns the list for Try again.
-  const readMessages = async (channelId) => { const data = await api(chatPath("/api/chat/channels/" + channelId + "/messages"), { token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.messages) ? data.messages : null); if (!list) throw new Error(ERR_GENERIC); const rows = list.filter(m => m && typeof m === "object"); if (activeChannelRef.current === channelId) { setMessages(rows); setMessagesOf(channelId); } return rows; };
-  const loadMessages = async (channelId) => { try { await readMessages(channelId); } catch (err) { console.error(err); } };
+  const readMessages = async (channelId) => { const data = await api(chatPath("/api/chat/channels/" + channelId + "/messages"), { token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.messages) ? data.messages : null); if (!list) throw new Error(ERR_GENERIC); const rows = list.filter(m => m && typeof m === "object"); if (activeChannelRef.current === channelId) { setMessages(rows); setMessagesOf(channelId); setMessagesFailedOf(null); } return rows; };
+  const loadMessages = async (channelId) => { try { await readMessages(channelId); } catch (err) { console.error(err); if (activeChannelRef.current === channelId) setMessagesFailedOf(channelId); } };
   // A send, as the API answers it. The message in the answer is drawn in
   // its chat, once. An answer with no message reads the chat again. A
   // refusal goes back to the composer, which keeps the words and says what
@@ -3347,7 +3379,7 @@ export default function OCSAStaffPortal() {
   // shift.othersOnShift, first names in the API's order, read again with
   // the status. None from the copy kept for no signal, which may be old.
   const alsoHere = !offlineOpen && clockStatus && clockStatus.shift && Array.isArray(clockStatus.shift.othersOnShift) ? clockStatus.shift.othersOnShift.map(o => (o && typeof o.firstName === "string" ? o.firstName.trim() : "")).filter(Boolean) : NO_NAMES;
-  useEffect(() => { activeChannelRef.current = activeChannel; setMessages([]); setMessagesOf(null); if (activeChannel) { loadMessages(activeChannel); markChatRead(activeChannel).then(() => setTimeout(() => loadChannels(), 600)); } }, [activeChannel]);
+  useEffect(() => { activeChannelRef.current = activeChannel; setMessages([]); setMessagesOf(null); setMessagesFailedOf(null); if (activeChannel) { loadMessages(activeChannel); markChatRead(activeChannel).then(() => setTimeout(() => loadChannels(), 600)); } }, [activeChannel]);
   // Chat opens on a chat: the one last chosen on this phone while it is
   // still on the list, or the only one when the list holds one. Never a
   // guess among several. A chat that leaves the list is let go.
@@ -4141,7 +4173,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} at={scheduleAt} />}
               {activeTab === "tasks" && <TasksView token={token} rereadList={() => (checklistAsk ? api(checklistAsk, { token }) : Promise.reject(Object.assign(new Error(ERR_GENERIC), { status: 404 })))} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} shiftChoices={siteShifts} shiftNames={shiftNames} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView userId={user && user.id} assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
-              {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
+              {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} messagesFailed={!!activeChannel && messagesFailedOf === activeChannel && messagesOf !== activeChannel} onRetryMessages={() => { setMessagesFailedOf(null); loadMessages(activeChannel); }} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView userId={user && user.id} token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} onOpenDocument={(d) => openLibraryDoc(d, null)} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} attachIssuePhoto={attachIssuePhoto} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} findings={findings} onFindingsChanged={() => loadFindings()} openFinding={findingOpen} onOpenIssue={openIssue} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} token={token} user={user} />}
@@ -5800,6 +5832,22 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
   // shift in progress: gold fill, filled dot. picked is a choice not yet
   // started: gold outline, hollow gold dot. Rows go inert while a shift
   // is open, since the API refuses a second start until it is ended.
+  // PORT-36 (part 375): Start Shift sits under every site row, so once a
+  // site is picked the button is brought into view above the bottom bar,
+  // with no smooth scroll when the phone asks for reduced motion.
+  const startRef = useRef(null);
+  useEffect(() => {
+    const b = startRef.current;
+    if (!pendingSite || !b || !b.getBoundingClientRect) return;
+    try {
+      const r = b.getBoundingClientRect();
+      const barPx = parseFloat(getComputedStyle(b).getPropertyValue("--ocsa-bar")) || 76;
+      const floor = window.innerHeight - barPx;
+      if (r.top >= 0 && r.bottom <= floor) return;
+      const still = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+      b.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
+    } catch (e) {}
+  }, [pendingSite]);
   const renderSite = (site, idx, own) => {
     const open = ci && selectedSite === site.siteId;
     const picked = !ci && pendingSite === site.siteId;
@@ -5862,7 +5910,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
         {siteChoices && groups.length === 0 && <div style={emptySt}>{tr("No sites available yet.")}</div>}
         {siteChoices && groups.map((g, gi) => (<div key={gi}>{g.label && <div style={groupHeadSt}>{g.label}</div>}{g.items.map((site, idx) => renderSite(site, idx, !!g.own))}</div>))}
         {siteChoices && groups.length > 0 && !ci && (
-          <button onClick={() => onStartSession(pendingSite)} disabled={!pendingSite || loading} style={{ ...mkPrimaryBtn(t, loading || !pendingSite), marginTop: 4, cursor: !pendingSite || loading ? "default" : "pointer" }}>{loading ? tr("Starting...") : pendingSite ? tr("Start Shift at {site}", { site: pendingName }) : tr("Start Shift")}</button>
+          <button ref={startRef} data-start-shift="1" onClick={() => onStartSession(pendingSite)} disabled={!pendingSite || loading} style={{ ...mkPrimaryBtn(t, loading || !pendingSite), marginTop: 4, cursor: !pendingSite || loading ? "default" : "pointer" }}>{loading ? tr("Starting...") : pendingSite ? tr("Start Shift at {site}", { site: pendingName }) : tr("Start Shift")}</button>
         )}
       </div>}
     </div>
@@ -6152,6 +6200,15 @@ function takeDayStart(text) {
   try { window.localStorage.setItem(DAY_START_KEY, String(text)); } catch (e) {}
 }
 const ofDay = (m) => (m - dayStarts + 1440) % 1440;
+// PORT-53 (part 375): the checklist day on the company's clock now,
+// YYYY-MM-DD: the date, or the day before it until the day's start.
+function checklistDayNow(ms) {
+  const p = {};
+  new Intl.DateTimeFormat("en-US", { timeZone: clientConfig.company.timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(ms)).forEach((x) => { p[x.type] = x.value; });
+  const date = p.year + "-" + p.month + "-" + p.day;
+  if (Number(p.hour) * 60 + Number(p.minute) >= dayStarts) return date;
+  return new Date(Date.parse(date + "T12:00:00Z") - 86400000).toISOString().slice(0, 10);
+}
 const windowPast = (from, to, at) => {
   if (from === null || to === null || at === null) return false;
   const f = ofDay(from), e = ofDay(to), a = ofDay(at);
@@ -6711,6 +6768,9 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
     const lock = lockOf(current, done);
     const byWho = done ? whenOf(current) || (lock === "other" || watch ? checkedBy(current) : null) : earlierOf(current);
     if (watch) return drawDetail(detail, byWho, null);
+    // PORT-62 (part 375): a coworker's check today is theirs to take back,
+    // so its detail says so and offers no Uncheck Task.
+    if (lock === "other") return drawDetail(detail, byWho, <div data-task-theirs="1" style={{ padding: "14px 16px", borderTop: "1px solid " + t.borderSolid, fontSize: 13, color: t.textSec, lineHeight: 1.45 }}>{tr("Only the person who checked this can uncheck it.")}</div>);
     return drawDetail(detail, byWho, lock !== "earlier" && <button onClick={() => { tap(current, done, lock); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? tr("Uncheck Task") : tr("Mark Complete")}</button>);
   }
 
@@ -7085,7 +7145,7 @@ const tagsPerson = (msg, userId) => !!userId && Array.isArray(msg && msg.mention
 // each once.
 const mentionIdsIn = (words, picked) => { const ids = []; picked.forEach(m => { if (words.indexOf("@" + m.name) !== -1 && ids.indexOf(m.id) === -1) ids.push(m.id); }); return ids; };
 
-function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMessages, activeChannel, setActiveChannel, sendMessage, onOpenChat, user, t, token }) {
+function ChatView({ channels, channelsFailed, onRetryChannels, messages, messagesFailed, onRetryMessages, readMessages, activeChannel, setActiveChannel, sendMessage, onOpenChat, user, t, token }) {
   const [text, setText] = useState(""); const endRef = useRef(null);
   // A tap on Send with words in the box and no chat chosen.
   const [pickFirst, setPickFirst] = useState(false);
@@ -7324,6 +7384,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
       <div style={{ flex: 1, minHeight: "20%", overflowY: "auto", padding: "12px 12px 0" }}>
         {!activeChannel && <div style={{ textAlign: "center", padding: "40px 20px" }}><ChatIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>{tr("Pick a chat to start.")}</div></div>}
         {activeChannel && Array.isArray(messages) && shown.length === 0 && <div style={{ textAlign: "center", padding: "40px 20px", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("No messages yet.")}</div>}
+        {activeChannel && !Array.isArray(messages) && messagesFailed && <div data-chat-messages-fault="1"><ListFault icon={ChatIco} text={tr("This did not load. Try again.")} onRetry={onRetryMessages} t={t} /></div>}
         {shown.map((msg, idx) => {
           // A message is drawn with what it has: no name, no initials; no
           // time the phone can read, no time; no words, no bubble.
@@ -8487,7 +8548,7 @@ function IssueSheet({ token, user, at, tasks, onClose, onChanged, showToast, lkC
 
   const clear = () => { if (id) forgetWork(user && user.id, "issue-sheet:" + id); setPanel(null); setNote(""); setPhoto(null); setPreview(null); setWho(""); if (fileRef.current) fileRef.current.value = ""; };
   const takePhoto = async (e) => { const picked = e.target.files && e.target.files[0]; if (!picked) return; const file = await readyIssuePhoto(picked, showToast); if (!file) return; setPhoto(file); const r = new FileReader(); r.onload = (ev) => setPreview(ev.target.result); r.readAsDataURL(file); };
-  const done = (status) => { showToast(tr("Task updated to {status}", { status: taskStatusWord(status) })); clear(); onChanged(); onClose(); };
+  const done = (status) => { showToast(taskUpdatedWords(status)); clear(); onChanged(); onClose(); };
   const fault = (err) => { if (settledTask(err)) { showToast(tr(err.message), "notice"); clear(); onChanged(); onClose(); return; } showToast(requestFaultOf(err, "That did not go through. Try again."), "error"); };
   const viaTask = (status, noteText, photoUrl) => api("/api/clock/tasks/resolve/" + encodeURIComponent(myTask.task_id), { method: "PATCH", body: { resolutionStatus: status, resolutionNote: noteText || undefined, photoUrl: photoUrl || undefined }, token });
   // The resolution's photo rides on the same PATCH that resolves the issue
@@ -8558,7 +8619,7 @@ function IssueSheet({ token, user, at, tasks, onClose, onChanged, showToast, lkC
         {!view && !failed && <div style={{ fontSize: 12, color: t.textMut, padding: "10px 0" }}>{tr("Loading...")}</div>}
         {view && <>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
-            <div id="ocsa-issue-sheet-title" style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{view.title}</div>
+            <div id="ocsa-issue-sheet-title" style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{shownIssueTitle(view.title)}</div>
             {view.severity && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "3px 7px", borderRadius: R.sm, background: sc + "20", color: ink(t, sc), fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{levelWord(view.severity)}</span>}
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: 12 }}>
@@ -8708,9 +8769,16 @@ function AssignedTasksView({ assignedTasks, work, onOpenIssue, onOpenRequest, fa
   // note and the photo, says why, and Submit tries again (Round 1,
   // PORT-02); a photo already up is not sent a second time.
   const photoUp = useRef(null);
-  const handleResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Describe what you did to complete this task"), "error"); return; } if (!photo) { showToast(tr("A photo of the completed task is required"), "error"); return; } setUploading(true); try { const photoUrl = photoUp.current && photoUp.current.file === photo ? photoUp.current.url : await uploadPhoto(photo, token); photoUp.current = { file: photo, url: photoUrl }; await resolveTask(taskId, "resolved", note.trim(), photoUrl); clearForm(); setDetail(null); } catch (err) { if (settledTask(err)) { showToast(tr(err.message), "notice"); clearForm(); setDetail(null); onRetry(); } else showToast(tr(err.message), "error"); } setUploading(false); };
-  const handleCantResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Please provide a reason"), "error"); return; } setUploading(true); try { await resolveTask(taskId, "unable_to_resolve", note.trim(), null); clearForm(); setDetail(null); } catch (err) { if (settledTask(err)) { showToast(tr(err.message), "notice"); clearForm(); setDetail(null); onRetry(); } else showToast(tr(err.message), "error"); } setUploading(false); };
-  const getTaskInfo = (task) => { const isIssueLinked = !!task.source_issue_id; const title = isIssueLinked ? (task.issue_title || task.label) : task.label; const desc = isIssueLinked ? task.issue_description : task.description; const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD); const photoUrl = isIssueLinked ? task.issue_photo_url : (task.media_url || null); const mediaType = isIssueLinked ? "image" : (task.media_type || "image"); const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name; const assignedByLabel = isIssueLinked ? tr("Reported by") : tr("Assigned by"); const locationParts = [task.site_name]; if (task.building_name) locationParts.push(task.building_name); if (task.floor_number) locationParts.push(tr("Floor {n}", { n: task.floor_number })); locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || tr("General")); const locationStr = locationParts.filter(Boolean).join(" > "); return { isIssueLinked, title, desc, borderColor, photoUrl, mediaType, assignedBy, assignedByLabel, locationStr }; };
+  // PORT-60 (part 375): one send at a time on Resolved, Cannot Resolve
+  // and In Progress, so a second tap before the screen redraws sends
+  // nothing.
+  const sendingTask = useRef(false);
+  const once = async (fn) => { if (sendingTask.current) return; sendingTask.current = true; try { await fn(); } finally { sendingTask.current = false; } };
+  const handleResolve = (taskId) => once(() => handleResolveNow(taskId));
+  const handleCantResolve = (taskId) => once(() => handleCantResolveNow(taskId));
+  const handleResolveNow = async (taskId) => { if (!note.trim()) { showToast(tr("Describe what you did to complete this task"), "error"); return; } if (!photo) { showToast(tr("A photo of the completed task is required"), "error"); return; } setUploading(true); try { const photoUrl = photoUp.current && photoUp.current.file === photo ? photoUp.current.url : await uploadPhoto(photo, token); photoUp.current = { file: photo, url: photoUrl }; await resolveTask(taskId, "resolved", note.trim(), photoUrl); clearForm(); setDetail(null); } catch (err) { if (settledTask(err)) { showToast(tr(err.message), "notice"); clearForm(); setDetail(null); onRetry(); } else showToast(tr(err.message), "error"); } setUploading(false); };
+  const handleCantResolveNow = async (taskId) => { if (!note.trim()) { showToast(tr("Please provide a reason"), "error"); return; } setUploading(true); try { await resolveTask(taskId, "unable_to_resolve", note.trim(), null); clearForm(); setDetail(null); } catch (err) { if (settledTask(err)) { showToast(tr(err.message), "notice"); clearForm(); setDetail(null); onRetry(); } else showToast(tr(err.message), "error"); } setUploading(false); };
+  const getTaskInfo = (task) => { const isIssueLinked = !!task.source_issue_id; const title = shownIssueTitle(isIssueLinked ? (task.issue_title || task.label) : task.label); const desc = isIssueLinked ? task.issue_description : task.description; const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD); const photoUrl = isIssueLinked ? task.issue_photo_url : (task.media_url || null); const mediaType = isIssueLinked ? "image" : (task.media_type || "image"); const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name; const assignedByLabel = isIssueLinked ? tr("Reported by") : tr("Assigned by"); const locationParts = [task.site_name]; if (task.building_name) locationParts.push(task.building_name); if (task.floor_number) locationParts.push(tr("Floor {n}", { n: task.floor_number })); locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || tr("General")); const locationStr = locationParts.filter(Boolean).join(" > "); return { isIssueLinked, title, desc, borderColor, photoUrl, mediaType, assignedBy, assignedByLabel, locationStr }; };
 
   const items = Array.isArray(work) ? work : assignedTasks.map(task => ({ key: "task:" + task.task_id, kind: "task", id: String(task.task_id), task: task }));
   if (items.length === 0 && failed) return (<div style={{ padding: "16px" }}><ListFault icon={AlertIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} /></div>);
@@ -8730,7 +8798,7 @@ function AssignedTasksView({ assignedTasks, work, onOpenIssue, onOpenRequest, fa
             {info.desc && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Description")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{info.desc}</div></div>)}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{info.assignedByLabel}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{info.assignedBy}</div></div><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Site")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{detail.site_name}</div></div>{detail.due_date && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Due Date")}</div><div style={{ fontSize: 13, color: ink(t, ORANGE), fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{dueDayText(detail.due_date, { month: "short", day: "numeric", year: "numeric" })}{detail.due_time ? " " + tr("at {time}", { time: clockTime(detail.due_time) }) : ""}</div></div>}{detail.task_created_at && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Assigned")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.task_created_at).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })}</div></div>}</div>
             {info.photoUrl && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{info.mediaType === "video" ? tr("Attached Video") : tr("Attached Photo")}</div>{info.mediaType === "video" ? (<FreshImg video src={info.photoUrl} reread={() => api("/api/clock/tasks/assigned", { token })} readKey="assigned" controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} />) : (<FreshImg src={info.photoUrl} reread={() => api("/api/clock/tasks/assigned", { token })} readKey="assigned" alt={tr("Task")} style={{ width: "100%", borderRadius: R.md, maxHeight: 200, objectFit: "cover", border: "1px solid " + t.borderSolid }} />)}</div>)}
-            {!isResolving && !isCantResolve && (<div style={{ display: "flex", gap: 6, marginTop: 10 }}>{detail.resolution_status !== "in_progress" && (<button onClick={() => { resolveTask(detail.task_id, "in_progress", null, null).catch(err => showToast(tr(err.message), "error")); setDetail(null); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + ORANGE, background: "transparent", color: ink(t, ORANGE), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("In Progress")}</button>)}<button onClick={() => { clearForm(); setActivePanel("resolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + GREEN, background: "transparent", color: ink(t, GREEN), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Resolved")}</button><button onClick={() => { clearForm(); setActivePanel("cantresolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: ink(t, RED), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cannot Resolve")}</button></div>)}
+            {!isResolving && !isCantResolve && (<div style={{ display: "flex", gap: 6, marginTop: 10 }}>{detail.resolution_status !== "in_progress" && (<button onClick={() => { if (sendingTask.current) return; const id = detail.task_id; once(() => resolveTask(id, "in_progress", null, null).catch(err => showToast(tr(err.message), "error"))); setDetail(null); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + ORANGE, background: "transparent", color: ink(t, ORANGE), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("In Progress")}</button>)}<button onClick={() => { clearForm(); setActivePanel("resolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + GREEN, background: "transparent", color: ink(t, GREEN), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Resolved")}</button><button onClick={() => { clearForm(); setActivePanel("cantresolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: ink(t, RED), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cannot Resolve")}</button></div>)}
           </div>
           {isResolving && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.greenSubtle }}>
             <div style={{ fontSize: 10, color: ink(t, GREEN), fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Mark as Resolved")}</div>
@@ -8760,7 +8828,7 @@ function AssignedTasksView({ assignedTasks, work, onOpenIssue, onOpenRequest, fa
           return (
             <button type="button" key={item.key} data-work-row={item.key} data-work-kind={item.kind} onClick={() => (item.kind === "request" ? onOpenRequest(item.id) : onOpenIssue(item.id, item.row))} style={{ display: "block", width: "100%", minHeight: TAP, padding: "12px 14px", textAlign: "left", color: t.text, fontFamily: FONT_BODY, marginBottom: 10, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + c, cursor: "pointer", boxShadow: t.shadow }}>
               <span style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{item.title}</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{shownIssueTitle(item.title)}</span>
                 <span style={{ display: "flex", gap: 4, flexShrink: 0, alignItems: "center" }}><span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: c + "18", color: ink(t, c), fontFamily: FONT_HEAD, textTransform: "uppercase" }}>{tr(WORK_KIND_WORDS[item.kind])}</span><Ico d="M9 18l6-6-6-6" sz={14} c={t.textMut} /></span>
               </span>
               {item.line && <span style={{ display: "block", marginTop: 6, fontSize: 10, color: t.textMut, overflowWrap: "anywhere" }}>{item.line}</span>}
@@ -9186,7 +9254,7 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, attachI
       {/* What was reported at the person's sites (Step 297), each row
           opening the issue's sheet, with Assigned to you on what is
           theirs. */}
-      {isAdmin && visibleIssues.map(issue => { const sc = sevC[issue.severity] || ORANGE; const mine = !!user && issue.assigned_to !== undefined && issue.assigned_to !== null && String(issue.assigned_to) === String(user.id); return (<button type="button" key={issue.id} data-issue-row={issue.id} onClick={() => onOpenIssue && onOpenIssue(issue.id, issue)} style={{ display: "block", width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", fontFamily: FONT_BODY, padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + sc, boxShadow: t.shadow }}><span style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><span style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{issue.title}</span><span style={{ fontSize: 9, color: ink(t, sc), background: sc + "20", padding: "3px 7px", borderRadius: R.sm, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{levelWord(issue.severity)}</span></span><span style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 6, fontSize: 9, color: t.textMut }}><span>{issue.zone}</span><span>{issue.site_name}</span><span style={{ color: ink(t, issue.status === "open" ? ORANGE : GREEN), fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{statusWord(issue.status)}</span>{mine && <span data-issue-mine="1" style={{ color: t.goldText, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{tr("Assigned to you")}</span>}</span></button>); })}
+      {isAdmin && visibleIssues.map(issue => { const sc = sevC[issue.severity] || ORANGE; const mine = !!user && issue.assigned_to !== undefined && issue.assigned_to !== null && String(issue.assigned_to) === String(user.id); return (<button type="button" key={issue.id} data-issue-row={issue.id} onClick={() => onOpenIssue && onOpenIssue(issue.id, issue)} style={{ display: "block", width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", fontFamily: FONT_BODY, padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + sc, boxShadow: t.shadow }}><span style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><span style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{shownIssueTitle(issue.title)}</span><span style={{ fontSize: 9, color: ink(t, sc), background: sc + "20", padding: "3px 7px", borderRadius: R.sm, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{levelWord(issue.severity)}</span></span><span style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 6, fontSize: 9, color: t.textMut }}><span>{issue.zone}</span><span>{issue.site_name}</span><span style={{ color: ink(t, issue.status === "open" ? ORANGE : GREEN), fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{statusWord(issue.status)}</span>{mine && <span data-issue-mine="1" style={{ color: t.goldText, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{tr("Assigned to you")}</span>}</span></button>); })}
     </div>
   );
 }

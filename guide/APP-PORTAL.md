@@ -61,24 +61,24 @@ Last checked: 2026-10-16
 ## Start your shift at a site (staff portal)
 Who can do this: anyone signed in
 1. Tap **Home** (**Inicio**) (**Accueil**) on the bottom bar.
-2. Under **Choose a Site to Start** (**Elija un sitio para comenzar**) (**Choisissez un site pour commencer**), tap the site you are working at. Your sites are grouped under **Scheduled Today** (**Programado para hoy**) (**Prévu aujourd'hui**), **Your Assigned Sites** (**Sus sitios asignados**) (**Vos sites attribués**) and **All Other Sites** (**Todos los demás sitios**) (**Tous les autres sites**). A tap only chooses the site.
+2. Under **Choose a Site to Start** (**Elija un sitio para comenzar**) (**Choisissez un site pour commencer**), tap the site you are working at. Your sites are grouped under **Scheduled Today** (**Programado para hoy**) (**Prévu aujourd'hui**), **Your Assigned Sites** (**Sus sitios asignados**) (**Vos sites attribués**) and **All Other Sites** (**Todos los demás sitios**) (**Tous les autres sites**). A tap only chooses the site, and brings the button to start the shift into view when it is further down the screen.
 3. Tap **Start Shift at** (**Comenzar turno en**) (**Commencer le service à**) followed by the site name. **Shift started** (**Turno iniciado**) (**Service commencé**) says it began, and the app opens **Tasks** (**Tareas**) (**Tâches**). OCSA records the start at the time you tapped, even when its answer is slow to come back. Tapping it again for the site already open, for example after a tap whose answer never came back, starts nothing twice: OCSA says the shift is already open there, and the app opens **Tasks** (**Tareas**) (**Tâches**) on it.
-4. At a site with more than one shift, **Tasks** (**Tareas**) (**Tâches**) asks **Which shift are you working?** (**¿Qué turno está trabajando?**) (**Quel service faites-vous ?**), each shift with its hours under it. The shift your start time falls in is already chosen. Tap another if it is wrong, then tap **Use this shift** (**Usar este turno**) (**Choisir ce service**). At a site with one shift or none, nothing is asked.
+4. At a site with more than one shift, **Tasks** (**Tareas**) (**Tâches**) asks **Which shift are you working?** (**¿Qué turno está trabajando?**) (**Quel service faites-vous ?**), each shift with its hours under it. The shift your start time falls in is already chosen. At a site with named shifts, the shift OCSA picked from your schedule and the time you started is already chosen, and the sheet says **Picked from your schedule and the time you started. Change it if it is wrong.** (**Elegido según su horario y la hora en que empezó. Cámbielo si no es correcto.**) (**Choisi selon votre planning et l'heure où vous avez commencé. Changez-le s'il n'est pas bon.**) Tap another if it is wrong, then tap **Use this shift** (**Usar este turno**) (**Choisir ce service**). At a site with one shift or none, nothing is asked.
 5. Your checklist for that site loads under **Tasks** (**Tareas**) (**Tâches**) for the shift you chose: your own tasks if a manager linked you to some, and the site's whole checklist if not. The bar under **Time on Site** (**Tiempo en el sitio**) (**Temps sur place**) on Home counts today's work on that same list.
 Starting a shift here opens your task list. Your hours for pay are recorded on the ADP tablet at the site, so clock in there too. See clocking in on the ADP tablet in the ADP guide.
 If it does not work: if Home says **Your shift did not load.** (**Su turno no se cargó.**) (**Votre service ne s'est pas chargé.**), the app could not tell whether a shift of yours is already open, so it shows no sites and no **Start Shift** (**Comenzar turno**) (**Commencer le service**) until it knows: check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**) under it. If Home says **Your sites did not load.** (**Sus sitios no se cargaron.**) (**Vos sites ne se sont pas chargés.**), check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**) under it. If it says **No sites available yet.** (**Todavía no hay sitios disponibles.**) (**Aucun site disponible pour le moment.**), ask your supervisor to assign you to the site. If a line says **A shift is still open at {site}. End it before starting another.** (**Todavía hay un turno abierto en {site}. Termínelo antes de comenzar otro.**) (**Un service est encore ouvert à {site}. Terminez-le avant d'en commencer un autre.**), a shift of yours is still open at that site: end it on Home first (see End your shift), then start this one. If the shift question says it could not reach OCSA, check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**).
 Words people use for this: my shift did not load, clock in, punch in, start work, begin my shift, log my hours, which shift, day shift, night shift, my sites did not load, a shift is still open.
 Picture: start-shift
-Last checked: 2026-10-20
+Last checked: 2026-11-09
 
 ## Change your shift (staff portal)
 Who can do this: anyone with a shift started at a site that has more than one shift
 1. Tap **Tasks** (**Tareas**) (**Tâches**).
-2. Under the card at the top, next to your shift's name, tap **Change shift** (**Cambiar turno**) (**Changer de service**).
-3. Tap the shift you are working, then **Use this shift** (**Usar este turno**) (**Choisir ce service**). The list redraws for that shift.
+2. Under the card at the top, next to your shift's name, and at a site with named shifts its hours, tap **Change shift** (**Cambiar turno**) (**Changer de service**).
+3. Tap the shift you are working, then **Use this shift** (**Usar este turno**) (**Choisir ce service**). The list redraws for that shift. At a site with named shifts it becomes that shift's own list, fresh: checks made on the shift you left stay with that shift and do not show on this one. Checks still waiting to send go first, before the shift changes.
 Words people use for this: wrong shift, switch shift, i am on nights, i am on days, change to night shift, the list shows the wrong shift.
 Picture: change-shift
-Last checked: 2026-10-02
+Last checked: 2026-11-09
 
 ## End your shift (staff portal)
 Who can do this: anyone with a shift started
@@ -115,10 +115,10 @@ Last checked: 2026-11-09
 Who can do this: the person who checked it, the same day
 1. Tap **Tasks** (**Tareas**) (**Tâches**).
 2. Tap the green box next to the task to uncheck it, or open the task and tap **Uncheck Task** (**Desmarcar tarea**) (**Décocher la tâche**). **Task unchecked** (**Tarea desmarcada**) (**Tâche décochée**) says it was.
-Only a check you made today can be taken back. Tapping a coworker's check leaves it in place and shows **Only the person who checked this can uncheck it.** (**Solo la persona que marcó esta tarea puede desmarcarla.**) (**Seule la personne qui a coché cette tâche peut la décocher.**) under the task; ask them, or your supervisor. Weekly, monthly and other repeating work done on an earlier day cannot be unchecked here.
+Only a check you made today can be taken back. Tapping a coworker's check leaves it in place and shows **Only the person who checked this can uncheck it.** (**Solo la persona que marcó esta tarea puede desmarcarla.**) (**Seule la personne qui a coché cette tâche peut la décocher.**) under the task; ask them, or your supervisor. Opening a coworker's check from its name shows who checked it and the same line, with no **Uncheck Task** (**Desmarcar tarea**) (**Décocher la tâche**). Weekly, monthly and other repeating work done on an earlier day cannot be unchecked here.
 Words people use for this: undo a check, i checked the wrong one, uncheck, take back a check.
 Picture: task-uncheck
-Last checked: 2026-10-02
+Last checked: 2026-11-09
 
 ## See your schedule (staff portal)
 Who can do this: anyone signed in
@@ -190,11 +190,11 @@ Who can do this: the person the task is assigned to
 2. Tap the task, the issue or the finding. An issue or a finding opens its sheet, with the same buttons.
 3. Tap **Cannot Resolve** (**No se puede resolver**) (**Impossible de résoudre**).
 4. Explain why it cannot be completed.
-5. Tap **Submit** (**Enviar**) (**Envoyer**). Your supervisors are told.
+5. Tap **Submit** (**Enviar**) (**Envoyer**). **Sent up as not done. The office sees your reason.** (**Se envió como no hecha. La oficina ve su motivo.**) (**Signalée comme non faite. Le bureau voit votre motif.**) says it went, and your supervisors are told. It sends once, however many times it is tapped.
 If it does not work: when it does not go, for example with no signal, the reason shows and what you typed stays. Tap **Submit** (**Enviar**) (**Envoyer**) again once you have signal. **This task is already finished or marked as unable to finish, so there is nothing more to send.** (**Esta tarea ya está terminada o marcada como que no se puede terminar, así que no hay nada más que enviar.**) (**Cette tâche est déjà terminée ou marquée comme impossible à terminer : il n'y a plus rien à envoyer.**) means the task was already finished or marked as unable to finish, from another phone or by the office, and **The problem behind this task is already closed, so there is nothing more to send.** (**El problema de esta tarea ya está cerrado, así que no hay nada más que enviar.**) (**Le problème lié à cette tâche est déjà fermé : il n'y a plus rien à envoyer.**) means its problem was already closed. There is nothing more to send, and the list is read again.
 Words people use for this: i cannot finish, cannot resolve, blocked task, something is in the way, no puedo terminar.
 Picture: assigned-cannot
-Last checked: 2026-10-18
+Last checked: 2026-11-09
 
 ## Report a problem at a site (staff portal)
 Who can do this: anyone signed in. Supervisors and admins also see the list of problems reported (see See the issues reported at your sites).
@@ -312,9 +312,10 @@ Last checked: 2026-10-02
 Who can do this: anyone signed in
 1. If Chat says **Your chats did not load. Try again in a minute.** (**Sus chats no cargaron. Intente de nuevo en un minuto.**) (**Vos discussions ne se sont pas chargées. Réessayez dans une minute.**), check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**).
 2. If it says **No chats are set up for you yet. Ask your supervisor.** (**Todavía no hay chats para usted. Pregunte a su supervisor.**) (**Aucune discussion n'est encore prévue pour vous. Demandez à votre superviseur.**), ask your supervisor.
-Words people use for this: chat is empty, no chats, chat will not load, chat keeps loading.
+3. If a chat's messages did not load, the chat says **This did not load. Try again.** (**No se cargó. Intente de nuevo.**) (**Le chargement a échoué. Réessayez.**) in place of its messages. Check your signal and tap **Try again** (**Intentar de nuevo**) (**Réessayer**).
+Words people use for this: chat is empty, no chats, chat will not load, chat keeps loading, the chat is blank, messages did not load.
 Picture: chat-none
-Last checked: 2026-10-02
+Last checked: 2026-11-09
 
 ## Ask Help a question (staff portal)
 Who can do this: anyone signed in

@@ -1302,6 +1302,34 @@ One journey, in English and Spanish, failing on the main of part 373:
   /sign/<id>, the email's button, signed out, signs in first and opens
   the request.
 
+## Seven findings field staff meet first (part 375, section 4)
+
+Seven of the October audit's open findings (`audit/FINDINGS_2026-10.md`)
+whose first reader is field staff on a phone, each needing nothing new
+from the API: PORT-36, PORT-53, PORT-54, PORT-60, PORT-62, PORT-65 and
+PORT-66. The rest stay open. `rowsCarryDay` gives every row of the task
+read its `checklistDay`, as the API's has since Step 198; the cases
+written before it read as they did.
+
+Five journeys, in English and Spanish, each failing on the main of part
+373:
+
+- `uncheckoffer` (PORT-62): the detail of an item a coworker checked
+  today says only they can uncheck it and who did, with no Uncheck Task
+  and nothing sent.
+- `assignedonce` (PORT-60, PORT-65, PORT-66): In Progress and Cannot
+  Resolve tapped twice at once send once; Cannot Resolve says it went up
+  with the reason; a problem an inspection card filed reads Inspection
+  finding: Lobby in the person's language.
+- `chatfault` (PORT-54): a chat whose messages did not load says so with
+  Try again, and Try again reads it.
+- `startinview` (PORT-36): at the Largest size on a 375 by 667 phone,
+  tapping a site brings Start Shift above the bottom bar, where a tap
+  reaches it.
+- `dayturn` (PORT-53): a list read at 3:58 AM is read again with the
+  status once the phone comes back after 4:00 AM, and it is the new
+  day's.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

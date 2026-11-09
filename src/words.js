@@ -1642,6 +1642,8 @@ export const WORDS = {
   "Closed automatically at {time}.": "Cerrado autom\u00e1ticamente a las {time}.",
   "Closed automatically.": "Cerrado autom\u00e1ticamente.",
   "Tries used: {n}": "Intentos usados: {n}",
+  "Inspection finding: {place}": "Hallazgo de inspecci\u00f3n: {place}",
+  "Sent up as not done. The office sees your reason.": "Se envi\u00f3 como no hecha. La oficina ve su motivo.",
   },
 };
 
@@ -3162,6 +3164,8 @@ WORDS.fr = {
   "Closed automatically at {time}.": "Ferm\u00e9 automatiquement \u00e0 {time}.",
   "Closed automatically.": "Ferm\u00e9 automatiquement.",
   "Tries used: {n}": "Essais utilis\u00e9s\u00a0: {n}",
+  "Inspection finding: {place}": "Constat d'inspection\u00a0: {place}",
+  "Sent up as not done. The office sees your reason.": "Signal\u00e9e comme non faite. Le bureau voit votre motif.",
 };
 
 // {name} is replaced after the language is chosen, so the

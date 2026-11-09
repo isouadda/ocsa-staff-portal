@@ -1466,3 +1466,5 @@ Picked from your schedule and the time you started. Change it if it is wrong.,El
 Closed automatically at {time}.,Cerrado automáticamente a las {time}.,Fermé automatiquement à {time}.,"A shift the office's system closed, with its note"
 Closed automatically.,Cerrado automáticamente.,Fermé automatiquement.,"A shift the office's system closed, with its note"
 Tries used: {n},Intentos usados: {n},Essais utilisés : {n},"My training, beside the tries left on a lesson, and a lesson's result"
+Inspection finding: {place},Hallazgo de inspección: {place},Constat d'inspection : {place},"Assigned, Issues and an issue's sheet: a problem an inspection card filed, with its zone"
+Sent up as not done. The office sees your reason.,Se envió como no hecha. La oficina ve su motivo.,Signalée comme non faite. Le bureau voit votre motif.,"Assigned and an issue's sheet, after Cannot Resolve"

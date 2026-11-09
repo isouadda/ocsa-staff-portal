@@ -1765,6 +1765,10 @@ function makeState(opts) {
     // nothing stamped); the next n acknowledgements and answers taken
     // whose answer is lost on the way back; and n attempts on the ladders
     // lesson voided and moved past 100, as the office did live.
+    // Part 375: every row of the task read carries checklistDay, the
+    // checklist day it was read on, as the API's has since Step 198. Behind
+    // this switch, so the cases written before it read as they did.
+    rowsCarryDay: o.rowsCarryDay === true,
     ackNotStored: Number(o.ackNotStored) || 0,
     ackLoseNext: Number(o.ackLoseNext) || 0,
     answersLoseNext: Number(o.answersLoseNext) || 0,
@@ -3772,7 +3776,7 @@ function createStub(opts) {
       const record = mode === "reference";
       // Part 375: the run the list reads, the last shift's check of a daily
       // item, and the item's own shifts, on every row.
-      return Object.assign(row, { period: x.period, dueToday: x.due, doneThisPeriod: record ? null : x.done, shownToday: x.shown, checkedToday: record ? null : x.checked, display: display }, mode ? { checklistMode: mode } : {}, { shiftRun: runView(x.run, lang), doneEarlier: record ? null : x.earlier, shiftLabels: null });
+      return Object.assign(row, { period: x.period, dueToday: x.due, doneThisPeriod: record ? null : x.done, shownToday: x.shown, checkedToday: record ? null : x.checked, display: display }, mode ? { checklistMode: mode } : {}, { shiftRun: runView(x.run, lang), doneEarlier: record ? null : x.earlier, shiftLabels: null }, state.rowsCarryDay ? { checklistDay: new Date(checklistDay(clockNow()) * DAY).toISOString().slice(0, 10) } : {});
     });
   };
 

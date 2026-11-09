@@ -9071,4 +9071,145 @@ const PART375_S3_JOURNEYS = [
 ];
 JOURNEYS.push(...PART375_S3_JOURNEYS);
 
+
+// --- Round 8 of the staff app (part 375), section 4 -----------------------
+//
+// Seven of the October audit's open findings that field staff meet first,
+// in five journeys. Each fails on the main of part 373.
+const resolvePatches = (stub, id) => stub.state.calls.filter(c => c.method === "PATCH" && c.path === "/api/clock/tasks/resolve/" + id);
+// A button by its own words, before any style sets them in capitals.
+const buttonSaying = (page, words) => page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.textContent.trim().toLowerCase() === w.toLowerCase() && x.offsetParent !== null); return !!b; }, words);
+const PART375_S4_JOURNEYS = [
+  {
+    id: "uncheckoffer",
+    label: "A coworker's check offers no Uncheck Task (PORT-62): the detail of an item a coworker checked today says only they can uncheck it, with nothing to tap that would be refused",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { links: {}, completions: [{ taskId: "task-1", userId: "u-three" }] } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await shows(app.page, '[data-task-row="task-1"]', 8000);
+        await pause(app.page, 600);
+        await app.page.evaluate(() => { const r = document.querySelector('[data-task-row="task-1"]'); const b = r && r.querySelectorAll("button")[1]; if (b) b.click(); });
+        await pause(app.page, 700);
+        const offered = await buttonSaying(app.page, say("Uncheck Task", language));
+        const theirs = await textAt(app.page, "[data-task-theirs]");
+        expect("the detail of a coworker's check offers no Uncheck Task", !offered, "Uncheck Task is offered");
+        expect("and says only the person who checked it can uncheck it", flat(theirs) === flat(say("Only the person who checked this can uncheck it.", language)), String(theirs));
+        expect("and who checked it", has(await bodyText(app.page), say("Checked by {firstName}", language).replace("{firstName}", "Robin")), (await bodyText(app.page)).slice(0, 200));
+        expect("and nothing was sent", !app.stub.state.calls.some(c => c.method === "DELETE" && /\/complete$/.test(c.path)), "an uncheck was sent");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "assignedonce",
+    label: "Assigned work sent once and said right (PORT-60, PORT-65, PORT-66): In Progress and Cannot Resolve tapped twice at once send once; Cannot Resolve says it went up with the reason, never Task updated to unable to resolve; a finding an inspection filed reads in the person's language",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { issueSheet: true } });
+      try {
+        // A problem an inspection card filed, assigned to the person as a
+        // task, its title in English as the card files it.
+        app.stub.state.sheetTasks.push({ task_id: "at-f1", label: "Inspection finding: Lobby", description: "Invented: the lobby floor is wet.", site_name: "North Building", zone: "Lobby", priority: "medium", resolution_status: "pending", source_issue_id: "iss-f1", issue_title: "Inspection finding: Lobby", issue_description: "Invented: the lobby floor is wet.", severity: "medium", task_created_at: "2026-10-01T20:00:00.000Z" });
+        await openTab(app.page, "issuetasks", language);
+        await pause(app.page, 1500);
+        const text = await bodyText(app.page);
+        const titled = say("Inspection finding: {place}", language).replace("{place}", "Lobby");
+        expect("a finding an inspection filed reads in the person's language", has(text, titled) && (language === "en" || !has(text, "Inspection finding: Lobby")), text.slice(0, 300));
+        // In Progress, twice at once, on the first task.
+        await app.page.evaluate(() => { const r = document.querySelector('[data-work-row="task:at-1"]') || document.querySelector("[data-work-row]"); if (r) r.click(); });
+        await pause(app.page, 700);
+        await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button, div button")).find(x => x.innerText.trim() === w); if (b) { b.click(); b.click(); } }, say("In Progress", language));
+        await pause(app.page, 1200);
+        const progress = app.stub.state.calls.filter(c => c.method === "PATCH" && /^\/api\/clock\/tasks\/resolve\//.test(c.path) && c.body && c.body.resolutionStatus === "in_progress");
+        expect("In Progress tapped twice at once sends once", progress.length === 1, progress.length + " sends");
+        // Cannot Resolve with a reason, its send tapped twice at once.
+        await app.page.evaluate(() => { const r = Array.from(document.querySelectorAll("[data-work-row]")).find(x => /at-f1/.test(x.getAttribute("data-work-row"))) || document.querySelector("[data-work-row]"); if (r) r.click(); });
+        await pause(app.page, 700);
+        await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say("Cannot Resolve", language));
+        await pause(app.page, 400);
+        await type(app.page, "textarea", "Invented: the floor needs a machine we do not have.");
+        await watchToasts(app.page);
+        await app.page.evaluate(() => { const ta = document.querySelector("textarea"); const panel = ta ? ta.parentElement : null; const bs = panel ? panel.querySelectorAll("button") : []; const b = bs[bs.length - 1]; if (b) { b.click(); b.click(); } });
+        await pause(app.page, 1500);
+        const cannot = app.stub.state.calls.filter(c => c.method === "PATCH" && /^\/api\/clock\/tasks\/resolve\//.test(c.path) && c.body && c.body.resolutionStatus === "unable_to_resolve");
+        expect("Cannot Resolve tapped twice at once sends once", cannot.length === 1, cannot.length + " sends");
+        const said = JSON.stringify(await app.page.evaluate(() => (window.__ocsaToasts ? window.__ocsaToasts.seen.map(x => x.text) : [])));
+        expect("and says it went up with the reason", has(said, say("Sent up as not done. The office sees your reason.", language)) && !has(said, say("Task updated to {status}", language).replace("{status}", say("unable to resolve", language))), said);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "chatfault",
+    label: "A chat whose messages fail to load says so (PORT-54): the chat reads that it did not load with Try again, never a blank screen, and Try again reads it",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        const ids = app.stub.state.chat.channels.map(c => c.id);
+        ids.forEach(id => { app.stub.state.refuse["GET /api/chat/channels/" + id + "/messages"] = { status: 500, body: { error: "Something went wrong on our end. Try again in a minute.", code: "common.serverError" } }; });
+        await openChat(app.page, language);
+        await pause(app.page, 1200);
+        const fault = await textAt(app.page, "[data-chat-messages-fault]");
+        expect("a chat whose messages did not load says so, with Try again", has(fault, say("This did not load. Try again.", language)) && has(fault, say("Try again", language)), String(fault) + " | " + (await bodyText(app.page)).slice(0, 200));
+        await spokenHere(app, language, expect);
+        ids.forEach(id => { delete app.stub.state.refuse["GET /api/chat/channels/" + id + "/messages"]; });
+        await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll("[data-chat-messages-fault] button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say("Try again", language));
+        await pause(app.page, 1500);
+        expect("Try again reads the chat", !(await app.page.evaluate(() => !!document.querySelector("[data-chat-messages-fault]"))) && (await app.page.evaluate(() => document.querySelectorAll(".sp-content [data-message-id], .sp-content [data-msg]").length)) >= 0 && !has(await bodyText(app.page), say("This did not load. Try again.", language)), (await bodyText(app.page)).slice(0, 200));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "startinview",
+    label: "Start Shift comes into view (PORT-36): at the Largest text size on a 375 by 667 phone, tapping a site brings Start Shift above the bottom bar, where a tap reaches it",
+    run: async (open, language, expect) => {
+      const app = await open({ textSize: "largest", stubOptions: { clockedIn: false, accountPreferences: { language: language, textSize: "largest" } } });
+      try {
+        await openTab(app.page, "clock", language);
+        await pause(app.page, 1200);
+        await app.page.evaluate(() => window.scrollTo(0, 0));
+        await pause(app.page, 300);
+        await pickSite(app.page, "North Building");
+        await pause(app.page, 1200);
+        const seen = await app.page.evaluate(() => {
+          const b = document.querySelector("[data-start-shift]");
+          if (!b) return null;
+          const r = b.getBoundingClientRect();
+          const x = r.left + r.width / 2, y = r.top + r.height / 2;
+          const hit = document.elementFromPoint(x, y);
+          return { top: r.top, bottom: r.bottom, h: window.innerHeight, reached: !!hit && (hit === b || b.contains(hit)) };
+        });
+        expect("once a site is tapped, Start Shift is on the screen above the bottom bar, where a tap reaches it", !!seen && seen.top >= 0 && seen.bottom <= seen.h && seen.reached, JSON.stringify(seen));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "dayturn",
+    label: "The checklist after the day turns (PORT-53): a phone with the list of a checklist day that ended at 4:00 AM reads the list and the status again when it comes back, so Home's count and the rows are the new day's",
+    run: async (open, language, expect) => {
+      const AT = "2026-10-02T07:58:00Z";
+      const app = await open({ now: AT, stubOptions: { now: AT, rowsCarryDay: true } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1500);
+        const lists = () => app.stub.state.calls.filter(c => c.method === "GET" && /^\/api\/sites\/site-north\/tasks$/.test(c.path)).length;
+        const before = lists();
+        await openTab(app.page, "home", language);
+        await pause(app.page, 600);
+        // 4:03 AM: the checklist day of October 1 has ended.
+        app.stub.state.now = Date.parse("2026-10-02T08:03:00Z");
+        await app.page.clock.fastForward("05:00");
+        await app.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+        await pause(app.page, 2000);
+        const after = lists();
+        const day = app.stub.state.calls.filter(c => c.method === "GET" && /^\/api\/sites\/site-north\/tasks$/.test(c.path)).length;
+        expect("once the day turns the list is read again, with the status after it", before >= 1 && after > before && day === after, before + " reads before, " + after + " after");
+        const rows = app.stub.peek.rows("site-north", "?day=today&locale=" + language);
+        expect("and it is the new day's list", rows.length > 0 && rows[0].checklistDay === "2026-10-02", rows.length ? rows[0].checklistDay : "no rows");
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART375_S4_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };
