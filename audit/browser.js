@@ -1,7 +1,7 @@
 // One place that opens a phone-shaped page with the whole API answered
 // by the stub, the clock fixed, and storage seeded the way a case wants.
 const { chromium } = require("playwright");
-const { createStub, NOW } = require("./stub");
+const { createStub, NOW, PHOTO_HOST } = require("./stub");
 const { streamUrl } = require("./stream");
 const fs = require("fs");
 const path = require("path");
@@ -125,6 +125,17 @@ async function openApp(browser, base, opts) {
       // Help's streaming route is sent to stream.js, which writes the
       // answer over a real connection a piece at a time.
       if (stream) { await route.fulfill({ status: 307, headers: { location: await streamUrl(stream) } }); return; }
+      await route.fulfill(reply);
+    } catch (e) {}
+  });
+
+  // Part 373: a photo's signed link (API part 370), fetched by an <img>,
+  // answered by the stub: the picture while the link lives, storage's 400
+  // once it ran out, and nothing with no signal.
+  await context.route((url) => url.hostname === PHOTO_HOST, async (route) => {
+    const reply = stub.photo(route.request().url());
+    try {
+      if (reply.abort) { await route.abort("failed"); return; }
       await route.fulfill(reply);
     } catch (e) {}
   });

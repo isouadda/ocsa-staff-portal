@@ -8532,4 +8532,106 @@ const PART373_S1_JOURNEYS = [
 ];
 JOURNEYS.push(...PART373_S1_JOURNEYS);
 
+// Part 373, section 2: pictures that come back by themselves. Since API
+// part 370 a photo is a link signed for 60 minutes; the stub signs every
+// stored <bucket>/<path> as it answers, serves the picture while the link
+// lives and storage's 400 once it ran out, and a case can have a route's
+// next answer sign its links already run out (photoStale).
+const HANDRAIL = "issue-photos/iss-b2/invented-handrail.jpg";
+const tokenOf = (u) => { try { return new URL(u).searchParams.get("token"); } catch (e) { return null; } };
+const pictureLoaded = (page, sel, ms) => page.waitForFunction((q) => { const i = document.querySelector(q); return !!i && i.complete && i.naturalWidth > 0; }, sel, { timeout: ms || 8000 }).then(() => true).catch(() => false);
+const pictureNow = (page, sel) => page.evaluate((q) => { const i = document.querySelector(q); return i ? { src: i.getAttribute("src"), loaded: i.complete && i.naturalWidth > 0, href: i.parentElement && i.parentElement.tagName === "A" ? i.parentElement.getAttribute("href") : null } : null; }, sel);
+const fetchesOf = (stub, object) => stub.state.photoFetches.filter(f => f.object === object);
+const issueSheetAt = async (app, language, id) => {
+  await openTab(app.page, "issues", language);
+  await pause(app.page, 1200);
+  await app.page.evaluate((x) => { const b = document.querySelector('[data-issue-row="' + x + '"]'); if (b) b.click(); }, id);
+  return shows(app.page, '[data-issue-sheet="' + id + '"]', 8000);
+};
+
+const PART373_S2_JOURNEYS = [
+  {
+    id: "photoreload",
+    label: "Pictures that come back by themselves (API part 370): a photo whose signed link ran out reads its record again once and draws the fresh link, on an issue's sheet, on a maintenance request from the issue, in the header, and on a checklist step from the copy kept on the phone with no signal, the read waiting for the signal; a fresh link that fails too draws a quiet box with no more reads, and an outside address is never read again",
+    run: async (open, language, expect) => {
+      const sheet = await open({ stubOptions: { person: MAINT_SUP, issueSheet: true, photoStale: { "GET /api/issues/iss-b2": 1, "GET /api/maintenance-requests/from-issue/iss-b2": 1 } } });
+      try {
+        sheet.stub.state.sheetIssues.find(i => i.id === "iss-b2").photos = [{ id: "ip-7", url: HANDRAIL }];
+        if (!(await issueSheetAt(sheet, language, "iss-b2"))) { expect("the issue's sheet opens", false, "no sheet"); return; }
+        const sel = '[data-issue-sheet="iss-b2"] a img';
+        const up = await pictureLoaded(sheet.page, sel, 8000);
+        const now = await pictureNow(sheet.page, sel);
+        const seen = fetchesOf(sheet.stub, HANDRAIL);
+        const reads = callsTo(sheet.stub, "GET", "/api/issues/iss-b2").length;
+        expect("an issue photo whose link ran out reads the issue again once and draws the fresh link", up && seen.some(f => !f.ok) && seen[seen.length - 1].ok && reads === 2 && !!now && tokenOf(now.src) === seen[seen.length - 1].token, JSON.stringify({ up, reads, seen, now }));
+        expect("and the photo's link opens the fresh one too", !!now && now.href === now.src, JSON.stringify(now));
+        await spokenHere(sheet, language, expect);
+        await sheet.page.evaluate(() => { const b = document.querySelector('[data-issue-action="maintenance"]'); if (b) b.click(); });
+        const form = '[data-maint-issue-photo="ip-7"] img';
+        const back = await pictureLoaded(sheet.page, form, 8000);
+        expect("on the maintenance request from the issue, its photo reads the prefill again once and draws the fresh link", back && callsTo(sheet.stub, "GET", "/api/maintenance-requests/from-issue/iss-b2").length === 2, callsTo(sheet.stub, "GET", "/api/maintenance-requests/from-issue/iss-b2").length + " reads; " + JSON.stringify(await pictureNow(sheet.page, form)));
+      } finally { await sheet.context.close(); }
+      // A fresh link that fails too: the quiet box, and the record is not
+      // read a third time.
+      const twice = await open({ stubOptions: { person: MAINT_SUP, issueSheet: true, photoStale: { "GET /api/issues/iss-b2": 2 } } });
+      try {
+        twice.stub.state.sheetIssues.find(i => i.id === "iss-b2").photos = [{ id: "ip-7", url: HANDRAIL }];
+        if (!(await issueSheetAt(twice, language, "iss-b2"))) return;
+        const box = await shows(twice.page, '[data-issue-sheet="iss-b2"] [data-photo-gone]', 8000);
+        await pause(twice.page, 2500);
+        expect("a fresh link that fails too draws a quiet box, and the issue is read again once and no more", box && callsTo(twice.stub, "GET", "/api/issues/iss-b2").length === 2 && !(await twice.page.evaluate(() => !!document.querySelector('[data-issue-sheet="iss-b2"] a img'))), callsTo(twice.stub, "GET", "/api/issues/iss-b2").length + " reads, box " + box);
+      } finally { await twice.context.close(); }
+      // The header's photo: the profile read at sign-in answers a link that
+      // ran out.
+      const face = "profile-photos/u-one/invented-face.jpg";
+      const head = await open({ stubOptions: { person: Object.assign({}, PERSON, { profilePhotoUrl: face }), photoStale: { "GET /api/users/profile/me": 1 } } });
+      try {
+        await pause(head.page, 1500);
+        const up = await pictureLoaded(head.page, '[data-avatar="header"]', 8000);
+        const seen = fetchesOf(head.stub, face);
+        expect("the header's photo whose link ran out reads the profile again once and draws the fresh link", up && seen.some(f => !f.ok) && seen[seen.length - 1].ok && callsTo(head.stub, "GET", "/api/users/profile/me").length === 2, JSON.stringify({ up, seen, reads: callsTo(head.stub, "GET", "/api/users/profile/me").length }));
+      } finally { await head.context.close(); }
+      // A checklist step's reference photo on the copy kept on the phone:
+      // an hour later, opened with no signal, its link has run out; the
+      // read waits for the signal, then draws the fresh link.
+      const doors = "task-media/tasks/invented-doors.jpg";
+      const kept = await open({ stubOptions: { taskMedia: { "task-1": doors } } });
+      try {
+        await openTab(kept.page, "tasks", language);
+        await shows(kept.page, '[data-task-row="task-1"]', 8000);
+        await pause(kept.page, 1500);
+        const keptLink = await kept.page.evaluate(() => { try { const v = JSON.parse(window.localStorage.getItem("ocsa-checklist-kept")); const lists = v && v.lists ? Object.values(v.lists) : []; const rows = lists.length && lists[0].answer ? (Array.isArray(lists[0].answer) ? lists[0].answer : lists[0].answer.tasks || []) : []; const r = rows.find(x => x && x.id === "task-1"); return r ? r.media_url : null; } catch (e) { return null; } });
+        expect("the checklist kept on the phone holds the step's signed link", typeof keptLink === "string" && !!tokenOf(keptLink), JSON.stringify(keptLink));
+        kept.stub.state.now = NOW.getTime() + 61 * 60 * 1000;
+        kept.stub.state.offline = true;
+        await reloadApp(kept);
+        await openTab(kept.page, "tasks", language);
+        await shows(kept.page, '[data-task-row="task-1"]', 8000);
+        await kept.page.evaluate(() => { const row = document.querySelector('[data-task-row="task-1"]'); const b = row && Array.from(row.querySelectorAll("button")).find(x => !x.getAttribute("aria-label")); if (b) b.click(); });
+        await pause(kept.page, 1500);
+        const refSel = 'img[alt="' + say("Task reference", language) + '"]';
+        const off = await pictureNow(kept.page, refSel);
+        expect("opened with no signal, the step shows its kept link, not loaded", !!off && tokenOf(off.src) === tokenOf(keptLink) && !off.loaded, JSON.stringify(off));
+        const readsOff = kept.stub.state.calls.filter(c => c.method === "GET" && /^\/api\/sites\/[^/]+\/tasks$/.test(c.path)).length;
+        kept.stub.state.offline = false;
+        await kept.page.evaluate(() => window.dispatchEvent(new Event("online")));
+        const up = await pictureLoaded(kept.page, refSel, 10000);
+        const after = await pictureNow(kept.page, refSel);
+        const seen = fetchesOf(kept.stub, doors);
+        expect("once the signal is back it reads the list again and draws the fresh link", up && !!after && tokenOf(after.src) !== tokenOf(keptLink) && seen[seen.length - 1].ok && kept.stub.state.calls.filter(c => c.method === "GET" && /^\/api\/sites\/[^/]+\/tasks$/.test(c.path)).length > readsOff, JSON.stringify({ up, after, seen }));
+      } finally { await kept.context.close(); }
+      // An outside address that does not load is drawn as it is, and the
+      // record is never read again for it.
+      const outside = await open({ stubOptions: { person: MAINT_SUP, issueSheet: true } });
+      try {
+        outside.stub.state.sheetIssues.find(i => i.id === "iss-b2").photos = [{ id: "ip-7", url: "https://photos.example.invalid/handrail.jpg" }];
+        if (!(await issueSheetAt(outside, language, "iss-b2"))) return;
+        await pause(outside.page, 2500);
+        expect("a photo at an outside address is never read again", callsTo(outside.stub, "GET", "/api/issues/iss-b2").length === 1, callsTo(outside.stub, "GET", "/api/issues/iss-b2").length + " reads");
+      } finally { await outside.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART373_S2_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };

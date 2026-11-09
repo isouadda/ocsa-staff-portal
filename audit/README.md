@@ -1129,6 +1129,43 @@ Five journeys, in English and Spanish, each failing on the main of part
   and notificationId to an open app and in the address of one it opens,
   and the app marks that notice alone read.
 
+## Pictures that come back by themselves (part 373, section 2)
+
+Since ocsa-api part 370 a photo in issue-photos, task-media or
+profile-photos is a link signed for 60 minutes. The stub signs every
+stored `<bucket>/<path>` under the API's photo keys (`photoUrl`,
+`media_url`, `photo_urls` and the rest, and the `url` of an item of
+`photos` or `issuePhotos`) as it answers, at
+`signed-photos.example.invalid`, a host of its own (the lesson pictures
+keep theirs), with a token that runs out an hour later on the stub's
+clock. The
+browser hands those fetches to `stub.photo`: the picture while the link
+lives, storage's 400 (`InvalidJWT`, the exp claim) once it ran out, and
+nothing with no signal; each fetch is kept in `state.photoFetches`. A
+case's `photoStale` names routes whose next answers sign their links
+already run out, as if read an hour ago, and `taskMedia` gives a site's
+checklist step a reference photo. Every older fixture's photo is an
+outside address and is answered as it is.
+
+One journey, in English and Spanish, failing on the main of part 369:
+
+- `photoreload`: an issue sheet's photo whose link ran out reads the
+  issue again once and draws the fresh link, its own link fresh too; the
+  same on a maintenance request from the issue; a fresh link that fails
+  too is a quiet box with no third read; the header's photo reads the
+  profile again; a checklist step's reference photo on the copy kept on
+  the phone, an hour later with no signal, waits and draws the fresh link
+  once the signal is back; and an outside address is never read again.
+
+Where a picture is drawn that this does not cover: a photo taken on an
+inspection walk and not yet sent, and the walk kept on the phone, is
+drawn from the link its upload answered, and the API has no record to
+read again until the inspection is sent (it still sends by that link);
+Help's photos are the phone's own copies; a form's photos, a maintenance
+request's photos and a signature are read behind the token and never
+run out; a lesson's pictures are links of their own, signed for twelve
+hours, which the lesson already says are missing when they do not load.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

@@ -1376,6 +1376,102 @@ function useKeptWork(userId, place, fields, photo, empty, restore) {
   }, [on, userId, place, photo, empty]);
 }
 
+// ------------------------------------------------------------
+// Pictures that come back by themselves (part 373, API part 370)
+//
+// Since API Round 7 a photo in issue-photos, task-media or profile-photos
+// reaches the portal as a link Supabase signs for 60 minutes, and the API
+// signs a new one each time it answers the record that holds it. A
+// picture drawn from such a link that fails to load (it ran out on a
+// screen left open, or on a copy kept on this phone) reads its record
+// again once and draws the fresh link the answer carries for the same
+// object: the link's address with its query left off, wherever it sits in
+// the answer. Pictures of one record read it once between them. A read
+// with no signal is not counted: the picture tries again when the signal
+// comes back. A fresh link that fails too, or a record that no longer
+// holds the photo, draws a quiet box in its place, and a picture that
+// loads may be read again the next time it fails. A picture drawn from
+// any other address is drawn as it is.
+// ------------------------------------------------------------
+const SIGNED_PHOTO = /\/storage\/v1\/object\/sign\/(issue-photos|task-media|profile-photos)\//;
+function photoObject(u) {
+  if (typeof u !== "string" || !u) return null;
+  try { const x = new URL(u, window.location.href); return SIGNED_PHOTO.test(x.pathname) ? x.origin + x.pathname : null; } catch (e) { return null; }
+}
+// The record reads on their way, by what they read.
+const photoReads = new Map();
+function photoReread(key, read) {
+  if (photoReads.has(key)) return photoReads.get(key);
+  const p = Promise.resolve().then(read);
+  photoReads.set(key, p);
+  const done = () => { if (photoReads.get(key) === p) photoReads.delete(key); };
+  p.then(done, done);
+  return p;
+}
+// The link in an answer that names the same object, at any depth.
+function freshLinkIn(answer, object) {
+  let hit = null;
+  const walk = (v, depth) => {
+    if (hit || depth > 12) return;
+    if (typeof v === "string") { if (photoObject(v) === object) hit = v; return; }
+    if (Array.isArray(v)) { v.forEach(x => walk(x, depth + 1)); return; }
+    if (v && typeof v === "object") Object.keys(v).forEach(k => walk(v[k], depth + 1));
+  };
+  walk(answer, 0);
+  return hit;
+}
+// Each object's fresh link, from the one read made since it last loaded,
+// so two pictures of one photo (the header's and Profile's) share it.
+const photoFresh = new Map();
+// src: the link as the screen has it. reread: reads the record again and
+// answers it; readKey names that read, so pictures of one record share
+// it. onFresh(link, answer): told of a fresh link, for a screen that keeps
+// it. video draws a <video>. link wraps the picture in a link to it, its
+// own address kept fresh with it, styled by linkStyle.
+function FreshImg({ src, reread, readKey, onFresh, video, link, linkStyle, linkLabel, alt, style, ...rest }) {
+  const [shown, setShown] = useState(src);
+  const [gone, setGone] = useState(false);
+  const [waiting, setWaiting] = useState(false);
+  // The object this picture already read again for, until it loads, and
+  // the fresh link it last handed to onFresh. A new src the screen read
+  // for itself gets its own try; the link handed back up does not.
+  const tried = useRef(null);
+  const handed = useRef(null);
+  useEffect(() => { if (src !== handed.current) tried.current = null; setShown(src); setGone(false); setWaiting(false); }, [src]);
+  const object = photoObject(shown);
+  const failed = () => {
+    if (!object || !reread || tried.current === object) { setGone(true); return; }
+    tried.current = object;
+    let ask = photoFresh.get(object);
+    if (!ask) {
+      ask = photoReread(readKey || object, reread).then(answer => ({ fresh: freshLinkIn(answer, object), answer: answer }));
+      photoFresh.set(object, ask);
+    }
+    ask.then(({ fresh, answer }) => {
+      if (fresh && fresh !== shown) { setShown(fresh); handed.current = fresh; if (onFresh) onFresh(fresh, answer); } else setGone(true);
+    }).catch((err) => {
+      if (photoFresh.get(object) === ask) photoFresh.delete(object);
+      if (err && err.status) { setGone(true); return; }
+      tried.current = null;
+      setWaiting(true);
+    });
+  };
+  useEffect(() => {
+    if (!waiting) return undefined;
+    const back = () => { setWaiting(false); failed(); };
+    window.addEventListener("online", back);
+    return () => window.removeEventListener("online", back);
+  }, [waiting, shown]);
+  const loaded = () => { if (object) photoFresh.delete(object); tried.current = null; };
+  const box = gone
+    ? <span data-photo-gone="1" role={alt ? "img" : undefined} aria-label={alt || undefined} style={{ ...style, display: "block", minHeight: 48, background: "rgba(127,127,127,0.14)" }} />
+    : video
+      ? <video src={shown} onError={failed} onLoadedData={loaded} style={style} {...rest} />
+      : <img src={shown} alt={alt} onError={failed} onLoad={loaded} data-photo-fresh={shown !== src ? "1" : undefined} style={style} {...rest} />;
+  if (!link) return box;
+  return <a href={shown} target="_blank" rel="noopener noreferrer" aria-label={linkLabel} style={linkStyle}>{box}</a>;
+}
+
 // A walk's site checklist, kept on this phone as it is scored, by person
 // and inspection (Step 313), so leaving and coming back continues it; the
 // safety part is kept by the API as the inspector's draft. Every read and
@@ -3916,7 +4012,7 @@ export default function OCSAStaffPortal() {
             <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: TAP, flex: "1 1 0" }}>
                 <button onClick={() => setActiveTab("profile")} aria-label={tr("Profile")} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, minWidth: TAP, minHeight: TAP }}>
-                  {user?.profilePhotoUrl ? <img src={user.profilePhotoUrl} alt="" style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", border: "2px solid " + GOLD }} /> : <div style={{ width: 38, height: 38, borderRadius: "50%", background: themeMode === "light" ? "rgba(255,255,255,0.92)" : "rgba(231,176,23,0.15)", border: "2px solid " + (themeMode === "light" ? PANEL_LIGHT : GOLD), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 600, color: themeMode === "light" ? PANEL_LIGHT : GOLD }}>{user?.firstName?.[0]}{user?.lastName?.[0]}</div>}
+                  {user?.profilePhotoUrl ? <FreshImg src={user.profilePhotoUrl} reread={() => api("/api/users/profile/me", { token })} readKey="profile-me" onFresh={(fresh) => setUser(prev => (prev ? { ...prev, profilePhotoUrl: fresh } : prev))} data-avatar="header" alt="" style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", border: "2px solid " + GOLD }} /> : <div style={{ width: 38, height: 38, borderRadius: "50%", background: themeMode === "light" ? "rgba(255,255,255,0.92)" : "rgba(231,176,23,0.15)", border: "2px solid " + (themeMode === "light" ? PANEL_LIGHT : GOLD), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 600, color: themeMode === "light" ? PANEL_LIGHT : GOLD }}>{user?.firstName?.[0]}{user?.lastName?.[0]}</div>}
                 </button>
                 <div style={{ minWidth: 0, flex: "1 1 auto" }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: "#F8F7F4", fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.firstName} {user?.lastName}</div>
@@ -3950,7 +4046,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} at={scheduleAt} />}
-              {activeTab === "tasks" && <TasksView token={token} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
+              {activeTab === "tasks" && <TasksView token={token} rereadList={() => (checklistAsk ? api(checklistAsk, { token }) : Promise.reject(Object.assign(new Error(ERR_GENERIC), { status: 404 })))} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView userId={user && user.id} assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView userId={user && user.id} token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} onOpenDocument={(d) => openLibraryDoc(d, null)} />}
@@ -6161,7 +6257,7 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
 // focus: a task a notice asked for, { id, at }; with a shift open and the
 // task on its list, its details open, else the list, and onFocused says it
 // was looked for either way.
-function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, pendingKept, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, reference, standalone, watch, focus, onFocused, alsoHere, t }) {
+function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, pendingKept, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, reference, standalone, watch, focus, onFocused, alsoHere, rereadList, t }) {
   const [detail, setDetail] = useState(null);
   useEffect(() => {
     if (!focus) return;
@@ -6299,8 +6395,8 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
             <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{place}</div>
             {byWho && <div style={{ ...rowLineSt, fontSize: 12, marginTop: 0, marginBottom: 12 }}>{byWho}</div>}
             {w.description && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Instructions")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{w.description}</div></div>)}
-            {item.media_url && item.media_type === "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Video")}</div><video src={item.media_url} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} /></div>)}
-            {item.media_url && item.media_type !== "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Photo")}</div><img src={item.media_url} alt={tr("Task reference")} style={{ width: "100%", borderRadius: R.md, maxHeight: 240, objectFit: "cover" }} /></div>)}
+            {item.media_url && item.media_type === "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Video")}</div><FreshImg video src={item.media_url} reread={rereadList} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} /></div>)}
+            {item.media_url && item.media_type !== "video" && (<div style={{ marginBottom: 14 }}><div style={detailSecLabel}>{tr("Reference Photo")}</div><FreshImg src={item.media_url} reread={rereadList} alt={tr("Task reference")} style={{ width: "100%", borderRadius: R.md, maxHeight: 240, objectFit: "cover" }} /></div>)}
             {item.due_date && (<div style={{ display: "flex", gap: 12, marginBottom: 14 }}><div style={{ fontSize: 11, color: t.textMut }}>{tr("Due Date:")} <span style={{ color: t.text, fontWeight: 500 }}>{dueDayText(item.due_date, { month: "short", day: "numeric", year: "numeric" })}</span></div>{item.due_time && <div style={{ fontSize: 11, color: t.textMut }}>{tr("Time:")} <span style={{ color: t.text, fontWeight: 500 }}>{clockTime(item.due_time)}</span></div>}</div>)}
           </div>
           {action}
@@ -6529,7 +6625,7 @@ function SiteTaskListSheet({ token, site, language, watch, onClose, t }) {
     <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div role="dialog" aria-modal="true" aria-label={tr("Task list for this site")} data-site-list-sheet={site.siteId} data-site-list-watch={following ? "1" : undefined} onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, height: "var(--ocsa-vh, 100vh)", maxHeight: "var(--ocsa-dvh, 100dvh)", display: "flex", flexDirection: "column", borderTop: "1px solid " + t.borderSolid }}>
         <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-          <TasksView token={token} clockStatus={cs} tasks={rows} tasksFailed={failed} onRetryTasks={load} completedTaskIds={ticks} pendingTicks={null} tickOverrides={NO_OVERRIDES} toggleTask={() => {}} rowNote={null} onRowNote={() => {}} apiWords={lang === language} listDay={day} shiftSheet={null} onChangeShift={() => {}} nowMs={Date.now()} reference={!following} standalone watch={following} t={t} />
+          <TasksView token={token} rereadList={() => api("/api/sites/" + encodeURIComponent(site.siteId) + "/tasks?day=today&locale=" + languageToSend(language), { token })} clockStatus={cs} tasks={rows} tasksFailed={failed} onRetryTasks={load} completedTaskIds={ticks} pendingTicks={null} tickOverrides={NO_OVERRIDES} toggleTask={() => {}} rowNote={null} onRowNote={() => {}} apiWords={lang === language} listDay={day} shiftSheet={null} onChangeShift={() => {}} nowMs={Date.now()} reference={!following} standalone watch={following} t={t} />
         </div>
         <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
           <button type="button" onClick={onClose} style={{ width: "100%", minHeight: 44, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Close")}</button>
@@ -8286,7 +8382,7 @@ function IssueSheet({ token, user, at, tasks, onClose, onChanged, showToast, lkC
             <div style={{ marginTop: 12 }}>
               <div style={labelSt}>{tr("Photos")}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
-                {view.photos.filter(p => p && p.url).map(p => <a key={p.id} href={p.url} target="_blank" rel="noopener noreferrer"><img src={p.url} alt="" style={{ width: 72, height: 72, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt }} /></a>)}
+                {view.photos.filter(p => p && p.url).map(p => <FreshImg key={p.id} link src={p.url} reread={() => api("/api/issues/" + encodeURIComponent(id), { token })} readKey={"issue:" + id} alt="" style={{ width: 72, height: 72, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt }} />)}
               </div>
             </div>
           )}
@@ -8294,7 +8390,7 @@ function IssueSheet({ token, user, at, tasks, onClose, onChanged, showToast, lkC
             <div data-issue-resolution="1" style={{ marginTop: 14, padding: "10px 12px", borderRadius: R.md, background: t.greenSubtle, border: "1px solid " + GREEN + "40" }}>
               <div style={{ ...labelSt, color: ink(t, GREEN) }}>{tr("What was done")}</div>
               {view.resolutionNote && <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{view.resolutionNote}</div>}
-              {view.resolutionPhoto && <a href={view.resolutionPhoto} target="_blank" rel="noopener noreferrer"><img src={view.resolutionPhoto} alt="" style={{ width: 72, height: 72, marginTop: 8, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} /></a>}
+              {view.resolutionPhoto && <FreshImg link src={view.resolutionPhoto} reread={() => api("/api/issues/" + encodeURIComponent(id), { token })} readKey={"issue:" + id} alt="" style={{ width: 72, height: 72, marginTop: 8, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} />}
             </div>
           )}
           {view.source === "inspection" && view.status === "resolved" && <div style={{ marginTop: 12, fontSize: 12, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD }}>{tr("Waiting for a check")}</div>}
@@ -8438,7 +8534,7 @@ function AssignedTasksView({ assignedTasks, work, onOpenIssue, onOpenRequest, fa
             {detail.resolution_status && (<div style={{ marginBottom: 12 }}><span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "3px 8px", borderRadius: R.sm, background: detail.resolution_status === "in_progress" ? ORANGE + "18" : GOLD + "18", color: ink(t, detail.resolution_status === "in_progress" ? ORANGE : t.goldText), fontFamily: FONT_HEAD }}>{statusWord(detail.resolution_status)}</span></div>)}
             {info.desc && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Description")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{info.desc}</div></div>)}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{info.assignedByLabel}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{info.assignedBy}</div></div><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Site")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{detail.site_name}</div></div>{detail.due_date && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Due Date")}</div><div style={{ fontSize: 13, color: ink(t, ORANGE), fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{dueDayText(detail.due_date, { month: "short", day: "numeric", year: "numeric" })}{detail.due_time ? " " + tr("at {time}", { time: clockTime(detail.due_time) }) : ""}</div></div>}{detail.task_created_at && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Assigned")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.task_created_at).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })}</div></div>}</div>
-            {info.photoUrl && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{info.mediaType === "video" ? tr("Attached Video") : tr("Attached Photo")}</div>{info.mediaType === "video" ? (<video src={info.photoUrl} controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} />) : (<img src={info.photoUrl} alt={tr("Task")} style={{ width: "100%", borderRadius: R.md, maxHeight: 200, objectFit: "cover", border: "1px solid " + t.borderSolid }} />)}</div>)}
+            {info.photoUrl && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{info.mediaType === "video" ? tr("Attached Video") : tr("Attached Photo")}</div>{info.mediaType === "video" ? (<FreshImg video src={info.photoUrl} reread={() => api("/api/clock/tasks/assigned", { token })} readKey="assigned" controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} />) : (<FreshImg src={info.photoUrl} reread={() => api("/api/clock/tasks/assigned", { token })} readKey="assigned" alt={tr("Task")} style={{ width: "100%", borderRadius: R.md, maxHeight: 200, objectFit: "cover", border: "1px solid " + t.borderSolid }} />)}</div>)}
             {!isResolving && !isCantResolve && (<div style={{ display: "flex", gap: 6, marginTop: 10 }}>{detail.resolution_status !== "in_progress" && (<button onClick={() => { resolveTask(detail.task_id, "in_progress", null, null).catch(err => showToast(tr(err.message), "error")); setDetail(null); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + ORANGE, background: "transparent", color: ink(t, ORANGE), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("In Progress")}</button>)}<button onClick={() => { clearForm(); setActivePanel("resolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + GREEN, background: "transparent", color: ink(t, GREEN), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Resolved")}</button><button onClick={() => { clearForm(); setActivePanel("cantresolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: ink(t, RED), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cannot Resolve")}</button></div>)}
           </div>
           {isResolving && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.greenSubtle }}>
@@ -8705,7 +8801,7 @@ function ClientRequestsSection({ token, user, rows, onChanged, showToast, openId
           {r.note && <div style={{ ...lineSt, color: t.text, marginTop: 6, whiteSpace: "pre-line" }}>{r.note}</div>}
           {r.photos.length > 0 && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-              {r.photos.filter(p => p && p.url).map(p => <a key={p.id} href={p.url} target="_blank" rel="noopener noreferrer"><img src={p.url} alt="" style={{ width: 64, height: 64, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt }} /></a>)}
+              {r.photos.filter(p => p && p.url).map(p => <FreshImg key={p.id} link src={p.url} reread={() => api("/api/issues/requests", { token })} readKey="client-requests" alt="" style={{ width: 64, height: 64, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt }} />)}
             </div>
           )}
           <RequestTarget label="Respond by {when}" at={r.respondBy} state={r.respondState} t={t} />
@@ -17341,7 +17437,7 @@ function MaintenanceForm({ token, user, at, onClose, onQueued, onSent, onOpenReq
               <div style={{ fontSize: 12, color: t.textSec, marginBottom: 6 }}>{tr("Send the issue's photos too:")}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {issue.photos.map(p => { const on = issuePick.indexOf(p.id) !== -1; return (
-                  <button key={p.id} type="button" role="checkbox" aria-checked={on} aria-label={tr("Photo")} data-maint-issue-photo={p.id} onClick={() => setIssuePick(prev => (on ? prev.filter(x => x !== p.id) : prev.length + photos.length < max ? prev.concat([p.id]) : prev))} style={{ padding: 0, width: 72, height: 72, borderRadius: R.sm, border: "2px solid " + (on ? GOLD : t.borderSolid), overflow: "hidden", background: t.hover, cursor: "pointer" }}><img src={p.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: on ? 1 : 0.6 }} /></button>
+                  <button key={p.id} type="button" role="checkbox" aria-checked={on} aria-label={tr("Photo")} data-maint-issue-photo={p.id} onClick={() => setIssuePick(prev => (on ? prev.filter(x => x !== p.id) : prev.length + photos.length < max ? prev.concat([p.id]) : prev))} style={{ padding: 0, width: 72, height: 72, borderRadius: R.sm, border: "2px solid " + (on ? GOLD : t.borderSolid), overflow: "hidden", background: t.hover, cursor: "pointer" }}><FreshImg src={p.url} reread={() => api(MAINT_BASE + "/from-issue/" + encodeURIComponent(fromIssue), { token })} readKey={"from-issue:" + fromIssue} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: on ? 1 : 0.6 }} /></button>
                 ); })}
               </div>
             </div>
@@ -17957,9 +18053,9 @@ function FkInspection({ token, id, onBack, showToast, t }) {
   const photoRow = (urls, tag) => (urls.length === 0 ? null : (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
       {urls.map((u, i) => (
-        <a key={u + i} href={u} target="_blank" rel="noopener noreferrer" aria-label={tr("Photo {n} of {count}", { n: i + 1, count: urls.length })} data-fk-photo={tag} style={{ display: "block", width: 72, height: 72, borderRadius: R.sm, overflow: "hidden", border: "1px solid " + t.borderSolid, background: t.cardAlt }}>
-          <img src={u} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-        </a>
+        <span key={u + i} data-fk-photo={tag} style={{ display: "block" }}>
+          <FreshImg link linkLabel={tr("Photo {n} of {count}", { n: i + 1, count: urls.length })} linkStyle={{ display: "block", width: 72, height: 72, borderRadius: R.sm, overflow: "hidden", border: "1px solid " + t.borderSolid, background: t.cardAlt }} src={u} reread={() => api("/api/inspections/scheduled/" + encodeURIComponent(id), { token })} readKey={"inspection:" + id} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        </span>
       ))}
     </div>
   ));
@@ -20003,7 +20099,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
       <div style={{ ...cardSt, display: "flex", alignItems: "center", gap: 16 }}>
         <div style={{ position: "relative" }}>
           {u.profilePhotoUrl
-            ? <img src={u.profilePhotoUrl} alt="" style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover", border: "2px solid " + GOLD }} />
+            ? <FreshImg src={u.profilePhotoUrl} reread={() => api("/api/users/profile/me", { token })} readKey="profile-me" onFresh={(fresh) => setUser(prev => (prev ? { ...prev, profilePhotoUrl: fresh } : prev))} data-avatar="profile" alt="" style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover", border: "2px solid " + GOLD }} />
             : <div style={{ width: 72, height: 72, borderRadius: "50%", background: t.goldSubtle, border: "2px solid " + GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD }}>{u.firstName?.[0]}{u.lastName?.[0]}</div>
           }
           <label style={{ position: "absolute", bottom: -11, right: -11, width: TAP, height: TAP, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>

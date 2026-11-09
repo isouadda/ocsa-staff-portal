@@ -1608,6 +1608,16 @@ function makeState(opts) {
     // case says not, and the person's shifts the office cancelled, which
     // GET /api/pickups/my-schedule/:shiftId still answers.
     previewRoute: o.previewRoute !== false,
+    // Part 373: every photo link signed so far, by its token, with the
+    // object it names and when it runs out on the stub's clock; each fetch
+    // of one; and the routes whose next answers sign their links already
+    // run out, as if read an hour ago ({ "GET /api/issues/iss-b2": 1 }).
+    photoLinks: {},
+    photoSeq: 0,
+    photoFetches: [],
+    photoStale: Object.assign({}, o.photoStale || {}),
+    // A step of a site's checklist with a reference photo, by task id.
+    taskMedia: Object.assign({}, o.taskMedia || {}),
     cancelledShifts: Array.isArray(o.cancelledShifts) ? o.cancelledShifts.map(x => Object.assign({}, x)) : [],
     person: o.person || PERSON,
     accountPreferences: o.accountPreferences === undefined ? {} : o.accountPreferences,
@@ -2531,6 +2541,22 @@ const SIGNATURE_MAX_BYTES = 300 * 1024;
 // A one pixel PNG, the bytes every streamed image falls back to.
 const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
 const image = (contentType, bytes) => ({ status: 200, contentType: contentType, body: bytes });
+
+// Part 373: photos behind short links, as ocsa-api's helpers/photoLinks.js
+// answers them since part 370. A row stores <bucket>/<path> for the three
+// buckets, and every answer carries, under the field it always had, a
+// link signed when it is read for 60 minutes; storage answers an image
+// for a link that lives and its 400 for one that ran out. The keys are
+// the API's PHOTO_KEYS and LIST_KEYS. A value that names none of the
+// three buckets (an outside address, every older fixture) is answered as
+// it is stored.
+const PHOTO_HOST = "signed-photos.example.invalid";
+const PHOTO_KEYS = new Set(["photo_url", "photoUrl", "photo_urls", "photoUrls", "media_url", "mediaUrl", "resolution_photo_url", "resolutionPhotoUrl", "task_photo_url", "resolved_photo_url", "issue_photo_url", "profile_photo_url", "profilePhotoUrl", "otherPhotoUrl", "file_url"]);
+const PHOTO_LISTS = new Set(["photos", "issuePhotos"]);
+const STORED_PHOTO = /^(issue-photos|task-media|profile-photos)\/[^?#\s]+$/;
+const PHOTO_LIFE_MS = 60 * 60 * 1000;
+// Storage's answer to a link whose time ran out.
+const PHOTO_RAN_OUT = { statusCode: "400", error: "InvalidJWT", message: "\"exp\" claim timestamp check failed" };
 
 // What a request's multipart body holds: one part per file, each with the
 // field name, the file name, the type the browser said, and the bytes.
@@ -4349,7 +4375,7 @@ function createStub(opts) {
       const at = after.length ? Math.max.apply(null, after.map(c => c.at)) : null;
       return json(200, { changed: at !== null, at: at === null ? null : new Date(at).toISOString().replace(/Z$/, "000Z") });
     }
-    if (method === "GET" && /^\/api\/sites\/[^/]+\/tasks$/.test(pathname)) return json(200, tasks(pathname.split("/")[3], search));
+    if (method === "GET" && /^\/api\/sites\/[^/]+\/tasks$/.test(pathname)) return json(200, tasks(pathname.split("/")[3], search).map(r => (state.taskMedia[r.id] ? Object.assign(r, { media_url: state.taskMedia[r.id], media_type: "image", has_details: true }) : r)));
     // Step 324: a site's day, as API Step 319 builds GET
     // /api/sites/:siteId/shift-blocks/schedule?shift=&date=.
     const daySchedule = pathname.match(/^\/api\/sites\/([^/]+)\/shift-blocks\/schedule$/);
@@ -6122,14 +6148,48 @@ function createStub(opts) {
     let data;
     try { data = JSON.parse(answer.body); } catch (e) { return answer; }
     payIn(data, method + " " + pathname, state.person);
+    data = withLinks(data, method + " " + pathname);
     return Object.assign({}, answer, { body: JSON.stringify(translate(data, method, pathname, search, accept)) });
+  }
+
+  // Part 373: every answer's stored photos, signed as it goes out (the
+  // API's photoLinks.withLinks), already run out for a route a case named
+  // in photoStale.
+  function withLinks(data, route) {
+    let stale = false;
+    if (state.photoStale[route] > 0) { stale = true; state.photoStale[route] -= 1; }
+    const sign = (stored) => {
+      state.photoSeq += 1;
+      const token = "t" + state.photoSeq;
+      state.photoLinks[token] = { object: stored, expiresAt: clockNow() + (stale ? -60 * 1000 : PHOTO_LIFE_MS) };
+      return "https://" + PHOTO_HOST + "/storage/v1/object/sign/" + stored + "?token=" + token;
+    };
+    const walk = (v, key) => {
+      if (typeof v === "string") return PHOTO_KEYS.has(key) && STORED_PHOTO.test(v) ? sign(v) : v;
+      if (Array.isArray(v)) return v.map(x => (PHOTO_LISTS.has(key) && x && typeof x === "object" && !Array.isArray(x) && typeof x.url === "string" && STORED_PHOTO.test(x.url) ? Object.assign(walk(x, ""), { url: sign(x.url) }) : walk(x, key)));
+      if (v && typeof v === "object") { const out = {}; Object.keys(v).forEach(k => { out[k] = walk(v[k], k); }); return out; }
+      return v;
+    };
+    return walk(data, "");
+  }
+  // A photo's link fetched by an <img>: the picture while it lives, the
+  // storage's 400 once it ran out, nothing at all with no signal.
+  function photo(url) {
+    const u = new URL(url);
+    const token = u.searchParams.get("token") || "";
+    const link = state.photoLinks[token] || null;
+    const ok = !state.offline && !!link && link.expiresAt > clockNow() && decodeURIComponent(u.pathname) === "/storage/v1/object/sign/" + link.object;
+    state.photoFetches.push({ object: link ? link.object : null, token: token, ok: ok });
+    if (state.offline) return { abort: true };
+    if (!ok) return { status: 400, contentType: "application/json", body: JSON.stringify(PHOTO_RAN_OUT) };
+    return { status: 200, contentType: "image/png", body: ONE_PIXEL_PNG };
   }
 
   // peek reads what the API would answer right now without asking it, so
   // nothing is recorded: what the status would count, a list as a request
   // would get it, and the open session. A journey judges a screen by it.
   const peek = { progress: () => progress(), rows: (siteId, search) => tasks(siteId, search), session: () => sessionOf() };
-  return { handle: (method, pathname, search, body, accept, headers) => remember(handle(method, pathname, search, body, headers), method, pathname, search, accept), state: state, peek: peek, noteChange: noteChange };
+  return { handle: (method, pathname, search, body, accept, headers) => remember(handle(method, pathname, search, body, headers), method, pathname, search, accept), state: state, peek: peek, noteChange: noteChange, photo: photo };
 }
 
 function draftOf(state) {
@@ -6142,7 +6202,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
