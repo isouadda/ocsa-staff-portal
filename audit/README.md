@@ -1277,6 +1277,31 @@ Three journeys, in English and Spanish, each failing on the main of part
   the tries left, and no attempt number shows, though three voided
   attempts pushed the next one to 104.
 
+## Help for the shift's own list and a warning's email (part 375, section 3)
+
+The guide's Check off a task on your checklist says the list is the
+shift's list, what the last shift's grey line means, that the overnight
+list stays one list from start to end, and that Start Shift asks which
+shift once with the person's already picked. Sign for something you
+received says a signed copy of a warning comes by email and that the
+email's button opens the signing screen, signing in first. The training
+entries the lesson's changes touch (See your training, Take a training
+lesson, Find and take your trainings) read the tries used, the closed
+quiz and a signature to sign again, and Check off tasks with no signal
+says the phone keeps the shift's list only. The `tasks` picture is taken
+at North Building with named shifts, so it shows the evening shift's
+line and the day shift's grey line; every picture of the five entries
+was taken again in English and Spanish.
+
+One journey, in English and Spanish, failing on the main of part 373:
+
+- `shiftguide`: the entries say each of those things, the checklist
+  entry names Start Shift, the sheet with the pick, Use this shift,
+  Change shift, Tasks and the last shift's line, and each is on the
+  screens those steps walk through in the screen's language; and
+  /sign/<id>, the email's button, signed out, signs in first and opens
+  the request.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

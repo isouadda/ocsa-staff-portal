@@ -9016,4 +9016,59 @@ const PART375_S2_JOURNEYS = [
 ];
 JOURNEYS.push(...PART375_S2_JOURNEYS);
 
+
+// --- Round 8 of the staff app (part 375), section 3 -----------------------
+//
+// Help's steps for the shift's own list and for signing a warning from
+// its email match the screen. Fails on the main of part 373.
+const CHECK_TITLE = "Check off a task on your checklist (staff portal)";
+const SIGN_TITLE = "Sign for something you received";
+const boldNames = (entry, language) => Array.from(entry.matchAll(/\*\*([^*]+)\*\* \(\*\*([^*]+)\*\*\) \(\*\*([^*]+)\*\*\)/g)).map(m => (language === "es" ? m[2] : m[1]));
+// A name with a {placeholder} matches the screen as a pattern.
+const nameOnScreen = (all, name) => (name.indexOf("{") === -1 ? has(all, name) : new RegExp(name.replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\{\w+\}/g, "[\\s\\S]+?"), "i").test(all));
+const PART375_S3_JOURNEYS = [
+  {
+    id: "shiftguide",
+    label: "Help's steps for the shift's own list and for a warning's email match the screen (part 375): Check off a task names Start Shift's sheet with the pick, Use this shift, Change shift and the last shift's line, each on the screen in its language; the warning's email button, /sign/<id>, signs in first and opens the request",
+    run: async (open, language, expect) => {
+      const entry = guideEntry(CHECK_TITLE);
+      const sign = guideEntry(SIGN_TITLE);
+      expect("the checklist entry says the list is the shift's, the grey line, the overnight list and Start Shift's pick", has(entry, "your list is your shift's list") && has(entry, "did this at") && has(entry, "overnight list stays one list from start to end") && has(entry, "already picked"), entry.slice(0, 200));
+      expect("the signing entry says the signed copy comes by email and the email's button opens the signing screen", has(sign, "a signed copy comes to your email") && has(sign, "Its button opens the signing screen"), sign.slice(0, 200));
+      const wanted = ["Start Shift", "Which shift are you working?", "Picked from your schedule and the time you started. Change it if it is wrong.", "Use this shift", "Change shift", "Tasks", "{shift} did this at {time}"].map(w => say(w, language));
+      const listed = boldNames(entry, language);
+      expect("the entry names each of them as the screen says it", wanted.every(w => listed.indexOf(w) !== -1), JSON.stringify(wanted.filter(w => listed.indexOf(w) === -1)));
+      const seen = [];
+      const app = await open({ stubOptions: { namedShifts: true, links: {}, clockedIn: false, completions: [{ taskId: "task-3", userId: "u-three", at: Date.parse("2026-10-01T18:40:00Z") }] } });
+      try {
+        await openTab(app.page, "clock", language);
+        await pause(app.page, 800);
+        seen.push(await bodyText(app.page));
+        await pickSite(app.page, "North Building");
+        await pause(app.page, 400);
+        await clickText(app.page, say("Start Shift", language));
+        await waitOn(app.page, (t) => document.body.innerText.indexOf(t) !== -1, say("Picked from your schedule and the time you started. Change it if it is wrong.", language), 8000);
+        seen.push(await bodyText(app.page));
+        await clickText(app.page, say("Use this shift", language));
+        await shows(app.page, '[data-done-earlier="task-3"]', 8000);
+        seen.push(await bodyText(app.page));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const all = seen.join(" | ");
+      const missing = wanted.filter(n => !nameOnScreen(all, n));
+      expect("every name those steps give is on the screens they walk through", missing.length === 0, "not on the screen: " + JSON.stringify(missing));
+      // The warning's email button: /sign/<id>, signed out.
+      const mail = await open({ signedIn: false, path: "/sign/sr-1", stubOptions: { signatures: true } });
+      try {
+        await type(mail.page, 'input[autocomplete="username"]', "4821");
+        await type(mail.page, 'input[type="password"]', "4907");
+        await clickText(mail.page, say("Sign In", language));
+        const opened = await shows(mail.page, '[data-sign="ready"]', 10000);
+        expect("the email's button signs the person in first, then opens the request", opened, (await bodyText(mail.page)).slice(0, 200));
+      } finally { await mail.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART375_S3_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };
