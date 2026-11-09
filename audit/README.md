@@ -1082,6 +1082,111 @@ Three journeys, in English and Spanish:
   the hours given back, and the time_off notice opens that request three
   ways.
 
+## What API Round 8 gave the staff app (part 373, section 1)
+
+The stub answers what ocsa-api's main (c5b88ff, Round 8, part 371)
+answers the staff app. POST /api/maintenance-requests reads `clientId`
+(8 to 64 of `A-Za-z0-9_-`, else 400 `maintenance.badDetails` keys
+`clientId`), keeps it on the request, answers a new filing 201 with
+`repeat: false`, and the same clientId again from the same filer 200
+`{ request, email, repeat: true }` with the first request, filing
+nothing. GET /api/sites/:siteId/maintenance-contacts with `building=`
+(blank meaning none) adds `recipients`, the filing's own pick, and `cc`,
+the office's address (`office-copy@example.invalid` unless a case names
+`maintCc`). POST /api/time-off/preview answers `{ leave }` the way the
+filing would carry it and files nothing; `previewRoute: false` is an
+API without it. GET /api/pickups/my-schedule/:shiftId answers one of
+the person's shifts from the schedule, or from `cancelledShifts`, else
+404 `shifts.notFound`; the stub's invented ids are read as they are,
+where the API also answers 404 for an id that is not a uuid. GET
+/api/pickups/my-schedule now holds only the days asked for, as the API
+reads start_date and end_date. EVERY_NOTICE's shift_changed and
+shift_cancelled carry their day as `subjectKey`.
+
+Five journeys, in English and Spanish, each failing on the main of part
+369:
+
+- `maintrepeat`: every filing carries the phone's clientId, as JSON and
+  as a multipart field; a send whose answer was lost goes again with the
+  same clientId, the repeat reads as the request filed, no list is read
+  first and one request is filed. `maintfile` no longer checks a lost
+  answer.
+- `maintgoesto`: It goes to is read from the contacts route with the
+  building typed, read again when it changes, with the office's copy;
+  with no signal the kept answer for that building, or the line that it
+  shows once there is signal with Send still on; and from an issue the
+  same route for the issue's site.
+- `leavepreview`: what a request would leave shows before Send, from the
+  preview with the request's body, with the API's warning, read again
+  when the days change; a refusal is said before Send; nothing is filed
+  until Send; an API with no preview keeps the line that it shows once
+  sent.
+- `shiftday`: shift_changed with its day opens that week, sixteen weeks
+  ahead, and the shift read by its id with its sheet; shift_cancelled
+  answered 404, and a shift answered cancelled, say the shift on that day
+  is no longer on the schedule; from the bell and both kinds of alert.
+- `alertown`: the build's service worker passes the alert's subjectKey
+  and notificationId to an open app and in the address of one it opens,
+  and the app marks that notice alone read.
+
+## Pictures that come back by themselves (part 373, section 2)
+
+Since ocsa-api part 370 a photo in issue-photos, task-media or
+profile-photos is a link signed for 60 minutes. The stub signs every
+stored `<bucket>/<path>` under the API's photo keys (`photoUrl`,
+`media_url`, `photo_urls` and the rest, and the `url` of an item of
+`photos` or `issuePhotos`) as it answers, at
+`signed-photos.example.invalid`, a host of its own (the lesson pictures
+keep theirs), with a token that runs out an hour later on the stub's
+clock. The
+browser hands those fetches to `stub.photo`: the picture while the link
+lives, storage's 400 (`InvalidJWT`, the exp claim) once it ran out, and
+nothing with no signal; each fetch is kept in `state.photoFetches`. A
+case's `photoStale` names routes whose next answers sign their links
+already run out, as if read an hour ago, and `taskMedia` gives a site's
+checklist step a reference photo. Every older fixture's photo is an
+outside address and is answered as it is.
+
+One journey, in English and Spanish, failing on the main of part 369:
+
+- `photoreload`: an issue sheet's photo whose link ran out reads the
+  issue again once and draws the fresh link, its own link fresh too; the
+  same on a maintenance request from the issue; a fresh link that fails
+  too is a quiet box with no third read; the header's photo reads the
+  profile again; a checklist step's reference photo on the copy kept on
+  the phone, an hour later with no signal, waits and draws the fresh link
+  once the signal is back; and an outside address is never read again.
+
+Where a picture is drawn that this does not cover: a photo taken on an
+inspection walk and not yet sent, and the walk kept on the phone, is
+drawn from the link its upload answered, and the API has no record to
+read again until the inspection is sent (it still sends by that link);
+Help's photos are the phone's own copies; a form's photos, a maintenance
+request's photos and a signature are read behind the token and never
+run out; a lesson's pictures are links of their own, signed for twelve
+hours, which the lesson already says are missing when they do not load.
+
+## A Help gap from support tickets (part 373, section 3)
+
+Support tickets asked how to fill out an inspection from the staff app.
+The guide already held Do an inspection assigned to you, long, with the
+safety walk; Fill out an inspection, the guide's last entry, is the short
+how-to, with two pictures of steps the older pictures do not show: a card
+scored low with Needs a fix and its note (`inspection-fill-card`), and
+the signature with Submit Inspection (`inspection-fill-send`), both on
+the stub's inspection with no safety walk.
+
+One journey, in English and Spanish, failing on the main of part 369,
+where the entry is not there:
+
+- `inspectguide`: the entry is the guide's last, names its two pictures,
+  each taken in both languages, and carries the words people ask with;
+  every name its steps give is on the screens those steps walk through
+  in the screen's language: More, Inspect with Start an inspection, an
+  inspection with the safety walk, and one without, a card scored 3 of 5
+  with Needs a fix, sent with no note, then with no signature, then
+  signed and sent, to Done.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

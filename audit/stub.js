@@ -1272,8 +1272,11 @@ const EVERY_NOTICE = [
   // or cancelled (API-62, helpers/shiftNotices.js, subject the shift,
   // the staff app's /?open=<type>:<id>), and the reporter's case resolved
   // or closed (API-63's hr_case_closed_for, subject the case).
-  ["shift_changed", "sh-1", STAFF_ORIGIN + "/?open=shift_changed:sh-1", "place"],
-  ["shift_cancelled", "sh-gone", STAFF_ORIGIN + "/?open=shift_cancelled:sh-gone", "place"],
+  // Since part 371 both carry the shift's day as subjectKey: the day
+  // shift_changed's shift now runs, and the day shift_cancelled's would
+  // have run.
+  ["shift_changed", "sh-1", STAFF_ORIGIN + "/?open=shift_changed:sh-1", "place", "2026-10-02"],
+  ["shift_cancelled", "sh-gone", STAFF_ORIGIN + "/?open=shift_cancelled:sh-gone", "place", "2026-10-09"],
   ["hr_case_closed_for", "hr-mine-1", STAFF_ORIGIN + "/?open=hr_case_closed_for:hr-mine-1", "place"],
   // Part 369 (API part 365): a building maintenance request's status
   // moved, and the building has not answered in time, subject the request.
@@ -1596,8 +1599,26 @@ function makeState(opts) {
     // handbook's paid sick hours, a balance a case may set, a usable-from
     // day for a new hire, none tracked at all, or no route.
     leave: { route: o.leaveRoute !== false, none: o.leaveNone === true, balance: typeof o.leaveBalance === "number" ? o.leaveBalance : 40, usableFrom: o.leaveUsableFrom || null, hireDate: o.leaveUsableFrom ? "2026-08-17" : "2024-03-04" },
-    maint: { requests: MAINT_SEED(o.person || PERSON), contacts: MAINT_CONTACTS(), seq: 2, logSeq: 0, emailFails: o.maintEmailFails === true, loseNext: Number(o.maintLoseNext) || 0, photoFails: false },
+    maint: { requests: MAINT_SEED(o.person || PERSON), contacts: MAINT_CONTACTS(), seq: 2, logSeq: 0, emailFails: o.maintEmailFails === true, loseNext: Number(o.maintLoseNext) || 0, photoFails: false,
+      // Part 371: the office's address a filing copies (officeCopy), as
+      // the contacts read's preview answers it.
+      cc: o.maintCc === null ? null : typeof o.maintCc === "string" ? o.maintCc : "office-copy@example.invalid" },
     listChanges: [],
+    // Part 373: an API with POST /api/time-off/preview (part 371) unless a
+    // case says not, and the person's shifts the office cancelled, which
+    // GET /api/pickups/my-schedule/:shiftId still answers.
+    previewRoute: o.previewRoute !== false,
+    // Part 373: every photo link signed so far, by its token, with the
+    // object it names and when it runs out on the stub's clock; each fetch
+    // of one; and the routes whose next answers sign their links already
+    // run out, as if read an hour ago ({ "GET /api/issues/iss-b2": 1 }).
+    photoLinks: {},
+    photoSeq: 0,
+    photoFetches: [],
+    photoStale: Object.assign({}, o.photoStale || {}),
+    // A step of a site's checklist with a reference photo, by task id.
+    taskMedia: Object.assign({}, o.taskMedia || {}),
+    cancelledShifts: Array.isArray(o.cancelledShifts) ? o.cancelledShifts.map(x => Object.assign({}, x)) : [],
     person: o.person || PERSON,
     accountPreferences: o.accountPreferences === undefined ? {} : o.accountPreferences,
     clockedIn: o.clockedIn !== false,
@@ -2521,6 +2542,22 @@ const SIGNATURE_MAX_BYTES = 300 * 1024;
 const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
 const image = (contentType, bytes) => ({ status: 200, contentType: contentType, body: bytes });
 
+// Part 373: photos behind short links, as ocsa-api's helpers/photoLinks.js
+// answers them since part 370. A row stores <bucket>/<path> for the three
+// buckets, and every answer carries, under the field it always had, a
+// link signed when it is read for 60 minutes; storage answers an image
+// for a link that lives and its 400 for one that ran out. The keys are
+// the API's PHOTO_KEYS and LIST_KEYS. A value that names none of the
+// three buckets (an outside address, every older fixture) is answered as
+// it is stored.
+const PHOTO_HOST = "signed-photos.example.invalid";
+const PHOTO_KEYS = new Set(["photo_url", "photoUrl", "photo_urls", "photoUrls", "media_url", "mediaUrl", "resolution_photo_url", "resolutionPhotoUrl", "task_photo_url", "resolved_photo_url", "issue_photo_url", "profile_photo_url", "profilePhotoUrl", "otherPhotoUrl", "file_url"]);
+const PHOTO_LISTS = new Set(["photos", "issuePhotos"]);
+const STORED_PHOTO = /^(issue-photos|task-media|profile-photos)\/[^?#\s]+$/;
+const PHOTO_LIFE_MS = 60 * 60 * 1000;
+// Storage's answer to a link whose time ran out.
+const PHOTO_RAN_OUT = { statusCode: "400", error: "InvalidJWT", message: "\"exp\" claim timestamp check failed" };
+
 // What a request's multipart body holds: one part per file, each with the
 // field name, the file name, the type the browser said, and the bytes.
 // The body reaches the stub as the bytes the browser sent, so what the
@@ -3003,7 +3040,7 @@ const ROUTE_WORDS = [
   // lines, a note and a warning are the API's words; the person, the site
   // and a code are not.
   [/^GET \/api\/leave\/me$/, { kindName: "message", text: "message", holidays: "message", message: "message", note: "message", kind: "code", unit: "code", method: "code", source: "code", code: "code", role: "code", status: "code" }],
-  [/^(POST \/api\/time-off|GET \/api\/time-off\/[^/]+)$/, { kindName: "message", message: "message", kind: "code", hoursFrom: "code", code: "code", source: "code" }],
+  [/^(POST \/api\/time-off|POST \/api\/time-off\/preview|GET \/api\/time-off\/[^/]+)$/, { kindName: "message", message: "message", kind: "code", hoursFrom: "code", code: "code", source: "code" }],
   // Part 369: building maintenance. Its names are the API's words in the
   // request's language; what people typed, the site, a building, a
   // contact and a reference are names; keys are codes.
@@ -4338,7 +4375,7 @@ function createStub(opts) {
       const at = after.length ? Math.max.apply(null, after.map(c => c.at)) : null;
       return json(200, { changed: at !== null, at: at === null ? null : new Date(at).toISOString().replace(/Z$/, "000Z") });
     }
-    if (method === "GET" && /^\/api\/sites\/[^/]+\/tasks$/.test(pathname)) return json(200, tasks(pathname.split("/")[3], search));
+    if (method === "GET" && /^\/api\/sites\/[^/]+\/tasks$/.test(pathname)) return json(200, tasks(pathname.split("/")[3], search).map(r => (state.taskMedia[r.id] ? Object.assign(r, { media_url: state.taskMedia[r.id], media_type: "image", has_details: true }) : r)));
     // Step 324: a site's day, as API Step 319 builds GET
     // /api/sites/:siteId/shift-blocks/schedule?shift=&date=.
     const daySchedule = pathname.match(/^\/api\/sites\/([^/]+)\/shift-blocks\/schedule$/);
@@ -4353,11 +4390,29 @@ function createStub(opts) {
       // A drop asked here is listed under pendingDrops while it waits, as
       // routes/pickups.js lists the person's requested open shifts; one
       // the office already posted for pickup is not.
-      const base = schedule();
+      // Part 373: the scheduled lane holds the days asked for, as
+      // routes/pickups.js reads start_date and end_date, so a shift past
+      // the range is not on the answer.
+      const range = new URLSearchParams(search || "");
+      const from = /^\d{4}-\d{2}-\d{2}$/.test(range.get("start_date") || "") ? range.get("start_date") : null;
+      const to = /^\d{4}-\d{2}-\d{2}$/.test(range.get("end_date") || "") ? range.get("end_date") : null;
+      const whole = schedule();
+      const base = from && to ? Object.assign({}, whole, { scheduled: (whole.scheduled || []).filter(x => { const d = String(x.scheduled_date || "").slice(0, 10); return d >= from && d <= to; }) }) : whole;
       const asked = Object.keys(state.drops).filter(id => state.drops[id].status === "requested").map(id => ({ id: state.drops[id].id, scheduledShiftId: id, status: "requested" }));
       const out = asked.length ? Object.assign({}, base, { pendingDrops: (base.pendingDrops || []).concat(asked) }) : base;
       if (!state.midnightDates) return json(200, out);
       return json(200, Object.assign({}, out, { scheduled: (out.scheduled || []).map(x => Object.assign({}, x, /^\d{4}-\d{2}-\d{2}$/.test(x.scheduled_date || "") ? { scheduled_date: x.scheduled_date + "T00:00:00.000Z" } : {})) }));
+    }
+    // Part 371 (the staff app's A4): one of the caller's own scheduled
+    // shifts, the row the scheduled lane answers, a cancelled one included
+    // (a case's cancelledShifts); anyone else's or none is 404
+    // shifts.notFound. The API also answers 404 for an id that is not a
+    // uuid; the stub's invented ids are read as they are.
+    const oneShift = /^\/api\/pickups\/my-schedule\/([^/]+)$/.exec(pathname);
+    if (method === "GET" && oneShift) {
+      const hit = (schedule().scheduled || []).concat(state.cancelledShifts).find(x => x && String(x.id) === oneShift[1]);
+      if (!hit) return json(404, { error: languageOf(search, state) === "es" ? "No se encontr\u00f3 el turno" : "Shift not found", code: "shifts.notFound" });
+      return json(200, Object.assign({ site_id: "site-north", service_category: null, notes: null }, hit));
     }
     // One open shift of every origin, the first of them the one a case
     // claims, and one marked urgent, so the sweep draws every badge the
@@ -4404,6 +4459,15 @@ function createStub(opts) {
     if (pathname === "/api/time-off/mine") return json(200, { requests: state.myTimeOff });
     // Since part 365 the filing, the read of one request and a decision
     // answer leave (helpers/leaveBalances.js requestLeave) beside it.
+    // Part 371 (the staff app's A2): the filing's body, answered 200
+    // { leave } as the filed request would carry it, writing nothing; the
+    // same refusals as the filing (a case's refuse). previewRoute false is
+    // an API without it.
+    if (key === "POST /api/time-off/preview") {
+      if (!state.previewRoute) return json(404, { error: "Endpoint not found" });
+      const row = timeOffRow({ id: "to-preview", leaveType: body && body.leaveType, startsOn: body && body.startsOn, endsOn: body && body.endsOn, partDay: !!(body && body.startTime), startTime: (body && body.startTime) || null, endTime: (body && body.endTime) || null, hours: body && body.hours !== undefined ? body.hours : null });
+      return json(200, { leave: state.leave.route ? leaveOf(row, languageOf(search, state)) : null });
+    }
     if (key === "POST /api/time-off") {
       const row = timeOffRow({ id: "to-new", leaveType: body && body.leaveType, startsOn: body && body.startsOn, endsOn: body && body.endsOn, partDay: !!(body && body.startTime), startTime: (body && body.startTime) || null, endTime: (body && body.endTime) || null, hours: body && body.hours !== undefined ? body.hours : null });
       return json(201, { request: row, leave: state.leave.route ? leaveOf(row, languageOf(search, state)) : undefined });
@@ -5849,7 +5913,18 @@ function createStub(opts) {
       if (contactsRoute && method === "GET") {
         const list = state.maint.contacts[contactsRoute[1]];
         if (!list) return json(404, { error: "Site not found", code: "sites.notFound" });
-        return json(200, { contacts: list.filter(c => c.isActive).map(c => Object.assign({ createdAt: "2026-09-01T12:00:00.000Z", updatedAt: "2026-09-01T12:00:00.000Z" }, c)) });
+        const out = { contacts: list.filter(c => c.isActive).map(c => Object.assign({ createdAt: "2026-09-01T12:00:00.000Z", updatedAt: "2026-09-01T12:00:00.000Z" }, c)) };
+        // Part 371 (the staff app's A3): a query carrying building (blank
+        // meaning none) also answers recipients, the filing's own pick for
+        // that building now, and cc, the office's address it copies; 400
+        // maintenance.badFilter keys ["building"] past 200 characters.
+        const cq = new URLSearchParams(search || "");
+        if (cq.has("building")) {
+          const asked = cq.get("building").trim();
+          if (asked.length > 200) return json(400, { error: lang === "es" ? "Revise los filtros: building" : "Check the filters: building", code: "maintenance.badFilter", keys: ["building"] });
+          Object.assign(out, { recipients: maintRecipients(list, asked || null), cc: state.maint.cc });
+        }
+        return json(200, out);
       }
       const q = new URLSearchParams(search || "");
       if (key === "GET /api/maintenance-requests/options") {
@@ -5895,7 +5970,19 @@ function createStub(opts) {
         const issueId = b.issueId === undefined || b.issueId === null || b.issueId === "" ? null : String(b.issueId).trim();
         const issuePhotoIds = Array.isArray(b.issuePhotoIds) ? b.issuePhotoIds.map(String) : typeof b.issuePhotoIds === "string" ? b.issuePhotoIds.split(",").map(x => x.trim()).filter(Boolean) : [];
         if (issuePhotoIds.length > 0 && !issueId) keys.push("issuePhotoIds");
+        // Part 371 (the staff app's A1): clientId, 8 to 64 of A-Za-z0-9_-.
+        const clientId = b.clientId === undefined || b.clientId === null ? null : typeof b.clientId === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(b.clientId) ? b.clientId : false;
+        if (clientId === false) keys.push("clientId");
         if (keys.length) return refuse("badDetails", null, { keys: keys });
+        // The same clientId again from the same filer answers 200 with the
+        // first request and its filing's email as the log holds it, read
+        // before anything else, and files, mails and logs nothing.
+        const prior = clientId ? state.maint.requests.find(r => r.clientId === clientId && r.filedBy && r.filedBy.id === state.person.id) : null;
+        if (prior) {
+          const filed = prior.log.filter(e => e.kind === "email" && e.email && e.email.which === "filed").pop();
+          const email = filed ? { status: filed.email.status, sentMessageId: filed.email.status === "sent" ? "sm-" + prior.id : null, to: filed.email.to, cc: filed.email.cc, at: filed.createdAt } : { status: "notSent", sentMessageId: null, to: [], cc: null, at: null };
+          return json(200, Object.assign({ request: maintDetail(prior), email: email, repeat: true }, email.status === "failed" || email.status === "suppressed" ? { warning: { message: refusalIn(MAINT_REFUSALS.emailNotSent, lang), code: MAINT_REFUSALS.emailNotSent.code } } : {}));
+        }
         let site = siteId;
         const issue = issueId ? state.sheetIssues.find(x => x.id === issueId) : null;
         if (issueId && !issue) return json(404, { error: lang === "es" ? "No se encontr\u00f3 el problema" : "Issue not found", code: "issues.notFound" });
@@ -5918,14 +6005,14 @@ function createStub(opts) {
         const id = "mr-" + n;
         const photos = files.map((p, i) => ({ id: "mp-" + n + "-" + (i + 1), name: p.filename || "photo.jpg", contentType: sniffImage(p.bytes).contentType, size: p.bytes.length, logId: null, createdAt: at })).concat(fromIssuePhotos.map((p, i) => ({ id: "mp-" + n + "-i" + (i + 1), name: "issue-photo.jpg", contentType: "image/jpeg", size: 1200, logId: null, createdAt: at })));
         const emailStatus = state.maint.emailFails ? "failed" : "sent";
-        const r = { id: id, reference: "MR-2026-" + String(n).padStart(4, "0"), siteId: site, siteName: siteRow.siteName, building: building, floor: floor, area: area, category: b.category, urgency: b.urgency, status: "sent", description: description, issueId: issue ? issue.id : null, filedAt: at, filedBy: { id: state.person.id, name: state.person.firstName + " " + state.person.lastName }, firstResponseAt: null, scheduledFor: null, fixedAt: null, closedAt: null, cancelledAt: null, recipients: recipients,
+        const r = { id: id, clientId: clientId || null, reference: "MR-2026-" + String(n).padStart(4, "0"), siteId: site, siteName: siteRow.siteName, building: building, floor: floor, area: area, category: b.category, urgency: b.urgency, status: "sent", description: description, issueId: issue ? issue.id : null, filedAt: at, filedBy: { id: state.person.id, name: state.person.firstName + " " + state.person.lastName }, firstResponseAt: null, scheduledFor: null, fixedAt: null, closedAt: null, cancelledAt: null, recipients: recipients,
           photos: photos, log: [{ id: "ml-" + n + "-1", kind: "email", channel: null, body: null, fromStatus: null, toStatus: null, scheduledFor: null, occurredAt: at, createdAt: at, createdBy: null, photos: [], email: { which: "filed", status: emailStatus, to: recipients.map(c => c.email), cc: null, photoCount: photos.length } }], followUps: [] };
         state.maint.requests.push(r);
         // An answer lost on its way back: the request is filed and the
         // phone never hears so (a case's loseNext).
         if (state.maint.loseNext) { state.maint.loseNext -= 1; return { abort: true }; }
         const email = { status: emailStatus, sentMessageId: emailStatus === "sent" ? "sm-" + n : null, to: recipients.map(c => c.email), cc: null, at: emailStatus === "sent" ? at : null };
-        return json(201, Object.assign({ request: maintDetail(r), email: email }, emailStatus === "sent" ? {} : { warning: { message: refusalIn(MAINT_REFUSALS.emailNotSent, lang), code: MAINT_REFUSALS.emailNotSent.code } }));
+        return json(201, Object.assign({ request: maintDetail(r), email: email }, clientId ? { repeat: false } : {}, emailStatus === "sent" ? {} : { warning: { message: refusalIn(MAINT_REFUSALS.emailNotSent, lang), code: MAINT_REFUSALS.emailNotSent.code } }));
       }
       const one = /^\/api\/maintenance-requests\/([^/]+)(\/[a-z-]+)?(\/[^/]+)?$/.exec(pathname);
       const r = one ? state.maint.requests.find(x => x.id === one[1]) : null;
@@ -6061,14 +6148,48 @@ function createStub(opts) {
     let data;
     try { data = JSON.parse(answer.body); } catch (e) { return answer; }
     payIn(data, method + " " + pathname, state.person);
+    data = withLinks(data, method + " " + pathname);
     return Object.assign({}, answer, { body: JSON.stringify(translate(data, method, pathname, search, accept)) });
+  }
+
+  // Part 373: every answer's stored photos, signed as it goes out (the
+  // API's photoLinks.withLinks), already run out for a route a case named
+  // in photoStale.
+  function withLinks(data, route) {
+    let stale = false;
+    if (state.photoStale[route] > 0) { stale = true; state.photoStale[route] -= 1; }
+    const sign = (stored) => {
+      state.photoSeq += 1;
+      const token = "t" + state.photoSeq;
+      state.photoLinks[token] = { object: stored, expiresAt: clockNow() + (stale ? -60 * 1000 : PHOTO_LIFE_MS) };
+      return "https://" + PHOTO_HOST + "/storage/v1/object/sign/" + stored + "?token=" + token;
+    };
+    const walk = (v, key) => {
+      if (typeof v === "string") return PHOTO_KEYS.has(key) && STORED_PHOTO.test(v) ? sign(v) : v;
+      if (Array.isArray(v)) return v.map(x => (PHOTO_LISTS.has(key) && x && typeof x === "object" && !Array.isArray(x) && typeof x.url === "string" && STORED_PHOTO.test(x.url) ? Object.assign(walk(x, ""), { url: sign(x.url) }) : walk(x, key)));
+      if (v && typeof v === "object") { const out = {}; Object.keys(v).forEach(k => { out[k] = walk(v[k], k); }); return out; }
+      return v;
+    };
+    return walk(data, "");
+  }
+  // A photo's link fetched by an <img>: the picture while it lives, the
+  // storage's 400 once it ran out, nothing at all with no signal.
+  function photo(url) {
+    const u = new URL(url);
+    const token = u.searchParams.get("token") || "";
+    const link = state.photoLinks[token] || null;
+    const ok = !state.offline && !!link && link.expiresAt > clockNow() && decodeURIComponent(u.pathname) === "/storage/v1/object/sign/" + link.object;
+    state.photoFetches.push({ object: link ? link.object : null, token: token, ok: ok });
+    if (state.offline) return { abort: true };
+    if (!ok) return { status: 400, contentType: "application/json", body: JSON.stringify(PHOTO_RAN_OUT) };
+    return { status: 200, contentType: "image/png", body: ONE_PIXEL_PNG };
   }
 
   // peek reads what the API would answer right now without asking it, so
   // nothing is recorded: what the status would count, a list as a request
   // would get it, and the open session. A journey judges a screen by it.
   const peek = { progress: () => progress(), rows: (siteId, search) => tasks(siteId, search), session: () => sessionOf() };
-  return { handle: (method, pathname, search, body, accept, headers) => remember(handle(method, pathname, search, body, headers), method, pathname, search, accept), state: state, peek: peek, noteChange: noteChange };
+  return { handle: (method, pathname, search, body, accept, headers) => remember(handle(method, pathname, search, body, headers), method, pathname, search, accept), state: state, peek: peek, noteChange: noteChange, photo: photo };
 }
 
 function draftOf(state) {
@@ -6081,7 +6202,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

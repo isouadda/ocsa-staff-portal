@@ -1631,6 +1631,10 @@ export const WORDS = {
   "You can use it from {date}.": "Lo puede usar a partir del {date}.",
   "Your leave balances did not load.": "Sus saldos de tiempo libre no se cargaron.",
   "Once you send it, the request shows what it would leave.": "Una vez enviada, la solicitud muestra cu\u00e1nto le dejar\u00eda.",
+  "A copy goes to the office at {email}.": "Se env\u00eda una copia a la oficina a {email}.",
+  "This phone has no signal, so who it goes to shows once it does. The request goes to the site's contacts for this building when it is sent.": "Este tel\u00e9fono no tiene se\u00f1al, as\u00ed que a qui\u00e9n se env\u00eda aparece cuando la tenga. La solicitud va a los contactos del sitio para este edificio cuando se env\u00ede.",
+  "You can still send it. The person who approves time off decides.": "Igual puede enviarla. La persona que aprueba el tiempo libre decide.",
+  "Your shift on {day} is no longer on your schedule.": "Su turno del {day} ya no est\u00e1 en su horario.",
   },
 };
 
@@ -3140,6 +3144,10 @@ WORDS.fr = {
   "You can use it from {date}.": "Vous pouvez l'utiliser \u00e0 partir du {date}.",
   "Your leave balances did not load.": "Vos soldes de cong\u00e9s ne se sont pas charg\u00e9s.",
   "Once you send it, the request shows what it would leave.": "Une fois envoy\u00e9e, la demande indique ce qu'elle laisserait.",
+  "A copy goes to the office at {email}.": "Une copie part au bureau \u00e0 l'adresse {email}.",
+  "This phone has no signal, so who it goes to shows once it does. The request goes to the site's contacts for this building when it is sent.": "Ce t\u00e9l\u00e9phone n'a pas de r\u00e9seau, donc le destinataire s'affiche d\u00e8s qu'il en a. La demande part aux contacts du site pour ce b\u00e2timent au moment de l'envoi.",
+  "You can still send it. The person who approves time off decides.": "Vous pouvez quand m\u00eame l'envoyer. La personne qui approuve les cong\u00e9s d\u00e9cide.",
+  "Your shift on {day} is no longer on your schedule.": "Votre service du {day} n'est plus dans votre planning.",
 };
 
 // {name} is replaced after the language is chosen, so the
