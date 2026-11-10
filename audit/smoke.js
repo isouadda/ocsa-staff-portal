@@ -2369,7 +2369,7 @@ async function inspectionWalk(browser, language, width) {
   };
   const next = async () => { await page.click("[data-walk-next]"); await pause(page, 250); };
   const pickIn = async (field, row, label) => page.evaluate((x) => { const cards = Array.from(document.querySelectorAll('[data-walk-field="' + x.field + '"] > div')).filter(d => d.querySelectorAll("button").length >= 2); const scope = x.row === null ? document.querySelector('[data-walk-field="' + x.field + '"]') : cards[x.row]; const b = scope && Array.from(scope.querySelectorAll("button")).find(y => y.innerText.trim() === x.label); if (b) b.click(); return !!b; }, { field, row, label });
-  let both = false, missingFail = false, kept = false, signedOnce = false, result = false, plain = false, started = false;
+  let both = false, missingFail = false, kept = false, signedOnce = false, result = false, plain = false, started = false, namedKeys = false;
   const formDrafts = () => app.stub.state.calls.filter(x => x.method === "POST" && /^\/api\/forms\/[^/]+\/drafts$/.test(x.path)).length;
   let wide = 0;
   if (await waitFor(page, BAR_JS + ".length >= 5") && await openWalk(INSPECTION_W.template_name)) {
@@ -2421,6 +2421,13 @@ async function inspectionWalk(browser, language, width) {
       await next(); await next();
       if (await waitFor(page, () => !!document.querySelector('[data-inspect-walk="sign"]') && !document.querySelector("[data-walk-missing]"))) {
         await sign(page, "[data-inspect-signature] canvas");
+        // A send the API turns away for answers it will not take: the toast
+        // carries the API's words and the keys it named, and nothing is sent.
+        app.stub.state.walkUnanswerable = ["invented_question", "other_invented"];
+        await page.click("[data-inspect-submit]");
+        namedKeys = await waitFor(page, (x) => document.body.innerText.indexOf(x) !== -1, (language === "es" ? "Estos campos no se pueden responder aqu\u00ed" : "These fields cannot be answered here") + ": invented_question, other_invented")
+          && app.stub.state.walkSent.length === 0 && await page.evaluate(() => !document.querySelector("[data-inspect-sent]"));
+        await pause(page, 300);
         await page.click("[data-inspect-submit]");
         result = await waitFor(page, (x) => { const r = document.querySelector("[data-inspect-sent]"); const sf = r && r.querySelector("[data-inspect-sent-safety]"); return !!sf && !!r.querySelector('[data-inspect-safety-result="1"]') && sf.innerText.indexOf(x.result) !== -1 && sf.innerText.indexOf("Invented: an exit sign is out.") !== -1 && sf.innerText.indexOf(x.sev) !== -1 && r.innerText.indexOf(x.band) !== -1; }, { result: w.recorded, sev: say(language, "Severity {s}", { s: "B" }), band: say(language, "Meets the standard.") });
         const sent = app.stub.state.walkSent;
@@ -2436,9 +2443,9 @@ async function inspectionWalk(browser, language, width) {
       if (await openWalk(INSPECTION_PLAIN.template_name)) plain = await waitFor(page, () => !document.querySelector("[data-inspect-walk]") && !!document.querySelector("[data-inspect-item]") && !!document.querySelector("[data-inspect-signature]") && !!document.querySelector("[data-inspect-submit]") && !document.querySelector("[data-walk-to-safety]"));
     }
   }
-  check("One inspection walk: the inspection opens on the site checklist, and the safety walk is drawn by the form engine with its first part filled in; a fresh walk starts its safety part once through POST .../safety with { answers: {} } and never through the forms' draft route; a Fail with no finding is listed as missing and nothing is sent; leaving and coming back keeps the scored cards and the safety answers; one signature and one Submit carry both parts and file both, the sign-off left to the signature; the result shows the band, the safety result and its finding; an inspection without the safety part reads as before; with no sideways scroll" + tag,
-    both && started && missingFail && kept && signedOnce && result && plain && wide <= 1 && app.errors.length === 0,
-    !both ? "the two parts were not drawn" : !started ? "the safety part was not started once through its POST, or not filed: " + JSON.stringify([app.stub.state.walkStarts, app.stub.state.walkFiled, formDrafts()]) : !missingFail ? "the Fail with no finding was not listed, or something was sent" : !kept ? "coming back did not keep both parts" : !result ? "the result did not show both parts" : !signedOnce ? "the send was not one, with both parts and one signature: " + JSON.stringify(app.stub.state.walkSent.map(b => [!!b.signature, b.safety && b.safety.responseId])) : !plain ? "the inspection without the safety part was not drawn as before" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
+  check("One inspection walk: the inspection opens on the site checklist, and the safety walk is drawn by the form engine with its first part filled in; a fresh walk starts its safety part once through POST .../safety with { answers: {} } and never through the forms' draft route; a Fail with no finding is listed as missing and nothing is sent; leaving and coming back keeps the scored cards and the safety answers; one signature and one Submit carry both parts and file both, the sign-off left to the signature, after a send turned away for answers the API will not take shows its words and the keys it named in the toast and sends nothing; the result shows the band, the safety result and its finding; an inspection without the safety part reads as before; with no sideways scroll" + tag,
+    both && started && missingFail && kept && namedKeys && signedOnce && result && plain && wide <= 1 && app.errors.length === 0,
+    !both ? "the two parts were not drawn" : !started ? "the safety part was not started once through its POST, or not filed: " + JSON.stringify([app.stub.state.walkStarts, app.stub.state.walkFiled, formDrafts()]) : !missingFail ? "the Fail with no finding was not listed, or something was sent" : !kept ? "coming back did not keep both parts" : !namedKeys ? "the refusal's toast did not name the keys, or something was sent" : !result ? "the result did not show both parts" : !signedOnce ? "the send was not one, with both parts and one signature: " + JSON.stringify(app.stub.state.walkSent.map(b => [!!b.signature, b.safety && b.safety.responseId])) : !plain ? "the inspection without the safety part was not drawn as before" : wide > 1 ? wide + " pixels sideways" : app.errors[0]);
   await app.context.close();
 }
 
