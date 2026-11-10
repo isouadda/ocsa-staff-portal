@@ -583,6 +583,14 @@ const OWN_REFUSALS = {
   // not take. The note is held to the API's 2,000 characters on the
   // phone, so the second is met only from an older screen.
   "tasks.photoUrlInvalid": "This photo could not be sent with the task. Take the photo again, then send it.",
+  // Answers the API would not take on a form or on a walk's safety part
+  // (400, keys naming each one): the API's words in the reader's
+  // language, then the keys, so the toast says which fields it turned away.
+  "forms.unanswerable": (body) => {
+    const said = body && typeof body.error === "string" ? body.error.trim() : "";
+    const keys = body && Array.isArray(body.keys) ? body.keys.filter(k => typeof k === "string" && k.trim() !== "").map(k => k.trim().slice(0, 60)).slice(0, 12) : [];
+    return said && keys.length > 0 ? said + ": " + keys.join(", ") : null;
+  },
   "tasks.noteInvalid": (body) => tr("The note is too long. Keep it to {max} characters.", { max: body && Number(body.maxLength) > 0 ? Number(body.maxLength) : TASK_NOTE_MAX }),
   // The refusals new since Round 2 (part 359). A drop asked for a shift
   // that already has one, or is already posted for pickup (409, Request

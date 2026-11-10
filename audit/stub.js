@@ -959,6 +959,7 @@ const NOT_TRACKED = { status: 409, code: "tasks.siteNotTracked", en: "Nothing is
 const WALK_REFUSALS = {
   "inspections.safetyUnanswered": { status: 400, en: "Finish the safety walk before you send.", es: "Termine el recorrido de seguridad antes de enviar." },
   "inspections.signatureRequired": { status: 400, en: "Sign the inspection before sending it.", es: "Firme la inspecci\u00f3n antes de enviarla." },
+  "forms.unanswerable": { status: 400, en: "These fields cannot be answered here", es: "Estos campos no se pueden responder aqu\u00ed" },
 };
 // The band a score lands in (QMS-014 5.2), its due date from the
 // completion, and the severity of each finding, as the contract's rule 2.
@@ -1662,6 +1663,9 @@ function makeState(opts) {
     walkStarted: false,
     walkStarts: [],
     walkFiled: null,
+    // The keys the next completion of a walk is refused for, once, as
+    // forms.unanswerable with keys: a case sets it to read the toast.
+    walkUnanswerable: null,
     // Step 335: the templates and sites Start an inspection reads, every
     // start posted, and startNoId for a start answered with no id.
     startInspection: o.startInspection === true,
@@ -5672,7 +5676,8 @@ function createStub(opts) {
       const sent = body && body.answers !== undefined ? body.answers : undefined;
       if (sent !== undefined && (!sent || typeof sent !== "object" || Array.isArray(sent))) return json(400, { error: "Check the details and try again.", code: "forms.answersShape", keys: ["answers"] });
       if (sent && Object.keys(sent).indexOf("inspectedBy") !== -1) return json(400, { error: "A sign-off is made with its own button", code: "forms.unanswerable", keys: ["inspectedBy"] });
-      if (!state.walkStarted) { state.walkStarted = true; state.walkAnswers = WALK_SEED(); }
+      // The draft carries its tie to the inspection, as API Step 312's does.
+      if (!state.walkStarted) { state.walkStarted = true; state.walkAnswers = Object.assign(WALK_SEED(), { _scheduled_inspection_id: one.id }); }
       Object.keys(sent || {}).forEach((k) => { if (sent[k] === null) delete state.walkAnswers[k]; else state.walkAnswers[k] = sent[k]; });
       return json(200, { draft: walkDraft(state, lang), form: walkForm(lang) });
     }
@@ -5694,6 +5699,17 @@ function createStub(opts) {
       // body's over them, refused with what is still missing.
       let walkFiling = false;
       if (state.inspectionWalk && one.with_safety) {
+        // As the API reads safety.answers at the completion (its part
+        // after 376): a key starting with _ and the filer's sign-off are
+        // ignored, and any other key the form has no question for is
+        // refused 400 forms.unanswerable with keys, nothing written. A case
+        // may set walkUnanswerable to refuse the next one for those keys.
+        const sentAnswers = body.safety && typeof body.safety === "object" && body.safety.answers && typeof body.safety.answers === "object" ? body.safety.answers : {};
+        const fieldKeys = walkForm(lang).fields.map(f => f.key);
+        const strange = Object.keys(sentAnswers).filter(k => k.charAt(0) !== "_" && fieldKeys.indexOf(k) === -1);
+        const forced = Array.isArray(state.walkUnanswerable) && state.walkUnanswerable.length > 0 ? state.walkUnanswerable : null;
+        if (forced) state.walkUnanswerable = null;
+        if (strange.length > 0 || forced) { const r = WALK_REFUSALS["forms.unanswerable"]; return json(r.status, { error: refusalIn(r, lang), code: "forms.unanswerable", keys: forced || strange }); }
         state.walkSent.push(JSON.parse(JSON.stringify(body)));
         const walkRefuse = (k, extra) => { const r = WALK_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
         const raw = typeof body.signature === "string" ? body.signature.trim() : "";
