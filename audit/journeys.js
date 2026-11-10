@@ -4354,7 +4354,8 @@ const JOURNEYS = [
         expect("the first report is the first card's, written the way Report writes one", JSON.stringify(rest[0]) === JSON.stringify(want(first, "Smudges on the left door")), JSON.stringify(bodies[0]));
         expect("the second report is the second card's", JSON.stringify(rest[1]) === JSON.stringify(want(second, "Mat is wet and turned up")), JSON.stringify(bodies[1]));
         expect("each report carries a clientId of its own", !!ids[0] && !!ids[1] && ids[0] !== ids[1], JSON.stringify(ids));
-        expect("the one photo goes on the second report", photosAt.length === 1 && calls[photosAt[0]].path === "/api/issues/iss-2/photos" && calls[photosAt[0]].body && calls[photosAt[0]].body.photoUrl === "https://example.invalid/photo.jpg", JSON.stringify(photosAt.map(i => [calls[i].path, calls[i].body])));
+        // Since part 380 the photo goes by the path its upload answered.
+        expect("the one photo goes on the second report, by its path", photosAt.length === 1 && calls[photosAt[0]].path === "/api/issues/iss-2/photos" && calls[photosAt[0]].body && /^task-media\/task-\d{10,}-[a-z0-9]+\.jpg$/.test(String(calls[photosAt[0]].body.photoUrl)), JSON.stringify(photosAt.map(i => [calls[i].path, calls[i].body])));
         expect("the photo is sent after its report", photosAt.length === 1 && filedAt.length === 2 && photosAt[0] > filedAt[1], JSON.stringify({ reports: filedAt, photo: photosAt }));
         const said = await bodyText(app.page);
         expect("the screen says two problems were reported", has(said, say("Inspection sent. {n} problems reported for fixing.", language).replace("{n}", "2")), said.slice(0, 220));
@@ -9211,5 +9212,119 @@ const PART375_S4_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART375_S4_JOURNEYS);
+
+// Part 380, section 1: photos taken and not yet saved keep working. Since
+// API Round 10 an upload answers path beside its 60-minute link, and POST
+// /api/uploads/sign { path } signs it again for the uploader. The stub's
+// clock moves an hour on, so the link a kept walk holds runs out there.
+const keptWalkKey = (person, id) => "ocsa-staff-inspect:" + person.id + ":" + id;
+const readKeptWalk = (app, key) => app.page.evaluate((k) => { try { return JSON.parse(window.localStorage.getItem(k) || "null"); } catch (e) { return null; } }, key);
+// The phone's copy of the walk, an hour older: each photo's upload time
+// moved back as the phone's clock would have moved on.
+const ageKeptWalk = (app, key, ms) => app.page.evaluate(([k, by]) => { const v = JSON.parse(window.localStorage.getItem(k) || "null"); if (!v) return false; Object.keys(v.shots || {}).forEach(r => (v.shots[r] || []).forEach(x => { x.at = Number(x.at || 0) - by; })); window.localStorage.setItem(k, JSON.stringify(v)); return true; }, [key, ms]);
+const rangeOf = (app, itemId) => app.page.evaluate((id) => { const r = document.querySelector('[data-inspect-item="' + id + '"] input[type="range"]'); return r ? r.value : null; }, itemId);
+const scoreCard = (app, itemId, v) => app.page.evaluate(([id, val]) => {
+  const r = document.querySelector('[data-inspect-item="' + id + '"] input[type="range"]');
+  if (!r) return false;
+  const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+  set.call(r, val); r.dispatchEvent(new Event("input", { bubbles: true })); r.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}, [itemId, String(v)]);
+// A walk opened again from My Inspections, with its scored cards, which
+// fold into one group, opened.
+const openWalkAgain = async (app, name, language) => {
+  await app.page.waitForFunction((n) => Array.from(document.querySelectorAll(".sp-content button")).some(b => b.innerText.indexOf(n) !== -1), name, { timeout: 6000 }).catch(() => {});
+  await app.page.evaluate((n) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.indexOf(n) !== -1); if (b) b.click(); }, name);
+  if (!(await shows(app.page, "[data-inspect-submit]", 8000))) return false;
+  const show = say("Show {0} scored items", language).split("{0}")[0].trim();
+  await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim().indexOf(w) === 0); if (b) b.click(); }, show);
+  return shows(app.page, "[data-inspect-item]", 4000);
+};
+// A photo the person picks, its file name drawn under it as given.
+const pickWalkPhoto = (app, itemId) => { TYPED.add("photo.jpg"); return attachPhoto(app.page, '[data-inspect-photos="item:' + itemId + '"] input[type="file"]'); };
+const firstShot = (kept, key) => (kept && kept.shots && Array.isArray(kept.shots[key]) ? kept.shots[key][0] : null) || null;
+const HOUR_ON = 61 * 60 * 1000;
+
+const PART380_S1_JOURNEYS = [
+  {
+    id: "photokept",
+    label: "Photos taken and not yet saved keep working (part 380, API Round 10): every walk is kept on the phone as it is scored, a walk with no safety walk too, each photo with its path beside its link; reopened an hour later, after the link ran out, the walk comes back and its photo is signed again by its path and drawn; what is sent is the path",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true } });
+      try {
+        await openTab(app.page, "inspect", language);
+        if (!(await openInspectionNamed(app, INSPECTION_PLAIN.template_name))) { expect("the walk with no safety walk opens", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        await scoreCard(app, "ip-1", 5);
+        await pickWalkPhoto(app, "ip-1");
+        const drawn = await pictureLoaded(app.page, "[data-inspect-shot]", 8000);
+        await pause(app.page, 600);
+        const key = keptWalkKey(ROUND1_SUPERVISOR, INSPECTION_PLAIN.id);
+        const kept = await readKeptWalk(app, key);
+        const shot = firstShot(kept, "item:ip-1");
+        expect("a walk with no safety walk is kept on the phone as it is scored", !!kept && kept.scores && String(kept.scores["ip-1"]) === "5", JSON.stringify(kept && kept.scores));
+        expect("its photo is kept with the path the upload answered beside its link", drawn && !!shot && /^task-media\/task-\d{10,}-[a-z0-9]+\.jpg$/.test(String(shot.path || "")) && !!tokenOf(shot.url), JSON.stringify(shot));
+        if (!shot) return;
+        // An hour on: the link the phone kept has run out at the stub.
+        app.stub.state.now = NOW.getTime() + HOUR_ON;
+        await ageKeptWalk(app, key, HOUR_ON);
+        await reloadApp(app);
+        await openTab(app.page, "inspect", language);
+        if (!(await openWalkAgain(app, INSPECTION_PLAIN.template_name, language))) { expect("the walk opens again", false, (await bodyText(app.page)).slice(0, 300)); return; }
+        const back = await rangeOf(app, "ip-1");
+        expect("reopened an hour later, the walk comes back as it was scored", back === "5", "the card reads " + back);
+        const up = await pictureLoaded(app.page, "[data-inspect-shot]", 8000);
+        const now = await pictureNow(app.page, "[data-inspect-shot]");
+        const signs = app.stub.state.photoSigns.slice();
+        expect("its photo, whose link ran out, is signed again by its path, one read, and drawn from the fresh link", up && signs.length === 1 && signs[0] === shot.path && !!now && tokenOf(now.src) !== tokenOf(shot.url), JSON.stringify({ up, signs, now, was: shot.url }));
+        await spokenHere(app, language, expect);
+        await drawOn(app.page, "[data-inspect-signature] canvas");
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-submit]"); if (b) b.click(); });
+        await shows(app.page, "[data-inspect-sent]", 8000).catch(() => false);
+        await pause(app.page, 900);
+        const done = lastSent(app.stub, "POST", "/api/inspections/scheduled/" + INSPECTION_PLAIN.id + "/complete");
+        const row = done && done.body && Array.isArray(done.body.scores) ? done.body.scores.find(x => x.template_item_id === "ip-1") : null;
+        expect("what is sent for the photo is its path, which the API stores as it is", !!row && Array.isArray(row.photo_urls) && row.photo_urls.length === 1 && row.photo_urls[0] === shot.path && row.photo_url === shot.path, JSON.stringify(row));
+        expect("and once sent, the walk is no longer kept on the phone", (await readKeptWalk(app, key)) === null, "still kept");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "phototurnedoff",
+    label: "A walk whose safety walk was turned off since it was scored comes back (part 380, the owner's walk of Nov 10), and a photo whose path cannot be signed again says so plainly and offers to take it again",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true } });
+      try {
+        await openTab(app.page, "inspect", language);
+        if (!(await openInspectionNamed(app, INSPECTION_W.template_name))) { expect("the walk with the safety walk opens", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        await scoreCard(app, "iw-1", 4);
+        await pickWalkPhoto(app, "iw-1");
+        await pictureLoaded(app.page, "[data-inspect-shot]", 8000);
+        await pause(app.page, 600);
+        const key = keptWalkKey(ROUND1_SUPERVISOR, INSPECTION_W.id);
+        const shot = firstShot(await readKeptWalk(app, key), "item:iw-1");
+        // The office turns the safety walk off on the open inspection, the
+        // link runs out, and the photo is past what the API signs again.
+        app.stub.state.inspections.find(i => i.id === INSPECTION_W.id).with_safety = false;
+        app.stub.state.now = NOW.getTime() + HOUR_ON;
+        app.stub.state.photoOwners = {};
+        await ageKeptWalk(app, key, HOUR_ON);
+        await reloadApp(app);
+        await openTab(app.page, "inspect", language);
+        if (!(await openWalkAgain(app, INSPECTION_W.template_name, language))) { expect("the walk opens again", false, (await bodyText(app.page)).slice(0, 300)); return; }
+        const back = await rangeOf(app, "iw-1");
+        expect("with the safety walk turned off since, the walk still comes back as it was scored", back === "4", "the card reads " + back);
+        const gone = await shows(app.page, "[data-inspect-shot-gone]", 8000);
+        const line = gone ? await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-shot-gone]"); return b ? b.innerText : ""; }) : "";
+        expect("a photo whose path cannot be signed again says so plainly and offers to take it again", gone && has(line, say("This photo can no longer be shown. Take it again.", language)) && has(line, say("Take it again", language)) && app.stub.state.photoSigns.indexOf(shot ? shot.path : "") !== -1, JSON.stringify({ gone, line, signs: app.stub.state.photoSigns }));
+        await spokenHere(app, language, expect);
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-shot-retake]"); if (b) b.click(); });
+        await pause(app.page, 500);
+        const after = await app.page.evaluate(() => ({ gone: !!document.querySelector("[data-inspect-shot-gone]"), input: !!document.querySelector('[data-inspect-photos="item:iw-1"] input[type="file"]') }));
+        expect("Take it again puts it away and the row takes a new photo", !after.gone && after.input, JSON.stringify(after));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART380_S1_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };

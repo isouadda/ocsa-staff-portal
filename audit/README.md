@@ -1330,6 +1330,39 @@ Five journeys, in English and Spanish, each failing on the main of part
   status once the phone comes back after 4:00 AM, and it is the new
   day's.
 
+## Photos that stay good until they are saved (part 380, section 1)
+
+Since ocsa-api Round 10 (part 376, #159, `routes/uploads.js`) an upload
+to task-media, issue-photos or profile-photos answers `path`,
+`<bucket>/<object>`, beside a link signed for 60 minutes, and records who
+stored it; `POST /api/uploads/sign { path }` answers `{ url }`, a fresh
+link, to that person alone within 30 days. The stub answers both as the
+API does: the object named `<prefix>-<time>-<random>.<ext>` (task, issue
+or profile), the link signed at `signed-photos.example.invalid` for an
+hour on the stub's clock, the owner kept in `state.photoOwners`, each
+sign asked in `state.photoSigns`, 400 `uploads.badDetails` for a body
+that is not one path and 404 `uploads.pathNotFound` for anyone else's,
+an unknown or older one, another bucket's, or one a case names in
+`photoLost`, in the API's own words. Help's agent-photos keeps the
+answer it had.
+
+Two journeys, in English and Spanish, each failing on the main of part
+375:
+
+- `photokept`: a walk with no safety walk is kept on the phone as it is
+  scored, its photo with the path beside the link; an hour later, the
+  link run out at the stub and the phone's copy an hour older, the walk
+  reopens as it was scored and its photo is signed again by its path,
+  one read, and drawn from the fresh link; what the completion sends is
+  the path; and once sent the walk is no longer kept.
+- `phototurnedoff`: a walk scored with the safety walk on, which the
+  office turned off since, comes back as it was scored; its photo, past
+  what the API signs again, says "This photo can no longer be shown.
+  Take it again." with Take it again, which puts it away for a new one.
+
+`inspectionfixes` now reads the finding's photo by the path its upload
+answered.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

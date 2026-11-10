@@ -1680,6 +1680,15 @@ function makeState(opts) {
     photoSeq: 0,
     photoFetches: [],
     photoStale: Object.assign({}, o.photoStale || {}),
+    // Part 380 (API Round 10, routes/uploads.js): who stored each photo of
+    // task-media, issue-photos and profile-photos, by its <bucket>/<object>,
+    // and when, so POST /api/uploads/sign signs it again for that person
+    // alone within 30 days; each sign asked; and the paths a case names as
+    // never signing again (photoLost), as for an object gone from storage.
+    photoOwners: {},
+    photoSigns: [],
+    photoLost: Array.isArray(o.photoLost) ? o.photoLost.slice() : [],
+    uploadSeq: 0,
     // A step of a site's checklist with a reference photo, by task id.
     taskMedia: Object.assign({}, o.taskMedia || {}),
     cancelledShifts: Array.isArray(o.cancelledShifts) ? o.cancelledShifts.map(x => Object.assign({}, x)) : [],
@@ -2635,6 +2644,15 @@ const PHOTO_KEYS = new Set(["photo_url", "photoUrl", "photo_urls", "photoUrls", 
 const PHOTO_LISTS = new Set(["photos", "issuePhotos"]);
 const STORED_PHOTO = /^(issue-photos|task-media|profile-photos)\/[^?#\s]+$/;
 const PHOTO_LIFE_MS = 60 * 60 * 1000;
+// Part 380: the buckets whose uploads answer a path and sign again, with
+// the name prefix routes/uploads.js gives each one's objects, and the two
+// refusals of POST /api/uploads/sign in the API's own words
+// (translation/api_words.csv).
+const UPLOAD_PREFIX = { "task-media": "task", "issue-photos": "issue", "profile-photos": "profile" };
+const UPLOAD_SIGN_REFUSALS = {
+  "uploads.badDetails": { status: 400, en: "Send the path the upload answered.", es: "Env\u00ede la ruta que devolvi\u00f3 la subida." },
+  "uploads.pathNotFound": { status: 404, en: "No photo of yours from the last 30 days has that path.", es: "Ninguna foto suya de los \u00faltimos 30 d\u00edas tiene esa ruta." },
+};
 // Storage's answer to a link whose time ran out.
 const PHOTO_RAN_OUT = { statusCode: "400", error: "InvalidJWT", message: "\"exp\" claim timestamp check failed" };
 
@@ -3099,7 +3117,9 @@ const TWIN_PAIRS = [
   // Part 369: the leave balances' words with no placeholder.
   .concat(["handbook", "sick", "sickLine", "holidays", "untracked", "site"].map(k => LEAVE_WORDS[k]))
   // Part 375: the training refusals API part 374 added.
-  .concat(["training.attemptClosed", "training.signatureNotStored"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]));
+  .concat(["training.attemptClosed", "training.signatureNotStored"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]))
+  // Part 380: the two refusals of POST /api/uploads/sign (API Round 10).
+  .concat(Object.keys(UPLOAD_SIGN_REFUSALS).map(k => [UPLOAD_SIGN_REFUSALS[k].en, UPLOAD_SIGN_REFUSALS[k].es]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -6267,7 +6287,38 @@ function createStub(opts) {
       // (part 367, PORT-27): its size, its kind and its width and height.
       if (Buffer.isBuffer(body)) state.calls[state.calls.length - 1].files = [{ bytes: body.length, kind: sniffImage(body), size: imageSize(body), ext: new URLSearchParams(search || "").get("ext") }];
       if (state.uploadsFail) return json(500, { error: "Photo upload failed" });
+      // Part 380, as routes/uploads.js answers task-media, issue-photos and
+      // profile-photos since API Round 10: the object named
+      // <prefix>-<time>-<random>.<ext>, a link signed for 60 minutes under
+      // url, its <bucket>/<object> under path, and who stored it recorded.
+      // Help's agent-photos keeps the answer it always had here.
+      const upBucket = new URLSearchParams(search || "").get("bucket") || "task-media";
+      const upExt = String(new URLSearchParams(search || "").get("ext") || "jpg").toLowerCase();
+      if (UPLOAD_PREFIX[upBucket]) {
+        state.uploadSeq += 1;
+        const stored = upBucket + "/" + UPLOAD_PREFIX[upBucket] + "-" + String(clockNow() + state.uploadSeq) + "-" + ("u" + state.uploadSeq.toString(36)).slice(0, 12) + "." + (upExt === "heic" || upExt === "heif" ? "jpg" : upExt);
+        state.photoOwners[stored] = { userId: String(state.person.id), at: clockNow() };
+        const fileName = stored.slice(upBucket.length + 1);
+        return json(200, { url: signLink(stored, false), path: stored, type: "image", fileName: fileName, contentType: upExt === "png" ? "image/png" : "image/jpeg" });
+      }
       return json(200, { url: "https://example.invalid/photo.jpg", path: "agent-photos/one.jpg" });
+    }
+    // Part 380: POST /api/uploads/sign { path } as routes/uploads.js answers
+    // it: { url }, a new link for 60 minutes to a photo the caller stored in
+    // task-media, issue-photos or profile-photos in the last 30 days; 400
+    // uploads.badDetails keys ["path"] for a body that is not one path; 404
+    // uploads.pathNotFound for anyone else's, an unknown or older one, or
+    // another bucket's.
+    if (pathname === "/api/uploads/sign" && method === "POST") {
+      const b = body && typeof body === "object" && !Buffer.isBuffer(body) ? body : {};
+      const raw = typeof b.path === "string" ? b.path.trim() : "";
+      state.photoSigns.push(raw);
+      const m = /^([a-z-]+)\/([A-Za-z0-9._/-]{1,300})$/.exec(raw);
+      const say = (k) => refusalIn(UPLOAD_SIGN_REFUSALS[k], languageOf(search, state));
+      if (!m || Object.keys(b).some(k => k !== "path") || raw.indexOf("..") !== -1) return json(400, { error: say("uploads.badDetails"), code: "uploads.badDetails", keys: ["path"] });
+      const own = state.photoOwners[raw];
+      if (!UPLOAD_PREFIX[m[1]] || !own || own.userId !== String(state.person.id) || own.at < clockNow() - 30 * DAY || state.photoLost.indexOf(raw) !== -1) return json(404, { error: say("uploads.pathNotFound"), code: "uploads.pathNotFound" });
+      return json(200, { url: signLink(raw, false) });
     }
 
     // Anything not named above answers plainly rather than hanging, and
@@ -6345,15 +6396,18 @@ function createStub(opts) {
   // Part 373: every answer's stored photos, signed as it goes out (the
   // API's photoLinks.withLinks), already run out for a route a case named
   // in photoStale.
+  // One stored photo's link, signed now for PHOTO_LIFE_MS on the stub's
+  // clock, or already run out.
+  function signLink(stored, stale) {
+    state.photoSeq += 1;
+    const token = "t" + state.photoSeq;
+    state.photoLinks[token] = { object: stored, expiresAt: clockNow() + (stale ? -60 * 1000 : PHOTO_LIFE_MS) };
+    return "https://" + PHOTO_HOST + "/storage/v1/object/sign/" + stored + "?token=" + token;
+  }
   function withLinks(data, route) {
     let stale = false;
     if (state.photoStale[route] > 0) { stale = true; state.photoStale[route] -= 1; }
-    const sign = (stored) => {
-      state.photoSeq += 1;
-      const token = "t" + state.photoSeq;
-      state.photoLinks[token] = { object: stored, expiresAt: clockNow() + (stale ? -60 * 1000 : PHOTO_LIFE_MS) };
-      return "https://" + PHOTO_HOST + "/storage/v1/object/sign/" + stored + "?token=" + token;
-    };
+    const sign = (stored) => signLink(stored, stale);
     const walk = (v, key) => {
       if (typeof v === "string") return PHOTO_KEYS.has(key) && STORED_PHOTO.test(v) ? sign(v) : v;
       if (Array.isArray(v)) return v.map(x => (PHOTO_LISTS.has(key) && x && typeof x === "object" && !Array.isArray(x) && typeof x.url === "string" && STORED_PHOTO.test(x.url) ? Object.assign(walk(x, ""), { url: sign(x.url) }) : walk(x, key)));
