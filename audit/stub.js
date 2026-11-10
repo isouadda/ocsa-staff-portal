@@ -4984,6 +4984,9 @@ function createStub(opts) {
         const r = apiRefusal("forms.notADraft", search);
         return json(r.status, Object.assign(JSON.parse(r.body), { status: "void" }));
       }
+      // Part 380: the inspector's own draft of a walk's safety part, put
+      // away as any draft of theirs is (the API voids it).
+      if (id === "draft-safety" && state.walkStarted && !state.walkFiled) { state.walkStarted = false; state.discarded.push(id); return json(200, { ok: true }); }
       if (id !== "draft-one" && !state.drafts.some(d => String(d.id) === id)) return apiRefusal("forms.reportNotFound", search);
       state.discarded.push(id);
       return json(200, { ok: true });
@@ -5850,10 +5853,17 @@ function createStub(opts) {
     // As the API answers it: ?status= is matched exactly, and anyone but
     // an admin or a supervisor is answered only what is assigned to them
     // (a row with no assignee stands in for the person's own).
+    // Part 380, as the API's list is built: ?site_id= keeps one site's,
+    // and with no ?status= the done ones come too, each with its
+    // result_id and no time; a done one's result (completed_at and
+    // safety_response_id) is read on its own.
     if (pathname === "/api/inspections/scheduled" && method === "GET") {
-      const want = new URLSearchParams(search || "").get("status");
+      const q = new URLSearchParams(search || "");
+      const want = q.get("status");
+      const siteWanted = q.get("site_id");
       const everyone = state.person.role === "admin" || state.person.role === "supervisor";
-      return json(200, state.inspections.filter(i => i.status !== "completed" && (!want || i.status === want) && (everyone || i.assigned_to === undefined || i.assigned_to === state.person.id)).map(i => Object.assign({}, i, { items: undefined, gone: undefined })));
+      return json(200, state.inspections.filter(i => !i.gone && (!want || i.status === want) && (!siteWanted || String(i.site_id) === siteWanted) && (everyone || i.assigned_to === undefined || i.assigned_to === state.person.id))
+        .map(i => Object.assign({}, i, { items: undefined, gone: undefined, result: undefined, result_id: i.result ? i.result.id : null })));
     }
     // Step 324: the walk's safety part started or resumed, as API Step 319
     // builds POST /api/inspections/scheduled/:id/safety { answers }: the

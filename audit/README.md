@@ -1363,6 +1363,41 @@ Two journeys, in English and Spanish, each failing on the main of part
 `inspectionfixes` now reads the finding's photo by the path its upload
 answered.
 
+## The safety walk once a month (part 380, section 2)
+
+The stub's `GET /api/inspections/scheduled` is answered as
+`routes/inspections.js` builds it: `?site_id=` keeps one site's, `?status=`
+is matched exactly, and with no status every row comes, the done ones
+with their `result_id` and no time. A done one's own read answers its
+`result` with `completed_at` and `safety_response_id`, as the case's row
+carries them. `POST /api/forms/drafts/draft-safety/discard` puts the
+walk's own safety draft away, as the API voids any draft of the caller's,
+and a completion with no `safety` and no draft then takes the cards
+alone, as `readForSubmit` does.
+
+Two journeys, in English and Spanish, each failing on the main of part
+375:
+
+- `safetymonth`: Start an inspection at North Building, whose readiness
+  check filed the safety walk at 10:42 AM today, starts the switch off
+  with "Safety walk done this month on Oct 1", read from the site's list
+  and the done one's result; the person can still turn it on; South
+  Building, with none, starts it on with "Safety walk due this month",
+  and the start sends the switch as it stands; a second start at South,
+  while the first carries the safety walk, starts it off and names it;
+  with the list refused, West Building starts it off with "Safety walk:
+  once a month per site".
+- `safetyonce`: the monthly walk at North, with its own safety draft
+  already started, says "Safety walk done on Invented readiness check at
+  10:42 AM", draws no safety part and starts none, puts its draft away
+  before it is sent, and is sent with no `safety`; the stub takes the
+  cards alone.
+
+The Spanish check now lets a fit whose filling names a word the API
+sends in English win over an earlier fit that read as stray, so the
+Spanish line around the inspection's English name reads as that known
+word.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

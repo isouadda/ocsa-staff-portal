@@ -1646,6 +1646,11 @@ export const WORDS = {
   "Sent up as not done. The office sees your reason.": "Se envi\u00f3 como no hecha. La oficina ve su motivo.",
   "This photo can no longer be shown. Take it again.": "Esta foto ya no se puede mostrar. T\u00f3mela otra vez.",
   "Take it again": "Tomarla otra vez",
+  "Safety walk done this month on {date}": "Recorrido de seguridad hecho este mes el {date}",
+  "Safety walk due this month": "Recorrido de seguridad pendiente este mes",
+  "Safety walk on {inspection}, already started at this site": "Recorrido de seguridad en {inspection}, ya empezado en este sitio",
+  "Safety walk: once a month per site": "Recorrido de seguridad: una vez al mes por sitio",
+  "Safety walk done on {inspection} at {time}": "Recorrido de seguridad hecho en {inspection} a las {time}",
   },
 };
 
@@ -3170,6 +3175,11 @@ WORDS.fr = {
   "Sent up as not done. The office sees your reason.": "Signal\u00e9e comme non faite. Le bureau voit votre motif.",
   "This photo can no longer be shown. Take it again.": "Cette photo ne peut plus \u00eatre affich\u00e9e. Reprenez-la.",
   "Take it again": "La reprendre",
+  "Safety walk done this month on {date}": "Tourn\u00e9e de s\u00e9curit\u00e9 faite ce mois-ci le {date}",
+  "Safety walk due this month": "Tourn\u00e9e de s\u00e9curit\u00e9 \u00e0 faire ce mois-ci",
+  "Safety walk on {inspection}, already started at this site": "Tourn\u00e9e de s\u00e9curit\u00e9 sur {inspection}, d\u00e9j\u00e0 commenc\u00e9e sur ce site",
+  "Safety walk: once a month per site": "Tourn\u00e9e de s\u00e9curit\u00e9\u00a0: une fois par mois et par site",
+  "Safety walk done on {inspection} at {time}": "Tourn\u00e9e de s\u00e9curit\u00e9 faite sur {inspection} \u00e0 {time}",
 };
 
 // {name} is replaced after the language is chosen, so the

@@ -9327,4 +9327,105 @@ const PART380_S1_JOURNEYS = [
 ];
 JOURNEYS.push(...PART380_S1_JOURNEYS);
 
+// Part 380, section 2: the safety walk once a month. The site's
+// inspections as GET /api/inspections/scheduled?site_id= lists them, and a
+// done one's result (completed_at, safety_response_id) as its own read
+// answers it. Today is Oct 1 on the stub's clock; the readiness check at
+// North Building was done at 10:42 AM with the safety walk.
+const DONE_NORTH = { id: "in-done-north", template_name: "Invented readiness check", site_id: "site-north", site_name: "North Building", scheduled_date: "2026-10-01", status: "completed", with_safety: true, items: [],
+  result: { id: "res-done-north", completed_at: "2026-10-01T14:42:00.000Z", safety_response_id: "frm-done-north" } };
+const startSheetAt = async (app, siteId) => {
+  await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-start]"); if (b) b.click(); });
+  if (!(await shows(app.page, "[data-inspect-start-sheet] [data-pick-search]", 8000))) return false;
+  await app.page.evaluate((id) => { const r = document.querySelector('[data-inspect-start-sheet] [data-pick-row="' + id + '"]'); if (r) r.click(); }, siteId);
+  return shows(app.page, '[data-inspect-start-sheet] [data-pick-chip="' + siteId + '"]', 6000);
+};
+const startSwitch = (app) => app.page.evaluate(() => { const sw = document.querySelector("[data-inspect-start-safety]"); const line = document.querySelector("[data-inspect-start-safety-line]"); return { on: sw ? sw.getAttribute("aria-checked") : null, kind: line ? line.getAttribute("data-inspect-start-safety-line") : null, line: line ? line.innerText.trim() : "" }; });
+const switchSettled = (app, kind) => app.page.waitForFunction((k) => { const l = document.querySelector("[data-inspect-start-safety-line]"); return !!l && l.getAttribute("data-inspect-start-safety-line") === k; }, kind, { timeout: 8000 }).then(() => true).catch(() => false);
+const closeStartSheet = (app, language) => app.page.evaluate((l) => { const b = Array.from(document.querySelectorAll("[data-inspect-start-sheet] button")).find(x => x.getAttribute("aria-label") === l); if (b) b.click(); }, say("Close", language));
+const before = (word, language) => say(word, language).split("{")[0].trim();
+
+const PART380_S2_JOURNEYS = [
+  {
+    id: "safetymonth",
+    label: "The safety walk once a month (part 380, the owner's decision of Nov 10): Start an inspection's Include the safety walk starts off at a site whose safety walk is on record this month, saying when, and on at one with none, saying it is due; a second inspection at a site while the first carries it starts off; the person can still turn it either way; with no answer to read it from it starts off and says the rule",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, startInspection: true, inspections: [DONE_NORTH] } });
+      try {
+        await openTab(app.page, "inspect", language);
+        await shows(app.page, "[data-inspect-start]", 8000);
+        if (!(await startSheetAt(app, "site-north"))) { expect("the sheet picks North Building", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        await switchSettled(app, "done");
+        const north = await startSwitch(app);
+        expect("at a site whose safety walk is on record this month, the switch starts off and says when it was done", north.on === "false" && north.kind === "done" && north.line.indexOf(before("Safety walk done this month on {date}", language)) === 0 && /1/.test(north.line), JSON.stringify(north));
+        const read = app.stub.state.calls.filter(c => c.method === "GET" && (c.path === "/api/inspections/scheduled" && /site_id=site-north/.test(c.search || "") || c.path === "/api/inspections/scheduled/" + DONE_NORTH.id));
+        expect("read from the site's inspections and the done one's result", read.length === 2, JSON.stringify(read.map(c => c.path + (c.search || ""))));
+        await spokenHere(app, language, expect);
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-start-safety]"); if (b) b.click(); });
+        await pause(app.page, 300);
+        expect("the person can still turn it on", (await startSwitch(app)).on === "true", JSON.stringify(await startSwitch(app)));
+        await closeStartSheet(app, language);
+        await pause(app.page, 400);
+        if (!(await startSheetAt(app, "site-south"))) { expect("the sheet picks South Building", false, "no chip"); return; }
+        await switchSettled(app, "due");
+        const south = await startSwitch(app);
+        expect("at a site with none on record this month, the switch starts on and says it is due", south.on === "true" && south.kind === "due" && south.line === say("Safety walk due this month", language), JSON.stringify(south));
+        await app.page.evaluate(() => { const b = document.querySelector('[data-inspect-start-choice="tpl-south-day"]'); if (b) b.click(); });
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-start-go]"); if (b) b.click(); });
+        await shows(app.page, "[data-inspect-item]", 8000);
+        const startedWith = app.stub.state.startCalls[0] || {};
+        expect("Start the inspection sends the switch as it stands", startedWith.withSafety === true && startedWith.site_id === "site-south", JSON.stringify(startedWith));
+        await tapBack(app.page, language);
+        await shows(app.page, "[data-inspect-start]", 8000);
+        if (!(await startSheetAt(app, "site-south"))) { expect("the sheet picks South Building again", false, "no chip"); return; }
+        await switchSettled(app, "open");
+        const second = await startSwitch(app);
+        expect("a second inspection at that site, while the first carries the safety walk, starts with the switch off and says which carries it", second.on === "false" && second.kind === "open" && second.line === say("Safety walk on {inspection}, already started at this site", language).replace("{inspection}", "Invented South day walk"), JSON.stringify(second));
+        await closeStartSheet(app, language);
+        await pause(app.page, 400);
+        app.stub.state.refuse["GET /api/inspections/scheduled"] = { status: 500, once: true };
+        if (!(await startSheetAt(app, "site-west"))) { expect("the sheet picks West Building", false, "no chip"); return; }
+        await switchSettled(app, "rule");
+        const west = await startSwitch(app);
+        expect("with no answer to read it from, the switch starts off and says the rule", west.on === "false" && west.kind === "rule" && west.line === say("Safety walk: once a month per site", language), JSON.stringify(west));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "safetyonce",
+    label: "One safety walk per visit (part 380, the owner's visit of Nov 10): an open walk at a site whose safety walk was done on another inspection this month stops asking for it, says on which and at what time, starts no draft of it, puts its own draft away and is sent without it",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true, inspections: [DONE_NORTH] } });
+      try {
+        // Both were started with the safety walk on: this walk's own draft
+        // of it is already there.
+        app.stub.state.walkStarted = true;
+        app.stub.state.walkAnswers = { site: "North Building", kind: "monthly", _scheduled_inspection_id: INSPECTION_W.id };
+        await openTab(app.page, "inspect", language);
+        if (!(await openInspectionNamed(app, INSPECTION_W.template_name))) { expect("the walk opens", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        const done = await shows(app.page, '[data-walk-safety-done="' + DONE_NORTH.id + '"]', 6000);
+        const line = done ? await app.page.evaluate(() => document.querySelector("[data-walk-safety-done]").innerText.trim()) : "";
+        const lead = say("Safety walk done on {inspection} at {time}", language).split("{time}")[0].replace("{inspection}", DONE_NORTH.template_name);
+        expect("the walk says the safety walk was done on the other inspection, and at what time", done && line.indexOf(lead) === 0 && /10:42/.test(line), JSON.stringify(line));
+        const asks = await app.page.evaluate(() => !!document.querySelector("[data-walk-to-safety]") || !!document.querySelector("[data-walk-part]"));
+        expect("and it stops asking for it: no safety walk part, and no draft of it started", !asks && app.stub.state.walkStarts.length === 0, JSON.stringify({ asks, starts: app.stub.state.walkStarts }));
+        await spokenHere(app, language, expect);
+        await scoreCard(app, "iw-1", 5);
+        await scoreCard(app, "iw-2", 5);
+        await drawOn(app.page, "[data-inspect-signature] canvas");
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-submit]"); if (b) b.click(); });
+        await shows(app.page, "[data-inspect-sent]", 8000);
+        await pause(app.page, 600);
+        const calls = app.stub.state.calls;
+        const putAway = calls.findIndex(c => c.method === "POST" && c.path === "/api/forms/drafts/draft-safety/discard");
+        const sentAt = calls.findIndex(c => c.method === "POST" && c.path === "/api/inspections/scheduled/" + INSPECTION_W.id + "/complete");
+        const body = sentAt >= 0 ? calls[sentAt].body : null;
+        expect("its own draft of the safety walk is put away first, then it is sent without the safety walk", putAway >= 0 && sentAt > putAway && !!body && body.safety === undefined, JSON.stringify({ putAway, sentAt, safety: body && body.safety }));
+        expect("and the API takes the cards alone", !!(await app.page.$("[data-inspect-sent]")) && app.stub.state.inspections.find(i => i.id === INSPECTION_W.id).status === "completed" && !app.stub.state.walkFiled, JSON.stringify({ filed: app.stub.state.walkFiled }));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART380_S2_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };
