@@ -9428,4 +9428,53 @@ const PART380_S2_JOURNEYS = [
 ];
 JOURNEYS.push(...PART380_S2_JOURNEYS);
 
+// Part 380, section 3: the test site. GET /api/sites as a supervisor reads
+// it carries is_test, and the field kit's sites (GET /api/forms/my-sites)
+// list it with no is_test. No answer says the person is a test account
+// today; the test account's case carries isTestAccount, the shape asked
+// for under Waiting on the API.
+const TEST_NAME = "Invented Test Building";
+const pickRows = (app) => app.page.evaluate(() => Array.from(document.querySelectorAll("[data-inspect-start-sheet] [data-pick-row]")).map(r => ({ id: r.getAttribute("data-pick-row"), text: r.innerText.trim() })));
+const PART380_S3_JOURNEYS = [
+  {
+    id: "testsite",
+    label: "The test site (part 380, API Round 10): a real person never sees the robot's test site on Start an inspection, + Schedule or the field kit's sites, though the lists answer it; a test account sees it marked [TEST]",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, startInspection: true, testSite: true, fieldKit: true } });
+      try {
+        await openTab(app.page, "inspect", language);
+        await shows(app.page, "[data-inspect-start]", 8000);
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-start]"); if (b) b.click(); });
+        await shows(app.page, "[data-inspect-start-sheet] [data-pick-row]", 8000);
+        const rows = await pickRows(app);
+        expect("Start an inspection lists the real sites and never the test site", rows.length === 3 && !rows.some(r => r.id === TEST_SITE_ID || has(r.text, TEST_NAME)), JSON.stringify(rows));
+        await spokenHere(app, language, expect);
+        await closeStartSheet(app, language);
+        await pause(app.page, 400);
+        await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say("+ Schedule", language));
+        const sched = await app.page.waitForFunction(() => Array.from(document.querySelectorAll("select option")).some(o => o.value === "site-north"), null, { timeout: 8000 }).then(() => true).catch(() => false);
+        const options = await app.page.evaluate(() => Array.from(document.querySelectorAll("select option")).map(o => o.value + "|" + o.textContent));
+        expect("+ Schedule's site list never has the test site", sched && !options.some(o => o.indexOf("site-test|") === 0 || has(o, TEST_NAME)), JSON.stringify(options));
+        await reloadApp(app);
+        if (!(await openTab(app.page, "fieldkit", language))) { expect("the field kit opens", false, "no field kit"); return; }
+        await shows(app.page, "#ocsa-fk-site", 8000);
+        const kit = await app.page.evaluate(() => { const sel = document.querySelector("#ocsa-fk-site"); return sel ? Array.from(sel.options).map(o => o.value + "|" + o.textContent) : null; });
+        expect("the field kit's sites never have the test site, though its list answers it with no is_test", !!kit && kit.length === 3 && !kit.some(o => o.indexOf("site-test|") === 0), JSON.stringify(kit));
+      } finally { await app.context.close(); }
+      const crew = await open({ stubOptions: { person: Object.assign({}, ROUND1_SUPERVISOR, { id: "u-test-crew", isTestAccount: true }), startInspection: true, testSite: true } });
+      try {
+        await openTab(crew.page, "inspect", language);
+        await shows(crew.page, "[data-inspect-start]", 8000);
+        await crew.page.evaluate(() => { const b = document.querySelector("[data-inspect-start]"); if (b) b.click(); });
+        await shows(crew.page, "[data-inspect-start-sheet] [data-pick-row]", 8000);
+        const rows = await pickRows(crew);
+        const test = rows.find(r => r.id === TEST_SITE_ID);
+        expect("a test account sees the test site, marked [TEST]", !!test && test.text.indexOf(say("[TEST] {name}", language).replace("{name}", TEST_NAME)) !== -1 && rows.length === 4, JSON.stringify(rows));
+      } finally { await crew.context.close(); }
+    },
+  },
+];
+const TEST_SITE_ID = "site-test";
+JOURNEYS.push(...PART380_S3_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };

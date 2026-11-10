@@ -1651,6 +1651,7 @@ export const WORDS = {
   "Safety walk on {inspection}, already started at this site": "Recorrido de seguridad en {inspection}, ya empezado en este sitio",
   "Safety walk: once a month per site": "Recorrido de seguridad: una vez al mes por sitio",
   "Safety walk done on {inspection} at {time}": "Recorrido de seguridad hecho en {inspection} a las {time}",
+  "[TEST] {name}": "[TEST] {name}",
   },
 };
 
@@ -3180,6 +3181,7 @@ WORDS.fr = {
   "Safety walk on {inspection}, already started at this site": "Tourn\u00e9e de s\u00e9curit\u00e9 sur {inspection}, d\u00e9j\u00e0 commenc\u00e9e sur ce site",
   "Safety walk: once a month per site": "Tourn\u00e9e de s\u00e9curit\u00e9\u00a0: une fois par mois et par site",
   "Safety walk done on {inspection} at {time}": "Tourn\u00e9e de s\u00e9curit\u00e9 faite sur {inspection} \u00e0 {time}",
+  "[TEST] {name}": "[TEST] {name}",
 };
 
 // {name} is replaced after the language is chosen, so the

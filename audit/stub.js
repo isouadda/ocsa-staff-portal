@@ -954,6 +954,9 @@ const START_SITES = [
   { id: "site-west", name: "West Building", status: "active" },
   { id: "site-shut", name: "Invented Closed Building", status: "inactive" },
 ];
+// Part 380: the robot's test site (sites.is_test, API Round 10), behind
+// testSite. Every name invented.
+const TEST_SITE = { id: "site-test", name: "Invented Test Building", status: "active", is_test: true };
 const START_REFUSALS = {
   "inspections.scheduleFieldsRequired": { status: 400, en: "Template, site, and date are required", es: "Se necesitan la plantilla, el sitio y la fecha" },
 };
@@ -1687,6 +1690,8 @@ function makeState(opts) {
     // never signing again (photoLost), as for an object gone from storage.
     photoOwners: {},
     photoSigns: [],
+    // Part 380: the robot's test site on the site lists that answer it.
+    testSite: o.testSite === true,
     photoLost: Array.isArray(o.photoLost) ? o.photoLost.slice() : [],
     uploadSeq: 0,
     // A step of a site's checklist with a reference photo, by task id.
@@ -4016,7 +4021,9 @@ function createStub(opts) {
   function fieldKitAnswer(method, pathname, search, body, key, lang) {
     const management = FK_MANAGEMENT.indexOf(state.person.role) !== -1;
     const q = new URLSearchParams(search || "");
-    if (key === "GET /api/forms/my-sites") return management ? json(200, { sites: SITES.map(x => ({ id: x.siteId, name: x.siteName })) }) : null;
+    // Part 380: with testSite, the robot's test site too, active and with
+    // no is_test, since this route answers id, name and checklistMode only.
+    if (key === "GET /api/forms/my-sites") return management ? json(200, { sites: SITES.map(x => ({ id: x.siteId, name: x.siteName })).concat(state.testSite ? [{ id: TEST_SITE.id, name: TEST_SITE.name }] : []) }) : null;
     // The register's two other labels open the way the smoke check's does.
     const label = FK_EQUIPMENT.find(x => key === "GET /api/equipment/by-qr/" + x.qrCode);
     if (label) return json(200, { equipment: Object.assign({ siteId: "site-north", siteName: "North Building" }, label), events: [] });
@@ -4537,7 +4544,15 @@ function createStub(opts) {
       return json(200, { today: ymd(new Date(checklistDay(clockNow()) * DAY + 12 * 60 * 60 * 1000)), session: session, tasks: counted });
     }
     if (method === "PATCH" && /^\/api\/shift-sessions\//.test(pathname)) { state.clockedIn = false; return json(200, { message: "Shift ended" }); }
-    if (key === "GET /api/sites") return json(200, state.startInspection ? START_SITES.map(x => Object.assign({}, x)) : SITES.map(withMode));
+    // Part 380, as routes/sites.js answers since API Round 10: a person who
+    // reads every site (an admin or a supervisor) gets every column, is_test
+    // among them, and with testSite the robot's test site too; anyone else
+    // gets their own sites' base columns, which carry no is_test.
+    if (key === "GET /api/sites") {
+      const every = state.person.role === "admin" || state.person.role === "supervisor";
+      const rows = state.startInspection ? START_SITES.map(x => Object.assign({}, x)) : SITES.map(withMode);
+      return json(200, every ? rows.map(x => Object.assign({ is_test: false }, x)).concat(state.testSite ? [Object.assign({}, TEST_SITE, state.startInspection ? {} : { siteId: TEST_SITE.id, siteName: TEST_SITE.name })] : []) : rows);
+    }
     // Part 375: a site's named shifts (routes/siteShifts.js GET), the
     // active ones in order, each named in the language asked for; [] at a
     // site with none. A site the stub does not hold is 404 sites.notFound.

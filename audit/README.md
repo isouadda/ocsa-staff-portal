@@ -1398,6 +1398,25 @@ sends in English win over an earlier fit that read as stray, so the
 Spanish line around the inspection's English name reads as that known
 word.
 
+## The test site (part 380, section 3)
+
+`testSite` gives the stub the robot's test site, "Invented Test
+Building", as API Round 10 answers it: on `GET /api/sites` to an admin or
+a supervisor, whose rows now carry every column with `is_test` (false on
+the rest), and on the field kit's `GET /api/forms/my-sites`, which
+answers id and name only, so no `is_test`. Anyone else's `GET /api/sites`
+is their own sites' base columns, with no `is_test`, as the API's are. No
+stub answer says the person is a test account, since no API answer does;
+a case's person may carry `isTestAccount`, the shape asked for under
+Waiting on the API.
+
+One journey, in English and Spanish, failing on the main of part 375:
+
+- `testsite`: a supervisor's Start an inspection, + Schedule and the field
+  kit's sites list the three real sites and never the test site; a person
+  whose answer says `isTestAccount` sees it on Start an inspection as
+  "[TEST] Invented Test Building".
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

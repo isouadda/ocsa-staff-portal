@@ -1208,6 +1208,42 @@ const inspectSitesNamed = (x) => {
   return out;
 };
 const inspectTemplateOf = (x) => (x && typeof x === "object" && x.id !== null && x.id !== undefined && x.is_active !== false && x.isActive !== false ? { id: String(x.id), name: typeof x.name === "string" && x.name.trim() ? x.name.trim() : String(x.id), sites: inspectSitesNamed(x) } : null);
+// ------------------------------------------------------------
+// The test site (part 380, API Round 10): a row of GET /api/sites as
+// management reads it (every column of sites) carries is_test, true for
+// the robot's test site. A real person never sees it in a list or picker
+// this app draws; a test account sees it marked [TEST], as the API marks
+// its notices and mails. No answer the staff app reads says the person
+// signed in is a test account (users.is_test_account is on no sign-in,
+// /api/auth/me or profile answer), so until one answers isTestAccount
+// everyone here is a real person. The test sites read are kept by id for
+// the session, so a list that carries no is_test (GET /api/forms/my-sites)
+// leaves them out too; a person who reads every site reads GET /api/sites
+// once a session for it.
+// ------------------------------------------------------------
+const testSiteIds = new Set();
+const isTestAccount = (user) => !!user && (user.isTestAccount === true || user.is_test_account === true);
+const siteIdOf = (r) => String(r && r.id !== undefined && r.id !== null ? r.id : r && r.siteId !== undefined ? r.siteId : "");
+const siteIsTest = (r) => !!r && (r.is_test === true || r.isTest === true || testSiteIds.has(siteIdOf(r)));
+function learnTestSites(rows) { (Array.isArray(rows) ? rows : []).forEach(r => { if (r && (r.is_test === true || r.isTest === true)) testSiteIds.add(siteIdOf(r)); }); return rows; }
+// A list of sites for the person: the test site left out for a real
+// person, its name marked for a test account. nameKey names the field the
+// list draws.
+function sitesForPerson(user, rows, nameKey) {
+  learnTestSites(rows);
+  const test = isTestAccount(user);
+  const key = nameKey || "name";
+  return (Array.isArray(rows) ? rows : []).filter(r => r && (test || !siteIsTest(r))).map(r => (test && siteIsTest(r) ? Object.assign({}, r, { [key]: tr("[TEST] {name}", { name: String(r[key] || "") }) }) : r));
+}
+let testSitesRead = null;
+function readTestSites(token, user) {
+  if (!user || !(user.role === "admin" || user.role === "supervisor")) return Promise.resolve(null);
+  if (!testSitesRead) {
+    const read = api("/api/sites", { token }).then(learnTestSites).catch(() => { if (testSitesRead === read) testSitesRead = null; return null; });
+    testSitesRead = read;
+  }
+  return testSitesRead;
+}
 const inspectSiteOf = (x) => {
   if (!x || typeof x !== "object") return null;
   const id = x.id !== undefined && x.id !== null ? x.id : x.siteId;
@@ -1222,7 +1258,7 @@ function inspectTemplatesFor(templates, site) {
   const live = (Array.isArray(templates) ? templates : []).map(inspectTemplateOf).filter(Boolean);
   if (!site) return { list: [], own: false };
   if (live.some(tp => tp.sites.length > 0)) return { list: live.filter(tp => tp.sites.indexOf(site.id) !== -1), own: true };
-  const name = inspectNameKey(site.name);
+  const name = inspectNameKey(site.siteName || site.name);
   const named = name.trim() ? live.filter(tp => inspectNameKey(tp.name).indexOf(name) !== -1) : [];
   return named.length > 0 ? { list: named, own: true } : { list: live, own: false };
 }
@@ -14667,8 +14703,10 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
   const sitesRead = useRef(null);
   const mySites = useCallback(() => {
     if (!sitesRead.current) {
-      const read = api("/api/forms/my-sites", { token })
-        .then(d => (d && Array.isArray(d.sites) ? d.sites : []).filter(s => s && s.id !== undefined && s.id !== null))
+      // The test site left out, its id read beside it for a person who
+      // reads every site, since these rows carry no is_test (part 380).
+      const read = Promise.all([api("/api/forms/my-sites", { token }), readTestSites(token, user)])
+        .then(([d]) => sitesForPerson(user, (d && Array.isArray(d.sites) ? d.sites : []).filter(s => s && s.id !== undefined && s.id !== null)))
         .catch(err => { if (!(err && err.status === 404) && sitesRead.current === read) sitesRead.current = null; return []; });
       sitesRead.current = read;
     }
@@ -17331,9 +17369,12 @@ function FieldKitView({ token, user, at, onAt, shiftSiteId, assignedSites, onOpe
     let live = true;
     (async () => {
       try {
-        const rows = wsRows(await api("/api/forms/my-sites", { token }), "sites");
+        const [answer] = await Promise.all([api("/api/forms/my-sites", { token }), readTestSites(token, user)]);
+        const rows = wsRows(answer, "sites");
         if (!rows) throw new Error(ERR_GENERIC);
-        if (live) setSites({ state: "ok", list: rows.map(fkSiteOf).filter(Boolean) });
+        // The test site left out for a real person, marked for a test
+        // account (part 380).
+        if (live) setSites({ state: "ok", list: sitesForPerson(user, rows).map(fkSiteOf).filter(Boolean) });
       } catch (err) {
         // A list already on the screen stays when a later read fails.
         if (live) setSites(prev => (prev && prev.state === "ok" ? prev : { state: "failed", list: [] }));
@@ -19435,7 +19476,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
         api("/api/sites", { token }),
       ]);
       setTemplates(tmpl);
-      setSites(st);
+      setSites(sitesForPerson(user, st));
       setSchedForm({ template_id: "", site_id: "", scheduled_date: "" });
       setScheduleModal(true);
     } catch (e) { showToast(tr(e.message), "error"); }
@@ -20367,7 +20408,9 @@ function StartInspectionSheet({ token, user, onClose, onStarted, t }) {
     try {
       const [tmpl, st] = await Promise.all([api("/api/inspections/templates", { token }), api("/api/sites", { token })]);
       setTemplates(Array.isArray(tmpl) ? tmpl : []);
-      setSites((Array.isArray(st) ? st : []).map(inspectSiteOf).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name)));
+      // The test site left out for a real person, marked for a test account
+      // (part 380); its own name kept for matching its template.
+      setSites(sitesForPerson(user, (Array.isArray(st) ? st : []).map(x => { const r = inspectSiteOf(x); return r && siteIsTest(x) ? Object.assign(r, { is_test: true, siteName: r.name }) : r; }).filter(Boolean)).sort((a, b) => a.name.localeCompare(b.name)));
     } catch (e) { setFailed(true); }
   };
   useEffect(() => { load(); }, []);
