@@ -8719,4 +8719,497 @@ const PART373_S3_JOURNEYS = [
 ];
 JOURNEYS.push(...PART373_S3_JOURNEYS);
 
+
+// --- Round 8 of the staff app (part 375), section 1 -----------------------
+//
+// The checklist belongs to the shift (API Round 9, part 374): North
+// Building names three shifts behind namedShifts, a session joins a run,
+// people in one run share a daily list and the next run starts fresh.
+// Each journey fails on the main of part 373 and passes here.
+const isoOf = (ms) => new Date(ms).toISOString();
+const flat = (v) => String(v == null ? "" : v).replace(/[\s\u00a0\u202f]+/g, " ").trim();
+const textAt = (page, sel) => page.evaluate((q) => { const e = document.querySelector(q); return e ? e.innerText : null; }, sel);
+// A time on the company's clock as the screen draws it.
+const companyTimeOf = (page, language, at) => page.evaluate(([l, v]) => new Date(v).toLocaleTimeString(l, { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }), [language === "es" ? "es-US" : "en-US", at]);
+const runLineOf = async (page, language, shift, from, to) => say("{shift}, {start} to {end}", language).replace("{shift}", shift).replace("{start}", await companyTimeOf(page, language, from)).replace("{end}", await companyTimeOf(page, language, to));
+const NORTH = "site-north";
+const checkoffsOf = (stub, taskId) => stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/clock/tasks/" + taskId + "/complete");
+const keptQueue = (page) => page.evaluate(() => { try { return JSON.parse(window.localStorage.getItem("ocsa-pending-checkoffs") || "[]"); } catch (e) { return []; } });
+const goOffline = async (app) => { await app.context.setOffline(true); app.stub.state.offline = true; };
+const goOnline = async (app) => { app.stub.state.offline = false; await app.context.setOffline(false); };
+const PART375_S1_JOURNEYS = [
+  {
+    id: "shiftrunline",
+    label: "Whose list it is (API part 374): at a site with named shifts the top of the checklist reads the run's shift by its own name in the person's language and its hours on the company's clock, Evening shift, 3:00 PM to 11:00 PM; a site with none reads no run",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { namedShifts: true, links: {} } });
+      try {
+        await openTab(app.page, "tasks", language);
+        const up = await shows(app.page, "[data-shift-run]", 8000);
+        const run = app.stub.state.run;
+        const want = await runLineOf(app.page, language, servedIn("Evening shift", language), isoOf(run.startsAt), isoOf(run.endsAt));
+        const got = up ? await textAt(app.page, "[data-shift-run]") : null;
+        expect("the top of the checklist says whose list it is: the shift's own name in the person's language and its hours on the company's clock", up && flat(got) === flat(want), String(got) + " | wanted " + want);
+        expect("from the run the API sent, the session's", up && (await app.page.evaluate(() => document.querySelector("[data-shift-run]").getAttribute("data-shift-run"))) === "Evening shift", "no run named");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const plain = await open({ stubOptions: { links: {} } });
+      try {
+        await openTab(plain.page, "tasks", language);
+        await pause(plain.page, 1500);
+        expect("a site with no named shifts reads no run, as before", !(await plain.page.evaluate(() => !!document.querySelector("[data-shift-run]"))) && (await checklist(plain.page, language)).length > 0, "a run is drawn");
+      } finally { await plain.context.close(); }
+    },
+  },
+  {
+    id: "shiftearlier",
+    label: "What the last shift did (API part 374): a daily item the day shift checked shows a small grey line, Day shift did this at 2:40 PM, its box open, never counted on the ring, and checking it again is taken (201)",
+    run: async (open, language, expect) => {
+      const DAY_CHECK = Date.parse("2026-10-01T18:40:00Z");
+      const app = await open({ stubOptions: { namedShifts: true, links: {}, completions: [{ taskId: "task-1", userId: "u-one" }, { taskId: "task-3", userId: "u-three", at: DAY_CHECK }] } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await shows(app.page, '[data-task-row="task-3"]', 8000);
+        await pause(app.page, 600);
+        const name = itemName("task-3", language);
+        const row = await rowOf(app.page, language, name);
+        const line = await textAt(app.page, '[data-done-earlier="task-3"]');
+        const want = say("{shift} did this at {time}", language).replace("{shift}", servedIn("Day shift", language)).replace("{time}", await companyTimeOf(app.page, language, isoOf(DAY_CHECK)));
+        expect("the item the last shift checked reads what it did, with its shift's name in the person's language and the time on the company's clock", flat(line) === flat(want), String(line) + " | wanted " + want);
+        expect("its box stays open for this shift", row.found && !row.done, JSON.stringify(row));
+        const grey = await app.page.evaluate(() => { const e = document.querySelector('[data-done-earlier="task-3"]'); if (!e) return null; const c = getComputedStyle(e); return { size: parseFloat(c.fontSize), color: c.color }; });
+        expect("in a small grey line", !!grey && grey.size <= 12, JSON.stringify(grey));
+        const ring = app.stub.peek.progress();
+        const counts = await app.page.evaluate(() => { const e = Array.from(document.querySelectorAll(".sp-content div")).find(x => /^\d+ \/ \d+$|^\d+%$/.test(x.innerText.trim())); return e ? e.innerText.trim() : null; });
+        expect("it never counts as done on the ring", ring.siteCompletedTaskIds.indexOf("task-3") === -1 && ring.siteCompletedTaskIds.indexOf("task-1") !== -1, JSON.stringify(ring.siteCompletedTaskIds) + " " + counts);
+        await spokenHere(app, language, expect);
+        await tapRow(app.page, language, name);
+        await pause(app.page, 1200);
+        const sentNow = checkoffsOf(app.stub, "task-3");
+        const after = await rowOf(app.page, language, name);
+        expect("checking it again is sent and taken for this shift", sentNow.length === 1 && after.done && app.stub.state.completions.filter(c => c.taskId === "task-3").length === 2, sentNow.length + " sent, done " + after.done);
+        expect("and the line goes once it is done", !(await app.page.evaluate(() => !!document.querySelector('[data-done-earlier="task-3"]'))), "still there");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "shiftfresh",
+    label: "Ticks from the last run never carry over (API part 374): a tap still waiting goes before a change of shift, one that cannot is dropped with the run it was made in, the next shift's list reads open, the copy kept for no signal is the new run's, and a tap kept from an earlier session's run is never drawn on this one's",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { namedShifts: true, links: {}, completions: [] } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await shows(app.page, '[data-task-row="task-4"]', 8000);
+        await pause(app.page, 600);
+        // Two taps meet the API restarting (503) and wait. task-2's send is
+        // let through just before the change of shift; task-4's never is.
+        const UNAVAILABLE = { status: 503, body: { error: "Service unavailable", code: "common.unavailable" } };
+        app.stub.state.refuse["POST /api/clock/tasks/task-2/complete"] = UNAVAILABLE;
+        app.stub.state.refuse["POST /api/clock/tasks/task-4/complete"] = UNAVAILABLE;
+        await tapRow(app.page, language, itemName("task-2", language));
+        await pause(app.page, 600);
+        await tapRow(app.page, language, itemName("task-4", language));
+        await pause(app.page, 900);
+        const waiting = (await keptQueue(app.page)).map(x => x.taskId).sort().join();
+        delete app.stub.state.refuse["POST /api/clock/tasks/task-2/complete"];
+        // Change shift to the night shift, from the checklist.
+        await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.textContent.trim() === w); if (b) b.click(); }, say("Change shift", language));
+        await pause(app.page, 900);
+        await pickShift(app.page, servedIn("Night shift", language));
+        await pause(app.page, 300);
+        await clickText(app.page, say("Use this shift", language));
+        await pause(app.page, 2500);
+        const calls = app.stub.state.calls;
+        const patch = shiftChanges(app.stub)[0];
+        const two = checkoffsOf(app.stub, "task-2");
+        const twoTaken = app.stub.state.completions.filter(c => c.taskId === "task-2").map(c => (c.run ? c.run.label : "none"));
+        expect("a tap still waiting goes before the change of shift, in the run it was made in", waiting === "task-2,task-4" && !!patch && two.length >= 2 && calls.indexOf(two[two.length - 1]) < calls.indexOf(patch) && twoTaken.join() === "Evening shift", "waiting " + waiting + ", patch " + !!patch + ", task-2 sent " + two.length + ", taken in " + JSON.stringify(twoTaken));
+        const left = (await keptQueue(app.page)).map(x => x.taskId);
+        const fours = checkoffsOf(app.stub, "task-4");
+        expect("one that could not go is dropped with its run, never sent into the next", left.indexOf("task-4") === -1 && !fours.some(c => calls.indexOf(c) > calls.indexOf(patch)), "kept " + JSON.stringify(left) + ", task-4 sent after the change " + fours.filter(c => calls.indexOf(c) > calls.indexOf(patch)).length);
+        await shows(app.page, '[data-task-row="task-2"]', 8000);
+        await pause(app.page, 900);
+        const rows = await checklist(app.page, language);
+        const of = (id) => rows.find(r => r.name === itemName(id, language)) || {};
+        expect("the next shift's list reads every daily item open, the ones checked in the last run among them", rows.length > 0 && !of("task-2").done && !of("task-4").done, JSON.stringify(rows.map(r => [r.name, r.done])).slice(0, 220));
+        const run = app.stub.state.run;
+        expect("and says it is the night shift's", flat(await textAt(app.page, "[data-shift-run]")) === flat(await runLineOf(app.page, language, servedIn("Night shift", language), isoOf(run.startsAt), isoOf(run.endsAt))), String(await textAt(app.page, "[data-shift-run]")));
+        // The copy kept for no signal is the new run's.
+        const kept = await app.page.evaluate(() => { try { return Object.keys(JSON.parse(window.localStorage.getItem("ocsa-checklist-kept")).lists); } catch (e) { return []; } });
+        expect("the list kept for no signal is kept under the new run alone", kept.length === 1 && kept[0] === NORTH_KEPT_NIGHT, JSON.stringify(kept));
+        await goOffline(app);
+        await reloadApp(app);
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1200);
+        const offRows = await checklist(app.page, language);
+        expect("opened with no signal, it shows the night shift's list, the last run's ticks left off", offRows.length > 0 && !offRows.some(r => r.done && (r.name === itemName("task-2", language))), JSON.stringify(offRows.map(r => [r.name, r.done])).slice(0, 200));
+        await goOnline(app);
+      } finally { await app.context.close(); }
+      // A tap kept from an earlier session, in the evening run, waiting for
+      // signal on a phone whose new session is in the night run.
+      const later = await open({ stubOptions: { namedShifts: true, links: {}, completions: [], sessionRun: "Night shift" } });
+      try {
+        await later.page.evaluate(() => window.localStorage.setItem("ocsa-pending-checkoffs", JSON.stringify([{ taskId: "task-5", siteId: "site-north", userId: "u-one", clientId: "6f1d2c3b-4a59-4e8f-9a7b-1c2d3e4f5a6b", completedAt: "2026-10-01T23:00:00.000Z", done: true, tries: 1, counted: true, run: "evening shift|2026-10-01", sessionId: "sess-0" }])));
+        later.stub.state.refuse["POST /api/clock/tasks/task-5/complete"] = { status: 503, body: { error: "Service unavailable", code: "common.unavailable" } };
+        await reloadApp(later);
+        await openTab(later.page, "tasks", language);
+        await shows(later.page, '[data-task-row="task-5"]', 8000);
+        await pause(later.page, 900);
+        const r5 = await rowOf(later.page, language, itemName("task-5", language));
+        expect("a tap kept from an earlier session's run is never drawn on this run's list", r5.found && !r5.done, JSON.stringify(r5));
+        expect("and it still waits to go, since the API files it in its own session", (await keptQueue(later.page)).some(x => x.taskId === "task-5"), "dropped");
+      } finally { await later.context.close(); }
+    },
+  },
+  {
+    id: "shiftpicked",
+    label: "Start Shift at a site with named shifts (API part 374): it sends no shift, the sheet offers the site's named shifts with the API's pick already chosen and says so, one tap on Use this shift keeps it with nothing sent, and choosing another goes through the change of shift",
+    run: async (open, language, expect) => {
+      for (const keep of [true, false]) {
+        const app = await open({ stubOptions: { namedShifts: true, links: {}, clockedIn: false } });
+        try {
+          await openTab(app.page, "clock", language);
+          await pause(app.page, 800);
+          await pickSite(app.page, "North Building");
+          await pause(app.page, 400);
+          await clickText(app.page, say("Start Shift", language));
+          await pause(app.page, 2200);
+          const started = lastSent(app.stub, "POST", "/api/shift-sessions");
+          expect("Start Shift sends no shift the person did not pick", !!started && !Object.prototype.hasOwnProperty.call(started.body || {}, "shiftLabel"), started ? JSON.stringify(started.body) : "not sent");
+          const sheet = await shiftSheet(app.page, language);
+          expect("the sheet asks which shift, with the site's named shifts", sheet.up && sheet.choices.length === 3 && ["Day shift", "Evening shift", "Night shift"].every(n => sheet.choices.some(c => c.text.indexOf(servedIn(n, language)) === 0)), JSON.stringify(sheet.choices));
+          if (!sheet.up) continue;
+          const picked = sheet.choices.filter(c => c.picked).map(c => c.text);
+          expect("the API's pick is the shift already chosen", picked.length === 1 && picked[0].indexOf(servedIn("Evening shift", language)) === 0, JSON.stringify(picked));
+          expect("and the sheet says it was picked for them", has(sheet.text, say("Picked from your schedule and the time you started. Change it if it is wrong.", language)), sheet.text.slice(0, 220));
+          const hours = sheet.choices.find(c => c.text.indexOf(servedIn("Night shift", language)) === 0);
+          expect("each shift shows its hours", !!hours && hours.text.indexOf(await hoursOf(app.page, language, "23:00", "07:00")) !== -1, hours ? hours.text : "none");
+          await spokenHere(app, language, expect);
+          if (!keep) await pickShift(app.page, servedIn("Day shift", language));
+          await pause(app.page, 300);
+          await clickText(app.page, say("Use this shift", language));
+          await pause(app.page, 1800);
+          const changes = shiftChanges(app.stub);
+          if (keep) expect("one tap on Use this shift keeps the API's pick, with nothing sent", changes.length === 0 && !(await shiftSheet(app.page, language)).up && app.stub.state.run.label === "Evening shift", changes.map(c => JSON.stringify(c.body)).join(" | "));
+          else expect("choosing another shift goes through the change of shift", changes.length === 1 && JSON.stringify(changes[0].body) === JSON.stringify({ shiftLabel: "Day shift" }) && app.stub.state.run.label === "Day shift", changes.map(c => JSON.stringify(c.body)).join(" | ") || "nothing sent");
+        } finally { await app.context.close(); }
+      }
+    },
+  },
+];
+const NORTH_KEPT_NIGHT = NORTH + "#night shift|2026-10-01";
+JOURNEYS.push(...PART375_S1_JOURNEYS);
+
+
+// --- Round 8 of the staff app (part 375), section 2 -----------------------
+//
+// Training answers from API Round 9 (part 374): a closed quiz's 409 with
+// its attempt, a signature storage did not take (503), the same
+// acknowledgement answered 200 again, and tries in place of attempt
+// numbers. Each journey fails on the main of part 373 and passes here.
+const waitOn = (page, fn, arg, ms) => page.waitForFunction(fn, arg, { timeout: ms || 8000 }).then(() => true).catch(() => false);
+// From Home's card to the ladders lesson's questions, answered with picks;
+// the last pick submits. twice: the last Submit tapped twice at once.
+const lessonFromHome = async (app) => {
+  if (!(await waitOn(app.page, () => !!document.querySelector('[data-training-card="todo"]'), null, 10000))) return false;
+  await app.page.click('[data-training-card="todo"]');
+  if (!(await waitOn(app.page, () => !!document.querySelector('[data-training-start="tp-1:"]')))) return false;
+  await app.page.click('[data-training-start="tp-1:"]');
+  return waitOn(app.page, () => !!document.querySelector('[data-lesson="read"] [data-lesson-next="read"]'));
+};
+const answerLesson = async (app, picks, twice) => {
+  await app.page.click('[data-lesson-next="read"]');
+  for (let i = 0; i < picks.length; i += 1) {
+    if (!(await waitOn(app.page, (n) => { const c = document.querySelector('[data-lesson="ask"]'); return !!c && c.getAttribute("data-lesson-question") === String(n); }, i + 1))) return false;
+    await app.page.click('[data-lesson-option="' + picks[i] + '"]');
+    if (i < picks.length - 1) await app.page.click('[data-lesson-next="' + (i + 1) + '"]');
+    else if (twice) await app.page.evaluate(() => { const b = document.querySelector('[data-lesson-submit="1"]'); b.click(); b.click(); });
+    else await app.page.click('[data-lesson-submit="1"]');
+  }
+  return true;
+};
+const PASS = ["a", "a", "a", "a", "a"];
+const FAIL = ["a", "b", "b", "a", "a"];
+const answersSent = (stub) => stub.state.calls.filter(c => c.method === "POST" && /^\/api\/training\/attempts\/[^/]+\/answers$/.test(c.path));
+const acksSent = (stub) => stub.state.calls.filter(c => c.method === "POST" && /^\/api\/training\/attempts\/[^/]+\/acknowledge$/.test(c.path));
+const trainingWords = (key, language) => { const r = require("./stub").TRAINING_REFUSALS[key]; return language === "es" ? r.es : r.en; };
+const PART375_S2_JOURNEYS = [
+  {
+    id: "quizclosed",
+    label: "A closed quiz (API part 374): Submit tapped twice at once sends once; a send whose answer was lost, sent again, meets 409 training.attemptClosed with the attempt, and the screen shows that attempt's result in the API's words, with the questions taking no more taps",
+    run: async (open, language, expect) => {
+      const once = await open({ stubOptions: { training: true } });
+      try {
+        if (!(await lessonFromHome(once))) { expect("the lesson opens from Home", false, (await bodyText(once.page)).slice(0, 200)); return; }
+        await answerLesson(once, PASS, true);
+        await waitOn(once.page, () => !!document.querySelector('[data-lesson="sign"]'));
+        await pause(once.page, 600);
+        expect("Submit tapped twice at once sends the answers once", answersSent(once.stub).length === 1, answersSent(once.stub).length + " sends");
+      } finally { await once.context.close(); }
+      const lost = await open({ stubOptions: { training: true, answersLoseNext: 1 } });
+      try {
+        if (!(await lessonFromHome(lost))) { expect("the lesson opens from Home", false, (await bodyText(lost.page)).slice(0, 200)); return; }
+        await answerLesson(lost, PASS);
+        await pause(lost.page, 1500);
+        const still = await lost.page.evaluate(() => !!document.querySelector('[data-lesson="ask"]'));
+        await lost.page.click('[data-lesson-submit="1"]').catch(() => {});
+        const shown = await waitOn(lost.page, () => !!document.querySelector('[data-lesson="sign"]'));
+        const note = await textAt(lost.page, "[data-lesson-closed]");
+        expect("the answer lost, Submit again meets the closed quiz and shows the attempt's result: passed, ready to sign", still && shown && answersSent(lost.stub).length === 2 && has(await bodyText(lost.page), say("You passed.", language)), "asked again " + still + ", sign " + shown + ", " + answersSent(lost.stub).length + " sends");
+        expect("in the API's own words", flat(note) === flat(trainingWords("training.attemptClosed", language)), String(note));
+        expect("and the questions take no more taps", !(await lost.page.evaluate(() => !!document.querySelector("[data-lesson-option], [data-lesson-submit]"))), "still offered");
+        await spokenHere(lost, language, expect);
+      } finally { await lost.context.close(); }
+    },
+  },
+  {
+    id: "signagain",
+    label: "A signature that did not save (API part 374): Sign tapped twice at once sends once; 503 training.signatureNotStored reads the API's words with the box kept and empty to sign again; a signature whose answer was lost, sent again, is answered 200 and reads as done",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { training: true, ackNotStored: 1, ackLoseNext: 1 } });
+      try {
+        if (!(await lessonFromHome(app))) { expect("the lesson opens from Home", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        await answerLesson(app, PASS);
+        if (!(await waitOn(app.page, () => !!document.querySelector('[data-lesson="sign"] [data-lesson-signature="1"] canvas')))) { expect("the pass asks for a signature", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        await drawOn(app.page, '[data-lesson-signature="1"] canvas');
+        await app.page.evaluate(() => { const b = document.querySelector('[data-lesson-sign="1"]'); b.click(); b.click(); });
+        await pause(app.page, 1500);
+        expect("Sign tapped twice at once sends once", acksSent(app.stub).length === 1, acksSent(app.stub).length + " sends");
+        const said = await app.page.evaluate(() => { const c = document.querySelector('[data-lesson="sign"]'); return c ? c.innerText : ""; });
+        expect("a signature that did not save reads the API's words", has(said, trainingWords("training.signatureNotStored", language)), said.slice(0, 300));
+        const box = await app.page.evaluate(() => { const c = document.querySelector('[data-lesson-signature="1"] canvas'); if (!c) return null; const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data; let ink = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0 && d[i] < 160) ink += 1; return ink; });
+        expect("the signature box stays, emptied for the person to sign again", box === 0, "ink " + box);
+        await drawOn(app.page, '[data-lesson-signature="1"] canvas');
+        await app.page.click('[data-lesson-sign="1"]');
+        await pause(app.page, 1500);
+        const lostSaid = await app.page.evaluate(() => !!document.querySelector('[data-lesson="sign"]'));
+        await app.page.click('[data-lesson-sign="1"]').catch(() => {});
+        const done = await waitOn(app.page, () => !!document.querySelector('[data-lesson="done"]'));
+        expect("a signature whose answer was lost, sent again, is answered 200 and reads as done", lostSaid && done && acksSent(app.stub).length === 3 && app.stub.state.trainingAttempts.some(a => a.acknowledgedAt), "kept " + lostSaid + ", done " + done + ", " + acksSent(app.stub).length + " sends");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "triesused",
+    label: "Tries, never attempt numbers (API part 374): My training and a lesson's result read the tries used and the tries left from attemptsUsed and attemptsLeft, and no attempt number shows, though voided attempts pushed the next one to 104",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { training: true, trainingVoided: 3 } });
+      try {
+        if (!(await waitOn(app.page, () => !!document.querySelector('[data-training-card="todo"]'), null, 10000))) { expect("Home offers My training", false, ""); return; }
+        await app.page.click('[data-training-card="todo"]');
+        await waitOn(app.page, () => !!document.querySelector('[data-training-start="tp-1:"]'));
+        const row = await app.page.evaluate(() => { const b = document.querySelector('[data-training-start="tp-1:"]'); return b ? b.parentElement.innerText : ""; });
+        expect("My training reads the tries used and the tries left", has(row, say("Tries used: {n}", language).replace("{n}", "0")) && has(row, say("{n} tries left", language).replace("{n}", "3")), row);
+        await app.page.click('[data-training-start="tp-1:"]');
+        await waitOn(app.page, () => !!document.querySelector('[data-lesson="read"] [data-lesson-next="read"]'));
+        await answerLesson(app, FAIL);
+        const failed = await waitOn(app.page, () => !!document.querySelector('[data-lesson="result"]'));
+        const made = app.stub.state.trainingAttempts.filter(a => !a.voidedAt && a.personId === app.stub.state.person.id && a.versionId === "lv-1").pop();
+        const text = await bodyText(app.page);
+        expect("the result reads the tries used and the tries left", failed && has(text, say("Tries used: {n}", language).replace("{n}", "1")) && has(text, say("{n} tries left", language).replace("{n}", "2")), text.slice(0, 300));
+        expect("and never the attempt's own number", !!made && made.attemptNo === 104 && !/\b10[1-4]\b/.test(text), (made ? made.attemptNo : "none") + " | " + text.slice(0, 200));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART375_S2_JOURNEYS);
+
+
+// --- Round 8 of the staff app (part 375), section 3 -----------------------
+//
+// Help's steps for the shift's own list and for signing a warning from
+// its email match the screen. Fails on the main of part 373.
+const CHECK_TITLE = "Check off a task on your checklist (staff portal)";
+const SIGN_TITLE = "Sign for something you received";
+const boldNames = (entry, language) => Array.from(entry.matchAll(/\*\*([^*]+)\*\* \(\*\*([^*]+)\*\*\) \(\*\*([^*]+)\*\*\)/g)).map(m => (language === "es" ? m[2] : m[1]));
+// A name with a {placeholder} matches the screen as a pattern.
+const nameOnScreen = (all, name) => (name.indexOf("{") === -1 ? has(all, name) : new RegExp(name.replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\{\w+\}/g, "[\\s\\S]+?"), "i").test(all));
+const PART375_S3_JOURNEYS = [
+  {
+    id: "shiftguide",
+    label: "Help's steps for the shift's own list and for a warning's email match the screen (part 375): Check off a task names Start Shift's sheet with the pick, Use this shift, Change shift and the last shift's line, each on the screen in its language; the warning's email button, /sign/<id>, signs in first and opens the request",
+    run: async (open, language, expect) => {
+      const entry = guideEntry(CHECK_TITLE);
+      const sign = guideEntry(SIGN_TITLE);
+      expect("the checklist entry says the list is the shift's, the grey line, the overnight list and Start Shift's pick", has(entry, "your list is your shift's list") && has(entry, "did this at") && has(entry, "overnight list stays one list from start to end") && has(entry, "already picked"), entry.slice(0, 200));
+      expect("the signing entry says the signed copy comes by email and the email's button opens the signing screen", has(sign, "a signed copy comes to your email") && has(sign, "Its button opens the signing screen"), sign.slice(0, 200));
+      const wanted = ["Start Shift", "Which shift are you working?", "Picked from your schedule and the time you started. Change it if it is wrong.", "Use this shift", "Change shift", "Tasks", "{shift} did this at {time}"].map(w => say(w, language));
+      const listed = boldNames(entry, language);
+      expect("the entry names each of them as the screen says it", wanted.every(w => listed.indexOf(w) !== -1), JSON.stringify(wanted.filter(w => listed.indexOf(w) === -1)));
+      const seen = [];
+      const app = await open({ stubOptions: { namedShifts: true, links: {}, clockedIn: false, completions: [{ taskId: "task-3", userId: "u-three", at: Date.parse("2026-10-01T18:40:00Z") }] } });
+      try {
+        await openTab(app.page, "clock", language);
+        await pause(app.page, 800);
+        seen.push(await bodyText(app.page));
+        await pickSite(app.page, "North Building");
+        await pause(app.page, 400);
+        await clickText(app.page, say("Start Shift", language));
+        await waitOn(app.page, (t) => document.body.innerText.indexOf(t) !== -1, say("Picked from your schedule and the time you started. Change it if it is wrong.", language), 8000);
+        seen.push(await bodyText(app.page));
+        await clickText(app.page, say("Use this shift", language));
+        await shows(app.page, '[data-done-earlier="task-3"]', 8000);
+        seen.push(await bodyText(app.page));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const all = seen.join(" | ");
+      const missing = wanted.filter(n => !nameOnScreen(all, n));
+      expect("every name those steps give is on the screens they walk through", missing.length === 0, "not on the screen: " + JSON.stringify(missing));
+      // The warning's email button: /sign/<id>, signed out.
+      const mail = await open({ signedIn: false, path: "/sign/sr-1", stubOptions: { signatures: true } });
+      try {
+        await type(mail.page, 'input[autocomplete="username"]', "4821");
+        await type(mail.page, 'input[type="password"]', "4907");
+        await clickText(mail.page, say("Sign In", language));
+        const opened = await shows(mail.page, '[data-sign="ready"]', 10000);
+        expect("the email's button signs the person in first, then opens the request", opened, (await bodyText(mail.page)).slice(0, 200));
+      } finally { await mail.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART375_S3_JOURNEYS);
+
+
+// --- Round 8 of the staff app (part 375), section 4 -----------------------
+//
+// Seven of the October audit's open findings that field staff meet first,
+// in five journeys. Each fails on the main of part 373.
+const resolvePatches = (stub, id) => stub.state.calls.filter(c => c.method === "PATCH" && c.path === "/api/clock/tasks/resolve/" + id);
+// A button by its own words, before any style sets them in capitals.
+const buttonSaying = (page, words) => page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.textContent.trim().toLowerCase() === w.toLowerCase() && x.offsetParent !== null); return !!b; }, words);
+const PART375_S4_JOURNEYS = [
+  {
+    id: "uncheckoffer",
+    label: "A coworker's check offers no Uncheck Task (PORT-62): the detail of an item a coworker checked today says only they can uncheck it, with nothing to tap that would be refused",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { links: {}, completions: [{ taskId: "task-1", userId: "u-three" }] } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await shows(app.page, '[data-task-row="task-1"]', 8000);
+        await pause(app.page, 600);
+        await app.page.evaluate(() => { const r = document.querySelector('[data-task-row="task-1"]'); const b = r && r.querySelectorAll("button")[1]; if (b) b.click(); });
+        await pause(app.page, 700);
+        const offered = await buttonSaying(app.page, say("Uncheck Task", language));
+        const theirs = await textAt(app.page, "[data-task-theirs]");
+        expect("the detail of a coworker's check offers no Uncheck Task", !offered, "Uncheck Task is offered");
+        expect("and says only the person who checked it can uncheck it", flat(theirs) === flat(say("Only the person who checked this can uncheck it.", language)), String(theirs));
+        expect("and who checked it", has(await bodyText(app.page), say("Checked by {firstName}", language).replace("{firstName}", "Robin")), (await bodyText(app.page)).slice(0, 200));
+        expect("and nothing was sent", !app.stub.state.calls.some(c => c.method === "DELETE" && /\/complete$/.test(c.path)), "an uncheck was sent");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "assignedonce",
+    label: "Assigned work sent once and said right (PORT-60, PORT-65, PORT-66): In Progress and Cannot Resolve tapped twice at once send once; Cannot Resolve says it went up with the reason, never Task updated to unable to resolve; a finding an inspection filed reads in the person's language",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { issueSheet: true } });
+      try {
+        // A problem an inspection card filed, assigned to the person as a
+        // task, its title in English as the card files it.
+        app.stub.state.sheetTasks.push({ task_id: "at-f1", label: "Inspection finding: Lobby", description: "Invented: the lobby floor is wet.", site_name: "North Building", zone: "Lobby", priority: "medium", resolution_status: "pending", source_issue_id: "iss-f1", issue_title: "Inspection finding: Lobby", issue_description: "Invented: the lobby floor is wet.", severity: "medium", task_created_at: "2026-10-01T20:00:00.000Z" });
+        await openTab(app.page, "issuetasks", language);
+        await pause(app.page, 1500);
+        const text = await bodyText(app.page);
+        const titled = say("Inspection finding: {place}", language).replace("{place}", "Lobby");
+        expect("a finding an inspection filed reads in the person's language", has(text, titled) && (language === "en" || !has(text, "Inspection finding: Lobby")), text.slice(0, 300));
+        // In Progress, twice at once, on the first task.
+        await app.page.evaluate(() => { const r = document.querySelector('[data-work-row="task:at-1"]') || document.querySelector("[data-work-row]"); if (r) r.click(); });
+        await pause(app.page, 700);
+        await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button, div button")).find(x => x.innerText.trim() === w); if (b) { b.click(); b.click(); } }, say("In Progress", language));
+        await pause(app.page, 1200);
+        const progress = app.stub.state.calls.filter(c => c.method === "PATCH" && /^\/api\/clock\/tasks\/resolve\//.test(c.path) && c.body && c.body.resolutionStatus === "in_progress");
+        expect("In Progress tapped twice at once sends once", progress.length === 1, progress.length + " sends");
+        // Cannot Resolve with a reason, its send tapped twice at once.
+        await app.page.evaluate(() => { const r = Array.from(document.querySelectorAll("[data-work-row]")).find(x => /at-f1/.test(x.getAttribute("data-work-row"))) || document.querySelector("[data-work-row]"); if (r) r.click(); });
+        await pause(app.page, 700);
+        await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say("Cannot Resolve", language));
+        await pause(app.page, 400);
+        await type(app.page, "textarea", "Invented: the floor needs a machine we do not have.");
+        await watchToasts(app.page);
+        await app.page.evaluate(() => { const ta = document.querySelector("textarea"); const panel = ta ? ta.parentElement : null; const bs = panel ? panel.querySelectorAll("button") : []; const b = bs[bs.length - 1]; if (b) { b.click(); b.click(); } });
+        await pause(app.page, 1500);
+        const cannot = app.stub.state.calls.filter(c => c.method === "PATCH" && /^\/api\/clock\/tasks\/resolve\//.test(c.path) && c.body && c.body.resolutionStatus === "unable_to_resolve");
+        expect("Cannot Resolve tapped twice at once sends once", cannot.length === 1, cannot.length + " sends");
+        const said = JSON.stringify(await app.page.evaluate(() => (window.__ocsaToasts ? window.__ocsaToasts.seen.map(x => x.text) : [])));
+        expect("and says it went up with the reason", has(said, say("Sent up as not done. The office sees your reason.", language)) && !has(said, say("Task updated to {status}", language).replace("{status}", say("unable to resolve", language))), said);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "chatfault",
+    label: "A chat whose messages fail to load says so (PORT-54): the chat reads that it did not load with Try again, never a blank screen, and Try again reads it",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        const ids = app.stub.state.chat.channels.map(c => c.id);
+        ids.forEach(id => { app.stub.state.refuse["GET /api/chat/channels/" + id + "/messages"] = { status: 500, body: { error: "Something went wrong on our end. Try again in a minute.", code: "common.serverError" } }; });
+        await openChat(app.page, language);
+        await pause(app.page, 1200);
+        const fault = await textAt(app.page, "[data-chat-messages-fault]");
+        expect("a chat whose messages did not load says so, with Try again", has(fault, say("This did not load. Try again.", language)) && has(fault, say("Try again", language)), String(fault) + " | " + (await bodyText(app.page)).slice(0, 200));
+        await spokenHere(app, language, expect);
+        ids.forEach(id => { delete app.stub.state.refuse["GET /api/chat/channels/" + id + "/messages"]; });
+        await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll("[data-chat-messages-fault] button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say("Try again", language));
+        await pause(app.page, 1500);
+        expect("Try again reads the chat", !(await app.page.evaluate(() => !!document.querySelector("[data-chat-messages-fault]"))) && (await app.page.evaluate(() => document.querySelectorAll(".sp-content [data-message-id], .sp-content [data-msg]").length)) >= 0 && !has(await bodyText(app.page), say("This did not load. Try again.", language)), (await bodyText(app.page)).slice(0, 200));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "startinview",
+    label: "Start Shift comes into view (PORT-36): at the Largest text size on a 375 by 667 phone, tapping a site brings Start Shift above the bottom bar, where a tap reaches it",
+    run: async (open, language, expect) => {
+      const app = await open({ textSize: "largest", stubOptions: { clockedIn: false, accountPreferences: { language: language, textSize: "largest" } } });
+      try {
+        await openTab(app.page, "clock", language);
+        await pause(app.page, 1200);
+        await app.page.evaluate(() => window.scrollTo(0, 0));
+        await pause(app.page, 300);
+        await pickSite(app.page, "North Building");
+        await pause(app.page, 1200);
+        const seen = await app.page.evaluate(() => {
+          const b = document.querySelector("[data-start-shift]");
+          if (!b) return null;
+          const r = b.getBoundingClientRect();
+          const x = r.left + r.width / 2, y = r.top + r.height / 2;
+          const hit = document.elementFromPoint(x, y);
+          return { top: r.top, bottom: r.bottom, h: window.innerHeight, reached: !!hit && (hit === b || b.contains(hit)) };
+        });
+        expect("once a site is tapped, Start Shift is on the screen above the bottom bar, where a tap reaches it", !!seen && seen.top >= 0 && seen.bottom <= seen.h && seen.reached, JSON.stringify(seen));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "dayturn",
+    label: "The checklist after the day turns (PORT-53): a phone with the list of a checklist day that ended at 4:00 AM reads the list and the status again when it comes back, so Home's count and the rows are the new day's",
+    run: async (open, language, expect) => {
+      const AT = "2026-10-02T07:58:00Z";
+      const app = await open({ now: AT, stubOptions: { now: AT, rowsCarryDay: true } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1500);
+        const lists = () => app.stub.state.calls.filter(c => c.method === "GET" && /^\/api\/sites\/site-north\/tasks$/.test(c.path)).length;
+        const before = lists();
+        await openTab(app.page, "home", language);
+        await pause(app.page, 600);
+        // 4:03 AM: the checklist day of October 1 has ended.
+        app.stub.state.now = Date.parse("2026-10-02T08:03:00Z");
+        await app.page.clock.fastForward("05:00");
+        await app.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+        await pause(app.page, 2000);
+        const after = lists();
+        const day = app.stub.state.calls.filter(c => c.method === "GET" && /^\/api\/sites\/site-north\/tasks$/.test(c.path)).length;
+        expect("once the day turns the list is read again, with the status after it", before >= 1 && after > before && day === after, before + " reads before, " + after + " after");
+        const rows = app.stub.peek.rows("site-north", "?day=today&locale=" + language);
+        expect("and it is the new day's list", rows.length > 0 && rows[0].checklistDay === "2026-10-02", rows.length ? rows[0].checklistDay : "no rows");
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART375_S4_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };

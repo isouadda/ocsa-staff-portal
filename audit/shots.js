@@ -679,8 +679,11 @@ const SHOTS = [
 
   // The checklist.
   // Part 356: with two coworkers on shift, named by Also here at the top.
-  { name: "tasks", entry: E("Check off a task on your checklist"), o: { signedIn: true, stub: { othersOnShift: [FIRST_NAMES["u-two"], FIRST_NAMES["u-three"]].map((n, i) => ({ firstName: n, startedAt: new Date(NOW.getTime() - (2 - i) * 3600000).toISOString() })) } },
-    go: async (s) => { if (!(await s.go("Tasks"))) return false; const w = marks(s); return s.waitFor((x) => !!eval(x.js)(x.w, false) && !!document.querySelector("[data-also-here]"), { js: MARK_JS, w: w }); } },
+  // Part 375: North Building with named shifts, the evening shift's list
+  // saying whose it is, and a daily item the day shift did at 2:40 PM
+  // with its grey line.
+  { name: "tasks", entry: E("Check off a task on your checklist"), o: { signedIn: true, stub: { namedShifts: true, completions: [{ taskId: "task-1", userId: "u-one" }, { taskId: "task-3", userId: "u-three", at: Date.parse("2026-10-01T18:40:00Z") }], othersOnShift: [FIRST_NAMES["u-two"], FIRST_NAMES["u-three"]].map((n, i) => ({ firstName: n, startedAt: new Date(NOW.getTime() - (2 - i) * 3600000).toISOString() })) } },
+    go: async (s) => { if (!(await s.go("Tasks"))) return false; const w = marks(s); return s.waitFor((x) => !!eval(x.js)(x.w, false) && !!document.querySelector("[data-also-here]") && !!document.querySelector("[data-shift-run]") && !!document.querySelector('[data-done-earlier="task-3"]'), { js: MARK_JS, w: w }); } },
   // Step 339: North Building keeping its task list as a record, read on
   // the shift with nothing to check off.
   { name: "tasks-reference", entry: E("Check off a task on your checklist"), o: { signedIn: true, stub: { checklistModes: { "site-north": "reference" } } },

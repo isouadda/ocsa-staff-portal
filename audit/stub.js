@@ -655,6 +655,10 @@ const TRAINING_REFUSALS = {
   "training.demonstrationRequired": { status: 400, en: "Watch the person do it before you sign.", es: "Vea a la persona hacerlo antes de firmar." },
   "training.attemptNotFound": { status: 404, en: "This attempt was not found.", es: "No se encontr\u00f3 este intento." },
   "training.noAccess": { status: 403, en: "You cannot see this.", es: "No puede ver esto." },
+  // Part 375 (API part 374): the API's own words, from its
+  // translation/api_words.csv.
+  "training.attemptClosed": { status: 409, en: "This quiz is already finished, so it takes no more answers. Here is how it stands.", es: "Este cuestionario ya termin\u00f3 y no acepta m\u00e1s respuestas. As\u00ed est\u00e1 ahora." },
+  "training.signatureNotStored": { status: 503, en: "Your signature could not be saved just now. Nothing was lost: sign again.", es: "No se pudo guardar su firma en este momento. No se perdi\u00f3 nada: firme de nuevo." },
 };
 // Step 264: the Step 262 contract's answers behind the training switch,
 // every value invented. A session another trainer opened at North
@@ -1493,6 +1497,60 @@ const GUIDE_FORMS = [
 ];
 const guideForms = (lang) => GUIDE_FORMS.map(([code, en, es]) => ({ code: code, title: lang === "es" ? es : en, fields: [] }));
 
+// --- A site's named shifts and their runs (part 375, API part 374) ------
+//
+// North Building names three shifts behind namedShifts, as ocsa-api's
+// helpers/shiftRuns.js reads site_shifts: a label, a start and an end on
+// the company's clock (an end at or before the start runs past
+// midnight), and its Spanish and French. A run is one shift on one start
+// date. A session joins one at Start Shift: the label sent, else the
+// shift starting within 30 minutes, else the one running now (the stub
+// holds no schedule to match by times); a change of shift moves it to
+// that shift's current run. Every check-off carries the run of its
+// session; a seeded check with no run is read in the run whose hours
+// hold it. Names and times are invented.
+const NAMED_SHIFTS = {
+  "site-north": [
+    { id: "shf-north-day", label: "Day shift", start: "07:00", end: "15:00", es: "Turno de d\u00eda", fr: "\u00c9quipe de jour" },
+    { id: "shf-north-evening", label: "Evening shift", start: "15:00", end: "23:00", es: "Turno de tarde", fr: "\u00c9quipe du soir" },
+    { id: "shf-north-night", label: "Night shift", start: "23:00", end: "07:00", es: "Turno de noche", fr: "\u00c9quipe de nuit" },
+  ],
+};
+const RUN_ZONE = "America/New_York";
+const runZoneParts = (ms) => { const p = {}; new Intl.DateTimeFormat("en-US", { timeZone: RUN_ZONE, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(ms)).forEach((x) => { p[x.type] = x.value; }); return p; };
+const zoneDate = (ms) => { const p = runZoneParts(ms); return p.year + "-" + p.month + "-" + p.day; };
+// The instant of a time of day on a date, on the company's clock.
+const zoneInstant = (date, minutes) => {
+  const wanted = Date.parse(date + "T00:00:00Z") + minutes * 60000;
+  let t = wanted + 4 * 3600000;
+  for (let i = 0; i < 3; i += 1) { const p = runZoneParts(t); t += wanted - Date.parse(p.year + "-" + p.month + "-" + p.day + "T" + p.hour + ":" + p.minute + ":00Z"); }
+  return t;
+};
+const dayAfter = (date, n) => new Date(Date.parse(date + "T12:00:00Z") + n * DAY).toISOString().slice(0, 10);
+const minutesIn = (hhmm) => { const m = /^(\d{2}):(\d{2})/.exec(String(hhmm || "")); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+const runOn = (shift, date) => {
+  const s = minutesIn(shift.start), e = minutesIn(shift.end);
+  return { label: shift.label, shift: shift, runDate: date, startsAt: zoneInstant(date, s), endsAt: zoneInstant(e <= s ? dayAfter(date, 1) : date, e) };
+};
+const runsNear = (shifts, ms) => { const d = zoneDate(ms); const out = []; shifts.forEach(sh => [dayAfter(d, -1), d, dayAfter(d, 1)].forEach(x => out.push(runOn(sh, x)))); return out; };
+const runHolding = (shifts, ms) => runsNear(shifts, ms).filter(w => w.startsAt <= ms && ms < w.endsAt).sort((a, b) => b.startsAt - a.startsAt)[0] || null;
+const runSoon = (shifts, ms) => runsNear(shifts, ms).filter(w => w.startsAt > ms && w.startsAt - ms <= 30 * 60000).sort((a, b) => a.startsAt - b.startsAt)[0] || null;
+// Start Shift with nothing chosen: the shift starting within 30 minutes,
+// else the one running (helpers/shiftRuns.js pickAt).
+const runPick = (shifts, ms) => runSoon(shifts, ms) || runHolding(shifts, ms);
+// One shift's current run (runOfShift): starting soon, else running,
+// else the nearest start.
+const runOfShiftAt = (shift, ms) => runSoon([shift], ms) || runHolding([shift], ms) || runsNear([shift], ms).sort((a, b) => Math.abs(a.startsAt - ms) - Math.abs(b.startsAt - ms))[0];
+// A reader with no session (currentWindow): the run holding now, else
+// the latest started in the last 24 hours.
+const runCurrent = (shifts, ms) => runHolding(shifts, ms) || runsNear(shifts, ms).filter(w => w.startsAt <= ms && ms - w.startsAt <= DAY).sort((a, b) => b.startsAt - a.startsAt)[0] || null;
+const runKeyOf = (w) => (w ? w.label.toLowerCase() + "|" + w.runDate : null);
+const shiftNameIn = (shift, lang) => (lang === "es" ? shift.es : lang === "fr" ? shift.fr : null) || shift.label;
+// The run as every answer carries it (runView).
+const runView = (w, lang) => (w ? { label: w.label, display: shiftNameIn(w.shift, lang), startsAt: iso(w.startsAt), endsAt: iso(w.endsAt), runDate: w.runDate } : null);
+// A named shift as GET /api/sites/:siteId/shifts answers it (shiftView).
+const namedShiftView = (sh, i, lang) => ({ id: sh.id, label: sh.label, display: shiftNameIn(sh, lang), startTime: sh.start, endTime: sh.end, crossesMidnight: minutesIn(sh.end) <= minutesIn(sh.start), daysOfWeek: null, sortOrder: i, active: true, translations: { es: sh.es || null, fr: sh.fr || null }, updatedAt: "2026-09-30T14:00:00.000Z", updatedBy: null });
+
 function makeState(opts) {
   const o = opts || {};
   return {
@@ -1571,6 +1629,11 @@ function makeState(opts) {
     offline: false,                  // every call fails at the network
     trouble: null,                   // part 344: { method, path, kind: "500" | "hold" | "lose", ms, left }
     shiftTaps: [],                   // part 355: each Start and End, the time sent and the time taken
+    // Part 375: each site's named shifts (namedShifts: true gives North
+    // Building its three), and the run the open session joined, set once
+    // the state is made.
+    namedShifts: o.namedShifts === true ? { "site-north": NAMED_SHIFTS["site-north"].map(x => Object.assign({}, x)) } : Object.assign({}, o.namedShifts || {}),
+    run: null,
     // Part 356: who else is on shift at the site, as the status answers
     // shift.othersOnShift, and each change to a site's list, { siteId, at },
     // for GET /api/sites/:id/tasks/changed.
@@ -1701,6 +1764,19 @@ function makeState(opts) {
     // Step 258: an API with Step 256 built, which answers GET
     // /api/training/me; trainingNone answers it with nothing required.
     training: o.training === true || o.trainingNone === true,
+    // Part 375 (API part 374): the next n acknowledgements whose signature
+    // storage does not take in time (503 training.signatureNotStored,
+    // nothing stamped); the next n acknowledgements and answers taken
+    // whose answer is lost on the way back; and n attempts on the ladders
+    // lesson voided and moved past 100, as the office did live.
+    // Part 375: every row of the task read carries checklistDay, the
+    // checklist day it was read on, as the API's has since Step 198. Behind
+    // this switch, so the cases written before it read as they did.
+    rowsCarryDay: o.rowsCarryDay === true,
+    ackNotStored: Number(o.ackNotStored) || 0,
+    ackLoseNext: Number(o.ackLoseNext) || 0,
+    answersLoseNext: Number(o.answersLoseNext) || 0,
+    trainingVoided: Number(o.trainingVoided) || 0,
     trainingNone: o.trainingNone === true,
     // Step 261: every attempt on a lesson, seeded with the one another
     // person passed and signed, waiting for a supervisor's sign-off.
@@ -2857,6 +2933,9 @@ const TWIN_PAIRS = [
   ["Stairway round", "Ronda de las escaleras"],
   ["Lounge round", "Ronda de la sala"],
   ...WEST_SHIFTS,
+  // Part 375: North Building's named shifts (Day shift and Night shift
+  // are West Building's twins above).
+  ["Evening shift", "Turno de tarde"],
   ["Opening checks", "Revisi\u00f3n de apertura"],
   ["Lobby reset", "Repaso del vest\u00edbulo"],
   ["Floor care", "Cuidado de pisos"],
@@ -3018,7 +3097,9 @@ const TWIN_PAIRS = [
   .concat([].concat(...Object.keys(MAINT_NAMES).map(k => MAINT_NAMES[k].map(x => [x[1], x[2]]))))
   .concat(Object.keys(MAINT_REFUSALS).map(k => [MAINT_REFUSALS[k].en, MAINT_REFUSALS[k].es]))
   // Part 369: the leave balances' words with no placeholder.
-  .concat(["handbook", "sick", "sickLine", "holidays", "untracked", "site"].map(k => LEAVE_WORDS[k]));
+  .concat(["handbook", "sick", "sickLine", "holidays", "untracked", "site"].map(k => LEAVE_WORDS[k]))
+  // Part 375: the training refusals API part 374 added.
+  .concat(["training.attemptClosed", "training.signatureNotStored"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -3053,13 +3134,15 @@ const ROUTE_WORDS = [
     key: "code", category: "code", urgency: "code", status: "code", kind: "code", channel: "code", fromStatus: "code", toStatus: "code", which: "code", reference: "name", siteName: "name", building: "name", floor: "name", area: "name", description: "name", body: "name", company: "name", email: "name", to: "name", contentType: "code" }],
   // A shift's and a block's keys are codes; their display names are the
   // words, in the request's language. See LIVE_KINDS.
-  [/^GET \/api\/sites\/[^/]+\/tasks$/, { label: "to-do item", shift_label: "code", block_label: "code", shift: "shift header", block: "shift header" }],
+  [/^GET \/api\/sites\/[^/]+\/tasks$/, { label: "to-do item", shift_label: "code", block_label: "code", shift: "shift header", block: "shift header", display: "shift header", shiftLabel: "code", runDate: "code", firstName: "name" }],
+  // Part 375: a site's named shifts: a label is a code, display the words.
+  [/^GET \/api\/sites\/[^/]+\/shifts$/, { label: "code", display: "shift header", startTime: "code", endTime: "code", daysOfWeek: "code", es: "name", fr: "name", name: "name" }],
   // Step 324: a site's day from the schedule route (API Step 319): a
   // shift's and a block's keys are codes, their display names the words;
   // a step's label is its stored key and its display the words.
   [/^GET \/api\/sites\/[^/]+\/shift-blocks\/schedule$/, { label: "code", shiftLabel: "code", displayLabel: "shift header", shift: "shift header", block: "shift header", kind: "code", kindName: "name", day: "code", weekday: "code", frequency: "code" }],
   // Every session answer names the site's shifts and their blocks.
-  [/^(GET \/api\/clock\/status|POST \/api\/shift-sessions|PATCH \/api\/shift-sessions\/[^/]+\/shift|GET \/api\/shift-sessions\/today|POST \/api\/shift-sessions\/[^/]+\/end)$/, { label: "code", displayLabel: "shift header", shiftLabel: "code" }],
+  [/^(GET \/api\/clock\/status|POST \/api\/shift-sessions|PATCH \/api\/shift-sessions\/[^/]+\/shift|GET \/api\/shift-sessions\/today|POST \/api\/shift-sessions\/[^/]+\/end)$/, { label: "code", displayLabel: "shift header", shiftLabel: "code", display: "shift header", runDate: "code", endNote: "message" }],
   [/^GET \/api\/clock\/tasks\/assigned$/, { label: "to-do item" }],
   [/^GET \/api\/lookups$/, { label: "pick list choice", displayLabel: "pick list choice" }],
   [/^GET \/api\/notifications$/, { title: "notice", body: "notice" }],
@@ -3351,6 +3434,22 @@ const EQ_ITEM = { id: "eq-smoke", name: "Invented floor scrubber", category: "Fl
 
 function createStub(opts) {
   const state = makeState(opts);
+  // Part 375: a session open at a site with named shifts is in the run its
+  // start picks, the label a case names (sessionRun) winning.
+  {
+    const named = state.namedShifts[state.site] || [];
+    if (state.clockedIn && named.length > 0) {
+      const asked = (opts || {}).sessionRun ? named.find(x => x.label === opts.sessionRun) : null;
+      state.run = asked ? runOfShiftAt(asked, state.sessionStartedAt) : runPick(named, state.sessionStartedAt);
+      if (state.run && (opts || {}).shiftLabel === undefined) state.shiftLabel = state.run.label;
+    }
+  }
+  // Part 375: voided attempts on the first lesson, numbered past 100 as the
+  // office moved them live; they give their tries back.
+  for (let i = 0; i < state.trainingVoided; i += 1) {
+    const l = TRAINING_LESSONS[0];
+    state.trainingAttempts.push({ id: "ta-void-" + (i + 1), versionId: l.versionId, topicId: l.topicId, personId: state.person.id, personName: state.person.firstName + " " + state.person.lastName, attemptNo: 101 + i, locale: "en", siteId: null, startedAt: "2026-09-20T15:00:00Z", scoredAt: "2026-09-20T15:10:00Z", scorePercent: 40, passed: false, missed: [], acknowledgedAt: null, awaitingTrainer: false, trainerSignedAt: null, trainerId: null, trainerName: null, demonstrated: false, voidedAt: "2026-09-21T12:00:00Z" });
+  }
 
   // --- Help's answer, as the API writes it
   //
@@ -3554,12 +3653,24 @@ function createStub(opts) {
   // Every item at a site with what the checklist day says about it: its
   // period, whether it is shown today and due today, whether anyone did it
   // in its period, and who checked it today, this person first.
+  // Part 375: the run a site's list reads, at a site with named shifts:
+  // the open session's there, else the site's current run; and the run a
+  // check was made in, its own, else the run whose hours hold it.
+  const namedOf = (siteId) => state.namedShifts[siteId] || [];
+  const readRun = (siteId) => (namedOf(siteId).length === 0 ? null : state.clockedIn && state.site === siteId ? state.run : runCurrent(namedOf(siteId), clockNow()));
+  const runOfCheck = (c, siteId) => (c.run !== undefined ? c.run : runHolding(namedOf(siteId), atOf(c)));
+  // A daily item, as its block makes it (helpers/shiftRuns.js followsRun).
+  const followsRun = (row) => row.period === "today" && (row.every || "daily") === "daily" && row.block_kind !== "anytime";
   const dayRows = (siteId) => {
     const today = checklistDay(clockNow());
+    const run = readRun(siteId);
     return (SITE_TASKS[siteId] || []).map((row) => {
       const checks = state.completions.filter(c => c.taskId === row.id && checklistDay(atOf(c)) <= today);
       const on = (day) => checks.filter(c => checklistDay(atOf(c)) === day);
-      const todays = on(today), yesterdays = on(today - 1);
+      const byRun = !!run && followsRun(row);
+      const todays = byRun ? state.completions.filter(c => c.taskId === row.id && runKeyOf(runOfCheck(c, siteId)) === runKeyOf(run)) : on(today), yesterdays = on(today - 1);
+      // The latest check before the run began, within 24 hours.
+      const before = byRun ? latest(state.completions.filter(c => c.taskId === row.id && atOf(c) < run.startsAt && atOf(c) >= clockNow() - DAY)) : null;
       const shown = row.shown !== false && blockDayHolds(row.block_days_of_week, today);
       const every = row.every || "daily";
       const due = row.period === "today" && shown && !(every === "every_other_day" && yesterdays.length > 0);
@@ -3573,6 +3684,8 @@ function createStub(opts) {
         done: done ? { completedAt: iso(atOf(done)), firstName: firstNameOf(done.userId) } : null,
         checked: checked ? { byCaller: checked.userId === state.person.id, firstName: firstNameOf(checked.userId), completedAt: iso(atOf(checked)) } : null,
         mine: todays.some(c => c.userId === state.person.id),
+        run: run,
+        earlier: before ? { at: iso(atOf(before)), shiftLabel: (runOfCheck(before, siteId) || {}).label || null, firstName: firstNameOf(before.userId) } : null,
       };
     });
   };
@@ -3620,9 +3733,10 @@ function createStub(opts) {
   };
 
   // The open session, the way every session answer carries it.
+  // Part 375: with the run it joined and endNote (null: a person ends it).
   const sessionOf = (lang) => {
     const shifts = shiftsFor(state.site, state.sessionStartedAt, lang);
-    return { id: "sess-1", siteId: state.site, startedAt: iso(state.sessionStartedAt), shiftLabel: shifts.length > 0 ? state.shiftLabel : null, shifts: shifts };
+    return { id: "sess-1", siteId: state.site, startedAt: iso(state.sessionStartedAt), shiftLabel: shifts.length > 0 || namedOf(state.site).length > 0 ? state.shiftLabel : null, shifts: shifts, shiftRun: runView(state.run, lang), endNote: null };
   };
 
   const clockStatus = (lang) => (state.clockedIn ? {
@@ -3630,7 +3744,8 @@ function createStub(opts) {
     shift: Object.assign({ sessionId: "sess-1", id: "sess-1" }, OPEN_SHIFT[state.site], { clockInTime: iso(state.sessionStartedAt) }, modeOf(state.site) ? { checklistMode: modeOf(state.site) } : {}, Array.isArray(state.othersOnShift) ? { othersOnShift: state.othersOnShift.map(x => Object.assign({}, x)) } : {}),
     session: sessionOf(lang),
     tasks: progress(),
-  } : { clockedIn: false, shift: null, session: null, tasks: null });
+    shiftRun: runView(state.run, lang),
+  } : { clockedIn: false, shift: null, session: null, tasks: null, shiftRun: null });
 
   // One site's list, asked for the way the request asks, with Step 118's
   // words on the items that carry them and Step 124's day on every one.
@@ -3663,7 +3778,9 @@ function createStub(opts) {
       // map, and at a site kept as a record no completion is answered.
       const mode = modeOf(siteId);
       const record = mode === "reference";
-      return Object.assign(row, { period: x.period, dueToday: x.due, doneThisPeriod: record ? null : x.done, shownToday: x.shown, checkedToday: record ? null : x.checked, display: display }, mode ? { checklistMode: mode } : {});
+      // Part 375: the run the list reads, the last shift's check of a daily
+      // item, and the item's own shifts, on every row.
+      return Object.assign(row, { period: x.period, dueToday: x.due, doneThisPeriod: record ? null : x.done, shownToday: x.shown, checkedToday: record ? null : x.checked, display: display }, mode ? { checklistMode: mode } : {}, { shiftRun: runView(x.run, lang), doneEarlier: record ? null : x.earlier, shiftLabels: null }, state.rowsCarryDay ? { checklistDay: new Date(checklistDay(clockNow()) * DAY).toISOString().slice(0, 10) } : {});
     });
   };
 
@@ -4009,8 +4126,18 @@ function createStub(opts) {
   // attempt as the routes answer it, with no correct value anywhere.
   function lessonAttempts(lesson) { return state.trainingAttempts.filter(a => a.versionId === lesson.versionId && a.personId === state.person.id && !a.voidedAt); }
   function lessonTries(lesson) { const used = lessonAttempts(lesson).length; return { used: used, left: Math.max(0, lesson.maxAttempts - used) }; }
+  // Part 375: an attempt's number is one past every attempt of the
+  // person's on the version, voided ones included (trainingAttempts.js
+  // startAttempt), so voided attempts moved past 100 push it there.
+  function nextAttemptNo(lesson) { return state.trainingAttempts.filter(a => a.versionId === lesson.versionId && a.personId === state.person.id).reduce((m, a) => Math.max(m, Number(a.attemptNo) || 0), 0) + 1; }
+  // The answer carries attemptsLeft beside the contract's keys, as the
+  // API's attemptAnswer adds it.
   function attemptView(a) {
     const topic = TRAINING_ME.items.find(i => i.topicId === a.topicId);
+    const lessonOf = TRAINING_LESSONS.find(l => l.versionId === a.versionId);
+    return Object.assign(attemptViewBare(a, topic), lessonOf ? { attemptsLeft: lessonTries(lessonOf).left } : {});
+  }
+  function attemptViewBare(a, topic) {
     return { id: a.id, versionId: a.versionId, topicId: a.topicId, topicName: topic ? topic.name : "", attemptNo: a.attemptNo, locale: a.locale, startedAt: a.startedAt, scoredAt: a.scoredAt, scorePercent: a.scorePercent, passed: a.passed, missed: a.missed.slice(), acknowledgedAt: a.acknowledgedAt, awaitingTrainer: a.awaitingTrainer, trainerSignedAt: a.trainerSignedAt, trainer: a.trainerName ? { name: a.trainerName } : null, demonstrated: a.demonstrated, siteId: a.siteId, voidedAt: a.voidedAt };
   }
   function handle(method, pathname, search, body, headers) {
@@ -4256,30 +4383,37 @@ function createStub(opts) {
     if (method === "POST" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(pathname)) {
       const id = pathname.split("/")[4];
       const today = checklistDay(clockNow());
-      const mineToday = state.completions.some(c => c.taskId === id && c.userId === state.person.id && checklistDay(atOf(c)) === today);
+      // Part 375: a daily item at a site with named shifts counts the
+      // checks of the session's run only, so the next shift checks it
+      // again (201 where it was 409 tasks.alreadyChecked).
+      const item = (SITE_TASKS[state.site] || []).find(r => r.id === id);
+      const inRun = (c) => (state.run && item && followsRun(item) ? runKeyOf(runOfCheck(c, state.site)) === runKeyOf(state.run) : checklistDay(atOf(c)) === today);
+      const mineToday = state.completions.some(c => c.taskId === id && c.userId === state.person.id && inRun(c));
       // Part 354: a step on the site's shared list (none of the person's
       // links) that somebody else already checked today, with no check of
       // theirs, is 409 tasks.alreadyChecked with the first checker's first
       // name, and nothing is written. A linked step counts each person's.
       if (!mineToday && linkedTo(state.person.id, state.site).indexOf(id) === -1) {
-        const first = state.completions.filter(c => c.taskId === id && c.userId !== state.person.id && checklistDay(atOf(c)) === today).sort((a, b) => atOf(a) - atOf(b))[0];
+        const first = state.completions.filter(c => c.taskId === id && c.userId !== state.person.id && inRun(c)).sort((a, b) => atOf(a) - atOf(b))[0];
         if (first) {
           const firstName = FIRST_NAMES[first.userId] || "";
           return json(409, { error: refusalIn(API_R3.alreadyChecked, languageOf(search, state), { firstName: firstName }), code: API_R3.alreadyChecked.code, firstName: firstName });
         }
       }
-      if (!mineToday) { state.completions.push({ taskId: id, userId: state.person.id, at: clockNow() }); noteChange(state.site); }
-      return json(200, { ok: true });
+      if (!mineToday) { state.completions.push(Object.assign({ taskId: id, userId: state.person.id, at: clockNow() }, state.run ? { run: state.run } : {})); noteChange(state.site); }
+      return json(state.run ? 201 : 200, { ok: true });
     }
     if (method === "DELETE" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(pathname)) {
       const id = pathname.split("/")[4];
       const today = checklistDay(clockNow());
-      const todays = state.completions.filter(c => c.taskId === id && checklistDay(atOf(c)) === today);
+      const item = (SITE_TASKS[state.site] || []).find(r => r.id === id);
+      const inRun = (c) => (state.run && item && followsRun(item) ? runKeyOf(runOfCheck(c, state.site)) === runKeyOf(state.run) : checklistDay(atOf(c)) === today);
+      const todays = state.completions.filter(c => c.taskId === id && inRun(c));
       if (todays.length > 0 && !todays.some(c => c.userId === state.person.id)) {
         return json(NOT_YOUR_CHECK.status, { error: refusalIn(NOT_YOUR_CHECK, languageOf(search, state)), code: NOT_YOUR_CHECK.code });
       }
       const had = state.completions.length;
-      state.completions = state.completions.filter(c => !(c.taskId === id && c.userId === state.person.id && checklistDay(atOf(c)) === today));
+      state.completions = state.completions.filter(c => !(c.taskId === id && c.userId === state.person.id && inRun(c)));
       if (state.completions.length !== had) noteChange(state.site);
       return json(200, { message: "Task uncompleted" });
     }
@@ -4328,7 +4462,25 @@ function createStub(opts) {
       state.shiftTaps.push({ kind: "start", sent: body ? body.startedAt : undefined, taken: iso(state.sessionStartedAt) });
       const labels = shiftsFor(state.site, state.sessionStartedAt).map(x => x.label);
       state.shiftLabel = body && labels.indexOf(body.shiftLabel) !== -1 ? body.shiftLabel : null;
-      return json(200, { message: "Shift started", session: sessionOf(), tasks: progress() });
+      // Part 375: at a site with named shifts the session joins a run: the
+      // label sent (any of the site's, refused otherwise), else the API's
+      // pick, whose label the session then carries.
+      const named = namedOf(state.site);
+      state.run = null;
+      if (named.length > 0) {
+        const sent = body ? body.shiftLabel : undefined;
+        const chosen = typeof sent === "string" ? named.find(x => x.label === sent.trim()) || (labels.indexOf(sent) !== -1 ? { label: sent } : null) : null;
+        if (sent !== undefined && sent !== null && !chosen) {
+          const lang = languageOf(search, state);
+          const r = SHIFT_REFUSALS.find(x => x.key === "shiftInvalid");
+          state.clockedIn = false;
+          return json(r.status, Object.assign({ error: refusalIn(r, lang, { shifts: named.map(x => shiftNameIn(x, lang)).join(", ") }) }, r.code ? { code: r.code } : {}));
+        }
+        const namedPick = chosen && chosen.start ? chosen : null;
+        state.run = namedPick ? runOfShiftAt(namedPick, state.sessionStartedAt) : chosen ? null : runPick(named, state.sessionStartedAt);
+        state.shiftLabel = chosen ? chosen.label : state.run ? state.run.label : null;
+      }
+      return json(200, { message: "Shift started", session: sessionOf(languageOf(search, state)), tasks: progress() });
     }
     // Step 124: the shift a session carries, changed by its owner while it
     // is open, to one of the site's shifts or to none. Each refusal is the
@@ -4339,11 +4491,14 @@ function createStub(opts) {
       const refuse = (k, vars) => { const r = SHIFT_REFUSALS.find(x => x.key === k); return json(r.status, Object.assign({ error: refusalIn(r, lang, vars) }, r.code ? { code: r.code } : {})); };
       if (shiftChange[1] !== "sess-1") return refuse("notFound");
       if (!state.clockedIn) return refuse("ended");
-      const labels = shiftsFor(state.site, state.sessionStartedAt).map(x => x.label);
+      const named = namedOf(state.site);
+      const labels = shiftsFor(state.site, state.sessionStartedAt).map(x => x.label).concat(named.map(x => x.label).filter(l => shiftsFor(state.site, state.sessionStartedAt).every(b => b.label !== l)));
       const wanted = body ? body.shiftLabel : undefined;
-      if (wanted !== null && labels.indexOf(wanted) === -1) return refuse("shiftInvalid", { shifts: labels.map(l => inLanguage(l, lang)).join(", ") });
+      if (wanted !== null && labels.indexOf(wanted) === -1) return refuse("shiftInvalid", { shifts: labels.map(l => { const n = named.find(x => x.label === l); return n ? shiftNameIn(n, lang) : inLanguage(l, lang); }).join(", ") });
       state.shiftLabel = wanted;
-      return json(200, { today: ymd(new Date(checklistDay(clockNow()) * DAY + 12 * 60 * 60 * 1000)), session: sessionOf(), tasks: progress() });
+      // Part 375: a named shift moves the session to its current run.
+      if (named.length > 0) { const n = named.find(x => x.label === wanted); state.run = n ? runOfShiftAt(n, clockNow()) : null; }
+      return json(200, { today: ymd(new Date(checklistDay(clockNow()) * DAY + 12 * 60 * 60 * 1000)), session: sessionOf(lang), tasks: progress() });
     }
     if (key === "GET /api/shift-sessions/today") {
       return json(200, { today: ymd(new Date(checklistDay(clockNow()) * DAY + 12 * 60 * 60 * 1000)), session: state.clockedIn ? sessionOf() : null, tasks: state.clockedIn ? progress() : null });
@@ -4363,6 +4518,15 @@ function createStub(opts) {
     }
     if (method === "PATCH" && /^\/api\/shift-sessions\//.test(pathname)) { state.clockedIn = false; return json(200, { message: "Shift ended" }); }
     if (key === "GET /api/sites") return json(200, state.startInspection ? START_SITES.map(x => Object.assign({}, x)) : SITES.map(withMode));
+    // Part 375: a site's named shifts (routes/siteShifts.js GET), the
+    // active ones in order, each named in the language asked for; [] at a
+    // site with none. A site the stub does not hold is 404 sites.notFound.
+    const shiftsAsk = method === "GET" ? /^\/api\/sites\/([^/]+)\/shifts$/.exec(pathname) : null;
+    if (shiftsAsk) {
+      if (!SITES.some(x => x.siteId === shiftsAsk[1]) && !OPEN_SHIFT[shiftsAsk[1]]) return json(404, { error: "Site not found", code: "sites.notFound" });
+      const lang = languageOf(search, state);
+      return json(200, { shifts: namedOf(shiftsAsk[1]).map((x, i) => namedShiftView(x, i, lang)) });
+    }
     // Part 354: the cheap "anything new?" read, as the API's
     // helpers/taskListChanges.js answers it: { changed, at }, at the newest
     // change after since as an instant with microseconds, or null when
@@ -5488,7 +5652,7 @@ function createStub(opts) {
         if (open) return json(201, { attempt: attemptView(open) });
         const tries = lessonTries(lesson);
         if (tries.left <= 0) return refuse("training.noAttemptsLeft");
-        const made = { id: "ta-made-" + (state.trainingAttempts.length + 1), versionId: lesson.versionId, topicId: lesson.topicId, personId: state.person.id, personName: state.person.firstName + " " + state.person.lastName, attemptNo: tries.used + 1, locale: body.locale === "es" ? "es" : "en", siteId: body.siteId || null, startedAt: new Date().toISOString(), scoredAt: null, scorePercent: null, passed: null, missed: [], acknowledgedAt: null, awaitingTrainer: false, trainerSignedAt: null, trainerId: null, trainerName: null, demonstrated: false, voidedAt: null };
+        const made = { id: "ta-made-" + (state.trainingAttempts.length + 1), versionId: lesson.versionId, topicId: lesson.topicId, personId: state.person.id, personName: state.person.firstName + " " + state.person.lastName, attemptNo: nextAttemptNo(lesson), locale: body.locale === "es" ? "es" : "en", siteId: body.siteId || null, startedAt: new Date().toISOString(), scoredAt: null, scorePercent: null, passed: null, missed: [], acknowledgedAt: null, awaitingTrainer: false, trainerSignedAt: null, trainerId: null, trainerName: null, demonstrated: false, voidedAt: null };
         state.trainingAttempts.push(made);
         return json(201, { attempt: attemptView(made) });
       }
@@ -5500,7 +5664,9 @@ function createStub(opts) {
         const b = body && typeof body === "object" ? body : {};
         if (act[2] === "answers") {
           if (a.personId !== state.person.id) return refuse("training.noAccess");
-          if (a.scoredAt) return refuse("training.notReady");
+          // Part 374: an attempt already scored or void is 409
+          // training.attemptClosed with the attempt as it stands.
+          if (a.scoredAt || a.voidedAt) return refuse("training.attemptClosed", { attempt: attemptView(a) });
           const given = b.answers && typeof b.answers === "object" ? b.answers : {};
           const keys = lesson.questions.filter(qn => typeof given[qn.key] !== "string" || !qn.options.some(o => o.value === given[qn.key])).map(qn => "answers." + qn.key);
           if (keys.length > 0) return refuse("training.badAnswers", { keys: keys });
@@ -5508,6 +5674,7 @@ function createStub(opts) {
           a.scorePercent = Math.round((lesson.questions.length - a.missed.length) * 100 / lesson.questions.length);
           a.passed = a.scorePercent >= lesson.passPercent;
           a.scoredAt = new Date().toISOString();
+          if (state.answersLoseNext > 0) { state.answersLoseNext -= 1; return { abort: true }; }
           return json(200, { attempt: attemptView(a) });
         }
         const raw = typeof b.signature === "string" ? b.signature.trim() : "";
@@ -5516,13 +5683,20 @@ function createStub(opts) {
         const png = !!bytes && !!sniffImage(bytes) && sniffImage(bytes).ext === "png" && bytes.length <= SIGNATURE_MAX_BYTES;
         if (act[2] === "acknowledge") {
           if (a.personId !== state.person.id) return refuse("training.noAccess");
+          const record = () => (lesson.needsTrainer ? null : { id: "tr-made-" + a.id, name: TRAINING_ME.items.find(i => i.topicId === a.topicId).name, completedDate: "2026-10-05", expiresOn: null, score: a.scorePercent + "%", siteName: null, locale: a.locale });
+          // Part 374: the same acknowledgement sent again answers 200 with
+          // the attempt and its record, as the first did.
+          if (a.acknowledgedAt && !a.voidedAt) return json(200, { attempt: attemptView(a), record: record() });
+          if (a.voidedAt) return refuse("training.notReady");
           if (!a.passed) return refuse("training.notPassed");
           if (!png) return refuse("training.signatureRequired");
           state.calls[state.calls.length - 1].signature = { bytes: bytes.length, size: imageSize(bytes) };
+          // Part 374: storage did not take the signature in 10 seconds.
+          if (state.ackNotStored > 0) { state.ackNotStored -= 1; return refuse("training.signatureNotStored"); }
           a.acknowledgedAt = new Date().toISOString();
           a.awaitingTrainer = lesson.needsTrainer;
-          const record = lesson.needsTrainer ? null : { id: "tr-made-" + a.id, name: TRAINING_ME.items.find(i => i.topicId === a.topicId).name, completedDate: "2026-10-05", expiresOn: null, score: a.scorePercent + "%", siteName: null, locale: a.locale };
-          return json(200, { attempt: attemptView(a), record: record });
+          if (state.ackLoseNext > 0) { state.ackLoseNext -= 1; return { abort: true }; }
+          return json(200, { attempt: attemptView(a), record: record() });
         }
         if (!management) return refuse("training.noAccess");
         if (a.personId === state.person.id) return refuse("training.cannotSignOwn");

@@ -956,7 +956,17 @@ const ORIGIN_WORDS = {
   callout: () => tr("Callout"), no_show: () => tr("No-Show"), extra_coverage: () => tr("Extra Coverage"),
   voluntary_drop: () => tr("Voluntary Drop"), new_shift: () => tr("New Shift"),
 };
+// PORT-66 (part 375): a problem the inspection card files is titled in
+// English on purpose ("Inspection finding: <zone>"), so the API holds one
+// title whoever reads it. It is drawn in the reader's language, the zone
+// as it came.
+const FINDING_TITLE_RE = /^Inspection finding: ([\s\S]+)$/;
+const shownIssueTitle = (title) => { const m = typeof title === "string" ? FINDING_TITLE_RE.exec(title) : null; return m ? tr("Inspection finding: {place}", { place: m[1] }) : title; };
 // The word in the toast that says what an assigned task became.
+// PORT-65 (part 375): what a toast says once an assigned task's status
+// is taken. Cannot Resolve sends the problem up to the office with the
+// reason, so it says that, never "Task updated to unable to resolve".
+const taskUpdatedWords = (s) => (s === "unable_to_resolve" ? tr("Sent up as not done. The office sees your reason.") : tr("Task updated to {status}", { status: taskStatusWord(s) }));
 const taskStatusWord = (s) => (s === "in_progress" ? tr("in progress") : s === "resolved" ? tr("resolved") : s === "unable_to_resolve" ? tr("unable to resolve") : tr(String(s).replace(/_/g, " ")));
 // A time of day the API sends as HH:MM or HH:MM:SS, drawn the way every
 // other time is, in the reader's language. Anything else is drawn as sent.
@@ -1726,16 +1736,22 @@ function writePendingEnd(v) {
 }
 // The taps still waiting for one site, as each task's last tap: checked
 // or unchecked, the way the person left it.
-function pendingTicksFor(list, siteId, userId) {
+// Part 375: a tap on a day's item carries the shift run it was made in
+// (run, null at a site with no named shifts). One made in another run
+// is never drawn on this run's list: the next shift starts fresh. It
+// still goes, since the API files a late tap in the session open when it
+// was made.
+const tapOfRun = (x, runKey) => !x.counted || (x.run || null) === (runKey || null);
+function pendingTicksFor(list, siteId, userId, runKey) {
   const m = new Map();
-  (list || []).forEach(x => { if ((!siteId || String(x.siteId) === String(siteId)) && (!userId || !x.userId || String(x.userId) === String(userId))) m.set(x.taskId, x.done); });
+  (list || []).forEach(x => { if ((!siteId || String(x.siteId) === String(siteId)) && (!userId || !x.userId || String(x.userId) === String(userId)) && tapOfRun(x, runKey)) m.set(x.taskId, x.done); });
   return m;
 }
 // Whether one of those taps has been tried and kept, which the checklist
 // says under its title. A tap still on its first send is not one, so the
 // line never flickers past a tap on good signal.
-function pendingKeptFor(list, siteId, userId) {
-  return (list || []).some(x => Number(x.tries) > 0 && (!siteId || String(x.siteId) === String(siteId)) && (!userId || !x.userId || String(x.userId) === String(userId)));
+function pendingKeptFor(list, siteId, userId, runKey) {
+  return (list || []).some(x => Number(x.tries) > 0 && (!siteId || String(x.siteId) === String(siteId)) && (!userId || !x.userId || String(x.userId) === String(userId)) && tapOfRun(x, runKey));
 }
 // The checklist's last answer for each site, with the status it was read
 // under, so the checklist opens with no signal at all and takes taps into
@@ -1755,13 +1771,20 @@ function withoutNames(v) {
 function readKept() {
   try { const v = JSON.parse(window.localStorage.getItem(KEPT_KEY) || "null"); return v && typeof v === "object" && v.lists ? v : null; } catch (e) { return null; }
 }
+// Part 375: at a site with named shifts the list is kept under its shift
+// run as well as its site, and keeping one run's list drops the site's
+// list of any other run, so a list opened with no signal never shows the
+// last shift's ticks as this one's.
+const keptListKey = (siteId, clock) => { const run = runKeyOf(statusRun(clock)); return String(siteId) + (run ? "#" + run : ""); };
 function keepChecklist(userId, role, clock, answer, lang) {
   try {
     const siteId = clock && clock.shift ? clock.shift.siteId : null;
     if (!userId || !siteId) return;
     const was = readKept();
     const lists = was && String(was.userId) === String(userId) ? was.lists : {};
-    lists[siteId] = { answer: withoutNames(answer), lang: lang, savedAt: Date.now() };
+    const key = keptListKey(siteId, clock);
+    Object.keys(lists).forEach(k => { if (k !== key && (k === String(siteId) || k.indexOf(String(siteId) + "#") === 0)) delete lists[k]; });
+    lists[key] = { answer: withoutNames(answer), lang: lang, savedAt: Date.now() };
     Object.keys(lists).sort((a, b) => lists[b].savedAt - lists[a].savedAt).slice(KEPT_SITES).forEach(k => { delete lists[k]; });
     window.localStorage.setItem(KEPT_KEY, JSON.stringify({ userId: userId, role: role || null, clock: withoutNames(clock), lists: lists }));
   } catch (e) {}
@@ -1769,11 +1792,24 @@ function keepChecklist(userId, role, clock, answer, lang) {
 function forgetKept() {
   try { window.localStorage.removeItem(KEPT_KEY); } catch (e) {}
 }
-// The kept list for the shift the kept status names, while it is fresh.
+// The moment the run changes: the site's list kept under any other run
+// goes at once, before the new run's list has been read to keep.
+function dropKeptRuns(siteId, runKey) {
+  try {
+    const was = readKept();
+    if (!was || !siteId) return;
+    const keep = String(siteId) + (runKey ? "#" + runKey : "");
+    let dropped = false;
+    Object.keys(was.lists).forEach(k => { if (k !== keep && (k === String(siteId) || k.indexOf(String(siteId) + "#") === 0)) { delete was.lists[k]; dropped = true; } });
+    if (dropped) window.localStorage.setItem(KEPT_KEY, JSON.stringify(was));
+  } catch (e) {}
+}
+// The kept list for the shift the kept status names, and its run, while
+// it is fresh.
 function keptToOpen() {
   const kept = readKept();
   const siteId = kept && kept.clock && kept.clock.clockedIn && kept.clock.shift ? kept.clock.shift.siteId : null;
-  const list = siteId ? kept.lists[siteId] : null;
+  const list = siteId ? kept.lists[keptListKey(siteId, kept.clock)] : null;
   return list && Date.now() - Number(list.savedAt) < KEPT_MAX_MS ? { kept: kept, list: list } : null;
 }
 const checkoffPath = (taskId) => "/api/clock/tasks/" + encodeURIComponent(taskId) + "/complete";
@@ -2458,6 +2494,14 @@ export default function OCSAStaffPortal() {
   // hold only today's due items, so a status read would otherwise take the
   // tick straight back off.
   const [tickOverrides, setTickOverrides] = useState(new Map());
+  // Part 375: the shift run the open session joined, as a key, null at a
+  // site with no named shifts; and the site's named shifts, read once per
+  // site and language from GET /api/sites/:siteId/shifts while the
+  // session is in a run, { site, lang, list }, or null.
+  const runNow = runKeyOf(statusRun(clockStatus));
+  const shiftSiteId = clockStatus && clockStatus.clockedIn && clockStatus.shift ? String(clockStatus.shift.siteId) : null;
+  const sessionIdNow = clockStatus && clockStatus.clockedIn ? String((clockStatus.session && clockStatus.session.id) || (clockStatus.shift && (clockStatus.shift.sessionId || clockStatus.shift.id)) || "") || null : null;
+  const [namedShifts, setNamedShifts] = useState(null);
   // Taps waiting for signal, oldest first, as kept on this phone. The ref
   // is what a send reads, so two sends never take the same tap.
   const [pending, setPending] = useState(() => readPending());
@@ -2507,6 +2551,9 @@ export default function OCSAStaffPortal() {
   // The chat the messages in hand belong to, so one chat's messages are
   // never drawn under another while its own are on their way.
   const [messagesOf, setMessagesOf] = useState(null);
+  // PORT-54 (part 375): the chat whose messages did not load, so it says
+  // so with Try again in place of a blank screen.
+  const [messagesFailedOf, setMessagesFailedOf] = useState(null);
   const [activeChannel, setActiveChannel] = useState(null);
   const activeChannelRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(now());
@@ -2938,7 +2985,9 @@ export default function OCSAStaffPortal() {
       const cs = await refreshClockStatus();
       setTasks(null); setPendingSite(null);
       // A site with shifts asks which one, over the checklist it opens on.
-      setShiftFault(null); setShiftAsk(sessionShifts(cs).length > 0 ? "start" : null);
+      // Since part 375 a session in a shift run asks too, on the API's pick,
+      // once the site's named shifts give it more than one to choose from.
+      setShiftFault(null); setShiftAsk(sessionShifts(cs).length > 0 || statusRun(cs) ? "start" : null);
       showToast(tr(data.message) || tr("Shift started")); setActiveTab("tasks");
     } catch (err) {
       if (err.code === "OPEN_SESSION_ELSEWHERE") {
@@ -2966,7 +3015,9 @@ export default function OCSAStaffPortal() {
     setSelectedSite(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set());
     setShiftAsk(null); setShiftFault(null); setTickOverrides(new Map());
     const endedAt = data && data.session ? data.session.endedAt : null;
-    showToast(endedAt ? tr("Shift ended at {time}", { time: formatTime(endedAt) }) : tr("Shift ended"));
+    // Part 375: a session the API closed reads when, and the API's note.
+    const closed = sessionEndLine(data && data.session);
+    showToast(closed || (endedAt ? tr("Shift ended at {time}", { time: formatTime(endedAt) }) : tr("Shift ended")), closed ? "notice" : undefined);
   };
   const sendingEnd = useRef(false);
   const sendEnd = async () => {
@@ -2989,7 +3040,10 @@ export default function OCSAStaffPortal() {
         putEnd(null);
         setPendingSite(null); setStartBlock(null); setTasks(null);
         try { await refreshClockStatus(); } catch (e) { setClockStatus({ clockedIn: false, shift: null, session: null }); setSelectedSite(null); }
-        showToast(tr(Number(end.tries) > 0 ? "Shift ended" : "This shift was already ended"));
+        // Part 375: ended by the API (endNote), when the answer carries the
+        // session, says so with its note.
+        const closed = sessionEndLine(err.body && err.body.session);
+        showToast(closed || tr(Number(end.tries) > 0 ? "Shift ended" : "This shift was already ended"), closed ? "notice" : undefined);
       } else if (keepsTap(err)) {
         if (endRef.current) putEnd({ ...endRef.current, tries: (Number(endRef.current.tries) || 0) + 1 });
       } else { putEnd(null); showToast(tr(err.message), "error"); }
@@ -3029,7 +3083,61 @@ export default function OCSAStaffPortal() {
   // The list also depends on the shift the session carries, which the API
   // reads from the session rather than from the request, so a change of
   // shift asks for the list again.
-  const checklistKey = checklistAsk ? checklistAsk + "#" + (sessionShiftLabel(clockStatus) || "") : null;
+  // Part 375: and the run the session is in, so a new run reads its own.
+  const checklistKey = checklistAsk ? checklistAsk + "#" + (sessionShiftLabel(clockStatus) || "") + "#" + (runNow || "") : null;
+  // Ticks from the last run never carry over (part 375). When the run
+  // changes, by a new session or a change of shift, every tick this phone
+  // holds for the last run's list goes: what the API took, what this phone
+  // drew over a row, the list itself until the new run's comes back, and
+  // the list kept for no signal. A tap of the last run's daily list still
+  // waiting to go is dropped when the same session moved to the new run,
+  // since the API would file it there; under an earlier session it still
+  // goes, filed in that session, and is never drawn here.
+  const lastRun = useRef(null);
+  useEffect(() => {
+    if (!runNow) return;
+    const was = lastRun.current;
+    lastRun.current = { run: runNow, session: sessionIdNow, site: shiftSiteId };
+    if (!was || was.run === runNow) return;
+    setTaken(new Map()); setTickOverrides(new Map());
+    setTasks(null); setTasksDay(null); tasksAsked.current = null;
+    if (was.session && was.session === sessionIdNow) {
+      const left = pendingRef.current.filter(x => !(x.counted && x.run === was.run && String(x.sessionId || "") === was.session));
+      if (left.length !== pendingRef.current.length) putPending(left);
+    }
+    dropKeptRuns(shiftSiteId, runNow);
+  }, [runNow, sessionIdNow]);
+  // PORT-53 (part 375): a list whose checklist day has ended is read again
+  // with the status, once the clock passes the day's start or the app
+  // comes back to the front, so after 4:00 AM the rows are the new day's
+  // and the ring matches them. Once per day turned, never from the copy
+  // kept for no signal, and only for a list that says its day.
+  const dayAsked = useRef(null);
+  useEffect(() => {
+    const check = () => {
+      try { if (document.visibilityState === "hidden") return; } catch (e) {}
+      if (!checklistKey || !tasksDay || offlineOpen) return;
+      const today = checklistDayNow(Date.now());
+      if (today === tasksDay || dayAsked.current === tasksDay + ">" + today) return;
+      dayAsked.current = tasksDay + ">" + today;
+      loadTasks(true);
+    };
+    check();
+    document.addEventListener("visibilitychange", check);
+    return () => document.removeEventListener("visibilitychange", check);
+  }, [checklistKey, tasksDay, offlineOpen, Math.floor(currentTime.getTime() / 60000)]);
+  // The site's named shifts, for the sheet and for naming the last shift,
+  // read once per site and language while the session is in a run. A read
+  // that fails leaves the sheet with the session's own shifts.
+  useEffect(() => {
+    if (!runNow || !shiftSiteId || !token) return undefined;
+    if (namedShifts && namedShifts.site === shiftSiteId && namedShifts.lang === language) return undefined;
+    let on = true;
+    api("/api/sites/" + encodeURIComponent(shiftSiteId) + "/shifts?locale=" + languageToSend(language), { token })
+      .then(d => { if (on) setNamedShifts({ site: shiftSiteId, lang: language, list: namedShiftsOf(d) }); })
+      .catch(() => {});
+    return () => { on = false; };
+  }, [runNow, shiftSiteId, language, token]);
   // again reads the list once more even while the same request is in
   // flight, which a check or an uncheck needs: the list then carries what
   // the API says was done. Only the newest request's answer is taken.
@@ -3061,8 +3169,10 @@ export default function OCSAStaffPortal() {
     // so a tap is never lost to an app closed while its send waits, and
     // it goes behind any taps already waiting, so they reach the API in
     // the order they were made. A tap made while nothing is waiting says
-    // Task completed or Task unchecked once it is in.
-    const tap = { taskId: taskId, siteId: clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, userId: user ? user.id : null, clientId: newClientId(), completedAt: new Date().toISOString(), done: !done };
+    // Task completed or Task unchecked once it is in. Since part 375 it
+    // also keeps whether it is a day's item, the shift run and the session
+    // it was made in, so it is never drawn on the next run's list.
+    const tap = { taskId: taskId, siteId: clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, userId: user ? user.id : null, clientId: newClientId(), completedAt: new Date().toISOString(), done: !done, counted: counted, run: runNow, sessionId: sessionIdNow };
     if (!pendingRef.current.some(x => x.tries > 0 && mine(x))) freshTaps.current.add(tap.clientId);
     putPending(pendingRef.current.concat([tap]));
     sendPending();
@@ -3123,7 +3233,7 @@ export default function OCSAStaffPortal() {
         }
         answered += 1;
         if (taken && fresh) showToast(tr(tap.done ? "Task completed" : "Task unchecked"));
-        if (taken) setTaken(prev => new Map(prev).set(tap.taskId, { done: tap.done, at: Date.now(), siteId: tap.siteId, userId: tap.userId }));
+        if (taken) setTaken(prev => new Map(prev).set(tap.taskId, { done: tap.done, at: Date.now(), siteId: tap.siteId, userId: tap.userId, counted: !!tap.counted, run: tap.run || null }));
         // Someone else's already: the tap leaves quietly, the row says who
         // did it, and the box shows their check.
         if (doneBy !== null) {
@@ -3180,8 +3290,13 @@ export default function OCSAStaffPortal() {
     if (inUse && label === inUse) { setShiftAsk(null); setShiftFault(null); return; }
     setShiftBusy(true); setShiftFault(null);
     try {
+      // Part 375: the taps still waiting go first, while the session is
+      // still in the run they were made in. The API files a tap sent late
+      // in the session open at its moment, which a change of shift moves
+      // to the new run.
+      if (pendingRef.current.some(mine)) { try { await Promise.race([sendPending(), new Promise(resolve => setTimeout(resolve, SIGN_OUT_PUSH_MS))]); } catch (e) {} }
       const data = await api("/api/shift-sessions/" + id + "/shift?locale=" + languageToSend(language), { method: "PATCH", body: { shiftLabel: label }, token });
-      if (data && data.session) { const seq = nextStatusSeq(); takeStatus({ ...cs, session: data.session, tasks: data.tasks || cs.tasks }, seq); }
+      if (data && data.session) { const seq = nextStatusSeq(); takeStatus({ ...cs, session: data.session, shiftRun: Object.prototype.hasOwnProperty.call(data.session, "shiftRun") ? data.session.shiftRun : cs.shiftRun, tasks: data.tasks || cs.tasks }, seq); }
       else await refreshClockStatus();
       setShiftAsk(null);
     } catch (err) {
@@ -3206,7 +3321,7 @@ export default function OCSAStaffPortal() {
   const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); setIssuesFailed(false); } catch (err) { console.error(err); setIssuesFailed(true); } };
   // A save that fails throws, so the screen keeps the note and the photo
   // for the next try (Round 1, PORT-02).
-  const resolveAssignedTask = async (taskId, status, note, photoUrl) => { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast(tr("Task updated to {status}", { status: taskStatusWord(status) })); loadAssignedTasks(); };
+  const resolveAssignedTask = async (taskId, status, note, photoUrl) => { await api("/api/clock/tasks/resolve/" + taskId, { method: "PATCH", body: { resolutionStatus: status, resolutionNote: note || undefined, photoUrl: photoUrl || undefined }, token }); showToast(taskUpdatedWords(status)); loadAssignedTasks(); };
   // A report that does not go throws, so the form keeps what was typed
   // and the photo (Round 1, PORT-01). An issue made whose photo did not
   // attach comes back with photoFault, so the screen says so and can
@@ -3238,8 +3353,8 @@ export default function OCSAStaffPortal() {
   // so a slow answer for one chat never lands under another. Anything in
   // the list that is not a message is left out; a message missing a field
   // is kept and drawn with what it has. Returns the list for Try again.
-  const readMessages = async (channelId) => { const data = await api(chatPath("/api/chat/channels/" + channelId + "/messages"), { token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.messages) ? data.messages : null); if (!list) throw new Error(ERR_GENERIC); const rows = list.filter(m => m && typeof m === "object"); if (activeChannelRef.current === channelId) { setMessages(rows); setMessagesOf(channelId); } return rows; };
-  const loadMessages = async (channelId) => { try { await readMessages(channelId); } catch (err) { console.error(err); } };
+  const readMessages = async (channelId) => { const data = await api(chatPath("/api/chat/channels/" + channelId + "/messages"), { token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.messages) ? data.messages : null); if (!list) throw new Error(ERR_GENERIC); const rows = list.filter(m => m && typeof m === "object"); if (activeChannelRef.current === channelId) { setMessages(rows); setMessagesOf(channelId); setMessagesFailedOf(null); } return rows; };
+  const loadMessages = async (channelId) => { try { await readMessages(channelId); } catch (err) { console.error(err); if (activeChannelRef.current === channelId) setMessagesFailedOf(channelId); } };
   // A send, as the API answers it. The message in the answer is drawn in
   // its chat, once. An answer with no message reads the chat again. A
   // refusal goes back to the composer, which keeps the words and says what
@@ -3272,7 +3387,7 @@ export default function OCSAStaffPortal() {
   // shift.othersOnShift, first names in the API's order, read again with
   // the status. None from the copy kept for no signal, which may be old.
   const alsoHere = !offlineOpen && clockStatus && clockStatus.shift && Array.isArray(clockStatus.shift.othersOnShift) ? clockStatus.shift.othersOnShift.map(o => (o && typeof o.firstName === "string" ? o.firstName.trim() : "")).filter(Boolean) : NO_NAMES;
-  useEffect(() => { activeChannelRef.current = activeChannel; setMessages([]); setMessagesOf(null); if (activeChannel) { loadMessages(activeChannel); markChatRead(activeChannel).then(() => setTimeout(() => loadChannels(), 600)); } }, [activeChannel]);
+  useEffect(() => { activeChannelRef.current = activeChannel; setMessages([]); setMessagesOf(null); setMessagesFailedOf(null); if (activeChannel) { loadMessages(activeChannel); markChatRead(activeChannel).then(() => setTimeout(() => loadChannels(), 600)); } }, [activeChannel]);
   // Chat opens on a chat: the one last chosen on this phone while it is
   // still on the list, or the only one when the list holds one. Never a
   // guess among several. A chat that leaves the list is let go.
@@ -3965,11 +4080,11 @@ export default function OCSAStaffPortal() {
   const pendingTicks = (() => {
     const site = clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null;
     const m = new Map();
-    taken.forEach((v, id) => { if ((!site || String(v.siteId) === String(site)) && (!user || !v.userId || String(v.userId) === String(user.id))) m.set(id, v.done); });
-    pendingTicksFor(pending, site, user && user.id).forEach((done, id) => m.set(id, done));
+    taken.forEach((v, id) => { if ((!site || String(v.siteId) === String(site)) && (!user || !v.userId || String(v.userId) === String(user.id)) && tapOfRun(v, runNow)) m.set(id, v.done); });
+    pendingTicksFor(pending, site, user && user.id, runNow).forEach((done, id) => m.set(id, done));
     return m;
   })();
-  const pendingKept = pendingKeptFor(pending, clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, user && user.id);
+  const pendingKept = pendingKeptFor(pending, clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, user && user.id, runNow);
   const shownCompleted = pendingTicks.size === 0 ? completedTaskIds : (() => { const n = new Set(completedTaskIds); pendingTicks.forEach((on, id) => { if (on) n.add(id); else n.delete(id); }); return n; })();
   const homeCounts = Array.isArray(tasks) ? todayCount(tasks, shownCompleted) : null;
   // Step 339: whether the open shift's site keeps its task list as a
@@ -3981,10 +4096,20 @@ export default function OCSAStaffPortal() {
   // The sheet that asks which shift, while it is needed: after Start Shift
   // or Change shift, and whenever the session at a site with shifts
   // carries none.
-  const siteShifts = sessionShifts(clockStatus);
+  // Part 375: at a site with named shifts the choices also carry the
+  // site's named shifts, and the API's pick at Start Shift is the shift
+  // the session already carries, so one tap on Use this shift keeps it.
+  const siteShifts = shiftChoicesOf(sessionShifts(clockStatus), runNow && namedShifts && namedShifts.site === shiftSiteId ? namedShifts.list : null);
   const shiftSheet = siteShifts.length > 0 && (!!shiftAsk || !sessionShiftLabel(clockStatus))
-    ? { shifts: siteShifts, mode: shiftAsk || "ask", busy: shiftBusy, fault: shiftFault, onUse: chooseShift, onChoose: () => setShiftFault(null) }
+    ? { shifts: siteShifts, mode: shiftAsk || "ask", busy: shiftBusy, fault: shiftFault, onUse: chooseShift, onChoose: () => setShiftFault(null), picked: !!statusRun(clockStatus) }
     : null;
+  // Every shift's name in the person's language, for the line saying what
+  // the last shift did.
+  const shiftNames = new Map();
+  siteShifts.forEach(s => shiftNames.set(String(s.label).toLowerCase(), s.displayLabel || s.label));
+  if (namedShifts && namedShifts.site === shiftSiteId) namedShifts.list.forEach(n => { if (!shiftNames.has(n.label.toLowerCase())) shiftNames.set(n.label.toLowerCase(), n.display); });
+  const runShown = statusRun(clockStatus);
+  if (runShown) shiftNames.set(runShown.label.toLowerCase(), runShown.display);
 
   return (
     <TextSizeCtx.Provider value={{ textSize, setTextSize }}>
@@ -4054,9 +4179,9 @@ export default function OCSAStaffPortal() {
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} at={scheduleAt} />}
-              {activeTab === "tasks" && <TasksView token={token} rereadList={() => (checklistAsk ? api(checklistAsk, { token }) : Promise.reject(Object.assign(new Error(ERR_GENERIC), { status: 404 })))} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
+              {activeTab === "tasks" && <TasksView token={token} rereadList={() => (checklistAsk ? api(checklistAsk, { token }) : Promise.reject(Object.assign(new Error(ERR_GENERIC), { status: 404 })))} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} shiftChoices={siteShifts} shiftNames={shiftNames} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView userId={user && user.id} assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
-              {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
+              {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} messagesFailed={!!activeChannel && messagesFailedOf === activeChannel && messagesOf !== activeChannel} onRetryMessages={() => { setMessagesFailedOf(null); loadMessages(activeChannel); }} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView userId={user && user.id} token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} onOpenDocument={(d) => openLibraryDoc(d, null)} />}
               {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} attachIssuePhoto={attachIssuePhoto} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} findings={findings} onFindingsChanged={() => loadFindings()} openFinding={findingOpen} onOpenIssue={openIssue} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} token={token} user={user} />}
@@ -5715,6 +5840,22 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
   // shift in progress: gold fill, filled dot. picked is a choice not yet
   // started: gold outline, hollow gold dot. Rows go inert while a shift
   // is open, since the API refuses a second start until it is ended.
+  // PORT-36 (part 375): Start Shift sits under every site row, so once a
+  // site is picked the button is brought into view above the bottom bar,
+  // with no smooth scroll when the phone asks for reduced motion.
+  const startRef = useRef(null);
+  useEffect(() => {
+    const b = startRef.current;
+    if (!pendingSite || !b || !b.getBoundingClientRect) return;
+    try {
+      const r = b.getBoundingClientRect();
+      const barPx = parseFloat(getComputedStyle(b).getPropertyValue("--ocsa-bar")) || 76;
+      const floor = window.innerHeight - barPx;
+      if (r.top >= 0 && r.bottom <= floor) return;
+      const still = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+      b.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
+    } catch (e) {}
+  }, [pendingSite]);
   const renderSite = (site, idx, own) => {
     const open = ci && selectedSite === site.siteId;
     const picked = !ci && pendingSite === site.siteId;
@@ -5777,7 +5918,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
         {siteChoices && groups.length === 0 && <div style={emptySt}>{tr("No sites available yet.")}</div>}
         {siteChoices && groups.map((g, gi) => (<div key={gi}>{g.label && <div style={groupHeadSt}>{g.label}</div>}{g.items.map((site, idx) => renderSite(site, idx, !!g.own))}</div>))}
         {siteChoices && groups.length > 0 && !ci && (
-          <button onClick={() => onStartSession(pendingSite)} disabled={!pendingSite || loading} style={{ ...mkPrimaryBtn(t, loading || !pendingSite), marginTop: 4, cursor: !pendingSite || loading ? "default" : "pointer" }}>{loading ? tr("Starting...") : pendingSite ? tr("Start Shift at {site}", { site: pendingName }) : tr("Start Shift")}</button>
+          <button ref={startRef} data-start-shift="1" onClick={() => onStartSession(pendingSite)} disabled={!pendingSite || loading} style={{ ...mkPrimaryBtn(t, loading || !pendingSite), marginTop: 4, cursor: !pendingSite || loading ? "default" : "pointer" }}>{loading ? tr("Starting...") : pendingSite ? tr("Start Shift at {site}", { site: pendingName }) : tr("Start Shift")}</button>
         )}
       </div>}
     </div>
@@ -5796,6 +5937,92 @@ function sessionShifts(cs) {
 }
 // The shift the open session carries, or null.
 const sessionShiftLabel = (cs) => (cs && cs.clockedIn && cs.session && cs.session.shiftLabel ? cs.session.shiftLabel : null);
+
+// --- The shift's own list (part 375, API Round 9, part 374) -------------
+// At a site with named shifts a session joins a shift run: one shift, one
+// start date. People in one run share one daily list, and the next run
+// starts it fresh. The status (at its top and on its session), every
+// session answer and every row of the task read carry the run as
+// shiftRun: { label, display, startsAt, endsAt, runDate }, display the
+// shift's name in the language asked for and startsAt and endsAt
+// instants. null at a site with no named shifts, which reads as before.
+function shiftRunOf(v) {
+  if (!v || typeof v !== "object" || typeof v.label !== "string" || !v.label.trim()) return null;
+  if (!Number.isFinite(Date.parse(v.startsAt)) || !Number.isFinite(Date.parse(v.endsAt))) return null;
+  const display = typeof v.display === "string" && v.display.trim() ? v.display.trim() : v.label.trim();
+  return { label: v.label.trim(), display: display, startsAt: v.startsAt, endsAt: v.endsAt, runDate: typeof v.runDate === "string" && YMD_RE.test(v.runDate) ? v.runDate : null };
+}
+// The run the open session joined, from the status: its session's, which
+// a change of shift answers with, else the status's own.
+const statusRun = (cs) => {
+  if (!cs || !cs.clockedIn) return null;
+  if (cs.session && typeof cs.session === "object" && Object.prototype.hasOwnProperty.call(cs.session, "shiftRun")) return shiftRunOf(cs.session.shiftRun);
+  return shiftRunOf(cs.shiftRun);
+};
+// The run a list was read for, from its rows, which all carry the same.
+function rowsRun(rows) {
+  if (!Array.isArray(rows)) return null;
+  const hit = rows.find(r => r && r.shiftRun);
+  return hit ? shiftRunOf(hit.shiftRun) : null;
+}
+// One run told from another: its shift and its start date. Everything
+// this phone keeps of a daily list is kept under it.
+const runKeyOf = (run) => (run ? String(run.label).toLowerCase() + "|" + (run.runDate || String(run.startsAt)) : null);
+// A time on the company's clock, kept on one line.
+function companyClockTime(v) {
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit", timeZone: clientConfig.company.timeZone }).replace(/\s/g, "\u00a0");
+}
+// Whose list it is, at the top of the checklist: the shift's own name in
+// the person's language, and its hours on the company's clock.
+const shiftRunLine = (run) => tr("{shift}, {start} to {end}", { shift: run.display, start: companyClockTime(run.startsAt), end: companyClockTime(run.endsAt) });
+// What the last shift did (doneEarlier on a daily item): the latest check
+// before this run began, within a day. Information only: it never counts
+// as done, and the box stays open for this run.
+function doneEarlierOf(v) {
+  if (!v || typeof v !== "object" || !Number.isFinite(Date.parse(v.at))) return null;
+  return { at: v.at, shiftLabel: typeof v.shiftLabel === "string" && v.shiftLabel.trim() ? v.shiftLabel.trim() : null };
+}
+// The line under the item: the shift by its name in the person's
+// language where this phone knows it, else as the API wrote it.
+function doneEarlierLine(early, names) {
+  const time = companyClockTime(early.at);
+  if (!early.shiftLabel) return tr("Done before this shift, at {time}", { time: time });
+  const name = names && names.get(early.shiftLabel.toLowerCase());
+  return tr("{shift} did this at {time}", { shift: name || early.shiftLabel, time: time });
+}
+// The shifts the sheet offers: the site's shifts from its blocks, as the
+// session carries them, and the site's named shifts from GET
+// /api/sites/:siteId/shifts that its blocks do not name, each by its name
+// in the person's language with its hours. A named shift's hours are its
+// run's, so they win over a block's window for the same label. Nothing
+// when there are fewer than two to choose from.
+function shiftChoicesOf(blockShifts, named) {
+  const byLabel = new Map((named || []).map(n => [String(n.label).toLowerCase(), n]));
+  const hoursOf = (n) => (n.startTime && n.endTime ? { startsAt: n.startTime, endsAt: n.endTime } : null);
+  const out = (blockShifts || []).map((s) => {
+    const n = byLabel.get(String(s.label).toLowerCase());
+    if (!n) return s;
+    byLabel.delete(String(s.label).toLowerCase());
+    return { ...s, displayLabel: n.display || s.displayLabel || s.label, window: hoursOf(n) || s.window };
+  });
+  byLabel.forEach((n) => { out.push({ label: n.label, displayLabel: n.display || n.label, suggested: false, window: hoursOf(n), named: true }); });
+  return out.length > 1 ? out : [];
+}
+// The site's named shifts as GET /api/sites/:siteId/shifts answers them,
+// the active ones in order: { label, display, startTime, endTime }.
+function namedShiftsOf(d) {
+  const list = d && Array.isArray(d.shifts) ? d.shifts : [];
+  return list.filter(s => s && typeof s.label === "string" && s.label.trim() && s.active !== false).map(s => ({ label: s.label.trim(), display: typeof s.display === "string" && s.display.trim() ? s.display.trim() : s.label.trim(), startTime: typeof s.startTime === "string" ? s.startTime : null, endTime: typeof s.endTime === "string" ? s.endTime : null }));
+}
+// A session the API closed (part 374's session_close, endNote set): when
+// it was closed, on the company's clock, and the API's note.
+function sessionEndLine(session) {
+  if (!session || typeof session !== "object" || typeof session.endNote !== "string" || !session.endNote.trim()) return null;
+  const at = Number.isFinite(Date.parse(session.endedAt)) ? companyClockTime(session.endedAt) : "";
+  return (at ? tr("Closed automatically at {time}.", { time: at }) : tr("Closed automatically.")) + " " + session.endNote.trim();
+}
 
 // Which list the checklist reads, decided here and nowhere else. A
 // manager can link a person to particular items at a site. A person with
@@ -5981,6 +6208,15 @@ function takeDayStart(text) {
   try { window.localStorage.setItem(DAY_START_KEY, String(text)); } catch (e) {}
 }
 const ofDay = (m) => (m - dayStarts + 1440) % 1440;
+// PORT-53 (part 375): the checklist day on the company's clock now,
+// YYYY-MM-DD: the date, or the day before it until the day's start.
+function checklistDayNow(ms) {
+  const p = {};
+  new Intl.DateTimeFormat("en-US", { timeZone: clientConfig.company.timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(ms)).forEach((x) => { p[x.type] = x.value; });
+  const date = p.year + "-" + p.month + "-" + p.day;
+  if (Number(p.hour) * 60 + Number(p.minute) >= dayStarts) return date;
+  return new Date(Date.parse(date + "T12:00:00Z") - 86400000).toISOString().slice(0, 10);
+}
 const windowPast = (from, to, at) => {
   if (from === null || to === null || at === null) return false;
   const f = ofDay(from), e = ofDay(to), a = ofDay(at);
@@ -6221,26 +6457,32 @@ const NO_NAMES = [];
 // session that carries none, it starts on the shift the session's start
 // time suggests and says so; opened from Change shift, on the shift in
 // use. Each shift is drawn by its own name with its hours under it.
-function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) {
+// picked (part 375): the session is in a shift run, so the API already
+// picked its shift at Start Shift, from the person's schedule, else the
+// shift starting within 30 minutes or running now. The sheet starts on
+// that pick and says so, and Use this shift keeps it with nothing sent.
+function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, picked, t }) {
   const suggested = shifts.find(s => s.suggested) || null;
   const first = mode === "change" ? current : (current || (suggested ? suggested.label : null));
   const [chosen, setChosen] = useState(first);
   useBusy("shift choice", chosen !== first);
-  const byTime = mode !== "change" && !!suggested && first === suggested.label;
+  const byApi = mode !== "change" && !!picked && !!current && first === current;
+  const byTime = !byApi && mode !== "change" && !!suggested && first === suggested.label;
   return (
     <div style={{ padding: "16px" }}>
       <div style={{ background: t.card, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow, padding: "18px 16px" }}>
         <div id="ocsa-shift-sheet-title" style={{ fontSize: 16, fontWeight: 600, color: t.text, lineHeight: 1.35, fontFamily: FONT_HEAD }}>{tr("Which shift are you working?")}</div>
         {byTime && <div style={{ fontSize: 12, color: t.textSec, marginTop: 6, lineHeight: 1.45 }}>{tr("Chosen by the time you started. Change it if it is wrong.")}</div>}
+        {byApi && <div data-shift-picked="1" style={{ fontSize: 12, color: t.textSec, marginTop: 6, lineHeight: 1.45 }}>{tr("Picked from your schedule and the time you started. Change it if it is wrong.")}</div>}
         <div role="radiogroup" aria-labelledby="ocsa-shift-sheet-title" style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
           {shifts.map(s => {
-            const picked = chosen === s.label;
+            const on = chosen === s.label;
             const hours = s.window && s.window.startsAt && s.window.endsAt ? tr("{start} to {end}", { start: clockTimeKept(s.window.startsAt), end: clockTimeKept(s.window.endsAt) }) : null;
             return (
-              <button key={s.label} type="button" role="radio" aria-checked={picked} onClick={() => { setChosen(s.label); onChoose(); }} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: TAP, padding: "11px 14px", borderRadius: R.md, cursor: "pointer", textAlign: "left", background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text }}>
-                <span style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: picked ? GOLD : "transparent", border: picked ? "none" : "2px solid " + t.borderSolid }} />
+              <button key={s.label} type="button" role="radio" data-shift-choice={s.label} aria-checked={on} onClick={() => { setChosen(s.label); onChoose(); }} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: TAP, padding: "11px 14px", borderRadius: R.md, cursor: "pointer", textAlign: "left", background: on ? t.goldBg : t.card, border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text }}>
+                <span style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", background: on ? GOLD : "transparent", border: on ? "none" : "2px solid " + t.borderSolid }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: "block", fontSize: 14, fontWeight: picked ? 600 : 500, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{s.displayLabel || s.label}</span>
+                  <span style={{ display: "block", fontSize: 14, fontWeight: on ? 600 : 500, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{s.displayLabel || s.label}</span>
                   {hours && <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2 }}>{hours}</span>}
                 </span>
               </button>
@@ -6265,7 +6507,7 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, t }) 
 // focus: a task a notice asked for, { id, at }; with a shift open and the
 // task on its list, its details open, else the list, and onFocused says it
 // was looked for either way.
-function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, pendingKept, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, onChangeShift, nowMs, reference, standalone, watch, focus, onFocused, alsoHere, rereadList, t }) {
+function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, pendingKept, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, shiftChoices, shiftNames, onChangeShift, nowMs, reference, standalone, watch, focus, onFocused, alsoHere, rereadList, t }) {
   const [detail, setDetail] = useState(null);
   useEffect(() => {
     if (!focus) return;
@@ -6375,15 +6617,23 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
   const rowLineSt = { fontSize: 11, color: t.textSec, marginTop: 3, lineHeight: 1.4 };
   // The shift in use at a site with shifts, by its own name, under the top
   // card, with the way to change it. Nothing at a site with fewer than two.
-  const siteShifts = sessionShifts(clockStatus);
+  // Part 375: at a site with named shifts the row says whose list this
+  // is, from the run: the shift's own name in the person's language and
+  // its hours on the company's clock. Its choices carry the site's named
+  // shifts too. A list read from Home with no shift open says the run it
+  // was read for, with nothing to change.
+  const siteShifts = standalone ? [] : (Array.isArray(shiftChoices) ? shiftChoices : sessionShifts(clockStatus));
   const inUse = sessionShiftLabel(clockStatus);
   const inUseShift = siteShifts.find(s => s.label === inUse) || null;
-  const shiftRow = siteShifts.length > 0 && inUse ? (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 16, padding: "6px 6px 6px 14px", background: t.card, borderRadius: R.md, border: "1px solid " + t.borderSolid, boxShadow: t.shadow }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "1 1 140px", minWidth: 0 }}><ClockIco sz={16} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{inUseShift && inUseShift.displayLabel ? inUseShift.displayLabel : inUse}</span></div>
-      <button type="button" onClick={onChangeShift} style={{ minHeight: TAP, padding: "0 14px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Change shift")}</button>
+  const run = statusRun(clockStatus) || rowsRun(tasks);
+  const shiftRow = (siteShifts.length > 0 && inUse) || run ? (
+    <div data-shift-row="1" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 16, padding: siteShifts.length > 0 ? "6px 6px 6px 14px" : "10px 14px", background: t.card, borderRadius: R.md, border: "1px solid " + t.borderSolid, boxShadow: t.shadow }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "1 1 140px", minWidth: 0 }}><ClockIco sz={16} c={t.goldText} style={{ flexShrink: 0 }} /><span data-shift-run={run ? run.label : undefined} style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{run ? shiftRunLine(run) : inUseShift && inUseShift.displayLabel ? inUseShift.displayLabel : inUse}</span></div>
+      {siteShifts.length > 0 && <button type="button" onClick={onChangeShift} style={{ minHeight: TAP, padding: "0 14px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Change shift")}</button>}
     </div>
   ) : null;
+  // What the last shift did on a day's item still open for this run.
+  const earlierOf = (tk) => { const e = doneEarlierOf(tk && tk.doneEarlier); return e ? doneEarlierLine(e, shiftNames) : null; };
 
   // One item's detail: its name, where it is, who checked it and when
   // once someone has, its instructions, picture or video and due date, and
@@ -6434,7 +6684,7 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
     </div>
   );
   // Until the session carries a shift, the sheet sits where the list goes.
-  if (shiftSheet) return <ShiftSheet key={shiftSheet.mode + "|" + (inUse || "")} shifts={shiftSheet.shifts} current={inUse} mode={shiftSheet.mode} busy={shiftSheet.busy} fault={shiftSheet.fault} onUse={shiftSheet.onUse} onChoose={shiftSheet.onChoose} t={t} />;
+  if (shiftSheet) return <ShiftSheet key={shiftSheet.mode + "|" + (inUse || "")} shifts={shiftSheet.shifts} current={inUse} mode={shiftSheet.mode} busy={shiftSheet.busy} fault={shiftSheet.fault} onUse={shiftSheet.onUse} onChoose={shiftSheet.onChoose} picked={shiftSheet.picked} t={t} />;
   if (!loaded && tasksFailed) return (
     <div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow, margin: 16 }}>
       <CheckIco sz={40} c={t.borderSolid} />
@@ -6524,8 +6774,11 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
     const current = rows.find(tk => tk.id === detail.id) || rowNow(detail);
     const done = isDone(current);
     const lock = lockOf(current, done);
-    const byWho = done ? whenOf(current) || (lock === "other" || watch ? checkedBy(current) : null) : null;
+    const byWho = done ? whenOf(current) || (lock === "other" || watch ? checkedBy(current) : null) : earlierOf(current);
     if (watch) return drawDetail(detail, byWho, null);
+    // PORT-62 (part 375): a coworker's check today is theirs to take back,
+    // so its detail says so and offers no Uncheck Task.
+    if (lock === "other") return drawDetail(detail, byWho, <div data-task-theirs="1" style={{ padding: "14px 16px", borderTop: "1px solid " + t.borderSolid, fontSize: 13, color: t.textSec, lineHeight: 1.45 }}>{tr("Only the person who checked this can uncheck it.")}</div>);
     return drawDetail(detail, byWho, lock !== "earlier" && <button onClick={() => { tap(current, done, lock); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? tr("Uncheck Task") : tr("Mark Complete")}</button>);
   }
 
@@ -6549,7 +6802,7 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{watch ? tr("Task list for this site") : tr("Your Assignment")}</div><div style={{ fontSize: 15, fontWeight: 600, marginTop: 3, color: t.text, fontFamily: FONT_HEAD }}>{clockStatus.shift.siteName}</div>{(clockStatus.shift.buildingName || clockStatus.shift.floorNumber) && <div style={{ fontSize: 11, color: t.textSec, marginTop: 2 }}>{clockStatus.shift.buildingName}{clockStatus.shift.floorNumber ? " - " + tr("Floor {n}", { n: clockStatus.shift.floorNumber }) : ""}</div>}</div><div style={{ background: pct === 100 ? t.greenSubtle : t.card, padding: "6px 14px", borderRadius: R.pill, border: "1px solid " + (pct === 100 ? t.greenBorder : t.borderSolid) }}><div style={{ fontSize: 18, fontWeight: 600, color: ink(t, pct === 100 ? GREEN : t.goldText), fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{pct}%</div></div></div>
         <div style={{ height: 5, borderRadius: R.pill, background: t.cardAlt, marginTop: 12, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: R.pill, background: pct === 100 ? GREEN : "linear-gradient(90deg," + GOLD + "," + GOLD_LIGHT + ")", width: pct + "%", transition: "width 0.4s ease" }} /></div>
       </div>}
-      {!standalone && shiftRow}
+      {shiftRow}
       {listSections.map((sec, si) => (
         <div key={sec.id} ref={sec.plan && !reference && !standalone ? planRef : undefined} style={{ marginTop: si > 0 ? 22 : 0 }}>
           <div style={periodHeadSt}><div role="heading" aria-level={2} style={periodTitleSt}>{sec.title}</div>{sec.count && <div style={periodCountSt}>{sec.count}</div>}</div>
@@ -6560,6 +6813,7 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
             // Who did it and when for periodic work and a day's work done
             // before today; for a coworker's check today, who made it.
             const when = done ? whenOf(task) || (lock === "other" || watch ? checkedBy(task) : null) : null;
+            const earlier = !done ? earlierOf(task) : null;
             const note = rowNote && rowNote.id === task.id ? rowNote.text : null;
             const hasInfo = task.has_details || w.description || task.media_url;
             const often = howOften(task);
@@ -6577,6 +6831,7 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
                   <button type="button" onClick={() => hasInfo ? setDetail(task) : watch ? null : tap(task, done, lock)} style={mkTapFrame({ display: "flex", flexDirection: "column", alignItems: "stretch", width: "100%", textAlign: "left", fontFamily: FONT_BODY, cursor: watch && !hasInfo ? "default" : "pointer" })}>
                     <span style={{ fontSize: 12, fontWeight: 500, textDecoration: done ? "line-through" : "none", opacity: done ? 0.6 : 1, display: "flex", alignItems: "center", gap: 5, color: t.text }}>{w.label}{hasInfo && <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: BLUE, flexShrink: 0 }} />}</span>
                     {when && <span style={{ ...rowLineSt, display: "block" }}>{when}</span>}
+                    {earlier && <span data-done-earlier={task.id} style={{ ...rowLineSt, display: "block", color: t.textSec }}>{earlier}</span>}
                   </button>
                   {note && <div role="alert" style={{ ...rowLineSt, color: t.text, fontWeight: 600 }}>{note}</div>}
                 </div>
@@ -6898,7 +7153,7 @@ const tagsPerson = (msg, userId) => !!userId && Array.isArray(msg && msg.mention
 // each once.
 const mentionIdsIn = (words, picked) => { const ids = []; picked.forEach(m => { if (words.indexOf("@" + m.name) !== -1 && ids.indexOf(m.id) === -1) ids.push(m.id); }); return ids; };
 
-function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMessages, activeChannel, setActiveChannel, sendMessage, onOpenChat, user, t, token }) {
+function ChatView({ channels, channelsFailed, onRetryChannels, messages, messagesFailed, onRetryMessages, readMessages, activeChannel, setActiveChannel, sendMessage, onOpenChat, user, t, token }) {
   const [text, setText] = useState(""); const endRef = useRef(null);
   // A tap on Send with words in the box and no chat chosen.
   const [pickFirst, setPickFirst] = useState(false);
@@ -7137,6 +7392,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, readMes
       <div style={{ flex: 1, minHeight: "20%", overflowY: "auto", padding: "12px 12px 0" }}>
         {!activeChannel && <div style={{ textAlign: "center", padding: "40px 20px" }}><ChatIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>{tr("Pick a chat to start.")}</div></div>}
         {activeChannel && Array.isArray(messages) && shown.length === 0 && <div style={{ textAlign: "center", padding: "40px 20px", fontSize: 13, color: t.textMut, fontFamily: FONT_HEAD }}>{tr("No messages yet.")}</div>}
+        {activeChannel && !Array.isArray(messages) && messagesFailed && <div data-chat-messages-fault="1"><ListFault icon={ChatIco} text={tr("This did not load. Try again.")} onRetry={onRetryMessages} t={t} /></div>}
         {shown.map((msg, idx) => {
           // A message is drawn with what it has: no name, no initials; no
           // time the phone can read, no time; no words, no bubble.
@@ -8300,7 +8556,7 @@ function IssueSheet({ token, user, at, tasks, onClose, onChanged, showToast, lkC
 
   const clear = () => { if (id) forgetWork(user && user.id, "issue-sheet:" + id); setPanel(null); setNote(""); setPhoto(null); setPreview(null); setWho(""); if (fileRef.current) fileRef.current.value = ""; };
   const takePhoto = async (e) => { const picked = e.target.files && e.target.files[0]; if (!picked) return; const file = await readyIssuePhoto(picked, showToast); if (!file) return; setPhoto(file); const r = new FileReader(); r.onload = (ev) => setPreview(ev.target.result); r.readAsDataURL(file); };
-  const done = (status) => { showToast(tr("Task updated to {status}", { status: taskStatusWord(status) })); clear(); onChanged(); onClose(); };
+  const done = (status) => { showToast(taskUpdatedWords(status)); clear(); onChanged(); onClose(); };
   const fault = (err) => { if (settledTask(err)) { showToast(tr(err.message), "notice"); clear(); onChanged(); onClose(); return; } showToast(requestFaultOf(err, "That did not go through. Try again."), "error"); };
   const viaTask = (status, noteText, photoUrl) => api("/api/clock/tasks/resolve/" + encodeURIComponent(myTask.task_id), { method: "PATCH", body: { resolutionStatus: status, resolutionNote: noteText || undefined, photoUrl: photoUrl || undefined }, token });
   // The resolution's photo rides on the same PATCH that resolves the issue
@@ -8371,7 +8627,7 @@ function IssueSheet({ token, user, at, tasks, onClose, onChanged, showToast, lkC
         {!view && !failed && <div style={{ fontSize: 12, color: t.textMut, padding: "10px 0" }}>{tr("Loading...")}</div>}
         {view && <>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
-            <div id="ocsa-issue-sheet-title" style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{view.title}</div>
+            <div id="ocsa-issue-sheet-title" style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{shownIssueTitle(view.title)}</div>
             {view.severity && <span style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", padding: "3px 7px", borderRadius: R.sm, background: sc + "20", color: ink(t, sc), fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{levelWord(view.severity)}</span>}
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: 12 }}>
@@ -8521,9 +8777,16 @@ function AssignedTasksView({ assignedTasks, work, onOpenIssue, onOpenRequest, fa
   // note and the photo, says why, and Submit tries again (Round 1,
   // PORT-02); a photo already up is not sent a second time.
   const photoUp = useRef(null);
-  const handleResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Describe what you did to complete this task"), "error"); return; } if (!photo) { showToast(tr("A photo of the completed task is required"), "error"); return; } setUploading(true); try { const photoUrl = photoUp.current && photoUp.current.file === photo ? photoUp.current.url : await uploadPhoto(photo, token); photoUp.current = { file: photo, url: photoUrl }; await resolveTask(taskId, "resolved", note.trim(), photoUrl); clearForm(); setDetail(null); } catch (err) { if (settledTask(err)) { showToast(tr(err.message), "notice"); clearForm(); setDetail(null); onRetry(); } else showToast(tr(err.message), "error"); } setUploading(false); };
-  const handleCantResolve = async (taskId) => { if (!note.trim()) { showToast(tr("Please provide a reason"), "error"); return; } setUploading(true); try { await resolveTask(taskId, "unable_to_resolve", note.trim(), null); clearForm(); setDetail(null); } catch (err) { if (settledTask(err)) { showToast(tr(err.message), "notice"); clearForm(); setDetail(null); onRetry(); } else showToast(tr(err.message), "error"); } setUploading(false); };
-  const getTaskInfo = (task) => { const isIssueLinked = !!task.source_issue_id; const title = isIssueLinked ? (task.issue_title || task.label) : task.label; const desc = isIssueLinked ? task.issue_description : task.description; const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD); const photoUrl = isIssueLinked ? task.issue_photo_url : (task.media_url || null); const mediaType = isIssueLinked ? "image" : (task.media_type || "image"); const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name; const assignedByLabel = isIssueLinked ? tr("Reported by") : tr("Assigned by"); const locationParts = [task.site_name]; if (task.building_name) locationParts.push(task.building_name); if (task.floor_number) locationParts.push(tr("Floor {n}", { n: task.floor_number })); locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || tr("General")); const locationStr = locationParts.filter(Boolean).join(" > "); return { isIssueLinked, title, desc, borderColor, photoUrl, mediaType, assignedBy, assignedByLabel, locationStr }; };
+  // PORT-60 (part 375): one send at a time on Resolved, Cannot Resolve
+  // and In Progress, so a second tap before the screen redraws sends
+  // nothing.
+  const sendingTask = useRef(false);
+  const once = async (fn) => { if (sendingTask.current) return; sendingTask.current = true; try { await fn(); } finally { sendingTask.current = false; } };
+  const handleResolve = (taskId) => once(() => handleResolveNow(taskId));
+  const handleCantResolve = (taskId) => once(() => handleCantResolveNow(taskId));
+  const handleResolveNow = async (taskId) => { if (!note.trim()) { showToast(tr("Describe what you did to complete this task"), "error"); return; } if (!photo) { showToast(tr("A photo of the completed task is required"), "error"); return; } setUploading(true); try { const photoUrl = photoUp.current && photoUp.current.file === photo ? photoUp.current.url : await uploadPhoto(photo, token); photoUp.current = { file: photo, url: photoUrl }; await resolveTask(taskId, "resolved", note.trim(), photoUrl); clearForm(); setDetail(null); } catch (err) { if (settledTask(err)) { showToast(tr(err.message), "notice"); clearForm(); setDetail(null); onRetry(); } else showToast(tr(err.message), "error"); } setUploading(false); };
+  const handleCantResolveNow = async (taskId) => { if (!note.trim()) { showToast(tr("Please provide a reason"), "error"); return; } setUploading(true); try { await resolveTask(taskId, "unable_to_resolve", note.trim(), null); clearForm(); setDetail(null); } catch (err) { if (settledTask(err)) { showToast(tr(err.message), "notice"); clearForm(); setDetail(null); onRetry(); } else showToast(tr(err.message), "error"); } setUploading(false); };
+  const getTaskInfo = (task) => { const isIssueLinked = !!task.source_issue_id; const title = shownIssueTitle(isIssueLinked ? (task.issue_title || task.label) : task.label); const desc = isIssueLinked ? task.issue_description : task.description; const borderColor = isIssueLinked ? (sevC[task.severity] || ORANGE) : (priC[task.priority] || GOLD); const photoUrl = isIssueLinked ? task.issue_photo_url : (task.media_url || null); const mediaType = isIssueLinked ? "image" : (task.media_type || "image"); const assignedBy = isIssueLinked ? task.reported_by_name : task.created_by_name; const assignedByLabel = isIssueLinked ? tr("Reported by") : tr("Assigned by"); const locationParts = [task.site_name]; if (task.building_name) locationParts.push(task.building_name); if (task.floor_number) locationParts.push(tr("Floor {n}", { n: task.floor_number })); locationParts.push(task.zone || (isIssueLinked ? task.issue_zone : null) || tr("General")); const locationStr = locationParts.filter(Boolean).join(" > "); return { isIssueLinked, title, desc, borderColor, photoUrl, mediaType, assignedBy, assignedByLabel, locationStr }; };
 
   const items = Array.isArray(work) ? work : assignedTasks.map(task => ({ key: "task:" + task.task_id, kind: "task", id: String(task.task_id), task: task }));
   if (items.length === 0 && failed) return (<div style={{ padding: "16px" }}><ListFault icon={AlertIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} /></div>);
@@ -8543,7 +8806,7 @@ function AssignedTasksView({ assignedTasks, work, onOpenIssue, onOpenRequest, fa
             {info.desc && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Description")}</div><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{info.desc}</div></div>)}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{info.assignedByLabel}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{info.assignedBy}</div></div><div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Site")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500 }}>{detail.site_name}</div></div>{detail.due_date && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Due Date")}</div><div style={{ fontSize: 13, color: ink(t, ORANGE), fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{dueDayText(detail.due_date, { month: "short", day: "numeric", year: "numeric" })}{detail.due_time ? " " + tr("at {time}", { time: clockTime(detail.due_time) }) : ""}</div></div>}{detail.task_created_at && <div><div style={{ fontSize: 9, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD, marginBottom: 3 }}>{tr("Assigned")}</div><div style={{ fontSize: 13, color: t.text, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{new Date(detail.task_created_at).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })}</div></div>}</div>
             {info.photoUrl && (<div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{info.mediaType === "video" ? tr("Attached Video") : tr("Attached Photo")}</div>{info.mediaType === "video" ? (<FreshImg video src={info.photoUrl} reread={() => api("/api/clock/tasks/assigned", { token })} readKey="assigned" controls style={{ width: "100%", borderRadius: R.md, maxHeight: 240 }} />) : (<FreshImg src={info.photoUrl} reread={() => api("/api/clock/tasks/assigned", { token })} readKey="assigned" alt={tr("Task")} style={{ width: "100%", borderRadius: R.md, maxHeight: 200, objectFit: "cover", border: "1px solid " + t.borderSolid }} />)}</div>)}
-            {!isResolving && !isCantResolve && (<div style={{ display: "flex", gap: 6, marginTop: 10 }}>{detail.resolution_status !== "in_progress" && (<button onClick={() => { resolveTask(detail.task_id, "in_progress", null, null).catch(err => showToast(tr(err.message), "error")); setDetail(null); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + ORANGE, background: "transparent", color: ink(t, ORANGE), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("In Progress")}</button>)}<button onClick={() => { clearForm(); setActivePanel("resolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + GREEN, background: "transparent", color: ink(t, GREEN), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Resolved")}</button><button onClick={() => { clearForm(); setActivePanel("cantresolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: ink(t, RED), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cannot Resolve")}</button></div>)}
+            {!isResolving && !isCantResolve && (<div style={{ display: "flex", gap: 6, marginTop: 10 }}>{detail.resolution_status !== "in_progress" && (<button onClick={() => { if (sendingTask.current) return; const id = detail.task_id; once(() => resolveTask(id, "in_progress", null, null).catch(err => showToast(tr(err.message), "error"))); setDetail(null); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + ORANGE, background: "transparent", color: ink(t, ORANGE), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("In Progress")}</button>)}<button onClick={() => { clearForm(); setActivePanel("resolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + GREEN, background: "transparent", color: ink(t, GREEN), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Resolved")}</button><button onClick={() => { clearForm(); setActivePanel("cantresolve"); }} style={{ flex: 1, minHeight: TAP, padding: "10px", borderRadius: R.sm, border: "1px solid " + RED, background: "transparent", color: ink(t, RED), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cannot Resolve")}</button></div>)}
           </div>
           {isResolving && (<div style={{ padding: "12px 14px", borderTop: "1px solid " + t.borderSolid, background: t.greenSubtle }}>
             <div style={{ fontSize: 10, color: ink(t, GREEN), fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Mark as Resolved")}</div>
@@ -8573,7 +8836,7 @@ function AssignedTasksView({ assignedTasks, work, onOpenIssue, onOpenRequest, fa
           return (
             <button type="button" key={item.key} data-work-row={item.key} data-work-kind={item.kind} onClick={() => (item.kind === "request" ? onOpenRequest(item.id) : onOpenIssue(item.id, item.row))} style={{ display: "block", width: "100%", minHeight: TAP, padding: "12px 14px", textAlign: "left", color: t.text, fontFamily: FONT_BODY, marginBottom: 10, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + c, cursor: "pointer", boxShadow: t.shadow }}>
               <span style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{item.title}</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{shownIssueTitle(item.title)}</span>
                 <span style={{ display: "flex", gap: 4, flexShrink: 0, alignItems: "center" }}><span style={{ fontSize: 8, padding: "2px 6px", borderRadius: R.sm, background: c + "18", color: ink(t, c), fontFamily: FONT_HEAD, textTransform: "uppercase" }}>{tr(WORK_KIND_WORDS[item.kind])}</span><Ico d="M9 18l6-6-6-6" sz={14} c={t.textMut} /></span>
               </span>
               {item.line && <span style={{ display: "block", marginTop: 6, fontSize: 10, color: t.textMut, overflowWrap: "anywhere" }}>{item.line}</span>}
@@ -8999,7 +9262,7 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, attachI
       {/* What was reported at the person's sites (Step 297), each row
           opening the issue's sheet, with Assigned to you on what is
           theirs. */}
-      {isAdmin && visibleIssues.map(issue => { const sc = sevC[issue.severity] || ORANGE; const mine = !!user && issue.assigned_to !== undefined && issue.assigned_to !== null && String(issue.assigned_to) === String(user.id); return (<button type="button" key={issue.id} data-issue-row={issue.id} onClick={() => onOpenIssue && onOpenIssue(issue.id, issue)} style={{ display: "block", width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", fontFamily: FONT_BODY, padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + sc, boxShadow: t.shadow }}><span style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><span style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{issue.title}</span><span style={{ fontSize: 9, color: ink(t, sc), background: sc + "20", padding: "3px 7px", borderRadius: R.sm, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{levelWord(issue.severity)}</span></span><span style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 6, fontSize: 9, color: t.textMut }}><span>{issue.zone}</span><span>{issue.site_name}</span><span style={{ color: ink(t, issue.status === "open" ? ORANGE : GREEN), fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{statusWord(issue.status)}</span>{mine && <span data-issue-mine="1" style={{ color: t.goldText, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{tr("Assigned to you")}</span>}</span></button>); })}
+      {isAdmin && visibleIssues.map(issue => { const sc = sevC[issue.severity] || ORANGE; const mine = !!user && issue.assigned_to !== undefined && issue.assigned_to !== null && String(issue.assigned_to) === String(user.id); return (<button type="button" key={issue.id} data-issue-row={issue.id} onClick={() => onOpenIssue && onOpenIssue(issue.id, issue)} style={{ display: "block", width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", fontFamily: FONT_BODY, padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, borderLeft: "3px solid " + sc, boxShadow: t.shadow }}><span style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><span style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{shownIssueTitle(issue.title)}</span><span style={{ fontSize: 9, color: ink(t, sc), background: sc + "20", padding: "3px 7px", borderRadius: R.sm, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px", flexShrink: 0 }}>{levelWord(issue.severity)}</span></span><span style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 6, fontSize: 9, color: t.textMut }}><span>{issue.zone}</span><span>{issue.site_name}</span><span style={{ color: ink(t, issue.status === "open" ? ORANGE : GREEN), fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{statusWord(issue.status)}</span>{mine && <span data-issue-mine="1" style={{ color: t.goldText, fontWeight: 600, textTransform: "uppercase", fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{tr("Assigned to you")}</span>}</span></button>); })}
     </div>
   );
 }
@@ -9922,6 +10185,10 @@ const trainingToDo = (data) => (data ? data.items.filter(i => trainingTakeable(i
 const trainingDay = (d) => (d ? dueDayText(d, { month: "short", day: "numeric", year: "numeric" }) : "");
 const TRAINING_GIVEN_IN = { en: () => tr("Given in English"), es: () => tr("Given in Spanish"), fr: () => tr("Given in French") };
 const trainingTries = (n) => (n === 1 ? tr("1 try left") : tr("{n} tries left", { n: n }));
+// Part 375: tries used, beside the tries left, from attemptsUsed. An
+// attempt's own number (attemptNo) is never shown: voided attempts give
+// their try back but keep their numbers, which can run past 100.
+const trainingTriesUsed = (n) => tr("Tries used: {n}", { n: Math.max(0, Number(n) || 0) });
 
 function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   // Read again each time the screen opens, and each time a lesson is
@@ -10009,7 +10276,10 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
       {trainingTakeable(i) && TRAINING_CAN_START.indexOf(i.status) !== -1 && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
           <button type="button" data-training-start={i.id} onClick={() => openLesson(i)} style={{ ...goldBtn, flex: "1 1 120px" }}>{i.status === "inProgress" ? tr("Continue the lesson") : tr("Start the lesson")}</button>
-          <span data-training-tries={i.lesson.attemptsLeft} style={{ ...lineSt, marginTop: 0, flex: "1 1 80px", minWidth: 0 }}>{trainingTries(i.lesson.attemptsLeft)}</span>
+          <span style={{ ...lineSt, marginTop: 0, flex: "1 1 80px", minWidth: 0, display: "flex", flexDirection: "column" }}>
+            <span data-training-tries={i.lesson.attemptsLeft}>{trainingTries(i.lesson.attemptsLeft)}</span>
+            <span data-training-used={i.lesson.attemptsUsed}>{trainingTriesUsed(i.lesson.attemptsUsed)}</span>
+          </span>
         </div>
       )}
       {i.linkUrl && (
@@ -11271,6 +11541,12 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
   const [outcome, setOutcome] = useState(null);
   // Bumped by Try again and by Read it again: a fresh attempt and reading.
   const [asked, setAsked] = useState(0);
+  // Part 375: one send at a time, so a second tap on Submit or Sign before
+  // the screen has drawn the first as sending sends nothing; and the API's
+  // words when it answered that the quiz was already closed (409
+  // training.attemptClosed), said over the result it sent.
+  const sending = useRef(false);
+  const [closedNote, setClosedNote] = useState(null);
   // A picture open full screen (Step 267), and the pictures that did not
   // load, which show their alt text in a box instead.
   const [picture, setPicture] = useState(null);
@@ -11289,7 +11565,7 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
   useEffect(() => {
     let on = true;
     (async () => {
-      setPhase("loading"); setFault(null); setAnswers({}); setQi(0); setStrokes([]); setPng(null); setOutcome(null);
+      setPhase("loading"); setFault(null); setAnswers({}); setQi(0); setStrokes([]); setPng(null); setOutcome(null); setClosedNote(null);
       try {
         // The reading first, in the screen's language where the lesson
         // holds it, so the attempt is opened in the language read.
@@ -11315,33 +11591,57 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
       if (live.current) setFault(fkFaultWords(err, "This lesson did not open. Try again."));
     } finally { if (live.current) setBusy(false); }
   };
+  // The screen an attempt the API scored stands on: signing a pass not
+  // yet signed, Done for one signed, the result for a fail, and a void
+  // one's line with nothing to tap.
+  const standOn = async (a) => {
+    // On a fail, the tries used and left are read again from the lesson;
+    // when that read fails, one fewer than before is said.
+    let l = les;
+    if (a.passed !== true && !a.voidedAt) { try { l = (await readLesson(les.locale)) || les; } catch (e) { l = { ...les, attemptsUsed: les.attemptsUsed + 1, attemptsLeft: Math.max(0, les.attemptsLeft - 1) }; } }
+    if (!live.current) return;
+    setAttempt(a); setLes(l);
+    if (a.voidedAt) setPhase("closed");
+    else if (a.passed === true && a.acknowledgedAt) { setOutcome({ waiting: a.awaitingTrainer === true }); setPhase("done"); }
+    else setPhase(a.passed === true ? "sign" : "result");
+  };
   const submit = async () => {
-    if (busy || !attempt || !les) return;
+    if (busy || sending.current || !attempt || !les) return;
+    sending.current = true;
     setBusy(true); setFault(null);
     try {
       const a = trainingAttemptOf((await api("/api/training/attempts/" + encodeURIComponent(attempt.id) + "/answers", { method: "POST", body: { answers: answers }, token }) || {}).attempt);
       if (!a) throw new Error(ERR_GENERIC);
-      // On a fail, the tries left are read again from the lesson; when
-      // that read fails, one fewer than before is said.
-      let l = les;
-      if (!a.passed) { try { l = (await readLesson(les.locale)) || les; } catch (e) { l = { ...les, attemptsLeft: Math.max(0, les.attemptsLeft - 1) }; } }
-      if (live.current) { setAttempt(a); setLes(l); setPhase(a.passed ? "sign" : "result"); }
+      await standOn(a);
     } catch (err) {
-      if (live.current) setFault(fkFaultWords(err, "Your answers were not sent. Try again."));
-    } finally { if (live.current) setBusy(false); }
+      // Part 375: the quiz was already closed (scored by an earlier send
+      // whose answer was lost, or void). The API sends the attempt as it
+      // stands: its result is shown, in the API's words, and the
+      // questions take no more taps.
+      const closed = err && err.status === 409 && err.code === "training.attemptClosed" ? trainingAttemptOf(err.body && err.body.attempt) : null;
+      if (closed && live.current) { setClosedNote(fkSaidOf(err)); await standOn(closed); }
+      else if (live.current) setFault(fkFaultWords(err, "Your answers were not sent. Try again."));
+    } finally { sending.current = false; if (live.current) setBusy(false); }
   };
   const sign = async () => {
-    if (busy || !attempt) return;
+    if (busy || sending.current || !attempt) return;
     if (!png) { setFault(tr("Sign before you send.")); return; }
+    sending.current = true;
     setBusy(true); setFault(null);
     try {
+      // The same acknowledgement sent again (its first answer lost) is
+      // answered 200 as the first was, and reads as done the same way.
       const d = await api("/api/training/attempts/" + encodeURIComponent(attempt.id) + "/acknowledge", { method: "POST", body: { signature: png }, token });
       const a = trainingAttemptOf(d && d.attempt) || attempt;
       const record = !!(d && d.record && typeof d.record === "object");
       if (live.current) { setAttempt(a); setOutcome({ waiting: a.awaitingTrainer === true || (!record && les.needsTrainer) }); setPhase("done"); }
     } catch (err) {
+      // Part 375: a signature storage could not take in time (503
+      // training.signatureNotStored, nothing stamped): the API's words,
+      // the box kept and emptied, so the person signs again.
+      if (live.current && err && err.code === "training.signatureNotStored") { setStrokes([]); setPng(null); }
       if (live.current) setFault(fkFaultWords(err, "This was not signed. Try again."));
-    } finally { if (live.current) setBusy(false); }
+    } finally { sending.current = false; if (live.current) setBusy(false); }
   };
   // Back goes to My training, or to the category page the lesson was
   // opened from (Step 267), named on the way back.
@@ -11363,7 +11663,7 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
     <div>
       {back}
       <div role="heading" aria-level={1} style={titleSt}>{les && les.title ? les.title : item.name}</div>
-      {(item.docCode || item.docSection) && <div style={smallSt}>{[item.docCode, item.docSection].filter(Boolean).join(" ")}</div>}
+      {(item.docCode || item.docSection) && <div style={smallSt}>{[item.docCode, item.docSection].filter(Boolean).map((x, n) => <span key={n}>{n > 0 ? " " : ""}{x}</span>)}</div>}
     </div>
   );
   if (phase === "loading" || phase === "fault") {
@@ -11458,15 +11758,29 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
       </div>
     );
   }
+  // Part 375: the API's words over a result it sent with 409
+  // training.attemptClosed.
+  const closedLine = closedNote ? <div data-lesson-closed="1" role="status" style={{ ...fkRowSt(t), marginTop: 12, marginBottom: 0, fontSize: 14, color: t.text, lineHeight: 1.45, overflowWrap: "anywhere" }}>{closedNote}</div> : null;
+  if (phase === "closed") {
+    return (
+      <div data-lesson="closed" style={{ padding: "16px 16px 100px" }}>
+        {head}
+        {closedLine}
+        {backBtn}
+      </div>
+    );
+  }
   if (phase === "result") {
     const missed = attempt.missed.length;
     const left = les.attemptsLeft;
     return (
-      <div data-lesson="result" data-lesson-tries={left} style={{ padding: "16px 16px 100px" }}>
+      <div data-lesson="result" data-lesson-tries={left} data-lesson-used={les.attemptsUsed} style={{ padding: "16px 16px 100px" }}>
         {head}
+        {closedLine}
         <div role="heading" aria-level={2} style={{ ...titleSt, marginTop: 14, color: wsLateInk(t) }}>{tr("Not passed.")}</div>
         {scoreLines}
         <div style={lineSt}>{missed === 1 ? tr("You missed 1 question.") : tr("You missed {n} questions.", { n: missed })}</div>
+        <div style={lineSt}>{trainingTriesUsed(les.attemptsUsed)}</div>
         {left > 0 && <div style={{ ...lineSt, fontWeight: 600, color: t.text }}>{trainingTries(left)}</div>}
         {left === 0 && <div style={{ ...lineSt, fontWeight: 600, color: t.text }}>{tr("Ask your supervisor for an in-person session.")}</div>}
         {fault && <WsFault text={fault} t={t} />}
@@ -11479,6 +11793,7 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
     return (
       <div data-lesson="sign" style={{ padding: "16px 16px 100px" }}>
         {head}
+        {closedLine}
         <div role="heading" aria-level={2} style={{ ...titleSt, marginTop: 14, color: ink(t, GREEN) }}>{tr("You passed.")}</div>
         {scoreLines}
         {les.acknowledgement && <div style={{ ...bodySt, marginTop: 14 }}>{les.acknowledgement}</div>}
@@ -11500,6 +11815,7 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
   return (
     <div data-lesson="done" data-lesson-waiting={outcome && outcome.waiting ? "1" : "0"} style={{ padding: "16px 16px 100px" }}>
       {head}
+      {closedLine}
       <div role="heading" aria-level={2} style={{ ...titleSt, marginTop: 14, color: outcome && outcome.waiting ? ink(t, BLUE) : ink(t, GREEN) }}>{outcome && outcome.waiting ? (item.signoffBy ? tr("Your trainer signs this off in the {name} checklist.", { name: item.signoffBy.name }) : tr("Waiting for your trainer. Show them you can do it, and they sign it off.")) : tr("Done. It is on your record.")}</div>
       {scoreLines}
       {backBtn}

@@ -1187,6 +1187,149 @@ where the entry is not there:
   with Needs a fix, sent with no note, then with no signature, then
   signed and sent, to Done.
 
+## The shift's own checklist (part 375, section 1)
+
+The stub answers what ocsa-api's main (481723b, Round 9, part 374)
+answers the staff app about named shifts. Behind `namedShifts`, North
+Building names three shifts, Day shift 7:00 AM to 3:00 PM, Evening shift
+3:00 PM to 11:00 PM and Night shift 11:00 PM to 7:00 AM, each with its
+Spanish and French, as `helpers/shiftRuns.js` reads `site_shifts`. A
+session joins a run: Start Shift's `shiftLabel` when one is sent (a
+label the site does not have is 400 `sessions.shiftInvalid`), else the
+shift starting within 30 minutes, else the one running (the stub holds
+no schedule to match by its times); a session open from the start is in
+the run its start picks, or the one `sessionRun` names. PATCH
+/api/shift-sessions/:id/shift moves it to that shift's current run. A
+check-off carries its session's run; a seeded check with none is read in
+the run whose hours hold it. At a site with named shifts a daily item
+(frequency daily, as its block makes it) counts only the checks of the
+same run on the ring, `checkedToday`, the task read and the refusals
+`tasks.alreadyChecked` and `NOT_YOUR_CHECK`, and a check of it in a new
+run is answered 201. The status (at its top and on its session), every
+session answer and every row of GET /api/sites/:id/tasks carry
+`shiftRun` (`{ label, display, startsAt, endsAt, runDate }`, null with
+none); every row carries `doneEarlier` (`{ at, shiftLabel, firstName }`,
+the latest check of a daily item before the run began, within 24 hours,
+else null) and `shiftLabels` (null); every session answer carries
+`endNote` (null: a person ends a session in the stub). GET
+/api/sites/:siteId/shifts answers `{ shifts }` as the API's shiftView
+does, [] at a site with none.
+
+Four journeys, in English and Spanish, each failing on the main of part
+373:
+
+- `shiftrunline`: the top of the checklist reads Evening shift, 3:00 PM
+  to 11:00 PM, the shift's own name in the person's language and its
+  hours on the company's clock; a site with no named shifts reads no run.
+- `shiftearlier`: a daily item the day shift checked at 2:40 PM reads
+  Day shift did this at 2:40 PM in a small grey line, its box open and
+  off the ring; checking it again is taken (201) and the line goes.
+- `shiftfresh`: a tap still waiting goes before a change of shift, in
+  the run it was made in; one that cannot go is dropped with its run and
+  never sent into the next; the night shift's list reads open and says
+  it is the night shift's; the copy kept for no signal is kept under the
+  new run alone and opens with no signal without the last run's ticks;
+  and a tap kept from an earlier session's run is never drawn on the new
+  run's list, still waiting to go, since the API files a tap sent late
+  in the session open when it was made.
+- `shiftpicked`: Start Shift sends no shift; the sheet offers the site's
+  named shifts from GET /api/sites/:siteId/shifts with their hours, the
+  API's pick already chosen and said to be picked; one tap on Use this
+  shift keeps it with nothing sent, and choosing another goes through
+  the change of shift.
+
+What the staff app cannot show yet: a session the API closed. The
+status answers no session once one is closed, GET
+/api/shift-sessions/today answers the open one alone, and End Shift's
+409 `SESSION_ALREADY_ENDED` carries no session, so `endNote` reaches the
+phone on no answer it reads. The portal says it the moment one does
+(`sessionEndLine`), and the pull request lists what it waits on.
+
+## Training answers from API Round 9 (part 375, section 2)
+
+The stub's lesson routes answer as ocsa-api's main (481723b) does.
+Answers sent to an attempt already scored or void are 409
+`training.attemptClosed` with `{ attempt }` as it stands. An
+acknowledgement sent again to an attempt already acknowledged, and not
+void, answers 200 with the attempt and its record, as the first did;
+`ackNotStored: n` answers the next n acknowledgements 503
+`training.signatureNotStored`, nothing stamped; `ackLoseNext` and
+`answersLoseNext` take the next send and lose its answer on the way
+back. Both refusals carry the API's own words in English and Spanish,
+from its `translation/api_words.csv`. Every attempt answered carries
+`attemptsLeft`, and a new attempt's number is one past every attempt of
+the person's on the version, voided ones included;
+`trainingVoided: n` voids n attempts on the ladders lesson numbered from
+101, as the office moved them live, so the next one is 104.
+
+Three journeys, in English and Spanish, each failing on the main of part
+373:
+
+- `quizclosed`: Submit tapped twice at once sends once; a send whose
+  answer was lost, sent again, meets the closed quiz, and the screen
+  shows that attempt's result, passed and ready to sign, under the API's
+  words, with the questions taking no more taps.
+- `signagain`: Sign tapped twice at once sends once; a signature storage
+  could not take reads the API's words with the box kept and emptied, so
+  the person signs again; a signature whose answer was lost, sent again,
+  is answered 200 and reads as done.
+- `triesused`: My training and a lesson's result read the tries used and
+  the tries left, and no attempt number shows, though three voided
+  attempts pushed the next one to 104.
+
+## Help for the shift's own list and a warning's email (part 375, section 3)
+
+The guide's Check off a task on your checklist says the list is the
+shift's list, what the last shift's grey line means, that the overnight
+list stays one list from start to end, and that Start Shift asks which
+shift once with the person's already picked. Sign for something you
+received says a signed copy of a warning comes by email and that the
+email's button opens the signing screen, signing in first. The training
+entries the lesson's changes touch (See your training, Take a training
+lesson, Find and take your trainings) read the tries used, the closed
+quiz and a signature to sign again, and Check off tasks with no signal
+says the phone keeps the shift's list only. The `tasks` picture is taken
+at North Building with named shifts, so it shows the evening shift's
+line and the day shift's grey line; every picture of the five entries
+was taken again in English and Spanish.
+
+One journey, in English and Spanish, failing on the main of part 373:
+
+- `shiftguide`: the entries say each of those things, the checklist
+  entry names Start Shift, the sheet with the pick, Use this shift,
+  Change shift, Tasks and the last shift's line, and each is on the
+  screens those steps walk through in the screen's language; and
+  /sign/<id>, the email's button, signed out, signs in first and opens
+  the request.
+
+## Seven findings field staff meet first (part 375, section 4)
+
+Seven of the October audit's open findings (`audit/FINDINGS_2026-10.md`)
+whose first reader is field staff on a phone, each needing nothing new
+from the API: PORT-36, PORT-53, PORT-54, PORT-60, PORT-62, PORT-65 and
+PORT-66. The rest stay open. `rowsCarryDay` gives every row of the task
+read its `checklistDay`, as the API's has since Step 198; the cases
+written before it read as they did.
+
+Five journeys, in English and Spanish, each failing on the main of part
+373:
+
+- `uncheckoffer` (PORT-62): the detail of an item a coworker checked
+  today says only they can uncheck it and who did, with no Uncheck Task
+  and nothing sent.
+- `assignedonce` (PORT-60, PORT-65, PORT-66): In Progress and Cannot
+  Resolve tapped twice at once send once; Cannot Resolve says it went up
+  with the reason; a problem an inspection card filed reads Inspection
+  finding: Lobby in the person's language.
+- `chatfault` (PORT-54): a chat whose messages did not load says so with
+  Try again, and Try again reads it.
+- `startinview` (PORT-36): at the Largest size on a 375 by 667 phone,
+  tapping a site brings Start Shift above the bottom bar, where a tap
+  reaches it.
+- `dayturn` (PORT-53): a list read at 3:58 AM is read again with the
+  status once the phone comes back after 4:00 AM, and it is the new
+  day's.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

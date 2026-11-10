@@ -1635,6 +1635,15 @@ export const WORDS = {
   "This phone has no signal, so who it goes to shows once it does. The request goes to the site's contacts for this building when it is sent.": "Este tel\u00e9fono no tiene se\u00f1al, as\u00ed que a qui\u00e9n se env\u00eda aparece cuando la tenga. La solicitud va a los contactos del sitio para este edificio cuando se env\u00ede.",
   "You can still send it. The person who approves time off decides.": "Igual puede enviarla. La persona que aprueba el tiempo libre decide.",
   "Your shift on {day} is no longer on your schedule.": "Su turno del {day} ya no est\u00e1 en su horario.",
+  "{shift}, {start} to {end}": "{shift}, de {start} a {end}",
+  "{shift} did this at {time}": "{shift} hizo esto a las {time}",
+  "Done before this shift, at {time}": "Hecho antes de este turno, a las {time}",
+  "Picked from your schedule and the time you started. Change it if it is wrong.": "Elegido seg\u00fan su horario y la hora en que empez\u00f3. C\u00e1mbielo si no es correcto.",
+  "Closed automatically at {time}.": "Cerrado autom\u00e1ticamente a las {time}.",
+  "Closed automatically.": "Cerrado autom\u00e1ticamente.",
+  "Tries used: {n}": "Intentos usados: {n}",
+  "Inspection finding: {place}": "Hallazgo de inspecci\u00f3n: {place}",
+  "Sent up as not done. The office sees your reason.": "Se envi\u00f3 como no hecha. La oficina ve su motivo.",
   },
 };
 
@@ -3148,6 +3157,15 @@ WORDS.fr = {
   "This phone has no signal, so who it goes to shows once it does. The request goes to the site's contacts for this building when it is sent.": "Ce t\u00e9l\u00e9phone n'a pas de r\u00e9seau, donc le destinataire s'affiche d\u00e8s qu'il en a. La demande part aux contacts du site pour ce b\u00e2timent au moment de l'envoi.",
   "You can still send it. The person who approves time off decides.": "Vous pouvez quand m\u00eame l'envoyer. La personne qui approuve les cong\u00e9s d\u00e9cide.",
   "Your shift on {day} is no longer on your schedule.": "Votre service du {day} n'est plus dans votre planning.",
+  "{shift}, {start} to {end}": "{shift}, de {start} \u00e0 {end}",
+  "{shift} did this at {time}": "{shift} l'a fait \u00e0 {time}",
+  "Done before this shift, at {time}": "Fait avant ce service, \u00e0 {time}",
+  "Picked from your schedule and the time you started. Change it if it is wrong.": "Choisi selon votre planning et l'heure o\u00f9 vous avez commenc\u00e9. Changez-le s'il n'est pas bon.",
+  "Closed automatically at {time}.": "Ferm\u00e9 automatiquement \u00e0 {time}.",
+  "Closed automatically.": "Ferm\u00e9 automatiquement.",
+  "Tries used: {n}": "Essais utilis\u00e9s\u00a0: {n}",
+  "Inspection finding: {place}": "Constat d'inspection\u00a0: {place}",
+  "Sent up as not done. The office sees your reason.": "Signal\u00e9e comme non faite. Le bureau voit votre motif.",
 };
 
 // {name} is replaced after the language is chosen, so the
