@@ -9484,7 +9484,7 @@ JOURNEYS.push(...PART380_S3_JOURNEYS);
 const PART380_S4_JOURNEYS = [
   {
     id: "photoroom",
-    label: "A form's photo question takes only the photos it has room for (PORT-59): more picked than it holds sends as many as fit, keeps them, and says the limit, where all of them went and the whole batch was refused",
+    label: "A form's photo question takes only the photos it has room for (PORT-59): more picked than it holds sends as many as fit, keeps them, and says the limit",
     run: async (open, language, expect) => {
       const app = await open({});
       try {
@@ -9507,7 +9507,7 @@ const PART380_S4_JOURNEYS = [
   },
   {
     id: "heicoffline",
-    label: "An iPhone photo with no signal (PORT-58): a HEIC picked for a form's photo question with no signal says it needs signal to be made ready, or to choose a JPEG, where it said the photo could not be read",
+    label: "An iPhone photo with no signal (PORT-58): a HEIC picked for a form's photo question with no signal says it needs signal to be made ready, or to choose a JPEG",
     run: async (open, language, expect) => {
       // No signal: the build's own server still answers here, so the piece
       // of the app that converts a HEIC is refused as no signal would. The
@@ -9525,7 +9525,7 @@ const PART380_S4_JOURNEYS = [
         await attachBytes(app.page, '.sp-content input[type="file"]', HEIC_FIXTURE, "IMG_0001.HEIC", "image/heic");
         await pause(app.page, 2500);
         const text = await bodyText(app.page);
-        expect("with no signal, the photo says it needs signal, not that it could not be read", has(text, say("This iPhone photo needs signal to be made ready. Try again with signal, or choose a JPEG.", language)) && !has(text, say("This photo could not be read. Try another one.", language)), text.slice(0, 500));
+        expect("with no signal, the photo says it needs signal to be made ready, and the words for a photo that cannot be read stay away", has(text, say("This iPhone photo needs signal to be made ready. Try again with signal, or choose a JPEG.", language)) && !has(text, say("This photo could not be read. Try another one.", language)), text.slice(0, 500));
         await spokenHere(app, language, expect);
         await app.context.setOffline(false); app.stub.state.offline = false;
       } finally { await app.context.close(); }
@@ -9533,7 +9533,7 @@ const PART380_S4_JOURNEYS = [
   },
   {
     id: "profileready",
-    label: "A profile photo made ready like every other (PORT-56): an iPhone HEIC is made a JPEG and sent, where it could not be read before",
+    label: "A profile photo made ready like every other (PORT-56): an iPhone HEIC is made a JPEG and sent",
     run: async (open, language, expect) => {
       const app = await open({});
       try {
@@ -9552,7 +9552,10 @@ const PART380_S4_JOURNEYS = [
     id: "updatekeeps",
     label: "An update reload keeps the offline copy (PORT-57): the reload for a new build clears an older build's caches and leaves the worker's shell, which it replaces itself once the new build's every file came",
     run: async (open, language, expect) => {
-      const app = await open({ buildStamp: "a-newer-build" });
+      // With no worker on this phone, so what is left is what the reload
+      // left: a live worker writes its shell again as soon as the page
+      // answers, which would hide an emptied one.
+      const app = await open({ buildStamp: "a-newer-build", serviceWorkers: "block" });
       try {
         const seeded = await app.page.evaluate(async () => {
           if (!window.caches) return false;
@@ -9571,7 +9574,7 @@ const PART380_S4_JOURNEYS = [
   },
   {
     id: "schedheight",
-    label: "Schedule Inspection at the Largest size on a short phone (PORT-67): the sheet stays on the screen, its title and Close in view, where its raw 85vh ran above the top",
+    label: "Schedule Inspection at the Largest size on a short phone (PORT-67): the sheet stays on the screen, its title and Close in view",
     run: async (open, language, expect) => {
       const app = await open({ textSize: "largest", stubOptions: { person: Object.assign({}, PERSON, { role: "admin" }), inspections: [INSPECTION] } });
       try {

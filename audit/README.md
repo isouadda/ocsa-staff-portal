@@ -1437,8 +1437,10 @@ Five journeys, in English and Spanish, each failing on the main of part
 - `profileready` (PORT-56): a HEIC profile photo is made a JPEG, sent once
   and saved as the profile's photo. `profilephoto` now reads the words
   every photo says when it cannot be read.
-- `updatekeeps` (PORT-57): the reload for a newer build clears an older
-  build's cache and keeps the worker's shell, `ocsa-shell-v2`.
+- `updatekeeps` (PORT-57): on a phone with no worker, so what is left is
+  what the reload left (a live worker writes its shell again as the page
+  answers), the reload for a newer build clears an older build's cache
+  and keeps the worker's shell, `ocsa-shell-v2`.
 - `schedheight` (PORT-67): Schedule Inspection at the Largest size on a
   375 by 560 phone keeps its top and title on the screen.
 
