@@ -1330,6 +1330,120 @@ Five journeys, in English and Spanish, each failing on the main of part
   status once the phone comes back after 4:00 AM, and it is the new
   day's.
 
+## Photos that stay good until they are saved (part 380, section 1)
+
+Since ocsa-api Round 10 (part 376, #159, `routes/uploads.js`) an upload
+to task-media, issue-photos or profile-photos answers `path`,
+`<bucket>/<object>`, beside a link signed for 60 minutes, and records who
+stored it; `POST /api/uploads/sign { path }` answers `{ url }`, a fresh
+link, to that person alone within 30 days. The stub answers both as the
+API does: the object named `<prefix>-<time>-<random>.<ext>` (task, issue
+or profile), the link signed at `signed-photos.example.invalid` for an
+hour on the stub's clock, the owner kept in `state.photoOwners`, each
+sign asked in `state.photoSigns`, 400 `uploads.badDetails` for a body
+that is not one path and 404 `uploads.pathNotFound` for anyone else's,
+an unknown or older one, another bucket's, or one a case names in
+`photoLost`, in the API's own words. Help's agent-photos keeps the
+answer it had.
+
+Two journeys, in English and Spanish, each failing on the main of part
+375:
+
+- `photokept`: a walk with no safety walk is kept on the phone as it is
+  scored, its photo with the path beside the link; an hour later, the
+  link run out at the stub and the phone's copy an hour older, the walk
+  reopens as it was scored and its photo is signed again by its path,
+  one read, and drawn from the fresh link; what the completion sends is
+  the path; and once sent the walk is no longer kept.
+- `phototurnedoff`: a walk scored with the safety walk on, which the
+  office turned off since, comes back as it was scored; its photo, past
+  what the API signs again, says "This photo can no longer be shown.
+  Take it again." with Take it again, which puts it away for a new one.
+
+`inspectionfixes` now reads the finding's photo by the path its upload
+answered.
+
+## The safety walk once a month (part 380, section 2)
+
+The stub's `GET /api/inspections/scheduled` is answered as
+`routes/inspections.js` builds it: `?site_id=` keeps one site's, `?status=`
+is matched exactly, and with no status every row comes, the done ones
+with their `result_id` and no time. A done one's own read answers its
+`result` with `completed_at` and `safety_response_id`, as the case's row
+carries them. `POST /api/forms/drafts/draft-safety/discard` puts the
+walk's own safety draft away, as the API voids any draft of the caller's,
+and a completion with no `safety` and no draft then takes the cards
+alone, as `readForSubmit` does.
+
+Two journeys, in English and Spanish, each failing on the main of part
+375:
+
+- `safetymonth`: Start an inspection at North Building, whose readiness
+  check filed the safety walk at 10:42 AM today, starts the switch off
+  with "Safety walk done this month on Oct 1", read from the site's list
+  and the done one's result; the person can still turn it on; South
+  Building, with none, starts it on with "Safety walk due this month",
+  and the start sends the switch as it stands; a second start at South,
+  while the first carries the safety walk, starts it off and names it;
+  with the list refused, West Building starts it off with "Safety walk:
+  once a month per site".
+- `safetyonce`: the monthly walk at North, with its own safety draft
+  already started, says "Safety walk done on Invented readiness check at
+  10:42 AM", draws no safety part and starts none, puts its draft away
+  before it is sent, and is sent with no `safety`; the stub takes the
+  cards alone.
+
+The Spanish check now lets a fit whose filling names a word the API
+sends in English win over an earlier fit that read as stray, so the
+Spanish line around the inspection's English name reads as that known
+word.
+
+## The test site (part 380, section 3)
+
+`testSite` gives the stub the robot's test site, "Invented Test
+Building", as API Round 10 answers it: on `GET /api/sites` to an admin or
+a supervisor, whose rows now carry every column with `is_test` (false on
+the rest), and on the field kit's `GET /api/forms/my-sites`, which
+answers id and name only, so no `is_test`. Anyone else's `GET /api/sites`
+is their own sites' base columns, with no `is_test`, as the API's are. No
+stub answer says the person is a test account, since no API answer does;
+a case's person may carry `isTestAccount`, the shape asked for under
+Waiting on the API.
+
+One journey, in English and Spanish, failing on the main of part 375:
+
+- `testsite`: a supervisor's Start an inspection, + Schedule and the field
+  kit's sites list the three real sites and never the test site; a person
+  whose answer says `isTestAccount` sees it on Start an inspection as
+  "[TEST] Invented Test Building".
+
+## Five findings field staff and supervisors meet first (part 380, section 4)
+
+Five of the October audit's open findings (`audit/FINDINGS_2026-10.md`)
+whose first reader is field staff on a phone or a supervisor, each
+needing nothing new from the API: PORT-56, PORT-57, PORT-58, PORT-59 and
+PORT-67. The rest stay open. A case may now open a phone with
+`serviceWorkers: "block"` (`audit/browser.js`), since the worker passes a
+request for one of the app's own files on out of the harness's reach.
+
+Five journeys, in English and Spanish, each failing on the main of part
+375:
+
+- `photoroom` (PORT-59): four photos picked for a form's question that
+  holds three send three, keep them and say the limit.
+- `heicoffline` (PORT-58): a HEIC picked with no signal, on a phone with
+  no worker and the converter's piece refused, says it needs signal to
+  be made ready, or to choose a JPEG.
+- `profileready` (PORT-56): a HEIC profile photo is made a JPEG, sent once
+  and saved as the profile's photo. `profilephoto` now reads the words
+  every photo says when it cannot be read.
+- `updatekeeps` (PORT-57): on a phone with no worker, so what is left is
+  what the reload left (a live worker writes its shell again as the page
+  answers), the reload for a newer build clears an older build's cache
+  and keeps the worker's shell, `ocsa-shell-v2`.
+- `schedheight` (PORT-67): Schedule Inspection at the Largest size on a
+  375 by 560 phone keeps its top and title on the screen.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

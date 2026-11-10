@@ -321,7 +321,11 @@ const INSPECT = function (args) {
           const fills = m.slice(1).map(x => (x || "").trim()).filter(x => x);
           const faults = fills.map(f => spokenFault(f, depth + 1)).filter(Boolean);
           if (!faults.length) return null;
-          if (!first) first = faults.find(named) || { stray: text };
+          // Part 380: a fit whose filling names a word the API sends in
+          // English wins over one before it that reads as stray, so a
+          // Spanish sentence around an inspection's English name reads as
+          // that word.
+          if (!first || (first.stray && faults.some(named))) first = faults.find(named) || { stray: text };
         }
         if (first) return first;
       }

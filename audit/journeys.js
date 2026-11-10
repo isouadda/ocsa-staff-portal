@@ -4354,7 +4354,8 @@ const JOURNEYS = [
         expect("the first report is the first card's, written the way Report writes one", JSON.stringify(rest[0]) === JSON.stringify(want(first, "Smudges on the left door")), JSON.stringify(bodies[0]));
         expect("the second report is the second card's", JSON.stringify(rest[1]) === JSON.stringify(want(second, "Mat is wet and turned up")), JSON.stringify(bodies[1]));
         expect("each report carries a clientId of its own", !!ids[0] && !!ids[1] && ids[0] !== ids[1], JSON.stringify(ids));
-        expect("the one photo goes on the second report", photosAt.length === 1 && calls[photosAt[0]].path === "/api/issues/iss-2/photos" && calls[photosAt[0]].body && calls[photosAt[0]].body.photoUrl === "https://example.invalid/photo.jpg", JSON.stringify(photosAt.map(i => [calls[i].path, calls[i].body])));
+        // Since part 380 the photo goes by the path its upload answered.
+        expect("the one photo goes on the second report, by its path", photosAt.length === 1 && calls[photosAt[0]].path === "/api/issues/iss-2/photos" && calls[photosAt[0]].body && /^task-media\/task-\d{10,}-[a-z0-9]+\.jpg$/.test(String(calls[photosAt[0]].body.photoUrl)), JSON.stringify(photosAt.map(i => [calls[i].path, calls[i].body])));
         expect("the photo is sent after its report", photosAt.length === 1 && filedAt.length === 2 && photosAt[0] > filedAt[1], JSON.stringify({ reports: filedAt, photo: photosAt }));
         const said = await bodyText(app.page);
         expect("the screen says two problems were reported", has(said, say("Inspection sent. {n} problems reported for fixing.", language).replace("{n}", "2")), said.slice(0, 220));
@@ -4915,7 +4916,8 @@ const JOURNEYS = [
         await attachBroken(app.page, '.sp-content input[type="file"]');
         await pause(app.page, 900);
         const told = (await toastText(app.page)) || (await bodyText(app.page));
-        expect("a photo the phone cannot read says so in the person's language", has(told, spanishOf("Could not read image", language)), told.slice(0, 200));
+        // Since PORT-56 (part 380) in the words every other photo says it in.
+        expect("a photo the phone cannot read says so in the person's language", has(told, say("This photo could not be read. Try another one.", language)), told.slice(0, 200));
         await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
     },
@@ -9211,5 +9213,388 @@ const PART375_S4_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART375_S4_JOURNEYS);
+
+// Part 380, section 1: photos taken and not yet saved keep working. Since
+// API Round 10 an upload answers path beside its 60-minute link, and POST
+// /api/uploads/sign { path } signs it again for the uploader. The stub's
+// clock moves an hour on, so the link a kept walk holds runs out there.
+const keptWalkKey = (person, id) => "ocsa-staff-inspect:" + person.id + ":" + id;
+const readKeptWalk = (app, key) => app.page.evaluate((k) => { try { return JSON.parse(window.localStorage.getItem(k) || "null"); } catch (e) { return null; } }, key);
+// The phone's copy of the walk, an hour older: each photo's upload time
+// moved back as the phone's clock would have moved on.
+const ageKeptWalk = (app, key, ms) => app.page.evaluate(([k, by]) => { const v = JSON.parse(window.localStorage.getItem(k) || "null"); if (!v) return false; Object.keys(v.shots || {}).forEach(r => (v.shots[r] || []).forEach(x => { x.at = Number(x.at || 0) - by; })); window.localStorage.setItem(k, JSON.stringify(v)); return true; }, [key, ms]);
+const rangeOf = (app, itemId) => app.page.evaluate((id) => { const r = document.querySelector('[data-inspect-item="' + id + '"] input[type="range"]'); return r ? r.value : null; }, itemId);
+const scoreCard = (app, itemId, v) => app.page.evaluate(([id, val]) => {
+  const r = document.querySelector('[data-inspect-item="' + id + '"] input[type="range"]');
+  if (!r) return false;
+  const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+  set.call(r, val); r.dispatchEvent(new Event("input", { bubbles: true })); r.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}, [itemId, String(v)]);
+// A walk opened again from My Inspections, with its scored cards, which
+// fold into one group, opened.
+const openWalkAgain = async (app, name, language) => {
+  await app.page.waitForFunction((n) => Array.from(document.querySelectorAll(".sp-content button")).some(b => b.innerText.indexOf(n) !== -1), name, { timeout: 6000 }).catch(() => {});
+  await app.page.evaluate((n) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.indexOf(n) !== -1); if (b) b.click(); }, name);
+  if (!(await shows(app.page, "[data-inspect-submit]", 8000))) return false;
+  const show = say("Show {0} scored items", language).split("{0}")[0].trim();
+  await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim().indexOf(w) === 0); if (b) b.click(); }, show);
+  return shows(app.page, "[data-inspect-item]", 4000);
+};
+// A photo the person picks, its file name drawn under it as given.
+const pickWalkPhoto = (app, itemId) => { TYPED.add("photo.jpg"); return attachPhoto(app.page, '[data-inspect-photos="item:' + itemId + '"] input[type="file"]'); };
+const firstShot = (kept, key) => (kept && kept.shots && Array.isArray(kept.shots[key]) ? kept.shots[key][0] : null) || null;
+const HOUR_ON = 61 * 60 * 1000;
+
+const PART380_S1_JOURNEYS = [
+  {
+    id: "photokept",
+    label: "Photos taken and not yet saved keep working (part 380, API Round 10): every walk is kept on the phone as it is scored, a walk with no safety walk too, each photo with its path beside its link; reopened an hour later, after the link ran out, the walk comes back and its photo is signed again by its path and drawn; what is sent is the path",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true } });
+      try {
+        await openTab(app.page, "inspect", language);
+        if (!(await openInspectionNamed(app, INSPECTION_PLAIN.template_name))) { expect("the walk with no safety walk opens", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        await scoreCard(app, "ip-1", 5);
+        await pickWalkPhoto(app, "ip-1");
+        const drawn = await pictureLoaded(app.page, "[data-inspect-shot]", 8000);
+        await pause(app.page, 600);
+        const key = keptWalkKey(ROUND1_SUPERVISOR, INSPECTION_PLAIN.id);
+        const kept = await readKeptWalk(app, key);
+        const shot = firstShot(kept, "item:ip-1");
+        expect("a walk with no safety walk is kept on the phone as it is scored", !!kept && kept.scores && String(kept.scores["ip-1"]) === "5", JSON.stringify(kept && kept.scores));
+        expect("its photo is kept with the path the upload answered beside its link", drawn && !!shot && /^task-media\/task-\d{10,}-[a-z0-9]+\.jpg$/.test(String(shot.path || "")) && !!tokenOf(shot.url), JSON.stringify(shot));
+        if (!shot) return;
+        // An hour on: the link the phone kept has run out at the stub.
+        app.stub.state.now = NOW.getTime() + HOUR_ON;
+        await ageKeptWalk(app, key, HOUR_ON);
+        await reloadApp(app);
+        await openTab(app.page, "inspect", language);
+        if (!(await openWalkAgain(app, INSPECTION_PLAIN.template_name, language))) { expect("the walk opens again", false, (await bodyText(app.page)).slice(0, 300)); return; }
+        const back = await rangeOf(app, "ip-1");
+        expect("reopened an hour later, the walk comes back as it was scored", back === "5", "the card reads " + back);
+        const up = await pictureLoaded(app.page, "[data-inspect-shot]", 8000);
+        const now = await pictureNow(app.page, "[data-inspect-shot]");
+        const signs = app.stub.state.photoSigns.slice();
+        expect("its photo, whose link ran out, is signed again by its path, one read, and drawn from the fresh link", up && signs.length === 1 && signs[0] === shot.path && !!now && tokenOf(now.src) !== tokenOf(shot.url), JSON.stringify({ up, signs, now, was: shot.url }));
+        await spokenHere(app, language, expect);
+        await drawOn(app.page, "[data-inspect-signature] canvas");
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-submit]"); if (b) b.click(); });
+        await shows(app.page, "[data-inspect-sent]", 8000).catch(() => false);
+        await pause(app.page, 900);
+        const done = lastSent(app.stub, "POST", "/api/inspections/scheduled/" + INSPECTION_PLAIN.id + "/complete");
+        const row = done && done.body && Array.isArray(done.body.scores) ? done.body.scores.find(x => x.template_item_id === "ip-1") : null;
+        expect("what is sent for the photo is its path, which the API stores as it is", !!row && Array.isArray(row.photo_urls) && row.photo_urls.length === 1 && row.photo_urls[0] === shot.path && row.photo_url === shot.path, JSON.stringify(row));
+        expect("and once sent, the walk is no longer kept on the phone", (await readKeptWalk(app, key)) === null, "still kept");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "phototurnedoff",
+    label: "A walk whose safety walk was turned off since it was scored comes back (part 380, the owner's walk of Nov 10), and a photo whose path cannot be signed again says so plainly and offers to take it again",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true } });
+      try {
+        await openTab(app.page, "inspect", language);
+        if (!(await openInspectionNamed(app, INSPECTION_W.template_name))) { expect("the walk with the safety walk opens", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        await scoreCard(app, "iw-1", 4);
+        await pickWalkPhoto(app, "iw-1");
+        await pictureLoaded(app.page, "[data-inspect-shot]", 8000);
+        await pause(app.page, 600);
+        const key = keptWalkKey(ROUND1_SUPERVISOR, INSPECTION_W.id);
+        const shot = firstShot(await readKeptWalk(app, key), "item:iw-1");
+        // The office turns the safety walk off on the open inspection, the
+        // link runs out, and the photo is past what the API signs again.
+        app.stub.state.inspections.find(i => i.id === INSPECTION_W.id).with_safety = false;
+        app.stub.state.now = NOW.getTime() + HOUR_ON;
+        app.stub.state.photoOwners = {};
+        await ageKeptWalk(app, key, HOUR_ON);
+        await reloadApp(app);
+        await openTab(app.page, "inspect", language);
+        if (!(await openWalkAgain(app, INSPECTION_W.template_name, language))) { expect("the walk opens again", false, (await bodyText(app.page)).slice(0, 300)); return; }
+        const back = await rangeOf(app, "iw-1");
+        expect("with the safety walk turned off since, the walk still comes back as it was scored", back === "4", "the card reads " + back);
+        const gone = await shows(app.page, "[data-inspect-shot-gone]", 8000);
+        const line = gone ? await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-shot-gone]"); return b ? b.innerText : ""; }) : "";
+        expect("a photo whose path cannot be signed again says so plainly and offers to take it again", gone && has(line, say("This photo can no longer be shown. Take it again.", language)) && has(line, say("Take it again", language)) && app.stub.state.photoSigns.indexOf(shot ? shot.path : "") !== -1, JSON.stringify({ gone, line, signs: app.stub.state.photoSigns }));
+        await spokenHere(app, language, expect);
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-shot-retake]"); if (b) b.click(); });
+        await pause(app.page, 500);
+        const after = await app.page.evaluate(() => ({ gone: !!document.querySelector("[data-inspect-shot-gone]"), input: !!document.querySelector('[data-inspect-photos="item:iw-1"] input[type="file"]') }));
+        expect("Take it again puts it away and the row takes a new photo", !after.gone && after.input, JSON.stringify(after));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART380_S1_JOURNEYS);
+
+// Part 380, section 2: the safety walk once a month. The site's
+// inspections as GET /api/inspections/scheduled?site_id= lists them, and a
+// done one's result (completed_at, safety_response_id) as its own read
+// answers it. Today is Oct 1 on the stub's clock; the readiness check at
+// North Building was done at 10:42 AM with the safety walk.
+const DONE_NORTH = { id: "in-done-north", template_name: "Invented readiness check", site_id: "site-north", site_name: "North Building", scheduled_date: "2026-10-01", status: "completed", with_safety: true, items: [],
+  result: { id: "res-done-north", completed_at: "2026-10-01T14:42:00.000Z", safety_response_id: "frm-done-north" } };
+const startSheetAt = async (app, siteId) => {
+  await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-start]"); if (b) b.click(); });
+  if (!(await shows(app.page, "[data-inspect-start-sheet] [data-pick-search]", 8000))) return false;
+  await app.page.evaluate((id) => { const r = document.querySelector('[data-inspect-start-sheet] [data-pick-row="' + id + '"]'); if (r) r.click(); }, siteId);
+  return shows(app.page, '[data-inspect-start-sheet] [data-pick-chip="' + siteId + '"]', 6000);
+};
+const startSwitch = (app) => app.page.evaluate(() => { const sw = document.querySelector("[data-inspect-start-safety]"); const line = document.querySelector("[data-inspect-start-safety-line]"); return { on: sw ? sw.getAttribute("aria-checked") : null, kind: line ? line.getAttribute("data-inspect-start-safety-line") : null, line: line ? line.innerText.trim() : "" }; });
+const switchSettled = (app, kind) => app.page.waitForFunction((k) => { const l = document.querySelector("[data-inspect-start-safety-line]"); return !!l && l.getAttribute("data-inspect-start-safety-line") === k; }, kind, { timeout: 8000 }).then(() => true).catch(() => false);
+const closeStartSheet = (app, language) => app.page.evaluate((l) => { const b = Array.from(document.querySelectorAll("[data-inspect-start-sheet] button")).find(x => x.getAttribute("aria-label") === l); if (b) b.click(); }, say("Close", language));
+const before = (word, language) => say(word, language).split("{")[0].trim();
+
+const PART380_S2_JOURNEYS = [
+  {
+    id: "safetymonth",
+    label: "The safety walk once a month (part 380, the owner's decision of Nov 10): Start an inspection's Include the safety walk starts off at a site whose safety walk is on record this month, saying when, and on at one with none, saying it is due; a second inspection at a site while the first carries it starts off; the person can still turn it either way; with no answer to read it from it starts off and says the rule",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, startInspection: true, inspections: [DONE_NORTH] } });
+      try {
+        await openTab(app.page, "inspect", language);
+        await shows(app.page, "[data-inspect-start]", 8000);
+        if (!(await startSheetAt(app, "site-north"))) { expect("the sheet picks North Building", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        await switchSettled(app, "done");
+        const north = await startSwitch(app);
+        expect("at a site whose safety walk is on record this month, the switch starts off and says when it was done", north.on === "false" && north.kind === "done" && north.line.indexOf(before("Safety walk done this month on {date}", language)) === 0 && /1/.test(north.line), JSON.stringify(north));
+        const read = app.stub.state.calls.filter(c => c.method === "GET" && (c.path === "/api/inspections/scheduled" && /site_id=site-north/.test(c.search || "") || c.path === "/api/inspections/scheduled/" + DONE_NORTH.id));
+        expect("read from the site's inspections and the done one's result", read.length === 2, JSON.stringify(read.map(c => c.path + (c.search || ""))));
+        await spokenHere(app, language, expect);
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-start-safety]"); if (b) b.click(); });
+        await pause(app.page, 300);
+        expect("the person can still turn it on", (await startSwitch(app)).on === "true", JSON.stringify(await startSwitch(app)));
+        await closeStartSheet(app, language);
+        await pause(app.page, 400);
+        if (!(await startSheetAt(app, "site-south"))) { expect("the sheet picks South Building", false, "no chip"); return; }
+        await switchSettled(app, "due");
+        const south = await startSwitch(app);
+        expect("at a site with none on record this month, the switch starts on and says it is due", south.on === "true" && south.kind === "due" && south.line === say("Safety walk due this month", language), JSON.stringify(south));
+        await app.page.evaluate(() => { const b = document.querySelector('[data-inspect-start-choice="tpl-south-day"]'); if (b) b.click(); });
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-start-go]"); if (b) b.click(); });
+        await shows(app.page, "[data-inspect-item]", 8000);
+        const startedWith = app.stub.state.startCalls[0] || {};
+        expect("Start the inspection sends the switch as it stands", startedWith.withSafety === true && startedWith.site_id === "site-south", JSON.stringify(startedWith));
+        await tapBack(app.page, language);
+        await shows(app.page, "[data-inspect-start]", 8000);
+        if (!(await startSheetAt(app, "site-south"))) { expect("the sheet picks South Building again", false, "no chip"); return; }
+        await switchSettled(app, "open");
+        const second = await startSwitch(app);
+        expect("a second inspection at that site, while the first carries the safety walk, starts with the switch off and says which carries it", second.on === "false" && second.kind === "open" && second.line === say("Safety walk on {inspection}, already started at this site", language).replace("{inspection}", "Invented South day walk"), JSON.stringify(second));
+        await closeStartSheet(app, language);
+        await pause(app.page, 400);
+        app.stub.state.refuse["GET /api/inspections/scheduled"] = { status: 500, once: true };
+        if (!(await startSheetAt(app, "site-west"))) { expect("the sheet picks West Building", false, "no chip"); return; }
+        await switchSettled(app, "rule");
+        const west = await startSwitch(app);
+        expect("with no answer to read it from, the switch starts off and says the rule", west.on === "false" && west.kind === "rule" && west.line === say("Safety walk: once a month per site", language), JSON.stringify(west));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "safetyonce",
+    label: "One safety walk per visit (part 380, the owner's visit of Nov 10): an open walk at a site whose safety walk was done on another inspection this month stops asking for it, says on which and at what time, starts no draft of it, puts its own draft away and is sent without it",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true, inspections: [DONE_NORTH] } });
+      try {
+        // Both were started with the safety walk on: this walk's own draft
+        // of it is already there.
+        app.stub.state.walkStarted = true;
+        app.stub.state.walkAnswers = { site: "North Building", kind: "monthly", _scheduled_inspection_id: INSPECTION_W.id };
+        await openTab(app.page, "inspect", language);
+        if (!(await openInspectionNamed(app, INSPECTION_W.template_name))) { expect("the walk opens", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        const done = await shows(app.page, '[data-walk-safety-done="' + DONE_NORTH.id + '"]', 6000);
+        const line = done ? await app.page.evaluate(() => document.querySelector("[data-walk-safety-done]").innerText.trim()) : "";
+        const lead = say("Safety walk done on {inspection} at {time}", language).split("{time}")[0].replace("{inspection}", DONE_NORTH.template_name);
+        expect("the walk says the safety walk was done on the other inspection, and at what time", done && line.indexOf(lead) === 0 && /10:42/.test(line), JSON.stringify(line));
+        const asks = await app.page.evaluate(() => !!document.querySelector("[data-walk-to-safety]") || !!document.querySelector("[data-walk-part]"));
+        expect("and it stops asking for it: no safety walk part, and no draft of it started", !asks && app.stub.state.walkStarts.length === 0, JSON.stringify({ asks, starts: app.stub.state.walkStarts }));
+        await spokenHere(app, language, expect);
+        await scoreCard(app, "iw-1", 5);
+        await scoreCard(app, "iw-2", 5);
+        await drawOn(app.page, "[data-inspect-signature] canvas");
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-submit]"); if (b) b.click(); });
+        await shows(app.page, "[data-inspect-sent]", 8000);
+        await pause(app.page, 600);
+        const calls = app.stub.state.calls;
+        const putAway = calls.findIndex(c => c.method === "POST" && c.path === "/api/forms/drafts/draft-safety/discard");
+        const sentAt = calls.findIndex(c => c.method === "POST" && c.path === "/api/inspections/scheduled/" + INSPECTION_W.id + "/complete");
+        const body = sentAt >= 0 ? calls[sentAt].body : null;
+        expect("its own draft of the safety walk is put away first, then it is sent without the safety walk", putAway >= 0 && sentAt > putAway && !!body && body.safety === undefined, JSON.stringify({ putAway, sentAt, safety: body && body.safety }));
+        expect("and the API takes the cards alone", !!(await app.page.$("[data-inspect-sent]")) && app.stub.state.inspections.find(i => i.id === INSPECTION_W.id).status === "completed" && !app.stub.state.walkFiled, JSON.stringify({ filed: app.stub.state.walkFiled }));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART380_S2_JOURNEYS);
+
+// Part 380, section 3: the test site. GET /api/sites as a supervisor reads
+// it carries is_test, and the field kit's sites (GET /api/forms/my-sites)
+// list it with no is_test. No answer says the person is a test account
+// today; the test account's case carries isTestAccount, the shape asked
+// for under Waiting on the API.
+const TEST_NAME = "Invented Test Building";
+const pickRows = (app) => app.page.evaluate(() => Array.from(document.querySelectorAll("[data-inspect-start-sheet] [data-pick-row]")).map(r => ({ id: r.getAttribute("data-pick-row"), text: r.innerText.trim() })));
+const PART380_S3_JOURNEYS = [
+  {
+    id: "testsite",
+    label: "The test site (part 380, API Round 10): a real person never sees the robot's test site on Start an inspection, + Schedule or the field kit's sites, though the lists answer it; a test account sees it marked [TEST]",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, startInspection: true, testSite: true, fieldKit: true } });
+      try {
+        await openTab(app.page, "inspect", language);
+        await shows(app.page, "[data-inspect-start]", 8000);
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-start]"); if (b) b.click(); });
+        await shows(app.page, "[data-inspect-start-sheet] [data-pick-row]", 8000);
+        const rows = await pickRows(app);
+        expect("Start an inspection lists the real sites and never the test site", rows.length === 3 && !rows.some(r => r.id === TEST_SITE_ID || has(r.text, TEST_NAME)), JSON.stringify(rows));
+        await spokenHere(app, language, expect);
+        await closeStartSheet(app, language);
+        await pause(app.page, 400);
+        await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim() === w); if (b) b.click(); }, say("+ Schedule", language));
+        const sched = await app.page.waitForFunction(() => Array.from(document.querySelectorAll("select option")).some(o => o.value === "site-north"), null, { timeout: 8000 }).then(() => true).catch(() => false);
+        const options = await app.page.evaluate(() => Array.from(document.querySelectorAll("select option")).map(o => o.value + "|" + o.textContent));
+        expect("+ Schedule's site list never has the test site", sched && !options.some(o => o.indexOf("site-test|") === 0 || has(o, TEST_NAME)), JSON.stringify(options));
+        await reloadApp(app);
+        if (!(await openTab(app.page, "fieldkit", language))) { expect("the field kit opens", false, "no field kit"); return; }
+        await shows(app.page, "#ocsa-fk-site", 8000);
+        const kit = await app.page.evaluate(() => { const sel = document.querySelector("#ocsa-fk-site"); return sel ? Array.from(sel.options).map(o => o.value + "|" + o.textContent) : null; });
+        expect("the field kit's sites never have the test site, though its list answers it with no is_test", !!kit && kit.length === 3 && !kit.some(o => o.indexOf("site-test|") === 0), JSON.stringify(kit));
+      } finally { await app.context.close(); }
+      const crew = await open({ stubOptions: { person: Object.assign({}, ROUND1_SUPERVISOR, { id: "u-test-crew", isTestAccount: true }), startInspection: true, testSite: true } });
+      try {
+        await openTab(crew.page, "inspect", language);
+        await shows(crew.page, "[data-inspect-start]", 8000);
+        await crew.page.evaluate(() => { const b = document.querySelector("[data-inspect-start]"); if (b) b.click(); });
+        await shows(crew.page, "[data-inspect-start-sheet] [data-pick-row]", 8000);
+        const rows = await pickRows(crew);
+        const test = rows.find(r => r.id === TEST_SITE_ID);
+        expect("a test account sees the test site, marked [TEST]", !!test && test.text.indexOf(say("[TEST] {name}", language).replace("{name}", TEST_NAME)) !== -1 && rows.length === 4, JSON.stringify(rows));
+      } finally { await crew.context.close(); }
+    },
+  },
+];
+const TEST_SITE_ID = "site-test";
+JOURNEYS.push(...PART380_S3_JOURNEYS);
+
+// Part 380, section 4: five open findings from the October audit that
+// field staff or supervisors meet first, each needing nothing new from the
+// API.
+const PART380_S4_JOURNEYS = [
+  {
+    id: "photoroom",
+    label: "A form's photo question takes only the photos it has room for (PORT-59): more picked than it holds sends as many as fit, keeps them, and says the limit",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        const form = formP(language);
+        const q = form.fields.find(f => f.type === "photos");
+        const route = "/api/forms/responses/draft-two/photos/" + q.key;
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, form.title);
+        await attachPhotos(app.page, '.sp-content input[type="file"]', ["one.jpg", "two.jpg", "three.jpg", "four.jpg"]);
+        await pause(app.page, 2500);
+        const ups = app.stub.state.calls.filter(c => c.method === "POST" && c.path === route);
+        expect("only as many as the question holds are sent", ups.length === 1 && Array.isArray(ups[0].files) && ups[0].files.length === FORM_P_MAX_PHOTOS, JSON.stringify(ups.map(c => (c.files || []).length)));
+        expect("and they are kept", Array.isArray(app.stub.state.answersP[q.key]) && app.stub.state.answersP[q.key].length === FORM_P_MAX_PHOTOS, JSON.stringify(app.stub.state.answersP[q.key]));
+        const text = await bodyText(app.page);
+        expect("the limit is said under the question", has(text, fill(say("This question takes {max} photos at most. Remove one to add another.", language), { max: FORM_P_MAX_PHOTOS })), text.slice(0, 500));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "heicoffline",
+    label: "An iPhone photo with no signal (PORT-58): a HEIC picked for a form's photo question with no signal says it needs signal to be made ready, or to choose a JPEG",
+    run: async (open, language, expect) => {
+      // No signal: the build's own server still answers here, so the piece
+      // of the app that converts a HEIC is refused as no signal would. The
+      // service worker passes that request on itself, out of the harness's
+      // reach, so this phone runs with none.
+      const app = await open({ serviceWorkers: "block" });
+      try {
+        await app.page.route("**/static/js/*.chunk.js", (r) => r.abort("internetdisconnected"));
+        const form = formP(language);
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, form.title);
+        await app.context.setOffline(true); app.stub.state.offline = true;
+        TYPED.add("IMG_0001.HEIC");
+        await attachBytes(app.page, '.sp-content input[type="file"]', HEIC_FIXTURE, "IMG_0001.HEIC", "image/heic");
+        await pause(app.page, 2500);
+        const text = await bodyText(app.page);
+        expect("with no signal, the photo says it needs signal to be made ready, and the words for a photo that cannot be read stay away", has(text, say("This iPhone photo needs signal to be made ready. Try again with signal, or choose a JPEG.", language)) && !has(text, say("This photo could not be read. Try another one.", language)), text.slice(0, 500));
+        await spokenHere(app, language, expect);
+        await app.context.setOffline(false); app.stub.state.offline = false;
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "profileready",
+    label: "A profile photo made ready like every other (PORT-56): an iPhone HEIC is made a JPEG and sent",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "profile", language);
+        await pause(app.page, 900);
+        await attachBytes(app.page, '.sp-content input[type="file"]', HEIC_FIXTURE, "IMG_0002.HEIC", "image/heic");
+        await pause(app.page, 3500);
+        const ups = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/uploads" && /bucket=profile-photos/.test(c.search || ""));
+        expect("the HEIC is made a JPEG and sent, once", ups.length === 1 && !!ups[0].files && ups[0].files[0].kind && ups[0].files[0].kind.ext === "jpg", JSON.stringify(ups.map(c => c.files)));
+        const saved = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/users/profile/photo");
+        expect("and saved as the profile photo", saved.length === 1 && !!saved[0].body && typeof saved[0].body.photoUrl === "string" && saved[0].body.photoUrl.length > 0, JSON.stringify(saved.map(c => c.body)));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "updatekeeps",
+    label: "An update reload keeps the offline copy (PORT-57): the reload for a new build clears an older build's caches and leaves the worker's shell, which it replaces itself once the new build's every file came",
+    run: async (open, language, expect) => {
+      // With no worker on this phone, so what is left is what the reload
+      // left: a live worker writes its shell again as soon as the page
+      // answers, which would hide an emptied one.
+      const app = await open({ buildStamp: "a-newer-build", serviceWorkers: "block" });
+      try {
+        const seeded = await app.page.evaluate(async () => {
+          if (!window.caches) return false;
+          await (await caches.open("ocsa-shell-v2")).put("/kept-shell", new Response("shell"));
+          await (await caches.open("ocsa-older-build")).put("/old", new Response("old"));
+          window.__beforeUpdate = true;
+          return true;
+        });
+        await app.page.clock.runFor(5600);
+        const reloaded = await app.page.waitForFunction(() => !window.__beforeUpdate && !!document.querySelector(".sp-content"), null, { timeout: 12000 }).then(() => true).catch(() => false);
+        const names = await app.page.evaluate(async () => (window.caches ? await caches.keys() : null)).catch(() => null);
+        expect("the app reloads for the new build", seeded && reloaded, JSON.stringify({ seeded, reloaded }));
+        expect("and keeps the worker's shell while an older build's cache goes", Array.isArray(names) && names.indexOf("ocsa-shell-v2") !== -1 && names.indexOf("ocsa-older-build") === -1, JSON.stringify(names));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "schedheight",
+    label: "Schedule Inspection at the Largest size on a short phone (PORT-67): the sheet stays on the screen, its title and Close in view",
+    run: async (open, language, expect) => {
+      const app = await open({ textSize: "largest", stubOptions: { person: Object.assign({}, PERSON, { role: "admin" }), inspections: [INSPECTION] } });
+      try {
+        await app.page.setViewportSize({ width: 375, height: 560 });
+        await openTab(app.page, "inspect", language);
+        await pause(app.page, 1000);
+        await clickText(app.page, say("+ Schedule", language));
+        await pause(app.page, 900);
+        const box = await app.page.evaluate((w) => {
+          const title = Array.from(document.querySelectorAll("div")).find(d => d.children.length === 0 && d.textContent.trim() === w);
+          const sheet = title ? title.closest('div[style*="overflow-y: auto"]') : null;
+          if (!sheet) return null;
+          const r = sheet.getBoundingClientRect();
+          return { top: Math.round(r.top), bottom: Math.round(r.bottom), h: window.innerHeight, titleTop: Math.round(title.getBoundingClientRect().top) };
+        }, say("Schedule Inspection", language));
+        expect("the sheet's top and title are on the screen", !!box && box.top >= 0 && box.titleTop >= 0 && box.bottom <= box.h + 1, JSON.stringify(box));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART380_S4_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };

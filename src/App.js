@@ -168,18 +168,22 @@ async function readServerStamp() {
 }
 
 // The tab is remembered first, so it survives even if the rest throws.
-// The service worker stays registered: it has never cached anything, a
-// new copy installs itself on the reload, and unregistering it would
-// throw away the phone's push subscription, turning alerts off on every
-// phone at every deploy. Any cache an older build might have left is
-// still cleared.
+// The service worker stays registered: a new copy installs itself on the
+// reload, and unregistering it would throw away the phone's push
+// subscription, turning alerts off on every phone at every deploy. The
+// worker keeps the app's shell in one cache (public/sw.js SHELL_CACHE),
+// which it replaces whole only once the new build's every file came, so
+// that one is left for it to replace (PORT-57): a phone that loses signal
+// right after an update still opens the app. Any other cache an older
+// build might have left is cleared.
+const WORKER_SHELL_CACHE = "ocsa-shell-v2";
 async function clearAndReload(tab, stamp) {
   sessionSet(UPDATE_TAB_KEY, tab || "clock");
   sessionSet(UPDATE_TRIED_KEY, stamp);
   try {
     if (window.caches && window.caches.keys) {
       const names = await window.caches.keys();
-      for (let i = 0; i < names.length; i++) { try { await window.caches.delete(names[i]); } catch (e) {} }
+      for (let i = 0; i < names.length; i++) { if (names[i] === WORKER_SHELL_CACHE) continue; try { await window.caches.delete(names[i]); } catch (e) {} }
     }
   } catch (e) {}
   try { window.location.reload(); } catch (e) {}
@@ -270,7 +274,9 @@ async function uploadPhoto(file, token) {
   if (res.status === 401) { window.dispatchEvent(new Event("ocsa-session-expired")); throw new Error("Session expired"); }
   if (!res.ok) { const e = await readJson(res).catch(() => ({})); throw new Error(ownRefusal(e.code, e) || e.error || AGENT_PHOTO_FAILED); }
   const data = await readJson(res);
-  return data.url;
+  // What every caller sends with the record it files, maybe after a wait
+  // (part 380): the photo's path, which never runs out, else the link.
+  return photoToSend(data);
 }
 
 async function uploadTaskMedia(file, token) {
@@ -353,6 +359,12 @@ async function prepareAgentPhoto(file) {
 const FORM_PHOTO_MAX_SIDE = 2000;
 const FORM_PHOTO_QUALITY = 0.85;
 const FORMS_PHOTO_UNREADABLE = "This photo could not be read. Try another one.";
+// An iPhone photo is made a JPEG by a piece of the app fetched only when
+// one shows up, and with no signal that piece cannot come (PORT-58). The
+// photo is fine, so the words say what to do instead.
+const HEIC_NEEDS_SIGNAL = "This iPhone photo needs signal to be made ready. Try again with signal, or choose a JPEG.";
+// What a screen says of a photo that could not be made ready.
+const photoFaultOf = (err) => (err && err.message === HEIC_NEEDS_SIGNAL ? HEIC_NEEDS_SIGNAL : FORMS_PHOTO_UNREADABLE);
 const HEIC_BRANDS = ["heic", "heix", "hevc", "hevx", "heim", "heis", "mif1", "msf1"];
 
 // A HEIC or HEIF file, by what the phone says and then by its first bytes,
@@ -368,7 +380,9 @@ async function isHeicFile(file) {
 }
 
 async function heicToJpeg(file) {
-  const mod = await import("heic2any");
+  let mod = null;
+  try { mod = await import("heic2any"); }
+  catch (e) { throw new Error(HEIC_NEEDS_SIGNAL); }
   const heic2any = mod.default || mod;
   const out = await heic2any({ blob: file, toType: "image/jpeg", quality: FORM_PHOTO_QUALITY });
   return Array.isArray(out) ? out[0] : out;
@@ -403,7 +417,7 @@ async function prepareFormPhoto(file) {
     const base = String(file.name || "").replace(/\.[^.]*$/, "") || "photo";
     return new File([blob], base + (keepPng ? ".png" : ".jpg"), { type: blob.type });
   } catch (e) {
-    throw new Error(FORMS_PHOTO_UNREADABLE);
+    throw new Error(photoFaultOf(e));
   }
 }
 
@@ -413,7 +427,7 @@ async function prepareFormPhoto(file) {
 // null once the person has been told it could not be read or is too big.
 async function readyIssuePhoto(picked, showToast) {
   let file;
-  try { file = await prepareFormPhoto(picked); } catch (e) { showToast(tr(FORMS_PHOTO_UNREADABLE), "error"); return null; }
+  try { file = await prepareFormPhoto(picked); } catch (e) { showToast(tr(photoFaultOf(e)), "error"); return null; }
   if (file.size > 10 * 1024 * 1024) { showToast(tr("Photo must be under 10MB"), "error"); return null; }
   return file;
 }
@@ -457,7 +471,10 @@ const SWEEP_LIGHT = "linear-gradient(100deg, #FFFFFF 0%, " + GOLD_LIGHT + " 45%,
 function compressImage(file, maxSize, quality) {
   return new Promise((resolve, reject) => {
     const img = new Image();
+    // The address made for the file is let go once it is read (PORT-56).
+    const src = URL.createObjectURL(file);
     img.onload = () => {
+      URL.revokeObjectURL(src);
       let w = img.width, h = img.height;
       if (w > maxSize || h > maxSize) {
         if (w > h) { h = Math.round(h * maxSize / w); w = maxSize; }
@@ -472,8 +489,8 @@ function compressImage(file, maxSize, quality) {
         else reject(new Error("Compression failed"));
       }, "image/jpeg", quality || 0.8);
     };
-    img.onerror = () => reject(new Error("Could not read image"));
-    img.src = URL.createObjectURL(file);
+    img.onerror = () => { URL.revokeObjectURL(src); reject(new Error(FORMS_PHOTO_UNREADABLE)); };
+    img.src = src;
   });
 }
 const LOGO_SM = process.env.PUBLIC_URL + "/ocsa-logo-sm.png";
@@ -1206,6 +1223,42 @@ const inspectSitesNamed = (x) => {
   return out;
 };
 const inspectTemplateOf = (x) => (x && typeof x === "object" && x.id !== null && x.id !== undefined && x.is_active !== false && x.isActive !== false ? { id: String(x.id), name: typeof x.name === "string" && x.name.trim() ? x.name.trim() : String(x.id), sites: inspectSitesNamed(x) } : null);
+// ------------------------------------------------------------
+// The test site (part 380, API Round 10): a row of GET /api/sites as
+// management reads it (every column of sites) carries is_test, true for
+// the robot's test site. A real person never sees it in a list or picker
+// this app draws; a test account sees it marked [TEST], as the API marks
+// its notices and mails. No answer the staff app reads says the person
+// signed in is a test account (users.is_test_account is on no sign-in,
+// /api/auth/me or profile answer), so until one answers isTestAccount
+// everyone here is a real person. The test sites read are kept by id for
+// the session, so a list that carries no is_test (GET /api/forms/my-sites)
+// leaves them out too; a person who reads every site reads GET /api/sites
+// once a session for it.
+// ------------------------------------------------------------
+const testSiteIds = new Set();
+const isTestAccount = (user) => !!user && (user.isTestAccount === true || user.is_test_account === true);
+const siteIdOf = (r) => String(r && r.id !== undefined && r.id !== null ? r.id : r && r.siteId !== undefined ? r.siteId : "");
+const siteIsTest = (r) => !!r && (r.is_test === true || r.isTest === true || testSiteIds.has(siteIdOf(r)));
+function learnTestSites(rows) { (Array.isArray(rows) ? rows : []).forEach(r => { if (r && (r.is_test === true || r.isTest === true)) testSiteIds.add(siteIdOf(r)); }); return rows; }
+// A list of sites for the person: the test site left out for a real
+// person, its name marked for a test account. nameKey names the field the
+// list draws.
+function sitesForPerson(user, rows, nameKey) {
+  learnTestSites(rows);
+  const test = isTestAccount(user);
+  const key = nameKey || "name";
+  return (Array.isArray(rows) ? rows : []).filter(r => r && (test || !siteIsTest(r))).map(r => (test && siteIsTest(r) ? Object.assign({}, r, { [key]: tr("[TEST] {name}", { name: String(r[key] || "") }) }) : r));
+}
+let testSitesRead = null;
+function readTestSites(token, user) {
+  if (!user || !(user.role === "admin" || user.role === "supervisor")) return Promise.resolve(null);
+  if (!testSitesRead) {
+    const read = api("/api/sites", { token }).then(learnTestSites).catch(() => { if (testSitesRead === read) testSitesRead = null; return null; });
+    testSitesRead = read;
+  }
+  return testSitesRead;
+}
 const inspectSiteOf = (x) => {
   if (!x || typeof x !== "object") return null;
   const id = x.id !== undefined && x.id !== null ? x.id : x.siteId;
@@ -1220,7 +1273,7 @@ function inspectTemplatesFor(templates, site) {
   const live = (Array.isArray(templates) ? templates : []).map(inspectTemplateOf).filter(Boolean);
   if (!site) return { list: [], own: false };
   if (live.some(tp => tp.sites.length > 0)) return { list: live.filter(tp => tp.sites.indexOf(site.id) !== -1), own: true };
-  const name = inspectNameKey(site.name);
+  const name = inspectNameKey(site.siteName || site.name);
   const named = name.trim() ? live.filter(tp => inspectNameKey(tp.name).indexOf(name) !== -1) : [];
   return named.length > 0 ? { list: named, own: true } : { list: live, own: false };
 }
@@ -1282,6 +1335,57 @@ const inspectSafetyOf = (d) => {
 const inspectSafetyPartOf = (d) => (d && typeof d === "object" && d.with_safety !== false && d.withSafety !== false && d.safety && typeof d.safety === "object" ? d.safety : null);
 const inspectSafetyFiled = (d) => { const s = inspectSafetyPartOf(d); return !!s && s.responseId !== undefined && s.responseId !== null && s.responseId !== ""; };
 const inspectSafetyToStart = (d) => { const s = inspectSafetyPartOf(d); return !!s && !!s.form && typeof s.form === "object" && !s.draft && !inspectSafetyFiled(d); };
+// ------------------------------------------------------------
+// The safety walk once a month (part 380). The owner's decision of Nov
+// 10, 2026, as OCSA-QMS-015 has it (the safety inspection monthly, by the
+// site supervisor): the full safety walk is done once a month per site,
+// and one walk carries it on a visit. Read from what the API answers:
+// GET /api/inspections/scheduled?site_id= lists the site's inspections
+// the caller may read, each with with_safety, its status and its
+// scheduled day but no time; GET /api/inspections/scheduled/:id answers a
+// done one's result, completed_at and safety_response_id, the
+// OCSA-FRM-015 filed with it. So each done one that carried the safety
+// walk, scheduled this month or the month before, is read on its own,
+// newest first, up to SAFETY_WALK_READS, until one filed it this month on
+// the company's clock. { done: { id, name, at } | null, open: { id, name }
+// | null }: open is one at the site started or due by today this month
+// that still carries the safety walk. The id left out is the walk asking.
+// ------------------------------------------------------------
+const SAFETY_WALK_READS = 6;
+function companyYmdAt(ms) {
+  const p = {};
+  new Intl.DateTimeFormat("en-US", { timeZone: clientConfig.company.timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(ms)).forEach((x) => { p[x.type] = x.value; });
+  return p.year + "-" + p.month + "-" + p.day;
+}
+const monthBefore = (ym) => { const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7)); return m === 1 ? (y - 1) + "-12" : y + "-" + String(m - 1).padStart(2, "0"); };
+const carriesSafety = (r) => !!r && r.with_safety !== false && r.withSafety !== false;
+async function siteSafetyThisMonth(token, siteId, leaveOut) {
+  const d = await api("/api/inspections/scheduled?site_id=" + encodeURIComponent(siteId), { token });
+  const rows = (Array.isArray(d) ? d : (d && Array.isArray(d.inspections) ? d.inspections : [])).filter(r => r && r.id !== undefined && r.id !== null && String(r.id) !== String(leaveOut || "") && (r.site_id === undefined || String(r.site_id) === String(siteId)));
+  const today = companyYmdAt(Date.now());
+  const month = today.slice(0, 7);
+  const openRow = rows.find(r => carriesSafety(r) && (r.status === "scheduled" || r.status === "in_progress") && inspectionDay(r.scheduled_date).slice(0, 7) === month && inspectionDay(r.scheduled_date) <= today) || null;
+  const open = openRow ? { id: String(openRow.id), name: String(openRow.template_name || "") } : null;
+  const candidates = rows.filter(r => carriesSafety(r) && r.status === "completed" && [month, monthBefore(month)].indexOf(inspectionDay(r.scheduled_date).slice(0, 7)) !== -1)
+    .sort((a, b) => (inspectionDay(a.scheduled_date) < inspectionDay(b.scheduled_date) ? 1 : -1)).slice(0, SAFETY_WALK_READS);
+  for (const r of candidates) {
+    const one = await api("/api/inspections/scheduled/" + encodeURIComponent(r.id), { token });
+    const res = one && one.result && typeof one.result === "object" ? one.result : null;
+    const filed = (res && res.safety_response_id) || (one && one.safety && one.safety.responseId);
+    const at = res && res.completed_at ? Date.parse(res.completed_at) : NaN;
+    if (filed && isFinite(at) && companyYmdAt(at).slice(0, 7) === month) return { done: { id: String(r.id), name: String((one && one.template_name) || r.template_name || ""), at: res.completed_at }, open: open };
+  }
+  return { done: null, open: open };
+}
+// When a site's safety walk was done, the way the walk says it: the time
+// on the company's clock today, else the day and the time.
+function safetyWalkWhen(at) {
+  const ms = Date.parse(at);
+  if (!isFinite(ms)) return "";
+  const time = companyClockTime(ms);
+  if (companyYmdAt(ms) === companyYmdAt(Date.now())) return time;
+  return new Date(ms).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", timeZone: clientConfig.company.timeZone }) + ", " + time;
+}
 // What the complete route answers about the safety part: its overall
 // result, in the words the API gives or the form's own option, and each
 // finding with its severity, owner and due date. null with none.
@@ -1446,16 +1550,19 @@ const photoFresh = new Map();
 // it. onFresh(link, answer): told of a fresh link, for a screen that keeps
 // it. video draws a <video>. link wraps the picture in a link to it, its
 // own address kept fresh with it, styled by linkStyle.
-function FreshImg({ src, reread, readKey, onFresh, video, link, linkStyle, linkLabel, alt, style, ...rest }) {
+// onGone: told once the picture is drawn as the quiet box, for a screen
+// that says so in words of its own (part 380).
+function FreshImg({ src, reread, readKey, onFresh, onGone, video, link, linkStyle, linkLabel, alt, style, ...rest }) {
   const [shown, setShown] = useState(src);
-  const [gone, setGone] = useState(false);
+  const [gone, setGoneNow] = useState(false);
+  const setGone = (v) => { setGoneNow(v); if (v && onGone) onGone(); };
   const [waiting, setWaiting] = useState(false);
   // The object this picture already read again for, until it loads, and
   // the fresh link it last handed to onFresh. A new src the screen read
   // for itself gets its own try; the link handed back up does not.
   const tried = useRef(null);
   const handed = useRef(null);
-  useEffect(() => { if (src !== handed.current) tried.current = null; setShown(src); setGone(false); setWaiting(false); }, [src]);
+  useEffect(() => { if (src !== handed.current) tried.current = null; setShown(src); setGoneNow(false); setWaiting(false); }, [src]);
   const object = photoObject(shown);
   const failed = () => {
     if (!object || !reread || tried.current === object) { setGone(true); return; }
@@ -1490,10 +1597,52 @@ function FreshImg({ src, reread, readKey, onFresh, video, link, linkStyle, linkL
   return <a href={shown} target="_blank" rel="noopener noreferrer" aria-label={linkLabel} style={linkStyle}>{box}</a>;
 }
 
+// ------------------------------------------------------------
+// A photo taken and not yet saved (part 380, API Round 10)
+//
+// An upload to task-media, issue-photos or profile-photos answers path,
+// <bucket>/<object>, beside its link, and the link lives 60 minutes. A
+// screen that holds a photo before it is sent keeps the path beside the
+// link, the copy kept on this phone too, and sends the path, which every
+// write that takes a photo stores as it is. A link that ran out is
+// signed again by its path (POST /api/uploads/sign { path }, for the
+// person who uploaded it, within 30 days), one read a photo, since the
+// route signs one path a call. A path that cannot be signed again (404
+// uploads.pathNotFound, or 400 uploads.badDetails) is said plainly, and
+// the photo is taken again. A photo kept before this build has only its
+// link; its path is read off the link's address.
+// ------------------------------------------------------------
+const PHOTO_PATH = /^(task-media|issue-photos|profile-photos)\/[A-Za-z0-9._/-]{1,300}$/;
+// A kept photo's link is signed again as its draft opens once it is this
+// old, a little before its 60 minutes run out.
+const PHOTO_SIGN_AFTER_MS = 50 * 60 * 1000;
+const PHOTO_CANNOT_SHOW = "This photo can no longer be shown. Take it again.";
+function photoPathOf(p) {
+  const given = p && typeof p === "object" ? p.path : null;
+  if (typeof given === "string" && PHOTO_PATH.test(given) && given.indexOf("..") === -1) return given;
+  const object = photoObject(p && typeof p === "object" ? p.url : p);
+  if (!object) return null;
+  try {
+    const m = /\/storage\/v1\/object\/sign\/(.+)$/.exec(new URL(object).pathname);
+    const path = m ? decodeURIComponent(m[1]) : "";
+    return PHOTO_PATH.test(path) && path.indexOf("..") === -1 ? path : null;
+  } catch (e) { return null; }
+}
+// What a write is sent for a photo: its path, else the link as it is.
+const photoToSend = (p) => photoPathOf(p) || (p && typeof p === "object" ? p.url : p) || null;
+// The upload's answer as a screen keeps it: the link, the path and when.
+const photoKept = (up) => ({ url: up && typeof up.url === "string" ? up.url : null, path: photoPathOf(up), at: Date.now() });
+// A fresh link for a kept photo, by its path: the answer, { url }.
+const signPhotoPath = (path, token) => api("/api/uploads/sign", { method: "POST", token, body: { path: path } });
+// Whether a refusal of that read means the path will never sign again.
+const photoPathLost = (err) => !!err && (err.status === 404 || err.status === 400);
+
 // A walk's site checklist, kept on this phone as it is scored, by person
 // and inspection (Step 313), so leaving and coming back continues it; the
-// safety part is kept by the API as the inspector's draft. Every read and
-// write in try and catch; a storage that throws keeps nothing.
+// safety part is kept by the API as the inspector's draft. Since part 380
+// every walk is kept, whether or not it carries the safety walk, with each
+// photo's path beside its link. Every read and write in try and catch; a
+// storage that throws keeps nothing.
 const INSPECT_KEPT_PREFIX = "ocsa-staff-inspect:";
 const inspectKeptKey = (userId, id) => INSPECT_KEPT_PREFIX + String(userId || "") + ":" + String(id);
 function readInspectKept(userId, id) {
@@ -9152,7 +9301,7 @@ function RequestNoteSheet({ id, title, line, label, required, button, photos, to
     const list = Array.from(picked || []).filter(Boolean);
     for (let i = 0; i < list.length; i++) {
       try { const f = await prepareFormPhoto(list[i]); setFiles(prev => prev.concat([{ id: "d-" + Date.now() + "-" + i, name: list[i].name, file: f, data: URL.createObjectURL(f) }])); }
-      catch (e) { setFault(tr(FORMS_PHOTO_UNREADABLE)); }
+      catch (e) { setFault(tr(photoFaultOf(e))); }
     }
   };
   const send = async () => {
@@ -14569,8 +14718,10 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
   const sitesRead = useRef(null);
   const mySites = useCallback(() => {
     if (!sitesRead.current) {
-      const read = api("/api/forms/my-sites", { token })
-        .then(d => (d && Array.isArray(d.sites) ? d.sites : []).filter(s => s && s.id !== undefined && s.id !== null))
+      // The test site left out, its id read beside it for a person who
+      // reads every site, since these rows carry no is_test (part 380).
+      const read = Promise.all([api("/api/forms/my-sites", { token }), readTestSites(token, user)])
+        .then(([d]) => sitesForPerson(user, (d && Array.isArray(d.sites) ? d.sites : []).filter(s => s && s.id !== undefined && s.id !== null)))
         .catch(err => { if (!(err && err.status === 404) && sitesRead.current === read) sitesRead.current = null; return []; });
       sitesRead.current = read;
     }
@@ -15080,18 +15231,26 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
     setValues(prev => Object.assign({}, prev, { [f.key]: formPhotoList(prev[f.key]).concat(kept) }));
   };
   const addFormPhotos = async (f, fileList) => {
-    const picked = Array.from(fileList || []).filter(Boolean);
-    if (picked.length === 0) return;
+    const chosen = Array.from(fileList || []).filter(Boolean);
+    if (chosen.length === 0) return;
+    // Only as many as the question has room for go (PORT-59), so the API
+    // never refuses the whole batch; the rest are left out and the limit
+    // is said under the question.
+    const max = Number(f.maxPhotos) > 0 ? Number(f.maxPhotos) : FORMS_PHOTOS_DEFAULT_MAX;
+    const room = Math.max(0, max - formPhotoList(values[f.key]).length - (photoBusy[f.key] || []).length);
+    const picked = chosen.slice(0, room);
+    const over = chosen.length > picked.length;
+    if (picked.length === 0) { setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(PHOTO_LIMIT_WORDS, { max: max }) })); return; }
     const marks = picked.map((file, i) => ({ id: f.key + ":" + Date.now() + ":" + i, name: file.name }));
     setPhotoErr(prev => Object.assign({}, prev, { [f.key]: null }));
     setPhotoBusy(prev => Object.assign({}, prev, { [f.key]: (prev[f.key] || []).concat(marks) }));
     const files = [];
-    let unreadable = false;
+    let unreadable = null;
     for (let i = 0; i < picked.length; i++) {
       try { files.push(await prepareFormPhoto(picked[i])); }
-      catch (err) { unreadable = true; }
+      catch (err) { unreadable = photoFaultOf(err); }
     }
-    if (alive.current && unreadable) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(FORMS_PHOTO_UNREADABLE) }));
+    if (alive.current && (unreadable || over)) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: unreadable ? tr(unreadable) : tr(PHOTO_LIMIT_WORDS, { max: max }) }));
     if (files.length > 0 && isCustomer) await keepPhotos(f, files);
     else if (files.length > 0) {
       try {
@@ -16940,7 +17099,7 @@ function WsFiles({ token, projectId, showToast, t }) {
     setAdding(a => ({ ...a, file: null, state: "preparing", fault: null }));
     let file = picked;
     if (wsIsPhoto(picked) || await isHeicFile(picked)) {
-      try { file = await prepareFormPhoto(picked); } catch (e) { setAdding(a => (a ? { ...a, state: "idle", fault: tr(FORMS_PHOTO_UNREADABLE) } : a)); return; }
+      try { file = await prepareFormPhoto(picked); } catch (e) { setAdding(a => (a ? { ...a, state: "idle", fault: tr(photoFaultOf(e)) } : a)); return; }
     }
     if (file.size > WS_FILE_MAX) { setAdding(a => (a ? { ...a, state: "idle", fault: tr("{0} is over 25 MB. Files up to 25 MB can be added.", { 0: picked.name || "" }) } : a)); return; }
     setAdding(a => (a ? { ...a, file: file, state: "idle", fault: null } : a));
@@ -17096,7 +17255,7 @@ function EquipmentView({ token, code, showToast, t, onBack }) {
     if (!picked || !tagOut) return;
     setTagOut(o => ({ ...o, state: "preparing", fault: null }));
     try { const photo = await prepareFormPhoto(picked); setTagOut(o => (o ? { ...o, photo: photo, state: "idle" } : o)); }
-    catch (e) { setTagOut(o => (o ? { ...o, photo: null, state: "idle", fault: tr(FORMS_PHOTO_UNREADABLE) } : o)); }
+    catch (e) { setTagOut(o => (o ? { ...o, photo: null, state: "idle", fault: tr(photoFaultOf(e)) } : o)); }
   };
   const sendTagOut = async () => {
     if (!tagOut || tagOut.state !== "idle") return;
@@ -17106,7 +17265,7 @@ function EquipmentView({ token, code, showToast, t, onBack }) {
     setTagOut({ ...tagOut, state: "sending", fault: null });
     let photoUrl = null;
     if (tagOut.photo) {
-      try { const up = await uploadTaskMedia(tagOut.photo, token); photoUrl = up && up.url ? up.url : null; }
+      try { const up = await uploadTaskMedia(tagOut.photo, token); photoUrl = photoToSend(up); }
       catch (err) { setTagOut(o => (o ? { ...o, state: "idle", fault: tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : "The photo did not upload. Try again, or tag it out without it.") } : o)); return; }
     }
     const body = { kind: "tagged_out", note: note };
@@ -17233,9 +17392,12 @@ function FieldKitView({ token, user, at, onAt, shiftSiteId, assignedSites, onOpe
     let live = true;
     (async () => {
       try {
-        const rows = wsRows(await api("/api/forms/my-sites", { token }), "sites");
+        const [answer] = await Promise.all([api("/api/forms/my-sites", { token }), readTestSites(token, user)]);
+        const rows = wsRows(answer, "sites");
         if (!rows) throw new Error(ERR_GENERIC);
-        if (live) setSites({ state: "ok", list: rows.map(fkSiteOf).filter(Boolean) });
+        // The test site left out for a real person, marked for a test
+        // account (part 380).
+        if (live) setSites({ state: "ok", list: sitesForPerson(user, rows).map(fkSiteOf).filter(Boolean) });
       } catch (err) {
         // A list already on the screen stays when a later read fails.
         if (live) setSites(prev => (prev && prev.state === "ok" ? prev : { state: "failed", list: [] }));
@@ -19284,11 +19446,13 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
   const [safetyAt, setSafetyAt] = useState(null);
   const safetySave = useRef(null);
   const [safetyRefused, setSafetyRefused] = useState(null);
-  // The site checklist of a walk is kept on this phone as it is scored.
+  // Every walk's site checklist is kept on this phone as it is scored,
+  // whether or not it carries the safety walk (part 380), its photos with
+  // their paths.
   useEffect(() => {
-    if (!active || !safety || !user) return;
-    keepInspect(user.id, active.id, { scores: scores, notes: notes, needsFix: needsFix, ownerOf: ownerOf, scoredIds: scoredIds, overallNotes: overallNotes, shots: shots, part: part });
-  }, [active, scores, notes, needsFix, ownerOf, scoredIds, overallNotes, shots, part]);
+    if (!active || !user) return;
+    keepInspect(user.id, active.id, { scores: scores, notes: notes, needsFix: needsFix, ownerOf: ownerOf, scoredIds: scoredIds, overallNotes: overallNotes, shots: shots, uploaded: uploaded, part: part });
+  }, [active, scores, notes, needsFix, ownerOf, scoredIds, overallNotes, shots, uploaded, part]);
 
   // + Schedule follows the capability the API enforces on the schedule
   // route, read once when the tab opens, so nobody is shown a button the
@@ -19335,7 +19499,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
         api("/api/sites", { token }),
       ]);
       setTemplates(tmpl);
-      setSites(st);
+      setSites(sitesForPerson(user, st));
       setSchedForm({ template_id: "", site_id: "", scheduled_date: "" });
       setScheduleModal(true);
     } catch (e) { showToast(tr(e.message), "error"); }
@@ -19377,10 +19541,25 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       if (asked) {
         const mine = !d || d.assigned_to === undefined || d.assigned_to === null || !user || String(d.assigned_to) === String(user.id);
         const why = d && d.status === "cancelled" ? "This inspection was cancelled." : d && d.status === "completed" ? "This inspection is already done." : !mine ? "This inspection is not on your list anymore." : null;
-        if (why) { showToast(tr(why), "notice"); return; }
+        if (why) { if (d && (d.status === "cancelled" || d.status === "completed") && user) forgetInspect(user.id, d.id); showToast(tr(why), "notice"); return; }
       }
       // A walk whose safety part is filed was sent with it.
-      if (inspectSafetyFiled(d)) { showToast(tr("This inspection is already done."), "notice"); loadList(); return; }
+      if (inspectSafetyFiled(d)) { if (user) forgetInspect(user.id, d.id); showToast(tr("This inspection is already done."), "notice"); loadList(); return; }
+      // One safety walk per visit (part 380): a walk that still asks for the
+      // safety walk, at a site where another inspection filed it this month,
+      // stops asking for it. It says on which and when, starts no draft of
+      // it, and is sent without it, its own draft put away first. A site
+      // that could not be read asks for it as before.
+      if (inspectSafetyPartOf(d) && !inspectSafetyFiled(d) && d.site_id !== undefined && d.site_id !== null) {
+        const seen = await siteSafetyThisMonth(token, d.site_id, d.id).catch(() => null);
+        // One started after it, its switch turned on by the person, still
+        // asks for it: they can turn it on either way.
+        const after = d.created_at && isFinite(Date.parse(d.created_at)) && seen && seen.done && Date.parse(d.created_at) > Date.parse(seen.done.at);
+        if (seen && seen.done && !after) {
+          const own = d.safety && d.safety.draft && d.safety.draft.id ? String(d.safety.draft.id) : null;
+          d = Object.assign({}, d, { with_safety: false, withSafety: false, safetyDoneOn: Object.assign({}, seen.done, { draftId: own }) });
+        }
+      }
       // A walk with no safety draft yet starts it, once, as it opens, and
       // carries on with the draft that answers. A walk never starts one
       // through POST /api/forms/:code/drafts, which is a form on its own.
@@ -19408,16 +19587,19 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       notDueBefore.current = {};
       setScoredIds({}); setLastTouched(null); setShowScored(false); setSectionsOpen(false);
       setPart("cards"); setSafetyState(null); setSafetyAt(null); setSafetyRefused(null); safetySave.current = null;
-      // A walk left part way comes back as it was left.
-      const kept = inspectSafetyOf(d) && user ? readInspectKept(user.id, d.id) : null;
+      // A walk left part way comes back as it was left, whether or not it
+      // carries the safety walk, and after the safety walk was turned off
+      // on it (part 380). Its photos whose links ran out are signed again.
+      const kept = user ? readInspectKept(user.id, d.id) : null;
       if (kept) {
         const ids = (d.items || []).map(item => String(item.id));
         const only = (o) => { const out = {}; Object.keys(o && typeof o === "object" ? o : {}).forEach(k => { if (ids.indexOf(String(k)) !== -1) out[k] = o[k]; }); return out; };
         setScores(Object.assign(initScores, only(kept.scores))); setNotes(Object.assign(initNotes, only(kept.notes)));
         setNeedsFix(only(kept.needsFix)); setOwnerOf(only(kept.ownerOf)); setScoredIds(only(kept.scoredIds));
         setOverallNotes(typeof kept.overallNotes === "string" ? kept.overallNotes : "");
-        if (kept.shots && typeof kept.shots === "object") setShots(kept.shots);
-        if (kept.part === "safety" || kept.part === "sign") setPart(kept.part);
+        setUploaded(only(kept.uploaded));
+        if (kept.shots && typeof kept.shots === "object") { setShots(kept.shots); signKeptShots(d.id, kept.shots); }
+        if (inspectSafetyOf(d) && (kept.part === "safety" || kept.part === "sign")) setPart(kept.part);
       }
     } catch (e) { showToast(tr(e.message), "error"); }
   };
@@ -19452,7 +19634,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
     try {
       // Held to a form photo's size first, as every other photo is (PORT-27).
       const result = await uploadTaskMedia(await prepareFormPhoto(file), token);
-      setUploaded(prev => ({ ...prev, [itemId]: result.url }));
+      setUploaded(prev => ({ ...prev, [itemId]: photoKept(result) }));
       showToast(tr("Photo attached"));
     } catch (e) { showToast(tr(e.message), "error"); }
     setUploadingId(null);
@@ -19473,14 +19655,14 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
     setShotErr(prev => ({ ...prev, [key]: null }));
     setShotBusy(prev => ({ ...prev, [key]: (prev[key] || []).concat(marks) }));
     for (let i = 0; i < take.length; i++) {
-      let said = null, url = null;
+      let said = null, up = null;
       try {
         const r = await uploadTaskMedia(await prepareFormPhoto(take[i]), token);
-        url = r && typeof r.url === "string" && r.url ? r.url : null;
-        if (!url) said = tr(UPLOAD_FAILED);
+        up = r && typeof r.url === "string" && r.url ? photoKept(r) : null;
+        if (!up) said = tr(UPLOAD_FAILED);
       } catch (e) { said = tr(e && e.message ? e.message : UPLOAD_FAILED); }
       if (openId.current !== forId) return;
-      if (url) setShots(prev => ({ ...prev, [key]: (prev[key] || []).concat([{ id: marks[i].id, url: url, name: marks[i].name }]) }));
+      if (up) setShots(prev => ({ ...prev, [key]: (prev[key] || []).concat([{ id: marks[i].id, url: up.url, path: up.path, at: up.at, name: marks[i].name }]) }));
       setShotBusy(prev => ({ ...prev, [key]: (prev[key] || []).filter(m => m.id !== marks[i].id) }));
       if (said) setShotErr(prev => ({ ...prev, [key]: said }));
     }
@@ -19489,7 +19671,34 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
     setShots(prev => ({ ...prev, [key]: (prev[key] || []).filter(p => p.id !== id) }));
     setShotErr(prev => ({ ...prev, [key]: null }));
   };
-  const shotUrls = (key) => (shots[key] || []).map(p => p.url);
+  // What a row sends: each photo's path (part 380), never one that can no
+  // longer be shown.
+  const shotsToSend = (key) => (shots[key] || []).filter(p => !p.gone).map(photoToSend).filter(Boolean);
+  const liveShots = (key) => (shots[key] || []).filter(p => !p.gone);
+  // A photo's fresh link, or that its path will never sign again, kept on
+  // the walk it was taken on.
+  const shotChange = (forId, key, id, change) => {
+    if (openId.current !== forId) return;
+    setShots(prev => ({ ...prev, [key]: (prev[key] || []).map(p => (p.id === id ? Object.assign({}, p, change) : p)) }));
+  };
+  // A kept walk's photos whose links have run out, or soon will, signed
+  // again by their paths as it opens, one read a photo, shared with the
+  // picture's own read when it fails to load.
+  const signKeptShots = (forId, kept) => {
+    Object.keys(kept || {}).forEach(key => (Array.isArray(kept[key]) ? kept[key] : []).forEach(p => {
+      const path = p && !p.gone ? photoPathOf(p) : null;
+      if (!path || Number(p.at) > Date.now() - PHOTO_SIGN_AFTER_MS) return;
+      photoReread("sign:" + path, () => signPhotoPath(path, token))
+        .then(d => { if (d && typeof d.url === "string" && d.url) shotChange(forId, key, p.id, { url: d.url, path: path, at: Date.now() }); })
+        .catch(err => { if (photoPathLost(err)) shotChange(forId, key, p.id, { gone: true }); });
+    }));
+  };
+  // Take it again: the photo that can no longer be shown goes, and the
+  // camera opens on its row.
+  const retakeShot = (key, id) => {
+    removeShot(key, id);
+    if (shotInputs.current[key]) shotInputs.current[key].click();
+  };
 
   // One problem report per card marked Needs a fix, the way Report files
   // one: the inspection's site, the finding's zone in the title, the note,
@@ -19507,7 +19716,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       zone: item.zone || null,
       severity: "medium",
     },
-    photoUrl: (capture ? shotUrls(inspectShotKey(item.id))[0] : uploaded[item.id]) || null, issueId: null, error: null,
+    photoUrl: (capture ? shotsToSend(inspectShotKey(item.id))[0] : photoToSend(uploaded[item.id])) || null, issueId: null, error: null,
   });
   // Files one report. A report whose problem was filed but whose photo was
   // not keeps the problem's id, so Try again sends only the photo.
@@ -19584,19 +19793,27 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
           template_item_id: item.id,
           score: parseInt(scores[item.id]) || 0,
           notes: notes[item.id] || null,
-          photo_url: uploaded[item.id] || null,
+          photo_url: photoToSend(uploaded[item.id]) || null,
         };
-        if (capture) { const urls = shotUrls(inspectShotKey(item.id)); row.photo_urls = urls; row.photo_url = urls[0] || null; }
+        if (capture) { const urls = shotsToSend(inspectShotKey(item.id)); row.photo_urls = urls; row.photo_url = urls[0] || null; }
         // Step 255: which cards open a finding, and whose each is.
         if (owners) { row.deficient = deficientNow(item); if (row.deficient && ownerOf[item.id]) row.ownerId = ownerOf[item.id]; }
         return row;
       });
       const body = { scores: payload, overall_notes: overallNotes || null };
-      if (capture) body.photo_urls = shotUrls(INSPECT_WHOLE);
+      if (capture) body.photo_urls = shotsToSend(INSPECT_WHOLE);
       if (capture && sigPng) body.signature = sigPng;
       // The safety part goes in the same request (Step 313): its draft and
       // its answers as saved, signed by the same signature.
       if (safety) body.safety = { responseId: safety.draft.id, answers: safetyState && safetyState.answers ? safetyState.answers : Object.assign({}, safety.draft.answers || {}) };
+      // A walk whose safety walk was done on another inspection puts its own
+      // draft of it away first, so the API takes the cards alone (part 380).
+      const left = active.safetyDoneOn && active.safetyDoneOn.draftId;
+      if (left) {
+        try { await api("/api/forms/drafts/" + encodeURIComponent(left) + "/discard", { method: "POST", token }); }
+        catch (err) { if (!(err && (err.status === 404 || err.status === 409))) throw err; }
+        setActive(prev => (prev && prev.safetyDoneOn ? Object.assign({}, prev, { safetyDoneOn: Object.assign({}, prev.safetyDoneOn, { draftId: null }) }) : prev));
+      }
       const d = await api("/api/inspections/scheduled/" + active.id + "/complete" + (capture ? "?locale=" + languageToSend() : ""), {
         method: "POST", token,
         body: body,
@@ -19608,7 +19825,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       const answer = owners ? inspectAnswerOf(d) : null;
       const reports = owners ? [] : (active.items || []).filter(item => needsFix[item.id]).map(reportFor);
       const safetyAnswer = safety ? inspectSafetyAnswerOf(d, safety.form) : null;
-      if (safety && user) forgetInspect(user.id, active.id);
+      if (user) forgetInspect(user.id, active.id);
       if (answer || safetyAnswer) {
         setSent({ name: active.template_name, reports: [], answer: answer, safety: safetyAnswer });
       } else if (!reports.length) {
@@ -19798,21 +20015,38 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
     const thumbSt = { width: 72, height: 72, display: "block", objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: t.cardAlt };
     const photoNameSt = { fontSize: 10, color: t.textMut, marginTop: 4, lineHeight: 1.35, overflowWrap: "anywhere" };
     const shotBtn = { width: "100%", minHeight: TAP, marginTop: 10, padding: "10px 12px", borderRadius: R.md, cursor: "pointer", border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, textAlign: "center" };
+    // A photo is drawn from its link, signed again by its path when the
+    // link ran out (part 380); one whose path will not sign again says so
+    // and offers to take it again.
     const shotRow = (key, max) => {
       const list = shots[key] || [];
       const busy = shotBusy[key] || [];
-      const full = list.length + busy.length >= max;
+      const full = liveShots(key).length + busy.length >= max;
+      const forId = active.id;
       return (
         <>
           {(list.length > 0 || busy.length > 0) && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 8 }}>
-              {list.map(p => (
-                <div key={p.id} style={{ width: 104 }}>
-                  <img src={p.url} alt="" style={thumbSt} />
-                  <div style={photoNameSt}>{p.name}</div>
-                  <button type="button" onClick={() => removeShot(key, p.id)} disabled={submitting} style={{ ...shotBtn, marginTop: 6, padding: "8px 6px", fontSize: 11 }}>{tr("Remove photo")}</button>
-                </div>
-              ))}
+              {list.map(p => {
+                const path = photoPathOf(p);
+                if (p.gone) return (
+                  <div key={p.id} data-inspect-shot-gone={p.id} style={{ width: 104 }}>
+                    <div aria-hidden="true" style={{ ...thumbSt, display: "flex", alignItems: "center", justifyContent: "center" }}><CamIco sz={22} c={t.textMut} /></div>
+                    <div role="status" style={{ ...photoNameSt, color: t.text, whiteSpace: "normal" }}>{tr(PHOTO_CANNOT_SHOW)}</div>
+                    <button type="button" data-inspect-shot-retake={p.id} onClick={() => retakeShot(key, p.id)} disabled={submitting || full} style={{ ...shotBtn, marginTop: 6, padding: "8px 6px", fontSize: 11 }}>{tr("Take it again")}</button>
+                  </div>
+                );
+                return (
+                  <div key={p.id} style={{ width: 104 }}>
+                    <FreshImg src={p.url} alt="" style={thumbSt} data-inspect-shot={p.id}
+                      reread={path ? () => signPhotoPath(path, token) : null} readKey={path ? "sign:" + path : null}
+                      onFresh={(fresh) => shotChange(forId, key, p.id, { url: fresh, path: path, at: Date.now() })}
+                      onGone={() => shotChange(forId, key, p.id, { gone: true })} />
+                    <div style={photoNameSt}>{p.name}</div>
+                    <button type="button" onClick={() => removeShot(key, p.id)} disabled={submitting} style={{ ...shotBtn, marginTop: 6, padding: "8px 6px", fontSize: 11 }}>{tr("Remove photo")}</button>
+                  </div>
+                );
+              })}
               {busy.map(m => (
                 <div key={m.id} style={{ width: 104 }}>
                   <div style={thumbSt} />
@@ -19888,7 +20122,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
             <div data-inspect-photos={inspectShotKey(item.id)}>
               <div style={{ fontSize: 11, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("Photos")}</div>
               {shotRow(inspectShotKey(item.id), capture.perItem)}
-              {scoredIds[item.id] && sc * 100 < INSPECT_PHOTO_UNDER_PCT * item.max_score && (shots[inspectShotKey(item.id)] || []).length === 0 && (
+              {scoredIds[item.id] && sc * 100 < INSPECT_PHOTO_UNDER_PCT * item.max_score && liveShots(inspectShotKey(item.id)).length === 0 && (
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 8, fontSize: 11, color: t.text, lineHeight: 1.4 }}><AlertIco sz={14} c={ink(t, ORANGE)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ minWidth: 0 }}>{tr("Below 70 percent: add a photo of it.")}</span></div>
               )}
             </div>
@@ -19975,9 +20209,13 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
     );
 
     if (safety) return walkPage({ headRow, totalCard, cardsBlock, wholePhotos, notesBlock, signBlock, submitBtn, sections, goToSection });
+    // Part 380: the site's safety walk was done this month on another
+    // inspection, so this one is sent without it.
+    const doneOn = active.safetyDoneOn || null;
     return (
       <div style={{ padding: "14px 16px 100px" }}>
         {headRow}
+        {doneOn && <div role="note" data-walk-safety-done={doneOn.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 14, borderRadius: R.md, background: t.greenSubtle, border: "1px solid " + t.greenBorder, fontSize: 13, color: t.text, lineHeight: 1.45, fontFamily: FONT_BODY }}><CheckIco sz={16} c={ink(t, GREEN)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("Safety walk done on {inspection} at {time}", { inspection: doneOn.name, time: safetyWalkWhen(doneOn.at) })}</span></div>}
         {totalCard}
         {cardsBlock}
         {wholePhotos}
@@ -20114,7 +20352,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
 
       {scheduleModal && (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 500, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={() => setScheduleModal(false)}>
-          <div style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "24px 20px 40px", maxHeight: "85vh", overflowY: "auto", boxShadow: t.popShadow }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "24px 20px 40px", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 40px)", overflowY: "auto", boxShadow: t.popShadow }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Schedule Inspection")}</div>
               <button onClick={() => setScheduleModal(false)} aria-label={tr("Close")} style={mkTapFrame({ fontSize: 20, color: t.textMut, lineHeight: 1 })}>{tr("x")}</button>
@@ -20152,7 +20390,9 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
 // Start an inspection's sheet (Step 335): the site, searchable; the
 // site's template, or which of them when it has several (inspectTemplatesFor
 // says how one is matched), or the ones a refusal names; Include the
-// safety walk, on; and Start the inspection, which posts it as today's,
+// safety walk, on only while the site has no safety walk on record this
+// month and none started at it (part 380), with a line under it that says
+// which; and Start the inspection, which posts it as today's,
 // the caller's, started now:
 // POST /api/inspections/scheduled { site_id, template_id, scheduled_date,
 // assigned_to, startNow: true, withSafety }. The template and the date go
@@ -20166,17 +20406,34 @@ function StartInspectionSheet({ token, user, onClose, onStarted, t }) {
   const [failed, setFailed] = useState(false);
   const [siteId, setSiteId] = useState("");
   const [picked, setPicked] = useState("");
-  const [withSafety, setWithSafety] = useState(true);
+  // Part 380: the switch starts as the site's safety walks this month say,
+  // once read, until the person turns it; it is never turned for them after.
+  const [withSafety, setWithSafety] = useState(false);
+  const [safetyRead, setSafetyRead] = useState(null);
+  const turned = useRef(null);
   const [busy, setBusy] = useState(false);
   const [fault, setFault] = useState(null);
   const [answered, setAnswered] = useState(null);
   useBusy("inspection start", busy);
+  const readSafety = (id) => {
+    setSafetyRead({ siteId: id, state: "loading" });
+    siteSafetyThisMonth(token, id).then((r) => {
+      setSafetyRead(prev => (prev && prev.siteId === id ? { siteId: id, state: "ok", done: r.done, open: r.open } : prev));
+      if (turned.current !== id) setWithSafety(!r.done && !r.open);
+    }).catch(() => {
+      setSafetyRead(prev => (prev && prev.siteId === id ? { siteId: id, state: "unknown" } : prev));
+      if (turned.current !== id) setWithSafety(false);
+    });
+  };
+  const turnSafety = () => { turned.current = siteId; setWithSafety(v => !v); };
   const load = async () => {
     setFailed(false);
     try {
       const [tmpl, st] = await Promise.all([api("/api/inspections/templates", { token }), api("/api/sites", { token })]);
       setTemplates(Array.isArray(tmpl) ? tmpl : []);
-      setSites((Array.isArray(st) ? st : []).map(inspectSiteOf).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name)));
+      // The test site left out for a real person, marked for a test account
+      // (part 380); its own name kept for matching its template.
+      setSites(sitesForPerson(user, (Array.isArray(st) ? st : []).map(x => { const r = inspectSiteOf(x); return r && siteIsTest(x) ? Object.assign(r, { is_test: true, siteName: r.name }) : r; }).filter(Boolean)).sort((a, b) => a.name.localeCompare(b.name)));
     } catch (e) { setFailed(true); }
   };
   useEffect(() => { load(); }, []);
@@ -20185,7 +20442,16 @@ function StartInspectionSheet({ token, user, onClose, onStarted, t }) {
   const match = fromRefusal ? { list: fromRefusal, own: true } : inspectTemplatesFor(templates, site);
   const choices = match.list;
   const templateId = choices.length === 1 ? choices[0].id : choices.some(c => c.id === picked) ? picked : "";
-  const pickSite = (id) => { setSiteId(id); setPicked(""); setFault(null); };
+  const pickSite = (id) => { setSiteId(id); setPicked(""); setFault(null); if (id && id !== siteId) { turned.current = null; setWithSafety(false); readSafety(id); } };
+  const read = safetyRead && safetyRead.siteId === siteId ? safetyRead : null;
+  // What the line under the switch says: done this month and when, started
+  // on another inspection at the site, due, or, with no answer to read it
+  // from, the rule.
+  const safetyLine = !site || !read || read.state === "loading" ? null
+    : read.state === "ok" && read.done ? tr("Safety walk done this month on {date}", { date: new Date(Date.parse(read.done.at)).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", timeZone: clientConfig.company.timeZone }) })
+    : read.state === "ok" && read.open ? tr("Safety walk on {inspection}, already started at this site", { inspection: read.open.name })
+    : read.state === "ok" ? tr("Safety walk due this month")
+    : tr("Safety walk: once a month per site");
   const start = async () => {
     if (busy) return;
     if (!site) { setFault(tr("Choose a site first.")); return; }
@@ -20238,12 +20504,13 @@ function StartInspectionSheet({ token, user, onClose, onStarted, t }) {
                 ))}
               </div>
             )}
-            <button type="button" role="switch" aria-checked={withSafety} data-inspect-start-safety="1" disabled={busy} onClick={() => setWithSafety(v => !v)} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 12, padding: "4px 0", marginBottom: 18, background: "none", border: "none", cursor: "pointer", color: t.text, textAlign: "left" }}>
+            <button type="button" role="switch" aria-checked={withSafety} aria-describedby={safetyLine ? "ocsa-start-safety-line" : undefined} data-inspect-start-safety="1" disabled={busy} onClick={turnSafety} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 12, padding: "4px 0", marginBottom: safetyLine ? 4 : 18, background: "none", border: "none", cursor: "pointer", color: t.text, textAlign: "left" }}>
               <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontFamily: FONT_HEAD }}>{tr("Include the safety walk")}</span>
               <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: 13, flexShrink: 0, background: withSafety ? GOLD : t.btnGhost, border: "1px solid " + (withSafety ? GOLD : t.borderSolid), position: "relative", transition: "background 0.15s" }}>
                 <span style={{ position: "absolute", top: 2, left: withSafety ? 20 : 2, width: 20, height: 20, borderRadius: "50%", background: withSafety ? NAVY : t.card, boxShadow: "0 1px 3px rgba(0,0,0,0.3)", transition: "left 0.15s" }} />
               </span>
             </button>
+            {safetyLine && <div id="ocsa-start-safety-line" data-inspect-start-safety-line={read.state === "ok" ? (read.done ? "done" : read.open ? "open" : "due") : "rule"} style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, marginBottom: 18 }}>{safetyLine}</div>}
             <button type="button" data-inspect-start-go="1" onClick={start} disabled={busy} style={{ ...mkPrimaryBtn(t, busy), minHeight: TAP, fontSize: 14, textTransform: "uppercase", letterSpacing: "0.5px", cursor: busy ? "default" : "pointer" }}>{busy ? tr("Starting...") : tr("Start the inspection")}</button>
             {fault && <div role="alert" data-inspect-start-fault="1" style={{ fontSize: 12, color: ink(t, RED), lineHeight: 1.45, marginTop: 10 }}>{fault}</div>}
           </>
@@ -20344,13 +20611,17 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
 
   const fmtDate = d => { if (!d) return tr("Not set"); const dt = typeof d === "string" ? d.split("T")[0] : new Date(d).toISOString().split("T")[0]; const day = localDay(dt); return day ? day.toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" }) : dt; };
 
+  // PORT-56: one photo at a time, an iPhone's HEIC made a JPEG first, as
+  // every other photo is, and the size checked on what is sent, after the
+  // photo is made 800 pixels at most, JPEG quality 85%.
   const handlePhotoUpload = async (file) => {
-    if (!file) return;
-    if (file.size > 20 * 1024 * 1024) { showToast(tr("Photo must be under 20MB"), "error"); return; }
+    if (!file || uploading) return;
     setUploading(true);
+    let compressed = null;
+    try { compressed = await compressImage(await isHeicFile(file) ? await heicToJpeg(file) : file, 800, 0.85); }
+    catch (e) { showToast(tr(photoFaultOf(e)), "error"); setUploading(false); return; }
+    if (compressed.size > 20 * 1024 * 1024) { showToast(tr("Photo must be under 20MB"), "error"); setUploading(false); return; }
     try {
-      // Compress to 512x512 max, JPEG quality 80%
-      const compressed = await compressImage(file, 800, 0.85);
       const res = await reach(API + "/api/uploads?bucket=profile-photos&ext=jpg", {
         method: "POST", headers: { "Authorization": "Bearer " + token, "Content-Type": "image/jpeg" }, body: compressed
       });
@@ -20430,7 +20701,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
             <span style={{ width: 26, height: 26, borderRadius: "50%", background: GOLD, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid " + t.card }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={NAVY} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
             </span>
-            <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoUpload(f); }} />
+            <input type="file" accept="image/*" disabled={uploading} style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) handlePhotoUpload(f); }} />
           </label>
           {uploading && <div style={{ position: "absolute", top: 0, left: 0, width: 72, height: 72, borderRadius: "50%", background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#F8F7F4" }}>...</div>}
         </div>

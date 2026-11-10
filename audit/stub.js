@@ -954,6 +954,9 @@ const START_SITES = [
   { id: "site-west", name: "West Building", status: "active" },
   { id: "site-shut", name: "Invented Closed Building", status: "inactive" },
 ];
+// Part 380: the robot's test site (sites.is_test, API Round 10), behind
+// testSite. Every name invented.
+const TEST_SITE = { id: "site-test", name: "Invented Test Building", status: "active", is_test: true };
 const START_REFUSALS = {
   "inspections.scheduleFieldsRequired": { status: 400, en: "Template, site, and date are required", es: "Se necesitan la plantilla, el sitio y la fecha" },
 };
@@ -1680,6 +1683,17 @@ function makeState(opts) {
     photoSeq: 0,
     photoFetches: [],
     photoStale: Object.assign({}, o.photoStale || {}),
+    // Part 380 (API Round 10, routes/uploads.js): who stored each photo of
+    // task-media, issue-photos and profile-photos, by its <bucket>/<object>,
+    // and when, so POST /api/uploads/sign signs it again for that person
+    // alone within 30 days; each sign asked; and the paths a case names as
+    // never signing again (photoLost), as for an object gone from storage.
+    photoOwners: {},
+    photoSigns: [],
+    // Part 380: the robot's test site on the site lists that answer it.
+    testSite: o.testSite === true,
+    photoLost: Array.isArray(o.photoLost) ? o.photoLost.slice() : [],
+    uploadSeq: 0,
     // A step of a site's checklist with a reference photo, by task id.
     taskMedia: Object.assign({}, o.taskMedia || {}),
     cancelledShifts: Array.isArray(o.cancelledShifts) ? o.cancelledShifts.map(x => Object.assign({}, x)) : [],
@@ -2635,6 +2649,15 @@ const PHOTO_KEYS = new Set(["photo_url", "photoUrl", "photo_urls", "photoUrls", 
 const PHOTO_LISTS = new Set(["photos", "issuePhotos"]);
 const STORED_PHOTO = /^(issue-photos|task-media|profile-photos)\/[^?#\s]+$/;
 const PHOTO_LIFE_MS = 60 * 60 * 1000;
+// Part 380: the buckets whose uploads answer a path and sign again, with
+// the name prefix routes/uploads.js gives each one's objects, and the two
+// refusals of POST /api/uploads/sign in the API's own words
+// (translation/api_words.csv).
+const UPLOAD_PREFIX = { "task-media": "task", "issue-photos": "issue", "profile-photos": "profile" };
+const UPLOAD_SIGN_REFUSALS = {
+  "uploads.badDetails": { status: 400, en: "Send the path the upload answered.", es: "Env\u00ede la ruta que devolvi\u00f3 la subida." },
+  "uploads.pathNotFound": { status: 404, en: "No photo of yours from the last 30 days has that path.", es: "Ninguna foto suya de los \u00faltimos 30 d\u00edas tiene esa ruta." },
+};
 // Storage's answer to a link whose time ran out.
 const PHOTO_RAN_OUT = { statusCode: "400", error: "InvalidJWT", message: "\"exp\" claim timestamp check failed" };
 
@@ -3099,7 +3122,9 @@ const TWIN_PAIRS = [
   // Part 369: the leave balances' words with no placeholder.
   .concat(["handbook", "sick", "sickLine", "holidays", "untracked", "site"].map(k => LEAVE_WORDS[k]))
   // Part 375: the training refusals API part 374 added.
-  .concat(["training.attemptClosed", "training.signatureNotStored"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]));
+  .concat(["training.attemptClosed", "training.signatureNotStored"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]))
+  // Part 380: the two refusals of POST /api/uploads/sign (API Round 10).
+  .concat(Object.keys(UPLOAD_SIGN_REFUSALS).map(k => [UPLOAD_SIGN_REFUSALS[k].en, UPLOAD_SIGN_REFUSALS[k].es]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -3996,7 +4021,9 @@ function createStub(opts) {
   function fieldKitAnswer(method, pathname, search, body, key, lang) {
     const management = FK_MANAGEMENT.indexOf(state.person.role) !== -1;
     const q = new URLSearchParams(search || "");
-    if (key === "GET /api/forms/my-sites") return management ? json(200, { sites: SITES.map(x => ({ id: x.siteId, name: x.siteName })) }) : null;
+    // Part 380: with testSite, the robot's test site too, active and with
+    // no is_test, since this route answers id, name and checklistMode only.
+    if (key === "GET /api/forms/my-sites") return management ? json(200, { sites: SITES.map(x => ({ id: x.siteId, name: x.siteName })).concat(state.testSite ? [{ id: TEST_SITE.id, name: TEST_SITE.name }] : []) }) : null;
     // The register's two other labels open the way the smoke check's does.
     const label = FK_EQUIPMENT.find(x => key === "GET /api/equipment/by-qr/" + x.qrCode);
     if (label) return json(200, { equipment: Object.assign({ siteId: "site-north", siteName: "North Building" }, label), events: [] });
@@ -4517,7 +4544,15 @@ function createStub(opts) {
       return json(200, { today: ymd(new Date(checklistDay(clockNow()) * DAY + 12 * 60 * 60 * 1000)), session: session, tasks: counted });
     }
     if (method === "PATCH" && /^\/api\/shift-sessions\//.test(pathname)) { state.clockedIn = false; return json(200, { message: "Shift ended" }); }
-    if (key === "GET /api/sites") return json(200, state.startInspection ? START_SITES.map(x => Object.assign({}, x)) : SITES.map(withMode));
+    // Part 380, as routes/sites.js answers since API Round 10: a person who
+    // reads every site (an admin or a supervisor) gets every column, is_test
+    // among them, and with testSite the robot's test site too; anyone else
+    // gets their own sites' base columns, which carry no is_test.
+    if (key === "GET /api/sites") {
+      const every = state.person.role === "admin" || state.person.role === "supervisor";
+      const rows = state.startInspection ? START_SITES.map(x => Object.assign({}, x)) : SITES.map(withMode);
+      return json(200, every ? rows.map(x => Object.assign({ is_test: false }, x)).concat(state.testSite ? [Object.assign({}, TEST_SITE, state.startInspection ? {} : { siteId: TEST_SITE.id, siteName: TEST_SITE.name })] : []) : rows);
+    }
     // Part 375: a site's named shifts (routes/siteShifts.js GET), the
     // active ones in order, each named in the language asked for; [] at a
     // site with none. A site the stub does not hold is 404 sites.notFound.
@@ -4964,6 +4999,9 @@ function createStub(opts) {
         const r = apiRefusal("forms.notADraft", search);
         return json(r.status, Object.assign(JSON.parse(r.body), { status: "void" }));
       }
+      // Part 380: the inspector's own draft of a walk's safety part, put
+      // away as any draft of theirs is (the API voids it).
+      if (id === "draft-safety" && state.walkStarted && !state.walkFiled) { state.walkStarted = false; state.discarded.push(id); return json(200, { ok: true }); }
       if (id !== "draft-one" && !state.drafts.some(d => String(d.id) === id)) return apiRefusal("forms.reportNotFound", search);
       state.discarded.push(id);
       return json(200, { ok: true });
@@ -5830,10 +5868,17 @@ function createStub(opts) {
     // As the API answers it: ?status= is matched exactly, and anyone but
     // an admin or a supervisor is answered only what is assigned to them
     // (a row with no assignee stands in for the person's own).
+    // Part 380, as the API's list is built: ?site_id= keeps one site's,
+    // and with no ?status= the done ones come too, each with its
+    // result_id and no time; a done one's result (completed_at and
+    // safety_response_id) is read on its own.
     if (pathname === "/api/inspections/scheduled" && method === "GET") {
-      const want = new URLSearchParams(search || "").get("status");
+      const q = new URLSearchParams(search || "");
+      const want = q.get("status");
+      const siteWanted = q.get("site_id");
       const everyone = state.person.role === "admin" || state.person.role === "supervisor";
-      return json(200, state.inspections.filter(i => i.status !== "completed" && (!want || i.status === want) && (everyone || i.assigned_to === undefined || i.assigned_to === state.person.id)).map(i => Object.assign({}, i, { items: undefined, gone: undefined })));
+      return json(200, state.inspections.filter(i => !i.gone && (!want || i.status === want) && (!siteWanted || String(i.site_id) === siteWanted) && (everyone || i.assigned_to === undefined || i.assigned_to === state.person.id))
+        .map(i => Object.assign({}, i, { items: undefined, gone: undefined, result: undefined, result_id: i.result ? i.result.id : null })));
     }
     // Step 324: the walk's safety part started or resumed, as API Step 319
     // builds POST /api/inspections/scheduled/:id/safety { answers }: the
@@ -6267,7 +6312,38 @@ function createStub(opts) {
       // (part 367, PORT-27): its size, its kind and its width and height.
       if (Buffer.isBuffer(body)) state.calls[state.calls.length - 1].files = [{ bytes: body.length, kind: sniffImage(body), size: imageSize(body), ext: new URLSearchParams(search || "").get("ext") }];
       if (state.uploadsFail) return json(500, { error: "Photo upload failed" });
+      // Part 380, as routes/uploads.js answers task-media, issue-photos and
+      // profile-photos since API Round 10: the object named
+      // <prefix>-<time>-<random>.<ext>, a link signed for 60 minutes under
+      // url, its <bucket>/<object> under path, and who stored it recorded.
+      // Help's agent-photos keeps the answer it always had here.
+      const upBucket = new URLSearchParams(search || "").get("bucket") || "task-media";
+      const upExt = String(new URLSearchParams(search || "").get("ext") || "jpg").toLowerCase();
+      if (UPLOAD_PREFIX[upBucket]) {
+        state.uploadSeq += 1;
+        const stored = upBucket + "/" + UPLOAD_PREFIX[upBucket] + "-" + String(clockNow() + state.uploadSeq) + "-" + ("u" + state.uploadSeq.toString(36)).slice(0, 12) + "." + (upExt === "heic" || upExt === "heif" ? "jpg" : upExt);
+        state.photoOwners[stored] = { userId: String(state.person.id), at: clockNow() };
+        const fileName = stored.slice(upBucket.length + 1);
+        return json(200, { url: signLink(stored, false), path: stored, type: "image", fileName: fileName, contentType: upExt === "png" ? "image/png" : "image/jpeg" });
+      }
       return json(200, { url: "https://example.invalid/photo.jpg", path: "agent-photos/one.jpg" });
+    }
+    // Part 380: POST /api/uploads/sign { path } as routes/uploads.js answers
+    // it: { url }, a new link for 60 minutes to a photo the caller stored in
+    // task-media, issue-photos or profile-photos in the last 30 days; 400
+    // uploads.badDetails keys ["path"] for a body that is not one path; 404
+    // uploads.pathNotFound for anyone else's, an unknown or older one, or
+    // another bucket's.
+    if (pathname === "/api/uploads/sign" && method === "POST") {
+      const b = body && typeof body === "object" && !Buffer.isBuffer(body) ? body : {};
+      const raw = typeof b.path === "string" ? b.path.trim() : "";
+      state.photoSigns.push(raw);
+      const m = /^([a-z-]+)\/([A-Za-z0-9._/-]{1,300})$/.exec(raw);
+      const say = (k) => refusalIn(UPLOAD_SIGN_REFUSALS[k], languageOf(search, state));
+      if (!m || Object.keys(b).some(k => k !== "path") || raw.indexOf("..") !== -1) return json(400, { error: say("uploads.badDetails"), code: "uploads.badDetails", keys: ["path"] });
+      const own = state.photoOwners[raw];
+      if (!UPLOAD_PREFIX[m[1]] || !own || own.userId !== String(state.person.id) || own.at < clockNow() - 30 * DAY || state.photoLost.indexOf(raw) !== -1) return json(404, { error: say("uploads.pathNotFound"), code: "uploads.pathNotFound" });
+      return json(200, { url: signLink(raw, false) });
     }
 
     // Anything not named above answers plainly rather than hanging, and
@@ -6345,15 +6421,18 @@ function createStub(opts) {
   // Part 373: every answer's stored photos, signed as it goes out (the
   // API's photoLinks.withLinks), already run out for a route a case named
   // in photoStale.
+  // One stored photo's link, signed now for PHOTO_LIFE_MS on the stub's
+  // clock, or already run out.
+  function signLink(stored, stale) {
+    state.photoSeq += 1;
+    const token = "t" + state.photoSeq;
+    state.photoLinks[token] = { object: stored, expiresAt: clockNow() + (stale ? -60 * 1000 : PHOTO_LIFE_MS) };
+    return "https://" + PHOTO_HOST + "/storage/v1/object/sign/" + stored + "?token=" + token;
+  }
   function withLinks(data, route) {
     let stale = false;
     if (state.photoStale[route] > 0) { stale = true; state.photoStale[route] -= 1; }
-    const sign = (stored) => {
-      state.photoSeq += 1;
-      const token = "t" + state.photoSeq;
-      state.photoLinks[token] = { object: stored, expiresAt: clockNow() + (stale ? -60 * 1000 : PHOTO_LIFE_MS) };
-      return "https://" + PHOTO_HOST + "/storage/v1/object/sign/" + stored + "?token=" + token;
-    };
+    const sign = (stored) => signLink(stored, stale);
     const walk = (v, key) => {
       if (typeof v === "string") return PHOTO_KEYS.has(key) && STORED_PHOTO.test(v) ? sign(v) : v;
       if (Array.isArray(v)) return v.map(x => (PHOTO_LISTS.has(key) && x && typeof x === "object" && !Array.isArray(x) && typeof x.url === "string" && STORED_PHOTO.test(x.url) ? Object.assign(walk(x, ""), { url: sign(x.url) }) : walk(x, key)));
