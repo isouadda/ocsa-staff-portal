@@ -1652,6 +1652,7 @@ export const WORDS = {
   "Safety walk: once a month per site": "Recorrido de seguridad: una vez al mes por sitio",
   "Safety walk done on {inspection} at {time}": "Recorrido de seguridad hecho en {inspection} a las {time}",
   "[TEST] {name}": "[TEST] {name}",
+  "This iPhone photo needs signal to be made ready. Try again with signal, or choose a JPEG.": "Esta foto de iPhone necesita se\u00f1al para prepararse. Int\u00e9ntelo de nuevo con se\u00f1al, o elija un JPEG.",
   },
 };
 
@@ -3182,6 +3183,7 @@ WORDS.fr = {
   "Safety walk: once a month per site": "Tourn\u00e9e de s\u00e9curit\u00e9\u00a0: une fois par mois et par site",
   "Safety walk done on {inspection} at {time}": "Tourn\u00e9e de s\u00e9curit\u00e9 faite sur {inspection} \u00e0 {time}",
   "[TEST] {name}": "[TEST] {name}",
+  "This iPhone photo needs signal to be made ready. Try again with signal, or choose a JPEG.": "Cette photo d'iPhone a besoin de r\u00e9seau pour \u00eatre pr\u00e9par\u00e9e. R\u00e9essayez avec du r\u00e9seau, ou choisissez un JPEG.",
 };
 
 // {name} is replaced after the language is chosen, so the

@@ -168,18 +168,22 @@ async function readServerStamp() {
 }
 
 // The tab is remembered first, so it survives even if the rest throws.
-// The service worker stays registered: it has never cached anything, a
-// new copy installs itself on the reload, and unregistering it would
-// throw away the phone's push subscription, turning alerts off on every
-// phone at every deploy. Any cache an older build might have left is
-// still cleared.
+// The service worker stays registered: a new copy installs itself on the
+// reload, and unregistering it would throw away the phone's push
+// subscription, turning alerts off on every phone at every deploy. The
+// worker keeps the app's shell in one cache (public/sw.js SHELL_CACHE),
+// which it replaces whole only once the new build's every file came, so
+// that one is left for it to replace (PORT-57): a phone that loses signal
+// right after an update still opens the app. Any other cache an older
+// build might have left is cleared.
+const WORKER_SHELL_CACHE = "ocsa-shell-v2";
 async function clearAndReload(tab, stamp) {
   sessionSet(UPDATE_TAB_KEY, tab || "clock");
   sessionSet(UPDATE_TRIED_KEY, stamp);
   try {
     if (window.caches && window.caches.keys) {
       const names = await window.caches.keys();
-      for (let i = 0; i < names.length; i++) { try { await window.caches.delete(names[i]); } catch (e) {} }
+      for (let i = 0; i < names.length; i++) { if (names[i] === WORKER_SHELL_CACHE) continue; try { await window.caches.delete(names[i]); } catch (e) {} }
     }
   } catch (e) {}
   try { window.location.reload(); } catch (e) {}
@@ -355,6 +359,12 @@ async function prepareAgentPhoto(file) {
 const FORM_PHOTO_MAX_SIDE = 2000;
 const FORM_PHOTO_QUALITY = 0.85;
 const FORMS_PHOTO_UNREADABLE = "This photo could not be read. Try another one.";
+// An iPhone photo is made a JPEG by a piece of the app fetched only when
+// one shows up, and with no signal that piece cannot come (PORT-58). The
+// photo is fine, so the words say what to do instead.
+const HEIC_NEEDS_SIGNAL = "This iPhone photo needs signal to be made ready. Try again with signal, or choose a JPEG.";
+// What a screen says of a photo that could not be made ready.
+const photoFaultOf = (err) => (err && err.message === HEIC_NEEDS_SIGNAL ? HEIC_NEEDS_SIGNAL : FORMS_PHOTO_UNREADABLE);
 const HEIC_BRANDS = ["heic", "heix", "hevc", "hevx", "heim", "heis", "mif1", "msf1"];
 
 // A HEIC or HEIF file, by what the phone says and then by its first bytes,
@@ -370,7 +380,9 @@ async function isHeicFile(file) {
 }
 
 async function heicToJpeg(file) {
-  const mod = await import("heic2any");
+  let mod = null;
+  try { mod = await import("heic2any"); }
+  catch (e) { throw new Error(HEIC_NEEDS_SIGNAL); }
   const heic2any = mod.default || mod;
   const out = await heic2any({ blob: file, toType: "image/jpeg", quality: FORM_PHOTO_QUALITY });
   return Array.isArray(out) ? out[0] : out;
@@ -405,7 +417,7 @@ async function prepareFormPhoto(file) {
     const base = String(file.name || "").replace(/\.[^.]*$/, "") || "photo";
     return new File([blob], base + (keepPng ? ".png" : ".jpg"), { type: blob.type });
   } catch (e) {
-    throw new Error(FORMS_PHOTO_UNREADABLE);
+    throw new Error(photoFaultOf(e));
   }
 }
 
@@ -415,7 +427,7 @@ async function prepareFormPhoto(file) {
 // null once the person has been told it could not be read or is too big.
 async function readyIssuePhoto(picked, showToast) {
   let file;
-  try { file = await prepareFormPhoto(picked); } catch (e) { showToast(tr(FORMS_PHOTO_UNREADABLE), "error"); return null; }
+  try { file = await prepareFormPhoto(picked); } catch (e) { showToast(tr(photoFaultOf(e)), "error"); return null; }
   if (file.size > 10 * 1024 * 1024) { showToast(tr("Photo must be under 10MB"), "error"); return null; }
   return file;
 }
@@ -459,7 +471,10 @@ const SWEEP_LIGHT = "linear-gradient(100deg, #FFFFFF 0%, " + GOLD_LIGHT + " 45%,
 function compressImage(file, maxSize, quality) {
   return new Promise((resolve, reject) => {
     const img = new Image();
+    // The address made for the file is let go once it is read (PORT-56).
+    const src = URL.createObjectURL(file);
     img.onload = () => {
+      URL.revokeObjectURL(src);
       let w = img.width, h = img.height;
       if (w > maxSize || h > maxSize) {
         if (w > h) { h = Math.round(h * maxSize / w); w = maxSize; }
@@ -474,8 +489,8 @@ function compressImage(file, maxSize, quality) {
         else reject(new Error("Compression failed"));
       }, "image/jpeg", quality || 0.8);
     };
-    img.onerror = () => reject(new Error("Could not read image"));
-    img.src = URL.createObjectURL(file);
+    img.onerror = () => { URL.revokeObjectURL(src); reject(new Error(FORMS_PHOTO_UNREADABLE)); };
+    img.src = src;
   });
 }
 const LOGO_SM = process.env.PUBLIC_URL + "/ocsa-logo-sm.png";
@@ -9286,7 +9301,7 @@ function RequestNoteSheet({ id, title, line, label, required, button, photos, to
     const list = Array.from(picked || []).filter(Boolean);
     for (let i = 0; i < list.length; i++) {
       try { const f = await prepareFormPhoto(list[i]); setFiles(prev => prev.concat([{ id: "d-" + Date.now() + "-" + i, name: list[i].name, file: f, data: URL.createObjectURL(f) }])); }
-      catch (e) { setFault(tr(FORMS_PHOTO_UNREADABLE)); }
+      catch (e) { setFault(tr(photoFaultOf(e))); }
     }
   };
   const send = async () => {
@@ -15216,18 +15231,26 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
     setValues(prev => Object.assign({}, prev, { [f.key]: formPhotoList(prev[f.key]).concat(kept) }));
   };
   const addFormPhotos = async (f, fileList) => {
-    const picked = Array.from(fileList || []).filter(Boolean);
-    if (picked.length === 0) return;
+    const chosen = Array.from(fileList || []).filter(Boolean);
+    if (chosen.length === 0) return;
+    // Only as many as the question has room for go (PORT-59), so the API
+    // never refuses the whole batch; the rest are left out and the limit
+    // is said under the question.
+    const max = Number(f.maxPhotos) > 0 ? Number(f.maxPhotos) : FORMS_PHOTOS_DEFAULT_MAX;
+    const room = Math.max(0, max - formPhotoList(values[f.key]).length - (photoBusy[f.key] || []).length);
+    const picked = chosen.slice(0, room);
+    const over = chosen.length > picked.length;
+    if (picked.length === 0) { setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(PHOTO_LIMIT_WORDS, { max: max }) })); return; }
     const marks = picked.map((file, i) => ({ id: f.key + ":" + Date.now() + ":" + i, name: file.name }));
     setPhotoErr(prev => Object.assign({}, prev, { [f.key]: null }));
     setPhotoBusy(prev => Object.assign({}, prev, { [f.key]: (prev[f.key] || []).concat(marks) }));
     const files = [];
-    let unreadable = false;
+    let unreadable = null;
     for (let i = 0; i < picked.length; i++) {
       try { files.push(await prepareFormPhoto(picked[i])); }
-      catch (err) { unreadable = true; }
+      catch (err) { unreadable = photoFaultOf(err); }
     }
-    if (alive.current && unreadable) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: tr(FORMS_PHOTO_UNREADABLE) }));
+    if (alive.current && (unreadable || over)) setPhotoErr(prev => Object.assign({}, prev, { [f.key]: unreadable ? tr(unreadable) : tr(PHOTO_LIMIT_WORDS, { max: max }) }));
     if (files.length > 0 && isCustomer) await keepPhotos(f, files);
     else if (files.length > 0) {
       try {
@@ -17076,7 +17099,7 @@ function WsFiles({ token, projectId, showToast, t }) {
     setAdding(a => ({ ...a, file: null, state: "preparing", fault: null }));
     let file = picked;
     if (wsIsPhoto(picked) || await isHeicFile(picked)) {
-      try { file = await prepareFormPhoto(picked); } catch (e) { setAdding(a => (a ? { ...a, state: "idle", fault: tr(FORMS_PHOTO_UNREADABLE) } : a)); return; }
+      try { file = await prepareFormPhoto(picked); } catch (e) { setAdding(a => (a ? { ...a, state: "idle", fault: tr(photoFaultOf(e)) } : a)); return; }
     }
     if (file.size > WS_FILE_MAX) { setAdding(a => (a ? { ...a, state: "idle", fault: tr("{0} is over 25 MB. Files up to 25 MB can be added.", { 0: picked.name || "" }) } : a)); return; }
     setAdding(a => (a ? { ...a, file: file, state: "idle", fault: null } : a));
@@ -17232,7 +17255,7 @@ function EquipmentView({ token, code, showToast, t, onBack }) {
     if (!picked || !tagOut) return;
     setTagOut(o => ({ ...o, state: "preparing", fault: null }));
     try { const photo = await prepareFormPhoto(picked); setTagOut(o => (o ? { ...o, photo: photo, state: "idle" } : o)); }
-    catch (e) { setTagOut(o => (o ? { ...o, photo: null, state: "idle", fault: tr(FORMS_PHOTO_UNREADABLE) } : o)); }
+    catch (e) { setTagOut(o => (o ? { ...o, photo: null, state: "idle", fault: tr(photoFaultOf(e)) } : o)); }
   };
   const sendTagOut = async () => {
     if (!tagOut || tagOut.state !== "idle") return;
@@ -20329,7 +20352,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
 
       {scheduleModal && (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 500, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={() => setScheduleModal(false)}>
-          <div style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "24px 20px 40px", maxHeight: "85vh", overflowY: "auto", boxShadow: t.popShadow }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: t.card, borderRadius: "16px 16px 0 0", border: "1px solid " + t.borderSolid, width: "100%", maxWidth: 960, padding: "24px 20px 40px", maxHeight: "calc(var(--ocsa-dvh, 100dvh) - 40px)", overflowY: "auto", boxShadow: t.popShadow }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Schedule Inspection")}</div>
               <button onClick={() => setScheduleModal(false)} aria-label={tr("Close")} style={mkTapFrame({ fontSize: 20, color: t.textMut, lineHeight: 1 })}>{tr("x")}</button>
@@ -20588,13 +20611,17 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
 
   const fmtDate = d => { if (!d) return tr("Not set"); const dt = typeof d === "string" ? d.split("T")[0] : new Date(d).toISOString().split("T")[0]; const day = localDay(dt); return day ? day.toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" }) : dt; };
 
+  // PORT-56: one photo at a time, an iPhone's HEIC made a JPEG first, as
+  // every other photo is, and the size checked on what is sent, after the
+  // photo is made 800 pixels at most, JPEG quality 85%.
   const handlePhotoUpload = async (file) => {
-    if (!file) return;
-    if (file.size > 20 * 1024 * 1024) { showToast(tr("Photo must be under 20MB"), "error"); return; }
+    if (!file || uploading) return;
     setUploading(true);
+    let compressed = null;
+    try { compressed = await compressImage(await isHeicFile(file) ? await heicToJpeg(file) : file, 800, 0.85); }
+    catch (e) { showToast(tr(photoFaultOf(e)), "error"); setUploading(false); return; }
+    if (compressed.size > 20 * 1024 * 1024) { showToast(tr("Photo must be under 20MB"), "error"); setUploading(false); return; }
     try {
-      // Compress to 512x512 max, JPEG quality 80%
-      const compressed = await compressImage(file, 800, 0.85);
       const res = await reach(API + "/api/uploads?bucket=profile-photos&ext=jpg", {
         method: "POST", headers: { "Authorization": "Bearer " + token, "Content-Type": "image/jpeg" }, body: compressed
       });
@@ -20674,7 +20701,7 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
             <span style={{ width: 26, height: 26, borderRadius: "50%", background: GOLD, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid " + t.card }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={NAVY} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
             </span>
-            <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoUpload(f); }} />
+            <input type="file" accept="image/*" disabled={uploading} style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) handlePhotoUpload(f); }} />
           </label>
           {uploading && <div style={{ position: "absolute", top: 0, left: 0, width: 72, height: 72, borderRadius: "50%", background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#F8F7F4" }}>...</div>}
         </div>

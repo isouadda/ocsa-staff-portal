@@ -16,6 +16,8 @@
 // answered within NETWORK_MS, or answered with an error (PORT-28). Every
 // other request goes to the network as if no service worker were
 // installed.
+// src/App.js WORKER_SHELL_CACHE names it too: an update reload leaves it
+// for the worker to replace (PORT-57).
 var SHELL_CACHE = "ocsa-shell-v2";
 var APP_PAGE = "/";
 var SDS_PAGE = "/sds";

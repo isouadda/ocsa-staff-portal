@@ -1417,6 +1417,31 @@ One journey, in English and Spanish, failing on the main of part 375:
   whose answer says `isTestAccount` sees it on Start an inspection as
   "[TEST] Invented Test Building".
 
+## Five findings field staff and supervisors meet first (part 380, section 4)
+
+Five of the October audit's open findings (`audit/FINDINGS_2026-10.md`)
+whose first reader is field staff on a phone or a supervisor, each
+needing nothing new from the API: PORT-56, PORT-57, PORT-58, PORT-59 and
+PORT-67. The rest stay open. A case may now open a phone with
+`serviceWorkers: "block"` (`audit/browser.js`), since the worker passes a
+request for one of the app's own files on out of the harness's reach.
+
+Five journeys, in English and Spanish, each failing on the main of part
+375:
+
+- `photoroom` (PORT-59): four photos picked for a form's question that
+  holds three send three, keep them and say the limit.
+- `heicoffline` (PORT-58): a HEIC picked with no signal, on a phone with
+  no worker and the converter's piece refused, says it needs signal to
+  be made ready, or to choose a JPEG.
+- `profileready` (PORT-56): a HEIC profile photo is made a JPEG, sent once
+  and saved as the profile's photo. `profilephoto` now reads the words
+  every photo says when it cannot be read.
+- `updatekeeps` (PORT-57): the reload for a newer build clears an older
+  build's cache and keeps the worker's shell, `ocsa-shell-v2`.
+- `schedheight` (PORT-67): Schedule Inspection at the Largest size on a
+  375 by 560 phone keeps its top and title on the screen.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

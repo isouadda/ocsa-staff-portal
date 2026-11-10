@@ -74,6 +74,7 @@ async function launch() {
 // now: another time for the phone's clock, for a case that needs the
 // morning. The case gives the stub the same time, as stubOptions.now.
 // userAgent: another phone's, ANDROID for one.
+// serviceWorkers: "block" for a phone with no service worker.
 // iosAlerts: "fresh" for a phone that has not yet told its iPhone browser
 // tab why it gets no alerts (PORT-29); every other case is seeded as told.
 // push: { permission, answer, subscribed, supported }, the phone's push
@@ -92,6 +93,10 @@ async function openApp(browser, base, opts) {
     locale: (o.phone || o.language) === "es" ? "es-US" : "en-US",
     colorScheme: "dark",
   }, o.userAgent ? { userAgent: o.userAgent } : {},
+  // A phone with no service worker, for a case that refuses a file the
+  // page asks for itself (part 380): the worker passes requests on out of
+  // the harness's reach.
+  o.serviceWorkers === "block" ? { serviceWorkers: "block" } : {},
   // A phone set to another zone, for a case about the day a date shows on
   // (part 359, API-96); every other case keeps New York.
   o.timezoneId ? { timezoneId: o.timezoneId } : {}));

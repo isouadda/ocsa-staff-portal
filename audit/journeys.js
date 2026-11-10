@@ -4916,7 +4916,8 @@ const JOURNEYS = [
         await attachBroken(app.page, '.sp-content input[type="file"]');
         await pause(app.page, 900);
         const told = (await toastText(app.page)) || (await bodyText(app.page));
-        expect("a photo the phone cannot read says so in the person's language", has(told, spanishOf("Could not read image", language)), told.slice(0, 200));
+        // Since PORT-56 (part 380) in the words every other photo says it in.
+        expect("a photo the phone cannot read says so in the person's language", has(told, say("This photo could not be read. Try another one.", language)), told.slice(0, 200));
         await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
     },
@@ -9476,5 +9477,121 @@ const PART380_S3_JOURNEYS = [
 ];
 const TEST_SITE_ID = "site-test";
 JOURNEYS.push(...PART380_S3_JOURNEYS);
+
+// Part 380, section 4: five open findings from the October audit that
+// field staff or supervisors meet first, each needing nothing new from the
+// API.
+const PART380_S4_JOURNEYS = [
+  {
+    id: "photoroom",
+    label: "A form's photo question takes only the photos it has room for (PORT-59): more picked than it holds sends as many as fit, keeps them, and says the limit, where all of them went and the whole batch was refused",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        const form = formP(language);
+        const q = form.fields.find(f => f.type === "photos");
+        const route = "/api/forms/responses/draft-two/photos/" + q.key;
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, form.title);
+        await attachPhotos(app.page, '.sp-content input[type="file"]', ["one.jpg", "two.jpg", "three.jpg", "four.jpg"]);
+        await pause(app.page, 2500);
+        const ups = app.stub.state.calls.filter(c => c.method === "POST" && c.path === route);
+        expect("only as many as the question holds are sent", ups.length === 1 && Array.isArray(ups[0].files) && ups[0].files.length === FORM_P_MAX_PHOTOS, JSON.stringify(ups.map(c => (c.files || []).length)));
+        expect("and they are kept", Array.isArray(app.stub.state.answersP[q.key]) && app.stub.state.answersP[q.key].length === FORM_P_MAX_PHOTOS, JSON.stringify(app.stub.state.answersP[q.key]));
+        const text = await bodyText(app.page);
+        expect("the limit is said under the question", has(text, fill(say("This question takes {max} photos at most. Remove one to add another.", language), { max: FORM_P_MAX_PHOTOS })), text.slice(0, 500));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "heicoffline",
+    label: "An iPhone photo with no signal (PORT-58): a HEIC picked for a form's photo question with no signal says it needs signal to be made ready, or to choose a JPEG, where it said the photo could not be read",
+    run: async (open, language, expect) => {
+      // No signal: the build's own server still answers here, so the piece
+      // of the app that converts a HEIC is refused as no signal would. The
+      // service worker passes that request on itself, out of the harness's
+      // reach, so this phone runs with none.
+      const app = await open({ serviceWorkers: "block" });
+      try {
+        await app.page.route("**/static/js/*.chunk.js", (r) => r.abort("internetdisconnected"));
+        const form = formP(language);
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, form.title);
+        await app.context.setOffline(true); app.stub.state.offline = true;
+        TYPED.add("IMG_0001.HEIC");
+        await attachBytes(app.page, '.sp-content input[type="file"]', HEIC_FIXTURE, "IMG_0001.HEIC", "image/heic");
+        await pause(app.page, 2500);
+        const text = await bodyText(app.page);
+        expect("with no signal, the photo says it needs signal, not that it could not be read", has(text, say("This iPhone photo needs signal to be made ready. Try again with signal, or choose a JPEG.", language)) && !has(text, say("This photo could not be read. Try another one.", language)), text.slice(0, 500));
+        await spokenHere(app, language, expect);
+        await app.context.setOffline(false); app.stub.state.offline = false;
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "profileready",
+    label: "A profile photo made ready like every other (PORT-56): an iPhone HEIC is made a JPEG and sent, where it could not be read before",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "profile", language);
+        await pause(app.page, 900);
+        await attachBytes(app.page, '.sp-content input[type="file"]', HEIC_FIXTURE, "IMG_0002.HEIC", "image/heic");
+        await pause(app.page, 3500);
+        const ups = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/uploads" && /bucket=profile-photos/.test(c.search || ""));
+        expect("the HEIC is made a JPEG and sent, once", ups.length === 1 && !!ups[0].files && ups[0].files[0].kind && ups[0].files[0].kind.ext === "jpg", JSON.stringify(ups.map(c => c.files)));
+        const saved = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/users/profile/photo");
+        expect("and saved as the profile photo", saved.length === 1 && !!saved[0].body && typeof saved[0].body.photoUrl === "string" && saved[0].body.photoUrl.length > 0, JSON.stringify(saved.map(c => c.body)));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "updatekeeps",
+    label: "An update reload keeps the offline copy (PORT-57): the reload for a new build clears an older build's caches and leaves the worker's shell, which it replaces itself once the new build's every file came",
+    run: async (open, language, expect) => {
+      const app = await open({ buildStamp: "a-newer-build" });
+      try {
+        const seeded = await app.page.evaluate(async () => {
+          if (!window.caches) return false;
+          await (await caches.open("ocsa-shell-v2")).put("/kept-shell", new Response("shell"));
+          await (await caches.open("ocsa-older-build")).put("/old", new Response("old"));
+          window.__beforeUpdate = true;
+          return true;
+        });
+        await app.page.clock.runFor(5600);
+        const reloaded = await app.page.waitForFunction(() => !window.__beforeUpdate && !!document.querySelector(".sp-content"), null, { timeout: 12000 }).then(() => true).catch(() => false);
+        const names = await app.page.evaluate(async () => (window.caches ? await caches.keys() : null)).catch(() => null);
+        expect("the app reloads for the new build", seeded && reloaded, JSON.stringify({ seeded, reloaded }));
+        expect("and keeps the worker's shell while an older build's cache goes", Array.isArray(names) && names.indexOf("ocsa-shell-v2") !== -1 && names.indexOf("ocsa-older-build") === -1, JSON.stringify(names));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "schedheight",
+    label: "Schedule Inspection at the Largest size on a short phone (PORT-67): the sheet stays on the screen, its title and Close in view, where its raw 85vh ran above the top",
+    run: async (open, language, expect) => {
+      const app = await open({ textSize: "largest", stubOptions: { person: Object.assign({}, PERSON, { role: "admin" }), inspections: [INSPECTION] } });
+      try {
+        await app.page.setViewportSize({ width: 375, height: 560 });
+        await openTab(app.page, "inspect", language);
+        await pause(app.page, 1000);
+        await clickText(app.page, say("+ Schedule", language));
+        await pause(app.page, 900);
+        const box = await app.page.evaluate((w) => {
+          const title = Array.from(document.querySelectorAll("div")).find(d => d.children.length === 0 && d.textContent.trim() === w);
+          const sheet = title ? title.closest('div[style*="overflow-y: auto"]') : null;
+          if (!sheet) return null;
+          const r = sheet.getBoundingClientRect();
+          return { top: Math.round(r.top), bottom: Math.round(r.bottom), h: window.innerHeight, titleTop: Math.round(title.getBoundingClientRect().top) };
+        }, say("Schedule Inspection", language));
+        expect("the sheet's top and title are on the screen", !!box && box.top >= 0 && box.titleTop >= 0 && box.bottom <= box.h + 1, JSON.stringify(box));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART380_S4_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };
