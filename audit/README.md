@@ -1679,6 +1679,12 @@ The smoke check's Inspection findings now ends on My findings: the
 owner's finding with no follow-up chosen yet and no Fixed, and no read of
 the inspection issue list.
 
+A follow-on journey, in English and Spanish, failing on the same main:
+
+- `findingrow`: a supervisor's Issues lists an inspection finding as the
+  API's `GET /api/issues` answers it, and its row opens Findings to
+  follow up at that finding, with no issue sheet to assign or resolve it.
+
 ## The test site for a test account (part 388, section 2)
 
 The stub answers ocsa-api Round 12's flags (part 382, 3.1 and 3.2):

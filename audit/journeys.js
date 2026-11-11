@@ -8664,13 +8664,16 @@ const drawOn = async (page, selector) => {
 const PART373_S3_JOURNEYS = [
   {
     id: "inspectguide",
-    label: "Help's steps for filling out an inspection match the screen (part 373): the guide has Fill out an inspection, at the end, with its two pictures in both languages and the words people ask with, and every name its steps give is on the screens those steps walk through, in the screen's language",
+    label: "Help's steps for filling out an inspection match the screen (part 373): the guide has Fill out an inspection, at the end when it was added, with its two pictures in both languages and the words people ask with, and every name its steps give is on the screens those steps walk through, in the screen's language",
     run: async (open, language, expect) => {
       const entry = guideEntry(FILL_TITLE);
       expect("the guide has an entry for filling out an inspection", !!entry, "no entry titled " + FILL_TITLE);
       if (!entry) return;
       const whole = require("fs").readFileSync(require("path").join(__dirname, "..", "guide", "APP-PORTAL.md"), "utf8");
-      expect("it is the last entry, as a new entry is added", whole.lastIndexOf("\n## ") === whole.indexOf("\n## " + FILL_TITLE), "not last");
+      // A new entry goes at the end: after it come only the entries added
+      // since, in the order they were added (part 388's two).
+      const after = whole.slice(whole.indexOf("\n## " + FILL_TITLE) + 4).split("\n## ").slice(1).map(x => x.split("\n")[0]);
+      expect("it comes after every entry before it, followed only by those added since", JSON.stringify(after) === JSON.stringify(["See the findings about your work (staff portal)", "Follow up an inspection finding (staff portal)"]), JSON.stringify(after));
       const pictures = ["inspection-fill-card", "inspection-fill-send"];
       expect("with its two pictures, each taken in English and Spanish", pictures.every(n => entry.indexOf("\nPicture: " + n + "\n") !== -1 && ["en", "es"].every(l => require("fs").existsSync(shotFile(n, l)))), JSON.stringify(pictures));
       expect("and the words people ask with, in English and Spanish", has(entry, "fill out an inspection") && has(entry, "llenar la inspecci\u00f3n"), entry.split("\n").find(x => x.indexOf("Words people use") === 0) || "");
@@ -10286,6 +10289,34 @@ const PART388_S1_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART388_S1_JOURNEYS);
+// A supervisor's Issues lists the site's issues, an inspection finding
+// among them (the API's GET /api/issues answers it); its row opens
+// Findings to follow up at it, never an issue's sheet with Assign and
+// Resolved.
+const PART388_S1B_JOURNEYS = [
+  {
+    id: "findingrow",
+    label: "A finding on a supervisor's Issues (API Round 12): its row opens Findings to follow up at that finding, with no issue sheet to assign or resolve it",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, issueSheet: true, findingsSeed: true } });
+      try {
+        const nine = app.stub.state.sheetIssues.find(i => i.id === "fnd-9");
+        app.stub.state.findingRows.push(Object.assign({}, nine, { _card: { itemId: "iw-1", label: nine.title, zone: nine.zone, score: 2, maxScore: 5 }, _inspection: { scheduledInspectionId: "in-walk", templateName: "Invented monthly walk", completedAt: nine.reported_at, inspector: { id: "s-05", name: "Eve Everett" } } }));
+        await openTab(app.page, "issues", language);
+        const row = await shows(app.page, '[data-issue-row="fnd-9"]', 8000);
+        expect("Issues lists the finding as the API answers it", row, (await bodyText(app.page)).slice(0, 300));
+        if (!row) return;
+        await app.page.click('[data-issue-row="fnd-9"]');
+        const there = await shows(app.page, '[data-follow-ups] [data-follow-up-row="fnd-9"]', 8000);
+        await pause(app.page, 600);
+        const sheet = await app.page.evaluate(() => !!document.querySelector('[data-issue-sheet="fnd-9"]'));
+        expect("its row opens Findings to follow up at it, and no issue sheet", there && !sheet, JSON.stringify({ there, sheet }));
+        await spokenWithin(app, language, expect, '[data-follow-up-row="fnd-9"]');
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART388_S1B_JOURNEYS);
 
 // --- Round 11 of the staff app (part 388), section 2 ----------------------
 //
