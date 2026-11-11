@@ -659,7 +659,18 @@ const TRAINING_REFUSALS = {
   // translation/api_words.csv.
   "training.attemptClosed": { status: 409, en: "This quiz is already finished, so it takes no more answers. Here is how it stands.", es: "Este cuestionario ya termin\u00f3 y no acepta m\u00e1s respuestas. As\u00ed est\u00e1 ahora." },
   "training.signatureNotStored": { status: 503, en: "Your signature could not be saved just now. Nothing was lost: sign again.", es: "No se pudo guardar su firma en este momento. No se perdi\u00f3 nada: firme de nuevo." },
+  // Part 383 (API part 378): the certificate route's refusals, in the
+  // API's own words from its translation/api_words.csv.
+  "training.badDetails": { status: 400, en: "Some details are missing or not valid", es: "Faltan algunos datos o no son v\u00e1lidos" },
+  "training.badFile": { status: 400, en: "Send a PDF, JPEG or PNG file", es: "Env\u00ede un archivo PDF, JPEG o PNG" },
+  "training.fileTooLarge": { status: 400, en: "The file is larger than 10 MB", es: "El archivo pesa m\u00e1s de 10 MB" },
+  "training.topicNotFound": { status: 404, en: "Training not found", es: "No se encontr\u00f3 la capacitaci\u00f3n" },
+  "training.notOutsideCourse": { status: 409, en: "This training is not an outside course, so a certificate cannot be uploaded for it.", es: "Esta capacitaci\u00f3n no es un curso externo, as\u00ed que no se puede subir un certificado para ella." },
 };
+// Part 383: the topic the stub marks as an outside course behind
+// outsideCourse. Live marks none yet (API part 378: the column is new and
+// false), so a case that wants one turns the switch on.
+const OUTSIDE_TOPIC = "tp-5";
 // Step 264: the Step 262 contract's answers behind the training switch,
 // every value invented. A session another trainer opened at North
 // Building, which a person joins by its code; the sessions a supervisor
@@ -967,6 +978,15 @@ const WALK_REFUSALS = {
   "inspections.safetyUnanswered": { status: 400, en: "Finish the safety walk before you send.", es: "Termine el recorrido de seguridad antes de enviar." },
   "inspections.signatureRequired": { status: 400, en: "Sign the inspection before sending it.", es: "Firme la inspecci\u00f3n antes de enviarla." },
   "forms.unanswerable": { status: 400, en: "These fields cannot be answered here", es: "Estos campos no se pueden responder aqu\u00ed" },
+};
+// Part 383 (API part 378, its 8.2): the refusals of POST
+// /api/inspections/scheduled/:id/drop-safety, in the API's own words from
+// its translation/api_words.csv.
+const DROP_REFUSALS = {
+  "inspections.safetyWalkNotDone": { status: 409, en: "This site's safety walk is not done this month on another inspection, so this inspection keeps its own.", es: "El recorrido de seguridad de este sitio no se ha hecho este mes en otra inspecci\u00f3n, as\u00ed que esta inspecci\u00f3n conserva el suyo." },
+  "inspections.noSafetyPart": { status: 409, en: "This inspection does not include the safety walk.", es: "Esta inspecci\u00f3n no incluye el recorrido de seguridad." },
+  "inspections.completedLocked": { status: 409, en: "This inspection is completed. Its status and its safety walk cannot be changed.", es: "Esta inspecci\u00f3n est\u00e1 completada. Su estado y su recorrido de seguridad no se pueden cambiar." },
+  "access.insufficientPermissions": { status: 403, en: "Insufficient permissions", es: "No tiene permiso para hacer esto" },
 };
 // The band a score lands in (QMS-014 5.2), its due date from the
 // completion, and the severity of each finding, as the contract's rule 2.
@@ -1551,6 +1571,24 @@ const runKeyOf = (w) => (w ? w.label.toLowerCase() + "|" + w.runDate : null);
 const shiftNameIn = (shift, lang) => (lang === "es" ? shift.es : lang === "fr" ? shift.fr : null) || shift.label;
 // The run as every answer carries it (runView).
 const runView = (w, lang) => (w ? { label: w.label, display: shiftNameIn(w.shift, lang), startsAt: iso(w.startsAt), endsAt: iso(w.endsAt), runDate: w.runDate } : null);
+// Part 383 (API part 378): a run's id. The API keeps a run as a
+// shift_runs row with a uuid, and answers it only as a check-off's
+// completion.shift_run_id; no read names it (runView carries none). The
+// stub makes one from the run's key, the same every time.
+const RUN_IDS = new Map();
+const runIdOf = (w) => {
+  if (!w) return null;
+  const h = require("crypto").createHash("md5").update("run:" + runKeyOf(w)).digest("hex");
+  const id = h.slice(0, 8) + "-" + h.slice(8, 12) + "-4" + h.slice(13, 16) + "-8" + h.slice(17, 20) + "-" + h.slice(20, 32);
+  RUN_IDS.set(id, w);
+  return id;
+};
+// A check naming a run it could not belong to (routes/clock.js), in the
+// API's own words; and the note the API writes on a session it closed
+// itself (sessions.closedAutomatically), each from its
+// translation/api_words.csv.
+const BAD_SHIFT_RUN = { status: 400, code: "tasks.badShiftRun", en: "That shift is not one this check could belong to. Send it again without the shift.", es: "Ese turno no corresponde a esta tarea marcada. Env\u00edela de nuevo sin el turno." };
+const CLOSED_NOTE = { en: "Closed automatically: nobody tapped End Shift within 4 hours after the shift ended, or within 16 hours of the start with no shift.", es: "Cerrado autom\u00e1ticamente: nadie toc\u00f3 Terminar turno en las 4 horas siguientes al fin del turno, o en las 16 horas desde el inicio sin turno." };
 // A named shift as GET /api/sites/:siteId/shifts answers it (shiftView).
 const namedShiftView = (sh, i, lang) => ({ id: sh.id, label: sh.label, display: shiftNameIn(sh, lang), startTime: sh.start, endTime: sh.end, crossesMidnight: minutesIn(sh.end) <= minutesIn(sh.start), daysOfWeek: null, sortOrder: i, active: true, translations: { es: sh.es || null, fr: sh.fr || null }, updatedAt: "2026-09-30T14:00:00.000Z", updatedBy: null });
 
@@ -1792,6 +1830,28 @@ function makeState(opts) {
     answersLoseNext: Number(o.answersLoseNext) || 0,
     trainingVoided: Number(o.trainingVoided) || 0,
     trainingNone: o.trainingNone === true,
+    // Part 383 (API part 378): outsideCourse marks OUTSIDE_TOPIC as an
+    // outside course; certificates holds every certificate the person
+    // uploaded, as POST /api/training/certificates took it; certificateFault
+    // names a refusal code the route answers next, once.
+    outsideCourse: o.outsideCourse === true,
+    // Part 383 (API part 378, its 6.3 and 6.6): the person's session ended
+    // in the last 24 hours, { site, startedAt, endedAt, byApi } in
+    // instants (byApi: the API closed it, with its note), seeded "closed"
+    // for one the API closed two hours ago at North Building; and how many
+    // checks naming a run other than the session's are refused
+    // tasks.badShiftRun whatever they name.
+    lastEnded: o.lastSession === "closed" ? { id: "sess-0", site: "site-north", startedAt: NOW.getTime() - 15 * 60 * 60 * 1000, endedAt: NOW.getTime() - 2 * 60 * 60 * 1000, byApi: true } : null,
+    badShiftRun: Number(o.badShiftRun) || 0,
+    // Part 383 (API part 378, its 8): an OCSA-FRM-015 filed on its own,
+    // with no inspection, { siteId, at } (walkAlone); what POST
+    // .../drop-safety took, by inspection id (drops); and a refusal code
+    // it answers next, once (dropFault).
+    walkAlone: o.walkAlone ? Object.assign({}, o.walkAlone) : null,
+    drops: [],
+    dropFault: o.dropFault || null,
+    certificates: [],
+    certificateFault: o.certificateFault || null,
     // Step 261: every attempt on a lesson, seeded with the one another
     // person passed and signed, waiting for a supervisor's sign-off.
     trainingAttempts: o.training === true ? [Object.assign({}, TRAINING_AWAITING)] : [],
@@ -3124,7 +3184,14 @@ const TWIN_PAIRS = [
   // Part 375: the training refusals API part 374 added.
   .concat(["training.attemptClosed", "training.signatureNotStored"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]))
   // Part 380: the two refusals of POST /api/uploads/sign (API Round 10).
-  .concat(Object.keys(UPLOAD_SIGN_REFUSALS).map(k => [UPLOAD_SIGN_REFUSALS[k].en, UPLOAD_SIGN_REFUSALS[k].es]));
+  .concat(Object.keys(UPLOAD_SIGN_REFUSALS).map(k => [UPLOAD_SIGN_REFUSALS[k].en, UPLOAD_SIGN_REFUSALS[k].es]))
+  // Part 383: the drop route's refusals (API part 378, its 8.2).
+  .concat(Object.keys(DROP_REFUSALS).map(k => [DROP_REFUSALS[k].en, DROP_REFUSALS[k].es]))
+  // Part 383: a run the check could not belong to, and the note on a
+  // session the API closed itself (API part 378).
+  .concat([[BAD_SHIFT_RUN.en, BAD_SHIFT_RUN.es], [CLOSED_NOTE.en, CLOSED_NOTE.es]])
+  // Part 383: the certificate route's refusals (API part 378).
+  .concat(["training.badDetails", "training.badFile", "training.fileTooLarge", "training.topicNotFound", "training.notOutsideCourse"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -3664,10 +3731,30 @@ function createStub(opts) {
   };
   // Step 255: who may own a finding at the site, as the scheduled read
   // answers owners: the person signed in first, then two invented people.
+  // Part 383 (API part 378, its 8.1): the newest safety walk filed at a
+  // site: a done inspection's (its result's completed_at and
+  // safety_response_id), the walk filed with this run's completion, or
+  // one filed on its own.
+  const lastWalkAt = (siteId) => {
+    const walks = state.inspections.filter(i => String(i.site_id) === String(siteId) && i.status === "completed" && i.result && i.result.safety_response_id && i.result.completed_at)
+      .map(i => ({ at: i.result.completed_at, scheduledInspectionId: String(i.id), responseId: String(i.result.safety_response_id) }));
+    if (state.walkAlone && String(state.walkAlone.siteId) === String(siteId)) walks.push({ at: state.walkAlone.at, scheduledInspectionId: null, responseId: "frm-walk-alone" });
+    const newest = walks.sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+    if (!newest) return null;
+    const day = zoneDate(Date.parse(newest.at));
+    return { at: newest.at, day: day, scheduledInspectionId: newest.scheduledInspectionId, responseId: newest.responseId, thisMonth: day.slice(0, 7) === zoneDate(clockNow()).slice(0, 7) };
+  };
+  // Part 383 (API part 378, its 7, helpers/inspectionFindings.js
+  // ownersFor): every active staff member but test accounts and client
+  // contacts, each with group: assigned (an active assignment at the
+  // site), recent (a session there in the last 30 days, latest first) or
+  // everyone (the rest, by name), in that order. Invented.
   const findingOwners = () => [
-    { id: state.person.id, name: state.person.firstName + " " + state.person.lastName, role: state.person.role },
-    { id: "s-02", name: "Ben Brooks", role: "custodian" },
-    { id: "s-05", name: "Eve Everett", role: "supervisor" },
+    { id: state.person.id, name: state.person.firstName + " " + state.person.lastName, role: state.person.role, group: "assigned" },
+    { id: "s-02", name: "Ben Brooks", role: "custodian", group: "assigned" },
+    { id: "s-04", name: "Dana Dale", role: "custodian", group: "recent" },
+    { id: "s-05", name: "Eve Everett", role: "supervisor", group: "everyone" },
+    { id: "s-06", name: "Finn Ford", role: "day_porter", group: "everyone" },
   ];
   const atOf = (c) => (c.at !== undefined ? c.at : clockNow() - 60 * 1000);
   const firstNameOf = (userId) => (userId === state.person.id ? state.person.firstName : (FIRST_NAMES[userId] || "Someone"));
@@ -3759,9 +3846,30 @@ function createStub(opts) {
 
   // The open session, the way every session answer carries it.
   // Part 375: with the run it joined and endNote (null: a person ends it).
+  // Part 383 (API part 378, its 6.1, helpers/siteShifts.js
+  // shiftFieldsFor): at a site with named shifts, shifts are the named
+  // ones in order, each with its name in the language asked, suggested
+  // the session's run's shift, its window on the company's clock (opening
+  // an hour before its start) and its blocks; a site with blocks and no
+  // named shifts answers as before.
   const sessionOf = (lang) => {
-    const shifts = shiftsFor(state.site, state.sessionStartedAt, lang);
-    return { id: "sess-1", siteId: state.site, startedAt: iso(state.sessionStartedAt), shiftLabel: shifts.length > 0 || namedOf(state.site).length > 0 ? state.shiftLabel : null, shifts: shifts, shiftRun: runView(state.run, lang), endNote: null };
+    const named = namedOf(state.site);
+    const blockShifts = shiftsFor(state.site, state.sessionStartedAt, lang);
+    const shifts = named.length === 0 ? blockShifts : named.map((sh) => {
+      const b = blockShifts.find(x => String(x.label).toLowerCase() === sh.label.toLowerCase());
+      const st = minutesIn(sh.start), en = minutesIn(sh.end);
+      return { label: sh.label, displayLabel: shiftNameIn(sh, lang), suggested: !!state.run && state.run.label === sh.label, window: { opensAt: clockOf(st * 60 - 3600).slice(0, 5), startsAt: sh.start, endsAt: sh.end, crossesMidnight: en <= st }, blocks: b ? b.blocks : [] };
+    });
+    return { id: "sess-1", siteId: state.site, startedAt: iso(state.sessionStartedAt), shiftLabel: shifts.length > 0 || named.length > 0 ? state.shiftLabel : null, shifts: shifts, shiftRun: runView(state.run, lang), endNote: null };
+  };
+  // Part 383 (API part 378, its 6.3 and 6.4): the session that ended, as
+  // lastSession and beside End Shift's 409 carry it, its end note in the
+  // language asked.
+  const endedView = (lang) => {
+    const e = state.lastEnded;
+    if (!e) return null;
+    const site = OPEN_SHIFT[e.site] || {};
+    return { id: e.id, siteId: e.site, siteName: site.siteName || null, startedAt: iso(e.startedAt), endedAt: iso(e.endedAt), endNote: e.byApi ? (lang === "es" ? CLOSED_NOTE.es : CLOSED_NOTE.en) : null };
   };
 
   const clockStatus = (lang) => (state.clockedIn ? {
@@ -3770,7 +3878,7 @@ function createStub(opts) {
     session: sessionOf(lang),
     tasks: progress(),
     shiftRun: runView(state.run, lang),
-  } : { clockedIn: false, shift: null, session: null, tasks: null, shiftRun: null });
+  } : { clockedIn: false, shift: null, session: null, tasks: null, shiftRun: null, lastSession: (() => { const v = endedView(lang); return v && v.endedAt && Date.parse(v.endedAt) > clockNow() - DAY ? { id: v.id, siteName: v.siteName, startedAt: v.startedAt, endedAt: v.endedAt, endNote: v.endNote } : null; })() });
 
   // One site's list, asked for the way the request asks, with Step 118's
   // words on the items that carry them and Step 124's day on every one.
@@ -3805,7 +3913,7 @@ function createStub(opts) {
       const record = mode === "reference";
       // Part 375: the run the list reads, the last shift's check of a daily
       // item, and the item's own shifts, on every row.
-      return Object.assign(row, { period: x.period, dueToday: x.due, doneThisPeriod: record ? null : x.done, shownToday: x.shown, checkedToday: record ? null : x.checked, display: display }, mode ? { checklistMode: mode } : {}, { shiftRun: runView(x.run, lang), doneEarlier: record ? null : x.earlier, shiftLabels: null }, state.rowsCarryDay ? { checklistDay: new Date(checklistDay(clockNow()) * DAY).toISOString().slice(0, 10) } : {});
+      return Object.assign(row, { period: x.period, dueToday: x.due, doneThisPeriod: record ? null : x.done, shownToday: x.shown, checkedToday: record ? null : x.checked, display: display }, mode ? { checklistMode: mode } : {}, { shiftRun: runView(x.run, lang), doneEarlier: record ? null : (x.earlier ? Object.assign({}, x.earlier, { display: (() => { const sh = namedOf(siteId).find(n => n.label === x.earlier.shiftLabel); return sh ? shiftNameIn(sh, lang) : x.earlier.shiftLabel; })() }) : null), shiftLabels: null }, state.rowsCarryDay ? { checklistDay: new Date(checklistDay(clockNow()) * DAY).toISOString().slice(0, 10) } : {});
     });
   };
 
@@ -4162,7 +4270,8 @@ function createStub(opts) {
   function attemptView(a) {
     const topic = TRAINING_ME.items.find(i => i.topicId === a.topicId);
     const lessonOf = TRAINING_LESSONS.find(l => l.versionId === a.versionId);
-    return Object.assign(attemptViewBare(a, topic), lessonOf ? { attemptsLeft: lessonTries(lessonOf).left } : {});
+    // Part 383 (API part 378, its 6.5): attemptsUsed beside attemptsLeft.
+    return Object.assign(attemptViewBare(a, topic), lessonOf ? { attemptsUsed: lessonTries(lessonOf).used, attemptsLeft: lessonTries(lessonOf).left } : {});
   }
   function attemptViewBare(a, topic) {
     return { id: a.id, versionId: a.versionId, topicId: a.topicId, topicName: topic ? topic.name : "", attemptNo: a.attemptNo, locale: a.locale, startedAt: a.startedAt, scoredAt: a.scoredAt, scorePercent: a.scorePercent, passed: a.passed, missed: a.missed.slice(), acknowledgedAt: a.acknowledgedAt, awaitingTrainer: a.awaitingTrainer, trainerSignedAt: a.trainerSignedAt, trainer: a.trainerName ? { name: a.trainerName } : null, demonstrated: a.demonstrated, siteId: a.siteId, voidedAt: a.voidedAt };
@@ -4410,11 +4519,30 @@ function createStub(opts) {
     if (method === "POST" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(pathname)) {
       const id = pathname.split("/")[4];
       const today = checklistDay(clockNow());
+      // Part 383 (API part 378, its 6.6, routes/clock.js): a check may name
+      // the run it was tapped in, shiftRunId. One other than the session's
+      // is taken when it is a run of the session's site, the session
+      // started before it ended, and the tap's own time falls from 30
+      // minutes before its start to its end; else 400 tasks.badShiftRun
+      // keys ["shiftRunId"], nothing written. badShiftRun refuses that many
+      // whatever they name.
+      let run = state.run;
+      const asked = body && body.shiftRunId !== undefined && body.shiftRunId !== null ? String(body.shiftRunId) : null;
+      if (asked !== null && asked !== String(runIdOf(state.run) || "")) {
+        const w = RUN_IDS.get(asked) || null;
+        const tapAt = body && Number.isFinite(Date.parse(body.completedAt)) ? Math.min(Date.parse(body.completedAt), clockNow()) : clockNow();
+        const fits = !!w && state.clockedIn && namedOf(state.site).some(sh => sh.label === w.label) && state.sessionStartedAt < w.endsAt && tapAt >= w.startsAt - 30 * 60000 && tapAt <= w.endsAt;
+        if (state.badShiftRun > 0 || !fits) {
+          if (state.badShiftRun > 0) state.badShiftRun -= 1;
+          return json(BAD_SHIFT_RUN.status, { error: refusalIn(BAD_SHIFT_RUN, languageOf(search, state)), code: BAD_SHIFT_RUN.code, keys: ["shiftRunId"] });
+        }
+        run = w;
+      }
       // Part 375: a daily item at a site with named shifts counts the
       // checks of the session's run only, so the next shift checks it
       // again (201 where it was 409 tasks.alreadyChecked).
       const item = (SITE_TASKS[state.site] || []).find(r => r.id === id);
-      const inRun = (c) => (state.run && item && followsRun(item) ? runKeyOf(runOfCheck(c, state.site)) === runKeyOf(state.run) : checklistDay(atOf(c)) === today);
+      const inRun = (c) => (run && item && followsRun(item) ? runKeyOf(runOfCheck(c, state.site)) === runKeyOf(run) : checklistDay(atOf(c)) === today);
       const mineToday = state.completions.some(c => c.taskId === id && c.userId === state.person.id && inRun(c));
       // Part 354: a step on the site's shared list (none of the person's
       // links) that somebody else already checked today, with no check of
@@ -4427,8 +4555,10 @@ function createStub(opts) {
           return json(409, { error: refusalIn(API_R3.alreadyChecked, languageOf(search, state), { firstName: firstName }), code: API_R3.alreadyChecked.code, firstName: firstName });
         }
       }
-      if (!mineToday) { state.completions.push(Object.assign({ taskId: id, userId: state.person.id, at: clockNow() }, state.run ? { run: state.run } : {})); noteChange(state.site); }
-      return json(state.run ? 201 : 200, { ok: true });
+      if (!mineToday) { state.completions.push(Object.assign({ taskId: id, userId: state.person.id, at: clockNow(), clientId: body && body.clientId ? String(body.clientId) : null, namedRun: asked }, run ? { run: run } : {})); noteChange(state.site); }
+      // The completion as the API answers it, the run it was filed in
+      // named by its id.
+      return json(run ? 201 : 200, { ok: true, completion: { task_template_id: id, client_id: body && body.clientId ? String(body.clientId) : null, completed_at: iso(clockNow()), shift_run_id: run ? runIdOf(run) : null } });
     }
     if (method === "DELETE" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(pathname)) {
       const id = pathname.split("/")[4];
@@ -4533,12 +4663,15 @@ function createStub(opts) {
     if (method === "POST" && /^\/api\/shift-sessions\/[^/]+\/end$/.test(pathname)) {
       if (!state.clockedIn) {
         const r = SHIFT_REFUSALS.find(x => x.key === "ended");
-        return json(r.status, { error: refusalIn(r, languageOf(search, state)), code: r.code });
+        const lang = languageOf(search, state);
+        // Part 383 (API part 378, its 6.3): the session as it stands.
+        return json(r.status, { error: refusalIn(r, lang), code: r.code, session: endedView(lang) });
       }
       const tapped = tapTime(body && body.endedAt);
       const endedAt = Math.max(tapped !== null && tapped >= state.sessionStartedAt ? tapped : clockNow(), state.sessionStartedAt);
       const session = Object.assign(sessionOf(), { endedAt: iso(endedAt) });
       const counted = progress();
+      state.lastEnded = { id: "sess-1", site: state.site, startedAt: state.sessionStartedAt, endedAt: endedAt, byApi: false };
       state.clockedIn = false;
       state.shiftTaps.push({ kind: "end", sent: body ? body.endedAt : undefined, taken: iso(endedAt) });
       return json(200, { today: ymd(new Date(checklistDay(clockNow()) * DAY + 12 * 60 * 60 * 1000)), session: session, tasks: counted });
@@ -5406,6 +5539,14 @@ function createStub(opts) {
       if (!state.training) return json(404, { error: "Not found" });
       if (state.trainingNone) return json(200, { asOf: TRAINING_ME.asOf, items: [], records: [], attempts: [] });
       const me = JSON.parse(JSON.stringify(TRAINING_ME));
+      // Part 383 (API part 378): every GapItem answers outsideCourse; an
+      // uploaded certificate is the item's record, and the item is current.
+      me.items.forEach(item => { item.outsideCourse = state.outsideCourse && item.topicId === OUTSIDE_TOPIC; });
+      state.certificates.forEach(c => {
+        const item = me.items.find(i => i.topicId === c.topicId);
+        if (item) Object.assign(item, { status: "current", completedDate: c.record.completedDate, expiresOn: c.record.expiresOn, recordId: c.record.id });
+        me.records.unshift(Object.assign({}, c.record));
+      });
       me.items.forEach(item => {
         const lesson = TRAINING_LESSONS.find(l => l.topicId === item.topicId);
         if (!lesson) return;
@@ -5683,6 +5824,37 @@ function createStub(opts) {
           acknowledgement: inLoc(lesson.acknowledgement), passPercent: lesson.passPercent, needsTrainer: lesson.needsTrainer, attemptsUsed: tries.used, attemptsLeft: tries.left,
         } });
       }
+      // Part 383 (API part 378, routes/training.js): the person's own
+      // certificate for an outside course, multipart, read in the route's
+      // order: the file's size, the fields (topicId, completedDate no later
+      // than today on the company's clock), the topic, whether it is an
+      // outside course, a per-site topic's siteId, then the file's kind
+      // from its first bytes. 201 { record } as recordView answers it.
+      if (key === "POST /api/training/certificates") {
+        if (state.certificateFault) { const k = state.certificateFault; state.certificateFault = null; return refuse(k, k === "training.badDetails" ? { keys: ["completedDate"] } : k === "training.badFile" ? { keys: ["file"] } : null); }
+        const parts = multipartParts(body, headers);
+        const fieldOf = (n) => { const p = parts.find(x => x.name === n && x.filename === null); return p ? p.bytes.toString("utf8").trim() : ""; };
+        const files = parts.filter(x => x.filename !== null);
+        if (files.length > 1 || files.some(x => x.name !== "file")) return refuse("training.badFile", { keys: ["file"] });
+        if (files[0] && files[0].bytes.length > 10 * 1024 * 1024) return refuse("training.fileTooLarge");
+        const topicId = fieldOf("topicId"), completedDate = fieldOf("completedDate"), siteId = fieldOf("siteId");
+        const keys = [];
+        if (!topicId) keys.push("topicId");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(completedDate) || completedDate > zoneDate(clockNow())) keys.push("completedDate");
+        if (keys.length > 0) return refuse("training.badDetails", { keys: keys });
+        const item = TRAINING_ME.items.find(i => i.topicId === topicId);
+        if (!item) return refuse("training.topicNotFound");
+        if (!(state.outsideCourse && item.topicId === OUTSIDE_TOPIC)) return refuse("training.notOutsideCourse");
+        if (item.siteId && !siteId) return refuse("training.badDetails", { keys: ["siteId"] });
+        const f = files[0] || null;
+        const pdf = !!f && f.bytes.length >= 8 && f.bytes.toString("latin1", 0, 5) === "%PDF-";
+        const pic = f ? sniffImage(f.bytes) : null;
+        const ext = pdf ? "pdf" : pic && (pic.ext === "jpg" || pic.ext === "png") ? pic.ext : pic && pic.heic ? "jpg" : null;
+        if (!ext) return refuse("training.badFile", { keys: ["file"] });
+        const record = { id: "tr-cert-" + (state.certificates.length + 1), name: item.name, completedDate: completedDate, expiresOn: null, score: null, siteName: null, locale: null, certificate: true, certificateBy: "person" };
+        state.certificates.push({ topicId: topicId, completedDate: completedDate, siteId: siteId || null, ext: ext, type: f.type, bytes: f.bytes.length, name: f.filename, record: record });
+        return json(201, { record: Object.assign({}, record) });
+      }
       if (key === "POST /api/training/attempts") {
         const lesson = TRAINING_LESSONS.find(l => body && l.versionId === body.versionId);
         if (!lesson) return refuse("training.noLesson");
@@ -5877,7 +6049,10 @@ function createStub(opts) {
       const want = q.get("status");
       const siteWanted = q.get("site_id");
       const everyone = state.person.role === "admin" || state.person.role === "supervisor";
-      return json(200, state.inspections.filter(i => !i.gone && (!want || i.status === want) && (!siteWanted || String(i.site_id) === siteWanted) && (everyone || i.assigned_to === undefined || i.assigned_to === state.person.id))
+      // An inspection the API no longer has (gone) stays on the list a
+      // phone already holds, and its own read answers 404 (part 383: part
+      // 380 had left it off, so the inspection journey could not reach it).
+      return json(200, state.inspections.filter(i => (!want || i.status === want) && (!siteWanted || String(i.site_id) === siteWanted) && (everyone || i.assigned_to === undefined || i.assigned_to === state.person.id))
         .map(i => Object.assign({}, i, { items: undefined, gone: undefined, result: undefined, result_id: i.result ? i.result.id : null })));
     }
     // Step 324: the walk's safety part started or resumed, as API Step 319
@@ -5986,10 +6161,55 @@ function createStub(opts) {
       one.status = "completed";
       return json(200, { success: true, result: { id: "res-" + one.id, scheduled_inspection_id: one.id, total_score: total } });
     }
+    // Part 383 (API part 378, its 8.1, helpers/inspectionSafety.js
+    // lastWalk): a site's last completed safety walk, the newest submitted
+    // OCSA-FRM-015 there, whoever filed it, with the inspection it was
+    // filed with (null for one filed on its own) and whether it is this
+    // month on the company's clock. 400 inspections.badDetails keys siteId.
+    if (key === "GET /api/inspections/safety-walks") {
+      const siteId = new URLSearchParams(search || "").get("siteId") || "";
+      if (!siteId) return json(400, { error: "Check the details and try again.", code: "inspections.badDetails", keys: ["siteId"] });
+      return json(200, { siteId: siteId, lastWalk: lastWalkAt(siteId) });
+    }
+    // Part 383 (API part 378, its 8.2): an open inspection gives up its
+    // safety walk once another at its site holds this month's: the
+    // inspector or a holder of manage_inspections; 404 inspections.notFound,
+    // 403 access.insufficientPermissions, 409 inspections.completedLocked
+    // (not scheduled), inspections.noSafetyPart (already without it),
+    // inspections.safetyWalkNotDone with lastWalk. Its walk drafts voided.
+    const dropping = method === "POST" ? /^\/api\/inspections\/scheduled\/([^/]+)\/drop-safety$/.exec(pathname) : null;
+    if (dropping) {
+      const refuseDrop = (k, extra) => { const r = DROP_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
+      const one = state.inspections.find(i => i.id === dropping[1] && !i.gone);
+      if (!one) return json(404, { error: INSPECTION_NOT_FOUND[0], code: "inspections.notFound" });
+      const walk = lastWalkAt(one.site_id);
+      // A case's refusal, once. inspections.safetyWalkNotDone comes with the
+      // site's walk voided since it was read, as the office voids a filed
+      // form, so every read after it agrees.
+      if (state.dropFault) {
+        const k = state.dropFault;
+        state.dropFault = null;
+        if (k === "inspections.safetyWalkNotDone") { state.inspections.forEach(i => { if (String(i.site_id) === String(one.site_id) && i.result) i.result = Object.assign({}, i.result, { safety_response_id: null }); }); state.walkAlone = null; }
+        return refuseDrop(k, k === "inspections.safetyWalkNotDone" ? { lastWalk: lastWalkAt(one.site_id) } : null);
+      }
+      const manages = state.person.role === "admin" || state.person.role === "supervisor";
+      if (one.assigned_to !== undefined && one.assigned_to !== null && one.assigned_to !== state.person.id && !manages) return refuseDrop("access.insufficientPermissions");
+      if (one.status !== "scheduled") return refuseDrop("inspections.completedLocked");
+      if (one.with_safety === false) return refuseDrop("inspections.noSafetyPart");
+      if (!walk || !walk.thisMonth || walk.scheduledInspectionId === String(one.id)) return refuseDrop("inspections.safetyWalkNotDone", { lastWalk: walk });
+      one.with_safety = false;
+      const voided = state.walkStarted && !state.walkFiled ? 1 : 0;
+      if (voided) { state.walkStarted = false; state.discarded.push("draft-safety"); }
+      state.drops.push(one.id);
+      return json(200, { inspection: { id: one.id, withSafety: false }, voidedDrafts: voided, lastWalk: walk });
+    }
     if (method === "GET" && /^\/api\/inspections\/scheduled\/[^/]+$/.test(pathname)) {
       const one = state.inspections.find(i => pathname.endsWith("/" + i.id) && !i.gone);
-      if (one && state.findings) return json(200, Object.assign({}, one, { owners: findingOwners() }, state.inspectionWalk && one.with_safety ? { safety: walkSafetyRead(state, one, lang) } : {}));
-      return one ? json(200, one) : json(404, { error: INSPECTION_NOT_FOUND[0] });
+      // Part 383 (API part 378, its 8.1): every read answers its site's
+      // last safety walk as lastSafetyWalk.
+      const walked = one ? { lastSafetyWalk: lastWalkAt(one.site_id) } : {};
+      if (one && state.findings) return json(200, Object.assign({}, one, { owners: findingOwners() }, state.inspectionWalk && one.with_safety ? { safety: walkSafetyRead(state, one, lang) } : {}, walked));
+      return one ? json(200, Object.assign({}, one, walked)) : json(404, { error: INSPECTION_NOT_FOUND[0] });
     }
     if (key === "POST /api/inspections/scheduled" && state.startInspection) {
       const b = body && typeof body === "object" ? body : {};
@@ -6471,7 +6691,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

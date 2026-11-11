@@ -1184,8 +1184,18 @@ const INSPECT_PHOTO_CODES = ["inspections.tooManyPhotos", "inspections.badPhoto"
 const inspectOwnersOf = (d) => {
   const list = d && d.owners;
   if (!Array.isArray(list)) return null;
-  return list.map(x => (x && typeof x === "object" && x.id !== null && x.id !== undefined ? { id: String(x.id), name: typeof x.name === "string" ? x.name.trim() : "", role: typeof x.role === "string" ? x.role : "" } : null)).filter(Boolean);
+  return list.map(x => (x && typeof x === "object" && x.id !== null && x.id !== undefined ? { id: String(x.id), name: typeof x.name === "string" ? x.name.trim() : "", role: typeof x.role === "string" ? x.role : "", group: INSPECT_OWNER_GROUPS.some(g => g.key === x.group) ? x.group : "" } : null)).filter(Boolean);
 };
+// Part 383 (ocsa-api part 378, its 7): each owner carries group, assigned
+// (works at the site), recent (a session there in the last 30 days) or
+// everyone, answered in that order. The picker draws the three under a
+// heading each, searchable across all of them; an answer with no group
+// draws one list as before.
+const INSPECT_OWNER_GROUPS = [
+  { key: "assigned", label: () => tr("Works at this site") },
+  { key: "recent", label: () => tr("Worked here in the last 30 days") },
+  { key: "everyone", label: () => tr("Everyone else") },
+];
 // Under this share of its maximum the API opens a finding whether or not
 // the card is marked (QMS-014 5.2's failed line), so the card says so and
 // asks for its note, which the API requires on every deficient card.
@@ -1339,43 +1349,42 @@ const inspectSafetyToStart = (d) => { const s = inspectSafetyPartOf(d); return !
 // The safety walk once a month (part 380). The owner's decision of Nov
 // 10, 2026, as OCSA-QMS-015 has it (the safety inspection monthly, by the
 // site supervisor): the full safety walk is done once a month per site,
-// and one walk carries it on a visit. Read from what the API answers:
-// GET /api/inspections/scheduled?site_id= lists the site's inspections
-// the caller may read, each with with_safety, its status and its
-// scheduled day but no time; GET /api/inspections/scheduled/:id answers a
-// done one's result, completed_at and safety_response_id, the
-// OCSA-FRM-015 filed with it. So each done one that carried the safety
-// walk, scheduled this month or the month before, is read on its own,
-// newest first, up to SAFETY_WALK_READS, until one filed it this month on
-// the company's clock. { done: { id, name, at } | null, open: { id, name }
+// and one walk carries it on a visit.
+// Part 383: read from what ocsa-api part 378 answers (its 8.1). GET
+// /api/inspections/safety-walks?siteId= answers the site's last completed
+// safety walk, lastWalk { at, day, scheduledInspectionId, responseId,
+// thisMonth } | null, whoever filed it, one filed on its own included,
+// and GET /api/inspections/scheduled/:id answers the same as
+// lastSafetyWalk. The site's list, GET /api/inspections/scheduled?site_id=,
+// is still read for one open at the site that carries the safety walk,
+// which no answer names. { done: { id, at, day } | null, open: { id, name }
 // | null }: open is one at the site started or due by today this month
 // that still carries the safety walk. The id left out is the walk asking.
 // ------------------------------------------------------------
-const SAFETY_WALK_READS = 6;
 function companyYmdAt(ms) {
   const p = {};
   new Intl.DateTimeFormat("en-US", { timeZone: clientConfig.company.timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(ms)).forEach((x) => { p[x.type] = x.value; });
   return p.year + "-" + p.month + "-" + p.day;
 }
-const monthBefore = (ym) => { const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7)); return m === 1 ? (y - 1) + "-12" : y + "-" + String(m - 1).padStart(2, "0"); };
 const carriesSafety = (r) => !!r && r.with_safety !== false && r.withSafety !== false;
+// A site's last safety walk as the API answers it, or null.
+function lastWalkOf(v) {
+  if (!v || typeof v !== "object" || !Number.isFinite(Date.parse(v.at))) return null;
+  const id = v.scheduledInspectionId === null || v.scheduledInspectionId === undefined || v.scheduledInspectionId === "" ? null : String(v.scheduledInspectionId);
+  return { at: v.at, day: typeof v.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.day) ? v.day : companyYmdAt(Date.parse(v.at)), inspectionId: id, responseId: v.responseId === null || v.responseId === undefined ? null : String(v.responseId), thisMonth: v.thisMonth === true };
+}
 async function siteSafetyThisMonth(token, siteId, leaveOut) {
-  const d = await api("/api/inspections/scheduled?site_id=" + encodeURIComponent(siteId), { token });
-  const rows = (Array.isArray(d) ? d : (d && Array.isArray(d.inspections) ? d.inspections : [])).filter(r => r && r.id !== undefined && r.id !== null && String(r.id) !== String(leaveOut || "") && (r.site_id === undefined || String(r.site_id) === String(siteId)));
+  const [walks, list] = await Promise.all([
+    api("/api/inspections/safety-walks?siteId=" + encodeURIComponent(siteId), { token }),
+    api("/api/inspections/scheduled?site_id=" + encodeURIComponent(siteId), { token }).catch(() => null),
+  ]);
+  const last = lastWalkOf(walks && walks.lastWalk);
+  const rows = (Array.isArray(list) ? list : (list && Array.isArray(list.inspections) ? list.inspections : [])).filter(r => r && r.id !== undefined && r.id !== null && String(r.id) !== String(leaveOut || "") && (r.site_id === undefined || String(r.site_id) === String(siteId)));
   const today = companyYmdAt(Date.now());
   const month = today.slice(0, 7);
   const openRow = rows.find(r => carriesSafety(r) && (r.status === "scheduled" || r.status === "in_progress") && inspectionDay(r.scheduled_date).slice(0, 7) === month && inspectionDay(r.scheduled_date) <= today) || null;
   const open = openRow ? { id: String(openRow.id), name: String(openRow.template_name || "") } : null;
-  const candidates = rows.filter(r => carriesSafety(r) && r.status === "completed" && [month, monthBefore(month)].indexOf(inspectionDay(r.scheduled_date).slice(0, 7)) !== -1)
-    .sort((a, b) => (inspectionDay(a.scheduled_date) < inspectionDay(b.scheduled_date) ? 1 : -1)).slice(0, SAFETY_WALK_READS);
-  for (const r of candidates) {
-    const one = await api("/api/inspections/scheduled/" + encodeURIComponent(r.id), { token });
-    const res = one && one.result && typeof one.result === "object" ? one.result : null;
-    const filed = (res && res.safety_response_id) || (one && one.safety && one.safety.responseId);
-    const at = res && res.completed_at ? Date.parse(res.completed_at) : NaN;
-    if (filed && isFinite(at) && companyYmdAt(at).slice(0, 7) === month) return { done: { id: String(r.id), name: String((one && one.template_name) || r.template_name || ""), at: res.completed_at }, open: open };
-  }
-  return { done: null, open: open };
+  return { done: last && last.thisMonth ? { id: last.inspectionId || last.responseId || "", at: last.at, day: last.day } : null, open: open };
 }
 // When a site's safety walk was done, the way the walk says it: the time
 // on the company's clock today, else the day and the time.
@@ -1891,6 +1900,39 @@ function writePendingEnd(v) {
 // still goes, since the API files a late tap in the session open when it
 // was made.
 const tapOfRun = (x, runKey) => !x.counted || (x.run || null) === (runKey || null);
+// Part 383 (ocsa-api part 378, its 6.6): a tap names its run. A check-off
+// may carry shiftRunId, the run it was made in, so a tap sent after a
+// change of shift lands in its own run. No answer the phone reads names a
+// run's id: the status, every session answer and every row of the list
+// carry shiftRun without one (helpers/shiftRuns.js runView). The one that
+// does is a check-off's own, completion.shift_run_id, the run the API
+// filed it in. So the id is learned from the first check of a run the API
+// takes while the screen still shows that run, kept on this phone by the
+// run's key, and sent with every check made in the run from then on, the
+// ones kept for no signal included. An uncheck carries none (the route
+// takes none). A tap kept by an older build has no runId of its own and
+// is sent as it is.
+const RUN_IDS_KEY = "ocsa-shift-run-ids";
+const RUN_IDS_MAX = 6;
+const RUN_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function readRunIds() {
+  try { const v = JSON.parse(window.localStorage.getItem(RUN_IDS_KEY) || "null"); return v && typeof v === "object" && !Array.isArray(v) ? v : {}; } catch (e) { return {}; }
+}
+function keepRunId(key, id) {
+  try {
+    const all = readRunIds();
+    all[key] = { id: String(id), at: Date.now() };
+    Object.keys(all).sort((a, b) => (Number(all[b].at) || 0) - (Number(all[a].at) || 0)).slice(RUN_IDS_MAX).forEach(k => { delete all[k]; });
+    window.localStorage.setItem(RUN_IDS_KEY, JSON.stringify(all));
+  } catch (e) {}
+}
+function forgetRunId(key, id) {
+  try { const all = readRunIds(); if (all[key] && all[key].id === id) { delete all[key]; window.localStorage.setItem(RUN_IDS_KEY, JSON.stringify(all)); } } catch (e) {}
+}
+const runIdOf = (key) => { if (!key) return null; const v = readRunIds()[key]; return v && typeof v.id === "string" && RUN_ID_RE.test(v.id) ? v.id : null; };
+// The refusal of a run the check could not belong to (400, keys
+// shiftRunId): that tap is sent once more without it.
+const BAD_SHIFT_RUN = "tasks.badShiftRun";
 function pendingTicksFor(list, siteId, userId, runKey) {
   const m = new Map();
   (list || []).forEach(x => { if ((!siteId || String(x.siteId) === String(siteId)) && (!userId || !x.userId || String(x.userId) === String(userId)) && tapOfRun(x, runKey)) m.set(x.taskId, x.done); });
@@ -2648,6 +2690,9 @@ export default function OCSAStaffPortal() {
   // site and language from GET /api/sites/:siteId/shifts while the
   // session is in a run, { site, lang, list }, or null.
   const runNow = runKeyOf(statusRun(clockStatus));
+  // The run on the screen now, for a send already under way.
+  const runNowRef = useRef(runNow);
+  runNowRef.current = runNow;
   const shiftSiteId = clockStatus && clockStatus.clockedIn && clockStatus.shift ? String(clockStatus.shift.siteId) : null;
   const sessionIdNow = clockStatus && clockStatus.clockedIn ? String((clockStatus.session && clockStatus.session.id) || (clockStatus.shift && (clockStatus.shift.sessionId || clockStatus.shift.id)) || "") || null : null;
   const [namedShifts, setNamedShifts] = useState(null);
@@ -3165,7 +3210,7 @@ export default function OCSAStaffPortal() {
     setShiftAsk(null); setShiftFault(null); setTickOverrides(new Map());
     const endedAt = data && data.session ? data.session.endedAt : null;
     // Part 375: a session the API closed reads when, and the API's note.
-    const closed = sessionEndLine(data && data.session);
+    const closed = sessionEndNote(data && data.session) ? sessionEndLine(data.session) : null;
     showToast(closed || (endedAt ? tr("Shift ended at {time}", { time: formatTime(endedAt) }) : tr("Shift ended")), closed ? "notice" : undefined);
   };
   const sendingEnd = useRef(false);
@@ -3189,9 +3234,10 @@ export default function OCSAStaffPortal() {
         putEnd(null);
         setPendingSite(null); setStartBlock(null); setTasks(null);
         try { await refreshClockStatus(); } catch (e) { setClockStatus({ clockedIn: false, shift: null, session: null }); setSelectedSite(null); }
-        // Part 375: ended by the API (endNote), when the answer carries the
-        // session, says so with its note.
-        const closed = sessionEndLine(err.body && err.body.session);
+        // Part 383: the answer carries the session (ocsa-api part 378):
+        // when it ended, and its end note, said as a notice. A send whose
+        // first answer was lost reads Shift ended as before.
+        const closed = Number(end.tries) > 0 && !sessionEndNote(err.body && err.body.session) ? null : sessionEndLine(err.body && err.body.session);
         showToast(closed || tr(Number(end.tries) > 0 ? "Shift ended" : "This shift was already ended"), closed ? "notice" : undefined);
       } else if (keepsTap(err)) {
         if (endRef.current) putEnd({ ...endRef.current, tries: (Number(endRef.current.tries) || 0) + 1 });
@@ -3241,7 +3287,9 @@ export default function OCSAStaffPortal() {
   // the list kept for no signal. A tap of the last run's daily list still
   // waiting to go is dropped when the same session moved to the new run,
   // since the API would file it there; under an earlier session it still
-  // goes, filed in that session, and is never drawn here.
+  // goes, filed in that session, and is never drawn here. Since part 383 a
+  // check that names its run (runId) is kept and goes with it, filed in
+  // the run it was made in.
   const lastRun = useRef(null);
   useEffect(() => {
     if (!runNow) return;
@@ -3251,7 +3299,7 @@ export default function OCSAStaffPortal() {
     setTaken(new Map()); setTickOverrides(new Map());
     setTasks(null); setTasksDay(null); tasksAsked.current = null;
     if (was.session && was.session === sessionIdNow) {
-      const left = pendingRef.current.filter(x => !(x.counted && x.run === was.run && String(x.sessionId || "") === was.session));
+      const left = pendingRef.current.filter(x => !(x.counted && x.run === was.run && String(x.sessionId || "") === was.session && !(x.done && x.runId)));
       if (left.length !== pendingRef.current.length) putPending(left);
     }
     dropKeptRuns(shiftSiteId, runNow);
@@ -3278,15 +3326,20 @@ export default function OCSAStaffPortal() {
   // The site's named shifts, for the sheet and for naming the last shift,
   // read once per site and language while the session is in a run. A read
   // that fails leaves the sheet with the session's own shifts.
+  // Part 383 (ocsa-api part 378, its 6.1): at a site with named shifts
+  // every session answer carries them as session.shifts, each with label,
+  // displayLabel, suggested and window, so this read is made only for a
+  // session in a run whose answer carries no shifts.
+  const sessionShiftCount = clockStatus && clockStatus.clockedIn && clockStatus.session && Array.isArray(clockStatus.session.shifts) ? clockStatus.session.shifts.length : 0;
   useEffect(() => {
-    if (!runNow || !shiftSiteId || !token) return undefined;
+    if (!runNow || !shiftSiteId || !token || sessionShiftCount > 0) return undefined;
     if (namedShifts && namedShifts.site === shiftSiteId && namedShifts.lang === language) return undefined;
     let on = true;
     api("/api/sites/" + encodeURIComponent(shiftSiteId) + "/shifts?locale=" + languageToSend(language), { token })
       .then(d => { if (on) setNamedShifts({ site: shiftSiteId, lang: language, list: namedShiftsOf(d) }); })
       .catch(() => {});
     return () => { on = false; };
-  }, [runNow, shiftSiteId, language, token]);
+  }, [runNow, shiftSiteId, language, token, sessionShiftCount > 0]);
   // again reads the list once more even while the same request is in
   // flight, which a check or an uncheck needs: the list then carries what
   // the API says was done. Only the newest request's answer is taken.
@@ -3321,7 +3374,8 @@ export default function OCSAStaffPortal() {
     // Task completed or Task unchecked once it is in. Since part 375 it
     // also keeps whether it is a day's item, the shift run and the session
     // it was made in, so it is never drawn on the next run's list.
-    const tap = { taskId: taskId, siteId: clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, userId: user ? user.id : null, clientId: newClientId(), completedAt: new Date().toISOString(), done: !done, counted: counted, run: runNow, sessionId: sessionIdNow };
+    // Part 383: a check made in a run whose id this phone knows names it.
+    const tap = { taskId: taskId, siteId: clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, userId: user ? user.id : null, clientId: newClientId(), completedAt: new Date().toISOString(), done: !done, counted: counted, run: runNow, sessionId: sessionIdNow, runId: !done && runNow ? runIdOf(runNow) : null };
     if (!pendingRef.current.some(x => x.tries > 0 && mine(x))) freshTaps.current.add(tap.clientId);
     putPending(pendingRef.current.concat([tap]));
     sendPending();
@@ -3355,15 +3409,18 @@ export default function OCSAStaffPortal() {
         const tap = pendingRef.current.find(mine);
         if (!tap) break;
         const fresh = freshTaps.current.delete(tap.clientId);
-        let taken = false, kept = false, doneBy = null;
+        let taken = false, kept = false, doneBy = null, bare = false, answer = null;
         inFlightTaskIds.current.add(tap.taskId);
         try {
-          await api(checkoffPath(tap.taskId), { method: tap.done ? "POST" : "DELETE", body: { clientId: tap.clientId, completedAt: tap.completedAt }, token: tok });
+          answer = await api(checkoffPath(tap.taskId), { method: tap.done ? "POST" : "DELETE", body: Object.assign({ clientId: tap.clientId, completedAt: tap.completedAt }, tap.done && tap.runId ? { shiftRunId: tap.runId } : {}), token: tok });
           taken = true;
         } catch (err) {
           // An answer whose words could not be read is still the API's: a
           // 2xx is a tap it took.
           if (err && err.status >= 200 && err.status < 300) taken = true;
+          // Part 383: a run the check could not belong to: once more
+          // without it, and the run's id is not used again.
+          else if (tap.done && tap.runId && err && err.status === 400 && err.code === BAD_SHIFT_RUN) bare = true;
           // Somebody else at the site checked the step first (API part
           // 354, 409 tasks.alreadyChecked with their firstName, nothing
           // written): the step is theirs, so two people tapping one step
@@ -3379,6 +3436,20 @@ export default function OCSAStaffPortal() {
           freshTaps.current.clear();
           putPending(pendingRef.current.map(x => x.clientId === tap.clientId ? { ...x, tries: (Number(x.tries) || 0) + 1 } : x));
           break;
+        }
+        if (bare) {
+          if (fresh) freshTaps.current.add(tap.clientId);
+          forgetRunId(tap.run, tap.runId);
+          putPending(pendingRef.current.map(x => (x.done && x.run === tap.run && x.runId === tap.runId ? { ...x, runId: null, noRunId: true } : x)));
+          continue;
+        }
+        // Part 383: the run's id, from the first check the API took in the
+        // run the screen still shows, kept and given to the checks of that
+        // run still waiting.
+        const learned = answer && answer.completion && typeof answer.completion.shift_run_id === "string" ? answer.completion.shift_run_id : null;
+        if (taken && tap.done && !tap.runId && tap.run && tap.run === runNowRef.current && learned && RUN_ID_RE.test(learned)) {
+          keepRunId(tap.run, learned);
+          putPending(pendingRef.current.map(x => (x.done && x.run === tap.run && Object.prototype.hasOwnProperty.call(x, "runId") && !x.runId && !x.noRunId ? { ...x, runId: learned } : x)));
         }
         answered += 1;
         if (taken && fresh) showToast(tr(tap.done ? "Task completed" : "Task unchecked"));
@@ -3568,6 +3639,11 @@ export default function OCSAStaffPortal() {
   const openNewChat = (ch) => { setChannels(prev => (Array.isArray(prev) && !prev.some(c => c && c.id === ch.id) ? prev.concat([ch]) : prev)); chooseChat(ch.id); loadChannels(); };
   // Opens the place a notice names: a tab, Chat on one chat, or the
   // announcement sheet. A chat already open is read again.
+  // PORT-61 (part 383): a notice opened from the bell or a phone alert
+  // asks first, as the bottom bar does (PORT-21), when a form is open, so
+  // what was typed is saved or kept before the place opens. An
+  // announcement opens over the screen and asks nothing.
+  const openPlaceAsked = (place) => { if (place && !place.announcement) leaveThen(() => openPlace(place)); else openPlace(place); };
   const openPlace = (place) => {
     if (!place) return;
     if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
@@ -3725,7 +3801,7 @@ export default function OCSAStaffPortal() {
     if (place && (place.hrCase || place.concern || place.report || place.maintenance) && caps === null) return;
     setOpenAsk(null);
     markAlertRead(openAsk);
-    if (place) openPlace(place); else if (openAsk.subjectType) setNotifOpen(true);
+    if (place) openPlaceAsked(place); else if (openAsk.subjectType) setNotifOpen(true);
   }, [openAsk, booting, screen, token, caps]);
   // A tapped phone alert marks its notice read, as a tap on it in the bell
   // does (PORT-34), and the bell's count is read again. Since API part 370
@@ -4248,7 +4324,7 @@ export default function OCSAStaffPortal() {
   // Part 375: at a site with named shifts the choices also carry the
   // site's named shifts, and the API's pick at Start Shift is the shift
   // the session already carries, so one tap on Use this shift keeps it.
-  const siteShifts = shiftChoicesOf(sessionShifts(clockStatus), runNow && namedShifts && namedShifts.site === shiftSiteId ? namedShifts.list : null);
+  const siteShifts = shiftChoicesOf(sessionShifts(clockStatus), runNow && sessionShiftCount === 0 && namedShifts && namedShifts.site === shiftSiteId ? namedShifts.list : null);
   const shiftSheet = siteShifts.length > 0 && (!!shiftAsk || !sessionShiftLabel(clockStatus))
     ? { shifts: siteShifts, mode: shiftAsk || "ask", busy: shiftBusy, fault: shiftFault, onUse: chooseShift, onChoose: () => setShiftFault(null), picked: !!statusRun(clockStatus) }
     : null;
@@ -4418,7 +4494,7 @@ export default function OCSAStaffPortal() {
           caps={caps}
           refused={refusedReads}
           onUnreadChanged={setUnread}
-          onOpen={openPlace}
+          onOpen={openPlaceAsked}
           onClose={() => { setNotifOpen(false); refreshUnread(); }}
         />
       )}
@@ -5962,6 +6038,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
   const { textSize: clockTextSize } = useContext(TextSizeCtx);
   const clockZoom = zoomOf(clockTextSize);
   const ci = clockStatus?.clockedIn;
+  const lastShift = lastSessionOf(clockStatus);
   const elapsed = ci && clockStatus.shift ? Math.floor((currentTime - new Date(clockStatus.shift.clockInTime)) / 1000) : 0;
   const h = Math.floor(elapsed / 3600), m = Math.floor((elapsed % 3600) / 60), s = elapsed % 60;
   const pad = (n) => String(n).padStart(2, "0");
@@ -6043,6 +6120,18 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
         <div style={{ fontSize: 11, color: t.textMut, marginBottom: 6, letterSpacing: "0.3px", fontFamily: FONT_BODY }}>{formatDate(currentTime)}</div>
         <div style={{ fontSize: 44, fontWeight: 600, color: t.text, letterSpacing: "-0.5px", lineHeight: 1, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{formatTime(currentTime)}</div>
       </div>
+      {/* Part 383 (ocsa-api part 378, its 6.3): with no shift open, the
+          person's last shift, ended in the last 24 hours, says when it
+          ended and its end note, the API's when it closed it itself. */}
+      {!ci && lastShift && (
+        <div role="note" data-last-session={lastShift.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 14px", marginBottom: 16, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow, fontFamily: FONT_BODY }}>
+          <ClockIco sz={16} c={t.textSec} style={{ flexShrink: 0, marginTop: 2 }} />
+          <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
+            <span style={{ display: "block", fontSize: 13, color: t.text, lineHeight: 1.45 }}>{oneStop(lastShift.siteName ? tr("Your last shift, at {site}, ended at {time}.", { site: lastShift.siteName, time: endedWhen(lastShift.endedAt) }) : tr("Your last shift ended at {time}.", { time: endedWhen(lastShift.endedAt) }))}</span>
+            {lastShift.endNote && <span data-last-session-note="1" style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.45 }}>{lastShift.endNote}</span>}
+          </span>
+        </div>
+      )}
       {ci && clockStatus.shift && (
         <div style={{ textAlign: "center", padding: "20px 18px", marginBottom: 16, background: t.card, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
           <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 8, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Time on Site")}</div>
@@ -6129,16 +6218,19 @@ const shiftRunLine = (run) => tr("{shift}, {start} to {end}", { shift: run.displ
 // What the last shift did (doneEarlier on a daily item): the latest check
 // before this run began, within a day. Information only: it never counts
 // as done, and the box stays open for this run.
+// Part 383 (ocsa-api part 378, its 6.2): display, the shift's name in the
+// language asked for, beside shiftLabel.
 function doneEarlierOf(v) {
   if (!v || typeof v !== "object" || !Number.isFinite(Date.parse(v.at))) return null;
-  return { at: v.at, shiftLabel: typeof v.shiftLabel === "string" && v.shiftLabel.trim() ? v.shiftLabel.trim() : null };
+  return { at: v.at, shiftLabel: typeof v.shiftLabel === "string" && v.shiftLabel.trim() ? v.shiftLabel.trim() : null, display: typeof v.display === "string" && v.display.trim() ? v.display.trim() : null };
 }
-// The line under the item: the shift by its name in the person's
-// language where this phone knows it, else as the API wrote it.
+// The line under the item: the shift by the name the API gives it, else
+// by its name in the person's language where this phone knows it, else
+// as the API wrote its label.
 function doneEarlierLine(early, names) {
   const time = companyClockTime(early.at);
-  if (!early.shiftLabel) return tr("Done before this shift, at {time}", { time: time });
-  const name = names && names.get(early.shiftLabel.toLowerCase());
+  if (!early.shiftLabel && !early.display) return tr("Done before this shift, at {time}", { time: time });
+  const name = early.display || (names && names.get(early.shiftLabel.toLowerCase()));
   return tr("{shift} did this at {time}", { shift: name || early.shiftLabel, time: time });
 }
 // The shifts the sheet offers: the site's shifts from its blocks, as the
@@ -6165,12 +6257,29 @@ function namedShiftsOf(d) {
   const list = d && Array.isArray(d.shifts) ? d.shifts : [];
   return list.filter(s => s && typeof s.label === "string" && s.label.trim() && s.active !== false).map(s => ({ label: s.label.trim(), display: typeof s.display === "string" && s.display.trim() ? s.display.trim() : s.label.trim(), startTime: typeof s.startTime === "string" ? s.startTime : null, endTime: typeof s.endTime === "string" ? s.endTime : null }));
 }
-// A session the API closed (part 374's session_close, endNote set): when
-// it was closed, on the company's clock, and the API's note.
+// A session that already ended, as End Shift's 409 SESSION_ALREADY_ENDED
+// carries it since ocsa-api part 378 (its 6.3): when it ended, on the
+// company's clock with the day when it was not today, and its end note,
+// which the API writes when it closed the session itself (part 374's
+// session_close), in the request's language (its 6.4). null for an answer
+// that carries no session.
+const endedWhen = (at) => safetyWalkWhen(at);
+// A sentence ending in a time whose own words end with a period, such as
+// Spanish p.m., keeps one.
+const oneStop = (line) => String(line).replace(/\.\.$/, ".");
+const sessionEndNote = (session) => (session && typeof session.endNote === "string" && session.endNote.trim() ? session.endNote.trim() : "");
 function sessionEndLine(session) {
-  if (!session || typeof session !== "object" || typeof session.endNote !== "string" || !session.endNote.trim()) return null;
-  const at = Number.isFinite(Date.parse(session.endedAt)) ? companyClockTime(session.endedAt) : "";
-  return (at ? tr("Closed automatically at {time}.", { time: at }) : tr("Closed automatically.")) + " " + session.endNote.trim();
+  if (!session || typeof session !== "object" || !Number.isFinite(Date.parse(session.endedAt))) return null;
+  const note = sessionEndNote(session);
+  return oneStop(tr("This shift already ended at {time}.", { time: endedWhen(session.endedAt) })) + (note ? " " + note : "");
+}
+// The person's last session, ended in the last 24 hours, as GET
+// /api/clock/status answers it beside no open session (lastSession, its
+// 6.3): { id, siteName, startedAt, endedAt, endNote }, or null.
+function lastSessionOf(cs) {
+  const v = cs && !cs.clockedIn && cs.lastSession && typeof cs.lastSession === "object" ? cs.lastSession : null;
+  if (!v || !Number.isFinite(Date.parse(v.endedAt))) return null;
+  return { id: v.id === undefined || v.id === null ? "" : String(v.id), siteName: typeof v.siteName === "string" ? v.siteName.trim() : "", endedAt: v.endedAt, endNote: sessionEndNote(v) };
 }
 
 // Which list the checklist reads, decided here and nowhere else. A
@@ -7275,6 +7384,8 @@ const chatPath = (path) => path + "?locale=" + languageToSend();
 // The most a message holds. The API turns away more than this, so the box
 // stops here and only a screen older than this build ever meets that.
 const CHAT_TEXT_MAX = 2000;
+// The row of private chats takes a search once it holds more than this.
+const PRIVATE_SEARCH_FROM = 6;
 // A refusal that carries one of Chat's codes is told in the API's own
 // words, which come in the language the call asked for.
 const chatSaidOf = (err) => (err && err.message !== ERR_OFFLINE && typeof err.code === "string" && err.code.indexOf("chat.") === 0 && typeof err.message === "string" && err.message.trim() ? err.message.trim() : null);
@@ -7390,6 +7501,13 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, message
   const directs = directChatsOf(list);
   const projectChats = projectChatsOf(list);
   const privates = privateChatsOf(list);
+  // PORT-43 (part 383): a long row of private chats, one per staff member
+  // for the office, takes a search by name, as New message does. The
+  // person's own private line, and the one open, always stay in the row.
+  const [privateQuery, setPrivateQuery] = useState("");
+  const privateNeedle = privateQuery.trim().toLowerCase();
+  const privateSearch = privates.length > PRIVATE_SEARCH_FROM;
+  const privatesShown = privateSearch && privateNeedle ? privates.filter(ch => isOwnPrivate(ch) || ch.id === activeChannel || pickMatches(ch.name, privateNeedle)) : privates;
   const active = list.find(c => c.id === activeChannel) || null;
   const isDm = !!active && active.type === "admin_dm";
   // The words for a chat with admin are the person's own private chat's.
@@ -7525,10 +7643,12 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, message
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={activeChannel === ch.id} style={mkTapFrame({ maxWidth: "100%" })}><span style={{ display: "inline-flex", alignItems: "center", padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 600 : 500, fontFamily: FONT_HEAD, textAlign: "left", overflowWrap: "anywhere" }}>{ch.name || ch.siteName}{ch.unreadCount > 0 && <span style={{ marginLeft: 6, background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{badgeText(ch.unreadCount)}</span>}</span></button>))}</div>
         {directs.length > 0 && chatGroup(directs, "ocsa-direct-chats", tr("Direct messages"), PersonIco)}
         {projectChats.length > 0 && chatGroup(projectChats, "ocsa-project-chats", tr("Projects"), FolderIco)}
-        {privates.length > 0 && (<div>
+        {privates.length > 0 && (<div data-private-chats="1">
           <div id="ocsa-private-chats" style={{ fontSize: 10, fontWeight: 600, color: t.textMut, textTransform: "uppercase", letterSpacing: "1px", margin: "2px 0 6px", fontFamily: FONT_HEAD }}>{tr("Private chats")}</div>
+          {privateSearch && <input type="text" data-private-search="1" value={privateQuery} onChange={e => setPrivateQuery(e.target.value.slice(0, 80))} placeholder={tr("Search by name")} aria-label={tr("Search by name")} style={{ ...mkInput(t), marginBottom: 8 }} />}
+          {privateSearch && privateNeedle && !privates.some(ch => !isOwnPrivate(ch) && pickMatches(ch.name, privateNeedle)) && <div data-private-none="1" style={{ ...mkHelp(t), marginTop: 0, marginBottom: 8 }}>{tr("No one matches that name.")}</div>}
           <div role="group" aria-labelledby="ocsa-private-chats" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
-            {privates.map((ch) => {
+            {privatesShown.map((ch) => {
               const on = activeChannel === ch.id;
               const own = isOwnPrivate(ch);
               const alone = privates.length === 1;
@@ -10221,8 +10341,10 @@ function trainingItemOf(x) {
   // in the category; and the observation checklist whose sign-off stands
   // in for this topic's.
   const signoff = x.signoffBy && typeof x.signoffBy === "object" && typeof x.signoffBy.name === "string" && x.signoffBy.name.trim() ? { topicId: trainingId(x.signoffBy, ["topicId"]), name: x.signoffBy.name.trim() } : null;
+  // Part 383 (API part 378): outsideCourse, the topic marked as a course
+  // taken elsewhere, whose certificate the person uploads themselves.
   return { id: topicId + ":" + siteId, topicId: topicId, siteId: siteId, name: name, docCode: str("docCode"), docSection: str("docSection"), safetyCritical: x.safetyCritical === true, siteName: str("siteName"), status: str("status"), completedDate: str("completedDate"), expiresOn: str("expiresOn"), linkUrl: /^https:\/\//i.test(link) ? link : "", attemptId: trainingId(x, ["attemptId"]), recordId: trainingId(x, ["recordId"]), lesson: trainingLessonLinkOf(x.lesson),
-    category: str("category") || "other", sortOrder: trainingNum(x.sortOrder), needsTrainer: x.needsTrainer === true, signoffBy: signoff };
+    category: str("category") || "other", sortOrder: trainingNum(x.sortOrder), needsTrainer: x.needsTrainer === true, signoffBy: signoff, outsideCourse: x.outsideCourse === true };
 }
 // One of the portal's categories as GET /api/training/me answers it: the
 // counts of the person's items in it, and the first module still to do.
@@ -10260,7 +10382,11 @@ function trainingAttemptOf(x) {
   if (!id) return null;
   const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
   const trainer = x.trainer && typeof x.trainer === "object" && typeof x.trainer.name === "string" ? x.trainer.name.trim() : "";
-  return { id: id, versionId: trainingId(x, ["versionId"]), topicId: trainingId(x, ["topicId"]), topicName: str("topicName"), attemptNo: trainingNum(x.attemptNo), locale: str("locale"), scoredAt: str("scoredAt"), scorePercent: trainingNum(x.scorePercent), passed: x.passed === true ? true : x.passed === false ? false : null, missed: Array.isArray(x.missed) ? x.missed.map(String) : [], acknowledgedAt: str("acknowledgedAt"), awaitingTrainer: x.awaitingTrainer === true, trainerSignedAt: str("trainerSignedAt"), trainerName: trainer, demonstrated: x.demonstrated === true, siteId: trainingId(x, ["siteId"]), voidedAt: str("voidedAt") };
+  // Part 383 (ocsa-api part 378, its 6.5): every Attempt answer carries
+  // attemptsUsed beside attemptsLeft; null where one does not.
+  const used = trainingNum(x.attemptsUsed), left = trainingNum(x.attemptsLeft);
+  return { id: id, versionId: trainingId(x, ["versionId"]), topicId: trainingId(x, ["topicId"]), topicName: str("topicName"), attemptNo: trainingNum(x.attemptNo), locale: str("locale"), scoredAt: str("scoredAt"), scorePercent: trainingNum(x.scorePercent), passed: x.passed === true ? true : x.passed === false ? false : null, missed: Array.isArray(x.missed) ? x.missed.map(String) : [], acknowledgedAt: str("acknowledgedAt"), awaitingTrainer: x.awaitingTrainer === true, trainerSignedAt: str("trainerSignedAt"), trainerName: trainer, demonstrated: x.demonstrated === true, siteId: trainingId(x, ["siteId"]), voidedAt: str("voidedAt"),
+    attemptsUsed: used === null ? null : Math.max(0, used), attemptsLeft: left === null ? null : Math.max(0, left) };
 }
 // The answer as the screen reads it, or null for one that holds no list.
 function trainingOf(d) {
@@ -10339,6 +10465,122 @@ const trainingTries = (n) => (n === 1 ? tr("1 try left") : tr("{n} tries left", 
 // their try back but keep their numbers, which can run past 100.
 const trainingTriesUsed = (n) => tr("Tries used: {n}", { n: Math.max(0, Number(n) || 0) });
 
+// ------------------------------------------------------------
+// A certificate from an outside course (part 383, section 1; ocsa-api
+// part 378, POST /api/training/certificates). An item whose topic the
+// office marked as an outside course (outsideCourse) offers Upload your
+// certificate: the file, taken or picked (a PDF, a JPEG or a PNG; a photo
+// is made ready as every photo is, an iPhone HEIC made a JPEG on the
+// phone first), and the day the course was finished, no later than today
+// on the company's clock. It goes once, multipart: file, topicId,
+// completedDate, and siteId for a per-site item. 201 { record }: the item
+// reads done. Every refusal is the API's own words: under the field its
+// keys name (training.badDetails), under the file (training.badFile,
+// training.fileTooLarge), or above the button (training.topicNotFound,
+// training.notOutsideCourse, and the rest).
+// ------------------------------------------------------------
+const CERT_MAX_BYTES = 10 * 1024 * 1024;
+const certIsPdf = (f) => /^application\/pdf$/i.test(f.type || "") || /\.pdf$/i.test(f.name || "");
+const CERT_FIELD_KEYS = { file: "file", completedDate: "completedDate" };
+function certFaults(err) {
+  if (err && err.message === ERR_OFFLINE) return { above: tr(ERR_OFFLINE) };
+  const said = fkSaidOf(err) || tr("Your certificate was not sent. Try again.");
+  const code = err && err.code;
+  if (code === "training.badFile" || code === "training.fileTooLarge") return { file: said };
+  if (code === "training.badDetails") {
+    const keys = Array.isArray(err.body && err.body.keys) ? err.body.keys.map(String) : [];
+    const out = {};
+    keys.forEach(k => { if (CERT_FIELD_KEYS[k]) out[CERT_FIELD_KEYS[k]] = said; });
+    if (keys.length === 0 || keys.some(k => !CERT_FIELD_KEYS[k])) out.above = said;
+    return out;
+  }
+  return { above: said };
+}
+function TrainingCertificate({ token, item, onSent, t }) {
+  const [open, setOpen] = useState(false);
+  const [file, setFile] = useState(null);
+  const [day, setDay] = useState("");
+  const [state, setState] = useState("idle");
+  const [faults, setFaults] = useState({});
+  const photoRef = useRef(null), docRef = useRef(null);
+  // One tap, one send: a second tap before the screen redraws sends nothing.
+  const sending = useRef(false);
+  useBusy("certificate " + item.id, open && (!!file || !!day));
+  const today = companyYmdAt(Date.now());
+  const tooBig = () => tr("This file is over {mb} MB. Choose a smaller photo or file.", { mb: 10 });
+  const choose = async (f) => {
+    if (!f) return;
+    setFaults({});
+    if (certIsPdf(f)) { if (f.size > CERT_MAX_BYTES) { setFile(null); setFaults({ file: tooBig() }); } else setFile(f); return; }
+    setState("preparing");
+    try {
+      const ready = await prepareFormPhoto(f);
+      if (ready.size > CERT_MAX_BYTES) { setFile(null); setFaults({ file: tooBig() }); } else setFile(ready);
+    } catch (e) { setFile(null); setFaults({ file: tr(photoFaultOf(e)) }); }
+    setState("idle");
+  };
+  const close = () => { if (state === "sending") return; setOpen(false); setFile(null); setDay(""); setFaults({}); };
+  const send = async () => {
+    if (sending.current || state !== "idle") return;
+    const miss = {};
+    if (!file) miss.file = tr("Choose a file first.");
+    if (!YMD_RE.test(day) || day > today) miss.completedDate = tr("Choose the day you finished the course.");
+    if (Object.keys(miss).length > 0) { setFaults(miss); return; }
+    sending.current = true;
+    setState("sending"); setFaults({});
+    try {
+      const fields = { topicId: item.topicId, completedDate: day };
+      if (item.siteId) fields.siteId = item.siteId;
+      const d = await apiUpload("/api/training/certificates", "file", [file], { token, fields: fields });
+      setOpen(false); setFile(null); setDay("");
+      onSent(item, d && d.record && typeof d.record === "object" ? d.record : null, day);
+    } catch (err) {
+      setFaults(certFaults(err));
+    } finally { sending.current = false; setState("idle"); }
+  };
+  const off = state !== "idle";
+  const pickSt = { width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", marginBottom: 8, borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: off ? "default" : "pointer", fontFamily: FONT_HEAD, textAlign: "left" };
+  const pick = (ref) => { if (ref.current && !off) ref.current.click(); };
+  if (!open) {
+    return (
+      <div style={{ display: "flex", marginTop: 10 }}>
+        <button type="button" data-training-cert-open={item.id} onClick={() => setOpen(true)} style={trainingGoldBtn}>{tr("Upload your certificate")}</button>
+      </div>
+    );
+  }
+  return (
+    <div role="group" aria-label={tr("Upload your certificate")} data-training-cert={item.id} style={{ marginTop: 10, padding: "12px", borderRadius: R.md, background: t.cardAlt, border: "1px solid " + t.goldBorder }}>
+      <div style={mkLabel(t)}>{tr("Your certificate")}</div>
+      {/* No capture attribute, so the phone offers the camera and the
+          gallery both; the second takes a PDF from the phone's files. */}
+      <input ref={photoRef} type="file" accept="image/*" data-training-cert-photo={item.id} style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; choose(f); }} />
+      <input ref={docRef} type="file" accept="application/pdf,image/jpeg,image/png,image/heic,image/heif,.pdf,.heic,.heif" data-training-cert-file={item.id} style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; choose(f); }} />
+      <button type="button" onClick={() => pick(photoRef)} aria-disabled={off} style={pickSt}><CamIco sz={16} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("Take photo or choose from gallery")}</span></button>
+      <button type="button" onClick={() => pick(docRef)} aria-disabled={off} style={pickSt}><DocIco sz={16} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("Choose a document")}</span></button>
+      <div style={{ fontSize: 12, color: t.textMut, lineHeight: 1.5 }}>{tr("A PDF, or a photo of it. Up to 10 MB.")}</div>
+      {state === "preparing" && <div role="status" style={{ fontSize: 13, color: t.textMut, marginTop: 8 }}>{tr("Loading...")}</div>}
+      {file && (
+        <div data-training-cert-chosen={file.name} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginTop: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}>
+          <DocIco sz={18} c={t.goldText} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{file.name}</span>
+            <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2 }}>{wsSize(file.size)}</span>
+          </span>
+        </div>
+      )}
+      {faults.file && <div role="alert" data-training-cert-fault="file" style={mkFieldErr(t)}>{faults.file}</div>}
+      <label htmlFor={"ocsa-cert-day-" + item.id} style={{ ...mkLabel(t), display: "block", marginTop: 14 }}>{tr("The day you finished the course")}</label>
+      <input id={"ocsa-cert-day-" + item.id} type="date" data-training-cert-day={item.id} value={day} max={today} disabled={off} aria-invalid={!!faults.completedDate} onChange={e => { setDay(e.target.value); if (faults.completedDate) setFaults(f => ({ ...f, completedDate: null })); }} style={{ ...mkInput(t), minHeight: TAP, ...(faults.completedDate ? { border: "2px solid " + RED } : {}) }} />
+      {faults.completedDate && <div role="alert" data-training-cert-fault="completedDate" style={mkFieldErr(t)}>{faults.completedDate}</div>}
+      {faults.above && <div role="alert" data-training-cert-fault="above" style={{ ...mkFieldErr(t), marginTop: 12 }}>{faults.above}</div>}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+        <button type="button" onClick={close} disabled={state === "sending"} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+        <button type="button" data-training-cert-send={item.id} onClick={send} aria-disabled={off} style={wsMainBtn(t, off)}>{state === "sending" ? tr("Uploading...") : tr("Send the certificate")}</button>
+      </div>
+    </div>
+  );
+}
+
 function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   // Read again each time the screen opens, and each time a lesson is
   // left; a read that fails keeps what is on the screen and says so,
@@ -10350,6 +10592,8 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   // Join a session (Step 264): the code box open, and what is typed in it.
   const [joinOpen, setJoinOpen] = useState(false);
   const [joinCode, setJoinCode] = useState("");
+  // Part 383: the item whose certificate was just sent, said at the top.
+  const [certSent, setCertSent] = useState(null);
   // The training portal (Step 267, the Step 266 contract's section 8):
   // the category page open, from a card, a notice naming a topic, or
   // /training/c/<key>. The page is an entry in the phone's history, so the
@@ -10398,6 +10642,14 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
     return <TrainingLesson key={lesson.id + ":" + lesson.opened} token={token} item={lesson.item} siteId={lesson.item.siteId || shiftSiteId || null} backLabel={openCatOf ? openCatOf.name : ""} onBack={() => { setLesson(null); setAsked(n => n + 1); }} t={t} />;
   }
   const openLesson = (i) => setLesson({ id: i.id, item: i, opened: Date.now() });
+  // Part 383: a certificate the API took. The item reads done at once,
+  // its record leads History, and the list is read again.
+  const certDone = (item, record, day) => {
+    const rec = record ? trainingRecordOf(record) : null;
+    if (data) onData({ ...data, items: data.items.map(x => (x.id === item.id ? { ...x, status: "current", completedDate: (record && typeof record.completedDate === "string" && record.completedDate) || day, expiresOn: (record && typeof record.expiresOn === "string" && record.expiresOn) || "" } : x)), records: rec ? [rec].concat(data.records.filter(r => r.id !== rec.id)) : data.records });
+    setCertSent(item.id);
+    setAsked(n => n + 1);
+  };
   const bySafety = (a, b) => (b.safetyCritical ? 1 : 0) - (a.safetyCritical ? 1 : 0);
   const todo = items.filter(i => TRAINING_TODO.indexOf(i.status) !== -1).sort(bySafety);
   const waiting = items.filter(i => i.status === "awaitingTrainer");
@@ -10434,9 +10686,10 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
       {i.linkUrl && (
         <div style={{ marginTop: 10 }}>
           <a href={i.linkUrl} target="_blank" rel="noopener noreferrer" data-training-link={i.id} style={goldBtn}>{tr("Take the course online")}</a>
-          <div style={{ ...smallSt, fontSize: 12, marginTop: 6 }}>{tr("When you finish, give your certificate to the office.")}</div>
+          <div style={{ ...smallSt, fontSize: 12, marginTop: 6 }}>{i.outsideCourse ? tr("When you finish, upload your certificate here.") : tr("When you finish, give your certificate to the office.")}</div>
         </div>
       )}
+      {i.outsideCourse && TRAINING_CAN_START.indexOf(i.status) !== -1 && <TrainingCertificate key={i.id} token={token} item={i} onSent={certDone} t={t} />}
     </div>
   );
   const row = (i, group) => (
@@ -10513,6 +10766,11 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   );
   const title = <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("My training")}</div>;
   const faultPart = fault && <ListFault icon={BookIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />;
+  const certSentPart = certSent && (
+    <div role="status" data-training-cert-sent={certSent} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginTop: 8, marginBottom: 8, borderRadius: R.md, background: t.greenSubtle, border: "1px solid " + t.greenBorder, fontSize: 13, color: t.text, lineHeight: 1.45 }}>
+      <CheckIco sz={16} c={ink(t, GREEN)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("Certificate sent. This training is done.")}</span>
+    </div>
+  );
   // Opened before the list has ever come back, from a notice on a phone
   // just opened (PORT-30): the read is on its way, or it failed and says
   // so with Try again, and nothing reads as if nothing were required.
@@ -10538,6 +10796,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
         <div style={{ ...lineSt, marginTop: 2, marginBottom: 8 }}>{tr("{done} of {required} done", { done: c.done, required: c.required })}</div>
         <TrainingBar done={c.done} required={c.required} t={t} />
         {faultPart}
+        {certSentPart}
         <div style={{ marginTop: 14 }}>
           {modules.map(i => {
             const chip = trainingChip(i);
@@ -10573,7 +10832,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
     const go = data.continue;
     const goItem = go ? (() => {
       const found = items.find(i => i.topicId === go.topicId && (i.siteId || "") === (go.siteId || "")) || items.find(i => i.topicId === go.topicId) || null;
-      const standIn = { id: go.topicId + ":" + go.siteId, topicId: go.topicId, siteId: go.siteId, name: go.name, docCode: "", docSection: "", safetyCritical: false, siteName: "", status: go.attemptId ? "inProgress" : "missing", completedDate: "", expiresOn: "", linkUrl: "", attemptId: go.attemptId, lesson: null, category: go.category, sortOrder: null, needsTrainer: false, signoffBy: null };
+      const standIn = { id: go.topicId + ":" + go.siteId, topicId: go.topicId, siteId: go.siteId, name: go.name, docCode: "", docSection: "", safetyCritical: false, siteName: "", status: go.attemptId ? "inProgress" : "missing", completedDate: "", expiresOn: "", linkUrl: "", attemptId: go.attemptId, lesson: null, category: go.category, sortOrder: null, needsTrainer: false, signoffBy: null, outsideCourse: false };
       const base = found || standIn;
       return base.lesson ? base : { ...base, lesson: { versionId: go.versionId, kind: "", attemptsUsed: 0, attemptsLeft: 1 } };
     })() : null;
@@ -10581,6 +10840,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
       <div data-training="portal" style={{ padding: "14px 16px 100px" }}>
         {title}
         {faultPart}
+        {certSentPart}
         {cats.length > 0 && (
           <div data-training-overall={doneAll + "/" + required} style={{ ...fkRowSt(t), marginTop: 8 }}>
             <div style={{ ...nameSt, marginBottom: 8 }}>{tr("{done} of {required} trainings done", { done: doneAll, required: required })}</div>
@@ -10626,6 +10886,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
     <div data-training="1" style={{ padding: "14px 16px 100px" }}>
       {title}
       {faultPart}
+      {certSentPart}
       {joinPart}
       {docsPart}
       {signedPart}
@@ -11744,10 +12005,13 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
   // yet signed, Done for one signed, the result for a fail, and a void
   // one's line with nothing to tap.
   const standOn = async (a) => {
-    // On a fail, the tries used and left are read again from the lesson;
-    // when that read fails, one fewer than before is said.
+    // The tries used and left, from the attempt the API answered (since
+    // ocsa-api part 378). On a fail whose answer carries neither, they are
+    // read again from the lesson; when that read fails, one fewer than
+    // before is said.
     let l = les;
-    if (a.passed !== true && !a.voidedAt) { try { l = (await readLesson(les.locale)) || les; } catch (e) { l = { ...les, attemptsUsed: les.attemptsUsed + 1, attemptsLeft: Math.max(0, les.attemptsLeft - 1) }; } }
+    if (a.attemptsUsed !== null && a.attemptsLeft !== null) l = { ...les, attemptsUsed: a.attemptsUsed, attemptsLeft: a.attemptsLeft };
+    else if (a.passed !== true && !a.voidedAt) { try { l = (await readLesson(les.locale)) || les; } catch (e) { l = { ...les, attemptsUsed: les.attemptsUsed + 1, attemptsLeft: Math.max(0, les.attemptsLeft - 1) }; } }
     if (!live.current) return;
     setAttempt(a); setLes(l);
     if (a.voidedAt) setPhase("closed");
@@ -14636,6 +14900,9 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
+  // PORT-55 (part 383): the person's unfinished reports did not load, so
+  // a card cannot say Continue; said above the cards with Try again.
+  const [draftsFailed, setDraftsFailed] = useState(false);
   const [starting, setStarting] = useState(null);
   const [open, setOpen] = useState(null);
   // The site question, Step 206: the form being started, its title, the
@@ -14667,7 +14934,8 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
       // before a card can say Continue on somebody else's report.
       const mine = user && user.id;
       setRows(d.filter(r => r.userId === undefined || r.userId === null || !mine || String(r.userId) === String(mine)));
-    } catch (err) { setRows([]); }
+      setDraftsFailed(false);
+    } catch (err) { setRows([]); setDraftsFailed(true); }
     setLoading(false);
   }, [token, locale, user]);
   useEffect(() => { load(); }, [load]);
@@ -14811,6 +15079,13 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
         <div style={cardSt}>
           <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5 }}>{tr(FORMS_LOAD_FAILED)}</div>
           <button onClick={load} style={goBtn(false)}>{tr("Try again")}</button>
+        </div>
+      )}
+
+      {!loading && !failed && draftsFailed && (
+        <div role="alert" data-forms-drafts-failed="1" style={{ ...cardSt, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <span style={{ flex: "1 1 160px", fontSize: 13, color: t.text, lineHeight: 1.5 }}>{tr("Unfinished reports did not load.")}</span>
+          <button type="button" onClick={load} style={{ ...goBtn(false), marginTop: 0 }}>{tr("Try again")}</button>
         </div>
       )}
 
@@ -16130,13 +16405,20 @@ function ListFault({ icon: Icon, text, onRetry, t }) {
 // never searched, sub the line under it, tag a chip at its end.
 // ------------------------------------------------------------
 const pickMatches = (name, needle) => needle === "" || String(name || "").toLowerCase().indexOf(needle) !== -1;
-function SearchPick({ id, name, rows, value, onPick, noMatch, empty, none, disabled, invalid, rowAttr, t }) {
+// groups: [{ key, label }], optional. With groups, rows carrying a group
+// are drawn under a heading for each group in that order, only the groups
+// with a row left after the search, and a row in none of them under the
+// last; searching runs across every group.
+function SearchPick({ id, name, rows, value, onPick, noMatch, empty, none, disabled, invalid, rowAttr, groups, t }) {
   const [q, setQ] = useState("");
   const needle = q.trim().toLowerCase();
   const has = value !== "" && value !== null && value !== undefined;
   const picked = has ? rows.find(r => String(r.id) === String(value)) || null : null;
   const pick = (r) => { setQ(""); onPick(r ? String(r.id) : ""); };
   const offered = rows.filter(r => pickMatches(r.name, needle));
+  // Part 383: the rows under their group's heading, when the rows carry one.
+  const grouped = Array.isArray(groups) && groups.length > 0 && rows.some(r => r.group && groups.some(g => g.key === r.group));
+  const sections = !grouped ? [{ key: "", label: "", rows: offered }] : groups.map((g, i) => ({ key: g.key, label: g.label, rows: offered.filter(r => r.group === g.key || (i === groups.length - 1 && !groups.some(x => x.key === r.group))) })).filter(sec => sec.rows.length > 0);
   const rowSt = {
     width: "100%", minHeight: TAP, marginTop: 8, padding: "10px 12px", borderRadius: R.md, cursor: disabled ? "default" : "pointer",
     display: "flex", alignItems: "center", gap: 10, textAlign: "left", fontSize: 14, fontFamily: FONT_BODY, lineHeight: 1.4,
@@ -16172,11 +16454,16 @@ function SearchPick({ id, name, rows, value, onPick, noMatch, empty, none, disab
       <input id={id} type="text" data-pick-search={name} value={q} onChange={e => setQ(e.target.value.slice(0, 80))} disabled={disabled} placeholder={tr("Search by name")} aria-label={tr("Search by name")} aria-invalid={!!invalid} style={{ ...mkInput(t), ...(invalid ? { border: "2px solid " + RED } : {}) }} />
       {offered.length > 0 && (
         <div style={{ maxHeight: 264, overflowY: "auto", marginTop: 2 }}>
-          {offered.map(r => (
-            <button key={r.id} type="button" data-pick-row={r.id} {...(rowAttr ? rowAttr(r) : {})} disabled={disabled} onClick={() => pick(r)} style={rowSt}>
-              {words(r)}
-              {r.tag || null}
-            </button>
+          {sections.map(sec => (
+            <div key={sec.key || "all"} role={sec.label ? "group" : undefined} aria-label={sec.label || undefined} data-pick-group={sec.key || undefined}>
+              {sec.label && <div data-pick-group-head={sec.key} style={{ ...mkLabel(t), marginTop: 12, marginBottom: 0 }}>{sec.label}</div>}
+              {sec.rows.map(r => (
+                <button key={r.id} type="button" data-pick-row={r.id} {...(rowAttr ? rowAttr(r) : {})} disabled={disabled} onClick={() => pick(r)} style={rowSt}>
+                  {words(r)}
+                  {r.tag || null}
+                </button>
+              ))}
+            </div>
           ))}
         </div>
       )}
@@ -19546,18 +19833,22 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       // A walk whose safety part is filed was sent with it.
       if (inspectSafetyFiled(d)) { if (user) forgetInspect(user.id, d.id); showToast(tr("This inspection is already done."), "notice"); loadList(); return; }
       // One safety walk per visit (part 380): a walk that still asks for the
-      // safety walk, at a site where another inspection filed it this month,
-      // stops asking for it. It says on which and when, starts no draft of
-      // it, and is sent without it, its own draft put away first. A site
-      // that could not be read asks for it as before.
-      if (inspectSafetyPartOf(d) && !inspectSafetyFiled(d) && d.site_id !== undefined && d.site_id !== null) {
-        const seen = await siteSafetyThisMonth(token, d.site_id, d.id).catch(() => null);
+      // safety walk, at a site whose walk was done this month on another
+      // inspection, stops asking for it. It says on which and when, starts
+      // no draft of it, and is sent without it, given up first (part 383).
+      // Since ocsa-api part 378 the read answers the site's last walk,
+      // lastSafetyWalk, so nothing else is read to learn it; the other
+      // inspection is read once, for its name, and one that cannot be read,
+      // or a walk filed on its own, is said by its day.
+      const lastWalk = lastWalkOf(d && d.lastSafetyWalk);
+      if (inspectSafetyPartOf(d) && !inspectSafetyFiled(d) && lastWalk && lastWalk.thisMonth && lastWalk.inspectionId !== String(d.id)) {
         // One started after it, its switch turned on by the person, still
         // asks for it: they can turn it on either way.
-        const after = d.created_at && isFinite(Date.parse(d.created_at)) && seen && seen.done && Date.parse(d.created_at) > Date.parse(seen.done.at);
-        if (seen && seen.done && !after) {
-          const own = d.safety && d.safety.draft && d.safety.draft.id ? String(d.safety.draft.id) : null;
-          d = Object.assign({}, d, { with_safety: false, withSafety: false, safetyDoneOn: Object.assign({}, seen.done, { draftId: own }) });
+        const after = d.created_at && isFinite(Date.parse(d.created_at)) && Date.parse(d.created_at) > Date.parse(lastWalk.at);
+        if (!after) {
+          let name = "";
+          if (lastWalk.inspectionId) { try { const o = await api("/api/inspections/scheduled/" + encodeURIComponent(lastWalk.inspectionId), { token }); name = o && typeof o.template_name === "string" ? o.template_name.trim() : ""; } catch (e) { name = ""; } }
+          d = Object.assign({}, d, { with_safety: false, withSafety: false, safetyDoneOn: { id: lastWalk.inspectionId || lastWalk.responseId || "", name: name, at: lastWalk.at, day: lastWalk.day } });
         }
       }
       // A walk with no safety draft yet starts it, once, as it opens, and
@@ -19806,13 +20097,31 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       // The safety part goes in the same request (Step 313): its draft and
       // its answers as saved, signed by the same signature.
       if (safety) body.safety = { responseId: safety.draft.id, answers: safetyState && safetyState.answers ? safetyState.answers : Object.assign({}, safety.draft.answers || {}) };
-      // A walk whose safety walk was done on another inspection puts its own
-      // draft of it away first, so the API takes the cards alone (part 380).
-      const left = active.safetyDoneOn && active.safetyDoneOn.draftId;
-      if (left) {
-        try { await api("/api/forms/drafts/" + encodeURIComponent(left) + "/discard", { method: "POST", token }); }
-        catch (err) { if (!(err && (err.status === 404 || err.status === 409))) throw err; }
-        setActive(prev => (prev && prev.safetyDoneOn ? Object.assign({}, prev, { safetyDoneOn: Object.assign({}, prev.safetyDoneOn, { draftId: null }) }) : prev));
+      // Part 383 (ocsa-api part 378, its 8.2): a walk whose site had its
+      // safety walk done this month on another inspection gives its own up
+      // first, through POST /api/inspections/scheduled/:id/drop-safety, which
+      // turns it off and voids its walk drafts as one logged decision; the
+      // API then takes the cards alone. One already without it (409
+      // inspections.noSafetyPart) goes on. Any other refusal stops the send
+      // with the API's words: the site's walk not done this month after all
+      // (409 inspections.safetyWalkNotDone) opens the walk again, asking for
+      // its safety part; one no longer open (409 inspections.completedLocked)
+      // closes it; 403 access.insufficientPermissions is said.
+      if (active.safetyDoneOn && !active.safetyDoneOn.dropped) {
+        try { await api("/api/inspections/scheduled/" + encodeURIComponent(active.id) + "/drop-safety?locale=" + languageToSend(), { method: "POST", token, body: {} }); }
+        catch (err) {
+          if (!(err && err.status === 409 && err.code === "inspections.noSafetyPart")) {
+            if (err && err.status === 409 && (err.code === "inspections.safetyWalkNotDone" || err.code === "inspections.completedLocked")) {
+              showToast(tr(err.message), err.code === "inspections.completedLocked" ? "notice" : "error");
+              setSubmitting(false);
+              if (err.code === "inspections.completedLocked") { if (user) forgetInspect(user.id, active.id); setActive(null); loadList(); }
+              else openInspection(active.id);
+              return;
+            }
+            throw err;
+          }
+        }
+        setActive(prev => (prev && prev.safetyDoneOn ? Object.assign({}, prev, { safetyDoneOn: Object.assign({}, prev.safetyDoneOn, { dropped: true }) }) : prev));
       }
       const d = await api("/api/inspections/scheduled/" + active.id + "/complete" + (capture ? "?locale=" + languageToSend() : ""), {
         method: "POST", token,
@@ -20112,7 +20421,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
           {finding && (
             <div data-inspect-owner={item.id} style={{ marginBottom: 8 }}>
               <label htmlFor={"ocsa-inspect-owner-" + item.id} style={labelSt}>{tr("Owner")}</label>
-              <SearchPick id={"ocsa-inspect-owner-" + item.id} name={"inspect-owner-" + item.id} rows={owners.map(o => ({ id: o.id, name: o.name, sub: o.role ? roleWord(o.role) : "" }))} value={ownerOf[item.id] || ""} onPick={(v) => { setOwnerOf(prev => ({ ...prev, [item.id]: v })); setCardFault(prev => (prev[item.id] ? { ...prev, [item.id]: null } : prev)); }} none={tr("No owner yet")} empty={tr("No owner yet")} noMatch={tr("No one matches that name.")} disabled={submitting} t={t} />
+              <SearchPick id={"ocsa-inspect-owner-" + item.id} name={"inspect-owner-" + item.id} groups={INSPECT_OWNER_GROUPS.map(g => ({ key: g.key, label: g.label() }))} rows={owners.map(o => ({ id: o.id, name: o.name, sub: o.role ? roleWord(o.role) : "", group: o.group }))} value={ownerOf[item.id] || ""} onPick={(v) => { setOwnerOf(prev => ({ ...prev, [item.id]: v })); setCardFault(prev => (prev[item.id] ? { ...prev, [item.id]: null } : prev)); }} none={tr("No owner yet")} empty={tr("No owner yet")} noMatch={tr("No one matches that name.")} disabled={submitting} t={t} />
             </div>
           )}
           <input value={notes[item.id] || ""} onChange={e => { const v = e.target.value; setNotes(prev => ({ ...prev, [item.id]: v })); if (missingNote[item.id] && v.trim()) setMissingNote(prev => ({ ...prev, [item.id]: false })); if (cardFault[item.id] && v.trim()) setCardFault(prev => ({ ...prev, [item.id]: null })); }} placeholder={fix || finding ? tr("Say what needs fixing") : tr("Notes for this item (optional)")} aria-invalid={!!missingNote[item.id] || !!cardFault[item.id]} style={{ ...inputSt, fontSize: 12, marginBottom: 8, ...(missingNote[item.id] || cardFault[item.id] ? { border: "1px solid " + RED } : {}) }} />
@@ -20215,7 +20524,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
     return (
       <div style={{ padding: "14px 16px 100px" }}>
         {headRow}
-        {doneOn && <div role="note" data-walk-safety-done={doneOn.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 14, borderRadius: R.md, background: t.greenSubtle, border: "1px solid " + t.greenBorder, fontSize: 13, color: t.text, lineHeight: 1.45, fontFamily: FONT_BODY }}><CheckIco sz={16} c={ink(t, GREEN)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("Safety walk done on {inspection} at {time}", { inspection: doneOn.name, time: safetyWalkWhen(doneOn.at) })}</span></div>}
+        {doneOn && <div role="note" data-walk-safety-done={doneOn.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 14, borderRadius: R.md, background: t.greenSubtle, border: "1px solid " + t.greenBorder, fontSize: 13, color: t.text, lineHeight: 1.45, fontFamily: FONT_BODY }}><CheckIco sz={16} c={ink(t, GREEN)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{doneOn.name ? tr("Safety walk done on {inspection} at {time}", { inspection: doneOn.name, time: safetyWalkWhen(doneOn.at) }) : tr("Safety walk done this month on {date}", { date: new Date(Date.parse(doneOn.at)).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", timeZone: clientConfig.company.timeZone }) })}</span></div>}
         {totalCard}
         {cardsBlock}
         {wholePhotos}

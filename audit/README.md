@@ -1444,6 +1444,164 @@ Five journeys, in English and Spanish, each failing on the main of part
 - `schedheight` (PORT-67): Schedule Inspection at the Largest size on a
   375 by 560 phone keeps its top and title on the screen.
 
+## A certificate from an outside course (part 383, section 1)
+
+Since ocsa-api Round 11 (part 378, #161, `routes/training.js`) every
+item of `GET /api/training/me` answers `outsideCourse`, and `POST
+/api/training/certificates` takes the person's own certificate,
+multipart: `file`, `topicId`, `completedDate` and `siteId` for a
+per-site topic, answered `201 { record }`. Live marks no topic yet, so
+`outsideCourse` marks the stub's invented mandated reporter course
+(`OUTSIDE_TOPIC`, tp-5). The route reads in the API's order: the file's
+size (10 MB, `training.fileTooLarge`), the fields (400
+`training.badDetails` with keys, the day no later than today on the
+company's clock), the topic (404 `training.topicNotFound`), whether it is
+an outside course (409 `training.notOutsideCourse`), a per-site topic's
+`siteId`, then the file's kind from its first bytes (PDF, JPEG, PNG or a
+HEIC, else 400 `training.badFile`), every refusal in the API's own words.
+What it took is kept in `state.certificates`, and the item then reads
+current with the record first. `certificateFault` names a refusal the
+route answers once.
+
+Two journeys, in English and Spanish, each failing on the main of part
+380:
+
+- `certificate`: the outside course offers Upload your certificate and
+  says to upload it here; Send with nothing chosen asks for the file and
+  the day and sends nothing; an iPhone HEIC is made a JPEG; the API's
+  `training.badDetails` reads under the day; Send tapped twice at once
+  sends once; the screen says the certificate is in and the item reads
+  done, read again from the API.
+- `certpdf`: a PDF goes as it is, and `training.notOutsideCourse` reads
+  above the button with the form kept.
+
+The Spanish check of these two looks at the upload and the line under
+it, since each row of My training carries its document code and
+section as the API sends them.
+
+## The shift's own list, as the API now answers it (part 383, section 2)
+
+The stub answers ocsa-api Round 11's six shapes for the staff app (part
+378, its 6.1 to 6.6):
+
+- At a site with named shifts every session answer's `shifts` are the
+  named ones in order (`helpers/siteShifts.js shiftFieldsFor`): `label`,
+  `displayLabel` in the language asked, `suggested` the session's run's
+  shift, `window` `{ opensAt, startsAt, endsAt, crossesMidnight }` on the
+  company's clock and the blocks of the shift of that label; a site with
+  blocks and no named shifts answers as before.
+- `doneEarlier` carries `display`, the shift's name in the language asked.
+- With no open session the status answers `lastSession` `{ id, siteName,
+  startedAt, endedAt, endNote }` for one ended in the last 24 hours, and
+  End Shift's 409 `SESSION_ALREADY_ENDED` carries `session`; the end note
+  of one the API closed itself is `sessions.closedAutomatically` in the
+  language asked (`CLOSED_NOTE`). `lastSession: "closed"` seeds one the API
+  closed two hours before at North Building; an End Shift that goes
+  through is the next one.
+- Every attempt answer carries `attemptsUsed` beside `attemptsLeft`.
+- A run has an id (`runIdOf`, made from its key), which no read answers;
+  a check-off answers `completion.shift_run_id`, as the API's does. A
+  check naming `shiftRunId` other than the session's run is taken when
+  the run is the session's site's, the session started before it ended
+  and the tap's own time falls from 30 minutes before its start to its
+  end, else 400 `tasks.badShiftRun` keys `["shiftRunId"]` in the API's
+  words; `badShiftRun` refuses that many whatever they name.
+
+Five journeys, in English and Spanish, each failing on the main of part
+380:
+
+- `shiftnamed` (6.1, 6.2): Start Shift's sheet offers the named shifts as
+  the session answers them, the API's pick chosen and each one's hours,
+  with no read of `GET /api/sites/:siteId/shifts`; the last shift's line
+  names it as `doneEarlier.display` gives it.
+- `lastsession` (6.3, 6.4): Home with no shift open says where the last
+  shift ended and when, with the API's note in the person's language;
+  End Shift on a session the API closed says it already ended and when,
+  with its note, and Home then says so too.
+- `triesanswer` (6.5): a failed quiz reads tries used and left off the
+  attempt, with no second read of the lesson.
+- `taprun` (6.6): the run's id comes from the first check the API takes;
+  a check made after it and kept with no signal across a change of shift
+  stays on the phone with its run, goes after the change with
+  `shiftRunId`, and lands in the evening run; the night shift's list
+  reads it open.
+- `taprunrefused` (6.6): the same tap refused `tasks.badShiftRun` goes once
+  more without the run, the same clientId, and lands in the session's run.
+
+`shiftfresh` now reads this rule: the tap that could not go before the
+change is kept with the run it was made in, where part 375 dropped it.
+
+## The safety walk from the API (part 383, section 3)
+
+The stub answers ocsa-api Round 11's safety walk (part 378, its 8):
+`GET /api/inspections/safety-walks?siteId=` answers `{ siteId, lastWalk }`,
+the newest OCSA-FRM-015 filed at the site as `helpers/inspectionSafety.js
+lastWalk` reads it (`{ at, day, scheduledInspectionId, responseId,
+thisMonth }`, `thisMonth` on the company's clock), from a done inspection's
+result or from one filed on its own (`walkAlone`), and every read of one
+inspection answers the same as `lastSafetyWalk`. `POST
+/api/inspections/scheduled/:id/drop-safety` turns an open inspection's
+safety walk off and voids its walk draft, kept in `state.drops`, and
+refuses in the API's words (`DROP_REFUSALS`): 403
+`access.insufficientPermissions`, 409 `inspections.completedLocked`,
+`inspections.noSafetyPart`, and `inspections.safetyWalkNotDone` with
+`lastWalk`. `dropFault` answers one refusal once; `safetyWalkNotDone`
+comes with the site's walk voided since, so every read after it agrees.
+
+Two journeys, in English and Spanish, each failing on the main of part
+380:
+
+- `safetyalone`: a walk filed at North Building with no inspection starts
+  Start an inspection's switch off, saying the day, and an open walk
+  there stops asking for it, says the day, and gives it up through
+  `drop-safety` before it is sent without it.
+- `safetydropped`: a give-up refused `inspections.safetyWalkNotDone` says
+  the API's words, sends nothing more, and opens the walk again asking
+  for its safety part, as it was scored; one refused
+  `inspections.completedLocked` says the API's words and closes.
+
+`safetymonth` now reads the site's last walk from `safety-walks`, with no
+read of the done inspection; with that read refused, West Building reads
+the rule. `safetyonce` now gives the walk up through `drop-safety`, which
+voids its draft, where part 380 put the draft away itself.
+
+## The owner picker in groups (part 383, section 4)
+
+The stub's `owners` on `GET /api/inspections/scheduled/:id` carry `group`
+as ocsa-api Round 11 answers them (part 378, its 7,
+`helpers/inspectionFindings.js ownersFor`): `assigned`, `recent` or
+`everyone`, in that order, with one invented person added to the recent
+group and one to everyone else.
+
+One journey, in English and Spanish, failing on the main of part 380:
+
+- `ownergroups`: a card that opens a finding draws its owners under Works
+  at this site, Worked here in the last 30 days and Everyone else, in
+  that order, each with its people; a search keeps only the groups with a
+  match and runs across all three; a pick from any group is the chosen
+  owner.
+
+## Three findings field staff and supervisors meet first (part 383, section 5)
+
+Three of the October audit's open findings (`audit/FINDINGS_2026-10.md`)
+whose first reader is field staff on a phone or a supervisor, each
+needing nothing new from the API: PORT-55, PORT-61 and PORT-43. The rest
+stay open.
+
+Three journeys, in English and Spanish, each failing on the main of part
+380:
+
+- `formsdrafts` (PORT-55): with the person's drafts refused, Forms says
+  "Unfinished reports did not load." above the forms with Try again,
+  which reads them again.
+- `noticeasks` (PORT-61): a notice tapped on the bell while a form is open
+  asks Leave or Keep filling, as the bottom bar does; Keep filling stays,
+  and Leave saves the form and opens the notice's place.
+- `privatesearch` (PORT-43): an office person with twenty private chats
+  searches the row by name, opens the one that matches, and a name that
+  matches nobody says so. The row takes a search once it holds more than
+  six, so the stub's default admin list of six reads as before.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
