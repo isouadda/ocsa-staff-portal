@@ -121,6 +121,8 @@ const TAB_LABEL = {
   // Part 344: under More alone, for the people and the answers each needs.
   workspace: "Workspace", fieldkit: "Field kit", training: "My training", property: "My company property",
   support: "App support", library: "Library", supplyorders: "Approve supplies",
+  // Part 388: under More once the API answers them.
+  myfindings: "My findings", findingsdue: "Findings to follow up",
 };
 
 const pause = (page, ms) => page.waitForTimeout(ms || 500);

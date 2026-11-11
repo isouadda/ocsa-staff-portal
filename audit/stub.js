@@ -834,11 +834,77 @@ const SESSION_REFUSALS = {
   "documents.signatureRequired": { status: 400, en: "Sign before you send.", es: "Firme antes de enviar." },
 };
 // The complete route's refusals about a finding (the Step 253 contract
-// section 3, item 2); the words are the stub's, since the contract gives
-// none, and the keys name the card.
+// section 3, item 2), the keys naming the card. Since part 388 in the
+// API's own words (translation/api_words.csv), with the two of ocsa-api
+// Round 12 (part 382, helpers/inspectionFindings.js readCards): a
+// follow-up that is not one, and one chosen with no owner.
 const FINDING_REFUSALS = {
-  "inspections.findingNoteRequired": { status: 400, en: "Say what needs fixing on this card.", es: "Diga qu\u00e9 hay que arreglar en esta tarjeta." },
-  "inspections.badOwner": { status: 400, en: "Choose an owner from the list.", es: "Elija un responsable de la lista." },
+  "inspections.findingNoteRequired": { status: 400, en: "A card that needs a fix needs a note saying what was found", es: "Una tarjeta que necesita arreglo necesita una nota que diga qu\u00e9 se encontr\u00f3" },
+  "inspections.badOwner": { status: 400, en: "Choose an owner from the site's people", es: "Elija un responsable entre las personas del sitio" },
+  "inspections.badFollowUp": { status: 400, en: "Choose training with a lesson topic, or a conversation", es: "Elija una capacitaci\u00f3n con un tema de lecci\u00f3n, o una conversaci\u00f3n" },
+  "inspections.ownerRequired": { status: 400, en: "Choose an owner for this finding first", es: "Primero elija un responsable para este hallazgo" },
+};
+// Part 388: a finding's follow-up, as ocsa-api Round 12 (part 382,
+// helpers/findingFollowUps.js and routes/findings.js) answers it. The
+// lesson topics a training may name (followUpTopics: active, not per
+// site, a published lesson), every name invented, in the library's
+// order; the card's service category each card of the stub's walks
+// carries in the API, and the topic it suggests (SUGGEST: SD and QS to
+// cleaning methods, HSE to safety, HR to start here, MC to customer
+// service, the first such topic).
+const FOLLOW_UP_TOPICS = [
+  { id: "7f0c1a2e-0001-4a00-8000-000000000001", category: "safety", kind: "quiz", en: "Invented exit route checks", es: "Revisi\u00f3n inventada de rutas de salida" },
+  { id: "7f0c1a2e-0001-4a00-8000-000000000002", category: "cleaning_methods", kind: "quiz", en: "Invented glass and mirror care", es: "Cuidado inventado de vidrios y espejos" },
+  { id: "7f0c1a2e-0001-4a00-8000-000000000003", category: "customer_service", kind: "observation", en: "Invented greeting visitors", es: "Saludo inventado a los visitantes" },
+];
+const FOLLOW_UP_SUGGEST = { SD: "cleaning_methods", QS: "cleaning_methods", HSE: "safety", HR: "start_here", MC: "customer_service" };
+const CARD_CATEGORY = { "iw-1": "SD", "iw-2": "HSE", "if-1": "QS", "if-2": "SD", "if-3": "SD", "ip-1": "SD" };
+const followUpTopicsIn = (lang) => FOLLOW_UP_TOPICS.map(x => ({ id: x.id, name: lang === "es" ? x.es : x.en, category: x.category, kind: x.kind }));
+const suggestedTopicFor = (itemId) => { const want = FOLLOW_UP_SUGGEST[CARD_CATEGORY[itemId] || ""]; const hit = want ? FOLLOW_UP_TOPICS.find(x => x.category === want) : null; return hit ? hit.id : null; };
+// The refusals of the follow-up routes, in the API's words.
+const FOLLOW_UP_REFUSALS = {
+  "access.insufficientPermissions": { status: 403, en: "Insufficient permissions", es: "No tiene permiso para hacer esto" },
+  "inspections.badDetails": { status: 400, en: "Some details are missing or not valid", es: "Faltan algunos datos o no son v\u00e1lidos" },
+  "inspections.findingNotFound": { status: 404, en: "Finding not found", es: "Hallazgo no encontrado" },
+  "inspections.findingClosed": { status: 409, en: "This finding is closed", es: "Este hallazgo est\u00e1 cerrado" },
+  "inspections.badFollowUp": { status: 400, en: "Choose training with a lesson topic, or a conversation", es: "Elija una capacitaci\u00f3n con un tema de lecci\u00f3n, o una conversaci\u00f3n" },
+  "inspections.badOwner": { status: 400, en: "Choose an owner from the site's people", es: "Elija un responsable entre las personas del sitio" },
+  "inspections.ownerRequired": { status: 400, en: "Choose an owner for this finding first", es: "Primero elija un responsable para este hallazgo" },
+  "inspections.followUpDone": { status: 409, en: "This finding's follow-up is already done", es: "El seguimiento de este hallazgo ya est\u00e1 hecho" },
+  "inspections.notConversation": { status: 409, en: "This finding's follow-up is not a conversation", es: "El seguimiento de este hallazgo no es una conversaci\u00f3n" },
+  "inspections.conversationRecorded": { status: 409, en: "This conversation is already recorded", es: "Esta conversaci\u00f3n ya est\u00e1 registrada" },
+  "inspections.badConversation": { status: 400, en: "Say when it was held, what was covered and who else was there", es: "Indique cu\u00e1ndo se tuvo, qu\u00e9 se trat\u00f3 y qui\u00e9n m\u00e1s estuvo" },
+  "findings.notFound": { status: 404, en: "Finding not found", es: "Hallazgo no encontrado" },
+  "findings.notRecorded": { status: 409, en: "This conversation is not recorded yet", es: "Esta conversaci\u00f3n a\u00fan no est\u00e1 registrada" },
+  "findings.alreadyConfirmed": { status: 409, en: "You already confirmed this conversation", es: "Ya confirm\u00f3 esta conversaci\u00f3n" },
+};
+const FOLLOW_UP_DUE_DAYS = { training: 7, conversation: 3 };
+// Behind findingsSeed: findings already on record, every value invented.
+// About the person signed in (owner "me"): a conversation recorded by a
+// supervisor and waiting for the person, with its covered words; a
+// training chosen and open; and one with no follow-up. About others: one
+// with no owner and no follow-up, and a conversation past its day. Each
+// carries the card, the inspection it came from and its photos, stored
+// as paths and signed as they go out.
+const FINDINGS_SEED = (person) => {
+  const me = String(person.id);
+  const meName = person.firstName + " " + person.lastName;
+  const ins = { scheduledInspectionId: "in-walk", templateName: "Invented monthly walk", completedAt: "2026-09-28T14:00:00.000Z", inspector: { id: "s-05", name: "Eve Everett" } };
+  const row = (id, card, extra) => Object.assign({ id: id, site_id: "site-north", site_name: "North Building", title: card.label, zone: card.zone, severity: "medium", status: "in_progress", source: "inspection", reported_at: "2026-09-28T14:00:00.000Z", reported_by: "s-05", assigned_to: me, assigned_to_name: meName, item_score_id: "sc-" + id, corrective_action_id: null, photos: [], _card: card, _inspection: ins }, extra);
+  return {
+    rows: [
+      row("fnd-m1", { itemId: "iw-1", label: "Restroom mirrors are free of streaks", zone: "Restroom", score: 2, maxScore: 5 }, { description: "Invented: streaks on both mirrors.", status: "resolved", resolved_at: "2026-09-30T19:10:00.000Z", photos: [{ id: "fph-m1", url: "issue-photos/invented-finding-m1.jpg" }] }),
+      row("fnd-m2", { itemId: "iw-2", label: "Exit signs are lit", zone: "Corridor", score: 3, maxScore: 5 }, { description: "Invented: one sign dark by the stairs.", reported_at: "2026-09-29T14:00:00.000Z" }),
+      row("fnd-m3", { itemId: "if-1", label: "Glass doors are free of smudges", zone: "Lobby", score: 2, maxScore: 5 }, { description: "Invented: handprints at waist height.", reported_at: "2026-09-30T14:00:00.000Z", status: "open" }),
+      row("fnd-o1", { itemId: "if-2", label: "Floor mats are straight and dry", zone: "Lobby", score: 1, maxScore: 5 }, { description: "Invented: a mat curled at the door.", reported_at: "2026-09-30T15:00:00.000Z", status: "open", assigned_to: null, assigned_to_name: null }),
+      row("fnd-o2", { itemId: "if-3", label: "Waste bins are emptied and lined", zone: "Lobby", score: 2, maxScore: 5 }, { description: "Invented: two bins full at noon.", reported_at: "2026-09-25T15:00:00.000Z", assigned_to: "s-02", assigned_to_name: "Ben Brooks" }),
+    ],
+    followUps: [
+      { id: "fu-m1", issueId: "fnd-m1", ownerId: me, kind: "conversation", topicId: null, dueOn: "2026-10-01", chosenAt: "2026-09-28T15:00:00.000Z", chosenBy: { id: "s-05", name: "Eve Everett" }, heldAt: "2026-09-30T19:00:00.000Z", heldBy: { id: "s-05", name: "Eve Everett" }, covered: "Invented: we went over the two-cloth method for mirrors.", othersPresent: "Invented: the site lead", recordedAt: "2026-09-30T19:10:00.000Z", recordedBy: { id: "s-05", name: "Eve Everett" }, confirmedAt: null, doneAt: "2026-09-30T19:10:00.000Z" },
+      { id: "fu-m2", issueId: "fnd-m2", ownerId: me, kind: "training", topicId: FOLLOW_UP_TOPICS[0].id, dueOn: "2026-10-06", chosenAt: "2026-09-29T15:00:00.000Z", chosenBy: { id: "s-05", name: "Eve Everett" }, doneAt: null },
+      { id: "fu-o2", issueId: "fnd-o2", ownerId: "s-02", kind: "conversation", topicId: null, dueOn: "2026-09-28", chosenAt: "2026-09-25T16:00:00.000Z", chosenBy: { id: "s-05", name: "Eve Everett" }, doneAt: null },
+    ],
+  };
 };
 // One inspection walk with the safety part in it (Step 313), as API Step
 // 312's contract gives it, behind inspectionWalk: a scheduled inspection
@@ -1029,17 +1095,19 @@ const SCHED_NOTICE = { id: "n-insp", subjectType: "inspection_assigned", subject
 // them as a task, one nobody has yet, and an inspection finding they own,
 // which the API also made a task. The tasks the assignments made sit on
 // GET /api/clock/tasks/assigned beside the plain one.
+// Part 388 (API Round 12, part 382): the finding fnd-9 names its owner and
+// makes no task, as every finding since; the task the 17 links of Nov 11
+// held is gone.
 const SHEET_ISSUES = (person) => [
   { id: "iss-a1", site_id: "site-north", site_name: "North Building", title: "Invented leak under the sink", description: "Water on the floor by the second sink, invented.", zone: "Restroom", severity: "high", status: "in_progress", source: "staff",
     reported_by: "s-02", reported_by_name: "Ben Brooks", reported_at: "2026-10-01T19:40:00.000Z", assigned_to: person.id, assigned_to_name: person.firstName + " " + person.lastName, linked_task_id: "at-iss-a1", due_at: null, due_state: null, resolution_notes: null },
   { id: "iss-b2", site_id: "site-north", site_name: "North Building", title: "Invented loose handrail on the stairs", description: "The handrail on the east stairs moves, invented.", zone: "Stairwell", severity: "medium", status: "open", source: "staff",
     reported_by: "s-05", reported_by_name: "Eve Everett", reported_at: "2026-10-01T21:05:00.000Z", assigned_to: null, assigned_to_name: null, linked_task_id: null, due_at: null, due_state: null, resolution_notes: null },
   { id: "fnd-9", site_id: "site-north", site_name: "North Building", title: "Mirrors are free of streaks", description: "Streaks on the second mirror, invented.", zone: "Restroom", severity: "medium", status: "open", source: "inspection",
-    reported_by: "s-05", reported_by_name: "Eve Everett", reported_at: "2026-10-01T18:00:00.000Z", assigned_to: person.id, assigned_to_name: person.firstName + " " + person.lastName, linked_task_id: "at-fnd-9", due_at: "2026-10-04T18:00:00.000Z", due_state: "onTime", resolution_notes: null },
+    reported_by: "s-05", reported_by_name: "Eve Everett", reported_at: "2026-10-01T18:00:00.000Z", assigned_to: person.id, assigned_to_name: person.firstName + " " + person.lastName, linked_task_id: null, due_at: "2026-10-04T18:00:00.000Z", due_state: "onTime", resolution_notes: null },
 ];
 const SHEET_TASKS = [
   { task_id: "at-iss-a1", label: "Issue: Invented leak under the sink", description: null, site_name: "North Building", site_id: "site-north", zone: null, priority: "standard", resolution_status: "pending", source_issue_id: "iss-a1", issue_id: "iss-a1", issue_title: "Invented leak under the sink", issue_description: "Water on the floor by the second sink, invented.", issue_zone: "Restroom", severity: "high", reported_by_name: "Ben Brooks", created_by_name: "Eve Everett", task_created_at: "2026-10-01T20:00:00.000Z" },
-  { task_id: "at-fnd-9", label: "Issue: Mirrors are free of streaks", description: null, site_name: "North Building", site_id: "site-north", zone: null, priority: "standard", resolution_status: "pending", source_issue_id: "fnd-9", issue_id: "fnd-9", issue_title: "Mirrors are free of streaks", issue_description: "Streaks on the second mirror, invented.", issue_zone: "Restroom", severity: "medium", reported_by_name: "Eve Everett", created_by_name: "Eve Everett", task_created_at: "2026-10-01T18:00:00.000Z" },
 ];
 // Step 297, behind the unfinishedForms switch: the person's own draft of
 // the incident report, as GET /api/agent/drafts answers it, and the
@@ -1810,8 +1878,15 @@ function makeState(opts) {
     // and lists them as source inspection. The first completion is turned
     // away once with findingNoteRequired on its first deficient card, laid
     // over the stub, so a check sees the refusal under the card.
-    findings: o.findings === true || o.inspectionWalk === true,
-    findingRows: [],
+    findings: o.findings === true || o.inspectionWalk === true || o.findingsSeed === true,
+    findingRows: o.findingsSeed ? FINDINGS_SEED(o.person || PERSON).rows : [],
+    // Part 388 (ocsa-api Round 12, part 382): each finding's follow-ups,
+    // an ended one kept with endedAt; the calls to the follow-up routes;
+    // and a refusal a case lays over one route once ({ route, code },
+    // route confirm, follow-up or conversation).
+    followUps: o.findingsSeed ? FINDINGS_SEED(o.person || PERSON).followUps : [],
+    followUpCalls: [],
+    followUpFault: o.followUpFault || null,
     findingRefusals: o.findings === true ? 1 : 0,
     // Step 258: an API with Step 256 built, which answers GET
     // /api/training/me; trainingNone answers it with nothing required.
@@ -3756,6 +3831,82 @@ function createStub(opts) {
     { id: "s-05", name: "Eve Everett", role: "supervisor", group: "everyone" },
     { id: "s-06", name: "Finn Ford", role: "day_porter", group: "everyone" },
   ];
+  // Part 388 (ocsa-api Round 12, part 382, helpers/findingFollowUps.js):
+  // a finding's open follow-up, its state on the company's clock, and the
+  // finding as the office's list and My findings answer it (mine leaves
+  // out suggestedTopicId and correctiveActionId). What a conversation
+  // covered and who else was there go to its person, its recorder and a
+  // holder of read_hr_records alone.
+  const FU_UNRESOLVED = ["open", "in_progress", "escalated"];
+  const fuToday = () => zoneDate(clockNow());
+  const fuAddDays = (day, n) => { const d = new Date(day + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+  const fuOpenOf = (issueId) => state.followUps.find(x => x.issueId === issueId && !x.endedAt) || null;
+  const fuStateOf = (fu) => (!fu ? null : fu.doneAt ? "done" : fu.dueOn < fuToday() ? "overdue" : "open");
+  const fuReadsCoaching = (fu) => String(fu.ownerId) === String(state.person.id) || (!!fu.recordedBy && String(fu.recordedBy.id) === String(state.person.id)) || holds("read_hr_records");
+  const fuView = (fu, lang) => {
+    if (!fu) return null;
+    const topic = fu.topicId ? FOLLOW_UP_TOPICS.find(x => x.id === fu.topicId) : null;
+    const coaching = fuReadsCoaching(fu);
+    return {
+      id: fu.id, findingId: fu.issueId, kind: fu.kind, recordKind: fu.kind === "conversation" ? "coaching" : "training",
+      topic: topic ? { id: topic.id, name: lang === "es" ? topic.es : topic.en } : null, dueOn: fu.dueOn, state: fuStateOf(fu), chosenAt: fu.chosenAt, chosenBy: fu.chosenBy || null, doneAt: fu.doneAt || null,
+      training: fu.kind === "training" ? { recordId: null, completedDate: null } : null,
+      conversation: fu.kind === "conversation" ? { heldAt: fu.heldAt || null, heldBy: fu.heldBy || null, recordedAt: fu.recordedAt || null, recordedBy: fu.recordedBy || null, covered: coaching ? fu.covered || null : null, othersPresent: coaching ? fu.othersPresent || null : null, confirmedAt: fu.confirmedAt || null, waitingConfirmation: !!fu.recordedAt && !fu.confirmedAt } : null,
+    };
+  };
+  const findingView = (row, lang, mine) => {
+    const fu = fuOpenOf(row.id);
+    const f = fuStateOf(fu);
+    const card = row._card || { itemId: null, label: row.title, zone: row.zone, score: null, maxScore: null };
+    const ins = row._inspection || { scheduledInspectionId: null, templateName: null, completedAt: null, inspector: null };
+    const view = {
+      id: row.id, site: { id: row.site_id, name: row.site_name || null },
+      inspection: { scheduledInspectionId: ins.scheduledInspectionId, templateName: ins.templateName, completedAt: ins.completedAt, inspector: ins.inspector },
+      card: { label: card.label || row.title || null, zone: card.zone || row.zone || null, score: card.score, maxScore: card.maxScore },
+      notes: row.description || null, photos: (row.photos || []).map(p => ({ id: p.id, url: p.url })), severity: row.severity || null, status: row.status, foundAt: row.reported_at,
+      owner: row.assigned_to ? { id: String(row.assigned_to), name: row.assigned_to_name || null } : null,
+      followUp: fuView(fu, lang),
+      due: fu ? fu.dueOn : (FU_UNRESOLVED.indexOf(row.status) !== -1 ? fuAddDays(zoneDate(Date.parse(row.reported_at)), 2) : null),
+      state: f === "done" ? "done" : FU_UNRESOLVED.indexOf(row.status) === -1 ? "resolved" : (f || "needsFollowUp"),
+    };
+    if (!mine) Object.assign(view, { suggestedTopicId: suggestedTopicFor(card.itemId), correctiveActionId: row.corrective_action_id || null });
+    return view;
+  };
+  const fuRefuse = (k, lang, extra) => { const r = FOLLOW_UP_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
+  const fuFaultFor = (route, lang) => { if (!state.followUpFault || state.followUpFault.route !== route) return null; const k = state.followUpFault.code; state.followUpFault = null; return fuRefuse(k, lang); };
+  // Who reads the office's list (hasAllSiteAccess or manage_inspections),
+  // and who chooses and records (manage_inspections, or a supervisor at
+  // the site; every supervisor here is at every site).
+  const fuMayList = () => state.person.role === "admin" || state.person.role === "supervisor" || holds("manage_inspections");
+  const fuMayDecide = () => holds("manage_inspections") || state.person.role === "supervisor";
+  // readChoice: { choice } or { keys }.
+  const fuReadChoice = (raw) => {
+    if (raw === undefined || raw === null) return { choice: null };
+    if (typeof raw !== "object" || Array.isArray(raw)) return { keys: ["followUp"] };
+    const kind = typeof raw.kind === "string" ? raw.kind.trim() : "";
+    if (kind !== "training" && kind !== "conversation") return { keys: ["kind"] };
+    if (kind === "conversation") return raw.topicId !== undefined && raw.topicId !== null && raw.topicId !== "" ? { keys: ["topicId"] } : { choice: { kind: kind, topicId: null } };
+    const topicId = typeof raw.topicId === "string" ? raw.topicId.trim().toLowerCase() : "";
+    return FOLLOW_UP_TOPICS.some(x => x.id === topicId) ? { choice: { kind: kind, topicId: topicId } } : { keys: ["topicId"] };
+  };
+  // choose: the open one ended (refused when done), the owner named, the
+  // follow-up written due 7 or 3 days from today.
+  const fuChoose = (row, choice, ownerId) => {
+    const owner = ownerId || (row.assigned_to ? String(row.assigned_to) : null);
+    if (!owner) return { code: "inspections.ownerRequired", keys: ["ownerId"] };
+    const open = fuOpenOf(row.id);
+    if (open && open.doneAt) return { code: "inspections.followUpDone" };
+    if (open) open.endedAt = new Date(clockNow()).toISOString();
+    if (ownerId && String(row.assigned_to || "") !== ownerId) {
+      const o = findingOwners().find(x => String(x.id) === ownerId);
+      row.assigned_to = ownerId; row.assigned_to_name = o ? o.name : null;
+      if (row.status === "open") row.status = "in_progress";
+    }
+    const fu = { id: "fu-" + (state.followUps.length + 1), issueId: row.id, ownerId: owner, kind: choice.kind, topicId: choice.topicId, dueOn: fuAddDays(fuToday(), FOLLOW_UP_DUE_DAYS[choice.kind]), chosenAt: new Date(clockNow()).toISOString(), chosenBy: { id: String(state.person.id), name: state.person.firstName + " " + state.person.lastName }, doneAt: null };
+    state.followUps.push(fu);
+    return { followUp: fu };
+  };
+
   const atOf = (c) => (c.at !== undefined ? c.at : clockNow() - 60 * 1000);
   const firstNameOf = (userId) => (userId === state.person.id ? state.person.firstName : (FIRST_NAMES[userId] || "Someone"));
   const latest = (list) => list.slice().sort((a, b) => atOf(b) - atOf(a))[0];
@@ -5547,6 +5698,15 @@ function createStub(opts) {
         if (item) Object.assign(item, { status: "current", completedDate: c.record.completedDate, expiresOn: c.record.expiresOn, recordId: c.record.id });
         me.records.unshift(Object.assign({}, c.record));
       });
+      // Part 388 (API Round 12, helpers/trainingGaps.js rule 8): a training
+      // chosen as a finding's follow-up for this person, open, is an item
+      // due on the follow-up's day (dueSoon with expiresOn that day, then
+      // missing), carrying findingFollowUp.
+      state.followUps.filter(fu => fu.kind === "training" && !fu.endedAt && !fu.doneAt && String(fu.ownerId) === String(state.person.id)).forEach(fu => {
+        const topic = FOLLOW_UP_TOPICS.find(x => x.id === fu.topicId);
+        if (!topic) return;
+        me.items.push({ topicId: topic.id, name: languageOf(search, state) === "es" ? topic.es : topic.en, docCode: null, docSection: null, safetyCritical: false, siteId: null, siteName: null, status: fu.dueOn >= zoneDate(clockNow()) ? "dueSoon" : "missing", completedDate: null, expiresOn: fu.dueOn, recordId: null, attemptId: null, lesson: null, findingFollowUp: { findingId: fu.issueId, dueOn: fu.dueOn } });
+      });
       me.items.forEach(item => {
         const lesson = TRAINING_LESSONS.find(l => l.topicId === item.topicId);
         if (!lesson) return;
@@ -5981,7 +6141,7 @@ function createStub(opts) {
     }
     if (state.findings && key === "GET /api/issues") {
       const q = new URLSearchParams(search || "");
-      return json(200, q.get("source") === "inspection" ? state.findingRows.map(r => Object.assign({}, r)) : []);
+      return json(200, q.get("source") === "inspection" ? state.findingRows.map(r => { const o = {}; Object.keys(r).forEach(k => { if (k.charAt(0) !== "_") o[k] = r[k]; }); return o; }) : []);
     }
     if (state.findings && method === "PATCH" && /^\/api\/issues\/[^/]+$/.test(pathname)) {
       const row = state.findingRows.find(r => pathname === "/api/issues/" + r.id);
@@ -6035,6 +6195,106 @@ function createStub(opts) {
     // decides items through among its supply routes (Step 285).
     if (state.supplyItems && key === "GET /api") return json(200, { name: "Invented API", endpoints: { supplies: { "GET /api/supplies/requests": "The supply requests", "POST /api/supplies/requests/:reqId/decide": "Decide a request's items" } } });
     if (key === "POST /api/supplies/requests") return json(200, { ok: true });
+
+    // --- findings and their follow-ups (part 388), as ocsa-api Round 12
+    // (part 382) answers them: routes/findings.js, through
+    // helpers/findingFollowUps.js. A finding is its issue (findingRows), a
+    // follow-up one of state.followUps, one open per finding.
+    if (key === "GET /api/me/findings") {
+      const mine = state.findingRows.filter(r => r.source === "inspection" && String(r.assigned_to) === String(state.person.id) && r.status !== "declined").slice().sort((a, b) => Date.parse(b.reported_at) - Date.parse(a.reported_at)).slice(0, 100).map(r => findingView(r, lang, true));
+      return json(200, { findings: mine, toConfirm: mine.filter(f => f.followUp && f.followUp.conversation && f.followUp.conversation.waitingConfirmation) });
+    }
+    const confirming = method === "POST" ? /^\/api\/findings\/([^/]+)\/conversation\/confirm$/.exec(pathname) : null;
+    if (confirming) {
+      state.followUpCalls.push({ route: "confirm", id: confirming[1], body: body || null });
+      const faulted = fuFaultFor("confirm", lang);
+      if (faulted) return faulted;
+      const fu = fuOpenOf(confirming[1]);
+      if (!fu || String(fu.ownerId) !== String(state.person.id)) return fuRefuse("findings.notFound", lang);
+      if (fu.kind !== "conversation" || !fu.recordedAt) return fuRefuse("findings.notRecorded", lang);
+      if (fu.confirmedAt) return fuRefuse("findings.alreadyConfirmed", lang);
+      fu.confirmedAt = new Date(clockNow()).toISOString();
+      const row = state.findingRows.find(r => r.id === confirming[1]);
+      return json(200, { finding: row ? findingView(row, lang, true) : null });
+    }
+    // The office's list: admins, supervisors and holders of
+    // manage_inspections; status, kind, siteId and ownerId filters, each
+    // checked; with no status, the ones not done or resolved.
+    if (key === "GET /api/inspections/findings") {
+      if (!fuMayList()) return fuRefuse("access.insufficientPermissions", lang);
+      const q = new URLSearchParams(search || "");
+      const raw = (k) => (q.get(k) === null || q.get(k) === "" ? null : q.get(k));
+      const keys = [];
+      const st = raw("status"), kind = raw("kind");
+      if (st && ["needsFollowUp", "open", "overdue", "done", "resolved"].indexOf(st) === -1) keys.push("status");
+      if (kind && ["training", "conversation", "none"].indexOf(kind) === -1) keys.push("kind");
+      if (keys.length) return fuRefuse("inspections.badDetails", lang, { keys: keys });
+      let list = state.findingRows.filter(r => r.source === "inspection" && (!raw("siteId") || String(r.site_id) === raw("siteId")) && (!raw("ownerId") || String(r.assigned_to) === raw("ownerId")))
+        .slice().sort((a, b) => Date.parse(b.reported_at) - Date.parse(a.reported_at)).map(r => findingView(r, lang, false));
+      list = st ? list.filter(f => f.state === st) : list.filter(f => f.state !== "done" && f.state !== "resolved");
+      if (kind === "none") list = list.filter(f => !f.followUp); else if (kind) list = list.filter(f => f.followUp && f.followUp.kind === kind);
+      return json(200, { findings: list.slice(0, 500), asOf: zoneDate(clockNow()) });
+    }
+    const oneFindingRead = method === "GET" ? /^\/api\/inspections\/findings\/([^/]+)$/.exec(pathname) : null;
+    if (oneFindingRead) {
+      if (!fuMayList()) return fuRefuse("access.insufficientPermissions", lang);
+      const row = state.findingRows.find(r => r.id === oneFindingRead[1] && r.source === "inspection");
+      return row ? json(200, { finding: findingView(row, lang, false) }) : fuRefuse("inspections.findingNotFound", lang);
+    }
+    const choosing = method === "POST" ? /^\/api\/inspections\/findings\/([^/]+)\/follow-up$/.exec(pathname) : null;
+    if (choosing) {
+      state.followUpCalls.push({ route: "follow-up", id: choosing[1], body: body || null });
+      const row = state.findingRows.find(r => r.id === choosing[1] && r.source === "inspection");
+      if (!row) return fuRefuse("inspections.findingNotFound", lang);
+      if (!fuMayDecide()) return fuRefuse("access.insufficientPermissions", lang);
+      if (row.status === "closed" || row.status === "declined") return fuRefuse("inspections.findingClosed", lang, { status: row.status });
+      const faulted = fuFaultFor("follow-up", lang);
+      if (faulted) return faulted;
+      const b = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+      const read = fuReadChoice({ kind: b.kind, topicId: b.topicId });
+      if (read.keys || !read.choice) return fuRefuse("inspections.badFollowUp", lang, { keys: read.keys || ["kind"] });
+      let ownerId = null;
+      if (b.ownerId !== undefined && b.ownerId !== null && b.ownerId !== "") {
+        const owner = findingOwners().find(o => String(o.id) === String(b.ownerId));
+        if (!owner) return fuRefuse("inspections.badOwner", lang, { keys: ["ownerId"] });
+        ownerId = String(owner.id);
+      }
+      const made = fuChoose(row, read.choice, ownerId);
+      if (made.code) return fuRefuse(made.code, lang, made.keys ? { keys: made.keys } : null);
+      return json(201, { finding: findingView(row, lang, false) });
+    }
+    const recording = method === "POST" ? /^\/api\/inspections\/findings\/([^/]+)\/conversation$/.exec(pathname) : null;
+    if (recording) {
+      state.followUpCalls.push({ route: "conversation", id: recording[1], body: body || null });
+      const row = state.findingRows.find(r => r.id === recording[1] && r.source === "inspection");
+      if (!row) return fuRefuse("inspections.findingNotFound", lang);
+      if (!fuMayDecide()) return fuRefuse("access.insufficientPermissions", lang);
+      const faulted = fuFaultFor("conversation", lang);
+      if (faulted) return faulted;
+      const b = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+      const keys = [];
+      let heldAt = new Date(clockNow());
+      if (b.heldAt !== undefined && b.heldAt !== null && b.heldAt !== "") {
+        const ok = typeof b.heldAt === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(b.heldAt.trim());
+        const at = ok ? new Date(b.heldAt.trim()) : null;
+        if (!at || isNaN(at.getTime()) || at.getTime() > clockNow() + 5 * 60000) keys.push("heldAt"); else heldAt = at;
+      }
+      const covered = typeof b.covered === "string" ? b.covered.trim() : "";
+      if (!covered || covered.length > 2000) keys.push("covered");
+      let others = null;
+      if (b.othersPresent !== undefined && b.othersPresent !== null && b.othersPresent !== "") {
+        if (typeof b.othersPresent !== "string" || b.othersPresent.trim().length > 500) keys.push("othersPresent"); else others = b.othersPresent.trim() || null;
+      }
+      if (keys.length) return fuRefuse("inspections.badConversation", lang, { keys: keys });
+      const fu = fuOpenOf(row.id);
+      if (!fu || fu.kind !== "conversation") return fuRefuse("inspections.notConversation", lang);
+      if (fu.recordedAt) return fuRefuse("inspections.conversationRecorded", lang);
+      const me = { id: String(state.person.id), name: state.person.firstName + " " + state.person.lastName };
+      const now = new Date(clockNow()).toISOString();
+      Object.assign(fu, { heldBy: me, heldAt: heldAt.toISOString(), covered: covered, othersPresent: others, recordedBy: me, recordedAt: now, doneAt: now });
+      if (FU_UNRESOLVED.indexOf(row.status) !== -1) { row.status = "resolved"; row.resolved_at = now; }
+      return json(200, { finding: findingView(row, lang, false) });
+    }
 
     // --- inspections
     // As the API answers it: ?status= is matched exactly, and anyone but
@@ -6134,6 +6394,15 @@ function createStub(opts) {
         if (noNote.length) return refuse("inspections.findingNoteRequired", noNote.map(r => r.x.template_item_id));
         const badOwner = rows.filter(r => r.x.ownerId !== undefined && r.x.ownerId !== null && ownerIds.indexOf(String(r.x.ownerId)) === -1);
         if (badOwner.length) return refuse("inspections.badOwner", badOwner.map(r => r.x.template_item_id));
+        // Part 388 (API Round 12, readCards): a deficient card's followUp,
+        // a training with a topic of followUpTopics or a conversation;
+        // inspections.badFollowUp names each card whose follow-up is not
+        // one, then inspections.ownerRequired each with one and no owner.
+        rows.forEach(r => { r.follow = r.x.followUp !== undefined && r.x.followUp !== null ? fuReadChoice(r.x.followUp) : { choice: null }; });
+        const badFollow = rows.filter(r => r.follow.keys);
+        if (badFollow.length) return refuse("inspections.badFollowUp", badFollow.map(r => r.x.template_item_id));
+        const noOwner = rows.filter(r => r.follow.choice && !(r.x.ownerId !== undefined && r.x.ownerId !== null && r.x.ownerId !== ""));
+        if (noOwner.length) return refuse("inspections.ownerRequired", noOwner.map(r => r.x.template_item_id));
         if (state.findingRefusals > 0 && rows.length) { state.findingRefusals -= 1; return refuse("inspections.findingNoteRequired", [rows[0].x.template_item_id]); }
         one.status = "completed";
         const max = items.reduce((s, i) => s + (i.max_score || 0), 0);
@@ -6145,9 +6414,14 @@ function createStub(opts) {
         const opened = rows.map(r => {
           const owner = r.x.ownerId ? findingOwners().find(o => o.id === String(r.x.ownerId)) : null;
           const row = { id: "fnd-" + (state.findingRows.length + 1), site_id: one.site_id, site_name: one.site_name, title: r.item.label, description: String(r.x.notes || "").trim(), zone: r.item.zone || null, severity: FINDING_SEVERITY[band], status: "open", source: "inspection", reference: null,
-            reported_at: at.toISOString(), reported_by: state.person.id, assigned_to: owner ? owner.id : null, assigned_to_name: owner ? owner.name : null, due_at: due.toISOString(), due_state: "onTime", first_response_at: owner ? at.toISOString() : null, resolved_at: null, resolved_by: null, verified_at: null, verified_by_name: null, item_score_id: "sc-" + r.x.template_item_id, corrective_action_id: null, photos: [] };
+            reported_at: at.toISOString(), reported_by: state.person.id, assigned_to: owner ? owner.id : null, assigned_to_name: owner ? owner.name : null, due_at: due.toISOString(), due_state: "onTime", first_response_at: owner ? at.toISOString() : null, resolved_at: null, resolved_by: null, verified_at: null, verified_by_name: null, item_score_id: "sc-" + r.x.template_item_id, corrective_action_id: null, photos: [],
+            // Part 388: the card and the inspection, as a finding's read answers them; an owner moves it in progress.
+            _card: { itemId: r.x.template_item_id, label: r.item.label, zone: r.item.zone || null, score: r.score, maxScore: r.item.max_score }, _inspection: { scheduledInspectionId: one.id, templateName: one.template_name, completedAt: at.toISOString(), inspector: { id: String(state.person.id), name: state.person.firstName + " " + state.person.lastName } } };
+          if (owner) row.status = "in_progress";
           state.findingRows.push(row);
-          return { issueId: row.id, templateItemId: r.x.template_item_id, label: r.item.label, zone: r.item.zone || null, score: r.score, maxScore: r.item.max_score, severity: row.severity, dueAt: row.due_at, owner: owner ? { id: owner.id, name: owner.name } : null };
+          const made = owner && r.follow.choice ? fuChoose(row, r.follow.choice, null).followUp : null;
+          return { issueId: row.id, templateItemId: r.x.template_item_id, label: r.item.label, zone: r.item.zone || null, score: r.score, maxScore: r.item.max_score, severity: row.severity, dueAt: row.due_at, owner: owner ? { id: owner.id, name: owner.name } : null,
+            followUp: made ? { id: made.id, kind: made.kind, topic: made.topicId ? { id: made.topicId } : null, dueOn: made.dueOn, state: fuStateOf(made) } : null };
         });
         // The safety part filed, answered as API Step 319 answers it: its
         // id, the overall result's code and each finding as its row.
@@ -6208,7 +6482,9 @@ function createStub(opts) {
       // Part 383 (API part 378, its 8.1): every read answers its site's
       // last safety walk as lastSafetyWalk.
       const walked = one ? { lastSafetyWalk: lastWalkAt(one.site_id) } : {};
-      if (one && state.findings) return json(200, Object.assign({}, one, { owners: findingOwners() }, state.inspectionWalk && one.with_safety ? { safety: walkSafetyRead(state, one, lang) } : {}, walked));
+      // Part 388 (API Round 12): followUpTopics, and on each item the topic
+      // its service category suggests, to the inspector and management.
+      if (one && state.findings) return json(200, Object.assign({}, one, { owners: findingOwners(), followUpTopics: followUpTopicsIn(lang), items: (one.items || []).map(it => Object.assign({}, it, { suggestedTopicId: suggestedTopicFor(it.id) })) }, state.inspectionWalk && one.with_safety ? { safety: walkSafetyRead(state, one, lang) } : {}, walked));
       return one ? json(200, Object.assign({}, one, walked)) : json(404, { error: INSPECTION_NOT_FOUND[0] });
     }
     if (key === "POST /api/inspections/scheduled" && state.startInspection) {
@@ -6691,7 +6967,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

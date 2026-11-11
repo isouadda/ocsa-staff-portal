@@ -57,8 +57,8 @@ page signed out, with the sheet in the page and Sign in to record use,
 and signed in, with Used one and Running low; Inspection findings
 (Step 255), a completion that opens two findings through the API alone,
 one with an owner, with the API's refusal under the card it names, the
-answer screen with the band and each finding, and the owner's finding
-on Report, Fixed and Waiting for a check; My training (Step 258)
+answer screen with the band and each finding, and since part 388 the
+owner's finding on My findings with no Fixed; My training (Step 258)
 under More, with To do, Coming due, Done and History from an invented
 answer, and the line a person with nothing required reads; Online
 lessons (Step 261), Home's card, a lesson read with its blocks and its
@@ -123,8 +123,9 @@ opening it;
 one place to work an issue (Step 297), against API Step 298 as its
 contract gives it, in English at 390 and Spanish at 320: a supervisor's
 Issues row opening its sheet and the one assigned to them reading
-Assigned to you, a cleaner's Assigned listing a task, an issue and a
-finding each once, the issue resolved from its sheet with a note and a
+Assigned to you, a cleaner's Assigned listing a task and an issue each
+once and, since part 388, never the finding assigned to them, the issue
+resolved from its sheet with a note and a
 photo through its task and gone from Assigned, and the bell's notice
 opening the issue's sheet; and unfinished forms you can see: Home's
 card opening the person's draft, Save and finish later saving the
@@ -1601,6 +1602,82 @@ Three journeys, in English and Spanish, each failing on the main of part
   searches the row by name, opens the one that matches, and a name that
   matches nobody says so. The row takes a search once it holds more than
   six, so the stub's default admin list of six reads as before.
+
+## Findings as training or a conversation (part 388, section 1)
+
+The stub answers ocsa-api Round 12's findings (part 382, section 2), as
+`routes/findings.js` and `helpers/findingFollowUps.js` build them. A
+finding is its issue row in `findingRows` and makes no task; its
+follow-up is one of `state.followUps`, one open per finding (an ended one
+kept with `endedAt`):
+
+- The inspection's read answers `followUpTopics` (`FOLLOW_UP_TOPICS`,
+  three invented lesson topics in the library's order) and each item's
+  `suggestedTopicId`, from the card's service category (`CARD_CATEGORY`)
+  through the API's `SUGGEST`.
+- The completion reads `scores[i].followUp` on a deficient card, in the
+  API's order after the note and the owner: 400
+  `inspections.badFollowUp` naming each card whose follow-up is not one,
+  then `inspections.ownerRequired` each card with one and no owner. A
+  card with an owner moves its issue in progress; with a follow-up, a
+  training is due 7 days from today on the company's clock and a
+  conversation 3. The answer's `findings[i].followUp` is `{ id, kind,
+  topic: { id } | null, dueOn, state }` or null.
+- `GET /api/me/findings` answers `{ findings, toConfirm }` for the
+  person signed in, newest first; `POST
+  /api/findings/:id/conversation/confirm` confirms once, 404
+  `findings.notFound`, 409 `findings.notRecorded` and
+  `findings.alreadyConfirmed`.
+- `GET /api/inspections/findings` (admins, supervisors, holders of
+  `manage_inspections`) with its filters checked, and with no status the
+  ones not done or resolved; `GET /api/inspections/findings/:id`; `POST
+  .../follow-up { kind, topicId?, ownerId? }` and `POST .../conversation
+  { heldAt?, covered, othersPresent? }` with every refusal of the API in
+  its words (`FOLLOW_UP_REFUSALS`). What a conversation covered and who
+  else was there go to its person, its recorder and a holder of
+  `read_hr_records` alone.
+- `GET /api/training/me` lists the person's open training follow-up as
+  an item due on its day (`dueSoon`, then `missing`) with
+  `findingFollowUp { findingId, dueOn }`.
+- `findingsSeed` puts five invented findings on record: three about the
+  person signed in (a conversation recorded and waiting for them, a
+  training open, one with none) and two about others (one with no owner,
+  a conversation past its day). `followUpFault { route, code }` lays one
+  refusal over the confirm, follow-up or conversation route once.
+
+`FINDING_REFUSALS` now holds the API's own words for the completion's
+four refusals about a finding.
+
+Five journeys, in English and Spanish, each failing on the main of part
+383:
+
+- `findingfollowup` (1.2): a card that opens a finding offers Training,
+  Conversation and Decide later, Training starting on the card's
+  suggested topic; a conversation chosen with no owner is refused
+  `inspections.ownerRequired` under its card; the completion sends each
+  card's `followUp`, none for Decide later, and the result names each
+  follow-up and its day.
+- `findingnotwork` (1.1): a cleaner's findings are listed on neither
+  Assigned nor Report, nothing offers Fixed, and nothing reads `GET
+  /api/issues?source=inspection`.
+- `myfindings` (1.3): the bell's `finding_conversation` opens My findings,
+  newest first, each with what was found, its notes and photo and its
+  follow-up; a conversation waiting for the person shows what was covered
+  and Confirm we talked, a refusal said in the API's words, and two taps
+  at once send once.
+- `trainingfollowup` (1.4): My training's item says it came from an
+  inspection finding and when it is due, and never that it expires.
+- `followups` (1.5): a supervisor's Findings to follow up puts the ones
+  with no follow-up first, then the late one; Choose a follow-up starts
+  on the suggested topic read from the finding's inspection, says
+  `inspections.ownerRequired` under Owner, and sends kind, topic and
+  owner; Record the conversation says an empty What was covered on the
+  phone and sends when, with its zone, what was covered and who else was
+  there.
+
+The smoke check's Inspection findings now ends on My findings: the
+owner's finding with no follow-up chosen yet and no Fixed, and no read of
+the inspection issue list.
 
 ## Known failures
 

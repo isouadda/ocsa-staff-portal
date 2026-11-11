@@ -1081,6 +1081,12 @@ const DESTINATIONS = [
   // Under More alone, for a holder of approve_supplies alone, by the
   // API's canDecide on the list it answers them (Step 311).
   { id: "supplyorders", label: () => "Approve supplies", icon: CartIco, moreOnly: true, role: (ctx) => !!ctx.supplyOrders },
+  // Under More alone (part 388, API Round 12): My findings once GET
+  // /api/me/findings answers a finding about the person's work; Findings
+  // to follow up for a supervisor or a holder of manage_inspections once
+  // GET /api/inspections/findings answers them a list, an empty one too.
+  { id: "myfindings", label: () => "My findings", icon: ClipIco, moreOnly: true, role: (ctx) => !!ctx.myFindings },
+  { id: "findingsdue", label: () => "Findings to follow up", icon: ClipIco, moreOnly: true, role: (ctx) => !!ctx.findingsDue },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
 
@@ -1203,8 +1209,9 @@ const INSPECT_FINDING_UNDER_PCT = 80;
 const inspectDeficient = (score, max, marked) => !!marked || (max > 0 && score * 100 < INSPECT_FINDING_UNDER_PCT * max);
 // The refusals the complete route gives about a finding, each told in the
 // API's words under the card its keys name: a deficient card with no
-// note, and an owner who is not on the list.
-const INSPECT_FINDING_CODES = ["inspections.findingNoteRequired", "inspections.badOwner"];
+// note, an owner who is not on the list, and since part 388 (API Round
+// 12) a follow-up that is not one, or one chosen with no owner.
+const INSPECT_FINDING_CODES = ["inspections.findingNoteRequired", "inspections.badOwner", "inspections.badFollowUp", "inspections.ownerRequired"];
 // The scheduled inspections, as My Inspections reads them: the one load
 // Inspect and My Schedule share (Step 296). The API answers an admin and
 // a supervisor every site's, and anyone else the ones assigned to them,
@@ -1322,6 +1329,9 @@ const inspectAnswerOf = (d) => {
     findings: (Array.isArray(d.findings) ? d.findings : []).map(f => (f && typeof f === "object" ? {
       id: String(agentField(f, ["issueId", "id"], "")), label: fkText(f, ["label"]), zone: fkText(f, ["zone"]), score: agentField(f, ["score"], null), maxScore: agentField(f, ["maxScore"], null),
       severity: fkText(f, ["severity"]), dueAt: f.dueAt || null, owner: f.owner && typeof f.owner === "object" && typeof f.owner.name === "string" ? f.owner.name.trim() : "",
+      // Part 388 (API Round 12): the follow-up chosen with it, or null for
+      // one left to decide later; an answer without the key reads as before.
+      hasFollowUp: Object.prototype.hasOwnProperty.call(f, "followUp"), followUp: followUpOf(f.followUp),
     } : null)).filter(Boolean),
   };
 };
@@ -1772,8 +1782,8 @@ function readEntryFromUrl() {
 // to open a new window for it: ?open=<subjectType>:<subjectId>. Read once
 // at start and taken off the address, before an emailed link's own read
 // below drops the query. A client request's notice links to
-// /requests/<id> (Step 252), and an inspection finding's to /issues/<id>
-// (Step 255); either address opens its subject the same way, and so does
+// /requests/<id> (Step 252), and an issue's to /issues/<id> (Step 255,
+// an issue since Step 297); either address opens its subject the same way, and so does
 // a training session's /join/<code> (Step 264), a training category's
 // page, /training/c/<key> (Step 267), a signature request's /sign/<id>
 // (Step 271), and a supply request's /supplies/<id> (Step 311). None is
@@ -1792,7 +1802,7 @@ function openOfAddress(search, pathname) {
   if (!v) {
     var m = /^\/(requests|issues|join|training\/c|sign|inspect|drafts|supplies)\/([A-Za-z0-9_-]+)$/.exec(String(pathname || "").replace(/\/+$/, ""));
     if (!m) return null;
-    var types = { requests: "client_request", issues: "inspection_finding", join: "training_join", "training/c": "training_category", sign: "signature_request", inspect: "inspection", drafts: "form_draft", supplies: "supply_request" };
+    var types = { requests: "client_request", issues: "issue", join: "training_join", "training/c": "training_category", sign: "signature_request", inspect: "inspection", drafts: "form_draft", supplies: "supply_request" };
     return { subjectType: types[m[1]], subjectId: m[2], path: true };
   }
   var at = v.indexOf(":");
@@ -2598,11 +2608,16 @@ export default function OCSAStaffPortal() {
   // person, null until it does, and the one a notice asked to open.
   const [clientRequests, setClientRequests] = useState(null);
   const [requestOpen, setRequestOpen] = useState(null);
-  // Inspection findings (Step 255): the inspection tickets GET
-  // /api/issues?source=inspection answers this person, null until it
-  // answers a list, and the one a notice opened.
-  const [findings, setFindings] = useState(null);
-  const [findingOpen, setFindingOpen] = useState(null);
+  // Part 388 (API Round 12, part 382): a finding is no work item. My
+  // findings holds what GET /api/me/findings answers this person, null
+  // until it answers a list; Findings to follow up what GET
+  // /api/inspections/findings answers a supervisor or a holder of
+  // manage_inspections, null until it answers one. Each keeps the finding
+  // a notice opened ({ id, at }).
+  const [myFindings, setMyFindings] = useState(null);
+  const [myFindingsAt, setMyFindingsAt] = useState(null);
+  const [findingsDue, setFindingsDue] = useState(null);
+  const [findingsDueAt, setFindingsDueAt] = useState(null);
   const [suppliesFailed, setSuppliesFailed] = useState(false);
   // True once a supplies list has come back, so a site with none can say
   // so without the line showing while the list is still on its way.
@@ -3536,7 +3551,10 @@ export default function OCSAStaffPortal() {
   // back to the front, and after every action on one. An answer that is
   // not a list, or no answer, leaves what was shown; nothing shows until
   // the route has answered once.
-  const loadFindings = async (tok) => { const use = tok || token; if (!use) return; try { const d = await api("/api/issues?source=inspection", { token: use }); const rows = findingRowsOf(d); if (rows) setFindings(rows); } catch (err) { if (err && (err.status === 404 || err.status === 400)) setFindings(null); } };
+  const loadMyFindings = async (tok) => { const use = tok || token; if (!use) return; try { const d = await api("/api/me/findings", { token: use }); const v = myFindingsOf(d); if (v) setMyFindings(v); } catch (err) { if (err && err.status === 404) setMyFindings(null); } };
+  // Findings to follow up is read only for someone the API answers it: an
+  // admin or a supervisor, or a holder of manage_inspections.
+  const loadFindingsDue = async (tok) => { const use = tok || token; if (!use || !(user && (user.role === "admin" || user.role === "supervisor")) && !(caps && caps.manage_inspections === true)) return; try { const d = await api("/api/inspections/findings", { token: use }); const v = findingsDueOf(d); if (v) setFindingsDue(v); } catch (err) { if (err && (err.status === 404 || err.status === 403)) setFindingsDue(null); } };
   const loadClientRequests = async (tok) => { const use = tok || token; if (!use) return; try { const d = await api("/api/issues/requests", { token: use }); const rows = clientRequestsOf(d); if (rows) setClientRequests(rows); } catch (err) { if (err && err.status === 404) setClientRequests(null); } };
   const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); setIssuesFailed(false); } catch (err) { console.error(err); setIssuesFailed(true); } };
   // A save that fails throws, so the screen keeps the note and the photo
@@ -3587,7 +3605,7 @@ export default function OCSAStaffPortal() {
   // answer is drawn once, matched by its id or by that clientId.
   const sendMessage = async (channelId, text, mentions, clientId) => { const body = { text }; if (Array.isArray(mentions) && mentions.length > 0) body.mentions = mentions; if (clientId) body.clientId = clientId; const data = await api(chatPath("/api/chat/channels/" + channelId + "/messages"), { method: "POST", body: body, token }); const msg = data && data.message && typeof data.message === "object" ? data.message : null; if (!msg) { await readMessages(channelId).catch(e => console.error(e)); } else if (activeChannelRef.current === channelId) setMessages(prev => (prev.some(m => (msg.id && m.id === msg.id) || isClientSend(m, msg.senderId, msg.clientId)) ? prev : [...prev, msg])); loadChannels(); };
 
-  useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "issues") { loadIssues(); loadClientRequests(); loadFindings(); } if (activeTab === "issuetasks") { loadAssignedTasks(); loadIssues(); loadClientRequests(); loadFindings(); } if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId]);
+  useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "issues") { loadIssues(); loadClientRequests(); } if (activeTab === "issuetasks") { loadAssignedTasks(); loadIssues(); loadClientRequests(); } if (activeTab === "myfindings") loadMyFindings(); if (activeTab === "findingsdue") loadFindingsDue(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId]);
   // The task list is fetched as soon as a session is seen open, whichever
   // tab the person is standing on, so the Home card has its bar at boot.
   // Once per request: opening Tasks afterwards fires nothing new, and a
@@ -3677,6 +3695,15 @@ export default function OCSAStaffPortal() {
     // Without the field kit, the checklist, where the notice's own link
     // points.
     if (place.tab === "fieldkit" && place.periodic !== undefined) { setActiveTab("tasks"); setShowMore(false); return; }
+    // Part 388: a conversation to confirm opens My findings at it; a
+    // finding's notice to the office opens Findings to follow up at it,
+    // for someone who reads that list, and its issue's sheet for anyone
+    // else; an issue that is a finding on that list opens there too.
+    if (place.myFinding) { setMyFindingsAt({ id: String(place.myFinding), at: Date.now() }); setActiveTab("myfindings"); setShowMore(false); loadMyFindings(); return; }
+    const followsUp = isAdmin || (caps && caps.manage_inspections === true);
+    const dueHere = (id) => !!findingsDue && findingsDue.findings.some(f => f.id === String(id));
+    if ((place.findingDue && followsUp) || (place.issue && followsUp && dueHere(place.issue))) { setFindingsDueAt({ id: String(place.findingDue || place.issue), at: Date.now() }); setActiveTab("findingsdue"); setShowMore(false); loadFindingsDue(); return; }
+    if (place.findingDue) { openIssue(place.findingDue, null); return; }
     if (place.issue) { openIssue(place.issue, null); return; }
     // A supply request (Step 311): opened once it is known whether this
     // person decides it.
@@ -3693,7 +3720,7 @@ export default function OCSAStaffPortal() {
     if (place.tab === "tasks") setTaskFocus(place.task ? { id: String(place.task), at: Date.now() } : null);
     if (place.tab === "forms" && place.draft) setFormsDraft(String(place.draft));
     setActiveTab(place.tab); setShowMore(false);
-    if (place.tab === "issues") { setRequestOpen(place.request || null); setFindingOpen(place.finding || null); loadClientRequests(); loadFindings(); }
+    if (place.tab === "issues") { setRequestOpen(place.request || null); loadClientRequests(); }
     if (place.tab === "chat" && place.chat) { if (activeChannelRef.current === place.chat) loadMessages(place.chat); else chooseChat(place.chat); }
   };
   // Where a tap on a phone alert asked the app to open: the address it
@@ -3828,9 +3855,12 @@ export default function OCSAStaffPortal() {
   // The list of chats is read once the portal is up, so the Chat tab's
   // count is on the bar before Chat is ever opened, and again each time
   // the app comes back to the front, with the clock status below.
-  useEffect(() => { if (token && screen === "main") { loadChannels(); loadClientRequests(); loadFindings(); } }, [token, screen]);
-  // The request or finding a notice opened stays marked while Report is open.
-  useEffect(() => { if (activeTab !== "issues" && requestOpen) setRequestOpen(null); if (activeTab !== "issues" && findingOpen) setFindingOpen(null); }, [activeTab]);
+  useEffect(() => { if (token && screen === "main") { loadChannels(); loadClientRequests(); loadMyFindings(); } else { setMyFindings(null); setFindingsDue(null); } }, [token, screen]);
+  // Findings to follow up once the capabilities are known.
+  useEffect(() => { if (token && screen === "main") loadFindingsDue(); }, [token, screen, caps, user && user.role]);
+  // The request a notice opened stays marked while Report is open, and the
+  // finding while its list is open.
+  useEffect(() => { if (activeTab !== "issues" && requestOpen) setRequestOpen(null); if (activeTab !== "myfindings" && myFindingsAt) setMyFindingsAt(null); if (activeTab !== "findingsdue" && findingsDueAt) setFindingsDueAt(null); }, [activeTab]);
   // An admin can end a session from the dashboard, and a second device
   // can end it too. Re-read clock status when the app comes back into
   // view. One listener, no interval.
@@ -3844,10 +3874,14 @@ export default function OCSAStaffPortal() {
 
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
   // Assigned's count is everything on it, each once (Step 297).
-  const myWork = myWorkOf(assignedTasks, findings, clientRequests, issues, user);
+  const myWork = myWorkOf(assignedTasks, clientRequests, issues, user);
   const assignedCount = myWork.length;
-  const workChanged = () => { loadAssignedTasks(); loadIssues(); loadClientRequests(); loadFindings(); };
+  const workChanged = () => { loadAssignedTasks(); loadIssues(); loadClientRequests(); };
   const [showMore, setShowMore] = useState(false);
+  // My findings and Findings to follow up are read again each time More
+  // opens, where they are offered, so a finding an inspection opened
+  // since shows there (part 388).
+  useEffect(() => { if (showMore && token && screen === "main") { loadMyFindings(); loadFindingsDue(); } }, [showMore]);
 
   // The person's own four places between Home and More. Read on the first
   // render after they are known, so the bar never shows the default and
@@ -4021,7 +4055,7 @@ export default function OCSAStaffPortal() {
     readWorkspaceProjects(token).then(list => { if (live) setWsProjects(list); });
     return () => { live = false; };
   }, [wsAsks, token, user && user.id]);
-  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training, property: Array.isArray(property), support: Array.isArray(support), library: Array.isArray(library), supplyOrders: supplyHolder === true && Array.isArray(supplyOrders) };
+  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training, property: Array.isArray(property), support: Array.isArray(support), library: Array.isArray(library), supplyOrders: supplyHolder === true && Array.isArray(supplyOrders), myFindings: !!myFindings && myFindings.findings.length > 0, findingsDue: !!findingsDue };
   const shortcutChoices = shortcutChoicesFor(destCtx);
   const allowedShortcutIds = shortcutChoices.map(d => d.id);
   const uid = user && user.id ? user.id : null;
@@ -4408,13 +4442,15 @@ export default function OCSAStaffPortal() {
               {activeTab === "issuetasks" && <AssignedTasksView userId={user && user.id} assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} messagesFailed={!!activeChannel && messagesFailedOf === activeChannel && messagesOf !== activeChannel} onRetryMessages={() => { setMessagesFailedOf(null); loadMessages(activeChannel); }} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView userId={user && user.id} token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} onOpenDocument={(d) => openLibraryDoc(d, null)} />}
-              {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} attachIssuePhoto={attachIssuePhoto} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} findings={findings} onFindingsChanged={() => loadFindings()} openFinding={findingOpen} onOpenIssue={openIssue} />}
+              {activeTab === "issues" && <IssuesView clockStatus={clockStatus} issues={issues} failed={issuesFailed} onRetry={loadIssues} submitIssue={submitIssue} attachIssuePhoto={attachIssuePhoto} showToast={showToast} user={user} sites={sites} t={t} token={token} getOpts={getOpts} lkColorMap={lkColorMap} requests={clientRequests} onRequestsChanged={() => loadClientRequests()} openRequest={requestOpen} onOpenIssue={openIssue} />}
               {activeTab === "supplies" && <SuppliesView clockStatus={clockStatus} supplies={supplies} loaded={suppliesLoaded} failed={suppliesFailed} onRetry={loadSupplies} supplyLogs={supplyLogs} logSupplyUsage={logSupplyUsage} submitRequest={submitSupplyRequest} showToast={showToast} t={t} getOpts={getOpts} lkColorMap={lkColorMap} token={token} user={user} />}
               {activeTab === "pickup" && <PickupView token={token} user={user} showToast={showToast} t={t} />}
               {activeTab === "inspect" && <InspectView token={token} user={user} showToast={showToast} t={t} openAt={inspectAt} onOpened={() => setInspectAt(null)} />}
               {activeTab === "speakup" && <SpeakUpView token={token} focus={speakAt} t={t} />}
               {activeTab === "sds" && <div style={{ padding: 16 }}><SdsBrowser initial={sdsList} onList={setSdsList} code={sdsCode} onCode={setSdsCode} t={t} /></div>}
               {activeTab === "workspace" && destCtx.workspace && <WorkspaceView token={token} user={user} projects={wsProjects} onProjects={setWsProjects} at={wsAt} onAt={setWsAt} channels={channels} onOpenChat={(id) => { chooseChat(id); setActiveTab("chat"); setShowMore(false); }} showToast={showToast} t={t} />}
+              {activeTab === "myfindings" && (destCtx.myFindings || !!myFindingsAt) && <MyFindingsView token={token} data={myFindings} onData={setMyFindings} onReload={() => loadMyFindings()} at={myFindingsAt} onOpenTraining={(topic) => openPlace({ tab: "training", topic: topic })} showToast={showToast} t={t} />}
+              {activeTab === "findingsdue" && (destCtx.findingsDue || !!findingsDueAt) && <FollowUpsView token={token} data={findingsDue} onData={setFindingsDue} onReload={() => loadFindingsDue()} at={findingsDueAt} showToast={showToast} t={t} />}
               {activeTab === "training" && <TrainingView token={token} data={training} onData={setTraining} at={trainingAt} onAt={setTrainingAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} t={t} />}
               {activeTab === "fieldkit" && destCtx.isAdmin && <FieldKitView token={token} user={user} caps={caps} maint={maintKit} at={fieldKitAt} onAt={setFieldKitAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} assignedSites={sites} onOpenEquipment={(code) => { setEquipmentShown(code); setEquipmentBack("fieldkit"); setActiveTab("equipment"); }} showToast={showToast} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
@@ -8983,41 +9019,35 @@ function IssueSheet({ token, user, at, tasks, onClose, onChanged, showToast, lkC
 
 // Assigned (Step 297, the contract's section 2.2): everything assigned to
 // the person, each once: their tasks from GET /api/clock/tasks/assigned,
-// the issues and inspection findings assigned to them, and the client
-// requests assigned to them. An issue assigned as a task is both a task
-// and an issue to the API, and a finding with an owner is a finding and
-// a task, so each is listed once, by the issue it carries: a client
-// request as a request, a finding as a finding, then an issue. A task
-// whose finding is fixed already is left off, since its finding is.
-function myWorkOf(tasks, findings, requests, issues, user) {
+// the issues assigned to them, and the client requests assigned to them.
+// An issue assigned as a task is both a task and an issue to the API, so
+// each is listed once, by the issue it carries: a client request as a
+// request, then an issue. Since part 388 (API Round 12, part 382) an
+// inspection finding is no work item: it is never listed here, and My
+// findings shows it with its training or conversation.
+function myWorkOf(tasks, requests, issues, user) {
   const me = user && user.id !== undefined ? String(user.id) : "";
   const mineReq = requestsForMe(requests, user).mine;
   const reqById = {};
   mineReq.forEach(r => { reqById[r.id] = r; });
-  const findById = {};
-  (Array.isArray(findings) ? findings : []).forEach(f => { if (f && f.source === "inspection") findById[f.id] = f; });
   const seen = {};
   const out = [];
   const push = (key, item) => { if (seen[key]) return; seen[key] = true; out.push(Object.assign({ key: key }, item)); };
-  const asFinding = (f, task) => ({ kind: "finding", id: f.id, title: f.title, line: [f.zone, f.siteName].filter(Boolean).join(" · "), dueAt: f.dueAt, dueState: f.dueState, status: f.status, row: task ? Object.assign({}, task, { source: "inspection", due_at: f.dueAt, due_state: f.dueState }) : { id: f.id, title: f.title, description: f.description, zone: f.zone, site_name: f.siteName, severity: f.severity, status: f.status, source: "inspection", assigned_to: f.assignedTo, reported_at: f.reportedAt, due_at: f.dueAt, due_state: f.dueState } });
-  const asRequest = (r) => ({ kind: "request", id: r.id, title: r.categoryTitle, line: [r.area, r.siteName].filter(Boolean).join(" · "), dueAt: r.dueAt, dueState: r.dueState, status: r.status });
+  const asRequest = (r) => ({ kind: "request", id: r.id, title: r.categoryTitle, line: [r.area, r.siteName].filter(Boolean).join(" \u00b7 "), dueAt: r.dueAt, dueState: r.dueState, status: r.status });
   (Array.isArray(tasks) ? tasks : []).forEach(task => {
     if (!task || task.task_id === undefined) return;
     const issueId = task.source_issue_id || task.issue_id;
     if (!issueId) { push("task:" + task.task_id, { kind: "task", id: String(task.task_id), task: task }); return; }
     const key = "issue:" + issueId;
-    const f = findById[String(issueId)];
     if (reqById[String(issueId)]) { push(key, asRequest(reqById[String(issueId)])); return; }
-    if (f) { if (ISSUE_DONE_STATES.indexOf(f.status) === -1) push(key, asFinding(f, task)); else seen[key] = true; return; }
     const v = issueViewOf(task);
-    push(key, { kind: "issue", id: String(issueId), title: v.title, line: [v.zone, task.site_name].filter(Boolean).join(" · "), status: v.status, dueAt: null, task: task, row: task });
+    push(key, { kind: "issue", id: String(issueId), title: v.title, line: [v.zone, task.site_name].filter(Boolean).join(" \u00b7 "), status: v.status, dueAt: null, task: task, row: task });
   });
-  findingsForMe(findings, user).forEach(f => { if (ISSUE_DONE_STATES.indexOf(f.status) === -1) push("issue:" + f.id, asFinding(f, null)); });
   mineReq.forEach(r => push("issue:" + r.id, asRequest(r)));
   (Array.isArray(issues) ? issues : []).forEach(x => {
     const v = issueViewOf(x);
-    if (!v || !v.assignedTo || v.assignedTo.id !== me || v.source === "client_request" || ISSUE_OPEN_STATES.indexOf(v.status) === -1) return;
-    push("issue:" + v.id, { kind: v.source === "inspection" ? "finding" : "issue", id: v.id, title: v.title, line: [v.zone, v.siteName].filter(Boolean).join(" · "), dueAt: v.dueAt, dueState: v.dueState, status: v.status, row: x });
+    if (!v || !v.assignedTo || v.assignedTo.id !== me || v.source === "client_request" || v.source === "inspection" || ISSUE_OPEN_STATES.indexOf(v.status) === -1) return;
+    push("issue:" + v.id, { kind: "issue", id: v.id, title: v.title, line: [v.zone, v.siteName].filter(Boolean).join(" \u00b7 "), dueAt: v.dueAt, dueState: v.dueState, status: v.status, row: x });
   });
   return out;
 }
@@ -9467,7 +9497,7 @@ function RequestNoteSheet({ id, title, line, label, required, button, photos, to
   );
 }
 
-function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, attachIssuePhoto, showToast, user, sites, t, token, getOpts, lkColorMap, requests, onRequestsChanged, openRequest, findings, onFindingsChanged, openFinding, onOpenIssue }) {
+function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, attachIssuePhoto, showToast, user, sites, t, token, getOpts, lkColorMap, requests, onRequestsChanged, openRequest, onOpenIssue }) {
   const [showForm, setShowForm] = useState(false); const [title, setTitle] = useState(""); const [desc, setDesc] = useState("");
   const [sev, setSev] = useState("medium"); const [zone, setZone] = useState(""); const [selSite, setSelSite] = useState("");
   const [photo, setPhoto] = useState(null); const [photoPreview, setPhotoPreview] = useState(null); const [uploading, setUploading] = useState(false);
@@ -9514,7 +9544,6 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, attachI
   return (
     <div style={{ padding: "16px" }}>
       <ClientRequestsSection token={token} user={user} rows={requests} onChanged={onRequestsChanged} showToast={showToast} openId={openRequest} t={t} />
-      <FindingsSection token={token} user={user} rows={findings} onChanged={onFindingsChanged} showToast={showToast} openId={openFinding} t={t} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{isAdmin ? tr("Issues") : tr("Report an Issue")}</div>{isAdmin && <button onClick={() => setShowForm(!showForm)} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "7px 13px", borderRadius: R.sm, border: showForm ? "1px solid " + t.borderSolid : "none", background: showForm ? t.cardAlt : GOLD, color: showForm ? t.text : NAVY, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{showForm ? tr("Cancel") : tr("+ Report")}</span></button>}</div>
       {photoLeft && (<div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", marginBottom: 14, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow }}>{photoLeft.preview ? <img src={photoLeft.preview} alt={tr("Preview")} style={{ width: 44, height: 44, objectFit: "cover", borderRadius: R.sm, flexShrink: 0, border: "1px solid " + t.borderSolid }} /> : <CamIco sz={18} c={t.textMut} style={{ flexShrink: 0 }} />}<div role="alert" style={{ flex: 1, minWidth: 0, fontSize: 12, color: t.textSec, lineHeight: 1.5 }}>{tr("Issue reported. Its photo did not attach.")}</div><button type="button" onClick={attachAgain} disabled={uploading} style={{ minHeight: TAP, padding: "0 14px", flexShrink: 0, borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: uploading ? 0.6 : 1 }}>{tr("Try again")}</button></div>)}
       {(showForm || !isAdmin) && (<div style={{ padding: 14, marginBottom: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, animation: "fadeIn 0.3s ease", boxShadow: t.popShadow }}>
@@ -9778,17 +9807,6 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
   );
 }
 
-// ------------------------------------------------------------
-// Inspection findings (Step 255): the tickets the API opens from an
-// inspection's deficient cards (Step 253), as GET
-// /api/issues?source=inspection lists them to the person signed in. The
-// section sits under Client requests on the Report tab and shows only
-// once the route answers a list and only when a finding is assigned to
-// this person and not closed. Fixed marks it resolved, the PATCH every
-// assignee may make; a resolved finding stays listed as waiting for the
-// check a second person makes (QMS-014 8 step 4) until it is closed.
-// ------------------------------------------------------------
-const FINDING_OPEN_STATES = ["open", "in_progress", "escalated"];
 // ------------------------------------------------------------
 // Supply orders on the phone (Step 311, the Step 308 contract's sections
 // 0, 1.7 and 4.1, 4.2 and 4.4), built for 320 to 390 wide first. For
@@ -10221,77 +10239,400 @@ function SupplyOrder({ token, user, holder, row, onBack, onRow, onReload, getOpt
   );
 }
 
-function findingRowOf(x) {
+// ------------------------------------------------------------
+// Findings as training or a conversation (part 388, ocsa-api Round 12,
+// part 382, section 2). The owner decided on Nov 11, 2026 that an
+// inspection finding is no work item: what it calls for is training, or
+// a conversation with the person whose work it was. No finding is listed
+// as work here, and nothing about one reads as a task: Assigned and
+// Report no longer read GET /api/issues?source=inspection, and Fixed is
+// gone. A finding takes one follow-up for its owner, chosen on the walk
+// (scores[i].followUp) or later by a supervisor at the site or a holder
+// of manage_inspections:
+//   training      a lesson topic from the inspection's followUpTopics,
+//                 due 7 days from the choice, listed on My training with
+//                 findingFollowUp;
+//   conversation  due 3 days from the choice, recorded by whoever held
+//                 it, then confirmed by the person.
+// My findings reads GET /api/me/findings for the person whose work it
+// was; Findings to follow up reads GET /api/inspections/findings for a
+// supervisor and a holder of manage_inspections. Every refusal is said
+// in the API's own words.
+// ------------------------------------------------------------
+const FINDING_STATES = ["needsFollowUp", "open", "overdue", "done", "resolved"];
+// The office's list puts the ones with no follow-up first, then the late
+// ones, each group in the API's order (newest first).
+const FINDING_RANK = { needsFollowUp: 0, overdue: 1, open: 2, done: 3, resolved: 4 };
+const findingText = (v) => (typeof v === "string" ? v.trim() : "");
+const findingPersonOf = (x) => (x && typeof x === "object" && x.id !== null && x.id !== undefined ? { id: String(x.id), name: findingText(x.name) } : null);
+// A follow-up as every finding answer carries it, the full shape or the
+// short one the completion and the inspection's read answer.
+function followUpOf(x) {
+  if (!x || typeof x !== "object" || (x.kind !== "training" && x.kind !== "conversation")) return null;
+  const topic = x.topic && typeof x.topic === "object" && x.topic.id !== undefined && x.topic.id !== null ? { id: String(x.topic.id), name: findingText(x.topic.name) } : x.topicId ? { id: String(x.topicId), name: "" } : null;
+  const c = x.conversation && typeof x.conversation === "object" ? x.conversation : null;
+  return {
+    id: String(agentField(x, ["id"], "")), kind: x.kind, topic: topic, dueOn: findingText(x.dueOn).slice(0, 10),
+    state: ["open", "overdue", "done"].indexOf(x.state) !== -1 ? x.state : x.doneAt ? "done" : "open",
+    chosenBy: findingPersonOf(x.chosenBy), doneAt: findingText(x.doneAt),
+    conversation: c ? { heldAt: findingText(c.heldAt), heldBy: findingPersonOf(c.heldBy), recordedAt: findingText(c.recordedAt), covered: findingText(c.covered), othersPresent: findingText(c.othersPresent), confirmedAt: findingText(c.confirmedAt), waitingConfirmation: c.waitingConfirmation === true } : null,
+  };
+}
+// One finding as GET /api/me/findings and GET /api/inspections/findings
+// answer it, or null.
+function findingOf(x) {
   if (!x || typeof x !== "object") return null;
   const id = agentField(x, ["id"], null);
-  if (id === null) return null;
-  const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
+  if (id === null || id === "") return null;
+  const site = x.site && typeof x.site === "object" ? x.site : {};
+  const ins = x.inspection && typeof x.inspection === "object" ? x.inspection : {};
+  const card = x.card && typeof x.card === "object" ? x.card : {};
+  const num = (v) => (v === null || v === undefined || v === "" || !isFinite(Number(v)) ? null : Number(v));
   return {
-    id: String(id), title: str("title"), description: str("description"), zone: str("zone"), siteName: str("site_name"), severity: str("severity"), status: str("status"), source: str("source"),
-    assignedTo: agentField(x, ["assigned_to"], null), reportedAt: x.reported_at || null, dueAt: x.due_at || null, dueState: str("due_state"), resolvedAt: x.resolved_at || null, verifiedAt: x.verified_at || null,
+    id: String(id), siteId: site.id !== undefined && site.id !== null ? String(site.id) : "", siteName: findingText(site.name),
+    scheduledInspectionId: ins.scheduledInspectionId ? String(ins.scheduledInspectionId) : "", templateName: findingText(ins.templateName), inspector: findingPersonOf(ins.inspector),
+    label: findingText(card.label), zone: findingText(card.zone), score: num(card.score), maxScore: num(card.maxScore),
+    notes: findingText(x.notes), photos: (Array.isArray(x.photos) ? x.photos : []).map((p, i) => (p && typeof p === "object" && typeof p.url === "string" && p.url ? { id: String(agentField(p, ["id"], i)), url: p.url } : null)).filter(Boolean),
+    status: findingText(x.status), foundAt: findingText(x.foundAt), owner: findingPersonOf(x.owner), followUp: followUpOf(x.followUp),
+    state: FINDING_STATES.indexOf(x.state) !== -1 ? x.state : "needsFollowUp", suggestedTopicId: x.suggestedTopicId ? String(x.suggestedTopicId) : "",
   };
 }
-// The rows the answer holds, or null for an answer that is not a list,
-// which is read as the route not answering yet.
-function findingRowsOf(d) {
-  const rows = wsRows(d, "issues");
-  return rows ? rows.map(findingRowOf).filter(Boolean) : null;
+// GET /api/me/findings: { findings, toConfirm }, or null for an answer
+// with no list, read as the route not answering yet.
+function myFindingsOf(d) {
+  if (!d || typeof d !== "object" || !Array.isArray(d.findings)) return null;
+  return { findings: d.findings.map(findingOf).filter(Boolean), toConfirm: (Array.isArray(d.toConfirm) ? d.toConfirm : []).map(findingOf).filter(Boolean).map(f => f.id) };
 }
-// The findings assigned to this person and not closed.
-const findingsForMe = (rows, user) => (Array.isArray(rows) ? rows : []).filter(r => r.source === "inspection" && !!user && r.assignedTo !== null && String(r.assignedTo) === String(user.id) && r.status !== "closed");
+// GET /api/inspections/findings: { findings, asOf }, or null.
+function findingsDueOf(d) {
+  if (!d || typeof d !== "object" || !Array.isArray(d.findings)) return null;
+  return { findings: d.findings.map(findingOf).filter(Boolean) };
+}
+// The lesson topics a training follow-up may name, from the inspection's
+// read (followUpTopics), or null where the read answers none.
+const followUpTopicsOf = (d) => (d && Array.isArray(d.followUpTopics) ? d.followUpTopics.map(x => (x && typeof x === "object" && x.id !== undefined && x.id !== null ? { id: String(x.id), name: findingText(x.name) || String(x.id) } : null)).filter(Boolean) : null);
+// One finding swapped for its newer answer in a list.
+const findingSwapped = (list, f) => (Array.isArray(list) ? list.map(x => (x.id === f.id ? f : x)) : list);
+// What a finding's follow-up is, and its day and state, in two lines.
+function followUpWords(f) {
+  const fu = f.followUp;
+  if (!fu) return { what: f.state === "resolved" ? tr("Closed with no follow-up") : tr("No follow-up chosen yet"), when: "", late: false };
+  const what = fu.kind === "training" ? (fu.topic && fu.topic.name ? tr("Training: {topic}", { topic: fu.topic.name }) : tr("Training")) : tr("A conversation");
+  const when = fu.state === "done" ? (fu.doneAt ? tr("Follow-up done {date}", { date: fkDayOf(fu.doneAt) }) : tr("Follow-up done")) : fu.dueOn ? (fu.state === "overdue" ? tr("Overdue. Due {date}", { date: wsDueText(fu.dueOn) }) : tr("Due {date}", { date: wsDueText(fu.dueOn) })) : "";
+  return { what: what, when: when, late: fu.state === "overdue" };
+}
+const FINDING_STATE_WORDS = { needsFollowUp: "Needs a follow-up", open: "Follow-up chosen", overdue: "Late", done: "Done", resolved: "Closed" };
+const findingStateColor = (s) => (s === "overdue" ? RED : s === "needsFollowUp" ? ORANGE : s === "open" ? BLUE : GREEN);
 
-function FindingsSection({ token, user, rows, onChanged, showToast, openId, t }) {
-  const mine = findingsForMe(rows, user);
-  const [sheet, setSheet] = useState(null);
+// What was found: the card, where, when and by whom, its notes and its
+// photos, each photo read again from the list when its link ran out.
+function FindingFound({ f, reread, readKey, t }) {
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 3, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const found = f.foundAt ? (f.inspector && f.inspector.name ? tr("Found {date} by {name}", { date: fkDayOf(f.foundAt), name: f.inspector.name }) : tr("Found {date}", { date: fkDayOf(f.foundAt) })) : "";
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <div role="heading" aria-level={3} style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{f.label}</div>
+        <span data-finding-state={f.state} style={trainingChipSt(t, findingStateColor(f.state))}>{tr(FINDING_STATE_WORDS[f.state])}</span>
+      </div>
+      <div style={lineSt}>{[f.zone && f.zone !== f.label ? f.zone : "", f.siteName].filter(Boolean).join(" \u00b7 ")}</div>
+      {found && <div style={lineSt}>{found}</div>}
+      {f.score !== null && f.maxScore !== null && <div style={{ ...lineSt, fontVariantNumeric: "tabular-nums" }}>{tr("{score} of {max}", { score: f.score, max: f.maxScore })}</div>}
+      {f.notes && <div data-finding-notes={f.id} style={{ ...lineSt, color: t.text, marginTop: 8, whiteSpace: "pre-line" }}>{f.notes}</div>}
+      {f.photos.length > 0 && (
+        <div data-finding-photos={f.id} style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+          {f.photos.map(p => <FreshImg key={p.id} src={p.url} reread={reread} readKey={readKey} alt={tr("Attached Photo")} link linkLabel={tr("Attached Photo")} linkStyle={{ display: "block" }} style={{ width: 96, height: 96, objectFit: "cover", borderRadius: R.md, border: "1px solid " + t.borderSolid }} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+// The follow-up under what was found: what it is and its day.
+function FindingFollowUpLine({ f, t }) {
+  const w = followUpWords(f);
+  return (
+    <div data-finding-follow-up={f.followUp ? f.followUp.kind : "none"} style={{ marginTop: 10, padding: "8px 10px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{w.what}</div>
+      {w.when && <div data-finding-due={f.followUp ? f.followUp.state : ""} style={{ fontSize: 12, marginTop: 2, color: w.late ? wsLateInk(t) : t.textSec, fontWeight: w.late ? 600 : 400 }}>{w.when}</div>}
+    </div>
+  );
+}
+// What a recorded conversation covered, when it was held and by whom, and
+// whether the person confirmed it.
+function FindingConversation({ c, t }) {
+  if (!c || !c.recordedAt) return null;
+  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" };
+  return (
+    <div data-finding-talk="1" style={{ marginTop: 8 }}>
+      {c.heldAt && <div style={lineSt}>{c.heldBy && c.heldBy.name ? tr("Held {when} by {name}", { when: requestWhen(c.heldAt), name: c.heldBy.name }) : tr("Held {when}", { when: requestWhen(c.heldAt) })}</div>}
+      {c.covered && <div style={{ ...mkLabel(t), marginTop: 8, marginBottom: 2 }}>{tr("What was covered")}</div>}
+      {c.covered && <div data-finding-covered="1" style={{ ...lineSt, marginTop: 0, color: t.text, whiteSpace: "pre-line" }}>{c.covered}</div>}
+      {c.othersPresent && <div style={{ ...mkLabel(t), marginTop: 8, marginBottom: 2 }}>{tr("Who else was there")}</div>}
+      {c.othersPresent && <div style={{ ...lineSt, marginTop: 0, color: t.text }}>{c.othersPresent}</div>}
+      {c.confirmedAt && <div data-finding-confirmed="1" style={{ ...lineSt, color: ink(t, GREEN), fontWeight: 600 }}>{tr("Confirmed {when}", { when: requestWhen(c.confirmedAt) })}</div>}
+    </div>
+  );
+}
+
+// My findings: the findings about the person's own work, newest first,
+// each with what was found and its follow-up. A conversation waiting for
+// them reads Confirm we talked, sent once; a training opens My training.
+function MyFindingsView({ token, data, onData, onReload, at, onOpenTraining, showToast, t }) {
   const [busy, setBusy] = useState(null);
+  const [fault, setFault] = useState({});
+  const sending = useRef(false);
   const rowRefs = useRef({});
   const scrolledTo = useRef(null);
-  useBusy("finding sheet", !!sheet);
   useEffect(() => {
-    if (!openId || scrolledTo.current === openId) return;
-    const el = rowRefs.current[openId];
-    if (el && el.scrollIntoView) { scrolledTo.current = openId; el.scrollIntoView({ block: "center" }); }
-  }, [openId, rows]);
-  if (mine.length === 0) return null;
-  const fixed = async (row, note) => {
-    if (busy) return false;
-    setBusy(row.id);
+    if (!at || !at.id || scrolledTo.current === at.at) return;
+    const el = rowRefs.current[at.id];
+    if (el && el.scrollIntoView) { scrolledTo.current = at.at; el.scrollIntoView({ block: "center" }); }
+  }, [at, data]);
+  const reread = () => api("/api/me/findings", { token });
+  const confirm = async (f) => {
+    if (sending.current) return;
+    sending.current = true;
+    setBusy(f.id);
+    setFault(prev => ({ ...prev, [f.id]: null }));
     try {
-      await api("/api/issues/" + encodeURIComponent(row.id), { method: "PATCH", body: Object.assign({ status: "resolved" }, note ? { resolutionNotes: note } : {}), token });
-      showToast(tr("Fixed. A second person checks it."));
-      onChanged();
-      return true;
+      const d = await api("/api/findings/" + encodeURIComponent(f.id) + "/conversation/confirm", { method: "POST", token, body: {} });
+      const next = findingOf(d && d.finding);
+      if (next) onData(prev => (prev ? { findings: findingSwapped(prev.findings, next), toConfirm: prev.toConfirm.filter(x => x !== next.id) } : prev));
+      showToast(tr("Confirmed. Thank you."));
+      onReload();
     } catch (err) {
-      showToast(requestFaultOf(err, "That did not go through. Try again."), "error");
-      return false;
-    } finally { setBusy(null); }
+      setFault(prev => ({ ...prev, [f.id]: requestFaultOf(err, "That did not go through. Try again.") }));
+      if (err && err.status === 409) onReload();
+    } finally { sending.current = false; setBusy(null); }
   };
-  const cardSt = { padding: "12px", marginBottom: 8, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md, boxShadow: t.shadow };
-  const btn = { flex: "1 1 120px", minHeight: TAP, padding: "10px 12px", borderRadius: R.md, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" };
-  const headSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
-  const lineSt = { fontSize: 12, color: t.textSec, marginTop: 3, lineHeight: 1.4, overflowWrap: "anywhere" };
-  const ago = (iso) => requestAgo(iso);
+  const list = data ? data.findings : null;
   return (
-    <div data-finding-section="mine" style={{ marginBottom: 18 }}>
-      <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>{tr("Inspection findings")}</div>
-      {mine.map(r => (
-        <div key={r.id} ref={el => { rowRefs.current[r.id] = el; }} data-finding-row={r.id} style={{ ...cardSt, borderLeft: "3px solid " + (openId === r.id ? GOLD : t.borderSolid) }}>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-            <div style={{ ...headSt, flex: 1 }}>{r.title}</div>
-            {r.reportedAt && <div style={{ fontSize: 10, color: t.textMut, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums", flexShrink: 0, marginTop: 2 }}>{ago(r.reportedAt)}</div>}
+    <div data-my-findings="1" style={{ padding: "14px 16px 100px" }}>
+      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("My findings")}</div>
+      <div style={{ fontSize: 12, color: t.textSec, marginTop: 4, marginBottom: 14, lineHeight: 1.45 }}>{tr("What an inspection found in your work, and the training or conversation it calls for.")}</div>
+      {!list && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {list && list.length === 0 && <EmptyState icon={ClipIco} text={tr("No findings about your work.")} t={t} />}
+      {(list || []).map(f => {
+        const c = f.followUp && f.followUp.conversation;
+        const waiting = !!c && c.waitingConfirmation;
+        const training = f.followUp && f.followUp.kind === "training" && f.followUp.state !== "done" && f.followUp.topic;
+        return (
+          <div key={f.id} ref={el => { rowRefs.current[f.id] = el; }} data-my-finding={f.id} style={{ ...fkRowSt(t), padding: "12px", borderLeft: "3px solid " + (at && at.id === f.id ? GOLD : t.borderSolid) }}>
+            <FindingFound f={f} reread={reread} readKey="me-findings" t={t} />
+            <FindingFollowUpLine f={f} t={t} />
+            <FindingConversation c={c} t={t} />
+            {waiting && <button type="button" data-finding-confirm={f.id} onClick={() => confirm(f)} disabled={busy === f.id} style={{ ...wsMainBtn(t, busy === f.id), width: "100%", marginTop: 10 }}>{tr("Confirm we talked")}</button>}
+            {training && onOpenTraining && <button type="button" data-finding-training={f.id} onClick={() => onOpenTraining(f.followUp.topic.id)} style={{ ...wsPlainBtn(t), width: "100%", marginTop: 10 }}>{tr("Open My training")}</button>}
+            {fault[f.id] && <WsFault text={fault[f.id]} t={t} />}
           </div>
-          <div style={lineSt}>{[r.zone, r.siteName].filter(Boolean).join(" \u00b7 ")}</div>
-          {r.description && <div style={{ ...lineSt, color: t.text, marginTop: 6, whiteSpace: "pre-line" }}>{r.description}</div>}
-          <RequestTarget label="Due {when}" at={r.dueAt} state={r.status === "resolved" ? "answered" : r.dueState} t={t} />
-          {r.status === "resolved" && <div data-finding-waiting={r.id} style={{ ...lineSt, marginTop: 8, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD }}>{tr("Waiting for a check")}</div>}
-          {FINDING_OPEN_STATES.indexOf(r.status) !== -1 && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-              <button type="button" onClick={() => setSheet(r)} disabled={busy === r.id} style={btn}>{tr("Fixed")}</button>
-            </div>
-          )}
+        );
+      })}
+    </div>
+  );
+}
+
+// The choice of a follow-up: Training (with its topic, the suggested one
+// first), Conversation, and on the walk Decide later. value is
+// "training", "conversation" or "later".
+function FollowUpChoice({ id, value, onChange, topics, topicId, onTopic, later, disabled, t }) {
+  const opts = [["training", "Training"], ["conversation", "Conversation"]].concat(later ? [["later", "Decide later"]] : []);
+  const pill = (on) => ({ flex: "1 1 90px", minHeight: TAP, padding: "0 10px", borderRadius: R.md, cursor: disabled ? "default" : "pointer", fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD, background: on ? t.goldBg : t.card, border: on ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text });
+  return (
+    <div data-follow-up-choice={id}>
+      <div id={id + "-label"} style={mkLabel(t)}>{tr("What does this need?")}</div>
+      <div role="radiogroup" aria-labelledby={id + "-label"} style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {opts.map(([k, w]) => <button key={k} type="button" role="radio" aria-checked={value === k} data-follow-up-kind={k} disabled={disabled} onClick={() => onChange(k)} style={pill(value === k)}>{tr(w)}</button>)}
+      </div>
+      {value === "training" && Array.isArray(topics) && topics.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <label htmlFor={id + "-topic"} style={mkLabel(t)}>{tr("Training topic")}</label>
+          <select id={id + "-topic"} data-follow-up-topic={id} value={topicId || ""} disabled={disabled} onChange={e => onTopic(e.target.value)} style={{ ...mkInput(t), minHeight: TAP }}>
+            {topics.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
         </div>
-      ))}
-      {sheet && <RequestNoteSheet id="ocsa-finding-fixed" title={tr("Mark this finding fixed")} line={tr("A second person checks the fix before the finding closes.")} label={tr("Note")} required={false} button={tr("Fixed")} photos={true} token={token} row={sheet} onClose={() => setSheet(null)} onSend={(note) => fixed(sheet, note)} t={t} />}
+      )}
+    </div>
+  );
+}
+// The topic a training starts on: the card's suggested one when the list
+// holds it, else the first.
+const followUpTopicFirst = (topics, suggested) => (Array.isArray(topics) && topics.length ? (suggested && topics.some(o => o.id === suggested) ? suggested : topics[0].id) : "");
+
+// Findings to follow up: for a supervisor at the site and a holder of
+// manage_inspections, the findings with no follow-up and the late ones
+// first. Choose a follow-up sends POST /api/inspections/findings/:id/
+// follow-up, its topics and owners read from the inspection the finding
+// came from; Record the conversation sends POST .../conversation. A
+// refusal goes under the field its keys name, else above the button, in
+// the API's words.
+const FOLLOW_UP_FIELD_KEYS = { kind: "kind", topicId: "topic", ownerId: "owner", heldAt: "heldAt", covered: "covered", othersPresent: "othersPresent" };
+function FollowUpsView({ token, data, onData, onReload, at, showToast, t }) {
+  const [open, setOpen] = useState(null);
+  const rowRefs = useRef({});
+  const scrolledTo = useRef(null);
+  useEffect(() => {
+    if (!at || !at.id || scrolledTo.current === at.at) return;
+    const el = rowRefs.current[at.id];
+    if (el && el.scrollIntoView) { scrolledTo.current = at.at; el.scrollIntoView({ block: "center" }); }
+  }, [at, data]);
+  const list = data ? data.findings.slice().sort((a, b) => FINDING_RANK[a.state] - FINDING_RANK[b.state]) : null;
+  const reread = () => api("/api/inspections/findings", { token });
+  const done = (f, said) => {
+    if (f) onData(prev => (prev ? { findings: findingSwapped(prev.findings, f) } : prev));
+    setOpen(null);
+    showToast(said);
+    onReload();
+  };
+  return (
+    <div data-follow-ups="1" style={{ padding: "14px 16px 100px" }}>
+      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Findings to follow up")}</div>
+      <div style={{ fontSize: 12, color: t.textSec, marginTop: 4, marginBottom: 14, lineHeight: 1.45 }}>{tr("Each finding calls for training or a conversation with the person whose work it was.")}</div>
+      {!list && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {list && list.length === 0 && <EmptyState icon={ClipIco} text={tr("No findings to follow up.")} t={t} />}
+      {(list || []).map(f => {
+        const fu = f.followUp;
+        const closed = f.status === "closed" || f.status === "declined";
+        const canChoose = !closed && f.state !== "done";
+        const canRecord = !!fu && fu.kind === "conversation" && fu.state !== "done" && !(fu.conversation && fu.conversation.recordedAt);
+        return (
+          <div key={f.id} ref={el => { rowRefs.current[f.id] = el; }} data-follow-up-row={f.id} style={{ ...fkRowSt(t), padding: "12px", borderLeft: "3px solid " + (at && at.id === f.id ? GOLD : f.state === "overdue" ? RED : t.borderSolid) }}>
+            <FindingFound f={f} reread={reread} readKey="office-findings" t={t} />
+            <div style={{ fontSize: 12, color: t.textSec, marginTop: 6, lineHeight: 1.4, overflowWrap: "anywhere" }}>{f.owner && f.owner.name ? tr("Owner: {name}", { name: f.owner.name }) : tr("No owner yet")}</div>
+            <FindingFollowUpLine f={f} t={t} />
+            <FindingConversation c={fu && fu.conversation} t={t} />
+            {open && open.id === f.id ? (
+              open.panel === "choose"
+                ? <FollowUpChoose token={token} f={f} onDone={(next) => done(next, tr("Follow-up chosen."))} onCancel={() => setOpen(null)} t={t} />
+                : <FollowUpRecord token={token} f={f} onDone={(next) => done(next, tr("Conversation recorded."))} onCancel={() => setOpen(null)} t={t} />
+            ) : (canChoose || canRecord) && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+                {canRecord && <button type="button" data-follow-up-record={f.id} onClick={() => setOpen({ id: f.id, panel: "record" })} style={wsMainBtn(t, false)}>{tr("Record the conversation")}</button>}
+                {canChoose && <button type="button" data-follow-up-open={f.id} onClick={() => setOpen({ id: f.id, panel: "choose" })} style={canRecord ? wsPlainBtn(t) : wsMainBtn(t, false)}>{fu ? tr("Change the follow-up") : tr("Choose a follow-up")}</button>}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+// The inspection's read, once per inspection, for its topics and owners.
+const followUpReads = new Map();
+function readFollowUpChoices(token, scheduledInspectionId) {
+  if (!followUpReads.has(scheduledInspectionId)) {
+    const p = api("/api/inspections/scheduled/" + encodeURIComponent(scheduledInspectionId), { token }).then(d => ({ topics: followUpTopicsOf(d) || [], owners: inspectOwnersOf(d) || [] }));
+    p.catch(() => { if (followUpReads.get(scheduledInspectionId) === p) followUpReads.delete(scheduledInspectionId); });
+    followUpReads.set(scheduledInspectionId, p);
+  }
+  return followUpReads.get(scheduledInspectionId);
+}
+function FollowUpChoose({ token, f, onDone, onCancel, t }) {
+  const [choices, setChoices] = useState(null);
+  const [asked, setAsked] = useState(0);
+  const [kind, setKind] = useState(f.followUp ? f.followUp.kind : "training");
+  const [topicId, setTopicId] = useState(f.followUp && f.followUp.topic ? f.followUp.topic.id : "");
+  const [ownerId, setOwnerId] = useState("");
+  const [faults, setFaults] = useState({});
+  const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
+  useEffect(() => {
+    let live = true;
+    if (!f.scheduledInspectionId) { setChoices({ state: "ok", topics: [], owners: [] }); return undefined; }
+    readFollowUpChoices(token, f.scheduledInspectionId)
+      .then(c => { if (!live) return; setChoices({ state: "ok", topics: c.topics, owners: c.owners }); setTopicId(prev => prev || followUpTopicFirst(c.topics, f.suggestedTopicId)); })
+      .catch(() => { if (live) setChoices({ state: "failed", topics: [], owners: [] }); });
+    return () => { live = false; };
+  }, [asked]);
+  const send = async () => {
+    if (sending.current) return;
+    sending.current = true;
+    setBusy(true);
+    setFaults({});
+    const body = { kind: kind };
+    if (kind === "training") body.topicId = topicId;
+    if (ownerId) body.ownerId = ownerId;
+    try {
+      const d = await api("/api/inspections/findings/" + encodeURIComponent(f.id) + "/follow-up", { method: "POST", token, body: body });
+      onDone(findingOf(d && d.finding));
+    } catch (err) {
+      const said = requestFaultOf(err, "That did not go through. Try again.");
+      const keys = err && err.body && Array.isArray(err.body.keys) ? err.body.keys.map(k => FOLLOW_UP_FIELD_KEYS[k]).filter(Boolean) : [];
+      const next = {};
+      if (keys.length) keys.forEach(k => { next[k] = said; }); else next.send = said;
+      setFaults(next);
+    } finally { sending.current = false; setBusy(false); }
+  };
+  const ownerNeeded = !f.owner;
+  return (
+    <div data-follow-up-panel="choose" style={{ marginTop: 10, padding: "12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid }}>
+      {choices && choices.state === "failed" && <div style={{ marginBottom: 8 }}><WsFault text={tr("The training topics did not load.")} t={t} /><button type="button" onClick={() => { setChoices(null); setAsked(n => n + 1); }} style={{ ...wsPlainBtn(t), marginTop: 8 }}>{tr("Try again")}</button></div>}
+      {!choices && <div style={{ fontSize: 12, color: t.textMut, padding: "8px 0" }}>{tr("Loading...")}</div>}
+      <FollowUpChoice id={"ocsa-follow-up-" + f.id} value={kind} onChange={(k) => { setKind(k); setFaults({}); }} topics={choices ? choices.topics : null} topicId={topicId} onTopic={setTopicId} disabled={busy} t={t} />
+      {faults.kind && <div role="alert" style={mkFieldErr(t)}>{faults.kind}</div>}
+      {faults.topic && <div role="alert" style={mkFieldErr(t)}>{faults.topic}</div>}
+      {(ownerNeeded || faults.owner) && choices && choices.owners.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <label htmlFor={"ocsa-follow-up-owner-" + f.id} style={mkLabel(t)}>{tr("Owner")}</label>
+          <SearchPick id={"ocsa-follow-up-owner-" + f.id} name={"follow-up-owner-" + f.id} groups={INSPECT_OWNER_GROUPS.map(g => ({ key: g.key, label: g.label() }))} rows={choices.owners.map(o => ({ id: o.id, name: o.name, sub: o.role ? roleWord(o.role) : "", group: o.group }))} value={ownerId} onPick={(v) => { setOwnerId(v); setFaults(prev => ({ ...prev, owner: null })); }} none={tr("No owner yet")} empty={tr("No owner yet")} noMatch={tr("No one matches that name.")} disabled={busy} t={t} />
+        </div>
+      )}
+      {faults.owner && <div role="alert" style={mkFieldErr(t)}>{faults.owner}</div>}
+      {faults.send && <WsFault text={faults.send} t={t} />}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+        <button type="button" onClick={onCancel} disabled={busy} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+        <button type="button" data-follow-up-send={f.id} onClick={send} disabled={busy || !choices} style={wsMainBtn(t, busy || !choices)}>{tr("Save the follow-up")}</button>
+      </div>
+    </div>
+  );
+}
+// A local date and time for the When field, the phone's own clock.
+const followUpLocalNow = () => { const d = new Date(Date.now() - new Date().getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
+function FollowUpRecord({ token, f, onDone, onCancel, t }) {
+  const [heldAt, setHeldAt] = useState(followUpLocalNow());
+  const [covered, setCovered] = useState("");
+  const [others, setOthers] = useState("");
+  const [faults, setFaults] = useState({});
+  const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
+  useBusy("follow-up conversation", covered.trim().length > 0 || others.trim().length > 0);
+  const send = async () => {
+    if (sending.current) return;
+    if (!covered.trim()) { setFaults({ covered: tr("Say what was covered.") }); return; }
+    sending.current = true;
+    setBusy(true);
+    setFaults({});
+    const when = heldAt ? new Date(heldAt) : null;
+    const body = { covered: covered.trim() };
+    if (when && isFinite(when.getTime())) body.heldAt = when.toISOString();
+    if (others.trim()) body.othersPresent = others.trim();
+    try {
+      const d = await api("/api/inspections/findings/" + encodeURIComponent(f.id) + "/conversation", { method: "POST", token, body: body });
+      onDone(findingOf(d && d.finding));
+    } catch (err) {
+      const said = requestFaultOf(err, "That did not go through. Try again.");
+      const keys = err && err.body && Array.isArray(err.body.keys) ? err.body.keys.map(k => FOLLOW_UP_FIELD_KEYS[k]).filter(Boolean) : [];
+      const next = {};
+      if (keys.length) keys.forEach(k => { next[k] = said; }); else next.send = said;
+      setFaults(next);
+    } finally { sending.current = false; setBusy(false); }
+  };
+  const inputSt = mkInput(t);
+  return (
+    <div data-follow-up-panel="record" style={{ marginTop: 10, padding: "12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid }}>
+      <label htmlFor={"ocsa-talk-when-" + f.id} style={mkLabel(t)}>{tr("When it was held")}</label>
+      <input id={"ocsa-talk-when-" + f.id} type="datetime-local" value={heldAt} max={followUpLocalNow()} onChange={e => setHeldAt(e.target.value)} disabled={busy} style={{ ...inputSt, minHeight: TAP }} />
+      {faults.heldAt && <div role="alert" style={mkFieldErr(t)}>{faults.heldAt}</div>}
+      <label htmlFor={"ocsa-talk-covered-" + f.id} style={{ ...mkLabel(t), marginTop: 12 }}>{tr("What was covered")}</label>
+      <textarea id={"ocsa-talk-covered-" + f.id} value={covered} maxLength={2000} rows={4} onChange={e => { setCovered(e.target.value); if (faults.covered) setFaults(prev => ({ ...prev, covered: null })); }} disabled={busy} aria-invalid={!!faults.covered} style={{ ...inputSt, resize: "vertical", ...(faults.covered ? { border: "1px solid " + RED } : {}) }} />
+      {faults.covered && <div role="alert" style={mkFieldErr(t)}>{faults.covered}</div>}
+      <label htmlFor={"ocsa-talk-others-" + f.id} style={{ ...mkLabel(t), marginTop: 12 }}>{tr("Who else was there")}</label>
+      <input id={"ocsa-talk-others-" + f.id} value={others} maxLength={500} onChange={e => setOthers(e.target.value)} disabled={busy} style={inputSt} />
+      {faults.othersPresent && <div role="alert" style={mkFieldErr(t)}>{faults.othersPresent}</div>}
+      {faults.send && <WsFault text={faults.send} t={t} />}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+        <button type="button" onClick={onCancel} disabled={busy} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+        <button type="button" data-follow-up-save={f.id} onClick={send} disabled={busy} style={wsMainBtn(t, busy)}>{tr("Save the conversation")}</button>
+      </div>
     </div>
   );
 }
@@ -10343,8 +10684,12 @@ function trainingItemOf(x) {
   const signoff = x.signoffBy && typeof x.signoffBy === "object" && typeof x.signoffBy.name === "string" && x.signoffBy.name.trim() ? { topicId: trainingId(x.signoffBy, ["topicId"]), name: x.signoffBy.name.trim() } : null;
   // Part 383 (API part 378): outsideCourse, the topic marked as a course
   // taken elsewhere, whose certificate the person uploads themselves.
+  // Part 388 (API Round 12): findingFollowUp, a training chosen as a
+  // finding's follow-up, { findingId, dueOn }, due on that day.
+  const ffu = x.findingFollowUp && typeof x.findingFollowUp === "object" ? x.findingFollowUp : null;
   return { id: topicId + ":" + siteId, topicId: topicId, siteId: siteId, name: name, docCode: str("docCode"), docSection: str("docSection"), safetyCritical: x.safetyCritical === true, siteName: str("siteName"), status: str("status"), completedDate: str("completedDate"), expiresOn: str("expiresOn"), linkUrl: /^https:\/\//i.test(link) ? link : "", attemptId: trainingId(x, ["attemptId"]), recordId: trainingId(x, ["recordId"]), lesson: trainingLessonLinkOf(x.lesson),
-    category: str("category") || "other", sortOrder: trainingNum(x.sortOrder), needsTrainer: x.needsTrainer === true, signoffBy: signoff, outsideCourse: x.outsideCourse === true };
+    category: str("category") || "other", sortOrder: trainingNum(x.sortOrder), needsTrainer: x.needsTrainer === true, signoffBy: signoff, outsideCourse: x.outsideCourse === true,
+    findingFollowUp: ffu ? { findingId: ffu.findingId !== undefined && ffu.findingId !== null ? String(ffu.findingId) : "", dueOn: typeof ffu.dueOn === "string" ? ffu.dueOn.slice(0, 10) : "" } : null };
 }
 // One of the portal's categories as GET /api/training/me answers it: the
 // counts of the person's items in it, and the first module still to do.
@@ -10658,7 +11003,9 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   const records = (data ? data.records : []).slice().sort((a, b) => (a.completedDate < b.completedDate ? 1 : a.completedDate > b.completedDate ? -1 : 0));
   const docs = data ? data.documentsToSign : [];
   const why = (i) => {
-    if (i.status === "missing") return tr("Not done yet");
+    // A finding's training (part 388) is due on its day, said under it,
+    // and never reads as expiring.
+    if (i.status === "missing" || (i.findingFollowUp && i.status === "dueSoon")) return tr("Not done yet");
     if (i.status === "expired") return tr("Expired {date}", { date: trainingDay(i.expiresOn) });
     if (i.status === "refresherDue") return i.siteName ? tr("Refresher due at {site}", { site: i.siteName }) : tr("Refresher due");
     if (i.status === "inProgress") return tr("In progress");
@@ -10698,6 +11045,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
       {(i.docCode || i.docSection) && <div style={smallSt}>{[i.docCode, i.docSection].filter(Boolean).join(" ")}</div>}
       {i.siteName && i.status !== "refresherDue" && <div style={lineSt}>{i.siteName}</div>}
       <div style={{ ...lineSt, color: group === "todo" ? wsLateInk(t) : group === "soon" ? ink(t, ORANGE) : group === "waiting" ? ink(t, BLUE) : ink(t, GREEN), fontWeight: 600 }}>{why(i)}</div>
+      {i.findingFollowUp && <div data-training-finding={i.findingFollowUp.findingId} style={{ ...lineSt, color: t.text }}>{i.findingFollowUp.dueOn ? tr("From an inspection finding. Due {date}", { date: wsDueText(i.findingFollowUp.dueOn) }) : tr("From an inspection finding.")}</div>}
       {group === "done" && i.expiresOn && <div style={lineSt}>{tr("Expires {date}", { date: trainingDay(i.expiresOn) })}</div>}
       {(group === "todo" || group === "soon") && lessonPart(i)}
       {trainingQuiz(i) && (group === "todo" || group === "soon") && i.lesson.attemptsLeft === 0 && <div data-training-tries="0" style={{ ...lineSt, marginTop: 8, fontWeight: 600 }}>{tr("Ask your supervisor for an in-person session.")}</div>}
@@ -12984,8 +13332,6 @@ const NOTIF_TAB = {
   issue_escalated: "issues",
   // A client request (Step 252): Report, with that request in view.
   client_request: "issues",
-  // An inspection finding (Step 255): Report, with that finding in view.
-  inspection_finding: "issues",
   // A training record about to expire (Step 258): My training. A lesson
   // failed on its last try (Step 261): My training too. Since Step 267
   // both open the training portal, on the topic's category page when the
@@ -13045,8 +13391,9 @@ const caseSubject = (s) => typeof s === "string" && /^hr_cases?(_|$)/.test(s);
 const maintSubject = (s) => typeof s === "string" && /^maintenance(_|$)/.test(s);
 // An issue (Step 297): its sheet, from any notice about one (reported at
 // the person's site, escalated, and those API Step 298 adds: assigned to
-// them, its status changed), an inspection finding, and /issues/<id>.
-const issueSubject = (s) => typeof s === "string" && (s === "inspection_finding" || /^issues?(_|$)/.test(s));
+// them, its status changed), and /issues/<id>. A finding's own notice
+// opens Findings to follow up (part 388).
+const issueSubject = (s) => typeof s === "string" && /^issues?(_|$)/.test(s);
 // A reminder about an unfinished form (Step 297, API Step 298): Forms, on
 // that draft. The contract names the reminder and not its subject type,
 // so any draft or reminder subject of a form opens it, and so does the
@@ -13064,6 +13411,11 @@ function rowPlace(row) {
 }
 function notifPlace(subjectType, subjectId, subjectKey) {
   if (draftSubject(subjectType) && subjectId !== null && subjectId !== undefined && subjectId !== "") return { tab: "forms", draft: String(subjectId) };
+  // Part 388 (API Round 12): a finding's notice to the office (no
+  // follow-up yet, or one past its day) and the person's conversation to
+  // confirm.
+  if (subjectType === "inspection_finding" && subjectId !== null && subjectId !== undefined && subjectId !== "") return { findingDue: String(subjectId) };
+  if (subjectType === "finding_conversation" && subjectId !== null && subjectId !== undefined && subjectId !== "") return { myFinding: String(subjectId) };
   if (issueSubject(subjectType) && subjectId !== null && subjectId !== undefined && subjectId !== "") return { issue: String(subjectId) };
   if (inspectionSubject(subjectType)) return subjectId === null || subjectId === undefined ? { tab: "inspect" } : { tab: "inspect", inspection: String(subjectId) };
   // Part 369 (API-62): a shift notice names the shift, and My Schedule
@@ -13107,7 +13459,6 @@ function notifPlace(subjectType, subjectId, subjectKey) {
   // A supply request (Step 311): the request itself on Approve supplies
   // for a holder, and Supplies for anyone else, as before.
   if (subjectType === "supply_request" && id) return { tab: tab, supply: id };
-  if (subjectType === "inspection_finding") return { tab: tab, finding: id };
   if (subjectType === "training_signoff") return { tab: tab, signoff: true };
   if (subjectType === "training_join") return id ? { tab: tab, join: id } : null;
   if (subjectType === "document_to_sign") return { tab: tab, doc: id };
@@ -19698,6 +20049,12 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
   const owners = inspectOwnersOf(active);
   const [ownerOf, setOwnerOf] = useState({});
   const [cardFault, setCardFault] = useState({});
+  // Part 388 (API Round 12): the lesson topics a finding's training may
+  // name (null before Round 12, and nothing is asked), and what each
+  // card's finding needs, by the card's id: { kind, topicId }, kind
+  // training, conversation or later (sent as no follow-up).
+  const followTopics = owners ? followUpTopicsOf(active) : null;
+  const [followOf, setFollowOf] = useState({});
   // Whether a card's score and mark open a finding, with owners answered.
   const deficientNow = (item) => inspectDeficient(parseInt(scores[item.id]) || 0, item.max_score, needsFix[item.id]);
   // Once an inspection is sent: its name and one report per card marked
@@ -19738,8 +20095,8 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
   // their paths.
   useEffect(() => {
     if (!active || !user) return;
-    keepInspect(user.id, active.id, { scores: scores, notes: notes, needsFix: needsFix, ownerOf: ownerOf, scoredIds: scoredIds, overallNotes: overallNotes, shots: shots, uploaded: uploaded, part: part });
-  }, [active, scores, notes, needsFix, ownerOf, scoredIds, overallNotes, shots, uploaded, part]);
+    keepInspect(user.id, active.id, { scores: scores, notes: notes, needsFix: needsFix, ownerOf: ownerOf, followOf: followOf, scoredIds: scoredIds, overallNotes: overallNotes, shots: shots, uploaded: uploaded, part: part });
+  }, [active, scores, notes, needsFix, ownerOf, followOf, scoredIds, overallNotes, shots, uploaded, part]);
 
   // + Schedule follows the capability the API enforces on the schedule
   // route, read once when the tab opens, so nobody is shown a button the
@@ -19874,7 +20231,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       setSigStrokes([]); setSigPng(null); setSigFault(null);
       setNeedsFix({});
       setMissingNote({});
-      setOwnerOf({}); setCardFault({});
+      setOwnerOf({}); setCardFault({}); setFollowOf({});
       notDueBefore.current = {};
       setScoredIds({}); setLastTouched(null); setShowScored(false); setSectionsOpen(false);
       setPart("cards"); setSafetyState(null); setSafetyAt(null); setSafetyRefused(null); safetySave.current = null;
@@ -19886,7 +20243,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
         const ids = (d.items || []).map(item => String(item.id));
         const only = (o) => { const out = {}; Object.keys(o && typeof o === "object" ? o : {}).forEach(k => { if (ids.indexOf(String(k)) !== -1) out[k] = o[k]; }); return out; };
         setScores(Object.assign(initScores, only(kept.scores))); setNotes(Object.assign(initNotes, only(kept.notes)));
-        setNeedsFix(only(kept.needsFix)); setOwnerOf(only(kept.ownerOf)); setScoredIds(only(kept.scoredIds));
+        setNeedsFix(only(kept.needsFix)); setOwnerOf(only(kept.ownerOf)); setFollowOf(only(kept.followOf)); setScoredIds(only(kept.scoredIds));
         setOverallNotes(typeof kept.overallNotes === "string" ? kept.overallNotes : "");
         setUploaded(only(kept.uploaded));
         if (kept.shots && typeof kept.shots === "object") { setShots(kept.shots); signKeptShots(d.id, kept.shots); }
@@ -20089,6 +20446,12 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
         if (capture) { const urls = shotsToSend(inspectShotKey(item.id)); row.photo_urls = urls; row.photo_url = urls[0] || null; }
         // Step 255: which cards open a finding, and whose each is.
         if (owners) { row.deficient = deficientNow(item); if (row.deficient && ownerOf[item.id]) row.ownerId = ownerOf[item.id]; }
+        // Part 388: what the finding needs, as scores[i].followUp: a
+        // training with its topic, or a conversation; Decide later sends
+        // none.
+        const follow = followOf[item.id];
+        if (owners && followTopics && row.deficient && follow && follow.kind === "training" && follow.topicId) row.followUp = { kind: "training", topicId: follow.topicId };
+        else if (owners && followTopics && row.deficient && follow && follow.kind === "conversation") row.followUp = { kind: "conversation" };
         return row;
       });
       const body = { scores: payload, overall_notes: overallNotes || null };
@@ -20136,7 +20499,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       const safetyAnswer = safety ? inspectSafetyAnswerOf(d, safety.form) : null;
       if (user) forgetInspect(user.id, active.id);
       if (answer || safetyAnswer) {
-        setSent({ name: active.template_name, reports: [], answer: answer, safety: safetyAnswer });
+        setSent({ name: active.template_name, reports: [], answer: answer, safety: safetyAnswer, topics: followTopics || [] });
       } else if (!reports.length) {
         showToast(tr("Inspection submitted"));
       } else {
@@ -20422,6 +20785,15 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
             <div data-inspect-owner={item.id} style={{ marginBottom: 8 }}>
               <label htmlFor={"ocsa-inspect-owner-" + item.id} style={labelSt}>{tr("Owner")}</label>
               <SearchPick id={"ocsa-inspect-owner-" + item.id} name={"inspect-owner-" + item.id} groups={INSPECT_OWNER_GROUPS.map(g => ({ key: g.key, label: g.label() }))} rows={owners.map(o => ({ id: o.id, name: o.name, sub: o.role ? roleWord(o.role) : "", group: o.group }))} value={ownerOf[item.id] || ""} onPick={(v) => { setOwnerOf(prev => ({ ...prev, [item.id]: v })); setCardFault(prev => (prev[item.id] ? { ...prev, [item.id]: null } : prev)); }} none={tr("No owner yet")} empty={tr("No owner yet")} noMatch={tr("No one matches that name.")} disabled={submitting} t={t} />
+              {followTopics && (
+                <div data-inspect-follow-up={item.id} style={{ marginTop: 10 }}>
+                  <FollowUpChoice id={"ocsa-inspect-follow-" + item.id} later value={(followOf[item.id] && followOf[item.id].kind) || "later"} topics={followTopics}
+                    topicId={(followOf[item.id] && followOf[item.id].topicId) || followUpTopicFirst(followTopics, item.suggestedTopicId ? String(item.suggestedTopicId) : "")}
+                    onChange={(k) => { setFollowOf(prev => ({ ...prev, [item.id]: { kind: k, topicId: (prev[item.id] && prev[item.id].topicId) || followUpTopicFirst(followTopics, item.suggestedTopicId ? String(item.suggestedTopicId) : "") } })); setCardFault(prev => (prev[item.id] ? { ...prev, [item.id]: null } : prev)); }}
+                    onTopic={(v) => { setFollowOf(prev => ({ ...prev, [item.id]: { kind: "training", topicId: v } })); setCardFault(prev => (prev[item.id] ? { ...prev, [item.id]: null } : prev)); }}
+                    disabled={submitting} t={t} />
+                </div>
+              )}
             </div>
           )}
           <input value={notes[item.id] || ""} onChange={e => { const v = e.target.value; setNotes(prev => ({ ...prev, [item.id]: v })); if (missingNote[item.id] && v.trim()) setMissingNote(prev => ({ ...prev, [item.id]: false })); if (cardFault[item.id] && v.trim()) setCardFault(prev => ({ ...prev, [item.id]: null })); }} placeholder={fix || finding ? tr("Say what needs fixing") : tr("Notes for this item (optional)")} aria-invalid={!!missingNote[item.id] || !!cardFault[item.id]} style={{ ...inputSt, fontSize: 12, marginBottom: 8, ...(missingNote[item.id] || cardFault[item.id] ? { border: "1px solid " + RED } : {}) }} />
@@ -20573,7 +20945,8 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
                   {f.score !== null && f.maxScore !== null && <div style={{ flexShrink: 0, fontSize: 13, fontWeight: 600, color: t.text, fontVariantNumeric: "tabular-nums" }}>{tr("{score} of {max}", { score: f.score, max: f.maxScore })}</div>}
                 </div>
                 <div style={{ fontSize: 12, color: t.textSec, marginTop: 6, lineHeight: 1.4, overflowWrap: "anywhere" }}>{f.owner ? tr("Owner: {name}", { name: f.owner }) : tr("No owner yet")}</div>
-                {f.dueAt && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4 }}>{tr("Due {when}", { when: requestWhen(f.dueAt) })}</div>}
+                {f.hasFollowUp ? <FindingFollowUpLine f={{ followUp: f.followUp && f.followUp.topic && !f.followUp.topic.name ? Object.assign({}, f.followUp, { topic: Object.assign({}, f.followUp.topic, { name: ((sent.topics || []).find(o => o.id === f.followUp.topic.id) || { name: "" }).name }) }) : f.followUp, state: f.followUp ? f.followUp.state : "needsFollowUp" }} t={t} />
+                  : f.dueAt && <div style={{ fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4 }}>{tr("Due {when}", { when: requestWhen(f.dueAt) })}</div>}
               </div>
             ))}
           </div>

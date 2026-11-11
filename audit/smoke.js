@@ -136,8 +136,9 @@
 //   - Inspection findings (Step 255): a completion that opens two
 //     findings, one with an owner, through the API alone, with the
 //     API's refusal under the card it names, the answer screen with the
-//     band and each finding, and the owner's finding on Report, Fixed
-//     and Waiting for a check (English alone)
+//     band and each finding, and since part 388 the owner's finding on
+//     My findings with no follow-up chosen yet, never on Report or
+//     Assigned and never with Fixed (English alone)
 //   - French offered by the stub turns the screen French, and a French
 //     screen shows no English the portal drew (French alone)
 //   - one page at the Largest text size, 360 wide, with no control cut
@@ -1162,9 +1163,10 @@ async function requestsAssignee(browser, language) {
 // 80 percent, which says it will open a finding, the third fine. The
 // first send meets the API's refusal, laid over the stub, under the card
 // it names; the second answers the failed band, the corrective action
-// line and two findings, one with an owner. Then Report lists the
-// owner's finding under Inspection findings, Fixed takes a note and
-// sends the PATCH the API takes, and the row reads Waiting for a check.
+// line and two findings, one with an owner. Then, since part 388 (API
+// Round 12: a finding is no work item), My findings under More lists the
+// owner's finding with its note and No follow-up chosen yet, offers no
+// Fixed, and nothing reads GET /api/issues?source=inspection.
 async function findings(browser, language) {
   const app = await open({ findings: true, inspections: [INSPECTION_F], accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true });
   const page = app.page;
@@ -1200,23 +1202,14 @@ async function findings(browser, language) {
   const completes = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/inspections/scheduled/in-f/complete").map(c => (c.body && c.body.scores ? c.body.scores.map(r => [r.template_item_id, r.deficient, r.ownerId || null, r.notes]) : null));
   const sent = completes.length === 2 && JSON.stringify(completes[1]) === JSON.stringify([["if-1", true, "u-one", "Smudges on both doors, invented."], ["if-2", true, null, "Mat curled at the door, invented."], ["if-3", false, null, ""]].map(r => [r[0], r[1], r[2], r[3] || null]));
   const noOwnPost = !app.stub.state.calls.some(c => c.method === "POST" && c.path === "/api/issues");
-  // Report: the owner's finding, Fixed with a note, Waiting for a check.
+  // My findings: the owner's finding, with no Fixed and nothing to do.
   await tapIn(".sp-content", say(language, "Done"));
-  await tapMore(page, say(language, "Report"));
-  const row = await waitFor(page, (w) => { const r = document.querySelector('[data-finding-row="fnd-1"]'); return !!r && !document.querySelector('[data-finding-row="fnd-2"]') && r.innerText.indexOf(w.title) !== -1 && r.innerText.indexOf(w.note) !== -1 && Array.from(r.querySelectorAll("button")).map(b => b.innerText.trim()).join("|") === w.fixed; }, { title: INSPECTION_F.items[0].label, note: "Smudges on both doors, invented.", fixed: say(language, "Fixed") });
-  let waiting = false;
-  if (row) {
-    await tapIn('[data-finding-row="fnd-1"]', say(language, "Fixed"));
-    await waitFor(page, () => !!document.querySelector("#ocsa-finding-fixed-note"));
-    await page.fill("#ocsa-finding-fixed-note", "Wiped and dried, invented.");
-    await tapIn('[role="dialog"]', say(language, "Fixed"));
-    waiting = await waitFor(page, (w) => { const r = document.querySelector('[data-finding-row="fnd-1"]'); const l = document.querySelector('[data-finding-waiting="fnd-1"]'); return !document.querySelector('[role="dialog"]') && !!r && !!l && l.innerText.trim() === w && r.querySelectorAll("button").length === 0; }, say(language, "Waiting for a check"));
-  }
-  const patches = app.stub.state.calls.filter(c => c.method === "PATCH" && c.path === "/api/issues/fnd-1").map(c => c.body);
-  const resolved = JSON.stringify(patches) === '[{"status":"resolved","resolutionNotes":"Wiped and dried, invented."}]';
-  check("Inspection findings: a card marked Needs a fix offers an owner, a card under 80 percent says it will open a finding, the completion sends deficient and ownerId and files no issue of its own, the API's refusal lands under the card it names, the answer shows the failed band, the corrective action line and two findings with their owner, and Report lists the owner's finding, Fixed sends the PATCH with its note and the row reads Waiting for a check (" + language + ")",
-    opened && marked && said && refused && answered && sent && noOwnPost && row && waiting && resolved && app.errors.length === 0,
-    !opened ? "the inspection did not open" : !marked ? "the owner picker did not show" : !said ? "card 2 did not say it will open a finding" : !refused ? "the refusal was not said under card 1" : !answered ? "the answer screen did not read as expected" : !sent ? JSON.stringify(completes) : !noOwnPost ? "the portal posted /api/issues itself" : !row ? "Report did not list the owner's finding as expected" : !waiting ? "the row did not read Waiting for a check" : !resolved ? JSON.stringify(patches) : app.errors[0]);
+  await tapMore(page, say(language, "My findings"));
+  const row = await waitFor(page, (w) => { const r = document.querySelector('[data-my-finding="fnd-1"]'); return !!r && !document.querySelector('[data-my-finding="fnd-2"]') && r.innerText.indexOf(w.title) !== -1 && r.innerText.indexOf(w.note) !== -1 && r.innerText.indexOf(w.none) !== -1 && r.querySelectorAll("button").length === 0; }, { title: INSPECTION_F.items[0].label, note: "Smudges on both doors, invented.", none: say(language, "No follow-up chosen yet") });
+  const notWork = !app.stub.state.calls.some(c => c.method === "GET" && c.path === "/api/issues" && /source=inspection/.test(c.search)) && !app.stub.state.calls.some(c => c.method === "PATCH" && c.path === "/api/issues/fnd-1");
+  check("Inspection findings: a card marked Needs a fix offers an owner, a card under 80 percent says it will open a finding, the completion sends deficient and ownerId and files no issue of its own, the API's refusal lands under the card it names, the answer shows the failed band, the corrective action line and two findings with their owner, and My findings lists the owner's finding with no follow-up chosen yet and no Fixed, with no read of the inspection issue list (" + language + ")",
+    opened && marked && said && refused && answered && sent && noOwnPost && row && notWork && app.errors.length === 0,
+    !opened ? "the inspection did not open" : !marked ? "the owner picker did not show" : !said ? "card 2 did not say it will open a finding" : !refused ? "the refusal was not said under card 1" : !answered ? "the answer screen did not read as expected" : !sent ? JSON.stringify(completes) : !noOwnPost ? "the portal posted /api/issues itself" : !row ? "My findings did not list the owner's finding as expected" : !notWork ? "the inspection issue list was read, or the finding was patched" : app.errors[0]);
   await app.context.close();
 }
 
@@ -2078,10 +2071,11 @@ async function scheduleInspections(browser, language, width) {
 // One place to work an issue (Step 297), against API Step 298 as its
 // contract gives it and the stub answers it. A supervisor's Issues: a row
 // opens its sheet, and the one assigned to them reads Assigned to you. A
-// cleaner's Assigned: a task, an issue assigned as a task and a finding
-// that is also a task, each listed once; the issue resolved from its
-// sheet with a note and a photo through its task, and gone from Assigned;
-// and the bell's notice about an issue opening its sheet.
+// cleaner's Assigned: a task and an issue assigned as a task, each listed
+// once, and since part 388 (API Round 12) never the finding assigned to
+// them, which is no work item; the issue resolved from its sheet with a
+// note and a photo through its task, and gone from Assigned; and the
+// bell's notice about an issue opening its sheet.
 const sheetOpen = (page, id) => waitFor(page, (i) => { const d = document.querySelector('[data-issue-sheet="' + i + '"]'); return !!d && !!d.querySelector("#ocsa-issue-sheet-title") && d.querySelector("#ocsa-issue-sheet-title").innerText.trim() !== ""; }, id);
 async function issueSheet(browser, language, width) {
   const tag = " (" + language + ", " + width + " wide)";
@@ -2103,7 +2097,7 @@ async function issueSheet(browser, language, width) {
     await tapMore(page, say(language, "Assigned"));
     once = await waitFor(page, () => {
       const keys = Array.from(document.querySelectorAll("[data-work-row]")).map(r => r.getAttribute("data-work-row"));
-      return keys.length === 3 && keys.filter(k => k === "issue:fnd-9").length === 1 && keys.indexOf("issue:iss-a1") !== -1 && keys.indexOf("task:at-1") !== -1 && document.querySelector('[data-work-row="issue:fnd-9"]').getAttribute("data-work-kind") === "finding";
+      return keys.length === 2 && keys.indexOf("issue:fnd-9") === -1 && keys.indexOf("issue:iss-a1") !== -1 && keys.indexOf("task:at-1") !== -1;
     });
     if (once) {
       await page.click('[data-work-row="issue:iss-a1"]');
@@ -2129,7 +2123,7 @@ async function issueSheet(browser, language, width) {
   const calls = app.stub.state.sheetCalls;
   const sent = calls.length === 1 && calls[0].route === "task" && calls[0].taskId === "at-iss-a1" && calls[0].body.resolutionStatus === "resolved" && calls[0].body.resolutionNote === "Tightened the trap and dried the floor, invented." && !!calls[0].body.photoUrl;
   const wide = await sideways(page);
-  check("One place to work an issue: a supervisor's Issues row opens its sheet and the one assigned to them reads Assigned to you; Assigned lists a task, an issue and a finding each once; the issue resolved from its sheet with a note and a photo through its task is gone from Assigned; the bell's notice opens the issue's sheet; with no sideways scroll" + tag,
+  check("One place to work an issue: a supervisor's Issues row opens its sheet and the one assigned to them reads Assigned to you; Assigned lists a task and an issue each once and never the finding; the issue resolved from its sheet with a note and a photo through its task is gone from Assigned; the bell's notice opens the issue's sheet; with no sideways scroll" + tag,
     marked && rowOpens && once && resolved && gone && sent && belled && wide <= 1 && app.errors.length === 0 && bossErrors.length === 0,
     !marked ? "Issues did not mark the supervisor's own" : !rowOpens ? "the Issues row did not open its sheet" : !once ? "Assigned did not list each once" : !resolved ? "the sheet did not resolve" : !gone ? "the resolved issue stayed on Assigned" : !sent ? JSON.stringify(calls) : !belled ? "the notice did not open the sheet" : wide > 1 ? wide + " pixels sideways" : (app.errors[0] || bossErrors[0]));
   await app.context.close();
