@@ -1581,6 +1581,27 @@ One journey, in English and Spanish, failing on the main of part 380:
   match and runs across all three; a pick from any group is the chosen
   owner.
 
+## Three findings field staff and supervisors meet first (part 383, section 5)
+
+Three of the October audit's open findings (`audit/FINDINGS_2026-10.md`)
+whose first reader is field staff on a phone or a supervisor, each
+needing nothing new from the API: PORT-55, PORT-61 and PORT-43. The rest
+stay open.
+
+Three journeys, in English and Spanish, each failing on the main of part
+380:
+
+- `formsdrafts` (PORT-55): with the person's drafts refused, Forms says
+  "Unfinished reports did not load." above the forms with Try again,
+  which reads them again.
+- `noticeasks` (PORT-61): a notice tapped on the bell while a form is open
+  asks Leave or Keep filling, as the bottom bar does; Keep filling stays,
+  and Leave saves the form and opens the notice's place.
+- `privatesearch` (PORT-43): an office person with twenty private chats
+  searches the row by name, opens the one that matches, and a name that
+  matches nobody says so. The row takes a search once it holds more than
+  six, so the stub's default admin list of six reads as before.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

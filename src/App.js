@@ -3639,6 +3639,11 @@ export default function OCSAStaffPortal() {
   const openNewChat = (ch) => { setChannels(prev => (Array.isArray(prev) && !prev.some(c => c && c.id === ch.id) ? prev.concat([ch]) : prev)); chooseChat(ch.id); loadChannels(); };
   // Opens the place a notice names: a tab, Chat on one chat, or the
   // announcement sheet. A chat already open is read again.
+  // PORT-61 (part 383): a notice opened from the bell or a phone alert
+  // asks first, as the bottom bar does (PORT-21), when a form is open, so
+  // what was typed is saved or kept before the place opens. An
+  // announcement opens over the screen and asks nothing.
+  const openPlaceAsked = (place) => { if (place && !place.announcement) leaveThen(() => openPlace(place)); else openPlace(place); };
   const openPlace = (place) => {
     if (!place) return;
     if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
@@ -3796,7 +3801,7 @@ export default function OCSAStaffPortal() {
     if (place && (place.hrCase || place.concern || place.report || place.maintenance) && caps === null) return;
     setOpenAsk(null);
     markAlertRead(openAsk);
-    if (place) openPlace(place); else if (openAsk.subjectType) setNotifOpen(true);
+    if (place) openPlaceAsked(place); else if (openAsk.subjectType) setNotifOpen(true);
   }, [openAsk, booting, screen, token, caps]);
   // A tapped phone alert marks its notice read, as a tap on it in the bell
   // does (PORT-34), and the bell's count is read again. Since API part 370
@@ -4489,7 +4494,7 @@ export default function OCSAStaffPortal() {
           caps={caps}
           refused={refusedReads}
           onUnreadChanged={setUnread}
-          onOpen={openPlace}
+          onOpen={openPlaceAsked}
           onClose={() => { setNotifOpen(false); refreshUnread(); }}
         />
       )}
@@ -7376,6 +7381,8 @@ const chatPath = (path) => path + "?locale=" + languageToSend();
 // The most a message holds. The API turns away more than this, so the box
 // stops here and only a screen older than this build ever meets that.
 const CHAT_TEXT_MAX = 2000;
+// The row of private chats takes a search once it holds more than this.
+const PRIVATE_SEARCH_FROM = 6;
 // A refusal that carries one of Chat's codes is told in the API's own
 // words, which come in the language the call asked for.
 const chatSaidOf = (err) => (err && err.message !== ERR_OFFLINE && typeof err.code === "string" && err.code.indexOf("chat.") === 0 && typeof err.message === "string" && err.message.trim() ? err.message.trim() : null);
@@ -7491,6 +7498,13 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, message
   const directs = directChatsOf(list);
   const projectChats = projectChatsOf(list);
   const privates = privateChatsOf(list);
+  // PORT-43 (part 383): a long row of private chats, one per staff member
+  // for the office, takes a search by name, as New message does. The
+  // person's own private line, and the one open, always stay in the row.
+  const [privateQuery, setPrivateQuery] = useState("");
+  const privateNeedle = privateQuery.trim().toLowerCase();
+  const privateSearch = privates.length > PRIVATE_SEARCH_FROM;
+  const privatesShown = privateSearch && privateNeedle ? privates.filter(ch => isOwnPrivate(ch) || ch.id === activeChannel || pickMatches(ch.name, privateNeedle)) : privates;
   const active = list.find(c => c.id === activeChannel) || null;
   const isDm = !!active && active.type === "admin_dm";
   // The words for a chat with admin are the person's own private chat's.
@@ -7626,10 +7640,12 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, message
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={activeChannel === ch.id} style={mkTapFrame({ maxWidth: "100%" })}><span style={{ display: "inline-flex", alignItems: "center", padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 600 : 500, fontFamily: FONT_HEAD, textAlign: "left", overflowWrap: "anywhere" }}>{ch.name || ch.siteName}{ch.unreadCount > 0 && <span style={{ marginLeft: 6, background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{badgeText(ch.unreadCount)}</span>}</span></button>))}</div>
         {directs.length > 0 && chatGroup(directs, "ocsa-direct-chats", tr("Direct messages"), PersonIco)}
         {projectChats.length > 0 && chatGroup(projectChats, "ocsa-project-chats", tr("Projects"), FolderIco)}
-        {privates.length > 0 && (<div>
+        {privates.length > 0 && (<div data-private-chats="1">
           <div id="ocsa-private-chats" style={{ fontSize: 10, fontWeight: 600, color: t.textMut, textTransform: "uppercase", letterSpacing: "1px", margin: "2px 0 6px", fontFamily: FONT_HEAD }}>{tr("Private chats")}</div>
+          {privateSearch && <input type="text" data-private-search="1" value={privateQuery} onChange={e => setPrivateQuery(e.target.value.slice(0, 80))} placeholder={tr("Search by name")} aria-label={tr("Search by name")} style={{ ...mkInput(t), marginBottom: 8 }} />}
+          {privateSearch && privateNeedle && privatesShown.every(ch => isOwnPrivate(ch) || ch.id === activeChannel) && !privates.some(ch => !isOwnPrivate(ch) && pickMatches(ch.name, privateNeedle)) && <div data-private-none="1" style={{ ...mkHelp(t), marginTop: 0, marginBottom: 8 }}>{tr("No one matches that name.")}</div>}
           <div role="group" aria-labelledby="ocsa-private-chats" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
-            {privates.map((ch) => {
+            {privatesShown.map((ch) => {
               const on = activeChannel === ch.id;
               const own = isOwnPrivate(ch);
               const alone = privates.length === 1;
@@ -14881,6 +14897,9 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
+  // PORT-55 (part 383): the person's unfinished reports did not load, so
+  // a card cannot say Continue; said above the cards with Try again.
+  const [draftsFailed, setDraftsFailed] = useState(false);
   const [starting, setStarting] = useState(null);
   const [open, setOpen] = useState(null);
   // The site question, Step 206: the form being started, its title, the
@@ -14912,7 +14931,8 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
       // before a card can say Continue on somebody else's report.
       const mine = user && user.id;
       setRows(d.filter(r => r.userId === undefined || r.userId === null || !mine || String(r.userId) === String(mine)));
-    } catch (err) { setRows([]); }
+      setDraftsFailed(false);
+    } catch (err) { setRows([]); setDraftsFailed(true); }
     setLoading(false);
   }, [token, locale, user]);
   useEffect(() => { load(); }, [load]);
@@ -15056,6 +15076,13 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
         <div style={cardSt}>
           <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5 }}>{tr(FORMS_LOAD_FAILED)}</div>
           <button onClick={load} style={goBtn(false)}>{tr("Try again")}</button>
+        </div>
+      )}
+
+      {!loading && !failed && draftsFailed && (
+        <div role="alert" data-forms-drafts-failed="1" style={{ ...cardSt, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <span style={{ flex: "1 1 160px", fontSize: 13, color: t.text, lineHeight: 1.5 }}>{tr("Unfinished reports did not load.")}</span>
+          <button type="button" onClick={load} style={{ ...goBtn(false), marginTop: 0 }}>{tr("Try again")}</button>
         </div>
       )}
 

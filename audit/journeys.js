@@ -10017,4 +10017,101 @@ const PART383_S4_JOURNEYS = [
 JOURNEYS.push(...PART383_S4_JOURNEYS);
 
 
+// --- Round 10 of the staff app (part 383), section 5 ----------------------
+//
+// Three open findings from the October audit that field staff or
+// supervisors meet first, each needing nothing new from the API. Each
+// fails on the main of part 380.
+const PORT61_NOTICE = { id: "n-chat-61", subjectType: "chat", subjectId: "ch-north", title: "New messages in North Building", body: "An invented notice.", link: null, createdAt: "2026-10-01T18:00:00.000Z", readAt: null };
+const bellTap61 = (page) => page.evaluate(() => { const b = Array.from(document.querySelectorAll("button")).find(x => /notification|notificaciones/i.test(x.getAttribute("aria-label") || "")); if (b) b.click(); return !!b; });
+const bellRowTap = (page, title) => page.evaluate((want) => { const b = Array.from(document.querySelectorAll('div[style*="z-index: 400"] button')).find(x => x.innerText.indexOf(want) !== -1); if (b) b.click(); return !!b; }, title);
+const tapExact = (page, words) => page.evaluate((w) => { const b = Array.from(document.querySelectorAll("button")).find(x => x.innerText.trim() === w); if (b) b.click(); return !!b; }, words);
+const PART383_S5_JOURNEYS = [
+  {
+    id: "formsdrafts",
+    label: "Forms says when the unfinished reports did not load (PORT-55): a failed read of the person's drafts says so above the forms with Try again, and Try again reads them again",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        app.stub.state.refuse["GET /api/agent/drafts"] = { status: 500, body: { error: "Something went wrong on our end. Try again in a minute." } };
+        await openTab(app.page, "forms", language);
+        const line = await shows(app.page, "[data-forms-drafts-failed]", 8000);
+        const text = line ? await textAt(app.page, "[data-forms-drafts-failed]") : "";
+        expect("a failed read of the unfinished reports is said above the forms, with Try again", line && has(text, say("Unfinished reports did not load.", language)) && has(text, say("Try again", language)), String(text));
+        await spokenHere(app, language, expect);
+        delete app.stub.state.refuse["GET /api/agent/drafts"];
+        const asked = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/agent/drafts").length;
+        await app.page.evaluate(() => { const b = document.querySelector("[data-forms-drafts-failed] button"); if (b) b.click(); });
+        const readAgain = async () => { for (let i = 0; i < 30; i += 1) { if (app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/agent/drafts").length > asked) return true; await pause(app.page, 200); } return false; };
+        const again = await readAgain();
+        await pause(app.page, 800);
+        const gone = await app.page.evaluate(() => !document.querySelector("[data-forms-drafts-failed]"));
+        expect("Try again reads them again and the line goes", again && gone, "read again " + again + ", gone " + gone);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "noticeasks",
+    label: "A notice tapped while a form is open asks first (PORT-61): the bell's notice asks Leave or Keep filling, as the bottom bar does; Keep filling stays on the form, and Leave saves it and opens the notice's place",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { notifications: [Object.assign({}, PORT61_NOTICE)] } });
+      try {
+        const form = formP(language);
+        await openTab(app.page, "forms", language);
+        await pause(app.page, 900);
+        await startForm(app.page, form.title);
+        await pause(app.page, 600);
+        await bellTap61(app.page);
+        await pause(app.page, 900);
+        await bellRowTap(app.page, PORT61_NOTICE.title);
+        const asked = await shows(app.page, '[data-form-leave="ask"]', 4000);
+        expect("the notice asks before it leaves the form", asked, (await bodyText(app.page)).slice(0, 200));
+        if (!asked) return;
+        await spokenHere(app, language, expect);
+        await tapExact(app.page, say("Keep filling", language));
+        await pause(app.page, 600);
+        const stayed = await app.page.evaluate(() => !document.querySelector("[data-form-leave]") && !!document.querySelector(".sp-content input, .sp-content textarea"));
+        expect("Keep filling stays on the form, and the chat is not opened", stayed && chatReads(app.stub).indexOf("ch-north") === -1, JSON.stringify(chatReads(app.stub)));
+        await bellTap61(app.page);
+        await pause(app.page, 900);
+        await bellRowTap(app.page, PORT61_NOTICE.title);
+        await shows(app.page, '[data-form-leave="ask"]', 4000);
+        await tapExact(app.page, say("Leave", language));
+        const went = await waitOn(app.page, () => !document.querySelector("[data-form-leave]"), null, 6000);
+        await pause(app.page, 1200);
+        expect("Leave saves the form and opens the notice's place", went && chatReads(app.stub).indexOf("ch-north") !== -1, JSON.stringify(chatReads(app.stub)));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "privatesearch",
+    label: "The private chats row takes a search (PORT-43): an office person with many private chats types part of a name, the row keeps those who match, a tap opens the chat, and a name that matches nobody says so",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ADMIN_PERSON, chat: { privates: 20 } } });
+      try {
+        await openTab(app.page, "chat", language);
+        const box = await shows(app.page, "[data-private-search]", 8000);
+        const row = () => app.page.evaluate(() => Array.from(document.querySelectorAll('[aria-labelledby="ocsa-private-chats"] button')).map(b => b.innerText.replace(/\s+/g, " ").trim()));
+        const all = box ? await row() : [];
+        expect("a long row of private chats offers Search by name", box && all.length === 20, JSON.stringify(all.length));
+        if (!box) return;
+        await type(app.page, "[data-private-search]", "rosa");
+        await pause(app.page, 300);
+        const some = await row();
+        expect("typing part of a name keeps those who match", some.length === 1 && some[0].indexOf("Rosa Ramos") === 0, JSON.stringify(some));
+        await app.page.evaluate(() => { const b = document.querySelector('[aria-labelledby="ocsa-private-chats"] button'); if (b) b.click(); });
+        await pause(app.page, 900);
+        expect("a tap opens that chat", chatReads(app.stub).indexOf("dm-s-18") !== -1, JSON.stringify(chatReads(app.stub)));
+        await type(app.page, "[data-private-search]", "zzzz");
+        await pause(app.page, 300);
+        const none = await textAt(app.page, "[data-private-none]");
+        expect("a name that matches nobody says so", has(String(none), say("No one matches that name.", language)), String(none));
+        await spokenWithin(app, language, expect, "[data-private-chats]");
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART383_S5_JOURNEYS);
+
+
 module.exports = { runJourneys, JOURNEYS };
