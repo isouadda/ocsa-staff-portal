@@ -1487,3 +1487,6 @@ Your certificate was not sent. Try again.,Su certificado no se envió. Inténtel
 This shift already ended at {time}.,Este turno ya terminó a las {time}.,Ce service s'est déjà terminé à {time}.,"End Shift, when the shift had already ended; its end note follows"
 "Your last shift, at {site}, ended at {time}.","Su último turno, en {site}, terminó a las {time}.","Votre dernier service, à {site}, s'est terminé à {time}.","Home, above the sites, with no shift open, for a shift ended in the last 24 hours"
 Your last shift ended at {time}.,Su último turno terminó a las {time}.,Votre dernier service s'est terminé à {time}.,"Home, above the sites, with no shift open, for a shift ended in the last 24 hours at a site with no name"
+Works at this site,Trabaja en este sitio,Travaille sur ce site,"An inspection card's Owner, the heading over the people assigned to the site"
+Worked here in the last 30 days,Trabajó aquí en los últimos 30 días,A travaillé ici ces 30 derniers jours,"An inspection card's Owner, the heading over the people with a shift at the site in the last 30 days"
+Everyone else,Todos los demás,Tous les autres,"An inspection card's Owner, the heading over every other staff member"

@@ -1663,6 +1663,9 @@ export const WORDS = {
   "This shift already ended at {time}.": "Este turno ya termin\u00f3 a las {time}.",
   "Your last shift, at {site}, ended at {time}.": "Su \u00faltimo turno, en {site}, termin\u00f3 a las {time}.",
   "Your last shift ended at {time}.": "Su \u00faltimo turno termin\u00f3 a las {time}.",
+  "Works at this site": "Trabaja en este sitio",
+  "Worked here in the last 30 days": "Trabaj\u00f3 aqu\u00ed en los \u00faltimos 30 d\u00edas",
+  "Everyone else": "Todos los dem\u00e1s",
   },
 };
 
@@ -3204,6 +3207,9 @@ WORDS.fr = {
   "This shift already ended at {time}.": "Ce service s'est d\u00e9j\u00e0 termin\u00e9 \u00e0 {time}.",
   "Your last shift, at {site}, ended at {time}.": "Votre dernier service, \u00e0 {site}, s'est termin\u00e9 \u00e0 {time}.",
   "Your last shift ended at {time}.": "Votre dernier service s'est termin\u00e9 \u00e0 {time}.",
+  "Works at this site": "Travaille sur ce site",
+  "Worked here in the last 30 days": "A travaill\u00e9 ici ces 30 derniers jours",
+  "Everyone else": "Tous les autres",
 };
 
 // {name} is replaced after the language is chosen, so the

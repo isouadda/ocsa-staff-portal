@@ -9975,4 +9975,46 @@ const PART383_S3_JOURNEYS = [
 JOURNEYS.push(...PART383_S3_JOURNEYS);
 
 
+// --- Round 10 of the staff app (part 383), section 4 ----------------------
+//
+// The owner picker in groups (ocsa-api part 378, its 7). Fails on the main
+// of part 380, which drew one list.
+const ownerGroups = (app, itemId) => app.page.evaluate((id) => Array.from(document.querySelectorAll('[data-inspect-owner="' + id + '"] [data-pick-group]')).map(g => ({ key: g.getAttribute("data-pick-group"), head: (g.querySelector("[data-pick-group-head]") || { textContent: "" }).textContent.trim(), rows: Array.from(g.querySelectorAll("[data-pick-row]")).map(r => r.getAttribute("data-pick-row")) })), itemId);
+const PART383_S4_JOURNEYS = [
+  {
+    id: "ownergroups",
+    label: "The owner picker in groups (API part 378, its 7): a card that opens a finding names its owner from Works at this site, Worked here in the last 30 days and Everyone else, in that order, each with its people as the API answers them, and the search runs across all three",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true } });
+      try {
+        await openTab(app.page, "inspect", language);
+        if (!(await openInspectionNamed(app, INSPECTION_W.template_name))) { expect("the walk opens", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        await scoreCard(app, "iw-1", 1);
+        const up = await shows(app.page, '[data-inspect-owner="iw-1"] [data-pick-search]', 6000);
+        const all = await ownerGroups(app, "iw-1");
+        const want = [
+          { key: "assigned", head: say("Works at this site", language), rows: [ROUND1_SUPERVISOR.id, "s-02"] },
+          { key: "recent", head: say("Worked here in the last 30 days", language), rows: ["s-04"] },
+          { key: "everyone", head: say("Everyone else", language), rows: ["s-05", "s-06"] },
+        ];
+        expect("the owners are drawn in three groups, in order, each under its heading with its people", up && JSON.stringify(all) === JSON.stringify(want), JSON.stringify(all));
+        await spokenHere(app, language, expect);
+        await type(app.page, '[data-inspect-owner="iw-1"] [data-pick-search]', "Ev");
+        await pause(app.page, 300);
+        const narrowed = await ownerGroups(app, "iw-1");
+        expect("a search keeps only the groups with someone who matches", JSON.stringify(narrowed) === JSON.stringify([{ key: "everyone", head: say("Everyone else", language), rows: ["s-05"] }]), JSON.stringify(narrowed));
+        await type(app.page, '[data-inspect-owner="iw-1"] [data-pick-search]', "e");
+        await pause(app.page, 300);
+        const across = await ownerGroups(app, "iw-1");
+        expect("and runs across all three", across.map(g => g.key).join() === "assigned,recent,everyone" && across.find(g => g.key === "recent").rows.join() === "s-04", JSON.stringify(across));
+        await app.page.evaluate(() => { const r = document.querySelector('[data-inspect-owner="iw-1"] [data-pick-row="s-04"]'); if (r) r.click(); });
+        const chip = await shows(app.page, '[data-inspect-owner="iw-1"] [data-pick-chip="s-04"]', 3000);
+        expect("a pick from any group reads as the chosen owner", chip, "");
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART383_S4_JOURNEYS);
+
+
 module.exports = { runJourneys, JOURNEYS };

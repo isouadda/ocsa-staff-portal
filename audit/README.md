@@ -1565,6 +1565,22 @@ read of the done inspection; with that read refused, West Building reads
 the rule. `safetyonce` now gives the walk up through `drop-safety`, which
 voids its draft, where part 380 put the draft away itself.
 
+## The owner picker in groups (part 383, section 4)
+
+The stub's `owners` on `GET /api/inspections/scheduled/:id` carry `group`
+as ocsa-api Round 11 answers them (part 378, its 7,
+`helpers/inspectionFindings.js ownersFor`): `assigned`, `recent` or
+`everyone`, in that order, with one invented person added to the recent
+group and one to everyone else.
+
+One journey, in English and Spanish, failing on the main of part 380:
+
+- `ownergroups`: a card that opens a finding draws its owners under Works
+  at this site, Worked here in the last 30 days and Everyone else, in
+  that order, each with its people; a search keeps only the groups with a
+  match and runs across all three; a pick from any group is the chosen
+  owner.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

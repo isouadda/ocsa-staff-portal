@@ -1184,8 +1184,18 @@ const INSPECT_PHOTO_CODES = ["inspections.tooManyPhotos", "inspections.badPhoto"
 const inspectOwnersOf = (d) => {
   const list = d && d.owners;
   if (!Array.isArray(list)) return null;
-  return list.map(x => (x && typeof x === "object" && x.id !== null && x.id !== undefined ? { id: String(x.id), name: typeof x.name === "string" ? x.name.trim() : "", role: typeof x.role === "string" ? x.role : "" } : null)).filter(Boolean);
+  return list.map(x => (x && typeof x === "object" && x.id !== null && x.id !== undefined ? { id: String(x.id), name: typeof x.name === "string" ? x.name.trim() : "", role: typeof x.role === "string" ? x.role : "", group: INSPECT_OWNER_GROUPS.some(g => g.key === x.group) ? x.group : "" } : null)).filter(Boolean);
 };
+// Part 383 (ocsa-api part 378, its 7): each owner carries group, assigned
+// (works at the site), recent (a session there in the last 30 days) or
+// everyone, answered in that order. The picker draws the three under a
+// heading each, searchable across all of them; an answer with no group
+// draws one list as before.
+const INSPECT_OWNER_GROUPS = [
+  { key: "assigned", label: () => tr("Works at this site") },
+  { key: "recent", label: () => tr("Worked here in the last 30 days") },
+  { key: "everyone", label: () => tr("Everyone else") },
+];
 // Under this share of its maximum the API opens a finding whether or not
 // the card is marked (QMS-014 5.2's failed line), so the card says so and
 // asks for its note, which the API requires on every deficient card.
@@ -16365,13 +16375,20 @@ function ListFault({ icon: Icon, text, onRetry, t }) {
 // never searched, sub the line under it, tag a chip at its end.
 // ------------------------------------------------------------
 const pickMatches = (name, needle) => needle === "" || String(name || "").toLowerCase().indexOf(needle) !== -1;
-function SearchPick({ id, name, rows, value, onPick, noMatch, empty, none, disabled, invalid, rowAttr, t }) {
+// groups: [{ key, label }], optional. With groups, rows carrying a group
+// are drawn under a heading for each group in that order, only the groups
+// with a row left after the search, and a row in none of them under the
+// last; searching runs across every group.
+function SearchPick({ id, name, rows, value, onPick, noMatch, empty, none, disabled, invalid, rowAttr, groups, t }) {
   const [q, setQ] = useState("");
   const needle = q.trim().toLowerCase();
   const has = value !== "" && value !== null && value !== undefined;
   const picked = has ? rows.find(r => String(r.id) === String(value)) || null : null;
   const pick = (r) => { setQ(""); onPick(r ? String(r.id) : ""); };
   const offered = rows.filter(r => pickMatches(r.name, needle));
+  // Part 383: the rows under their group's heading, when the rows carry one.
+  const grouped = Array.isArray(groups) && groups.length > 0 && rows.some(r => r.group && groups.some(g => g.key === r.group));
+  const sections = !grouped ? [{ key: "", label: "", rows: offered }] : groups.map((g, i) => ({ key: g.key, label: g.label, rows: offered.filter(r => r.group === g.key || (i === groups.length - 1 && !groups.some(x => x.key === r.group))) })).filter(sec => sec.rows.length > 0);
   const rowSt = {
     width: "100%", minHeight: TAP, marginTop: 8, padding: "10px 12px", borderRadius: R.md, cursor: disabled ? "default" : "pointer",
     display: "flex", alignItems: "center", gap: 10, textAlign: "left", fontSize: 14, fontFamily: FONT_BODY, lineHeight: 1.4,
@@ -16407,11 +16424,16 @@ function SearchPick({ id, name, rows, value, onPick, noMatch, empty, none, disab
       <input id={id} type="text" data-pick-search={name} value={q} onChange={e => setQ(e.target.value.slice(0, 80))} disabled={disabled} placeholder={tr("Search by name")} aria-label={tr("Search by name")} aria-invalid={!!invalid} style={{ ...mkInput(t), ...(invalid ? { border: "2px solid " + RED } : {}) }} />
       {offered.length > 0 && (
         <div style={{ maxHeight: 264, overflowY: "auto", marginTop: 2 }}>
-          {offered.map(r => (
-            <button key={r.id} type="button" data-pick-row={r.id} {...(rowAttr ? rowAttr(r) : {})} disabled={disabled} onClick={() => pick(r)} style={rowSt}>
-              {words(r)}
-              {r.tag || null}
-            </button>
+          {sections.map(sec => (
+            <div key={sec.key || "all"} role={sec.label ? "group" : undefined} aria-label={sec.label || undefined} data-pick-group={sec.key || undefined}>
+              {sec.label && <div data-pick-group-head={sec.key} style={{ ...mkLabel(t), marginTop: 12, marginBottom: 0 }}>{sec.label}</div>}
+              {sec.rows.map(r => (
+                <button key={r.id} type="button" data-pick-row={r.id} {...(rowAttr ? rowAttr(r) : {})} disabled={disabled} onClick={() => pick(r)} style={rowSt}>
+                  {words(r)}
+                  {r.tag || null}
+                </button>
+              ))}
+            </div>
           ))}
         </div>
       )}
@@ -20369,7 +20391,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
           {finding && (
             <div data-inspect-owner={item.id} style={{ marginBottom: 8 }}>
               <label htmlFor={"ocsa-inspect-owner-" + item.id} style={labelSt}>{tr("Owner")}</label>
-              <SearchPick id={"ocsa-inspect-owner-" + item.id} name={"inspect-owner-" + item.id} rows={owners.map(o => ({ id: o.id, name: o.name, sub: o.role ? roleWord(o.role) : "" }))} value={ownerOf[item.id] || ""} onPick={(v) => { setOwnerOf(prev => ({ ...prev, [item.id]: v })); setCardFault(prev => (prev[item.id] ? { ...prev, [item.id]: null } : prev)); }} none={tr("No owner yet")} empty={tr("No owner yet")} noMatch={tr("No one matches that name.")} disabled={submitting} t={t} />
+              <SearchPick id={"ocsa-inspect-owner-" + item.id} name={"inspect-owner-" + item.id} groups={INSPECT_OWNER_GROUPS.map(g => ({ key: g.key, label: g.label() }))} rows={owners.map(o => ({ id: o.id, name: o.name, sub: o.role ? roleWord(o.role) : "", group: o.group }))} value={ownerOf[item.id] || ""} onPick={(v) => { setOwnerOf(prev => ({ ...prev, [item.id]: v })); setCardFault(prev => (prev[item.id] ? { ...prev, [item.id]: null } : prev)); }} none={tr("No owner yet")} empty={tr("No owner yet")} noMatch={tr("No one matches that name.")} disabled={submitting} t={t} />
             </div>
           )}
           <input value={notes[item.id] || ""} onChange={e => { const v = e.target.value; setNotes(prev => ({ ...prev, [item.id]: v })); if (missingNote[item.id] && v.trim()) setMissingNote(prev => ({ ...prev, [item.id]: false })); if (cardFault[item.id] && v.trim()) setCardFault(prev => ({ ...prev, [item.id]: null })); }} placeholder={fix || finding ? tr("Say what needs fixing") : tr("Notes for this item (optional)")} aria-invalid={!!missingNote[item.id] || !!cardFault[item.id]} style={{ ...inputSt, fontSize: 12, marginBottom: 8, ...(missingNote[item.id] || cardFault[item.id] ? { border: "1px solid " + RED } : {}) }} />

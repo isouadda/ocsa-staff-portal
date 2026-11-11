@@ -3744,10 +3744,17 @@ function createStub(opts) {
     const day = zoneDate(Date.parse(newest.at));
     return { at: newest.at, day: day, scheduledInspectionId: newest.scheduledInspectionId, responseId: newest.responseId, thisMonth: day.slice(0, 7) === zoneDate(clockNow()).slice(0, 7) };
   };
+  // Part 383 (API part 378, its 7, helpers/inspectionFindings.js
+  // ownersFor): every active staff member but test accounts and client
+  // contacts, each with group: assigned (an active assignment at the
+  // site), recent (a session there in the last 30 days, latest first) or
+  // everyone (the rest, by name), in that order. Invented.
   const findingOwners = () => [
-    { id: state.person.id, name: state.person.firstName + " " + state.person.lastName, role: state.person.role },
-    { id: "s-02", name: "Ben Brooks", role: "custodian" },
-    { id: "s-05", name: "Eve Everett", role: "supervisor" },
+    { id: state.person.id, name: state.person.firstName + " " + state.person.lastName, role: state.person.role, group: "assigned" },
+    { id: "s-02", name: "Ben Brooks", role: "custodian", group: "assigned" },
+    { id: "s-04", name: "Dana Dale", role: "custodian", group: "recent" },
+    { id: "s-05", name: "Eve Everett", role: "supervisor", group: "everyone" },
+    { id: "s-06", name: "Finn Ford", role: "day_porter", group: "everyone" },
   ];
   const atOf = (c) => (c.at !== undefined ? c.at : clockNow() - 60 * 1000);
   const firstNameOf = (userId) => (userId === state.person.id ? state.person.firstName : (FIRST_NAMES[userId] || "Someone"));
