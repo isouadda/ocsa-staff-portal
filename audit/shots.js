@@ -383,7 +383,7 @@ const SHOTS = [
   // Home, and the shift.
   { name: "home", entry: E("What Home shows"), o: { signedIn: true, stub: { requests: true, signatures: true, unfinishedForms: true } },
     go: async (s) => { await s.hasBar(); return s.waitFor(() => !!document.querySelector("[data-request-card], [data-sign-card]") && !!document.querySelector("[data-unfinished-card]")); } },
-  { name: "start-shift", entry: E("Start your shift at a site"), o: { signedIn: true, stub: { clockedIn: false } },
+  { name: "start-shift", entry: E("Start your shift at a site"), o: { signedIn: true, stub: { clockedIn: false, lastSession: "closed" } },
     go: async (s) => { await s.hasBar(); return s.waitText(s.say("Choose a Site to Start")); } },
   { name: "end-shift", entry: E("End your shift"), o: { signedIn: true },
     go: async (s) => { await s.hasBar(); if (!(await s.waitText(s.say("End Shift")))) return false; await s.mark("button", s.say("End Shift")); return true; } },
@@ -404,7 +404,7 @@ const SHOTS = [
   // Training, and joining a session.
   { name: "first-trainings", entry: E("Your first trainings"), o: { signedIn: true, stub: { training: true, documents: true } },
     go: (s) => s.waitFor(() => !!document.querySelector("[data-first-trainings]")) },
-  { name: "my-training", entry: E("See your training"), o: { signedIn: true, stub: { training: true } },
+  { name: "my-training", entry: E("See your training"), o: { signedIn: true, stub: { training: true, outsideCourse: true } },
     go: async (s) => { if (!(await s.go("My training"))) return false; return s.waitFor(() => !!document.querySelector("[data-training-start]")); } },
   { name: "training-portal", entry: E("Find and take your trainings"), o: { signedIn: true, stub: { training: true, trainingPortal: true } },
     go: async (s) => { if (!(await s.go("My training"))) return false; if (!(await s.waitFor(() => document.querySelectorAll("[data-training-category]").length === 3))) return false; await s.page.evaluate(() => document.querySelector("[data-training-category]").scrollIntoView({ block: "start" })); await s.page.evaluate(() => window.scrollBy(0, -96)); return true; } },
