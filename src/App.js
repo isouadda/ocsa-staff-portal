@@ -6127,7 +6127,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
         <div role="note" data-last-session={lastShift.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 14px", marginBottom: 16, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow, fontFamily: FONT_BODY }}>
           <ClockIco sz={16} c={t.textSec} style={{ flexShrink: 0, marginTop: 2 }} />
           <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
-            <span style={{ display: "block", fontSize: 13, color: t.text, lineHeight: 1.45 }}>{lastShift.siteName ? tr("Your last shift, at {site}, ended at {time}.", { site: lastShift.siteName, time: endedWhen(lastShift.endedAt) }) : tr("Your last shift ended at {time}.", { time: endedWhen(lastShift.endedAt) })}</span>
+            <span style={{ display: "block", fontSize: 13, color: t.text, lineHeight: 1.45 }}>{oneStop(lastShift.siteName ? tr("Your last shift, at {site}, ended at {time}.", { site: lastShift.siteName, time: endedWhen(lastShift.endedAt) }) : tr("Your last shift ended at {time}.", { time: endedWhen(lastShift.endedAt) }))}</span>
             {lastShift.endNote && <span data-last-session-note="1" style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.45 }}>{lastShift.endNote}</span>}
           </span>
         </div>
@@ -6264,11 +6264,14 @@ function namedShiftsOf(d) {
 // session_close), in the request's language (its 6.4). null for an answer
 // that carries no session.
 const endedWhen = (at) => safetyWalkWhen(at);
+// A sentence ending in a time whose own words end with a period, such as
+// Spanish p.m., keeps one.
+const oneStop = (line) => String(line).replace(/\.\.$/, ".");
 const sessionEndNote = (session) => (session && typeof session.endNote === "string" && session.endNote.trim() ? session.endNote.trim() : "");
 function sessionEndLine(session) {
   if (!session || typeof session !== "object" || !Number.isFinite(Date.parse(session.endedAt))) return null;
   const note = sessionEndNote(session);
-  return tr("This shift already ended at {time}.", { time: endedWhen(session.endedAt) }) + (note ? " " + note : "");
+  return oneStop(tr("This shift already ended at {time}.", { time: endedWhen(session.endedAt) })) + (note ? " " + note : "");
 }
 // The person's last session, ended in the last 24 hours, as GET
 // /api/clock/status answers it beside no open session (lastSession, its

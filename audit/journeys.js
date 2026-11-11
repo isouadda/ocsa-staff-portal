@@ -9755,7 +9755,7 @@ const PART383_S2_JOURNEYS = [
         const drawn = await shows(app.page, "[data-last-session]", 8000);
         const text = flat(await textAt(app.page, "[data-last-session]"));
         const time = await companyTimeOf(app.page, language, isoOf(app.stub.state.lastEnded.endedAt));
-        expect("Home says where the last shift ended and when, with the API's note in the person's language", drawn && has(text, flat(fill(say("Your last shift, at {site}, ended at {time}.", language), { site: "North Building", time: time }))) && has(text, note), text);
+        expect("Home says where the last shift ended and when, with the API's note in the person's language", drawn && has(text, flat(fill(say("Your last shift, at {site}, ended at {time}.", language), { site: "North Building", time: time }).replace(/\.\.$/, "."))) && has(text, note), text);
         await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
       const app2 = await open({ stubOptions: {} });
@@ -9771,7 +9771,7 @@ const PART383_S2_JOURNEYS = [
         await pause(app2.page, 2500);
         const seen = (await toastWords(app2.page)).join(" | ");
         const time = await companyTimeOf(app2.page, language, isoOf(st.lastEnded.endedAt));
-        expect("End Shift on a shift the API closed says it already ended and when, with its note", has(flat(seen), flat(fill(say("This shift already ended at {time}.", language), { time: time }))) && has(seen, note), seen.slice(0, 400));
+        expect("End Shift on a shift the API closed says it already ended and when, with its note", has(flat(seen), flat(fill(say("This shift already ended at {time}.", language), { time: time }).replace(/\.\.$/, "."))) && has(seen, note), seen.slice(0, 400));
         const home = await shows(app2.page, "[data-last-session]", 6000);
         expect("and Home then says the last shift ended", home, "");
         await spokenHere(app2, language, expect);
