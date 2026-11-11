@@ -1241,17 +1241,18 @@ const inspectSitesNamed = (x) => {
 };
 const inspectTemplateOf = (x) => (x && typeof x === "object" && x.id !== null && x.id !== undefined && x.is_active !== false && x.isActive !== false ? { id: String(x.id), name: typeof x.name === "string" && x.name.trim() ? x.name.trim() : String(x.id), sites: inspectSitesNamed(x) } : null);
 // ------------------------------------------------------------
-// The test site (part 380, API Round 10): a row of GET /api/sites as
-// management reads it (every column of sites) carries is_test, true for
-// the robot's test site. A real person never sees it in a list or picker
-// this app draws; a test account sees it marked [TEST], as the API marks
-// its notices and mails. No answer the staff app reads says the person
-// signed in is a test account (users.is_test_account is on no sign-in,
-// /api/auth/me or profile answer), so until one answers isTestAccount
-// everyone here is a real person. The test sites read are kept by id for
-// the session, so a list that carries no is_test (GET /api/forms/my-sites)
-// leaves them out too; a person who reads every site reads GET /api/sites
-// once a session for it.
+// The test site (part 380, API Round 10; part 388, API Round 12, 3.1 and
+// 3.2). A real person never sees the robot's test site in a list or
+// picker this app draws; a test account sees it marked [TEST] wherever it
+// appears, as the API marks its notices and mails. Whether the person is
+// a test account is user.isTestAccount, on every sign-in answer, GET
+// /api/auth/me and the own profile. Whether a site is the test site is
+// the flag each read answers on its own rows: is_test on GET /api/sites,
+// isTest on /me's sites and GET /api/forms/my-sites, site_is_test on
+// every row of the schedule and the shift board. The ids read are kept
+// for the session, so a list that carries no flag (Start Shift's GET
+// /api/shift-sessions/sites) reads them too. Round 9's second read of
+// GET /api/sites, made for a list with no flag, is gone.
 // ------------------------------------------------------------
 const testSiteIds = new Set();
 const isTestAccount = (user) => !!user && (user.isTestAccount === true || user.is_test_account === true);
@@ -1267,14 +1268,30 @@ function sitesForPerson(user, rows, nameKey) {
   const key = nameKey || "name";
   return (Array.isArray(rows) ? rows : []).filter(r => r && (test || !siteIsTest(r))).map(r => (test && siteIsTest(r) ? Object.assign({}, r, { [key]: tr("[TEST] {name}", { name: String(r[key] || "") }) }) : r));
 }
-let testSitesRead = null;
-function readTestSites(token, user) {
-  if (!user || !(user.role === "admin" || user.role === "supervisor")) return Promise.resolve(null);
-  if (!testSitesRead) {
-    const read = api("/api/sites", { token }).then(learnTestSites).catch(() => { if (testSitesRead === read) testSitesRead = null; return null; });
-    testSitesRead = read;
-  }
-  return testSitesRead;
+// The rows of the schedule and the shift board (site_is_test, Round 12
+// 3.2): the test site's name marked for a test account; on the shift
+// board (board true), its shifts left out for a real person, since a
+// shift there is never theirs to take.
+function shiftRowsForPerson(user, rows, board) {
+  if (!Array.isArray(rows)) return rows;
+  const test = isTestAccount(user);
+  return rows.filter(r => !(board && !test && r && r.site_is_test === true)).map(r => (test && r && r.site_is_test === true && typeof r.site_name === "string" ? Object.assign({}, r, { site_name: tr("[TEST] {name}", { name: r.site_name }) }) : r));
+}
+// Start Shift's three lists (GET /api/shift-sessions/sites) carry no flag:
+// the test sites this session read elsewhere are left out or marked.
+function sessionSitesForPerson(user, d) {
+  if (!d || typeof d !== "object") return d;
+  const out = Object.assign({}, d);
+  ["scheduled", "assigned", "all"].forEach(k => { if (Array.isArray(out[k])) out[k] = sitesForPerson(user, out[k], "siteName"); });
+  return out;
+}
+// GET /api/pickups/my-schedule: every lane's rows, read the same way.
+function scheduleForPerson(user, d) {
+  if (Array.isArray(d)) return shiftRowsForPerson(user, d, false);
+  if (!d || typeof d !== "object") return d;
+  const out = Object.assign({}, d);
+  Object.keys(out).forEach(k => { if (Array.isArray(out[k])) out[k] = shiftRowsForPerson(user, out[k], false); });
+  return out;
 }
 const inspectSiteOf = (x) => {
   if (!x || typeof x !== "object") return null;
@@ -2912,7 +2929,9 @@ export default function OCSAStaffPortal() {
   // the screen switches, since the main screen reads user.
   const hydrateSession = useCallback(async (tok) => {
     const me = await api("/api/auth/me", { token: tok });
-    setUser(me.user); setSites(me.sites);
+    // The person's sites, the test site marked for a test account and left
+    // out for anyone else, by the isTest each carries (part 388).
+    setUser(me.user); setSites(Array.isArray(me.sites) ? sitesForPerson(me.user, me.sites, "siteName") : me.sites);
     // Taps kept through a sign-out or an expired session wait for the
     // person who made them, and go once they are back (Round 1, PORT-05).
     // Anyone else signing in leaves them waiting, and never sends them;
@@ -4436,7 +4455,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "support" && destCtx.support && <SupportView userId={user && user.id} token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} focus={supportAt} t={t} />}
               {activeTab === "supplyorders" && (destCtx.supplyOrders || !!supplyAt) && <SupplyOrdersView token={token} user={user} holder={supplyHolder === true} rows={supplyOrders} onReload={() => loadSupplyOrders()} onRow={takeSupplyOrder} at={supplyAt} onAt={setSupplyAt} getOpts={getOpts} showToast={showToast} t={t} />}
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
-              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSites} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
+              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSitesForPerson(user, sessionSites)} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} at={scheduleAt} />}
               {activeTab === "tasks" && <TasksView token={token} rereadList={() => (checklistAsk ? api(checklistAsk, { token }) : Promise.reject(Object.assign(new Error(ERR_GENERIC), { status: 404 })))} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} shiftChoices={siteShifts} shiftNames={shiftNames} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView userId={user && user.id} assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -5274,7 +5293,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
       // company's clock, from 00:00 on the first day to 00:00 after the
       // last, so the days asked for are the days drawn.
       const d = await api("/api/pickups/my-schedule?start_date=" + sd + "&end_date=" + ed, { token });
-      setData(d); setFailed(false);
+      setData(scheduleForPerson(user, d)); setFailed(false);
     } catch (err) { console.error("Schedule load error:", err); setFailed(true); }
     setLoading(false);
   };
@@ -5310,7 +5329,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
       const day = hit && hit.scheduled_date ? String(hit.scheduled_date).slice(0, 10) : at.day || null;
       if (!hit || !hit.id || hit.status === "cancelled") { setDetail(null); if (day) showWeekOf(day); setShiftGone({ day: day }); return; }
       showWeekOf(hit.scheduled_date);
-      setDetail({ type: "scheduled", ...hit });
+      setDetail({ type: "scheduled", ...shiftRowsForPerson(user, [hit], false)[0] });
     }).catch((err) => {
       if (gone || !err || err.status !== 404) return;
       setDetail(null);
@@ -15337,10 +15356,10 @@ function FormsView({ token, user, showToast, t, language, shiftOpen, openDraft, 
   const sitesRead = useRef(null);
   const mySites = useCallback(() => {
     if (!sitesRead.current) {
-      // The test site left out, its id read beside it for a person who
-      // reads every site, since these rows carry no is_test (part 380).
-      const read = Promise.all([api("/api/forms/my-sites", { token }), readTestSites(token, user)])
-        .then(([d]) => sitesForPerson(user, (d && Array.isArray(d.sites) ? d.sites : []).filter(s => s && s.id !== undefined && s.id !== null)))
+      // The test site left out, or marked for a test account, by the
+      // isTest each row carries (part 388).
+      const read = api("/api/forms/my-sites", { token })
+        .then((d) => sitesForPerson(user, (d && Array.isArray(d.sites) ? d.sites : []).filter(s => s && s.id !== undefined && s.id !== null)))
         .catch(err => { if (!(err && err.status === 404) && sitesRead.current === read) sitesRead.current = null; return []; });
       sitesRead.current = read;
     }
@@ -18030,11 +18049,11 @@ function FieldKitView({ token, user, at, onAt, shiftSiteId, assignedSites, onOpe
     let live = true;
     (async () => {
       try {
-        const [answer] = await Promise.all([api("/api/forms/my-sites", { token }), readTestSites(token, user)]);
+        const answer = await api("/api/forms/my-sites", { token });
         const rows = wsRows(answer, "sites");
         if (!rows) throw new Error(ERR_GENERIC);
         // The test site left out for a real person, marked for a test
-        // account (part 380).
+        // account (part 380), by the isTest each row carries (part 388).
         if (live) setSites({ state: "ok", list: sitesForPerson(user, rows).map(fkSiteOf).filter(Boolean) });
       } catch (err) {
         // A list already on the screen stays when a later read fails.
@@ -19832,7 +19851,7 @@ function PickupView({ token, user, showToast, t }) {
     setLoading(true);
     try {
       const data = await api("/api/pickups/available", { token });
-      setAvailable(data); setFailed(f => ({ ...f, available: false }));
+      setAvailable(shiftRowsForPerson(user, data, true)); setFailed(f => ({ ...f, available: false }));
     } catch (err) { setFailed(f => ({ ...f, available: true })); }
     setLoading(false);
   };
@@ -19841,7 +19860,7 @@ function PickupView({ token, user, showToast, t }) {
     setLoading(true);
     try {
       const data = await api("/api/pickups/my-pickups", { token });
-      setMyPickups(data); setFailed(f => ({ ...f, mine: false }));
+      setMyPickups(shiftRowsForPerson(user, data, false)); setFailed(f => ({ ...f, mine: false }));
     } catch (err) { setFailed(f => ({ ...f, mine: true })); }
     setLoading(false);
   };

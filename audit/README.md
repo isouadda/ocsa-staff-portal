@@ -1679,6 +1679,30 @@ The smoke check's Inspection findings now ends on My findings: the
 owner's finding with no follow-up chosen yet and no Fixed, and no read of
 the inspection issue list.
 
+## The test site for a test account (part 388, section 2)
+
+The stub answers ocsa-api Round 12's flags (part 382, 3.1 and 3.2):
+`user.isTestAccount` on `GET /api/auth/me` and the own profile, `isTest`
+on each of `/me`'s sites and every `GET /api/forms/my-sites` row, `is_test`
+on every `GET /api/sites` row (a staff person's too), and `site_is_test`
+on every row of `GET /api/pickups/my-schedule` (all four lanes),
+`/my-schedule/:shiftId`, `/available` and `/my-pickups`. With `testSite`
+the shift board answers an open shift at the test site (`pk-test`) to
+anyone, and a test account is assigned the test site and holds a shift
+there (`sh-test`, Saturday October 3). Start Shift's `GET
+/api/shift-sessions/sites` still carries no flag, as the API's does not.
+
+One journey, in English and Spanish, failing on the main of part 383:
+
+- `testflags`: a real supervisor's field kit never lists the test site
+  and the shift board leaves its shift out, with no read of `GET
+  /api/sites` beside them; a test account sees "[TEST] Invented Test
+  Building" in the field kit, on the shift board and on its schedule,
+  with no second read either.
+
+`testsite` (part 380) reads the same: the field kit's list now carries
+`isTest`.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

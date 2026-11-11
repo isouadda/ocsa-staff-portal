@@ -3708,10 +3708,17 @@ function createStub(opts) {
   }
 
   const schedule = () => state.schedule || {
-    scheduled: [{ id: "sh-1", scheduled_date: "2026-10-02", start_time: "17:00", end_time: "23:00", site_name: "North Building", status: "scheduled", building_name: "Main Hall", floor_number: "2" }],
+    scheduled: [{ id: "sh-1", scheduled_date: "2026-10-02", start_time: "17:00", end_time: "23:00", site_name: "North Building", status: "scheduled", building_name: "Main Hall", floor_number: "2" }]
+      // Part 388: a test account with testSite holds a shift at the test site.
+      .concat(state.testSite && state.person.isTestAccount === true ? [{ id: "sh-test", scheduled_date: "2026-10-03", start_time: "09:00", end_time: "13:00", site_name: TEST_SITE.name, site_id: TEST_SITE.id, status: "scheduled", building_name: null, floor_number: null }] : []),
     actual: [{ id: "ac-1", clock_in_time: iso(NOW.getTime() - 3 * 60 * 60 * 1000), shift_status: "active", site_name: "North Building" }],
     pickups: [],
   };
+  // Part 388 (API Round 12, 3.2, routes/pickups.js): site_is_test on every
+  // row of the staff app's schedule (all four lanes, one shift) and shift
+  // board (available, my pickups), true for the test site's.
+  const flagRows = (rows) => (Array.isArray(rows) ? rows.map(x => (x && typeof x === "object" ? Object.assign({}, x, { site_is_test: x.site_is_test === true || x.site_id === TEST_SITE.id || x.site_name === TEST_SITE.name }) : x)) : rows);
+  const flagLanes = (d) => { const out = Object.assign({}, d); ["scheduled", "actual", "pickups", "pendingDrops"].forEach(k => { if (Array.isArray(out[k])) out[k] = flagRows(out[k]); }); return out; };
 
   // --- the checklist day, as Step 124 answers it
   //
@@ -4280,9 +4287,9 @@ function createStub(opts) {
   function fieldKitAnswer(method, pathname, search, body, key, lang) {
     const management = FK_MANAGEMENT.indexOf(state.person.role) !== -1;
     const q = new URLSearchParams(search || "");
-    // Part 380: with testSite, the robot's test site too, active and with
-    // no is_test, since this route answers id, name and checklistMode only.
-    if (key === "GET /api/forms/my-sites") return management ? json(200, { sites: SITES.map(x => ({ id: x.siteId, name: x.siteName })).concat(state.testSite ? [{ id: TEST_SITE.id, name: TEST_SITE.name }] : []) }) : null;
+    // Part 380: with testSite, the robot's test site too. Part 388 (API
+    // Round 12, 3.2): every row carries isTest.
+    if (key === "GET /api/forms/my-sites") return management ? json(200, { sites: SITES.map(x => ({ id: x.siteId, name: x.siteName, isTest: false })).concat(state.testSite ? [{ id: TEST_SITE.id, name: TEST_SITE.name, isTest: true }] : []) }) : null;
     // The register's two other labels open the way the smoke check's does.
     const label = FK_EQUIPMENT.find(x => key === "GET /api/equipment/by-qr/" + x.qrCode);
     if (label) return json(200, { equipment: Object.assign({ siteId: "site-north", siteName: "North Building" }, label), events: [] });
@@ -4557,7 +4564,10 @@ function createStub(opts) {
       }
       return json(404, { error: "That equipment was not found.", code: "equipment.notFound" });
     }
-    if (key === "GET /api/auth/me") return json(200, Object.assign({ user: state.person, sites: (state.assignedSites || SITES).map(withMode), preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
+    // Part 388 (API Round 12, 3.1 and 3.2): user.isTestAccount, and isTest
+    // on each of the person's sites; a test account with testSite is
+    // assigned the test site too.
+    if (key === "GET /api/auth/me") return json(200, Object.assign({ user: Object.assign({}, state.person, { isTestAccount: state.person.isTestAccount === true }), sites: (state.assignedSites || SITES).map(withMode).map(x => Object.assign({}, x, { isTest: x.isTest === true || x.siteId === TEST_SITE.id })).concat(state.testSite && state.person.isTestAccount === true && !state.assignedSites ? [{ siteId: TEST_SITE.id, siteName: TEST_SITE.name, isTest: true }] : []), preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
     // Register as routes/auth.js answers it since part 363 (API-117): a
     // phone (its digits) or an email (any case) that already has an
     // account answers exactly as a new one does, 201 auth.registered with
@@ -4647,7 +4657,7 @@ function createStub(opts) {
       return json(200, { role: state.person.role, capabilities: capabilities });
     }
     if (key === "GET /api/users/profile/me") return json(200, {
-      user: Object.assign({}, state.person, { employeeId: "OCSA-0001", preferredLanguage: "English", addressLine1: "", city: "", state: "", zipCode: "", emergencyContactName: "", emergencyContactPhone: "", birthday: state.midnightDates ? "1990-08-14T00:00:00.000Z" : "1990-08-14" }),
+      user: Object.assign({}, state.person, { isTestAccount: state.person.isTestAccount === true, employeeId: "OCSA-0001", preferredLanguage: "English", addressLine1: "", city: "", state: "", zipCode: "", emergencyContactName: "", emergencyContactPhone: "", birthday: state.midnightDates ? "1990-08-14T00:00:00.000Z" : "1990-08-14" }),
       assignments: [{ site_name: "North Building", role_at_site: "Staff", shift_name: "Evening", shift_start: "17:00", shift_end: "23:00" }],
     });
     if (key === "PATCH /api/users/profile/me") return json(200, { ok: true });
@@ -4831,11 +4841,12 @@ function createStub(opts) {
     // Part 380, as routes/sites.js answers since API Round 10: a person who
     // reads every site (an admin or a supervisor) gets every column, is_test
     // among them, and with testSite the robot's test site too; anyone else
-    // gets their own sites' base columns, which carry no is_test.
+    // gets their own sites' base columns, since part 388 (API Round 12,
+    // 3.2) with is_test on every row too.
     if (key === "GET /api/sites") {
       const every = state.person.role === "admin" || state.person.role === "supervisor";
       const rows = state.startInspection ? START_SITES.map(x => Object.assign({}, x)) : SITES.map(withMode);
-      return json(200, every ? rows.map(x => Object.assign({ is_test: false }, x)).concat(state.testSite ? [Object.assign({}, TEST_SITE, state.startInspection ? {} : { siteId: TEST_SITE.id, siteName: TEST_SITE.name })] : []) : rows);
+      return json(200, every ? rows.map(x => Object.assign({ is_test: false }, x)).concat(state.testSite ? [Object.assign({}, TEST_SITE, state.startInspection ? {} : { siteId: TEST_SITE.id, siteName: TEST_SITE.name })] : []) : rows.map(x => Object.assign({ is_test: false }, x)));
     }
     // Part 375: a site's named shifts (routes/siteShifts.js GET), the
     // active ones in order, each named in the language asked for; [] at a
@@ -4883,10 +4894,10 @@ function createStub(opts) {
       const range = new URLSearchParams(search || "");
       const from = /^\d{4}-\d{2}-\d{2}$/.test(range.get("start_date") || "") ? range.get("start_date") : null;
       const to = /^\d{4}-\d{2}-\d{2}$/.test(range.get("end_date") || "") ? range.get("end_date") : null;
-      const whole = schedule();
+      const whole = flagLanes(schedule());
       const base = from && to ? Object.assign({}, whole, { scheduled: (whole.scheduled || []).filter(x => { const d = String(x.scheduled_date || "").slice(0, 10); return d >= from && d <= to; }) }) : whole;
       const asked = Object.keys(state.drops).filter(id => state.drops[id].status === "requested").map(id => ({ id: state.drops[id].id, scheduledShiftId: id, status: "requested" }));
-      const out = asked.length ? Object.assign({}, base, { pendingDrops: (base.pendingDrops || []).concat(asked) }) : base;
+      const out = flagLanes(asked.length ? Object.assign({}, base, { pendingDrops: (base.pendingDrops || []).concat(asked) }) : base);
       if (!state.midnightDates) return json(200, out);
       return json(200, Object.assign({}, out, { scheduled: (out.scheduled || []).map(x => Object.assign({}, x, /^\d{4}-\d{2}-\d{2}$/.test(x.scheduled_date || "") ? { scheduled_date: x.scheduled_date + "T00:00:00.000Z" } : {})) }));
     }
@@ -4897,21 +4908,23 @@ function createStub(opts) {
     // uuid; the stub's invented ids are read as they are.
     const oneShift = /^\/api\/pickups\/my-schedule\/([^/]+)$/.exec(pathname);
     if (method === "GET" && oneShift) {
-      const hit = (schedule().scheduled || []).concat(state.cancelledShifts).find(x => x && String(x.id) === oneShift[1]);
+      const hit = (flagLanes(schedule()).scheduled || []).concat(flagRows(state.cancelledShifts)).find(x => x && String(x.id) === oneShift[1]);
       if (!hit) return json(404, { error: languageOf(search, state) === "es" ? "No se encontr\u00f3 el turno" : "Shift not found", code: "shifts.notFound" });
       return json(200, Object.assign({ site_id: "site-north", service_category: null, notes: null }, hit));
     }
     // One open shift of every origin, the first of them the one a case
     // claims, and one marked urgent, so the sweep draws every badge the
     // card can carry and the URGENT chip beside a name.
-    if (key === "GET /api/pickups/available") return json(200, [
+    // Part 388: site_is_test on every row; with testSite an open shift at
+    // the test site too, which the board answers anyone.
+    if (key === "GET /api/pickups/available") return json(200, flagRows([
       { id: "pk-1", scheduled_date: "2026-10-08", start_time: "17:00", end_time: "23:00", site_name: "South Building", origin: "voluntary_drop", service_category: "Day porter" },
       { id: "pk-2", scheduled_date: "2026-10-09", start_time: "06:00", end_time: "14:00", site_name: "North Building", origin: "callout", urgency: "urgent", service_category: "Day porter" },
       { id: "pk-3", scheduled_date: "2026-10-10", start_time: "22:00", end_time: "06:00", site_name: "West Building", origin: "no_show", service_category: "Day porter" },
       { id: "pk-4", scheduled_date: "2026-10-11", start_time: "08:00", end_time: "12:00", site_name: "South Building", origin: "extra_coverage", service_category: "Day porter" },
       { id: "pk-5", scheduled_date: "2026-10-12", start_time: "14:00", end_time: "18:00", site_name: "North Building", origin: "new_shift", service_category: "Day porter" },
-    ]);
-    if (key === "GET /api/pickups/my-pickups") return json(200, state.myPickups);
+    ].concat(state.testSite ? [{ id: "pk-test", scheduled_date: "2026-10-13", start_time: "09:00", end_time: "13:00", site_name: TEST_SITE.name, site_id: TEST_SITE.id, origin: "extra_coverage", service_category: "Day porter" }] : [])));
+    if (key === "GET /api/pickups/my-pickups") return json(200, flagRows(state.myPickups));
     // Part 359: a drop as routes/pickups.js answers it since part 357
     // (API-52): the open shift it wrote, and a second ask for the same
     // shift, at once or later, 409 pickups.alreadyPosted naming the open

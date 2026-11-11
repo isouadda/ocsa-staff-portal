@@ -9469,7 +9469,7 @@ const PART380_S3_JOURNEYS = [
         if (!(await openTab(app.page, "fieldkit", language))) { expect("the field kit opens", false, "no field kit"); return; }
         await shows(app.page, "#ocsa-fk-site", 8000);
         const kit = await app.page.evaluate(() => { const sel = document.querySelector("#ocsa-fk-site"); return sel ? Array.from(sel.options).map(o => o.value + "|" + o.textContent) : null; });
-        expect("the field kit's sites never have the test site, though its list answers it with no is_test", !!kit && kit.length === 3 && !kit.some(o => o.indexOf("site-test|") === 0), JSON.stringify(kit));
+        expect("the field kit's sites never have the test site", !!kit && kit.length === 3 && !kit.some(o => o.indexOf("site-test|") === 0), JSON.stringify(kit));
       } finally { await app.context.close(); }
       const crew = await open({ stubOptions: { person: Object.assign({}, ROUND1_SUPERVISOR, { id: "u-test-crew", isTestAccount: true }), startInspection: true, testSite: true } });
       try {
@@ -10286,5 +10286,62 @@ const PART388_S1_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART388_S1_JOURNEYS);
+
+// --- Round 11 of the staff app (part 388), section 2 ----------------------
+//
+// The test site for a test account (ocsa-api Round 12, part 382, 3.1 and
+// 3.2): user.isTestAccount, and is_test, isTest and site_is_test on every
+// site list and schedule read. Fails on the main of part 383, which read
+// GET /api/sites a second time to find the test site and never marked a
+// schedule or shift board row.
+const TEST_CREW = Object.assign({}, ROUND1_SUPERVISOR, { id: "u-test-crew", isTestAccount: true });
+const sitesRead = (stub) => stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/sites").length;
+const PART388_S2_JOURNEYS = [
+  {
+    id: "testflags",
+    label: "The test site from the API's own flags (API Round 12, 3.1 and 3.2): a real supervisor never sees it in the field kit's sites or on the shift board, with no second read of the sites; a test account sees it marked [TEST] in the field kit, on its schedule and on the shift board",
+    run: async (open, language, expect) => {
+      const marked = say("[TEST] {name}", language).replace("{name}", TEST_NAME);
+      const real = await open({ stubOptions: { person: ROUND1_SUPERVISOR, testSite: true, fieldKit: true } });
+      try {
+        if (!(await openTab(real.page, "fieldkit", language))) { expect("the field kit opens", false, "no field kit"); return; }
+        await shows(real.page, "#ocsa-fk-site", 8000);
+        await pause(real.page, 600);
+        const kit = await real.page.evaluate(() => { const sel = document.querySelector("#ocsa-fk-site"); return sel ? Array.from(sel.options).map(o => o.value + "|" + o.textContent) : null; });
+        expect("the field kit's sites never have the test site, read from its isTest", !!kit && kit.length === 3 && !kit.some(o => o.indexOf("site-test|") === 0 || has(o, TEST_NAME)), JSON.stringify(kit));
+        expect("with no second read of GET /api/sites", sitesRead(real.stub) === 0, String(sitesRead(real.stub)));
+        await openTab(real.page, "pickup", language);
+        await pause(real.page, 1500);
+        const board = await textAt(real.page, ".sp-content");
+        expect("the shift board leaves the test site's shift out", has(String(board), "South Building") && !has(String(board), TEST_NAME), String(board).slice(0, 300));
+      } finally { await real.context.close(); }
+      const crew = await open({ stubOptions: { person: TEST_CREW, testSite: true, fieldKit: true } });
+      try {
+        if (!(await openTab(crew.page, "fieldkit", language))) { expect("the field kit opens for the test account", false, "no field kit"); return; }
+        await shows(crew.page, "#ocsa-fk-site", 8000);
+        await pause(crew.page, 600);
+        const kit = await crew.page.evaluate(() => { const sel = document.querySelector("#ocsa-fk-site"); return sel ? Array.from(sel.options).map(o => o.value + "|" + o.textContent) : null; });
+        expect("a test account's field kit marks the test site [TEST]", !!kit && kit.some(o => o === "site-test|" + marked) && kit.length === 4, JSON.stringify(kit));
+        await openTab(crew.page, "pickup", language);
+        await pause(crew.page, 1500);
+        const board = await textAt(crew.page, ".sp-content");
+        expect("its shift board marks the test site's shift [TEST]", has(String(board), marked), String(board).slice(0, 400));
+        await spokenHere(crew, language, expect);
+        await openTab(crew.page, "schedule", language);
+        await pause(crew.page, 1500);
+        const shown = await crew.page.evaluate((w) => document.body.innerText.indexOf(w) !== -1, marked);
+        let day = shown;
+        if (!shown) {
+          await crew.page.evaluate(() => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => /\b3\b/.test(x.innerText) && x.innerText.length < 40); if (b) b.click(); });
+          await pause(crew.page, 900);
+          day = await crew.page.evaluate((w) => document.body.innerText.indexOf(w) !== -1, marked);
+        }
+        expect("its schedule marks its shift at the test site [TEST]", day, (await bodyText(crew.page)).slice(0, 400));
+        expect("and nothing read GET /api/sites a second time", sitesRead(crew.stub) === 0, String(sitesRead(crew.stub)));
+      } finally { await crew.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART388_S2_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };
