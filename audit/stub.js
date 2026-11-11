@@ -6049,7 +6049,10 @@ function createStub(opts) {
       const want = q.get("status");
       const siteWanted = q.get("site_id");
       const everyone = state.person.role === "admin" || state.person.role === "supervisor";
-      return json(200, state.inspections.filter(i => !i.gone && (!want || i.status === want) && (!siteWanted || String(i.site_id) === siteWanted) && (everyone || i.assigned_to === undefined || i.assigned_to === state.person.id))
+      // An inspection the API no longer has (gone) stays on the list a
+      // phone already holds, and its own read answers 404 (part 383: part
+      // 380 had left it off, so the inspection journey could not reach it).
+      return json(200, state.inspections.filter(i => (!want || i.status === want) && (!siteWanted || String(i.site_id) === siteWanted) && (everyone || i.assigned_to === undefined || i.assigned_to === state.person.id))
         .map(i => Object.assign({}, i, { items: undefined, gone: undefined, result: undefined, result_id: i.result ? i.result.id : null })));
     }
     // Step 324: the walk's safety part started or resumed, as API Step 319
