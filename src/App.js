@@ -7643,7 +7643,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, message
         {privates.length > 0 && (<div data-private-chats="1">
           <div id="ocsa-private-chats" style={{ fontSize: 10, fontWeight: 600, color: t.textMut, textTransform: "uppercase", letterSpacing: "1px", margin: "2px 0 6px", fontFamily: FONT_HEAD }}>{tr("Private chats")}</div>
           {privateSearch && <input type="text" data-private-search="1" value={privateQuery} onChange={e => setPrivateQuery(e.target.value.slice(0, 80))} placeholder={tr("Search by name")} aria-label={tr("Search by name")} style={{ ...mkInput(t), marginBottom: 8 }} />}
-          {privateSearch && privateNeedle && privatesShown.every(ch => isOwnPrivate(ch) || ch.id === activeChannel) && !privates.some(ch => !isOwnPrivate(ch) && pickMatches(ch.name, privateNeedle)) && <div data-private-none="1" style={{ ...mkHelp(t), marginTop: 0, marginBottom: 8 }}>{tr("No one matches that name.")}</div>}
+          {privateSearch && privateNeedle && !privates.some(ch => !isOwnPrivate(ch) && pickMatches(ch.name, privateNeedle)) && <div data-private-none="1" style={{ ...mkHelp(t), marginTop: 0, marginBottom: 8 }}>{tr("No one matches that name.")}</div>}
           <div role="group" aria-labelledby="ocsa-private-chats" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
             {privatesShown.map((ch) => {
               const on = activeChannel === ch.id;
