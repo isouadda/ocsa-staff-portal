@@ -10291,8 +10291,8 @@ const PART388_S1_JOURNEYS = [
 JOURNEYS.push(...PART388_S1_JOURNEYS);
 // A supervisor's Issues lists the site's issues, an inspection finding
 // among them (the API's GET /api/issues answers it); its row opens
-// Findings to follow up at it, never an issue's sheet with Assign and
-// Resolved.
+// Findings to follow up at it, with no issue sheet to assign or resolve
+// it.
 const PART388_S1B_JOURNEYS = [
   {
     id: "findingrow",

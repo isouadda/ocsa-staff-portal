@@ -10274,9 +10274,9 @@ function SupplyOrder({ token, user, holder, row, onBack, onRow, onReload, getOpt
 // ------------------------------------------------------------
 // Findings as training or a conversation (part 388, ocsa-api Round 12,
 // part 382, section 2). The owner decided on Nov 11, 2026 that an
-// inspection finding is no work item: what it calls for is training, or
-// a conversation with the person whose work it was. No finding is listed
-// as work here, and nothing about one reads as a task: Assigned and
+// inspection finding calls for training, or a conversation with the
+// person whose work it was. No finding is listed as work here, and
+// nothing about one reads as a task: Assigned and
 // Report no longer read GET /api/issues?source=inspection, and Fixed is
 // gone. A finding takes one follow-up for its owner, chosen on the walk
 // (scores[i].followUp) or later by a supervisor at the site or a holder
