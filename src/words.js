@@ -1168,11 +1168,7 @@ export const WORDS = {
   "Inspection sent. {n} findings opened.": "Inspecci\u00f3n enviada. {n} hallazgos abiertos.",
   "A corrective action is required. The office has been told.": "Se requiere una acci\u00f3n correctiva. Se avis\u00f3 a la oficina.",
   "Owner: {name}": "Responsable: {name}",
-  "Inspection findings": "Hallazgos de inspecci\u00f3n",
   "Fixed": "Arreglado",
-  "Mark this finding fixed": "Marcar este hallazgo como arreglado",
-  "A second person checks the fix before the finding closes.": "Otra persona verifica el arreglo antes de cerrar el hallazgo.",
-  "Fixed. A second person checks it.": "Arreglado. Otra persona lo verifica.",
   "Waiting for a check": "Esperando verificaci\u00f3n",
   // My training (Step 258)
   "My training": "Mi capacitaci\u00f3n",
@@ -2757,11 +2753,7 @@ WORDS.fr = {
   "Inspection sent. {n} findings opened.": "Inspection envoy\u00e9e. {n} constats ouverts.",
   "A corrective action is required. The office has been told.": "Une mesure corrective est requise. Le bureau a \u00e9t\u00e9 pr\u00e9venu.",
   "Owner: {name}": "Responsable\u00a0: {name}",
-  "Inspection findings": "Constats d'inspection",
   "Fixed": "R\u00e9par\u00e9",
-  "Mark this finding fixed": "Marquer ce constat comme r\u00e9par\u00e9",
-  "A second person checks the fix before the finding closes.": "Une autre personne v\u00e9rifie la r\u00e9paration avant la cl\u00f4ture du constat.",
-  "Fixed. A second person checks it.": "R\u00e9par\u00e9. Une autre personne le v\u00e9rifie.",
   "Waiting for a check": "En attente de v\u00e9rification",
   // My training (Step 258)
   "My training": "Ma formation",
