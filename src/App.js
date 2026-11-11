@@ -1642,11 +1642,14 @@ function FreshImg({ src, reread, readKey, onFresh, onGone, video, link, linkStyl
 // link, the copy kept on this phone too, and sends the path, which every
 // write that takes a photo stores as it is. A link that ran out is
 // signed again by its path (POST /api/uploads/sign { path }, for the
-// person who uploaded it, within 30 days), one read a photo, since the
-// route signs one path a call. A path that cannot be signed again (404
-// uploads.pathNotFound, or 400 uploads.badDetails) is said plainly, and
-// the photo is taken again. A photo kept before this build has only its
-// link; its path is read off the link's address.
+// person who uploaded it, within 30 days). A path that cannot be signed
+// again (404 uploads.pathNotFound, or 400 uploads.badDetails) is said
+// plainly, and the photo is taken again. A photo kept before this build
+// has only its link; its path is read off the link's address. Since part
+// 388 (API Round 12, section 4) a kept walk's photos are signed in one
+// read as it opens: POST /api/uploads/sign { paths } (1 to 50) answers
+// { links: [{ path, url | null }] } in the order sent, and a null link is
+// the photo that can no longer be shown.
 // ------------------------------------------------------------
 const PHOTO_PATH = /^(task-media|issue-photos|profile-photos)\/[A-Za-z0-9._/-]{1,300}$/;
 // A kept photo's link is signed again as its draft opens once it is this
@@ -1672,6 +1675,13 @@ const photoKept = (up) => ({ url: up && typeof up.url === "string" ? up.url : nu
 const signPhotoPath = (path, token) => api("/api/uploads/sign", { method: "POST", token, body: { path: path } });
 // Whether a refusal of that read means the path will never sign again.
 const photoPathLost = (err) => !!err && (err.status === 404 || err.status === 400);
+// Many photos' fresh links in one read, by path: { [path]: url | null }.
+const PHOTO_SIGN_MANY_MAX = 50;
+const signPhotoPaths = (paths, token) => api("/api/uploads/sign", { method: "POST", token, body: { paths: paths } })
+  .then(d => { const out = {}; (d && Array.isArray(d.links) ? d.links : []).forEach(l => { if (l && typeof l.path === "string") out[l.path] = typeof l.url === "string" && l.url ? l.url : null; }); return out; });
+// An API from before Round 12 refuses { paths } as a body that is not one
+// path (400 uploads.badDetails keys ["path"]).
+const signManyUnknown = (err) => !!err && err.status === 400 && !!err.body && Array.isArray(err.body.keys) && err.body.keys.indexOf("path") !== -1;
 
 // A walk's site checklist, kept on this phone as it is scored, by person
 // and inspection (Step 313), so leaving and coming back continues it; the
@@ -20349,16 +20359,35 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
     setShots(prev => ({ ...prev, [key]: (prev[key] || []).map(p => (p.id === id ? Object.assign({}, p, change) : p)) }));
   };
   // A kept walk's photos whose links have run out, or soon will, signed
-  // again by their paths as it opens, one read a photo, shared with the
-  // picture's own read when it fails to load.
+  // again by their paths as it opens, in one read (part 388, POST
+  // /api/uploads/sign { paths }, 50 a read): each fresh link drawn, and a
+  // null one read as the photo that can no longer be shown. An API that
+  // does not take paths yet is asked one read a photo, as before, shared
+  // with the picture's own read when it fails to load.
   const signKeptShots = (forId, kept) => {
+    const due = [];
     Object.keys(kept || {}).forEach(key => (Array.isArray(kept[key]) ? kept[key] : []).forEach(p => {
       const path = p && !p.gone ? photoPathOf(p) : null;
       if (!path || Number(p.at) > Date.now() - PHOTO_SIGN_AFTER_MS) return;
-      photoReread("sign:" + path, () => signPhotoPath(path, token))
-        .then(d => { if (d && typeof d.url === "string" && d.url) shotChange(forId, key, p.id, { url: d.url, path: path, at: Date.now() }); })
-        .catch(err => { if (photoPathLost(err)) shotChange(forId, key, p.id, { gone: true }); });
+      due.push({ key: key, id: p.id, path: path });
     }));
+    if (due.length === 0) return;
+    const oneByOne = (list) => list.forEach(x => {
+      photoReread("sign:" + x.path, () => signPhotoPath(x.path, token))
+        .then(d => { if (d && typeof d.url === "string" && d.url) shotChange(forId, x.key, x.id, { url: d.url, path: x.path, at: Date.now() }); })
+        .catch(err => { if (photoPathLost(err)) shotChange(forId, x.key, x.id, { gone: true }); });
+    });
+    const paths = due.map(x => x.path).filter((v, i, a) => a.indexOf(v) === i);
+    for (let i = 0; i < paths.length; i += PHOTO_SIGN_MANY_MAX) {
+      const some = paths.slice(i, i + PHOTO_SIGN_MANY_MAX);
+      const mine = due.filter(x => some.indexOf(x.path) !== -1);
+      signPhotoPaths(some, token)
+        .then(links => mine.forEach(x => {
+          if (!Object.prototype.hasOwnProperty.call(links, x.path)) return;
+          shotChange(forId, x.key, x.id, links[x.path] ? { url: links[x.path], path: x.path, at: Date.now() } : { gone: true });
+        }))
+        .catch(err => { if (signManyUnknown(err)) oneByOne(mine); });
+    }
   };
   // Take it again: the photo that can no longer be shown goes, and the
   // camera opens on its row.

@@ -1796,6 +1796,7 @@ function makeState(opts) {
     // never signing again (photoLost), as for an object gone from storage.
     photoOwners: {},
     photoSigns: [],
+    photoSignReads: [],
     // Part 380: the robot's test site on the site lists that answer it.
     testSite: o.testSite === true,
     photoLost: Array.isArray(o.photoLost) ? o.photoLost.slice() : [],
@@ -6845,6 +6846,26 @@ function createStub(opts) {
     // another bucket's.
     if (pathname === "/api/uploads/sign" && method === "POST") {
       const b = body && typeof body === "object" && !Buffer.isBuffer(body) ? body : {};
+      // Part 388 (API Round 12, section 4): { paths }, 1 to 50, answers
+      // { links: [{ path, url | null }] } in the order sent, null for a path
+      // this caller cannot sign by the rules of one path. Both keys, another
+      // key, or paths not a list of 1 to 50: 400 uploads.badDetails keys
+      // ["paths"]; a path that is not <bucket>/<object>: keys ["paths[i]"].
+      // Each read is kept in photoSignReads, each path in photoSigns.
+      if (b.paths !== undefined) {
+        const sayMany = (k) => refusalIn(UPLOAD_SIGN_REFUSALS[k], languageOf(search, state));
+        state.photoSignReads.push(Array.isArray(b.paths) ? b.paths.slice() : b.paths);
+        if (Object.keys(b).some(k => k !== "paths") || !Array.isArray(b.paths) || b.paths.length < 1 || b.paths.length > 50) return json(400, { error: sayMany("uploads.badDetails"), code: "uploads.badDetails", keys: ["paths"] });
+        const parsed = b.paths.map(v => { const t = typeof v === "string" ? v.trim() : ""; const m = /^([a-z-]+)\/([A-Za-z0-9._/-]{1,300})$/.exec(t); return m && t.indexOf("..") === -1 ? { text: t, bucket: m[1] } : null; });
+        const bad = parsed.map((x, i) => (x ? null : "paths[" + i + "]")).filter(Boolean);
+        if (bad.length) return json(400, { error: sayMany("uploads.badDetails"), code: "uploads.badDetails", keys: bad });
+        return json(200, { links: parsed.map(x => {
+          state.photoSigns.push(x.text);
+          const own = state.photoOwners[x.text];
+          const ok = !!UPLOAD_PREFIX[x.bucket] && !!own && own.userId === String(state.person.id) && own.at >= clockNow() - 30 * DAY && state.photoLost.indexOf(x.text) === -1;
+          return { path: x.text, url: ok ? signLink(x.text, false) : null };
+        }) });
+      }
       const raw = typeof b.path === "string" ? b.path.trim() : "";
       state.photoSigns.push(raw);
       const m = /^([a-z-]+)\/([A-Za-z0-9._/-]{1,300})$/.exec(raw);

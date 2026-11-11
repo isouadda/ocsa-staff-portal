@@ -1703,6 +1703,29 @@ One journey, in English and Spanish, failing on the main of part 383:
 `testsite` (part 380) reads the same: the field kit's list now carries
 `isTest`.
 
+## A kept walk's photos signed in one read (part 388, section 3)
+
+The stub's `POST /api/uploads/sign` takes `{ paths }` as ocsa-api Round
+12 builds it (part 382, section 4, `routes/uploads.js`): 1 to 50 paths,
+answered `{ links: [{ path, url | null }] }` in the order sent, `null` for
+a path the person cannot sign by the rules of one path (anyone else's,
+unknown, older than 30 days, another bucket's, or one a case names in
+`photoLost`); both keys, another key, or a list that is not 1 to 50 is
+400 `uploads.badDetails` keys `["paths"]`, and a path that is not
+`<bucket>/<object>` names itself, `["paths[i]"]`. Each read is kept in
+`state.photoSignReads` and each path in `state.photoSigns`, as before.
+`{ path }` answers as it did.
+
+One journey, in English and Spanish, failing on the main of part 383:
+
+- `photosonce`: a walk kept with three photos, reopened an hour later
+  after their links ran out and the third photo's object went, signs all
+  three in one read, by their paths in order; two are drawn from their
+  fresh links and the third, answered `null`, says "This photo can no
+  longer be shown. Take it again." with Take it again.
+
+`photokept` and `phototurnedoff` read the same with one read.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

@@ -10344,4 +10344,54 @@ const PART388_S2_JOURNEYS = [
 ];
 JOURNEYS.push(...PART388_S2_JOURNEYS);
 
+// --- Round 11 of the staff app (part 388), section 3 ----------------------
+//
+// A kept walk's photos signed in one read (ocsa-api Round 12, part 382,
+// section 4): POST /api/uploads/sign { paths } as the walk opens. Fails
+// on the main of part 383, which asked one read a photo.
+const PART388_S3_JOURNEYS = [
+  {
+    id: "photosonce",
+    label: "A kept walk's photos signed in one read (API Round 12, POST /api/uploads/sign { paths }): reopened an hour later, its three photos whose links ran out are signed in one read, in order; two are drawn from their fresh links, and the one the API answers null reads as the photo that can no longer be shown",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true } });
+      try {
+        await openTab(app.page, "inspect", language);
+        if (!(await openInspectionNamed(app, INSPECTION_PLAIN.template_name))) { expect("the walk opens", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        await scoreCard(app, "ip-1", 5);
+        for (let i = 0; i < 3; i += 1) {
+          await pickWalkPhoto(app, "ip-1");
+          await app.page.waitForFunction((n) => document.querySelectorAll("[data-inspect-shot]").length >= n, i + 1, { timeout: 8000 }).catch(() => {});
+          await pause(app.page, 300);
+        }
+        await pause(app.page, 600);
+        const key = keptWalkKey(ROUND1_SUPERVISOR, INSPECTION_PLAIN.id);
+        const kept = await readKeptWalk(app, key);
+        const shots = kept && kept.shots && Array.isArray(kept.shots["item:ip-1"]) ? kept.shots["item:ip-1"] : [];
+        const paths = shots.map(x => x.path);
+        expect("three photos are kept on the phone, each with its path", paths.length === 3 && paths.every(p => /^task-media\//.test(String(p || ""))), JSON.stringify(paths));
+        if (paths.length !== 3) return;
+        // An hour on: every link the phone kept has run out at the stub, and
+        // the third photo's object is gone from storage.
+        app.stub.state.now = NOW.getTime() + HOUR_ON;
+        app.stub.state.photoLost.push(paths[2]);
+        await ageKeptWalk(app, key, HOUR_ON);
+        await reloadApp(app);
+        await openTab(app.page, "inspect", language);
+        if (!(await openWalkAgain(app, INSPECTION_PLAIN.template_name, language))) { expect("the walk opens again", false, (await bodyText(app.page)).slice(0, 300)); return; }
+        const gone = await shows(app.page, "[data-inspect-shot-gone]", 8000);
+        await app.page.waitForFunction(() => Array.from(document.querySelectorAll("img[data-inspect-shot]")).filter(i => i.complete && i.naturalWidth > 0).length >= 2, null, { timeout: 8000 }).catch(() => {});
+        const reads = sent(app.stub, "POST", "/api/uploads/sign").map(c => c.body);
+        expect("the three are signed in one read, by their paths in order", reads.length === 1 && JSON.stringify(reads[0]) === JSON.stringify({ paths: paths }), JSON.stringify(reads));
+        const now = await app.page.evaluate(() => Array.from(document.querySelectorAll("img[data-inspect-shot]")).map(i => ({ src: i.getAttribute("src"), loaded: i.complete && i.naturalWidth > 0 })));
+        expect("two are drawn from their fresh links", now.length === 2 && now.every(x => x.loaded) && now.every(x => shots.slice(0, 2).every(k => tokenOf(k.url) !== tokenOf(x.src))), JSON.stringify(now));
+        const line = gone ? await textAt(app.page, "[data-inspect-shot-gone]") : "";
+        expect("the one answered null reads as the photo that can no longer be shown, with Take it again", gone && has(String(line), say("This photo can no longer be shown. Take it again.", language)) && has(String(line), say("Take it again", language)), String(line));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART388_S3_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };
