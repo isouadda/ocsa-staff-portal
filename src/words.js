@@ -1639,8 +1639,6 @@ export const WORDS = {
   "{shift} did this at {time}": "{shift} hizo esto a las {time}",
   "Done before this shift, at {time}": "Hecho antes de este turno, a las {time}",
   "Picked from your schedule and the time you started. Change it if it is wrong.": "Elegido seg\u00fan su horario y la hora en que empez\u00f3. C\u00e1mbielo si no es correcto.",
-  "Closed automatically at {time}.": "Cerrado autom\u00e1ticamente a las {time}.",
-  "Closed automatically.": "Cerrado autom\u00e1ticamente.",
   "Tries used: {n}": "Intentos usados: {n}",
   "Inspection finding: {place}": "Hallazgo de inspecci\u00f3n: {place}",
   "Sent up as not done. The office sees your reason.": "Se envi\u00f3 como no hecha. La oficina ve su motivo.",
@@ -1662,6 +1660,9 @@ export const WORDS = {
   "Certificate sent. This training is done.": "Certificado enviado. Esta capacitaci\u00f3n est\u00e1 hecha.",
   "When you finish, upload your certificate here.": "Cuando termine, suba su certificado aqu\u00ed.",
   "Your certificate was not sent. Try again.": "Su certificado no se envi\u00f3. Int\u00e9ntelo de nuevo.",
+  "This shift already ended at {time}.": "Este turno ya termin\u00f3 a las {time}.",
+  "Your last shift, at {site}, ended at {time}.": "Su \u00faltimo turno, en {site}, termin\u00f3 a las {time}.",
+  "Your last shift ended at {time}.": "Su \u00faltimo turno termin\u00f3 a las {time}.",
   },
 };
 
@@ -3179,8 +3180,6 @@ WORDS.fr = {
   "{shift} did this at {time}": "{shift} l'a fait \u00e0 {time}",
   "Done before this shift, at {time}": "Fait avant ce service, \u00e0 {time}",
   "Picked from your schedule and the time you started. Change it if it is wrong.": "Choisi selon votre planning et l'heure o\u00f9 vous avez commenc\u00e9. Changez-le s'il n'est pas bon.",
-  "Closed automatically at {time}.": "Ferm\u00e9 automatiquement \u00e0 {time}.",
-  "Closed automatically.": "Ferm\u00e9 automatiquement.",
   "Tries used: {n}": "Essais utilis\u00e9s\u00a0: {n}",
   "Inspection finding: {place}": "Constat d'inspection\u00a0: {place}",
   "Sent up as not done. The office sees your reason.": "Signal\u00e9e comme non faite. Le bureau voit votre motif.",
@@ -3202,6 +3201,9 @@ WORDS.fr = {
   "Certificate sent. This training is done.": "Certificat envoy\u00e9. Cette formation est faite.",
   "When you finish, upload your certificate here.": "Quand vous avez termin\u00e9, t\u00e9l\u00e9versez votre certificat ici.",
   "Your certificate was not sent. Try again.": "Votre certificat n'a pas \u00e9t\u00e9 envoy\u00e9. R\u00e9essayez.",
+  "This shift already ended at {time}.": "Ce service s'est d\u00e9j\u00e0 termin\u00e9 \u00e0 {time}.",
+  "Your last shift, at {site}, ended at {time}.": "Votre dernier service, \u00e0 {site}, s'est termin\u00e9 \u00e0 {time}.",
+  "Your last shift ended at {time}.": "Votre dernier service s'est termin\u00e9 \u00e0 {time}.",
 };
 
 // {name} is replaced after the language is chosen, so the

@@ -1891,6 +1891,39 @@ function writePendingEnd(v) {
 // still goes, since the API files a late tap in the session open when it
 // was made.
 const tapOfRun = (x, runKey) => !x.counted || (x.run || null) === (runKey || null);
+// Part 383 (ocsa-api part 378, its 6.6): a tap names its run. A check-off
+// may carry shiftRunId, the run it was made in, so a tap sent after a
+// change of shift lands in its own run. No answer the phone reads names a
+// run's id: the status, every session answer and every row of the list
+// carry shiftRun without one (helpers/shiftRuns.js runView). The one that
+// does is a check-off's own, completion.shift_run_id, the run the API
+// filed it in. So the id is learned from the first check of a run the API
+// takes while the screen still shows that run, kept on this phone by the
+// run's key, and sent with every check made in the run from then on, the
+// ones kept for no signal included. An uncheck carries none (the route
+// takes none). A tap kept by an older build has no runId of its own and
+// is sent as it is.
+const RUN_IDS_KEY = "ocsa-shift-run-ids";
+const RUN_IDS_MAX = 6;
+const RUN_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function readRunIds() {
+  try { const v = JSON.parse(window.localStorage.getItem(RUN_IDS_KEY) || "null"); return v && typeof v === "object" && !Array.isArray(v) ? v : {}; } catch (e) { return {}; }
+}
+function keepRunId(key, id) {
+  try {
+    const all = readRunIds();
+    all[key] = { id: String(id), at: Date.now() };
+    Object.keys(all).sort((a, b) => (Number(all[b].at) || 0) - (Number(all[a].at) || 0)).slice(RUN_IDS_MAX).forEach(k => { delete all[k]; });
+    window.localStorage.setItem(RUN_IDS_KEY, JSON.stringify(all));
+  } catch (e) {}
+}
+function forgetRunId(key, id) {
+  try { const all = readRunIds(); if (all[key] && all[key].id === id) { delete all[key]; window.localStorage.setItem(RUN_IDS_KEY, JSON.stringify(all)); } } catch (e) {}
+}
+const runIdOf = (key) => { if (!key) return null; const v = readRunIds()[key]; return v && typeof v.id === "string" && RUN_ID_RE.test(v.id) ? v.id : null; };
+// The refusal of a run the check could not belong to (400, keys
+// shiftRunId): that tap is sent once more without it.
+const BAD_SHIFT_RUN = "tasks.badShiftRun";
 function pendingTicksFor(list, siteId, userId, runKey) {
   const m = new Map();
   (list || []).forEach(x => { if ((!siteId || String(x.siteId) === String(siteId)) && (!userId || !x.userId || String(x.userId) === String(userId)) && tapOfRun(x, runKey)) m.set(x.taskId, x.done); });
@@ -2648,6 +2681,9 @@ export default function OCSAStaffPortal() {
   // site and language from GET /api/sites/:siteId/shifts while the
   // session is in a run, { site, lang, list }, or null.
   const runNow = runKeyOf(statusRun(clockStatus));
+  // The run on the screen now, for a send already under way.
+  const runNowRef = useRef(runNow);
+  runNowRef.current = runNow;
   const shiftSiteId = clockStatus && clockStatus.clockedIn && clockStatus.shift ? String(clockStatus.shift.siteId) : null;
   const sessionIdNow = clockStatus && clockStatus.clockedIn ? String((clockStatus.session && clockStatus.session.id) || (clockStatus.shift && (clockStatus.shift.sessionId || clockStatus.shift.id)) || "") || null : null;
   const [namedShifts, setNamedShifts] = useState(null);
@@ -3165,7 +3201,7 @@ export default function OCSAStaffPortal() {
     setShiftAsk(null); setShiftFault(null); setTickOverrides(new Map());
     const endedAt = data && data.session ? data.session.endedAt : null;
     // Part 375: a session the API closed reads when, and the API's note.
-    const closed = sessionEndLine(data && data.session);
+    const closed = sessionEndNote(data && data.session) ? sessionEndLine(data.session) : null;
     showToast(closed || (endedAt ? tr("Shift ended at {time}", { time: formatTime(endedAt) }) : tr("Shift ended")), closed ? "notice" : undefined);
   };
   const sendingEnd = useRef(false);
@@ -3189,9 +3225,10 @@ export default function OCSAStaffPortal() {
         putEnd(null);
         setPendingSite(null); setStartBlock(null); setTasks(null);
         try { await refreshClockStatus(); } catch (e) { setClockStatus({ clockedIn: false, shift: null, session: null }); setSelectedSite(null); }
-        // Part 375: ended by the API (endNote), when the answer carries the
-        // session, says so with its note.
-        const closed = sessionEndLine(err.body && err.body.session);
+        // Part 383: the answer carries the session (ocsa-api part 378):
+        // when it ended, and its end note, said as a notice. A send whose
+        // first answer was lost reads Shift ended as before.
+        const closed = Number(end.tries) > 0 && !sessionEndNote(err.body && err.body.session) ? null : sessionEndLine(err.body && err.body.session);
         showToast(closed || tr(Number(end.tries) > 0 ? "Shift ended" : "This shift was already ended"), closed ? "notice" : undefined);
       } else if (keepsTap(err)) {
         if (endRef.current) putEnd({ ...endRef.current, tries: (Number(endRef.current.tries) || 0) + 1 });
@@ -3241,7 +3278,9 @@ export default function OCSAStaffPortal() {
   // the list kept for no signal. A tap of the last run's daily list still
   // waiting to go is dropped when the same session moved to the new run,
   // since the API would file it there; under an earlier session it still
-  // goes, filed in that session, and is never drawn here.
+  // goes, filed in that session, and is never drawn here. Since part 383 a
+  // check that names its run (runId) is kept and goes with it, filed in
+  // the run it was made in.
   const lastRun = useRef(null);
   useEffect(() => {
     if (!runNow) return;
@@ -3251,7 +3290,7 @@ export default function OCSAStaffPortal() {
     setTaken(new Map()); setTickOverrides(new Map());
     setTasks(null); setTasksDay(null); tasksAsked.current = null;
     if (was.session && was.session === sessionIdNow) {
-      const left = pendingRef.current.filter(x => !(x.counted && x.run === was.run && String(x.sessionId || "") === was.session));
+      const left = pendingRef.current.filter(x => !(x.counted && x.run === was.run && String(x.sessionId || "") === was.session && !(x.done && x.runId)));
       if (left.length !== pendingRef.current.length) putPending(left);
     }
     dropKeptRuns(shiftSiteId, runNow);
@@ -3278,15 +3317,20 @@ export default function OCSAStaffPortal() {
   // The site's named shifts, for the sheet and for naming the last shift,
   // read once per site and language while the session is in a run. A read
   // that fails leaves the sheet with the session's own shifts.
+  // Part 383 (ocsa-api part 378, its 6.1): at a site with named shifts
+  // every session answer carries them as session.shifts, each with label,
+  // displayLabel, suggested and window, so this read is made only for a
+  // session in a run whose answer carries no shifts.
+  const sessionShiftCount = clockStatus && clockStatus.clockedIn && clockStatus.session && Array.isArray(clockStatus.session.shifts) ? clockStatus.session.shifts.length : 0;
   useEffect(() => {
-    if (!runNow || !shiftSiteId || !token) return undefined;
+    if (!runNow || !shiftSiteId || !token || sessionShiftCount > 0) return undefined;
     if (namedShifts && namedShifts.site === shiftSiteId && namedShifts.lang === language) return undefined;
     let on = true;
     api("/api/sites/" + encodeURIComponent(shiftSiteId) + "/shifts?locale=" + languageToSend(language), { token })
       .then(d => { if (on) setNamedShifts({ site: shiftSiteId, lang: language, list: namedShiftsOf(d) }); })
       .catch(() => {});
     return () => { on = false; };
-  }, [runNow, shiftSiteId, language, token]);
+  }, [runNow, shiftSiteId, language, token, sessionShiftCount > 0]);
   // again reads the list once more even while the same request is in
   // flight, which a check or an uncheck needs: the list then carries what
   // the API says was done. Only the newest request's answer is taken.
@@ -3321,7 +3365,8 @@ export default function OCSAStaffPortal() {
     // Task completed or Task unchecked once it is in. Since part 375 it
     // also keeps whether it is a day's item, the shift run and the session
     // it was made in, so it is never drawn on the next run's list.
-    const tap = { taskId: taskId, siteId: clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, userId: user ? user.id : null, clientId: newClientId(), completedAt: new Date().toISOString(), done: !done, counted: counted, run: runNow, sessionId: sessionIdNow };
+    // Part 383: a check made in a run whose id this phone knows names it.
+    const tap = { taskId: taskId, siteId: clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, userId: user ? user.id : null, clientId: newClientId(), completedAt: new Date().toISOString(), done: !done, counted: counted, run: runNow, sessionId: sessionIdNow, runId: !done && runNow ? runIdOf(runNow) : null };
     if (!pendingRef.current.some(x => x.tries > 0 && mine(x))) freshTaps.current.add(tap.clientId);
     putPending(pendingRef.current.concat([tap]));
     sendPending();
@@ -3355,15 +3400,18 @@ export default function OCSAStaffPortal() {
         const tap = pendingRef.current.find(mine);
         if (!tap) break;
         const fresh = freshTaps.current.delete(tap.clientId);
-        let taken = false, kept = false, doneBy = null;
+        let taken = false, kept = false, doneBy = null, bare = false, answer = null;
         inFlightTaskIds.current.add(tap.taskId);
         try {
-          await api(checkoffPath(tap.taskId), { method: tap.done ? "POST" : "DELETE", body: { clientId: tap.clientId, completedAt: tap.completedAt }, token: tok });
+          answer = await api(checkoffPath(tap.taskId), { method: tap.done ? "POST" : "DELETE", body: Object.assign({ clientId: tap.clientId, completedAt: tap.completedAt }, tap.done && tap.runId ? { shiftRunId: tap.runId } : {}), token: tok });
           taken = true;
         } catch (err) {
           // An answer whose words could not be read is still the API's: a
           // 2xx is a tap it took.
           if (err && err.status >= 200 && err.status < 300) taken = true;
+          // Part 383: a run the check could not belong to: once more
+          // without it, and the run's id is not used again.
+          else if (tap.done && tap.runId && err && err.status === 400 && err.code === BAD_SHIFT_RUN) bare = true;
           // Somebody else at the site checked the step first (API part
           // 354, 409 tasks.alreadyChecked with their firstName, nothing
           // written): the step is theirs, so two people tapping one step
@@ -3379,6 +3427,20 @@ export default function OCSAStaffPortal() {
           freshTaps.current.clear();
           putPending(pendingRef.current.map(x => x.clientId === tap.clientId ? { ...x, tries: (Number(x.tries) || 0) + 1 } : x));
           break;
+        }
+        if (bare) {
+          if (fresh) freshTaps.current.add(tap.clientId);
+          forgetRunId(tap.run, tap.runId);
+          putPending(pendingRef.current.map(x => (x.done && x.run === tap.run && x.runId === tap.runId ? { ...x, runId: null, noRunId: true } : x)));
+          continue;
+        }
+        // Part 383: the run's id, from the first check the API took in the
+        // run the screen still shows, kept and given to the checks of that
+        // run still waiting.
+        const learned = answer && answer.completion && typeof answer.completion.shift_run_id === "string" ? answer.completion.shift_run_id : null;
+        if (taken && tap.done && !tap.runId && tap.run && tap.run === runNowRef.current && learned && RUN_ID_RE.test(learned)) {
+          keepRunId(tap.run, learned);
+          putPending(pendingRef.current.map(x => (x.done && x.run === tap.run && Object.prototype.hasOwnProperty.call(x, "runId") && !x.runId && !x.noRunId ? { ...x, runId: learned } : x)));
         }
         answered += 1;
         if (taken && fresh) showToast(tr(tap.done ? "Task completed" : "Task unchecked"));
@@ -4248,7 +4310,7 @@ export default function OCSAStaffPortal() {
   // Part 375: at a site with named shifts the choices also carry the
   // site's named shifts, and the API's pick at Start Shift is the shift
   // the session already carries, so one tap on Use this shift keeps it.
-  const siteShifts = shiftChoicesOf(sessionShifts(clockStatus), runNow && namedShifts && namedShifts.site === shiftSiteId ? namedShifts.list : null);
+  const siteShifts = shiftChoicesOf(sessionShifts(clockStatus), runNow && sessionShiftCount === 0 && namedShifts && namedShifts.site === shiftSiteId ? namedShifts.list : null);
   const shiftSheet = siteShifts.length > 0 && (!!shiftAsk || !sessionShiftLabel(clockStatus))
     ? { shifts: siteShifts, mode: shiftAsk || "ask", busy: shiftBusy, fault: shiftFault, onUse: chooseShift, onChoose: () => setShiftFault(null), picked: !!statusRun(clockStatus) }
     : null;
@@ -5962,6 +6024,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
   const { textSize: clockTextSize } = useContext(TextSizeCtx);
   const clockZoom = zoomOf(clockTextSize);
   const ci = clockStatus?.clockedIn;
+  const lastShift = lastSessionOf(clockStatus);
   const elapsed = ci && clockStatus.shift ? Math.floor((currentTime - new Date(clockStatus.shift.clockInTime)) / 1000) : 0;
   const h = Math.floor(elapsed / 3600), m = Math.floor((elapsed % 3600) / 60), s = elapsed % 60;
   const pad = (n) => String(n).padStart(2, "0");
@@ -6043,6 +6106,18 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
         <div style={{ fontSize: 11, color: t.textMut, marginBottom: 6, letterSpacing: "0.3px", fontFamily: FONT_BODY }}>{formatDate(currentTime)}</div>
         <div style={{ fontSize: 44, fontWeight: 600, color: t.text, letterSpacing: "-0.5px", lineHeight: 1, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{formatTime(currentTime)}</div>
       </div>
+      {/* Part 383 (ocsa-api part 378, its 6.3): with no shift open, the
+          person's last shift, ended in the last 24 hours, says when it
+          ended and its end note, the API's when it closed it itself. */}
+      {!ci && lastShift && (
+        <div role="note" data-last-session={lastShift.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 14px", marginBottom: 16, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow, fontFamily: FONT_BODY }}>
+          <ClockIco sz={16} c={t.textSec} style={{ flexShrink: 0, marginTop: 2 }} />
+          <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
+            <span style={{ display: "block", fontSize: 13, color: t.text, lineHeight: 1.45 }}>{lastShift.siteName ? tr("Your last shift, at {site}, ended at {time}.", { site: lastShift.siteName, time: endedWhen(lastShift.endedAt) }) : tr("Your last shift ended at {time}.", { time: endedWhen(lastShift.endedAt) })}</span>
+            {lastShift.endNote && <span data-last-session-note="1" style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.45 }}>{lastShift.endNote}</span>}
+          </span>
+        </div>
+      )}
       {ci && clockStatus.shift && (
         <div style={{ textAlign: "center", padding: "20px 18px", marginBottom: 16, background: t.card, borderRadius: R.lg, border: "1px solid " + t.goldBorder, boxShadow: t.popShadow }}>
           <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 8, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Time on Site")}</div>
@@ -6129,16 +6204,19 @@ const shiftRunLine = (run) => tr("{shift}, {start} to {end}", { shift: run.displ
 // What the last shift did (doneEarlier on a daily item): the latest check
 // before this run began, within a day. Information only: it never counts
 // as done, and the box stays open for this run.
+// Part 383 (ocsa-api part 378, its 6.2): display, the shift's name in the
+// language asked for, beside shiftLabel.
 function doneEarlierOf(v) {
   if (!v || typeof v !== "object" || !Number.isFinite(Date.parse(v.at))) return null;
-  return { at: v.at, shiftLabel: typeof v.shiftLabel === "string" && v.shiftLabel.trim() ? v.shiftLabel.trim() : null };
+  return { at: v.at, shiftLabel: typeof v.shiftLabel === "string" && v.shiftLabel.trim() ? v.shiftLabel.trim() : null, display: typeof v.display === "string" && v.display.trim() ? v.display.trim() : null };
 }
-// The line under the item: the shift by its name in the person's
-// language where this phone knows it, else as the API wrote it.
+// The line under the item: the shift by the name the API gives it, else
+// by its name in the person's language where this phone knows it, else
+// as the API wrote its label.
 function doneEarlierLine(early, names) {
   const time = companyClockTime(early.at);
-  if (!early.shiftLabel) return tr("Done before this shift, at {time}", { time: time });
-  const name = names && names.get(early.shiftLabel.toLowerCase());
+  if (!early.shiftLabel && !early.display) return tr("Done before this shift, at {time}", { time: time });
+  const name = early.display || (names && names.get(early.shiftLabel.toLowerCase()));
   return tr("{shift} did this at {time}", { shift: name || early.shiftLabel, time: time });
 }
 // The shifts the sheet offers: the site's shifts from its blocks, as the
@@ -6165,12 +6243,26 @@ function namedShiftsOf(d) {
   const list = d && Array.isArray(d.shifts) ? d.shifts : [];
   return list.filter(s => s && typeof s.label === "string" && s.label.trim() && s.active !== false).map(s => ({ label: s.label.trim(), display: typeof s.display === "string" && s.display.trim() ? s.display.trim() : s.label.trim(), startTime: typeof s.startTime === "string" ? s.startTime : null, endTime: typeof s.endTime === "string" ? s.endTime : null }));
 }
-// A session the API closed (part 374's session_close, endNote set): when
-// it was closed, on the company's clock, and the API's note.
+// A session that already ended, as End Shift's 409 SESSION_ALREADY_ENDED
+// carries it since ocsa-api part 378 (its 6.3): when it ended, on the
+// company's clock with the day when it was not today, and its end note,
+// which the API writes when it closed the session itself (part 374's
+// session_close), in the request's language (its 6.4). null for an answer
+// that carries no session.
+const endedWhen = (at) => safetyWalkWhen(at);
+const sessionEndNote = (session) => (session && typeof session.endNote === "string" && session.endNote.trim() ? session.endNote.trim() : "");
 function sessionEndLine(session) {
-  if (!session || typeof session !== "object" || typeof session.endNote !== "string" || !session.endNote.trim()) return null;
-  const at = Number.isFinite(Date.parse(session.endedAt)) ? companyClockTime(session.endedAt) : "";
-  return (at ? tr("Closed automatically at {time}.", { time: at }) : tr("Closed automatically.")) + " " + session.endNote.trim();
+  if (!session || typeof session !== "object" || !Number.isFinite(Date.parse(session.endedAt))) return null;
+  const note = sessionEndNote(session);
+  return tr("This shift already ended at {time}.", { time: endedWhen(session.endedAt) }) + (note ? " " + note : "");
+}
+// The person's last session, ended in the last 24 hours, as GET
+// /api/clock/status answers it beside no open session (lastSession, its
+// 6.3): { id, siteName, startedAt, endedAt, endNote }, or null.
+function lastSessionOf(cs) {
+  const v = cs && !cs.clockedIn && cs.lastSession && typeof cs.lastSession === "object" ? cs.lastSession : null;
+  if (!v || !Number.isFinite(Date.parse(v.endedAt))) return null;
+  return { id: v.id === undefined || v.id === null ? "" : String(v.id), siteName: typeof v.siteName === "string" ? v.siteName.trim() : "", endedAt: v.endedAt, endNote: sessionEndNote(v) };
 }
 
 // Which list the checklist reads, decided here and nowhere else. A
@@ -10262,7 +10354,11 @@ function trainingAttemptOf(x) {
   if (!id) return null;
   const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
   const trainer = x.trainer && typeof x.trainer === "object" && typeof x.trainer.name === "string" ? x.trainer.name.trim() : "";
-  return { id: id, versionId: trainingId(x, ["versionId"]), topicId: trainingId(x, ["topicId"]), topicName: str("topicName"), attemptNo: trainingNum(x.attemptNo), locale: str("locale"), scoredAt: str("scoredAt"), scorePercent: trainingNum(x.scorePercent), passed: x.passed === true ? true : x.passed === false ? false : null, missed: Array.isArray(x.missed) ? x.missed.map(String) : [], acknowledgedAt: str("acknowledgedAt"), awaitingTrainer: x.awaitingTrainer === true, trainerSignedAt: str("trainerSignedAt"), trainerName: trainer, demonstrated: x.demonstrated === true, siteId: trainingId(x, ["siteId"]), voidedAt: str("voidedAt") };
+  // Part 383 (ocsa-api part 378, its 6.5): every Attempt answer carries
+  // attemptsUsed beside attemptsLeft; null where one does not.
+  const used = trainingNum(x.attemptsUsed), left = trainingNum(x.attemptsLeft);
+  return { id: id, versionId: trainingId(x, ["versionId"]), topicId: trainingId(x, ["topicId"]), topicName: str("topicName"), attemptNo: trainingNum(x.attemptNo), locale: str("locale"), scoredAt: str("scoredAt"), scorePercent: trainingNum(x.scorePercent), passed: x.passed === true ? true : x.passed === false ? false : null, missed: Array.isArray(x.missed) ? x.missed.map(String) : [], acknowledgedAt: str("acknowledgedAt"), awaitingTrainer: x.awaitingTrainer === true, trainerSignedAt: str("trainerSignedAt"), trainerName: trainer, demonstrated: x.demonstrated === true, siteId: trainingId(x, ["siteId"]), voidedAt: str("voidedAt"),
+    attemptsUsed: used === null ? null : Math.max(0, used), attemptsLeft: left === null ? null : Math.max(0, left) };
 }
 // The answer as the screen reads it, or null for one that holds no list.
 function trainingOf(d) {
@@ -11881,10 +11977,13 @@ function TrainingLesson({ token, item, siteId, backLabel, onBack, t }) {
   // yet signed, Done for one signed, the result for a fail, and a void
   // one's line with nothing to tap.
   const standOn = async (a) => {
-    // On a fail, the tries used and left are read again from the lesson;
-    // when that read fails, one fewer than before is said.
+    // The tries used and left, from the attempt the API answered (since
+    // ocsa-api part 378). On a fail whose answer carries neither, they are
+    // read again from the lesson; when that read fails, one fewer than
+    // before is said.
     let l = les;
-    if (a.passed !== true && !a.voidedAt) { try { l = (await readLesson(les.locale)) || les; } catch (e) { l = { ...les, attemptsUsed: les.attemptsUsed + 1, attemptsLeft: Math.max(0, les.attemptsLeft - 1) }; } }
+    if (a.attemptsUsed !== null && a.attemptsLeft !== null) l = { ...les, attemptsUsed: a.attemptsUsed, attemptsLeft: a.attemptsLeft };
+    else if (a.passed !== true && !a.voidedAt) { try { l = (await readLesson(les.locale)) || les; } catch (e) { l = { ...les, attemptsUsed: les.attemptsUsed + 1, attemptsLeft: Math.max(0, les.attemptsLeft - 1) }; } }
     if (!live.current) return;
     setAttempt(a); setLes(l);
     if (a.voidedAt) setPhase("closed");

@@ -1562,6 +1562,24 @@ const runKeyOf = (w) => (w ? w.label.toLowerCase() + "|" + w.runDate : null);
 const shiftNameIn = (shift, lang) => (lang === "es" ? shift.es : lang === "fr" ? shift.fr : null) || shift.label;
 // The run as every answer carries it (runView).
 const runView = (w, lang) => (w ? { label: w.label, display: shiftNameIn(w.shift, lang), startsAt: iso(w.startsAt), endsAt: iso(w.endsAt), runDate: w.runDate } : null);
+// Part 383 (API part 378): a run's id. The API keeps a run as a
+// shift_runs row with a uuid, and answers it only as a check-off's
+// completion.shift_run_id; no read names it (runView carries none). The
+// stub makes one from the run's key, the same every time.
+const RUN_IDS = new Map();
+const runIdOf = (w) => {
+  if (!w) return null;
+  const h = require("crypto").createHash("md5").update("run:" + runKeyOf(w)).digest("hex");
+  const id = h.slice(0, 8) + "-" + h.slice(8, 12) + "-4" + h.slice(13, 16) + "-8" + h.slice(17, 20) + "-" + h.slice(20, 32);
+  RUN_IDS.set(id, w);
+  return id;
+};
+// A check naming a run it could not belong to (routes/clock.js), in the
+// API's own words; and the note the API writes on a session it closed
+// itself (sessions.closedAutomatically), each from its
+// translation/api_words.csv.
+const BAD_SHIFT_RUN = { status: 400, code: "tasks.badShiftRun", en: "That shift is not one this check could belong to. Send it again without the shift.", es: "Ese turno no corresponde a esta tarea marcada. Env\u00edela de nuevo sin el turno." };
+const CLOSED_NOTE = { en: "Closed automatically: nobody tapped End Shift within 4 hours after the shift ended, or within 16 hours of the start with no shift.", es: "Cerrado autom\u00e1ticamente: nadie toc\u00f3 Terminar turno en las 4 horas siguientes al fin del turno, o en las 16 horas desde el inicio sin turno." };
 // A named shift as GET /api/sites/:siteId/shifts answers it (shiftView).
 const namedShiftView = (sh, i, lang) => ({ id: sh.id, label: sh.label, display: shiftNameIn(sh, lang), startTime: sh.start, endTime: sh.end, crossesMidnight: minutesIn(sh.end) <= minutesIn(sh.start), daysOfWeek: null, sortOrder: i, active: true, translations: { es: sh.es || null, fr: sh.fr || null }, updatedAt: "2026-09-30T14:00:00.000Z", updatedBy: null });
 
@@ -1808,6 +1826,14 @@ function makeState(opts) {
     // uploaded, as POST /api/training/certificates took it; certificateFault
     // names a refusal code the route answers next, once.
     outsideCourse: o.outsideCourse === true,
+    // Part 383 (API part 378, its 6.3 and 6.6): the person's session ended
+    // in the last 24 hours, { site, startedAt, endedAt, byApi } in
+    // instants (byApi: the API closed it, with its note), seeded "closed"
+    // for one the API closed two hours ago at North Building; and how many
+    // checks naming a run other than the session's are refused
+    // tasks.badShiftRun whatever they name.
+    lastEnded: o.lastSession === "closed" ? { id: "sess-0", site: "site-north", startedAt: NOW.getTime() - 15 * 60 * 60 * 1000, endedAt: NOW.getTime() - 2 * 60 * 60 * 1000, byApi: true } : null,
+    badShiftRun: Number(o.badShiftRun) || 0,
     certificates: [],
     certificateFault: o.certificateFault || null,
     // Step 261: every attempt on a lesson, seeded with the one another
@@ -3143,6 +3169,9 @@ const TWIN_PAIRS = [
   .concat(["training.attemptClosed", "training.signatureNotStored"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]))
   // Part 380: the two refusals of POST /api/uploads/sign (API Round 10).
   .concat(Object.keys(UPLOAD_SIGN_REFUSALS).map(k => [UPLOAD_SIGN_REFUSALS[k].en, UPLOAD_SIGN_REFUSALS[k].es]))
+  // Part 383: a run the check could not belong to, and the note on a
+  // session the API closed itself (API part 378).
+  .concat([[BAD_SHIFT_RUN.en, BAD_SHIFT_RUN.es], [CLOSED_NOTE.en, CLOSED_NOTE.es]])
   // Part 383: the certificate route's refusals (API part 378).
   .concat(["training.badDetails", "training.badFile", "training.fileTooLarge", "training.topicNotFound", "training.notOutsideCourse"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]));
 
@@ -3779,9 +3808,30 @@ function createStub(opts) {
 
   // The open session, the way every session answer carries it.
   // Part 375: with the run it joined and endNote (null: a person ends it).
+  // Part 383 (API part 378, its 6.1, helpers/siteShifts.js
+  // shiftFieldsFor): at a site with named shifts, shifts are the named
+  // ones in order, each with its name in the language asked, suggested
+  // the session's run's shift, its window on the company's clock (opening
+  // an hour before its start) and its blocks; a site with blocks and no
+  // named shifts answers as before.
   const sessionOf = (lang) => {
-    const shifts = shiftsFor(state.site, state.sessionStartedAt, lang);
-    return { id: "sess-1", siteId: state.site, startedAt: iso(state.sessionStartedAt), shiftLabel: shifts.length > 0 || namedOf(state.site).length > 0 ? state.shiftLabel : null, shifts: shifts, shiftRun: runView(state.run, lang), endNote: null };
+    const named = namedOf(state.site);
+    const blockShifts = shiftsFor(state.site, state.sessionStartedAt, lang);
+    const shifts = named.length === 0 ? blockShifts : named.map((sh) => {
+      const b = blockShifts.find(x => String(x.label).toLowerCase() === sh.label.toLowerCase());
+      const st = minutesIn(sh.start), en = minutesIn(sh.end);
+      return { label: sh.label, displayLabel: shiftNameIn(sh, lang), suggested: !!state.run && state.run.label === sh.label, window: { opensAt: clockOf(st * 60 - 3600).slice(0, 5), startsAt: sh.start, endsAt: sh.end, crossesMidnight: en <= st }, blocks: b ? b.blocks : [] };
+    });
+    return { id: "sess-1", siteId: state.site, startedAt: iso(state.sessionStartedAt), shiftLabel: shifts.length > 0 || named.length > 0 ? state.shiftLabel : null, shifts: shifts, shiftRun: runView(state.run, lang), endNote: null };
+  };
+  // Part 383 (API part 378, its 6.3 and 6.4): the session that ended, as
+  // lastSession and beside End Shift's 409 carry it, its end note in the
+  // language asked.
+  const endedView = (lang) => {
+    const e = state.lastEnded;
+    if (!e) return null;
+    const site = OPEN_SHIFT[e.site] || {};
+    return { id: e.id, siteId: e.site, siteName: site.siteName || null, startedAt: iso(e.startedAt), endedAt: iso(e.endedAt), endNote: e.byApi ? (lang === "es" ? CLOSED_NOTE.es : CLOSED_NOTE.en) : null };
   };
 
   const clockStatus = (lang) => (state.clockedIn ? {
@@ -3790,7 +3840,7 @@ function createStub(opts) {
     session: sessionOf(lang),
     tasks: progress(),
     shiftRun: runView(state.run, lang),
-  } : { clockedIn: false, shift: null, session: null, tasks: null, shiftRun: null });
+  } : { clockedIn: false, shift: null, session: null, tasks: null, shiftRun: null, lastSession: (() => { const v = endedView(lang); return v && v.endedAt && Date.parse(v.endedAt) > clockNow() - DAY ? { id: v.id, siteName: v.siteName, startedAt: v.startedAt, endedAt: v.endedAt, endNote: v.endNote } : null; })() });
 
   // One site's list, asked for the way the request asks, with Step 118's
   // words on the items that carry them and Step 124's day on every one.
@@ -3825,7 +3875,7 @@ function createStub(opts) {
       const record = mode === "reference";
       // Part 375: the run the list reads, the last shift's check of a daily
       // item, and the item's own shifts, on every row.
-      return Object.assign(row, { period: x.period, dueToday: x.due, doneThisPeriod: record ? null : x.done, shownToday: x.shown, checkedToday: record ? null : x.checked, display: display }, mode ? { checklistMode: mode } : {}, { shiftRun: runView(x.run, lang), doneEarlier: record ? null : x.earlier, shiftLabels: null }, state.rowsCarryDay ? { checklistDay: new Date(checklistDay(clockNow()) * DAY).toISOString().slice(0, 10) } : {});
+      return Object.assign(row, { period: x.period, dueToday: x.due, doneThisPeriod: record ? null : x.done, shownToday: x.shown, checkedToday: record ? null : x.checked, display: display }, mode ? { checklistMode: mode } : {}, { shiftRun: runView(x.run, lang), doneEarlier: record ? null : (x.earlier ? Object.assign({}, x.earlier, { display: (() => { const sh = namedOf(siteId).find(n => n.label === x.earlier.shiftLabel); return sh ? shiftNameIn(sh, lang) : x.earlier.shiftLabel; })() }) : null), shiftLabels: null }, state.rowsCarryDay ? { checklistDay: new Date(checklistDay(clockNow()) * DAY).toISOString().slice(0, 10) } : {});
     });
   };
 
@@ -4182,7 +4232,8 @@ function createStub(opts) {
   function attemptView(a) {
     const topic = TRAINING_ME.items.find(i => i.topicId === a.topicId);
     const lessonOf = TRAINING_LESSONS.find(l => l.versionId === a.versionId);
-    return Object.assign(attemptViewBare(a, topic), lessonOf ? { attemptsLeft: lessonTries(lessonOf).left } : {});
+    // Part 383 (API part 378, its 6.5): attemptsUsed beside attemptsLeft.
+    return Object.assign(attemptViewBare(a, topic), lessonOf ? { attemptsUsed: lessonTries(lessonOf).used, attemptsLeft: lessonTries(lessonOf).left } : {});
   }
   function attemptViewBare(a, topic) {
     return { id: a.id, versionId: a.versionId, topicId: a.topicId, topicName: topic ? topic.name : "", attemptNo: a.attemptNo, locale: a.locale, startedAt: a.startedAt, scoredAt: a.scoredAt, scorePercent: a.scorePercent, passed: a.passed, missed: a.missed.slice(), acknowledgedAt: a.acknowledgedAt, awaitingTrainer: a.awaitingTrainer, trainerSignedAt: a.trainerSignedAt, trainer: a.trainerName ? { name: a.trainerName } : null, demonstrated: a.demonstrated, siteId: a.siteId, voidedAt: a.voidedAt };
@@ -4430,11 +4481,30 @@ function createStub(opts) {
     if (method === "POST" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(pathname)) {
       const id = pathname.split("/")[4];
       const today = checklistDay(clockNow());
+      // Part 383 (API part 378, its 6.6, routes/clock.js): a check may name
+      // the run it was tapped in, shiftRunId. One other than the session's
+      // is taken when it is a run of the session's site, the session
+      // started before it ended, and the tap's own time falls from 30
+      // minutes before its start to its end; else 400 tasks.badShiftRun
+      // keys ["shiftRunId"], nothing written. badShiftRun refuses that many
+      // whatever they name.
+      let run = state.run;
+      const asked = body && body.shiftRunId !== undefined && body.shiftRunId !== null ? String(body.shiftRunId) : null;
+      if (asked !== null && asked !== String(runIdOf(state.run) || "")) {
+        const w = RUN_IDS.get(asked) || null;
+        const tapAt = body && Number.isFinite(Date.parse(body.completedAt)) ? Math.min(Date.parse(body.completedAt), clockNow()) : clockNow();
+        const fits = !!w && state.clockedIn && namedOf(state.site).some(sh => sh.label === w.label) && state.sessionStartedAt < w.endsAt && tapAt >= w.startsAt - 30 * 60000 && tapAt <= w.endsAt;
+        if (state.badShiftRun > 0 || !fits) {
+          if (state.badShiftRun > 0) state.badShiftRun -= 1;
+          return json(BAD_SHIFT_RUN.status, { error: refusalIn(BAD_SHIFT_RUN, languageOf(search, state)), code: BAD_SHIFT_RUN.code, keys: ["shiftRunId"] });
+        }
+        run = w;
+      }
       // Part 375: a daily item at a site with named shifts counts the
       // checks of the session's run only, so the next shift checks it
       // again (201 where it was 409 tasks.alreadyChecked).
       const item = (SITE_TASKS[state.site] || []).find(r => r.id === id);
-      const inRun = (c) => (state.run && item && followsRun(item) ? runKeyOf(runOfCheck(c, state.site)) === runKeyOf(state.run) : checklistDay(atOf(c)) === today);
+      const inRun = (c) => (run && item && followsRun(item) ? runKeyOf(runOfCheck(c, state.site)) === runKeyOf(run) : checklistDay(atOf(c)) === today);
       const mineToday = state.completions.some(c => c.taskId === id && c.userId === state.person.id && inRun(c));
       // Part 354: a step on the site's shared list (none of the person's
       // links) that somebody else already checked today, with no check of
@@ -4447,8 +4517,10 @@ function createStub(opts) {
           return json(409, { error: refusalIn(API_R3.alreadyChecked, languageOf(search, state), { firstName: firstName }), code: API_R3.alreadyChecked.code, firstName: firstName });
         }
       }
-      if (!mineToday) { state.completions.push(Object.assign({ taskId: id, userId: state.person.id, at: clockNow() }, state.run ? { run: state.run } : {})); noteChange(state.site); }
-      return json(state.run ? 201 : 200, { ok: true });
+      if (!mineToday) { state.completions.push(Object.assign({ taskId: id, userId: state.person.id, at: clockNow(), clientId: body && body.clientId ? String(body.clientId) : null, namedRun: asked }, run ? { run: run } : {})); noteChange(state.site); }
+      // The completion as the API answers it, the run it was filed in
+      // named by its id.
+      return json(run ? 201 : 200, { ok: true, completion: { task_template_id: id, client_id: body && body.clientId ? String(body.clientId) : null, completed_at: iso(clockNow()), shift_run_id: run ? runIdOf(run) : null } });
     }
     if (method === "DELETE" && /^\/api\/clock\/tasks\/[^/]+\/complete$/.test(pathname)) {
       const id = pathname.split("/")[4];
@@ -4553,12 +4625,15 @@ function createStub(opts) {
     if (method === "POST" && /^\/api\/shift-sessions\/[^/]+\/end$/.test(pathname)) {
       if (!state.clockedIn) {
         const r = SHIFT_REFUSALS.find(x => x.key === "ended");
-        return json(r.status, { error: refusalIn(r, languageOf(search, state)), code: r.code });
+        const lang = languageOf(search, state);
+        // Part 383 (API part 378, its 6.3): the session as it stands.
+        return json(r.status, { error: refusalIn(r, lang), code: r.code, session: endedView(lang) });
       }
       const tapped = tapTime(body && body.endedAt);
       const endedAt = Math.max(tapped !== null && tapped >= state.sessionStartedAt ? tapped : clockNow(), state.sessionStartedAt);
       const session = Object.assign(sessionOf(), { endedAt: iso(endedAt) });
       const counted = progress();
+      state.lastEnded = { id: "sess-1", site: state.site, startedAt: state.sessionStartedAt, endedAt: endedAt, byApi: false };
       state.clockedIn = false;
       state.shiftTaps.push({ kind: "end", sent: body ? body.endedAt : undefined, taken: iso(endedAt) });
       return json(200, { today: ymd(new Date(checklistDay(clockNow()) * DAY + 12 * 60 * 60 * 1000)), session: session, tasks: counted });
@@ -6530,7 +6605,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { CLOSED_NOTE, BAD_SHIFT_RUN, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

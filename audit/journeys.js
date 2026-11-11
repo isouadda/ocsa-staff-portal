@@ -11,7 +11,7 @@ const { INSPECT, languageRows } = require("./checks");
 const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES,
-  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS, EVERY_NOTICE, MAINT_NAMES, FIRST_NAMES, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, FILED_WORDS, SECOND_STEP_CODE, NOW, INSPECTION_W, INSPECTION_PLAIN } = require("./stub");
+  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS, EVERY_NOTICE, MAINT_NAMES, FIRST_NAMES, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, FILED_WORDS, SECOND_STEP_CODE, NOW, INSPECTION_W, INSPECTION_PLAIN, CLOSED_NOTE } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -8826,9 +8826,13 @@ const PART375_S1_JOURNEYS = [
         const two = checkoffsOf(app.stub, "task-2");
         const twoTaken = app.stub.state.completions.filter(c => c.taskId === "task-2").map(c => (c.run ? c.run.label : "none"));
         expect("a tap still waiting goes before the change of shift, in the run it was made in", waiting === "task-2,task-4" && !!patch && two.length >= 2 && calls.indexOf(two[two.length - 1]) < calls.indexOf(patch) && twoTaken.join() === "Evening shift", "waiting " + waiting + ", patch " + !!patch + ", task-2 sent " + two.length + ", taken in " + JSON.stringify(twoTaken));
-        const left = (await keptQueue(app.page)).map(x => x.taskId);
-        const fours = checkoffsOf(app.stub, "task-4");
-        expect("one that could not go is dropped with its run, never sent into the next", left.indexOf("task-4") === -1 && !fours.some(c => calls.indexOf(c) > calls.indexOf(patch)), "kept " + JSON.stringify(left) + ", task-4 sent after the change " + fours.filter(c => calls.indexOf(c) > calls.indexOf(patch)).length);
+        // Part 383 (API part 378, its 6.6): the one that could not go names
+        // the run it was made in, learned from task-2's answer, so it is
+        // kept, and never lands in the next run.
+        const leftQueue = await keptQueue(app.page);
+        const left = leftQueue.map(x => x.taskId);
+        const four = leftQueue.find(x => x.taskId === "task-4") || null;
+        expect("one that could not go is kept with the run it was made in, never filed in the next", !!four && typeof four.runId === "string" && four.runId.length > 0 && !app.stub.state.completions.some(c => c.taskId === "task-4"), "kept " + JSON.stringify(left) + ", task-4 " + JSON.stringify(four));
         await shows(app.page, '[data-task-row="task-2"]', 8000);
         await pause(app.page, 900);
         const rows = await checklist(app.page, language);
@@ -9693,6 +9697,188 @@ const PART383_S1_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART383_S1_JOURNEYS);
+
+
+// --- Round 10 of the staff app (part 383), section 2 ----------------------
+//
+// The shift's own list as ocsa-api part 378 answers it (its 6.1 to 6.6).
+// Fails on the main of part 380, which read the site's named shifts a
+// second time, read no lastSession, said no end of a shift on End Shift's
+// 409 beyond its note, read the lesson again after a fail, and dropped a
+// tap kept across a change of shift.
+const toastWords = async (page) => { const r = await toastsSeen(page); return r && Array.isArray(r.seen) ? r.seen.map(x => x.text) : []; };
+const PART383_S2_JOURNEYS = [
+  {
+    id: "shiftnamed",
+    label: "Start Shift's choice from the session (API part 378, 6.1 and 6.2): the sheet reads the site's named shifts as the session answers them, names, the API's pick and hours, with no second read of the site's shifts, and the last shift's line names it as doneEarlier.display gives it",
+    run: async (open, language, expect) => {
+      const DAY_CHECK = Date.parse("2026-10-01T18:40:00Z");
+      const app = await open({ stubOptions: { namedShifts: true, links: {}, clockedIn: false, completions: [{ taskId: "task-3", userId: "u-three", at: DAY_CHECK }] } });
+      try {
+        await openTab(app.page, "clock", language);
+        await pause(app.page, 800);
+        await pickSite(app.page, "North Building");
+        await pause(app.page, 400);
+        await clickText(app.page, say("Start Shift", language));
+        await pause(app.page, 2200);
+        const sheet = await shiftSheet(app.page, language);
+        expect("the sheet offers the site's named shifts by the names the session answers", sheet.up && sheet.choices.length === 3 && ["Day shift", "Evening shift", "Night shift"].every(n => sheet.choices.some(c => c.text.indexOf(servedIn(n, language)) === 0)), JSON.stringify(sheet.choices));
+        const picked = sheet.choices.filter(c => c.picked).map(c => c.text);
+        const night = sheet.choices.find(c => c.text.indexOf(servedIn("Night shift", language)) === 0);
+        expect("with the API's pick chosen and each shift's hours", picked.length === 1 && picked[0].indexOf(servedIn("Evening shift", language)) === 0 && !!night && night.text.indexOf(await hoursOf(app.page, language, "23:00", "07:00")) !== -1, JSON.stringify(picked) + " " + (night ? night.text : "none"));
+        const reads = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/sites/site-north/shifts");
+        expect("and nothing more is read for them: no second read of the site's shifts", reads.length === 0, reads.length + " reads");
+        await spokenHere(app, language, expect);
+        await clickText(app.page, say("Use this shift", language));
+        await shows(app.page, '[data-done-earlier="task-3"]', 8000);
+        const line = await textAt(app.page, '[data-done-earlier="task-3"]');
+        const want = say("{shift} did this at {time}", language).replace("{shift}", servedIn("Day shift", language)).replace("{time}", await companyTimeOf(app.page, language, isoOf(DAY_CHECK)));
+        expect("the last shift's line names it as the API's display gives it", flat(line) === flat(want), String(line) + " | wanted " + want);
+        const again = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/sites/site-north/shifts");
+        expect("still with no second read of the site's shifts", again.length === 0, again.length + " reads");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "lastsession",
+    label: "A shift that already ended (API part 378, 6.3 and 6.4): with no shift open Home says where the last shift ended and when, with the note the API wrote in the person's language; End Shift on a shift the API already closed says it ended and when, with its note",
+    run: async (open, language, expect) => {
+      const note = language === "es" ? CLOSED_NOTE.es : CLOSED_NOTE.en;
+      const app = await open({ stubOptions: { clockedIn: false, lastSession: "closed" } });
+      try {
+        await openTab(app.page, "clock", language);
+        const drawn = await shows(app.page, "[data-last-session]", 8000);
+        const text = flat(await textAt(app.page, "[data-last-session]"));
+        const time = await companyTimeOf(app.page, language, isoOf(app.stub.state.lastEnded.endedAt));
+        expect("Home says where the last shift ended and when, with the API's note in the person's language", drawn && has(text, flat(fill(say("Your last shift, at {site}, ended at {time}.", language), { site: "North Building", time: time }))) && has(text, note), text);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const app2 = await open({ stubOptions: {} });
+      try {
+        await openTab(app2.page, "clock", language);
+        await pause(app2.page, 900);
+        // The API closes the session while the phone still shows it open.
+        const st = app2.stub.state;
+        st.lastEnded = { id: "sess-1", site: st.site, startedAt: st.sessionStartedAt, endedAt: NOW.getTime() - 30 * 60 * 1000, byApi: true };
+        st.clockedIn = false;
+        await watchToasts(app2.page);
+        await clickText(app2.page, say("End Shift", language));
+        await pause(app2.page, 2500);
+        const seen = (await toastWords(app2.page)).join(" | ");
+        const time = await companyTimeOf(app2.page, language, isoOf(st.lastEnded.endedAt));
+        expect("End Shift on a shift the API closed says it already ended and when, with its note", has(flat(seen), flat(fill(say("This shift already ended at {time}.", language), { time: time }))) && has(seen, note), seen.slice(0, 400));
+        const home = await shows(app2.page, "[data-last-session]", 6000);
+        expect("and Home then says the last shift ended", home, "");
+        await spokenHere(app2, language, expect);
+      } finally { await app2.context.close(); }
+    },
+  },
+  {
+    id: "triesanswer",
+    label: "Tries from the attempt (API part 378, 6.5): a failed quiz reads the tries used and the tries left from attemptsUsed and attemptsLeft on the attempt the API answered, with no second read of the lesson",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { training: true } });
+      try {
+        if (!(await waitOn(app.page, () => !!document.querySelector('[data-training-card="todo"]'), null, 10000))) { expect("Home offers My training", false, ""); return; }
+        await app.page.click('[data-training-card="todo"]');
+        await waitOn(app.page, () => !!document.querySelector('[data-training-start="tp-1:"]'));
+        await app.page.click('[data-training-start="tp-1:"]');
+        await waitOn(app.page, () => !!document.querySelector('[data-lesson="read"] [data-lesson-next="read"]'));
+        const lessonReads = () => app.stub.state.calls.filter(c => c.method === "GET" && /^\/api\/training\/lesson-versions\//.test(c.path)).length;
+        const before = lessonReads();
+        await answerLesson(app, FAIL);
+        const failed = await waitOn(app.page, () => !!document.querySelector('[data-lesson="result"]'));
+        await pause(app.page, 600);
+        const text = await bodyText(app.page);
+        const answered = lastSent(app.stub, "POST", "/api/training/attempts/");
+        expect("the result reads the tries used and the tries left the attempt carries", failed && has(text, say("Tries used: {n}", language).replace("{n}", "1")) && has(text, say("{n} tries left", language).replace("{n}", "2")), text.slice(0, 300));
+        expect("with no second read of the lesson", lessonReads() === before, before + " reads before, " + lessonReads() + " after; " + (answered ? answered.path : ""));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "taprun",
+    label: "A tap names its run (API part 378, 6.6): the run's id is learned from the first check the API takes in it, a tap made then and kept on the phone across a change of shift is kept and sent after it with the run it showed, and lands in that run; the next shift's list reads it open",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { namedShifts: true, links: {}, completions: [] } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await shows(app.page, '[data-task-row="task-4"]', 8000);
+        await pause(app.page, 600);
+        await tapRow(app.page, language, itemName("task-2", language));
+        await pause(app.page, 1200);
+        const two = checkoffsOf(app.stub, "task-2");
+        const evening = app.stub.state.run;
+        expect("the first check of the run goes as before, with no run named", two.length === 1 && !Object.prototype.hasOwnProperty.call(two[0].body || {}, "shiftRunId") && evening && evening.label === "Evening shift", JSON.stringify(two.map(c => c.body)));
+        // task-4's tap meets no signal, before and during the change of shift.
+        app.stub.state.drop["POST /api/clock/tasks/task-4/complete"] = { once: false };
+        await tapRow(app.page, language, itemName("task-4", language));
+        await pause(app.page, 900);
+        const kept = (await keptQueue(app.page)).find(x => x.taskId === "task-4") || null;
+        expect("a check made after it names the run's id, kept on the phone", !!kept && typeof kept.runId === "string" && kept.runId.length > 0, JSON.stringify(kept));
+        await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.textContent.trim() === w); if (b) b.click(); }, say("Change shift", language));
+        await pause(app.page, 900);
+        await pickShift(app.page, servedIn("Night shift", language));
+        await pause(app.page, 300);
+        await clickText(app.page, say("Use this shift", language));
+        await pause(app.page, 2500);
+        const patch = shiftChanges(app.stub)[0];
+        const still = (await keptQueue(app.page)).find(x => x.taskId === "task-4") || null;
+        expect("after the change of shift the tap is still kept, with its run", !!patch && app.stub.state.run.label === "Night shift" && !!still && still.runId === (kept && kept.runId), "patch " + !!patch + ", kept " + JSON.stringify(still));
+        delete app.stub.state.drop["POST /api/clock/tasks/task-4/complete"];
+        await app.page.evaluate(() => window.dispatchEvent(new Event("online")));
+        await waitOn(app.page, () => { try { return JSON.parse(window.localStorage.getItem("ocsa-pending-checkoffs") || "[]").length === 0; } catch (e) { return false; } }, null, 8000);
+        await pause(app.page, 600);
+        const calls = app.stub.state.calls;
+        const fours = checkoffsOf(app.stub, "task-4").filter(c => calls.indexOf(c) > calls.indexOf(patch));
+        const filed = app.stub.state.completions.filter(c => c.taskId === "task-4");
+        expect("sent after the change with the run it showed, it lands in that run", fours.length === 1 && fours[0].body && fours[0].body.shiftRunId === (kept && kept.runId) && fours[0].body.clientId === (kept && kept.clientId) && filed.length === 1 && filed[0].run && filed[0].run.label === "Evening shift", JSON.stringify(fours.map(c => c.body)) + " filed in " + JSON.stringify(filed.map(c => (c.run ? c.run.label : "none"))));
+        await shows(app.page, '[data-task-row="task-4"]', 8000);
+        await pause(app.page, 900);
+        const rows = await checklist(app.page, language);
+        const of = (id) => rows.find(r => r.name === itemName(id, language)) || {};
+        expect("the night shift's list reads it open", rows.length > 0 && !of("task-4").done && !of("task-2").done, JSON.stringify(rows.map(r => [r.name, r.done])).slice(0, 220));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "taprunrefused",
+    label: "A run the check could not belong to (API part 378, 6.6): a kept tap sent with its run and refused tasks.badShiftRun is sent once more without it, the same tap, and lands in the session's run",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { namedShifts: true, links: {}, completions: [], badShiftRun: 1 } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await shows(app.page, '[data-task-row="task-4"]', 8000);
+        await pause(app.page, 600);
+        await tapRow(app.page, language, itemName("task-2", language));
+        await pause(app.page, 1200);
+        app.stub.state.drop["POST /api/clock/tasks/task-4/complete"] = { once: false };
+        await tapRow(app.page, language, itemName("task-4", language));
+        await pause(app.page, 900);
+        await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.textContent.trim() === w); if (b) b.click(); }, say("Change shift", language));
+        await pause(app.page, 900);
+        await pickShift(app.page, servedIn("Night shift", language));
+        await pause(app.page, 300);
+        await clickText(app.page, say("Use this shift", language));
+        await pause(app.page, 2500);
+        const patch = shiftChanges(app.stub)[0];
+        delete app.stub.state.drop["POST /api/clock/tasks/task-4/complete"];
+        await app.page.evaluate(() => window.dispatchEvent(new Event("online")));
+        await waitOn(app.page, () => { try { return JSON.parse(window.localStorage.getItem("ocsa-pending-checkoffs") || "[]").length === 0; } catch (e) { return false; } }, null, 8000);
+        await pause(app.page, 600);
+        const calls = app.stub.state.calls;
+        const fours = checkoffsOf(app.stub, "task-4").filter(c => patch && calls.indexOf(c) > calls.indexOf(patch));
+        const filed = app.stub.state.completions.filter(c => c.taskId === "task-4");
+        expect("refused tasks.badShiftRun, the same tap is sent once more without its run", fours.length === 2 && !!fours[0].body.shiftRunId && !Object.prototype.hasOwnProperty.call(fours[1].body || {}, "shiftRunId") && fours[0].body.clientId === fours[1].body.clientId, JSON.stringify(fours.map(c => c.body)));
+        expect("and lands in the session's run", filed.length === 1 && filed[0].run && filed[0].run.label === "Night shift", JSON.stringify(filed.map(c => (c.run ? c.run.label : "none"))));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART383_S2_JOURNEYS);
 
 
 module.exports = { runJourneys, JOURNEYS };

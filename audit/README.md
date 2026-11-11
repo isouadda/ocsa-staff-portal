@@ -1479,6 +1479,58 @@ The Spanish check of these two looks at the upload and the line under
 it, since each row of My training carries its document code and
 section as the API sends them.
 
+## The shift's own list, as the API now answers it (part 383, section 2)
+
+The stub answers ocsa-api Round 11's six shapes for the staff app (part
+378, its 6.1 to 6.6):
+
+- At a site with named shifts every session answer's `shifts` are the
+  named ones in order (`helpers/siteShifts.js shiftFieldsFor`): `label`,
+  `displayLabel` in the language asked, `suggested` the session's run's
+  shift, `window` `{ opensAt, startsAt, endsAt, crossesMidnight }` on the
+  company's clock and the blocks of the shift of that label; a site with
+  blocks and no named shifts answers as before.
+- `doneEarlier` carries `display`, the shift's name in the language asked.
+- With no open session the status answers `lastSession` `{ id, siteName,
+  startedAt, endedAt, endNote }` for one ended in the last 24 hours, and
+  End Shift's 409 `SESSION_ALREADY_ENDED` carries `session`; the end note
+  of one the API closed itself is `sessions.closedAutomatically` in the
+  language asked (`CLOSED_NOTE`). `lastSession: "closed"` seeds one the API
+  closed two hours before at North Building; an End Shift that goes
+  through is the next one.
+- Every attempt answer carries `attemptsUsed` beside `attemptsLeft`.
+- A run has an id (`runIdOf`, made from its key), which no read answers;
+  a check-off answers `completion.shift_run_id`, as the API's does. A
+  check naming `shiftRunId` other than the session's run is taken when
+  the run is the session's site's, the session started before it ended
+  and the tap's own time falls from 30 minutes before its start to its
+  end, else 400 `tasks.badShiftRun` keys `["shiftRunId"]` in the API's
+  words; `badShiftRun` refuses that many whatever they name.
+
+Five journeys, in English and Spanish, each failing on the main of part
+380:
+
+- `shiftnamed` (6.1, 6.2): Start Shift's sheet offers the named shifts as
+  the session answers them, the API's pick chosen and each one's hours,
+  with no read of `GET /api/sites/:siteId/shifts`; the last shift's line
+  names it as `doneEarlier.display` gives it.
+- `lastsession` (6.3, 6.4): Home with no shift open says where the last
+  shift ended and when, with the API's note in the person's language;
+  End Shift on a session the API closed says it already ended and when,
+  with its note, and Home then says so too.
+- `triesanswer` (6.5): a failed quiz reads tries used and left off the
+  attempt, with no second read of the lesson.
+- `taprun` (6.6): the run's id comes from the first check the API takes;
+  a check made after it and kept with no signal across a change of shift
+  stays on the phone with its run, goes after the change with
+  `shiftRunId`, and lands in the evening run; the night shift's list
+  reads it open.
+- `taprunrefused` (6.6): the same tap refused `tasks.badShiftRun` goes once
+  more without the run, the same clientId, and lands in the session's run.
+
+`shiftfresh` now reads this rule: the tap that could not go before the
+change is kept with the run it was made in, where part 375 dropped it.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
