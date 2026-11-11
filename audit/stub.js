@@ -979,6 +979,15 @@ const WALK_REFUSALS = {
   "inspections.signatureRequired": { status: 400, en: "Sign the inspection before sending it.", es: "Firme la inspecci\u00f3n antes de enviarla." },
   "forms.unanswerable": { status: 400, en: "These fields cannot be answered here", es: "Estos campos no se pueden responder aqu\u00ed" },
 };
+// Part 383 (API part 378, its 8.2): the refusals of POST
+// /api/inspections/scheduled/:id/drop-safety, in the API's own words from
+// its translation/api_words.csv.
+const DROP_REFUSALS = {
+  "inspections.safetyWalkNotDone": { status: 409, en: "This site's safety walk is not done this month on another inspection, so this inspection keeps its own.", es: "El recorrido de seguridad de este sitio no se ha hecho este mes en otra inspecci\u00f3n, as\u00ed que esta inspecci\u00f3n conserva el suyo." },
+  "inspections.noSafetyPart": { status: 409, en: "This inspection does not include the safety walk.", es: "Esta inspecci\u00f3n no incluye el recorrido de seguridad." },
+  "inspections.completedLocked": { status: 409, en: "This inspection is completed. Its status and its safety walk cannot be changed.", es: "Esta inspecci\u00f3n est\u00e1 completada. Su estado y su recorrido de seguridad no se pueden cambiar." },
+  "access.insufficientPermissions": { status: 403, en: "Insufficient permissions", es: "No tiene permiso para hacer esto" },
+};
 // The band a score lands in (QMS-014 5.2), its due date from the
 // completion, and the severity of each finding, as the contract's rule 2.
 const findingBandOf = (pct) => (pct >= 90 ? "meets" : pct >= 80 ? "below" : pct >= 70 ? "failed" : "serious");
@@ -1834,6 +1843,13 @@ function makeState(opts) {
     // tasks.badShiftRun whatever they name.
     lastEnded: o.lastSession === "closed" ? { id: "sess-0", site: "site-north", startedAt: NOW.getTime() - 15 * 60 * 60 * 1000, endedAt: NOW.getTime() - 2 * 60 * 60 * 1000, byApi: true } : null,
     badShiftRun: Number(o.badShiftRun) || 0,
+    // Part 383 (API part 378, its 8): an OCSA-FRM-015 filed on its own,
+    // with no inspection, { siteId, at } (walkAlone); what POST
+    // .../drop-safety took, by inspection id (drops); and a refusal code
+    // it answers next, once (dropFault).
+    walkAlone: o.walkAlone ? Object.assign({}, o.walkAlone) : null,
+    drops: [],
+    dropFault: o.dropFault || null,
     certificates: [],
     certificateFault: o.certificateFault || null,
     // Step 261: every attempt on a lesson, seeded with the one another
@@ -3169,6 +3185,8 @@ const TWIN_PAIRS = [
   .concat(["training.attemptClosed", "training.signatureNotStored"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]))
   // Part 380: the two refusals of POST /api/uploads/sign (API Round 10).
   .concat(Object.keys(UPLOAD_SIGN_REFUSALS).map(k => [UPLOAD_SIGN_REFUSALS[k].en, UPLOAD_SIGN_REFUSALS[k].es]))
+  // Part 383: the drop route's refusals (API part 378, its 8.2).
+  .concat(Object.keys(DROP_REFUSALS).map(k => [DROP_REFUSALS[k].en, DROP_REFUSALS[k].es]))
   // Part 383: a run the check could not belong to, and the note on a
   // session the API closed itself (API part 378).
   .concat([[BAD_SHIFT_RUN.en, BAD_SHIFT_RUN.es], [CLOSED_NOTE.en, CLOSED_NOTE.es]])
@@ -3713,6 +3731,19 @@ function createStub(opts) {
   };
   // Step 255: who may own a finding at the site, as the scheduled read
   // answers owners: the person signed in first, then two invented people.
+  // Part 383 (API part 378, its 8.1): the newest safety walk filed at a
+  // site: a done inspection's (its result's completed_at and
+  // safety_response_id), the walk filed with this run's completion, or
+  // one filed on its own.
+  const lastWalkAt = (siteId) => {
+    const walks = state.inspections.filter(i => String(i.site_id) === String(siteId) && i.status === "completed" && i.result && i.result.safety_response_id && i.result.completed_at)
+      .map(i => ({ at: i.result.completed_at, scheduledInspectionId: String(i.id), responseId: String(i.result.safety_response_id) }));
+    if (state.walkAlone && String(state.walkAlone.siteId) === String(siteId)) walks.push({ at: state.walkAlone.at, scheduledInspectionId: null, responseId: "frm-walk-alone" });
+    const newest = walks.sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+    if (!newest) return null;
+    const day = zoneDate(Date.parse(newest.at));
+    return { at: newest.at, day: day, scheduledInspectionId: newest.scheduledInspectionId, responseId: newest.responseId, thisMonth: day.slice(0, 7) === zoneDate(clockNow()).slice(0, 7) };
+  };
   const findingOwners = () => [
     { id: state.person.id, name: state.person.firstName + " " + state.person.lastName, role: state.person.role },
     { id: "s-02", name: "Ben Brooks", role: "custodian" },
@@ -6120,10 +6151,55 @@ function createStub(opts) {
       one.status = "completed";
       return json(200, { success: true, result: { id: "res-" + one.id, scheduled_inspection_id: one.id, total_score: total } });
     }
+    // Part 383 (API part 378, its 8.1, helpers/inspectionSafety.js
+    // lastWalk): a site's last completed safety walk, the newest submitted
+    // OCSA-FRM-015 there, whoever filed it, with the inspection it was
+    // filed with (null for one filed on its own) and whether it is this
+    // month on the company's clock. 400 inspections.badDetails keys siteId.
+    if (key === "GET /api/inspections/safety-walks") {
+      const siteId = new URLSearchParams(search || "").get("siteId") || "";
+      if (!siteId) return json(400, { error: "Check the details and try again.", code: "inspections.badDetails", keys: ["siteId"] });
+      return json(200, { siteId: siteId, lastWalk: lastWalkAt(siteId) });
+    }
+    // Part 383 (API part 378, its 8.2): an open inspection gives up its
+    // safety walk once another at its site holds this month's: the
+    // inspector or a holder of manage_inspections; 404 inspections.notFound,
+    // 403 access.insufficientPermissions, 409 inspections.completedLocked
+    // (not scheduled), inspections.noSafetyPart (already without it),
+    // inspections.safetyWalkNotDone with lastWalk. Its walk drafts voided.
+    const dropping = method === "POST" ? /^\/api\/inspections\/scheduled\/([^/]+)\/drop-safety$/.exec(pathname) : null;
+    if (dropping) {
+      const refuseDrop = (k, extra) => { const r = DROP_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
+      const one = state.inspections.find(i => i.id === dropping[1] && !i.gone);
+      if (!one) return json(404, { error: INSPECTION_NOT_FOUND[0], code: "inspections.notFound" });
+      const walk = lastWalkAt(one.site_id);
+      // A case's refusal, once. inspections.safetyWalkNotDone comes with the
+      // site's walk voided since it was read, as the office voids a filed
+      // form, so every read after it agrees.
+      if (state.dropFault) {
+        const k = state.dropFault;
+        state.dropFault = null;
+        if (k === "inspections.safetyWalkNotDone") { state.inspections.forEach(i => { if (String(i.site_id) === String(one.site_id) && i.result) i.result = Object.assign({}, i.result, { safety_response_id: null }); }); state.walkAlone = null; }
+        return refuseDrop(k, k === "inspections.safetyWalkNotDone" ? { lastWalk: lastWalkAt(one.site_id) } : null);
+      }
+      const manages = state.person.role === "admin" || state.person.role === "supervisor";
+      if (one.assigned_to !== undefined && one.assigned_to !== null && one.assigned_to !== state.person.id && !manages) return refuseDrop("access.insufficientPermissions");
+      if (one.status !== "scheduled") return refuseDrop("inspections.completedLocked");
+      if (one.with_safety === false) return refuseDrop("inspections.noSafetyPart");
+      if (!walk || !walk.thisMonth || walk.scheduledInspectionId === String(one.id)) return refuseDrop("inspections.safetyWalkNotDone", { lastWalk: walk });
+      one.with_safety = false;
+      const voided = state.walkStarted && !state.walkFiled ? 1 : 0;
+      if (voided) { state.walkStarted = false; state.discarded.push("draft-safety"); }
+      state.drops.push(one.id);
+      return json(200, { inspection: { id: one.id, withSafety: false }, voidedDrafts: voided, lastWalk: walk });
+    }
     if (method === "GET" && /^\/api\/inspections\/scheduled\/[^/]+$/.test(pathname)) {
       const one = state.inspections.find(i => pathname.endsWith("/" + i.id) && !i.gone);
-      if (one && state.findings) return json(200, Object.assign({}, one, { owners: findingOwners() }, state.inspectionWalk && one.with_safety ? { safety: walkSafetyRead(state, one, lang) } : {}));
-      return one ? json(200, one) : json(404, { error: INSPECTION_NOT_FOUND[0] });
+      // Part 383 (API part 378, its 8.1): every read answers its site's
+      // last safety walk as lastSafetyWalk.
+      const walked = one ? { lastSafetyWalk: lastWalkAt(one.site_id) } : {};
+      if (one && state.findings) return json(200, Object.assign({}, one, { owners: findingOwners() }, state.inspectionWalk && one.with_safety ? { safety: walkSafetyRead(state, one, lang) } : {}, walked));
+      return one ? json(200, Object.assign({}, one, walked)) : json(404, { error: INSPECTION_NOT_FOUND[0] });
     }
     if (key === "POST /api/inspections/scheduled" && state.startInspection) {
       const b = body && typeof body === "object" ? body : {};
@@ -6605,7 +6681,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { CLOSED_NOTE, BAD_SHIFT_RUN, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

@@ -11,7 +11,7 @@ const { INSPECT, languageRows } = require("./checks");
 const { TIME_OFF_REFUSALS, HR_CASE_REFUSALS, timeOffRow, PERSON, SECOND_PERSON, formP, formS, STAFF, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, LOGIN_REFUSAL, BADGE_MISMATCH, TWIN_ES, servedFor, createStub, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, HELP_ANSWERS, HELP_REFUSALS, helpReply, replyPieces,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, refusalIn, ADMIN_PERSON, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX,
   API_REFUSALS, FILE_REFUSALS, FORM_P_MAX_PHOTOS, SIGNATURE_MAX_BYTES,
-  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS, EVERY_NOTICE, MAINT_NAMES, FIRST_NAMES, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, FILED_WORDS, SECOND_STEP_CODE, NOW, INSPECTION_W, INSPECTION_PLAIN, CLOSED_NOTE } = require("./stub");
+  formC, formV, PUBLIC_SITE, PUBLIC_COMPANY, ANNOUNCEMENT, FORM_E_WORDS, EVERY_NOTICE, MAINT_NAMES, FIRST_NAMES, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, FILED_WORDS, SECOND_STEP_CODE, NOW, INSPECTION_W, INSPECTION_PLAIN, CLOSED_NOTE, DROP_REFUSALS } = require("./stub");
 
 const LANGUAGES = ["en", "es"];
 const pause = (page, ms) => page.waitForTimeout(ms || 600);
@@ -9363,8 +9363,11 @@ const PART380_S2_JOURNEYS = [
         await switchSettled(app, "done");
         const north = await startSwitch(app);
         expect("at a site whose safety walk is on record this month, the switch starts off and says when it was done", north.on === "false" && north.kind === "done" && north.line.indexOf(before("Safety walk done this month on {date}", language)) === 0 && /1/.test(north.line), JSON.stringify(north));
-        const read = app.stub.state.calls.filter(c => c.method === "GET" && (c.path === "/api/inspections/scheduled" && /site_id=site-north/.test(c.search || "") || c.path === "/api/inspections/scheduled/" + DONE_NORTH.id));
-        expect("read from the site's inspections and the done one's result", read.length === 2, JSON.stringify(read.map(c => c.path + (c.search || ""))));
+        // Part 383: read from the site's last safety walk (API part 378),
+        // with no read of the done inspection itself.
+        const walks = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/inspections/safety-walks" && /siteId=site-north/.test(c.search || ""));
+        const ones = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/inspections/scheduled/" + DONE_NORTH.id);
+        expect("read from the site's last safety walk, with no read of the done inspection itself", walks.length === 1 && ones.length === 0, JSON.stringify({ walks: walks.length, ones: ones.length }));
         await spokenHere(app, language, expect);
         await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-start-safety]"); if (b) b.click(); });
         await pause(app.page, 300);
@@ -9388,7 +9391,7 @@ const PART380_S2_JOURNEYS = [
         expect("a second inspection at that site, while the first carries the safety walk, starts with the switch off and says which carries it", second.on === "false" && second.kind === "open" && second.line === say("Safety walk on {inspection}, already started at this site", language).replace("{inspection}", "Invented South day walk"), JSON.stringify(second));
         await closeStartSheet(app, language);
         await pause(app.page, 400);
-        app.stub.state.refuse["GET /api/inspections/scheduled"] = { status: 500, once: true };
+        app.stub.state.refuse["GET /api/inspections/safety-walks"] = { status: 500, once: true };
         if (!(await startSheetAt(app, "site-west"))) { expect("the sheet picks West Building", false, "no chip"); return; }
         await switchSettled(app, "rule");
         const west = await startSwitch(app);
@@ -9422,10 +9425,12 @@ const PART380_S2_JOURNEYS = [
         await shows(app.page, "[data-inspect-sent]", 8000);
         await pause(app.page, 600);
         const calls = app.stub.state.calls;
-        const putAway = calls.findIndex(c => c.method === "POST" && c.path === "/api/forms/drafts/draft-safety/discard");
+        // Part 383: it gives its safety walk up through the API's own route
+        // (API part 378), which voids its draft of it, then is sent.
+        const putAway = calls.findIndex(c => c.method === "POST" && c.path === "/api/inspections/scheduled/" + INSPECTION_W.id + "/drop-safety");
         const sentAt = calls.findIndex(c => c.method === "POST" && c.path === "/api/inspections/scheduled/" + INSPECTION_W.id + "/complete");
         const body = sentAt >= 0 ? calls[sentAt].body : null;
-        expect("its own draft of the safety walk is put away first, then it is sent without the safety walk", putAway >= 0 && sentAt > putAway && !!body && body.safety === undefined, JSON.stringify({ putAway, sentAt, safety: body && body.safety }));
+        expect("it gives its safety walk up first, which voids its own draft of it, then it is sent without the safety walk", putAway >= 0 && sentAt > putAway && !!body && body.safety === undefined && app.stub.state.discarded.indexOf("draft-safety") !== -1, JSON.stringify({ putAway, sentAt, safety: body && body.safety }));
         expect("and the API takes the cards alone", !!(await app.page.$("[data-inspect-sent]")) && app.stub.state.inspections.find(i => i.id === INSPECTION_W.id).status === "completed" && !app.stub.state.walkFiled, JSON.stringify({ filed: app.stub.state.walkFiled }));
       } finally { await app.context.close(); }
     },
@@ -9879,6 +9884,95 @@ const PART383_S2_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART383_S2_JOURNEYS);
+
+
+// --- Round 10 of the staff app (part 383), section 3 ----------------------
+//
+// The safety walk from the API (ocsa-api part 378, its 8): a site's last
+// walk from GET /api/inspections/safety-walks and lastSafetyWalk, and a
+// walk given up through POST /api/inspections/scheduled/:id/drop-safety.
+// Fails on the main of part 380, which saw only a walk filed with an
+// inspection it could read and put its own draft away itself.
+const WALK_ALONE_AT = "2026-10-01T13:15:00.000Z";
+const PART383_S3_JOURNEYS = [
+  {
+    id: "safetyalone",
+    label: "A safety walk filed on its own (API part 378, 8.1 and 8.2): Start an inspection reads the site's last walk, one filed with no inspection, and starts the switch off saying when; an open walk at that site stops asking for it, says the day, and gives it up through the API before it is sent",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, startInspection: true, inspectionWalk: true, walkAlone: { siteId: "site-north", at: WALK_ALONE_AT } } });
+      try {
+        await openTab(app.page, "inspect", language);
+        await shows(app.page, "[data-inspect-start]", 8000);
+        if (!(await startSheetAt(app, "site-north"))) { expect("the sheet picks North Building", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        await switchSettled(app, "done");
+        const north = await startSwitch(app);
+        expect("the switch starts off and says the site's walk was done this month", north.on === "false" && north.kind === "done" && north.line.indexOf(before("Safety walk done this month on {date}", language)) === 0 && /1/.test(north.line), JSON.stringify(north));
+        await spokenHere(app, language, expect);
+        await closeStartSheet(app, language);
+        await pause(app.page, 400);
+        if (!(await openInspectionNamed(app, INSPECTION_W.template_name))) { expect("the walk opens", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        const done = await shows(app.page, "[data-walk-safety-done]", 6000);
+        const line = done ? await app.page.evaluate(() => document.querySelector("[data-walk-safety-done]").innerText.trim()) : "";
+        expect("the walk says the site's walk was done this month, by its day, and stops asking for it", done && line.indexOf(before("Safety walk done this month on {date}", language)) === 0 && app.stub.state.walkStarts.length === 0, JSON.stringify({ line, starts: app.stub.state.walkStarts.length }));
+        await spokenHere(app, language, expect);
+        await scoreCard(app, "iw-1", 5);
+        await scoreCard(app, "iw-2", 5);
+        await drawOn(app.page, "[data-inspect-signature] canvas");
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-submit]"); if (b) b.click(); });
+        await shows(app.page, "[data-inspect-sent]", 8000);
+        const calls = app.stub.state.calls;
+        const dropAt = calls.findIndex(c => c.method === "POST" && c.path === "/api/inspections/scheduled/" + INSPECTION_W.id + "/drop-safety");
+        const sentAt = calls.findIndex(c => c.method === "POST" && c.path === "/api/inspections/scheduled/" + INSPECTION_W.id + "/complete");
+        expect("it gives the safety walk up through the API, then is sent without it", dropAt >= 0 && sentAt > dropAt && app.stub.state.drops.indexOf(INSPECTION_W.id) !== -1 && calls[sentAt].body && calls[sentAt].body.safety === undefined, JSON.stringify({ dropAt, sentAt }));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "safetydropped",
+    label: "A safety walk the API keeps (API part 378, 8.2): giving it up refused inspections.safetyWalkNotDone says the API's words, sends nothing more, and opens the walk again asking for its safety part as it was scored; one already done refused inspections.completedLocked says the API's words and closes",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true, inspections: [DONE_NORTH], dropFault: "inspections.safetyWalkNotDone" } });
+      try {
+        await openTab(app.page, "inspect", language);
+        if (!(await openInspectionNamed(app, INSPECTION_W.template_name))) { expect("the walk opens", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        await shows(app.page, "[data-walk-safety-done]", 6000);
+        await scoreCard(app, "iw-1", 4);
+        await scoreCard(app, "iw-2", 5);
+        await drawOn(app.page, "[data-inspect-signature] canvas");
+        await watchToasts(app.page);
+        await app.page.evaluate(() => { const b = document.querySelector("[data-inspect-submit]"); if (b) b.click(); });
+        await pause(app.page, 2500);
+        const seen = (await toastWords(app.page)).join(" | ");
+        const words = language === "es" ? DROP_REFUSALS["inspections.safetyWalkNotDone"].es : DROP_REFUSALS["inspections.safetyWalkNotDone"].en;
+        const completes = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/inspections/scheduled/" + INSPECTION_W.id + "/complete");
+        expect("refused, it says the API's words and sends nothing more", has(seen, words) && completes.length === 0, seen.slice(0, 300) + " | " + completes.length + " sends");
+        const asks = await waitOn(app.page, () => !!document.querySelector("[data-walk-to-safety]") || !!document.querySelector("[data-walk-part]"), null, 8000);
+        const show = say("Show {0} scored items", language).split("{0}")[0].trim();
+        await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.innerText.trim().indexOf(w) === 0); if (b) b.click(); }, show);
+        await shows(app.page, '[data-inspect-item="iw-1"]', 4000);
+        const range = await rangeOf(app, "iw-1");
+        expect("and the walk opens again asking for its safety part, as it was scored", asks && range === "4" && !(await app.page.$("[data-walk-safety-done]")), JSON.stringify({ asks, range }));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const app2 = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true, inspections: [DONE_NORTH], dropFault: "inspections.completedLocked" } });
+      try {
+        await openTab(app2.page, "inspect", language);
+        if (!(await openInspectionNamed(app2, INSPECTION_W.template_name))) { expect("the walk opens", false, ""); return; }
+        await shows(app2.page, "[data-walk-safety-done]", 6000);
+        await scoreCard(app2, "iw-1", 5);
+        await scoreCard(app2, "iw-2", 5);
+        await drawOn(app2.page, "[data-inspect-signature] canvas");
+        await watchToasts(app2.page);
+        await app2.page.evaluate(() => { const b = document.querySelector("[data-inspect-submit]"); if (b) b.click(); });
+        await pause(app2.page, 2500);
+        const seen = (await toastWords(app2.page)).join(" | ");
+        const words = language === "es" ? DROP_REFUSALS["inspections.completedLocked"].es : DROP_REFUSALS["inspections.completedLocked"].en;
+        expect("one no longer open says the API's words and the walk closes", has(seen, words) && !(await app2.page.$("[data-inspect-submit]")), seen.slice(0, 300));
+      } finally { await app2.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART383_S3_JOURNEYS);
 
 
 module.exports = { runJourneys, JOURNEYS };

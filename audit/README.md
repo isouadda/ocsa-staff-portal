@@ -1531,6 +1531,40 @@ Five journeys, in English and Spanish, each failing on the main of part
 `shiftfresh` now reads this rule: the tap that could not go before the
 change is kept with the run it was made in, where part 375 dropped it.
 
+## The safety walk from the API (part 383, section 3)
+
+The stub answers ocsa-api Round 11's safety walk (part 378, its 8):
+`GET /api/inspections/safety-walks?siteId=` answers `{ siteId, lastWalk }`,
+the newest OCSA-FRM-015 filed at the site as `helpers/inspectionSafety.js
+lastWalk` reads it (`{ at, day, scheduledInspectionId, responseId,
+thisMonth }`, `thisMonth` on the company's clock), from a done inspection's
+result or from one filed on its own (`walkAlone`), and every read of one
+inspection answers the same as `lastSafetyWalk`. `POST
+/api/inspections/scheduled/:id/drop-safety` turns an open inspection's
+safety walk off and voids its walk draft, kept in `state.drops`, and
+refuses in the API's words (`DROP_REFUSALS`): 403
+`access.insufficientPermissions`, 409 `inspections.completedLocked`,
+`inspections.noSafetyPart`, and `inspections.safetyWalkNotDone` with
+`lastWalk`. `dropFault` answers one refusal once; `safetyWalkNotDone`
+comes with the site's walk voided since, so every read after it agrees.
+
+Two journeys, in English and Spanish, each failing on the main of part
+380:
+
+- `safetyalone`: a walk filed at North Building with no inspection starts
+  Start an inspection's switch off, saying the day, and an open walk
+  there stops asking for it, says the day, and gives it up through
+  `drop-safety` before it is sent without it.
+- `safetydropped`: a give-up refused `inspections.safetyWalkNotDone` says
+  the API's words, sends nothing more, and opens the walk again asking
+  for its safety part, as it was scored; one refused
+  `inspections.completedLocked` says the API's words and closes.
+
+`safetymonth` now reads the site's last walk from `safety-walks`, with no
+read of the done inspection; with that read refused, West Building reads
+the rule. `safetyonce` now gives the walk up through `drop-safety`, which
+voids its draft, where part 380 put the draft away itself.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

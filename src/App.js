@@ -1339,43 +1339,42 @@ const inspectSafetyToStart = (d) => { const s = inspectSafetyPartOf(d); return !
 // The safety walk once a month (part 380). The owner's decision of Nov
 // 10, 2026, as OCSA-QMS-015 has it (the safety inspection monthly, by the
 // site supervisor): the full safety walk is done once a month per site,
-// and one walk carries it on a visit. Read from what the API answers:
-// GET /api/inspections/scheduled?site_id= lists the site's inspections
-// the caller may read, each with with_safety, its status and its
-// scheduled day but no time; GET /api/inspections/scheduled/:id answers a
-// done one's result, completed_at and safety_response_id, the
-// OCSA-FRM-015 filed with it. So each done one that carried the safety
-// walk, scheduled this month or the month before, is read on its own,
-// newest first, up to SAFETY_WALK_READS, until one filed it this month on
-// the company's clock. { done: { id, name, at } | null, open: { id, name }
+// and one walk carries it on a visit.
+// Part 383: read from what ocsa-api part 378 answers (its 8.1). GET
+// /api/inspections/safety-walks?siteId= answers the site's last completed
+// safety walk, lastWalk { at, day, scheduledInspectionId, responseId,
+// thisMonth } | null, whoever filed it, one filed on its own included,
+// and GET /api/inspections/scheduled/:id answers the same as
+// lastSafetyWalk. The site's list, GET /api/inspections/scheduled?site_id=,
+// is still read for one open at the site that carries the safety walk,
+// which no answer names. { done: { id, at, day } | null, open: { id, name }
 // | null }: open is one at the site started or due by today this month
 // that still carries the safety walk. The id left out is the walk asking.
 // ------------------------------------------------------------
-const SAFETY_WALK_READS = 6;
 function companyYmdAt(ms) {
   const p = {};
   new Intl.DateTimeFormat("en-US", { timeZone: clientConfig.company.timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(ms)).forEach((x) => { p[x.type] = x.value; });
   return p.year + "-" + p.month + "-" + p.day;
 }
-const monthBefore = (ym) => { const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7)); return m === 1 ? (y - 1) + "-12" : y + "-" + String(m - 1).padStart(2, "0"); };
 const carriesSafety = (r) => !!r && r.with_safety !== false && r.withSafety !== false;
+// A site's last safety walk as the API answers it, or null.
+function lastWalkOf(v) {
+  if (!v || typeof v !== "object" || !Number.isFinite(Date.parse(v.at))) return null;
+  const id = v.scheduledInspectionId === null || v.scheduledInspectionId === undefined || v.scheduledInspectionId === "" ? null : String(v.scheduledInspectionId);
+  return { at: v.at, day: typeof v.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.day) ? v.day : companyYmdAt(Date.parse(v.at)), inspectionId: id, responseId: v.responseId === null || v.responseId === undefined ? null : String(v.responseId), thisMonth: v.thisMonth === true };
+}
 async function siteSafetyThisMonth(token, siteId, leaveOut) {
-  const d = await api("/api/inspections/scheduled?site_id=" + encodeURIComponent(siteId), { token });
-  const rows = (Array.isArray(d) ? d : (d && Array.isArray(d.inspections) ? d.inspections : [])).filter(r => r && r.id !== undefined && r.id !== null && String(r.id) !== String(leaveOut || "") && (r.site_id === undefined || String(r.site_id) === String(siteId)));
+  const [walks, list] = await Promise.all([
+    api("/api/inspections/safety-walks?siteId=" + encodeURIComponent(siteId), { token }),
+    api("/api/inspections/scheduled?site_id=" + encodeURIComponent(siteId), { token }).catch(() => null),
+  ]);
+  const last = lastWalkOf(walks && walks.lastWalk);
+  const rows = (Array.isArray(list) ? list : (list && Array.isArray(list.inspections) ? list.inspections : [])).filter(r => r && r.id !== undefined && r.id !== null && String(r.id) !== String(leaveOut || "") && (r.site_id === undefined || String(r.site_id) === String(siteId)));
   const today = companyYmdAt(Date.now());
   const month = today.slice(0, 7);
   const openRow = rows.find(r => carriesSafety(r) && (r.status === "scheduled" || r.status === "in_progress") && inspectionDay(r.scheduled_date).slice(0, 7) === month && inspectionDay(r.scheduled_date) <= today) || null;
   const open = openRow ? { id: String(openRow.id), name: String(openRow.template_name || "") } : null;
-  const candidates = rows.filter(r => carriesSafety(r) && r.status === "completed" && [month, monthBefore(month)].indexOf(inspectionDay(r.scheduled_date).slice(0, 7)) !== -1)
-    .sort((a, b) => (inspectionDay(a.scheduled_date) < inspectionDay(b.scheduled_date) ? 1 : -1)).slice(0, SAFETY_WALK_READS);
-  for (const r of candidates) {
-    const one = await api("/api/inspections/scheduled/" + encodeURIComponent(r.id), { token });
-    const res = one && one.result && typeof one.result === "object" ? one.result : null;
-    const filed = (res && res.safety_response_id) || (one && one.safety && one.safety.responseId);
-    const at = res && res.completed_at ? Date.parse(res.completed_at) : NaN;
-    if (filed && isFinite(at) && companyYmdAt(at).slice(0, 7) === month) return { done: { id: String(r.id), name: String((one && one.template_name) || r.template_name || ""), at: res.completed_at }, open: open };
-  }
-  return { done: null, open: open };
+  return { done: last && last.thisMonth ? { id: last.inspectionId || last.responseId || "", at: last.at, day: last.day } : null, open: open };
 }
 // When a site's safety walk was done, the way the walk says it: the time
 // on the company's clock today, else the day and the time.
@@ -19782,18 +19781,22 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       // A walk whose safety part is filed was sent with it.
       if (inspectSafetyFiled(d)) { if (user) forgetInspect(user.id, d.id); showToast(tr("This inspection is already done."), "notice"); loadList(); return; }
       // One safety walk per visit (part 380): a walk that still asks for the
-      // safety walk, at a site where another inspection filed it this month,
-      // stops asking for it. It says on which and when, starts no draft of
-      // it, and is sent without it, its own draft put away first. A site
-      // that could not be read asks for it as before.
-      if (inspectSafetyPartOf(d) && !inspectSafetyFiled(d) && d.site_id !== undefined && d.site_id !== null) {
-        const seen = await siteSafetyThisMonth(token, d.site_id, d.id).catch(() => null);
+      // safety walk, at a site whose walk was done this month on another
+      // inspection, stops asking for it. It says on which and when, starts
+      // no draft of it, and is sent without it, given up first (part 383).
+      // Since ocsa-api part 378 the read answers the site's last walk,
+      // lastSafetyWalk, so nothing else is read to learn it; the other
+      // inspection is read once, for its name, and one that cannot be read,
+      // or a walk filed on its own, is said by its day.
+      const lastWalk = lastWalkOf(d && d.lastSafetyWalk);
+      if (inspectSafetyPartOf(d) && !inspectSafetyFiled(d) && lastWalk && lastWalk.thisMonth && lastWalk.inspectionId !== String(d.id)) {
         // One started after it, its switch turned on by the person, still
         // asks for it: they can turn it on either way.
-        const after = d.created_at && isFinite(Date.parse(d.created_at)) && seen && seen.done && Date.parse(d.created_at) > Date.parse(seen.done.at);
-        if (seen && seen.done && !after) {
-          const own = d.safety && d.safety.draft && d.safety.draft.id ? String(d.safety.draft.id) : null;
-          d = Object.assign({}, d, { with_safety: false, withSafety: false, safetyDoneOn: Object.assign({}, seen.done, { draftId: own }) });
+        const after = d.created_at && isFinite(Date.parse(d.created_at)) && Date.parse(d.created_at) > Date.parse(lastWalk.at);
+        if (!after) {
+          let name = "";
+          if (lastWalk.inspectionId) { try { const o = await api("/api/inspections/scheduled/" + encodeURIComponent(lastWalk.inspectionId), { token }); name = o && typeof o.template_name === "string" ? o.template_name.trim() : ""; } catch (e) { name = ""; } }
+          d = Object.assign({}, d, { with_safety: false, withSafety: false, safetyDoneOn: { id: lastWalk.inspectionId || lastWalk.responseId || "", name: name, at: lastWalk.at, day: lastWalk.day } });
         }
       }
       // A walk with no safety draft yet starts it, once, as it opens, and
@@ -20042,13 +20045,31 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       // The safety part goes in the same request (Step 313): its draft and
       // its answers as saved, signed by the same signature.
       if (safety) body.safety = { responseId: safety.draft.id, answers: safetyState && safetyState.answers ? safetyState.answers : Object.assign({}, safety.draft.answers || {}) };
-      // A walk whose safety walk was done on another inspection puts its own
-      // draft of it away first, so the API takes the cards alone (part 380).
-      const left = active.safetyDoneOn && active.safetyDoneOn.draftId;
-      if (left) {
-        try { await api("/api/forms/drafts/" + encodeURIComponent(left) + "/discard", { method: "POST", token }); }
-        catch (err) { if (!(err && (err.status === 404 || err.status === 409))) throw err; }
-        setActive(prev => (prev && prev.safetyDoneOn ? Object.assign({}, prev, { safetyDoneOn: Object.assign({}, prev.safetyDoneOn, { draftId: null }) }) : prev));
+      // Part 383 (ocsa-api part 378, its 8.2): a walk whose site had its
+      // safety walk done this month on another inspection gives its own up
+      // first, through POST /api/inspections/scheduled/:id/drop-safety, which
+      // turns it off and voids its walk drafts as one logged decision; the
+      // API then takes the cards alone. One already without it (409
+      // inspections.noSafetyPart) goes on. Any other refusal stops the send
+      // with the API's words: the site's walk not done this month after all
+      // (409 inspections.safetyWalkNotDone) opens the walk again, asking for
+      // its safety part; one no longer open (409 inspections.completedLocked)
+      // closes it; 403 access.insufficientPermissions is said.
+      if (active.safetyDoneOn && !active.safetyDoneOn.dropped) {
+        try { await api("/api/inspections/scheduled/" + encodeURIComponent(active.id) + "/drop-safety?locale=" + languageToSend(), { method: "POST", token, body: {} }); }
+        catch (err) {
+          if (!(err && err.status === 409 && err.code === "inspections.noSafetyPart")) {
+            if (err && err.status === 409 && (err.code === "inspections.safetyWalkNotDone" || err.code === "inspections.completedLocked")) {
+              showToast(tr(err.message), err.code === "inspections.completedLocked" ? "notice" : "error");
+              setSubmitting(false);
+              if (err.code === "inspections.completedLocked") { if (user) forgetInspect(user.id, active.id); setActive(null); loadList(); }
+              else openInspection(active.id);
+              return;
+            }
+            throw err;
+          }
+        }
+        setActive(prev => (prev && prev.safetyDoneOn ? Object.assign({}, prev, { safetyDoneOn: Object.assign({}, prev.safetyDoneOn, { dropped: true }) }) : prev));
       }
       const d = await api("/api/inspections/scheduled/" + active.id + "/complete" + (capture ? "?locale=" + languageToSend() : ""), {
         method: "POST", token,
@@ -20451,7 +20472,7 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
     return (
       <div style={{ padding: "14px 16px 100px" }}>
         {headRow}
-        {doneOn && <div role="note" data-walk-safety-done={doneOn.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 14, borderRadius: R.md, background: t.greenSubtle, border: "1px solid " + t.greenBorder, fontSize: 13, color: t.text, lineHeight: 1.45, fontFamily: FONT_BODY }}><CheckIco sz={16} c={ink(t, GREEN)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("Safety walk done on {inspection} at {time}", { inspection: doneOn.name, time: safetyWalkWhen(doneOn.at) })}</span></div>}
+        {doneOn && <div role="note" data-walk-safety-done={doneOn.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 14, borderRadius: R.md, background: t.greenSubtle, border: "1px solid " + t.greenBorder, fontSize: 13, color: t.text, lineHeight: 1.45, fontFamily: FONT_BODY }}><CheckIco sz={16} c={ink(t, GREEN)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{doneOn.name ? tr("Safety walk done on {inspection} at {time}", { inspection: doneOn.name, time: safetyWalkWhen(doneOn.at) }) : tr("Safety walk done this month on {date}", { date: new Date(Date.parse(doneOn.at)).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", timeZone: clientConfig.company.timeZone }) })}</span></div>}
         {totalCard}
         {cardsBlock}
         {wholePhotos}
