@@ -8664,13 +8664,16 @@ const drawOn = async (page, selector) => {
 const PART373_S3_JOURNEYS = [
   {
     id: "inspectguide",
-    label: "Help's steps for filling out an inspection match the screen (part 373): the guide has Fill out an inspection, at the end, with its two pictures in both languages and the words people ask with, and every name its steps give is on the screens those steps walk through, in the screen's language",
+    label: "Help's steps for filling out an inspection match the screen (part 373): the guide has Fill out an inspection, at the end when it was added, with its two pictures in both languages and the words people ask with, and every name its steps give is on the screens those steps walk through, in the screen's language",
     run: async (open, language, expect) => {
       const entry = guideEntry(FILL_TITLE);
       expect("the guide has an entry for filling out an inspection", !!entry, "no entry titled " + FILL_TITLE);
       if (!entry) return;
       const whole = require("fs").readFileSync(require("path").join(__dirname, "..", "guide", "APP-PORTAL.md"), "utf8");
-      expect("it is the last entry, as a new entry is added", whole.lastIndexOf("\n## ") === whole.indexOf("\n## " + FILL_TITLE), "not last");
+      // A new entry goes at the end: after it come only the entries added
+      // since, in the order they were added (part 388's two).
+      const after = whole.slice(whole.indexOf("\n## " + FILL_TITLE) + 4).split("\n## ").slice(1).map(x => x.split("\n")[0]);
+      expect("it comes after every entry before it, followed only by those added since", JSON.stringify(after) === JSON.stringify(["See the findings about your work (staff portal)", "Follow up an inspection finding (staff portal)"]), JSON.stringify(after));
       const pictures = ["inspection-fill-card", "inspection-fill-send"];
       expect("with its two pictures, each taken in English and Spanish", pictures.every(n => entry.indexOf("\nPicture: " + n + "\n") !== -1 && ["en", "es"].every(l => require("fs").existsSync(shotFile(n, l)))), JSON.stringify(pictures));
       expect("and the words people ask with, in English and Spanish", has(entry, "fill out an inspection") && has(entry, "llenar la inspecci\u00f3n"), entry.split("\n").find(x => x.indexOf("Words people use") === 0) || "");
@@ -9469,7 +9472,7 @@ const PART380_S3_JOURNEYS = [
         if (!(await openTab(app.page, "fieldkit", language))) { expect("the field kit opens", false, "no field kit"); return; }
         await shows(app.page, "#ocsa-fk-site", 8000);
         const kit = await app.page.evaluate(() => { const sel = document.querySelector("#ocsa-fk-site"); return sel ? Array.from(sel.options).map(o => o.value + "|" + o.textContent) : null; });
-        expect("the field kit's sites never have the test site, though its list answers it with no is_test", !!kit && kit.length === 3 && !kit.some(o => o.indexOf("site-test|") === 0), JSON.stringify(kit));
+        expect("the field kit's sites never have the test site", !!kit && kit.length === 3 && !kit.some(o => o.indexOf("site-test|") === 0), JSON.stringify(kit));
       } finally { await app.context.close(); }
       const crew = await open({ stubOptions: { person: Object.assign({}, ROUND1_SUPERVISOR, { id: "u-test-crew", isTestAccount: true }), startInspection: true, testSite: true } });
       try {
@@ -10113,5 +10116,313 @@ const PART383_S5_JOURNEYS = [
 ];
 JOURNEYS.push(...PART383_S5_JOURNEYS);
 
+
+// --- Round 11 of the staff app (part 388), section 1 ----------------------
+//
+// Findings as training or a conversation (ocsa-api Round 12, part 382,
+// section 2). Each fails on the main of part 383, which listed a finding
+// as work, offered Fixed, and had no follow-up.
+const { INSPECTION_F, FINDING_REFUSALS, FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS } = require("./stub");
+const fuTap = (page, sel) => page.evaluate((q) => { const b = document.querySelector(q); if (b && !b.disabled) { b.scrollIntoView({ block: "center" }); b.click(); return true; } return false; }, sel);
+const fuTopicName = (i, language) => (language === "es" ? FOLLOW_UP_TOPICS[i].es : FOLLOW_UP_TOPICS[i].en);
+const fuCalls = (stub, route) => stub.state.followUpCalls.filter(c => c.route === route);
+const fuDay = (ymd, language) => new Date(ymd + "T12:00:00Z").toLocaleDateString(language === "es" ? "es-US" : "en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+const FINDING_CONVERSATION_NOTICE = { id: "n-fc-1", subjectType: "finding_conversation", subjectId: "fnd-m1", title: "Please confirm a conversation", body: "A conversation about an inspection finding at North Building was recorded. Open it to confirm.", link: "/?open=finding_conversation:fnd-m1", createdAt: "2026-10-01T19:15:00.000Z", readAt: null };
+const PART388_S1_JOURNEYS = [
+  {
+    id: "findingfollowup",
+    label: "What a finding needs, on the walk (API Round 12, scores[i].followUp): a card that opens a finding names its owner, then offers Training with the card's suggested topic first, Conversation and Decide later; the API's ownerRequired lands under its card; the completion sends each card's follow-up, and the result names it",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspections: [INSPECTION_F], findingsSeed: true } });
+      try {
+        await openTab(app.page, "inspect", language);
+        if (!(await openInspectionNamed(app, INSPECTION_F.template_name))) { expect("the inspection opens", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        await scoreCard(app, "if-1", 1);
+        await type(app.page, '[data-inspect-item="if-1"] input[placeholder]:not([data-pick-search])', "Invented: smudges on both doors.");
+        const up = await shows(app.page, '[data-inspect-follow-up="if-1"] [data-follow-up-kind="later"]', 6000);
+        const kinds = await app.page.evaluate(() => Array.from(document.querySelectorAll('[data-inspect-follow-up="if-1"] [data-follow-up-kind]')).map(b => [b.getAttribute("data-follow-up-kind"), b.getAttribute("aria-checked"), b.innerText.trim()]));
+        expect("a card that opens a finding asks what it needs: Training, Conversation and Decide later, Decide later first chosen", up && JSON.stringify(kinds) === JSON.stringify([["training", "false", say("Training", language)], ["conversation", "false", say("Conversation", language)], ["later", "true", say("Decide later", language)]]), JSON.stringify(kinds));
+        await fuTap(app.page, '[data-inspect-follow-up="if-1"] [data-follow-up-kind="training"]');
+        await pause(app.page, 300);
+        const first = await app.page.evaluate(() => { const s = document.querySelector('[data-inspect-follow-up="if-1"] select'); return s ? s.value : null; });
+        expect("Training starts on the card's suggested topic", first === FOLLOW_UP_TOPICS[1].id, String(first));
+        await spokenHere(app, language, expect);
+        await type(app.page, '[data-inspect-follow-up="if-1"] select', FOLLOW_UP_TOPICS[0].id);
+        await app.page.evaluate(() => { const r = document.querySelector('[data-inspect-owner="if-1"] [data-pick-row="s-02"]'); if (r) r.click(); });
+        await scoreCard(app, "if-2", 1);
+        await type(app.page, '[data-inspect-item="if-2"] input[placeholder]:not([data-pick-search])', "Invented: a mat curled at the door.");
+        await shows(app.page, '[data-inspect-follow-up="if-2"] [data-follow-up-kind="conversation"]', 4000);
+        await fuTap(app.page, '[data-inspect-follow-up="if-2"] [data-follow-up-kind="conversation"]');
+        await scoreCard(app, "if-3", 5);
+        await fuTap(app.page, "[data-inspect-submit]");
+        const words = FINDING_REFUSALS["inspections.ownerRequired"][language];
+        const under = await waitOn(app.page, (w) => { const a = document.querySelector('[data-inspect-item="if-2"] [role="alert"]'); return !!a && a.innerText.trim() === w; }, words, 8000);
+        expect("a follow-up with no owner is refused in the API's words, under its card", under, await textAt(app.page, '[data-inspect-item="if-2"]'));
+        await app.page.evaluate(() => { const r = document.querySelector('[data-inspect-owner="if-2"] [data-pick-row="s-04"]'); if (r) r.click(); });
+        await pause(app.page, 300);
+        await fuTap(app.page, "[data-inspect-submit]");
+        const done = await shows(app.page, "[data-inspect-sent]", 8000);
+        const bodies = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/inspections/scheduled/in-f/complete").map(c => (c.body.scores || []).map(r => [r.template_item_id, r.ownerId || null, r.followUp || null]));
+        const last = bodies[bodies.length - 1] || [];
+        expect("the completion sends each card's follow-up: the training with the topic chosen, the conversation, and none for the card that opens no finding", done && JSON.stringify(last) === JSON.stringify([["if-1", "s-02", { kind: "training", topicId: FOLLOW_UP_TOPICS[0].id }], ["if-2", "s-04", { kind: "conversation" }], ["if-3", null, null]]), JSON.stringify(bodies));
+        const rows = await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-inspect-found]")).map(r => r.innerText.replace(/\s+/g, " ")));
+        expect("the result names each finding's follow-up and its day", rows.length === 2 && has(rows[0], say("Training: {topic}", language).replace("{topic}", fuTopicName(0, language))) && has(rows[0], say("Due {date}", language).replace("{date}", fuDay("2026-10-08", language))) && has(rows[1], say("A conversation", language)) && has(rows[1], say("Due {date}", language).replace("{date}", fuDay("2026-10-04", language))), JSON.stringify(rows));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "findingnotwork",
+    label: "A finding is no work item (API Round 12): the findings about a cleaner's work are never listed on Assigned or Report, Fixed is gone, and the inspection issue list is never read",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { findingsSeed: true } });
+      try {
+        await openTab(app.page, "issuetasks", language);
+        await pause(app.page, 1500);
+        const assigned = await bodyText(app.page);
+        expect("Assigned lists none of the findings", !has(assigned, "Exit signs are lit") && !has(assigned, "Glass doors are free of smudges") && !has(assigned, "Restroom mirrors are free of streaks"), assigned.slice(0, 300));
+        await openTab(app.page, "issues", language);
+        await pause(app.page, 1500);
+        const report = await bodyText(app.page);
+        const fixed = await app.page.evaluate((w) => Array.from(document.querySelectorAll(".sp-content button")).some(b => b.innerText.trim() === w), say("Fixed", language));
+        expect("Report lists none of them and offers no Fixed", !has(report, "Glass doors are free of smudges") && !has(report, "Exit signs are lit") && !fixed, report.slice(0, 300));
+        const read = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/issues" && /source=inspection/.test(c.search));
+        expect("nothing reads GET /api/issues?source=inspection", read.length === 0, JSON.stringify(read.map(c => c.search)));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "myfindings",
+    label: "My findings (GET /api/me/findings): the bell's finding_conversation opens it; each finding shows what was found, its notes and photo, and its follow-up with its day and state; a conversation waiting for the person shows what was covered and Confirm we talked, sent once, a refusal said in the API's words",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { findingsSeed: true, notifications: [Object.assign({}, FINDING_CONVERSATION_NOTICE)], followUpFault: { route: "confirm", code: "findings.alreadyConfirmed" } } });
+      try {
+        await pause(app.page, 1200);
+        await bellTap61(app.page);
+        await pause(app.page, 900);
+        await bellRowTap(app.page, FINDING_CONVERSATION_NOTICE.title);
+        const opened = await shows(app.page, '[data-my-findings] [data-my-finding="fnd-m1"]', 8000);
+        expect("the bell's finding_conversation opens My findings", opened, (await bodyText(app.page)).slice(0, 300));
+        if (!opened) return;
+        const order = await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-my-finding]")).map(r => r.getAttribute("data-my-finding")));
+        expect("the person's findings, newest first", JSON.stringify(order) === JSON.stringify(["fnd-m3", "fnd-m2", "fnd-m1"]), JSON.stringify(order));
+        const m1 = await textAt(app.page, '[data-my-finding="fnd-m1"]');
+        const photo = await app.page.evaluate(() => !!document.querySelector('[data-my-finding="fnd-m1"] [data-finding-photos] img'));
+        expect("what was found: the card, its notes and its photo", has(m1, "Restroom mirrors are free of streaks") && has(m1, "Invented: streaks on both mirrors.") && photo, String(m1));
+        expect("the conversation shows what was covered and who else was there", has(m1, "Invented: we went over the two-cloth method for mirrors.") && has(m1, "Invented: the site lead") && has(m1, say("What was covered", language)), String(m1));
+        const m2 = await textAt(app.page, '[data-my-finding="fnd-m2"]');
+        const m3 = await textAt(app.page, '[data-my-finding="fnd-m3"]');
+        expect("a training reads its topic and its day", has(m2, say("Training: {topic}", language).replace("{topic}", fuTopicName(0, language))) && has(m2, say("Due {date}", language).replace("{date}", fuDay("2026-10-06", language))), String(m2));
+        expect("a finding with none reads so, and nothing on any of them reads as a task to do", has(m3, say("No follow-up chosen yet", language)) && !(await app.page.evaluate((w) => Array.from(document.querySelectorAll("[data-my-findings] button")).some(b => b.innerText.trim() === w), say("Fixed", language))), String(m3));
+        await spokenHere(app, language, expect);
+        await fuTap(app.page, '[data-finding-confirm="fnd-m1"]');
+        const refused = await waitOn(app.page, (w) => { const a = document.querySelector('[data-my-finding="fnd-m1"] [role="alert"]'); return !!a && a.innerText.indexOf(w) !== -1; }, FOLLOW_UP_REFUSALS["findings.alreadyConfirmed"][language], 6000);
+        expect("a refusal is said in the API's words", refused, String(await textAt(app.page, '[data-my-finding="fnd-m1"]')));
+        await app.page.evaluate(() => { const b = document.querySelector('[data-finding-confirm="fnd-m1"]'); if (b) { b.click(); b.click(); } });
+        const confirmed = await shows(app.page, '[data-my-finding="fnd-m1"] [data-finding-confirmed]', 6000);
+        await pause(app.page, 600);
+        expect("Confirm we talked tapped twice at once sends once, and the finding reads confirmed", confirmed && fuCalls(app.stub, "confirm").length === 2 && !(await app.page.$('[data-finding-confirm="fnd-m1"]')), JSON.stringify(fuCalls(app.stub, "confirm")));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "trainingfollowup",
+    label: "A training follow-up on My training (API Round 12, findingFollowUp): the item says it came from an inspection finding and when it is due, and never reads as expiring",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { training: true, findingsSeed: true } });
+      try {
+        await openTab(app.page, "training", language);
+        const line = await shows(app.page, '[data-training-finding="fnd-m2"]', 8000);
+        const row = line ? await app.page.evaluate(() => { const l = document.querySelector('[data-training-finding="fnd-m2"]'); const r = l && l.closest("[data-training-item]"); return r ? r.innerText.replace(/\s+/g, " ") : ""; }) : "";
+        expect("the item says it came from a finding and its day", line && has(row, fuTopicName(0, language)) && has(row, say("From an inspection finding. Due {date}", language).replace("{date}", fuDay("2026-10-06", language))), row);
+        const longDay = new Date("2026-10-06T12:00:00Z").toLocaleDateString(language === "es" ? "es-US" : "en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+        expect("and does not read as expiring", !has(row, say("Expires {date}", language).replace("{date}", longDay)) && has(row, say("Not done yet", language)), row);
+        // Each row of My training carries its document code as the API
+        // sends it, so the Spanish check looks at this item alone.
+        await spokenWithin(app, language, expect, "[data-training-item]:has([data-training-finding])");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "followups",
+    label: "Findings to follow up (GET /api/inspections/findings) for a supervisor: the ones with no follow-up and the late ones first; Choose a follow-up sends kind, topic and owner, the API's ownerRequired under Owner; Record the conversation sends when, what was covered and who else was there",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true, findingsSeed: true } });
+      try {
+        await openTab(app.page, "findingsdue", language);
+        const up = await shows(app.page, "[data-follow-ups] [data-follow-up-row]", 8000);
+        const order = up ? await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-follow-up-row]")).map(r => r.getAttribute("data-follow-up-row"))) : [];
+        expect("the ones with no follow-up first, then the late one, then the rest", JSON.stringify(order) === JSON.stringify(["fnd-o1", "fnd-m3", "fnd-o2", "fnd-m2"]), JSON.stringify(order));
+        if (!up) return;
+        await spokenHere(app, language, expect);
+        await fuTap(app.page, '[data-follow-up-open="fnd-o1"]');
+        await shows(app.page, '[data-follow-up-row="fnd-o1"] [data-follow-up-panel="choose"] select', 6000);
+        const topic = await app.page.evaluate(() => { const s = document.querySelector('[data-follow-up-row="fnd-o1"] select'); return s ? s.value : null; });
+        expect("Training starts on the finding's suggested topic, read from its inspection", topic === FOLLOW_UP_TOPICS[1].id, String(topic));
+        await fuTap(app.page, '[data-follow-up-send="fnd-o1"]');
+        const words = FOLLOW_UP_REFUSALS["inspections.ownerRequired"][language];
+        const under = await waitOn(app.page, (w) => Array.from(document.querySelectorAll('[data-follow-up-row="fnd-o1"] [role="alert"]')).some(a => a.innerText.trim() === w), words, 6000);
+        expect("with no owner, the API's ownerRequired is said under Owner", under, String(await textAt(app.page, '[data-follow-up-row="fnd-o1"]')));
+        await app.page.evaluate(() => { const r = document.querySelector('[data-follow-up-row="fnd-o1"] [data-pick-row="s-04"]'); if (r) r.click(); });
+        await pause(app.page, 300);
+        await fuTap(app.page, '[data-follow-up-send="fnd-o1"]');
+        await waitOn(app.page, () => !document.querySelector('[data-follow-up-panel="choose"]'), null, 6000);
+        const chose = fuCalls(app.stub, "follow-up").map(c => c.body);
+        expect("Save sends the kind, the topic and the owner", JSON.stringify(chose[chose.length - 1]) === JSON.stringify({ kind: "training", topicId: FOLLOW_UP_TOPICS[1].id, ownerId: "s-04" }), JSON.stringify(chose));
+        await pause(app.page, 800);
+        const o1 = await textAt(app.page, '[data-follow-up-row="fnd-o1"]');
+        expect("the finding then reads its training and its owner", has(String(o1), say("Training: {topic}", language).replace("{topic}", fuTopicName(1, language))) && has(String(o1), "Dana Dale"), String(o1));
+        await fuTap(app.page, '[data-follow-up-record="fnd-o2"]');
+        await shows(app.page, '[data-follow-up-panel="record"]', 6000);
+        await fuTap(app.page, '[data-follow-up-save="fnd-o2"]');
+        await pause(app.page, 400);
+        expect("What was covered left empty is said on the phone and nothing is sent", fuCalls(app.stub, "conversation").length === 0 && has(String(await textAt(app.page, '[data-follow-up-panel="record"]')), say("Say what was covered.", language)), String(await textAt(app.page, '[data-follow-up-panel="record"]')));
+        await type(app.page, '[data-follow-up-panel="record"] textarea', "Invented: the bins are emptied at eleven and at three.");
+        await type(app.page, '[data-follow-up-panel="record"] input:not([type="datetime-local"])', "Invented: the site lead");
+        await fuTap(app.page, '[data-follow-up-save="fnd-o2"]');
+        await waitOn(app.page, () => !document.querySelector('[data-follow-up-panel="record"]'), null, 6000);
+        const talk = fuCalls(app.stub, "conversation").map(c => c.body);
+        const b = talk[talk.length - 1] || {};
+        expect("Save sends when it was held, with its zone, what was covered and who else was there", talk.length === 1 && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(b.heldAt || "") && b.covered === "Invented: the bins are emptied at eleven and at three." && b.othersPresent === "Invented: the site lead", JSON.stringify(talk));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART388_S1_JOURNEYS);
+// A supervisor's Issues lists the site's issues, an inspection finding
+// among them (the API's GET /api/issues answers it); its row opens
+// Findings to follow up at it, with no issue sheet to assign or resolve
+// it.
+const PART388_S1B_JOURNEYS = [
+  {
+    id: "findingrow",
+    label: "A finding on a supervisor's Issues (API Round 12): its row opens Findings to follow up at that finding, with no issue sheet to assign or resolve it",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, issueSheet: true, findingsSeed: true } });
+      try {
+        const nine = app.stub.state.sheetIssues.find(i => i.id === "fnd-9");
+        app.stub.state.findingRows.push(Object.assign({}, nine, { _card: { itemId: "iw-1", label: nine.title, zone: nine.zone, score: 2, maxScore: 5 }, _inspection: { scheduledInspectionId: "in-walk", templateName: "Invented monthly walk", completedAt: nine.reported_at, inspector: { id: "s-05", name: "Eve Everett" } } }));
+        await openTab(app.page, "issues", language);
+        const row = await shows(app.page, '[data-issue-row="fnd-9"]', 8000);
+        expect("Issues lists the finding as the API answers it", row, (await bodyText(app.page)).slice(0, 300));
+        if (!row) return;
+        await app.page.click('[data-issue-row="fnd-9"]');
+        const there = await shows(app.page, '[data-follow-ups] [data-follow-up-row="fnd-9"]', 8000);
+        await pause(app.page, 600);
+        const sheet = await app.page.evaluate(() => !!document.querySelector('[data-issue-sheet="fnd-9"]'));
+        expect("its row opens Findings to follow up at it, and no issue sheet", there && !sheet, JSON.stringify({ there, sheet }));
+        await spokenWithin(app, language, expect, '[data-follow-up-row="fnd-9"]');
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART388_S1B_JOURNEYS);
+
+// --- Round 11 of the staff app (part 388), section 2 ----------------------
+//
+// The test site for a test account (ocsa-api Round 12, part 382, 3.1 and
+// 3.2): user.isTestAccount, and is_test, isTest and site_is_test on every
+// site list and schedule read. Fails on the main of part 383, which read
+// GET /api/sites a second time to find the test site and never marked a
+// schedule or shift board row.
+const TEST_CREW = Object.assign({}, ROUND1_SUPERVISOR, { id: "u-test-crew", isTestAccount: true });
+const sitesRead = (stub) => stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/sites").length;
+const PART388_S2_JOURNEYS = [
+  {
+    id: "testflags",
+    label: "The test site from the API's own flags (API Round 12, 3.1 and 3.2): a real supervisor never sees it in the field kit's sites or on the shift board, with no second read of the sites; a test account sees it marked [TEST] in the field kit, on its schedule and on the shift board",
+    run: async (open, language, expect) => {
+      const marked = say("[TEST] {name}", language).replace("{name}", TEST_NAME);
+      const real = await open({ stubOptions: { person: ROUND1_SUPERVISOR, testSite: true, fieldKit: true } });
+      try {
+        if (!(await openTab(real.page, "fieldkit", language))) { expect("the field kit opens", false, "no field kit"); return; }
+        await shows(real.page, "#ocsa-fk-site", 8000);
+        await pause(real.page, 600);
+        const kit = await real.page.evaluate(() => { const sel = document.querySelector("#ocsa-fk-site"); return sel ? Array.from(sel.options).map(o => o.value + "|" + o.textContent) : null; });
+        expect("the field kit's sites never have the test site, read from its isTest", !!kit && kit.length === 3 && !kit.some(o => o.indexOf("site-test|") === 0 || has(o, TEST_NAME)), JSON.stringify(kit));
+        expect("with no second read of GET /api/sites", sitesRead(real.stub) === 0, String(sitesRead(real.stub)));
+        await openTab(real.page, "pickup", language);
+        await pause(real.page, 1500);
+        const board = await textAt(real.page, ".sp-content");
+        expect("the shift board leaves the test site's shift out", has(String(board), "South Building") && !has(String(board), TEST_NAME), String(board).slice(0, 300));
+      } finally { await real.context.close(); }
+      const crew = await open({ stubOptions: { person: TEST_CREW, testSite: true, fieldKit: true } });
+      try {
+        if (!(await openTab(crew.page, "fieldkit", language))) { expect("the field kit opens for the test account", false, "no field kit"); return; }
+        await shows(crew.page, "#ocsa-fk-site", 8000);
+        await pause(crew.page, 600);
+        const kit = await crew.page.evaluate(() => { const sel = document.querySelector("#ocsa-fk-site"); return sel ? Array.from(sel.options).map(o => o.value + "|" + o.textContent) : null; });
+        expect("a test account's field kit marks the test site [TEST]", !!kit && kit.some(o => o === "site-test|" + marked) && kit.length === 4, JSON.stringify(kit));
+        await openTab(crew.page, "pickup", language);
+        await pause(crew.page, 1500);
+        const board = await textAt(crew.page, ".sp-content");
+        expect("its shift board marks the test site's shift [TEST]", has(String(board), marked), String(board).slice(0, 400));
+        await spokenHere(crew, language, expect);
+        await openTab(crew.page, "schedule", language);
+        await pause(crew.page, 1500);
+        const shown = await crew.page.evaluate((w) => document.body.innerText.indexOf(w) !== -1, marked);
+        let day = shown;
+        if (!shown) {
+          await crew.page.evaluate(() => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => /\b3\b/.test(x.innerText) && x.innerText.length < 40); if (b) b.click(); });
+          await pause(crew.page, 900);
+          day = await crew.page.evaluate((w) => document.body.innerText.indexOf(w) !== -1, marked);
+        }
+        expect("its schedule marks its shift at the test site [TEST]", day, (await bodyText(crew.page)).slice(0, 400));
+        expect("and nothing read GET /api/sites a second time", sitesRead(crew.stub) === 0, String(sitesRead(crew.stub)));
+      } finally { await crew.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART388_S2_JOURNEYS);
+
+// --- Round 11 of the staff app (part 388), section 3 ----------------------
+//
+// A kept walk's photos signed in one read (ocsa-api Round 12, part 382,
+// section 4): POST /api/uploads/sign { paths } as the walk opens. Fails
+// on the main of part 383, which asked one read a photo.
+const PART388_S3_JOURNEYS = [
+  {
+    id: "photosonce",
+    label: "A kept walk's photos signed in one read (API Round 12, POST /api/uploads/sign { paths }): reopened an hour later, its three photos whose links ran out are signed in one read, in order; two are drawn from their fresh links, and the one the API answers null reads as the photo that can no longer be shown",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true } });
+      try {
+        await openTab(app.page, "inspect", language);
+        if (!(await openInspectionNamed(app, INSPECTION_PLAIN.template_name))) { expect("the walk opens", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        await scoreCard(app, "ip-1", 5);
+        for (let i = 0; i < 3; i += 1) {
+          await pickWalkPhoto(app, "ip-1");
+          await app.page.waitForFunction((n) => document.querySelectorAll("[data-inspect-shot]").length >= n, i + 1, { timeout: 8000 }).catch(() => {});
+          await pause(app.page, 300);
+        }
+        await pause(app.page, 600);
+        const key = keptWalkKey(ROUND1_SUPERVISOR, INSPECTION_PLAIN.id);
+        const kept = await readKeptWalk(app, key);
+        const shots = kept && kept.shots && Array.isArray(kept.shots["item:ip-1"]) ? kept.shots["item:ip-1"] : [];
+        const paths = shots.map(x => x.path);
+        expect("three photos are kept on the phone, each with its path", paths.length === 3 && paths.every(p => /^task-media\//.test(String(p || ""))), JSON.stringify(paths));
+        if (paths.length !== 3) return;
+        // An hour on: every link the phone kept has run out at the stub, and
+        // the third photo's object is gone from storage.
+        app.stub.state.now = NOW.getTime() + HOUR_ON;
+        app.stub.state.photoLost.push(paths[2]);
+        await ageKeptWalk(app, key, HOUR_ON);
+        await reloadApp(app);
+        await openTab(app.page, "inspect", language);
+        if (!(await openWalkAgain(app, INSPECTION_PLAIN.template_name, language))) { expect("the walk opens again", false, (await bodyText(app.page)).slice(0, 300)); return; }
+        const gone = await shows(app.page, "[data-inspect-shot-gone]", 8000);
+        await app.page.waitForFunction(() => Array.from(document.querySelectorAll("img[data-inspect-shot]")).filter(i => i.complete && i.naturalWidth > 0).length >= 2, null, { timeout: 8000 }).catch(() => {});
+        const reads = sent(app.stub, "POST", "/api/uploads/sign").map(c => c.body);
+        expect("the three are signed in one read, by their paths in order", reads.length === 1 && JSON.stringify(reads[0]) === JSON.stringify({ paths: paths }), JSON.stringify(reads));
+        const now = await app.page.evaluate(() => Array.from(document.querySelectorAll("img[data-inspect-shot]")).map(i => ({ src: i.getAttribute("src"), loaded: i.complete && i.naturalWidth > 0 })));
+        expect("two are drawn from their fresh links", now.length === 2 && now.every(x => x.loaded) && now.every(x => shots.slice(0, 2).every(k => tokenOf(k.url) !== tokenOf(x.src))), JSON.stringify(now));
+        const line = gone ? await textAt(app.page, "[data-inspect-shot-gone]") : "";
+        expect("the one answered null reads as the photo that can no longer be shown, with Take it again", gone && has(String(line), say("This photo can no longer be shown. Take it again.", language)) && has(String(line), say("Take it again", language)), String(line));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART388_S3_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };

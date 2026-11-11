@@ -125,6 +125,10 @@ const SCREEN_CASES = [
   { id: "support", kind: "tab", label: "App support", own: { stubOptions: { support: true } } },
   { id: "library", kind: "tab", label: "Library", own: { stubOptions: { library: true } } },
   { id: "supplyorders", kind: "tab", label: "Approve supplies", own: { stubOptions: { person: ORDER_HOLDER, supplyOrders: true } } },
+  // Part 388 (API Round 12): My findings for the person whose work it was,
+  // and Findings to follow up for a supervisor.
+  { id: "myfindings", kind: "tab", label: "My findings", own: { stubOptions: { findingsSeed: true } } },
+  { id: "findingsdue", kind: "tab", label: "Findings to follow up", own: { stubOptions: { person: SUPERVISOR, findingsSeed: true } } },
   { id: "equipment", kind: "tab", label: "An equipment label", own: { stubOptions: { equipment: true }, path: "/eq/" + EQ_CODE } },
 ];
 

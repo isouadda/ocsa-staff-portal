@@ -1,0 +1,29 @@
+# The robot's merge run (part 388): on every push to main, start the
+# robot's journeys workflow in isouadda/ocsa-journeys for the staff app,
+# at the commit that was pushed. The one secret it reads is
+# ROBOT_DISPATCH_TOKEN. While that secret is not set, the job says so in
+# one line and succeeds, so a merge before the robot's setup never fails.
+name: Journeys after merge
+
+on:
+  push:
+    branches: [main]
+
+# The run needs nothing of this repository: the dispatch goes to the
+# robot's repository with the robot's own token.
+permissions: {}
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Start the robot's merge run
+        env:
+          GH_TOKEN: ${{ secrets.ROBOT_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "ROBOT_DISPATCH_TOKEN is not set, so the robot's merge run was not started."
+            exit 0
+          fi
+          gh workflow run journeys.yml --repo isouadda/ocsa-journeys --ref main -f trigger=merge -f app=staffApp -f commit="$GITHUB_SHA"

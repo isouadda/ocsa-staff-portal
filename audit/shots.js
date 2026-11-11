@@ -743,10 +743,11 @@ const SHOTS = [
     go: async (s) => { if (!(await openAssigned(s))) return false; await s.tap(s.say("Cannot Resolve")); return s.waitText(s.say("Submit")); } },
   // Step 281: a refill with two items, against an API that takes items,
   // and the person's own requests with the office's decisions.
-  // Step 297: Assigned with a task, an issue and a finding, each once;
-  // an issue's sheet opened from it; and Issues for a supervisor.
+  // Step 297: Assigned with a task and an issue, each once (since part
+  // 388 the finding assigned to the person is never on it); an issue's
+  // sheet opened from it; and Issues for a supervisor.
   { name: "assigned-list", entry: E("See everything assigned to you"), o: { signedIn: true, stub: { issueSheet: true } },
-    go: async (s) => { if (!(await s.go("Assigned"))) return false; return s.waitFor(() => document.querySelectorAll("[data-work-row]").length === 3); } },
+    go: async (s) => { if (!(await s.go("Assigned"))) return false; return s.waitFor(() => document.querySelectorAll("[data-work-row]").length === 2); } },
   { name: "issue-sheet", entry: E("Work an issue from its sheet"), o: { signedIn: true, stub: { issueSheet: true } },
     go: async (s) => {
       if (!(await s.go("Assigned"))) return false;
@@ -969,13 +970,24 @@ const SHOTS = [
     } },
   { name: "client-request-mine", entry: E("Work a client request assigned to you"), o: { signedIn: true, stub: { requests: true }, path: "/requests/cr-3" },
     go: (s) => s.waitFor(() => !!document.querySelector('[data-request-row="cr-3"]')) },
-  { name: "finding-mine", entry: E("Fix an inspection finding assigned to you"), o: { signedIn: true, stub: { findings: true } },
+  // Part 388 (API Round 12): My findings, the conversation waiting for the
+  // person in view with Confirm we talked.
+  { name: "my-findings", entry: E("See the findings about your work"), o: { signedIn: true, stub: { findingsSeed: true } },
     go: async (s) => {
-      s.stub.state.findingRows.push({ id: "fnd-1", site_id: "site-north", site_name: "North Building", title: INSPECTION_F.items[0].label, description: "", zone: INSPECTION_F.items[0].zone || null, severity: "medium", status: "open", source: "inspection", reference: null,
-        reported_at: "2026-10-01T20:00:00.000Z", reported_by: "u-shots-sup", assigned_to: "u-one", assigned_to_name: "Alex Tester", due_at: "2026-10-04T20:00:00.000Z", due_state: "onTime", first_response_at: "2026-10-01T20:00:00.000Z", resolved_at: null, resolved_by: null, verified_at: null, verified_by_name: null, item_score_id: "sc-if-1", corrective_action_id: null, photos: [] });
-      if (!(await s.go("Report"))) return false;
-      if (!(await s.waitFor(() => !!document.querySelector('[data-finding-row="fnd-1"]')))) return false;
-      await s.page.evaluate(() => document.querySelector('[data-finding-row="fnd-1"]').scrollIntoView({ block: "center" }));
+      if (!(await s.go("My findings"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-finding-confirm="fnd-m1"]')))) return false;
+      await s.page.evaluate(() => { document.querySelector('[data-my-finding="fnd-m1"]').scrollIntoView({ block: "start" }); window.scrollBy(0, -96); });
+      return true;
+    } },
+  // Part 388: Findings to follow up for a supervisor, Choose a follow-up
+  // open on the finding with no owner.
+  { name: "findings-follow-up", entry: E("Follow up an inspection finding"), o: { signedIn: true, stub: { findingsSeed: true, inspectionWalk: true, person: SUPERVISOR } },
+    go: async (s) => {
+      if (!(await s.go("Findings to follow up"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-follow-up-open="fnd-o1"]')))) return false;
+      await s.page.click('[data-follow-up-open="fnd-o1"]');
+      if (!(await s.waitFor(() => !!document.querySelector('[data-follow-up-row="fnd-o1"] [data-follow-up-panel="choose"] select')))) return false;
+      await s.page.evaluate(() => { document.querySelector('[data-follow-up-row="fnd-o1"]').scrollIntoView({ block: "start" }); window.scrollBy(0, -96); });
       return true;
     } },
 
