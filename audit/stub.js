@@ -659,7 +659,18 @@ const TRAINING_REFUSALS = {
   // translation/api_words.csv.
   "training.attemptClosed": { status: 409, en: "This quiz is already finished, so it takes no more answers. Here is how it stands.", es: "Este cuestionario ya termin\u00f3 y no acepta m\u00e1s respuestas. As\u00ed est\u00e1 ahora." },
   "training.signatureNotStored": { status: 503, en: "Your signature could not be saved just now. Nothing was lost: sign again.", es: "No se pudo guardar su firma en este momento. No se perdi\u00f3 nada: firme de nuevo." },
+  // Part 383 (API part 378): the certificate route's refusals, in the
+  // API's own words from its translation/api_words.csv.
+  "training.badDetails": { status: 400, en: "Some details are missing or not valid", es: "Faltan algunos datos o no son v\u00e1lidos" },
+  "training.badFile": { status: 400, en: "Send a PDF, JPEG or PNG file", es: "Env\u00ede un archivo PDF, JPEG o PNG" },
+  "training.fileTooLarge": { status: 400, en: "The file is larger than 10 MB", es: "El archivo pesa m\u00e1s de 10 MB" },
+  "training.topicNotFound": { status: 404, en: "Training not found", es: "No se encontr\u00f3 la capacitaci\u00f3n" },
+  "training.notOutsideCourse": { status: 409, en: "This training is not an outside course, so a certificate cannot be uploaded for it.", es: "Esta capacitaci\u00f3n no es un curso externo, as\u00ed que no se puede subir un certificado para ella." },
 };
+// Part 383: the topic the stub marks as an outside course behind
+// outsideCourse. Live marks none yet (API part 378: the column is new and
+// false), so a case that wants one turns the switch on.
+const OUTSIDE_TOPIC = "tp-5";
 // Step 264: the Step 262 contract's answers behind the training switch,
 // every value invented. A session another trainer opened at North
 // Building, which a person joins by its code; the sessions a supervisor
@@ -1792,6 +1803,13 @@ function makeState(opts) {
     answersLoseNext: Number(o.answersLoseNext) || 0,
     trainingVoided: Number(o.trainingVoided) || 0,
     trainingNone: o.trainingNone === true,
+    // Part 383 (API part 378): outsideCourse marks OUTSIDE_TOPIC as an
+    // outside course; certificates holds every certificate the person
+    // uploaded, as POST /api/training/certificates took it; certificateFault
+    // names a refusal code the route answers next, once.
+    outsideCourse: o.outsideCourse === true,
+    certificates: [],
+    certificateFault: o.certificateFault || null,
     // Step 261: every attempt on a lesson, seeded with the one another
     // person passed and signed, waiting for a supervisor's sign-off.
     trainingAttempts: o.training === true ? [Object.assign({}, TRAINING_AWAITING)] : [],
@@ -3124,7 +3142,9 @@ const TWIN_PAIRS = [
   // Part 375: the training refusals API part 374 added.
   .concat(["training.attemptClosed", "training.signatureNotStored"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]))
   // Part 380: the two refusals of POST /api/uploads/sign (API Round 10).
-  .concat(Object.keys(UPLOAD_SIGN_REFUSALS).map(k => [UPLOAD_SIGN_REFUSALS[k].en, UPLOAD_SIGN_REFUSALS[k].es]));
+  .concat(Object.keys(UPLOAD_SIGN_REFUSALS).map(k => [UPLOAD_SIGN_REFUSALS[k].en, UPLOAD_SIGN_REFUSALS[k].es]))
+  // Part 383: the certificate route's refusals (API part 378).
+  .concat(["training.badDetails", "training.badFile", "training.fileTooLarge", "training.topicNotFound", "training.notOutsideCourse"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -5406,6 +5426,14 @@ function createStub(opts) {
       if (!state.training) return json(404, { error: "Not found" });
       if (state.trainingNone) return json(200, { asOf: TRAINING_ME.asOf, items: [], records: [], attempts: [] });
       const me = JSON.parse(JSON.stringify(TRAINING_ME));
+      // Part 383 (API part 378): every GapItem answers outsideCourse; an
+      // uploaded certificate is the item's record, and the item is current.
+      me.items.forEach(item => { item.outsideCourse = state.outsideCourse && item.topicId === OUTSIDE_TOPIC; });
+      state.certificates.forEach(c => {
+        const item = me.items.find(i => i.topicId === c.topicId);
+        if (item) Object.assign(item, { status: "current", completedDate: c.record.completedDate, expiresOn: c.record.expiresOn, recordId: c.record.id });
+        me.records.unshift(Object.assign({}, c.record));
+      });
       me.items.forEach(item => {
         const lesson = TRAINING_LESSONS.find(l => l.topicId === item.topicId);
         if (!lesson) return;
@@ -5682,6 +5710,37 @@ function createStub(opts) {
           questions: lesson.questions.map(qn => ({ key: qn.key, text: inLoc(qn.text), options: qn.options.map(o => ({ value: o.value, text: inLoc(o.text) })) })),
           acknowledgement: inLoc(lesson.acknowledgement), passPercent: lesson.passPercent, needsTrainer: lesson.needsTrainer, attemptsUsed: tries.used, attemptsLeft: tries.left,
         } });
+      }
+      // Part 383 (API part 378, routes/training.js): the person's own
+      // certificate for an outside course, multipart, read in the route's
+      // order: the file's size, the fields (topicId, completedDate no later
+      // than today on the company's clock), the topic, whether it is an
+      // outside course, a per-site topic's siteId, then the file's kind
+      // from its first bytes. 201 { record } as recordView answers it.
+      if (key === "POST /api/training/certificates") {
+        if (state.certificateFault) { const k = state.certificateFault; state.certificateFault = null; return refuse(k, k === "training.badDetails" ? { keys: ["completedDate"] } : k === "training.badFile" ? { keys: ["file"] } : null); }
+        const parts = multipartParts(body, headers);
+        const fieldOf = (n) => { const p = parts.find(x => x.name === n && x.filename === null); return p ? p.bytes.toString("utf8").trim() : ""; };
+        const files = parts.filter(x => x.filename !== null);
+        if (files.length > 1 || files.some(x => x.name !== "file")) return refuse("training.badFile", { keys: ["file"] });
+        if (files[0] && files[0].bytes.length > 10 * 1024 * 1024) return refuse("training.fileTooLarge");
+        const topicId = fieldOf("topicId"), completedDate = fieldOf("completedDate"), siteId = fieldOf("siteId");
+        const keys = [];
+        if (!topicId) keys.push("topicId");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(completedDate) || completedDate > zoneDate(clockNow())) keys.push("completedDate");
+        if (keys.length > 0) return refuse("training.badDetails", { keys: keys });
+        const item = TRAINING_ME.items.find(i => i.topicId === topicId);
+        if (!item) return refuse("training.topicNotFound");
+        if (!(state.outsideCourse && item.topicId === OUTSIDE_TOPIC)) return refuse("training.notOutsideCourse");
+        if (item.siteId && !siteId) return refuse("training.badDetails", { keys: ["siteId"] });
+        const f = files[0] || null;
+        const pdf = !!f && f.bytes.length >= 8 && f.bytes.toString("latin1", 0, 5) === "%PDF-";
+        const pic = f ? sniffImage(f.bytes) : null;
+        const ext = pdf ? "pdf" : pic && (pic.ext === "jpg" || pic.ext === "png") ? pic.ext : pic && pic.heic ? "jpg" : null;
+        if (!ext) return refuse("training.badFile", { keys: ["file"] });
+        const record = { id: "tr-cert-" + (state.certificates.length + 1), name: item.name, completedDate: completedDate, expiresOn: null, score: null, siteName: null, locale: null, certificate: true, certificateBy: "person" };
+        state.certificates.push({ topicId: topicId, completedDate: completedDate, siteId: siteId || null, ext: ext, type: f.type, bytes: f.bytes.length, name: f.filename, record: record });
+        return json(201, { record: Object.assign({}, record) });
       }
       if (key === "POST /api/training/attempts") {
         const lesson = TRAINING_LESSONS.find(l => body && l.versionId === body.versionId);

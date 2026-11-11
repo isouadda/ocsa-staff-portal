@@ -1444,6 +1444,41 @@ Five journeys, in English and Spanish, each failing on the main of part
 - `schedheight` (PORT-67): Schedule Inspection at the Largest size on a
   375 by 560 phone keeps its top and title on the screen.
 
+## A certificate from an outside course (part 383, section 1)
+
+Since ocsa-api Round 11 (part 378, #161, `routes/training.js`) every
+item of `GET /api/training/me` answers `outsideCourse`, and `POST
+/api/training/certificates` takes the person's own certificate,
+multipart: `file`, `topicId`, `completedDate` and `siteId` for a
+per-site topic, answered `201 { record }`. Live marks no topic yet, so
+`outsideCourse` marks the stub's invented mandated reporter course
+(`OUTSIDE_TOPIC`, tp-5). The route reads in the API's order: the file's
+size (10 MB, `training.fileTooLarge`), the fields (400
+`training.badDetails` with keys, the day no later than today on the
+company's clock), the topic (404 `training.topicNotFound`), whether it is
+an outside course (409 `training.notOutsideCourse`), a per-site topic's
+`siteId`, then the file's kind from its first bytes (PDF, JPEG, PNG or a
+HEIC, else 400 `training.badFile`), every refusal in the API's own words.
+What it took is kept in `state.certificates`, and the item then reads
+current with the record first. `certificateFault` names a refusal the
+route answers once.
+
+Two journeys, in English and Spanish, each failing on the main of part
+380:
+
+- `certificate`: the outside course offers Upload your certificate and
+  says to upload it here; Send with nothing chosen asks for the file and
+  the day and sends nothing; an iPhone HEIC is made a JPEG; the API's
+  `training.badDetails` reads under the day; Send tapped twice at once
+  sends once; the screen says the certificate is in and the item reads
+  done, read again from the API.
+- `certpdf`: a PDF goes as it is, and `training.notOutsideCourse` reads
+  above the button with the form kept.
+
+The Spanish check of these two looks at the upload and the line under
+it, since each row of My training carries its document code and
+section as the API sends them.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

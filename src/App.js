@@ -10221,8 +10221,10 @@ function trainingItemOf(x) {
   // in the category; and the observation checklist whose sign-off stands
   // in for this topic's.
   const signoff = x.signoffBy && typeof x.signoffBy === "object" && typeof x.signoffBy.name === "string" && x.signoffBy.name.trim() ? { topicId: trainingId(x.signoffBy, ["topicId"]), name: x.signoffBy.name.trim() } : null;
+  // Part 383 (API part 378): outsideCourse, the topic marked as a course
+  // taken elsewhere, whose certificate the person uploads themselves.
   return { id: topicId + ":" + siteId, topicId: topicId, siteId: siteId, name: name, docCode: str("docCode"), docSection: str("docSection"), safetyCritical: x.safetyCritical === true, siteName: str("siteName"), status: str("status"), completedDate: str("completedDate"), expiresOn: str("expiresOn"), linkUrl: /^https:\/\//i.test(link) ? link : "", attemptId: trainingId(x, ["attemptId"]), recordId: trainingId(x, ["recordId"]), lesson: trainingLessonLinkOf(x.lesson),
-    category: str("category") || "other", sortOrder: trainingNum(x.sortOrder), needsTrainer: x.needsTrainer === true, signoffBy: signoff };
+    category: str("category") || "other", sortOrder: trainingNum(x.sortOrder), needsTrainer: x.needsTrainer === true, signoffBy: signoff, outsideCourse: x.outsideCourse === true };
 }
 // One of the portal's categories as GET /api/training/me answers it: the
 // counts of the person's items in it, and the first module still to do.
@@ -10339,6 +10341,122 @@ const trainingTries = (n) => (n === 1 ? tr("1 try left") : tr("{n} tries left", 
 // their try back but keep their numbers, which can run past 100.
 const trainingTriesUsed = (n) => tr("Tries used: {n}", { n: Math.max(0, Number(n) || 0) });
 
+// ------------------------------------------------------------
+// A certificate from an outside course (part 383, section 1; ocsa-api
+// part 378, POST /api/training/certificates). An item whose topic the
+// office marked as an outside course (outsideCourse) offers Upload your
+// certificate: the file, taken or picked (a PDF, a JPEG or a PNG; a photo
+// is made ready as every photo is, an iPhone HEIC made a JPEG on the
+// phone first), and the day the course was finished, no later than today
+// on the company's clock. It goes once, multipart: file, topicId,
+// completedDate, and siteId for a per-site item. 201 { record }: the item
+// reads done. Every refusal is the API's own words: under the field its
+// keys name (training.badDetails), under the file (training.badFile,
+// training.fileTooLarge), or above the button (training.topicNotFound,
+// training.notOutsideCourse, and the rest).
+// ------------------------------------------------------------
+const CERT_MAX_BYTES = 10 * 1024 * 1024;
+const certIsPdf = (f) => /^application\/pdf$/i.test(f.type || "") || /\.pdf$/i.test(f.name || "");
+const CERT_FIELD_KEYS = { file: "file", completedDate: "completedDate" };
+function certFaults(err) {
+  if (err && err.message === ERR_OFFLINE) return { above: tr(ERR_OFFLINE) };
+  const said = fkSaidOf(err) || tr("Your certificate was not sent. Try again.");
+  const code = err && err.code;
+  if (code === "training.badFile" || code === "training.fileTooLarge") return { file: said };
+  if (code === "training.badDetails") {
+    const keys = Array.isArray(err.body && err.body.keys) ? err.body.keys.map(String) : [];
+    const out = {};
+    keys.forEach(k => { if (CERT_FIELD_KEYS[k]) out[CERT_FIELD_KEYS[k]] = said; });
+    if (keys.length === 0 || keys.some(k => !CERT_FIELD_KEYS[k])) out.above = said;
+    return out;
+  }
+  return { above: said };
+}
+function TrainingCertificate({ token, item, onSent, t }) {
+  const [open, setOpen] = useState(false);
+  const [file, setFile] = useState(null);
+  const [day, setDay] = useState("");
+  const [state, setState] = useState("idle");
+  const [faults, setFaults] = useState({});
+  const photoRef = useRef(null), docRef = useRef(null);
+  // One tap, one send: a second tap before the screen redraws sends nothing.
+  const sending = useRef(false);
+  useBusy("certificate " + item.id, open && (!!file || !!day));
+  const today = companyYmdAt(Date.now());
+  const tooBig = () => tr("This file is over {mb} MB. Choose a smaller photo or file.", { mb: 10 });
+  const choose = async (f) => {
+    if (!f) return;
+    setFaults({});
+    if (certIsPdf(f)) { if (f.size > CERT_MAX_BYTES) { setFile(null); setFaults({ file: tooBig() }); } else setFile(f); return; }
+    setState("preparing");
+    try {
+      const ready = await prepareFormPhoto(f);
+      if (ready.size > CERT_MAX_BYTES) { setFile(null); setFaults({ file: tooBig() }); } else setFile(ready);
+    } catch (e) { setFile(null); setFaults({ file: tr(photoFaultOf(e)) }); }
+    setState("idle");
+  };
+  const close = () => { if (state === "sending") return; setOpen(false); setFile(null); setDay(""); setFaults({}); };
+  const send = async () => {
+    if (sending.current || state !== "idle") return;
+    const miss = {};
+    if (!file) miss.file = tr("Choose a file first.");
+    if (!YMD_RE.test(day) || day > today) miss.completedDate = tr("Choose the day you finished the course.");
+    if (Object.keys(miss).length > 0) { setFaults(miss); return; }
+    sending.current = true;
+    setState("sending"); setFaults({});
+    try {
+      const fields = { topicId: item.topicId, completedDate: day };
+      if (item.siteId) fields.siteId = item.siteId;
+      const d = await apiUpload("/api/training/certificates", "file", [file], { token, fields: fields });
+      setOpen(false); setFile(null); setDay("");
+      onSent(item, d && d.record && typeof d.record === "object" ? d.record : null, day);
+    } catch (err) {
+      setFaults(certFaults(err));
+    } finally { sending.current = false; setState("idle"); }
+  };
+  const off = state !== "idle";
+  const pickSt = { width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", marginBottom: 8, borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: off ? "default" : "pointer", fontFamily: FONT_HEAD, textAlign: "left" };
+  const pick = (ref) => { if (ref.current && !off) ref.current.click(); };
+  if (!open) {
+    return (
+      <div style={{ display: "flex", marginTop: 10 }}>
+        <button type="button" data-training-cert-open={item.id} onClick={() => setOpen(true)} style={trainingGoldBtn}>{tr("Upload your certificate")}</button>
+      </div>
+    );
+  }
+  return (
+    <div role="group" aria-label={tr("Upload your certificate")} data-training-cert={item.id} style={{ marginTop: 10, padding: "12px", borderRadius: R.md, background: t.cardAlt, border: "1px solid " + t.goldBorder }}>
+      <div style={mkLabel(t)}>{tr("Your certificate")}</div>
+      {/* No capture attribute, so the phone offers the camera and the
+          gallery both; the second takes a PDF from the phone's files. */}
+      <input ref={photoRef} type="file" accept="image/*" data-training-cert-photo={item.id} style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; choose(f); }} />
+      <input ref={docRef} type="file" accept="application/pdf,image/jpeg,image/png,image/heic,image/heif,.pdf,.heic,.heif" data-training-cert-file={item.id} style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; choose(f); }} />
+      <button type="button" onClick={() => pick(photoRef)} aria-disabled={off} style={pickSt}><CamIco sz={16} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("Take photo or choose from gallery")}</span></button>
+      <button type="button" onClick={() => pick(docRef)} aria-disabled={off} style={pickSt}><DocIco sz={16} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("Choose a document")}</span></button>
+      <div style={{ fontSize: 12, color: t.textMut, lineHeight: 1.5 }}>{tr("A PDF, or a photo of it. Up to 10 MB.")}</div>
+      {state === "preparing" && <div role="status" style={{ fontSize: 13, color: t.textMut, marginTop: 8 }}>{tr("Loading...")}</div>}
+      {file && (
+        <div data-training-cert-chosen={file.name} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginTop: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}>
+          <DocIco sz={18} c={t.goldText} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{file.name}</span>
+            <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2 }}>{wsSize(file.size)}</span>
+          </span>
+        </div>
+      )}
+      {faults.file && <div role="alert" data-training-cert-fault="file" style={mkFieldErr(t)}>{faults.file}</div>}
+      <label htmlFor={"ocsa-cert-day-" + item.id} style={{ ...mkLabel(t), display: "block", marginTop: 14 }}>{tr("The day you finished the course")}</label>
+      <input id={"ocsa-cert-day-" + item.id} type="date" data-training-cert-day={item.id} value={day} max={today} disabled={off} aria-invalid={!!faults.completedDate} onChange={e => { setDay(e.target.value); if (faults.completedDate) setFaults(f => ({ ...f, completedDate: null })); }} style={{ ...mkInput(t), minHeight: TAP, ...(faults.completedDate ? { border: "2px solid " + RED } : {}) }} />
+      {faults.completedDate && <div role="alert" data-training-cert-fault="completedDate" style={mkFieldErr(t)}>{faults.completedDate}</div>}
+      {faults.above && <div role="alert" data-training-cert-fault="above" style={{ ...mkFieldErr(t), marginTop: 12 }}>{faults.above}</div>}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+        <button type="button" onClick={close} disabled={state === "sending"} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+        <button type="button" data-training-cert-send={item.id} onClick={send} aria-disabled={off} style={wsMainBtn(t, off)}>{state === "sending" ? tr("Uploading...") : tr("Send the certificate")}</button>
+      </div>
+    </div>
+  );
+}
+
 function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   // Read again each time the screen opens, and each time a lesson is
   // left; a read that fails keeps what is on the screen and says so,
@@ -10350,6 +10468,8 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   // Join a session (Step 264): the code box open, and what is typed in it.
   const [joinOpen, setJoinOpen] = useState(false);
   const [joinCode, setJoinCode] = useState("");
+  // Part 383: the item whose certificate was just sent, said at the top.
+  const [certSent, setCertSent] = useState(null);
   // The training portal (Step 267, the Step 266 contract's section 8):
   // the category page open, from a card, a notice naming a topic, or
   // /training/c/<key>. The page is an entry in the phone's history, so the
@@ -10398,6 +10518,14 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
     return <TrainingLesson key={lesson.id + ":" + lesson.opened} token={token} item={lesson.item} siteId={lesson.item.siteId || shiftSiteId || null} backLabel={openCatOf ? openCatOf.name : ""} onBack={() => { setLesson(null); setAsked(n => n + 1); }} t={t} />;
   }
   const openLesson = (i) => setLesson({ id: i.id, item: i, opened: Date.now() });
+  // Part 383: a certificate the API took. The item reads done at once,
+  // its record leads History, and the list is read again.
+  const certDone = (item, record, day) => {
+    const rec = record ? trainingRecordOf(record) : null;
+    if (data) onData({ ...data, items: data.items.map(x => (x.id === item.id ? { ...x, status: "current", completedDate: (record && typeof record.completedDate === "string" && record.completedDate) || day, expiresOn: (record && typeof record.expiresOn === "string" && record.expiresOn) || "" } : x)), records: rec ? [rec].concat(data.records.filter(r => r.id !== rec.id)) : data.records });
+    setCertSent(item.id);
+    setAsked(n => n + 1);
+  };
   const bySafety = (a, b) => (b.safetyCritical ? 1 : 0) - (a.safetyCritical ? 1 : 0);
   const todo = items.filter(i => TRAINING_TODO.indexOf(i.status) !== -1).sort(bySafety);
   const waiting = items.filter(i => i.status === "awaitingTrainer");
@@ -10434,9 +10562,10 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
       {i.linkUrl && (
         <div style={{ marginTop: 10 }}>
           <a href={i.linkUrl} target="_blank" rel="noopener noreferrer" data-training-link={i.id} style={goldBtn}>{tr("Take the course online")}</a>
-          <div style={{ ...smallSt, fontSize: 12, marginTop: 6 }}>{tr("When you finish, give your certificate to the office.")}</div>
+          <div style={{ ...smallSt, fontSize: 12, marginTop: 6 }}>{i.outsideCourse ? tr("When you finish, upload your certificate here.") : tr("When you finish, give your certificate to the office.")}</div>
         </div>
       )}
+      {i.outsideCourse && TRAINING_CAN_START.indexOf(i.status) !== -1 && <TrainingCertificate key={i.id} token={token} item={i} onSent={certDone} t={t} />}
     </div>
   );
   const row = (i, group) => (
@@ -10513,6 +10642,11 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   );
   const title = <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("My training")}</div>;
   const faultPart = fault && <ListFault icon={BookIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />;
+  const certSentPart = certSent && (
+    <div role="status" data-training-cert-sent={certSent} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginTop: 8, marginBottom: 8, borderRadius: R.md, background: t.greenSubtle, border: "1px solid " + t.greenBorder, fontSize: 13, color: t.text, lineHeight: 1.45 }}>
+      <CheckIco sz={16} c={ink(t, GREEN)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("Certificate sent. This training is done.")}</span>
+    </div>
+  );
   // Opened before the list has ever come back, from a notice on a phone
   // just opened (PORT-30): the read is on its way, or it failed and says
   // so with Try again, and nothing reads as if nothing were required.
@@ -10538,6 +10672,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
         <div style={{ ...lineSt, marginTop: 2, marginBottom: 8 }}>{tr("{done} of {required} done", { done: c.done, required: c.required })}</div>
         <TrainingBar done={c.done} required={c.required} t={t} />
         {faultPart}
+        {certSentPart}
         <div style={{ marginTop: 14 }}>
           {modules.map(i => {
             const chip = trainingChip(i);
@@ -10573,7 +10708,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
     const go = data.continue;
     const goItem = go ? (() => {
       const found = items.find(i => i.topicId === go.topicId && (i.siteId || "") === (go.siteId || "")) || items.find(i => i.topicId === go.topicId) || null;
-      const standIn = { id: go.topicId + ":" + go.siteId, topicId: go.topicId, siteId: go.siteId, name: go.name, docCode: "", docSection: "", safetyCritical: false, siteName: "", status: go.attemptId ? "inProgress" : "missing", completedDate: "", expiresOn: "", linkUrl: "", attemptId: go.attemptId, lesson: null, category: go.category, sortOrder: null, needsTrainer: false, signoffBy: null };
+      const standIn = { id: go.topicId + ":" + go.siteId, topicId: go.topicId, siteId: go.siteId, name: go.name, docCode: "", docSection: "", safetyCritical: false, siteName: "", status: go.attemptId ? "inProgress" : "missing", completedDate: "", expiresOn: "", linkUrl: "", attemptId: go.attemptId, lesson: null, category: go.category, sortOrder: null, needsTrainer: false, signoffBy: null, outsideCourse: false };
       const base = found || standIn;
       return base.lesson ? base : { ...base, lesson: { versionId: go.versionId, kind: "", attemptsUsed: 0, attemptsLeft: 1 } };
     })() : null;
@@ -10581,6 +10716,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
       <div data-training="portal" style={{ padding: "14px 16px 100px" }}>
         {title}
         {faultPart}
+        {certSentPart}
         {cats.length > 0 && (
           <div data-training-overall={doneAll + "/" + required} style={{ ...fkRowSt(t), marginTop: 8 }}>
             <div style={{ ...nameSt, marginBottom: 8 }}>{tr("{done} of {required} trainings done", { done: doneAll, required: required })}</div>
@@ -10626,6 +10762,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
     <div data-training="1" style={{ padding: "14px 16px 100px" }}>
       {title}
       {faultPart}
+      {certSentPart}
       {joinPart}
       {docsPart}
       {signedPart}

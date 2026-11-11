@@ -1653,6 +1653,15 @@ export const WORDS = {
   "Safety walk done on {inspection} at {time}": "Recorrido de seguridad hecho en {inspection} a las {time}",
   "[TEST] {name}": "[TEST] {name}",
   "This iPhone photo needs signal to be made ready. Try again with signal, or choose a JPEG.": "Esta foto de iPhone necesita se\u00f1al para prepararse. Int\u00e9ntelo de nuevo con se\u00f1al, o elija un JPEG.",
+  "Upload your certificate": "Suba su certificado",
+  "Your certificate": "Su certificado",
+  "A PDF, or a photo of it. Up to 10 MB.": "Un PDF, o una foto del certificado. Hasta 10 MB.",
+  "The day you finished the course": "El d\u00eda en que termin\u00f3 el curso",
+  "Choose the day you finished the course.": "Elija el d\u00eda en que termin\u00f3 el curso.",
+  "Send the certificate": "Enviar el certificado",
+  "Certificate sent. This training is done.": "Certificado enviado. Esta capacitaci\u00f3n est\u00e1 hecha.",
+  "When you finish, upload your certificate here.": "Cuando termine, suba su certificado aqu\u00ed.",
+  "Your certificate was not sent. Try again.": "Su certificado no se envi\u00f3. Int\u00e9ntelo de nuevo.",
   },
 };
 
@@ -3184,6 +3193,15 @@ WORDS.fr = {
   "Safety walk done on {inspection} at {time}": "Tourn\u00e9e de s\u00e9curit\u00e9 faite sur {inspection} \u00e0 {time}",
   "[TEST] {name}": "[TEST] {name}",
   "This iPhone photo needs signal to be made ready. Try again with signal, or choose a JPEG.": "Cette photo d'iPhone a besoin de r\u00e9seau pour \u00eatre pr\u00e9par\u00e9e. R\u00e9essayez avec du r\u00e9seau, ou choisissez un JPEG.",
+  "Upload your certificate": "T\u00e9l\u00e9versez votre certificat",
+  "Your certificate": "Votre certificat",
+  "A PDF, or a photo of it. Up to 10 MB.": "Un PDF, ou une photo du certificat. Jusqu'\u00e0 10 Mo.",
+  "The day you finished the course": "Le jour o\u00f9 vous avez termin\u00e9 le cours",
+  "Choose the day you finished the course.": "Choisissez le jour o\u00f9 vous avez termin\u00e9 le cours.",
+  "Send the certificate": "Envoyer le certificat",
+  "Certificate sent. This training is done.": "Certificat envoy\u00e9. Cette formation est faite.",
+  "When you finish, upload your certificate here.": "Quand vous avez termin\u00e9, t\u00e9l\u00e9versez votre certificat ici.",
+  "Your certificate was not sent. Try again.": "Votre certificat n'a pas \u00e9t\u00e9 envoy\u00e9. R\u00e9essayez.",
 };
 
 // {name} is replaced after the language is chosen, so the

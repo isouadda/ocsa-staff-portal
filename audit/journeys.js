@@ -9597,4 +9597,102 @@ const PART380_S4_JOURNEYS = [
 ];
 JOURNEYS.push(...PART380_S4_JOURNEYS);
 
+// --- Round 10 of the staff app (part 383), section 1 ----------------------
+//
+// A certificate from an outside course (ocsa-api part 378, POST
+// /api/training/certificates). Live marks no topic as an outside course
+// yet, so the stub marks one behind outsideCourse. Fails on the main of
+// part 380, which offers no upload.
+const CERT_ITEM = "tp-5:";
+const CERT_PDF = "JVBERi0xLjQKJSBhbiBpbnZlbnRlZCBjZXJ0aWZpY2F0ZQoxIDAgb2JqIDw8IC9UeXBlIC9DYXRhbG9nID4+IGVuZG9iagp0cmFpbGVyIDw8IC9Sb290IDEgMCBSID4+CiUlRU9GCg==";
+const certCalls = (stub) => stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/training/certificates");
+async function openCertificate(app) {
+  if (!(await waitOn(app.page, () => !!document.querySelector('[data-training-card="todo"]'), null, 10000))) return false;
+  await app.page.click('[data-training-card="todo"]');
+  if (!(await shows(app.page, '[data-training-cert-open="' + CERT_ITEM + '"]', 8000))) return false;
+  await app.page.click('[data-training-cert-open="' + CERT_ITEM + '"]');
+  return shows(app.page, '[data-training-cert="' + CERT_ITEM + '"]', 4000);
+}
+// The language check over one part of the screen: My training's rows
+// carry each topic's document code and section, as a value the API sends.
+async function spokenWithin(app, language, expect, scope) {
+  if (language !== "es") return;
+  const served = servedFor(app.stub);
+  const found = await app.page.evaluate(INSPECT, {
+    languageOnly: true, leakable: LEAKABLE, allowed: ALLOWED, language: language, scope: scope,
+    spanish: SPANISH, patterns: SPANISH_PATTERNS,
+    names: served.names.concat(Array.from(TYPED)), words: served.words, codes: served.codes,
+  });
+  if (found && found.missing) { expect("the part of the screen checked for Spanish is there: " + scope, false, ""); return; }
+  languageRows(found).forEach(r => expect(r.check, false, r.detail));
+}
+const PART383_S1_JOURNEYS = [
+  {
+    id: "certificate",
+    label: "A certificate from an outside course (API part 378): My training offers Upload your certificate on the item marked outsideCourse; an iPhone photo is made a JPEG and sent with the day finished, once; a refusal reads the API's words under the field its keys name; the item reads done",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { training: true, outsideCourse: true, certificateFault: "training.badDetails" } });
+      try {
+        const opened = await openCertificate(app);
+        expect("the item marked as an outside course offers Upload your certificate, and the line says to upload it here", opened && has(await bodyText(app.page), say("When you finish, upload your certificate here.", language)), String(opened));
+        if (!opened) return;
+        const others = await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-training-cert-open]")).map(b => b.getAttribute("data-training-cert-open")));
+        expect("and no other item does", others.length === 0, JSON.stringify(others));
+        await app.page.click('[data-training-cert-send="' + CERT_ITEM + '"]');
+        await pause(app.page, 400);
+        const asked = await bodyText(app.page);
+        expect("Send with nothing chosen asks for the file and the day, and sends nothing", has(asked, say("Choose a file first.", language)) && has(asked, say("Choose the day you finished the course.", language)) && certCalls(app.stub).length === 0, asked.slice(0, 400));
+        TYPED.add("IMG_0003.HEIC"); TYPED.add("IMG_0003.jpg");
+        await attachBytes(app.page, '[data-training-cert-photo="' + CERT_ITEM + '"]', HEIC_FIXTURE, "IMG_0003.HEIC", "image/heic");
+        await shows(app.page, '[data-training-cert-chosen]', 8000);
+        TYPED.add("2026-09-28");
+        await app.page.fill('[data-training-cert-day="' + CERT_ITEM + '"]', "2026-09-28");
+        await app.page.click('[data-training-cert-send="' + CERT_ITEM + '"]');
+        await shows(app.page, '[data-training-cert-fault="completedDate"]', 6000);
+        const under = await app.page.evaluate(() => { const e = document.querySelector('[data-training-cert-fault="completedDate"]'); return e ? e.innerText : ""; });
+        expect("the API's refusal reads in its own words under the day it names", has(under, trainingWords("training.badDetails", language)), under);
+        await spokenWithin(app, language, expect, '[data-training-cert="' + CERT_ITEM + '"]');
+        await app.page.evaluate((sel) => { const b = document.querySelector(sel); b.click(); b.click(); }, '[data-training-cert-send="' + CERT_ITEM + '"]');
+        const sentLine = await shows(app.page, '[data-training-cert-sent="' + CERT_ITEM + '"]', 8000);
+        const calls = certCalls(app.stub);
+        const kept = app.stub.state.certificates;
+        expect("Send tapped twice at once sends once more, with the photo made a JPEG, the topic and the day finished", calls.length === 2 && kept.length === 1 && kept[0].ext === "jpg" && /jpe?g/i.test(kept[0].type) && kept[0].topicId === "tp-5" && kept[0].completedDate === "2026-09-28" && kept[0].siteId === null, calls.length + " sends, " + JSON.stringify(kept.map(k => ({ ext: k.ext, type: k.type, topicId: k.topicId, day: k.completedDate }))));
+        const text = await bodyText(app.page);
+        expect("once it is in, the screen says so and the item reads done", sentLine && has(text, say("Certificate sent. This training is done.", language)) && await app.page.evaluate(() => !document.querySelector('[data-training-cert-open]') && !document.querySelector('[data-training-cert]')), text.slice(0, 400));
+        const done = await waitOn(app.page, (name) => Array.from(document.querySelectorAll('[data-training-item="current"]')).some(r => r.innerText.indexOf(name) !== -1), "Invented mandated reporter course", 8000);
+        expect("and it is under Done, read again from the API", done, "");
+        await spokenWithin(app, language, expect, '[data-training-cert-sent="' + CERT_ITEM + '"]');
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "certpdf",
+    label: "A certificate as a PDF (API part 378): a PDF is sent as it is, and a refusal of the topic reads the API's words above the button",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { training: true, outsideCourse: true, certificateFault: "training.notOutsideCourse" } });
+      try {
+        const opened = await openCertificate(app);
+        expect("the item offers Upload your certificate", opened, "");
+        if (!opened) return;
+        TYPED.add("certificate.pdf");
+        await attachBytes(app.page, '[data-training-cert-file="' + CERT_ITEM + '"]', CERT_PDF, "certificate.pdf", "application/pdf");
+        await shows(app.page, '[data-training-cert-chosen="certificate.pdf"]', 4000);
+        TYPED.add("2026-09-30");
+        await app.page.fill('[data-training-cert-day="' + CERT_ITEM + '"]', "2026-09-30");
+        await app.page.click('[data-training-cert-send="' + CERT_ITEM + '"]');
+        await shows(app.page, '[data-training-cert-fault="above"]', 6000);
+        const above = await app.page.evaluate(() => { const e = document.querySelector('[data-training-cert-fault="above"]'); return e ? e.innerText : ""; });
+        expect("a training that is not an outside course reads the API's words above the button, and the form stays", has(above, trainingWords("training.notOutsideCourse", language)) && await app.page.evaluate(() => !!document.querySelector('[data-training-cert]')), above);
+        await spokenWithin(app, language, expect, '[data-training-cert="' + CERT_ITEM + '"]');
+        await app.page.click('[data-training-cert-send="' + CERT_ITEM + '"]');
+        await shows(app.page, '[data-training-cert-sent="' + CERT_ITEM + '"]', 8000);
+        const kept = app.stub.state.certificates;
+        expect("sent again, the PDF goes as it is", kept.length === 1 && kept[0].ext === "pdf" && kept[0].name === "certificate.pdf" && kept[0].completedDate === "2026-09-30", JSON.stringify(kept.map(k => ({ ext: k.ext, name: k.name, day: k.completedDate }))));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART383_S1_JOURNEYS);
+
+
 module.exports = { runJourneys, JOURNEYS };
