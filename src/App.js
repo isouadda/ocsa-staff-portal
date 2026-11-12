@@ -1089,6 +1089,16 @@ const DESTINATIONS = [
   { id: "findingsdue", label: () => "Findings to follow up", icon: ClipIco, moreOnly: true, role: (ctx) => !!ctx.findingsDue },
 ];
 const destById = (id) => DESTINATIONS.find(d => d.id === id) || null;
+// Part 392: GET /api/users/me/permissions's features (ocsa-api part 384,
+// 5.7), each key true or false, or false for an answer that carries none.
+const FEATURE_KEYS = ["clearances", "discipline", "workspace", "library"];
+function featuresOf(p) {
+  const f = p && p.features && typeof p.features === "object" && !Array.isArray(p.features) ? p.features : null;
+  if (!f || !FEATURE_KEYS.some(k => typeof f[k] === "boolean")) return false;
+  const out = {};
+  FEATURE_KEYS.forEach(k => { out[k] = f[k] === true; });
+  return out;
+}
 
 // The four places between Home and More. The default is the bar as it was:
 // Schedule, Tasks, Chat, Help, which leaves the same six under More in the
@@ -1904,6 +1914,9 @@ function deviceId() {
 // a tap on the checklist day it was made.
 const PENDING_KEY = "ocsa-pending-checkoffs";
 const PENDING_EVERY_MS = 60000;
+// Part 392: how fresh a status must be for a list read it led to to keep
+// it, in place of reading it again.
+const STATUS_FRESH_MS = 15000;
 // One per tap: Step 233's randomUUID, else its v4 from random bytes.
 const newClientId = newDeviceId;
 function readPending() {
@@ -2705,8 +2718,12 @@ export default function OCSAStaffPortal() {
   // The status is taken only from the newest answer asked for, the same
   // way the ticks are, so an older answer landing late can never put back
   // a shift the person has just changed.
+  // Part 392: the newest status taken, with when it was asked for, so the
+  // list read it led to keeps it with the list instead of asking again.
+  const statusHeld = useRef({ seq: 0, cs: null, at: 0 });
   const takeStatus = (cs, seq) => {
     if (seq !== statusSeq.current) return false;
+    statusHeld.current = { seq: seq, cs: cs, at: statusAskedAt.current };
     setClockStatus(cs); setStatusFailed(false); hydrateCompleted(cs, seq);
     const asked = statusAskedAt.current;
     setTaken(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at >= asked) n.set(id, v); }); return n.size === prev.size ? prev : n; });
@@ -2959,7 +2976,8 @@ export default function OCSAStaffPortal() {
     api("/api/users/profile/me", { token: tok }).then(p => { if (p?.user?.profilePhotoUrl) setUser(prev => ({ ...prev, profilePhotoUrl: p.user.profilePhotoUrl })); }).catch(() => {});
     try { const seq = nextStatusSeq(); const cs = await api(statusPath(), { token: tok }); if (takeStatus(cs, seq) && cs.clockedIn && cs.shift) setSelectedSite(cs.shift.siteId); } catch (e) { console.warn("Clock status:", e.message); setStatusFailed(true); }
     loadAssignedTasks(tok);
-    loadSessionSites(tok);
+    // Start Shift's sites are read by Home as it opens (part 392), once,
+    // with the status already in.
     loadLookups(tok, wordsLanguage());
     api("/api/settings", { token: tok }).then((st) => { if (st) takeDayStart(st.checklistDayStartsAt); }).catch(() => {});
     // The forced PIN set fires only when the API says so, strictly true.
@@ -2969,7 +2987,7 @@ export default function OCSAStaffPortal() {
     returnTo.current = null;
     setScreen(me.mustSetPin === true ? "setpin" : (back || "main"));
     return me.user;
-  }, [loadAssignedTasks, loadSessionSites, loadLookups]);
+  }, [loadAssignedTasks, loadLookups]);
   // A switch of language asks for the pick lists again, in the new one,
   // and so does a list that came back after the switch in the old one.
   useEffect(() => { if (token && lookupsLang && lookupsLang !== language) loadLookups(token, language); }, [language, lookupsLang]);
@@ -3388,7 +3406,11 @@ export default function OCSAStaffPortal() {
   // flight, which a check or an uncheck needs: the list then carries what
   // the API says was done. Only the newest request's answer is taken.
   const tasksSeq = useRef(0);
-  const loadTasks = async (again) => { const path = checklistAsk; const key = checklistKey; const lang = language; const site = clockStatus && clockStatus.shift ? String(clockStatus.shift.siteId) : null; if (!path || (again !== true && tasksReqAsked.current === key)) return; const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (mine !== tasksSeq.current) return; const got = checklistAnswer(tt); setTasks(got.rows); setTasksDay(got.day); setTasksLang(lang); setTasksMode({ site: site, mode: got.mode }); tasksAsked.current = key; tasksReadAt.current = asked; setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; }); const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); if (takeStatus(cs, seq) && user && mine === tasksSeq.current && liveToken.current === token) keepChecklist(user.id, user.role, cs, tt, lang); } catch (err) { console.error(err); if (mine === tasksSeq.current) setTasksFailed(true); } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; } };
+  // Part 392 (section 1): a list's first read, asked within this long of
+  // the newest status, keeps that status with the list and reads none
+  // again; a read again after a check or an uncheck still reads it, for
+  // the ticks.
+  const loadTasks = async (again) => { const path = checklistAsk; const key = checklistKey; const lang = language; const site = clockStatus && clockStatus.shift ? String(clockStatus.shift.siteId) : null; if (!path || (again !== true && tasksReqAsked.current === key)) return; const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (mine !== tasksSeq.current) return; const got = checklistAnswer(tt); setTasks(got.rows); setTasksDay(got.day); setTasksLang(lang); setTasksMode({ site: site, mode: got.mode }); tasksAsked.current = key; tasksReadAt.current = asked; setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; }); const held = statusHeld.current; if (again !== true && held.cs && held.seq === statusSeq.current && asked - held.at < STATUS_FRESH_MS) { if (user && liveToken.current === token) keepChecklist(user.id, user.role, held.cs, tt, lang); return; } const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); if (takeStatus(cs, seq) && user && mine === tasksSeq.current && liveToken.current === token) keepChecklist(user.id, user.role, cs, tt, lang); } catch (err) { console.error(err); if (mine === tasksSeq.current) setTasksFailed(true); } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; } };
   // A check or an uncheck, sent the way it always has been, for the row as
   // the screen draws it. A row outside the id lists is drawn from this
   // phone's own tap until the list comes back. Then the list and the
@@ -3634,7 +3656,10 @@ export default function OCSAStaffPortal() {
   // answer is drawn once, matched by its id or by that clientId.
   const sendMessage = async (channelId, text, mentions, clientId) => { const body = { text }; if (Array.isArray(mentions) && mentions.length > 0) body.mentions = mentions; if (clientId) body.clientId = clientId; const data = await api(chatPath("/api/chat/channels/" + channelId + "/messages"), { method: "POST", body: body, token }); const msg = data && data.message && typeof data.message === "object" ? data.message : null; if (!msg) { await readMessages(channelId).catch(e => console.error(e)); } else if (activeChannelRef.current === channelId) setMessages(prev => (prev.some(m => (msg.id && m.id === msg.id) || isClientSend(m, msg.senderId, msg.clientId)) ? prev : [...prev, msg])); loadChannels(); };
 
-  useEffect(() => { if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "issues") { loadIssues(); loadClientRequests(); } if (activeTab === "issuetasks") { loadAssignedTasks(); loadIssues(); loadClientRequests(); } if (activeTab === "myfindings") loadMyFindings(); if (activeTab === "findingsdue") loadFindingsDue(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId]);
+  // Part 392: Start Shift's sites are read here alone, as Home opens on
+  // the main screen and again when a shift starts or ends; the sign-in
+  // read no longer reads them beside it.
+  useEffect(() => { if (screen !== "main") return; if (activeTab === "clock" && token) loadSessionSites(); if (activeTab === "issues") { loadIssues(); loadClientRequests(); } if (activeTab === "issuetasks") { loadAssignedTasks(); loadIssues(); loadClientRequests(); } if (activeTab === "myfindings") loadMyFindings(); if (activeTab === "findingsdue") loadFindingsDue(); if (activeTab === "supplies") loadSupplies(); if (activeTab === "chat") loadChannels(); }, [activeTab, clockStatus?.clockedIn, clockStatus?.shift?.siteId, screen === "main"]);
   // The task list is fetched as soon as a session is seen open, whichever
   // tab the person is standing on, so the Home card has its bar at boot.
   // Once per request: opening Tasks afterwards fires nothing new, and a
@@ -3777,11 +3802,18 @@ export default function OCSAStaffPortal() {
   // read once the portal is up: a map of capability to true or false,
   // null while it is on its way, and false when the route did not
   // answer, so the API decides at the read itself.
+  // Part 392 (ocsa-api part 384, 5.7): the same answer carries features,
+  // { clearances, discipline, workspace, library }, each whether this
+  // person may read that area's list, so More offers Workspace and the
+  // Library with no list read behind them. null while on its way, false
+  // when the route did not answer or carried none, which falls back to
+  // reading those lists at open as before.
   const [caps, setCaps] = useState(null);
+  const [features, setFeatures] = useState(null);
   useEffect(() => {
-    if (!token || screen !== "main") { setCaps(null); return undefined; }
+    if (!token || screen !== "main") { setCaps(null); setFeatures(null); return undefined; }
     let live = true;
-    api("/api/users/me/permissions", { token }).then((p) => { if (live) setCaps(p && p.capabilities && typeof p.capabilities === "object" ? p.capabilities : false); }).catch(() => { if (live) setCaps(false); });
+    api("/api/users/me/permissions", { token }).then((p) => { if (live) { setCaps(p && p.capabilities && typeof p.capabilities === "object" ? p.capabilities : false); setFeatures(featuresOf(p)); } }).catch(() => { if (live) { setCaps(false); setFeatures(false); } });
     return () => { live = false; };
   }, [token, screen]);
   // Building maintenance (part 369): the requests waiting on this phone
@@ -3885,8 +3917,10 @@ export default function OCSAStaffPortal() {
   // count is on the bar before Chat is ever opened, and again each time
   // the app comes back to the front, with the clock status below.
   useEffect(() => { if (token && screen === "main") { loadChannels(); loadClientRequests(); loadMyFindings(); } else { setMyFindings(null); setFindingsDue(null); } }, [token, screen]);
-  // Findings to follow up once the capabilities are known.
-  useEffect(() => { if (token && screen === "main") loadFindingsDue(); }, [token, screen, caps, user && user.role]);
+  // Findings to follow up once the capabilities are known. Part 392: only
+  // then, so a supervisor, whom the role already lets read it, reads it
+  // once at open, not once by the role and again by the capabilities.
+  useEffect(() => { if (token && screen === "main" && caps !== null) loadFindingsDue(); }, [token, screen, caps, user && user.role]);
   // The request a notice opened stays marked while Report is open, and the
   // finding while its list is open.
   useEffect(() => { if (activeTab !== "issues" && requestOpen) setRequestOpen(null); if (activeTab !== "myfindings" && myFindingsAt) setMyFindingsAt(null); if (activeTab !== "findingsdue" && findingsDueAt) setFindingsDueAt(null); }, [activeTab]);
@@ -3965,15 +3999,13 @@ export default function OCSAStaffPortal() {
   }, [token, screen, signAsked]);
   const openSign = (at) => { setSignAt(at); setActiveTab("clock"); setShowMore(false); };
   // My company property (Step 271): what GET /api/hr/property/mine
-  // answers, null until it answers a list; More offers the screen then.
-  // Read with the requests, since a signature changes what it says.
+  // answers, null until it answers a list. Part 392 (section 1): More
+  // offers it to everyone, since the route answers anyone signed in, and
+  // the list is read each time the screen opens, never at open. A
+  // signature made on the way is read with the next opening.
   const [property, setProperty] = useState(null);
-  useEffect(() => {
-    if (!token || screen !== "main") { setProperty(null); return undefined; }
-    let live = true;
-    readPropertyMine(token).then(l => { if (live && l) setProperty(l); });
-    return () => { live = false; };
-  }, [token, screen, signAsked]);
+  useEffect(() => { if (!token || screen !== "main") setProperty(null); }, [token, screen]);
+  const propertyRead = useOpenRead(screen === "main" && activeTab === "property", token, readPropertyMine, setProperty);
   // App support (Step 290): the person's own tickets, what GET
   // /api/support/tickets/mine answers, null until it answers a list; More
   // offers App support then. Read again after a ticket goes, from the
@@ -3997,17 +4029,19 @@ export default function OCSAStaffPortal() {
   // keeps the dashboard's link on their notices.
   const [refusedReads, setRefusedReads] = useState(() => new Set());
   const refuseRead = (k) => { if (k) setRefusedReads(prev => (prev.has(k) ? prev : new Set(prev).add(k))); };
-  useEffect(() => {
-    if (!token || screen !== "main") { setSupport(null); return undefined; }
-    let live = true;
-    readSupportMine(token).then(l => { if (live && l) setSupport(l); });
-    return () => { live = false; };
-  }, [token, screen, supportAsked]);
+  // Part 392 (section 1): App support is offered to everyone and its
+  // tickets read each time the screen opens, and again after a ticket goes
+  // from it while it is open; a ticket sent from Help shows at the next
+  // opening.
+  useEffect(() => { if (!token || screen !== "main") setSupport(null); }, [token, screen]);
+  const supportRead = useOpenRead(screen === "main" && activeTab === "support", token, readSupportMine, setSupport, supportAsked);
   const supportFrom = useRef("clock");
   useEffect(() => { if (activeTab !== "support") supportFrom.current = activeTab; }, [activeTab]);
   // The Library (Step 307): what GET /api/library answers, null until it
-  // answers a list; More offers the Library then, an empty list included,
-  // which the screen says is still loading.
+  // answers a list, an empty list included, which the screen says is
+  // still loading. Part 392 (section 1): More offers it by features.library
+  // and the list is read each time the screen opens; with no features it
+  // is read at open and offered once it answers, as before.
   // Supply orders (Step 311): the list GET /api/supplies/requests answers
   // a holder of approve_supplies, null for anyone else and until the API
   // answers canDecide; whether this person holds it, null until known;
@@ -4022,6 +4056,11 @@ export default function OCSAStaffPortal() {
   // says so of none (their own requests alone, or none waiting), whose
   // permissions carry approve_supplies, read only once the list answers
   // canDecide at all.
+  // Part 392 (section 1): the API's canDecide needs approve_supplies
+  // (ocsa-api helpers/supplyOrders.js canDecideOf), so the permissions
+  // read at open decide it: only a holder reads the list at open, for
+  // Home's card and Approve supplies, and anyone else reads nothing. With
+  // no answer to the permissions the list decides, as before.
   const loadSupplyOrders = async (tok) => {
     const use = tok || token;
     if (!use) return;
@@ -4030,7 +4069,8 @@ export default function OCSAStaffPortal() {
     if (mine !== supplySeq.current || liveToken.current !== use) return;
     if (rows === undefined) { setSupplyHolder(was => (was === null ? false : was)); return; }
     let holder = !!rows && rows.some(r => r.canDecide);
-    if (rows && !holder) { try { const p = await api("/api/users/me/permissions", { token: use }); holder = !!(p && p.capabilities && p.capabilities.approve_supplies === true); } catch (e) {} }
+    if (rows && !holder && caps && typeof caps === "object") holder = caps.approve_supplies === true;
+    else if (rows && !holder) { try { const p = await api("/api/users/me/permissions", { token: use }); holder = !!(p && p.capabilities && p.capabilities.approve_supplies === true); } catch (e) {} }
     if (mine !== supplySeq.current || liveToken.current !== use) return;
     setSupplyHolder(holder); setSupplyOrders(holder ? rows : null);
   };
@@ -4038,8 +4078,10 @@ export default function OCSAStaffPortal() {
   const takeSupplyOrder = (row) => setSupplyOrders(prev => (Array.isArray(prev) ? prev.map(r => (r.id === row.id ? row : r)) : prev));
   useEffect(() => {
     if (!token || screen !== "main") { setSupplyOrders(null); setSupplyHolder(null); setSupplyAt(null); setSupplyAsk(null); return; }
+    if (caps === null) return;
+    if (caps && caps.approve_supplies !== true) { supplySeq.current += 1; setSupplyHolder(false); setSupplyOrders(null); return; }
     loadSupplyOrders(token);
-  }, [token, screen]);
+  }, [token, screen, caps]);
   // Home reads it again each time it opens.
   useEffect(() => { if (token && screen === "main" && activeTab === "clock" && supplyHolder) loadSupplyOrders(); }, [activeTab]);
   // A notice's request opens once that is known: on Approve supplies for
@@ -4054,12 +4096,10 @@ export default function OCSAStaffPortal() {
   // search result at the section it matched, or Help's Open button.
   const [libraryAt, setLibraryAt] = useState(null);
   const openLibraryDoc = (doc, at) => { setLibraryAt({ doc: doc, at: at || null, key: Date.now() }); setActiveTab("library"); setShowMore(false); };
-  useEffect(() => {
-    if (!token || screen !== "main") { setLibrary(null); setLibraryAt(null); return undefined; }
-    let live = true;
-    readLibrary(token).then(l => { if (live && l) setLibrary(l); });
-    return () => { live = false; };
-  }, [token, screen]);
+  useEffect(() => { if (!token || screen !== "main") { setLibrary(null); setLibraryAt(null); } }, [token, screen]);
+  // The screen reads its own list each time it opens; here it is read at
+  // open only with no features, to decide whether More offers it.
+  useOpenRead(screen === "main" && features === false, token, readLibrary, setLibrary);
   useEffect(() => {
     if (!token || screen !== "main") { setTraining(null); setTrainingAt(null); return undefined; }
     let live = true;
@@ -4077,14 +4117,18 @@ export default function OCSAStaffPortal() {
     readTrainingAwaiting(token, null, user && user.id).then(list => { if (live) setAwaiting(list); });
     return () => { live = false; };
   }, [token, screen, isAdmin, activeTab]);
-  const wsAsks = !!token && screen === "main" && isOfficePerson(user);
-  useEffect(() => {
-    if (!wsAsks) { setWsProjects(null); setWsAt(null); return undefined; }
-    let live = true;
-    readWorkspaceProjects(token).then(list => { if (live) setWsProjects(list); });
-    return () => { live = false; };
-  }, [wsAsks, token, user && user.id]);
-  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && Array.isArray(wsProjects), training: !!training, property: Array.isArray(property), support: Array.isArray(support), library: Array.isArray(library), supplyOrders: supplyHolder === true && Array.isArray(supplyOrders), myFindings: !!myFindings && myFindings.findings.length > 0, findingsDue: !!findingsDue };
+  // Part 392 (section 1): Workspace is offered by features.workspace (the
+  // API's own isOffice) and its projects read each time it opens. With no
+  // features, an office person's projects are read at open and Workspace
+  // offered once they answer, as before.
+  const wsAsks = !!token && screen === "main" && (features ? features.workspace === true : features === false && isOfficePerson(user));
+  useEffect(() => { if (!token || screen !== "main") { setWsProjects(null); setWsAt(null); } }, [token, screen]);
+  useOpenRead(wsAsks && features === false, token, readWorkspaceProjects, setWsProjects);
+  // More's entries (part 392): My company property and App support for
+  // everyone, the Library and Workspace by features, and the entries a
+  // list decides (Safety data sheets, Approve supplies, My findings,
+  // Findings to follow up) by that list's one read.
+  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && (!!features || Array.isArray(wsProjects)), training: !!training, property: true, support: true, library: features ? features.library === true : Array.isArray(library), supplyOrders: supplyHolder === true && Array.isArray(supplyOrders), myFindings: !!myFindings && myFindings.findings.length > 0, findingsDue: !!findingsDue };
   const shortcutChoices = shortcutChoicesFor(destCtx);
   const allowedShortcutIds = shortcutChoices.map(d => d.id);
   const uid = user && user.id ? user.id : null;
@@ -4461,8 +4505,8 @@ export default function OCSAStaffPortal() {
           <div style={{ padding: "0 0 var(--ocsa-bar, 76px) 0", flex: 1, display: "flex", flexDirection: "column" }}>
             <div className="sp-content" style={{ maxWidth: 960, margin: "0 auto", width: "100%", flex: 1, display: "flex", flexDirection: "column" }}>
               {activeTab === "clock" && signAt && <SignScreen key={signAt.id || "list"} token={token} id={signAt.id || null} requests={signList} onOpen={openSign} onBack={() => setSignAt(null)} onChanged={() => setSignAsked(n => n + 1)} t={t} />}
-              {activeTab === "property" && destCtx.property && <MyPropertyView rows={property} onSign={(id) => openSign({ id: id })} t={t} />}
-              {activeTab === "support" && destCtx.support && <SupportView userId={user && user.id} token={token} tickets={support} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} focus={supportAt} t={t} />}
+              {activeTab === "property" && destCtx.property && <MyPropertyView rows={property} read={propertyRead} onSign={(id) => openSign({ id: id })} t={t} />}
+              {activeTab === "support" && destCtx.support && <SupportView userId={user && user.id} token={token} tickets={support} read={supportRead} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} focus={supportAt} t={t} />}
               {activeTab === "supplyorders" && (destCtx.supplyOrders || !!supplyAt) && <SupplyOrdersView token={token} user={user} holder={supplyHolder === true} rows={supplyOrders} onReload={() => loadSupplyOrders()} onRow={takeSupplyOrder} at={supplyAt} onAt={setSupplyAt} getOpts={getOpts} showToast={showToast} t={t} />}
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSitesForPerson(user, sessionSites)} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
@@ -12134,12 +12178,16 @@ function LibraryView({ token, docs, onDocs, onOpen, at, onAt, toSign, onSign, t 
   const [asked, setAsked] = useState(0);
   const needle = q.trim();
   const searching = needle.length >= LIBRARY_SEARCH_MIN;
-  // The list is read again each time the screen opens.
+  // The list is read again each time the screen opens, and since part 392
+  // only then: one that answers nothing to draw says so, with Try again.
+  const [listFailed, setListFailed] = useState(false);
+  const [listAsked, setListAsked] = useState(0);
   useEffect(() => {
     let live = true;
-    readLibrary(token).then(l => { if (live && l) onDocs(l); });
+    setListFailed(false);
+    readLibrary(token).then(l => { if (!live) return; if (l) onDocs(l); else setListFailed(true); });
     return () => { live = false; };
-  }, []);
+  }, [listAsked]);
   useEffect(() => {
     if (!searching) { setFound(null); return undefined; }
     let live = true;
@@ -12191,7 +12239,8 @@ function LibraryView({ token, docs, onDocs, onOpen, at, onAt, toSign, onSign, t 
       {results && results.fault && <div><WsFault text={results.fault} t={t} /><div style={{ display: "flex", marginTop: 10 }}><button type="button" onClick={() => setAsked(n => n + 1)} style={wsPlainBtn(t)}>{tr("Try again")}</button></div></div>}
       {results && results.rows && results.rows.length === 0 && <div data-library-none="1" style={{ ...wsQuiet(t), marginTop: 12 }}>{tr("No document matches that search.")}</div>}
       {results && results.rows && results.rows.length > 0 && <div data-library-results={results.rows.length} style={{ marginTop: 12 }}>{results.rows.map(docRow)}</div>}
-      {!searching && (docs || []).length === 0 && <div data-library-empty="1" style={{ ...wsQuiet(t), marginTop: 12 }}>{tr("The library is loading. Check back soon.")}</div>}
+      {!searching && !Array.isArray(docs) && <ListWaiting read={{ failed: listFailed, retry: () => setListAsked(n => n + 1) }} icon={LibIco} t={t} />}
+      {!searching && Array.isArray(docs) && docs.length === 0 && <div data-library-empty="1" style={{ ...wsQuiet(t), marginTop: 12 }}>{tr("The library is loading. Check back soon.")}</div>}
       {!searching && !openFolder && folders.length > 0 && (
         <div style={{ marginTop: 12 }}>
           {folders.map(f => (
@@ -12919,8 +12968,15 @@ async function readPropertyMine(token) {
   try { return propertyIssuesOf(await api("/api/hr/property/mine", { token })); } catch (e) { return null; }
 }
 const propertyLabel = (p) => p.description || (PROPERTY_KIND_WORDS[p.kind] ? tr(PROPERTY_KIND_WORDS[p.kind]) : p.kind);
-function MyPropertyView({ rows, onSign, t }) {
+function MyPropertyView({ rows, read, onSign, t }) {
   const all = Array.isArray(rows) ? rows : [];
+  // Part 392: read when the screen opens, so it waits for its list.
+  if (!Array.isArray(rows)) return (
+    <div data-property="1" style={{ padding: "14px 16px 100px" }}>
+      <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("My company property")}</div>
+      <ListWaiting read={read} icon={BoxIco} t={t} />
+    </div>
+  );
   const held = all.filter(p => !p.returnedOn), returned = all.filter(p => !!p.returnedOn);
   const nameSt = { fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
   const lineSt = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" };
@@ -16771,6 +16827,32 @@ function EmptyState({ icon: Icon, text, t }) {
 // Tasks and Chat do. Apart from a list with nothing in it, which keeps
 // its own line, and from a list already on the screen, which stays when
 // a later read of it fails.
+// Part 392 (section 1, ocsa-api part 384, 6.2): a list a screen draws,
+// read when that screen opens and each time it opens again, never at
+// open. on is whether the screen is open; read(token) answers the list,
+// or null when there is none to draw; take keeps it, so a list read
+// before shows at once while the next read goes. again reads it once
+// more while the screen is open. Answers whether the last read failed,
+// and retry, for Try again. Nothing here sets a cache mode, so the
+// browser sends If-None-Match and an unchanged list answers 304.
+function useOpenRead(on, token, read, take, again) {
+  const [failed, setFailed] = useState(false);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    if (!on || !token) return undefined;
+    let live = true;
+    setFailed(false);
+    read(token).then((l) => { if (!live) return; if (l) take(l); else setFailed(true); }).catch(() => { if (live) setFailed(true); });
+    return () => { live = false; };
+  }, [on, token, asked, again]);
+  return { failed: failed, retry: () => setAsked(n => n + 1) };
+}
+// What a screen read on opening shows before its list: Loading..., or,
+// when the read answered nothing to draw, the list's fault with Try again.
+function ListWaiting({ read, icon, t }) {
+  if (read && read.failed) return <div data-list-fault="1" style={{ marginTop: 8 }}><ListFault icon={icon} text={tr("This list did not load.")} onRetry={read.retry} t={t} /></div>;
+  return <div data-list-loading="1" style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("Loading...")}</div>;
+}
 function ListFault({ icon: Icon, text, onRetry, t }) {
   return (<div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow }}><Icon sz={40} c={t.borderSolid} /><div role="alert" style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{text}</div><button type="button" onClick={onRetry} style={{ minHeight: TAP, marginTop: 16, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button></div>);
 }
@@ -16906,7 +16988,7 @@ function supportFaults(err) {
 
 // focus: the ticket a notice opened My tickets at, { id, at }: brought into
 // view and marked (Round 2, PORT-10).
-function SupportView({ token, tickets, screen, isAdmin, onFiled, focus, userId, t }) {
+function SupportView({ token, tickets, read, screen, isAdmin, onFiled, focus, userId, t }) {
   const [kind, setKind] = useState("");
   const [text, setText] = useState("");
   const [shot, setShot] = useState(null);
@@ -17009,7 +17091,8 @@ function SupportView({ token, tickets, screen, isAdmin, onFiled, focus, userId, 
         <button type="button" data-support-send="1" disabled={sending || shotBusy} onClick={send} style={{ ...mkPrimaryBtn(t, sending || shotBusy), marginTop: 14 }}>{sending ? tr("Sending...") : tr("Send to App support")}</button>
       </div>
       <div role="heading" aria-level={3} data-support-mine={list.length} style={{ ...fkHeadSt(t), marginTop: 20 }}>{tr("My tickets")}</div>
-      {list.length === 0 && <div style={wsQuiet(t)}>{tr("You have not sent a ticket yet.")}</div>}
+      {!Array.isArray(tickets) && <ListWaiting read={read} icon={SupportIco} t={t} />}
+      {Array.isArray(tickets) && list.length === 0 && <div style={wsQuiet(t)}>{tr("You have not sent a ticket yet.")}</div>}
       {list.map(x => (
         <div key={x.id} data-support-ticket={x.id} data-support-focus={focus && String(focus.id) === String(x.id) ? "1" : undefined} aria-current={focus && String(focus.id) === String(x.id) ? "true" : undefined} style={{ ...fkRowSt(t), minHeight: TAP, ...(focus && String(focus.id) === String(x.id) ? { border: "1px solid " + t.goldBorder, background: t.goldBg } : {}) }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
@@ -17210,6 +17293,9 @@ function WorkspaceView({ token, user, projects, onProjects, at, onAt, channels, 
 
 function WsHome({ token, projects, onProjects, onOpen, onOpenTodo, showToast, t }) {
   const [mine, setMine] = useState(null);
+  // Part 392: the projects are read here, as Workspace opens, and only
+  // then; a read that answers none says so, with Try again.
+  const [projectsFailed, setProjectsFailed] = useState(false);
   const [asked, setAsked] = useState(0);
   const [ticking, setTicking] = useState(null);
   useEffect(() => {
@@ -17224,6 +17310,7 @@ function WsHome({ token, projects, onProjects, onOpen, onOpenTodo, showToast, t 
         if (live) setMine(prev => (prev && prev.state === "ok" ? prev : { state: "failed", todos: [] }));
       }
       const list = await readWorkspaceProjects(token);
+      if (live) setProjectsFailed(!list);
       if (live && list) onProjects(list);
     })();
     return () => { live = false; };
@@ -17253,7 +17340,8 @@ function WsHome({ token, projects, onProjects, onOpen, onOpenTodo, showToast, t 
       {mine && mine.state === "ok" && mine.todos.length === 0 && <div style={quietSt}>{tr("Nothing is assigned to you right now.")}</div>}
       {mine && mine.state === "ok" && mine.todos.map(todo => <WsTodoRow key={todo.id} todo={todo} busy={ticking === todo.id} onTick={tick} onOpen={todo.projectId !== null && todo.projectId !== undefined ? onOpenTodo : null} showProject t={t} />)}
       <div role="heading" aria-level={2} style={{ ...headSt, marginTop: 16 }}>{tr("Projects")}</div>
-      {list.length === 0 && <div style={quietSt}>{tr("You are not in any project yet.")}</div>}
+      {!Array.isArray(projects) && <ListWaiting read={{ failed: projectsFailed, retry: () => setAsked(n => n + 1) }} icon={FolderIco} t={t} />}
+      {Array.isArray(projects) && list.length === 0 && <div style={quietSt}>{tr("You are not in any project yet.")}</div>}
       {list.map(p => (
         <button key={p.id} type="button" onClick={() => onOpen(p.id)} style={{ width: "100%", display: "flex", alignItems: "flex-start", gap: 10, minHeight: TAP, padding: "12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
           <span aria-hidden="true" style={{ width: 10, height: 10, marginTop: 5, borderRadius: "50%", background: p.color || GOLD, flexShrink: 0 }} />

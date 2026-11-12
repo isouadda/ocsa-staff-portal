@@ -1732,6 +1732,50 @@ One journey, in English and Spanish, failing on the main of part 383:
 
 `photokept` and `phototurnedoff` read the same with one read.
 
+## A lighter opening (part 392, section 1)
+
+The stub's `GET /api/users/me/permissions` answers `features` as ocsa-api
+Round 13 builds it (part 384, 5.7, `routes/users.js featuresOf`):
+`{ clearances, discipline, workspace, library }`, each whether the same
+person's list answers them. Clearances and discipline are an admin's or
+a supervisor's, the workspace an office person's (`WS_OFFICE`, where the
+case serves the workspace), and the Library anyone's on staff where the
+case serves one. `featuresRoute: false` is an API from before part 384,
+which answers no `features`.
+
+At open the portal reads the first screen, the bar and More: the clock
+status, the bell's count, the permissions, the chats for Chat's count,
+and the reads behind Home's cards. Each list behind a More screen is read
+when that screen opens, and again each time it opens: My company property
+and App support for everyone, the Library and Workspace by `features`.
+Approve supplies is read at open only by a holder of `approve_supplies`,
+since the API's `canDecide` needs it. The clock status, Start Shift's
+sites and a supervisor's Findings to follow up are each read once.
+
+The browser sends `If-None-Match` itself on a list read again (no read
+sets a cache mode), so an unchanged list answers 304. The harness answers
+every route itself, which leaves the browser's cache out, so no case here
+sees a 304.
+
+Two journeys, in English and Spanish, each failing on the main of part
+388:
+
+- `lightopen`: a cleaner's open reads no Library, company property, App
+  support or supply request list, and the clock status, Start Shift's
+  sites, the permissions and the bell's count once each; More offers My
+  company property, App support and the Library with nothing read, and
+  no Workspace; each reads its list as it opens and again when it opens
+  again. A supervisor reads Findings to follow up once and Workspace's
+  projects only as it opens; a holder of `approve_supplies` reads the
+  supply requests at open.
+- `listonopen`: My company property opened with no signal says "This
+  list did not load." with Try again, and Try again reads it and shows
+  it; App support says Loading... while its tickets are on their way.
+
+The smoke check's More run reads the same: with the signature routes not
+answering, More offers My company property, read once as it opened; and
+someone without `approve_supplies` never reads the supply requests.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

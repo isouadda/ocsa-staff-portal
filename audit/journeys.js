@@ -10425,4 +10425,118 @@ const PART388_S3_JOURNEYS = [
 ];
 JOURNEYS.push(...PART388_S3_JOURNEYS);
 
+// --- Round 12 of the staff app (part 392), section 1 ----------------------
+//
+// A lighter opening (ocsa-api part 384, 6.2, the staff app's half): at
+// open the portal reads what the first screen and More draw, and each
+// list behind a More screen when that screen opens. Fails on the main of
+// part 388, which read the Library, company property, App support's
+// tickets, a non-holder's supply requests and an office person's
+// workspace projects at open, and read the clock status, Start Shift's
+// sites and a supervisor's findings twice.
+const getsOf = (stub, p) => stub.state.calls.filter(c => c.method === "GET" && c.path === p);
+// What opens on demand now, never at open.
+const READ_ON_OPEN = ["/api/library", "/api/hr/property/mine", "/api/support/tickets/mine", "/api/supplies/requests", "/api/workspace/projects"];
+// More, the bar's last button, and what it offers.
+const moreOffers = async (page) => {
+  await page.evaluate(() => {
+    const bar = Array.from(document.querySelectorAll("div")).find((el) => { const st = getComputedStyle(el); return st.position === "fixed" && st.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5; });
+    const b = bar && Array.from(bar.querySelectorAll(":scope > button")).pop();
+    if (b) b.click();
+  });
+  await pause(page, 1200);
+  const items = await page.evaluate(() => {
+    const grid = Array.from(document.querySelectorAll(".sp-more div")).find(d => getComputedStyle(d).display === "grid" && d.querySelectorAll(":scope > button").length >= 5);
+    return grid ? Array.from(grid.querySelectorAll(":scope > button")).map(x => x.textContent.trim().replace(/^(9\+|\d+)/, "")) : [];
+  });
+  await page.keyboard.press("Escape").catch(() => {});
+  await page.mouse.click(5, 5).catch(() => {});
+  await pause(page, 500);
+  return items;
+};
+const PART392_S1_JOURNEYS = [
+  {
+    id: "lightopen",
+    label: "A lighter opening (API part 384, 6.2): a cleaner's open reads no Library, company property, App support or supply request list, and the clock status and Start Shift's sites once; More offers My company property, App support and the Library by features with nothing read, and each reads its list when it opens, again each time; a supervisor reads the findings once and the workspace when Workspace opens; a holder of approve_supplies reads the supply requests at open",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { library: true, support: true, signatures: true, supplyOrders: true, workspace: true } });
+      try {
+        await shows(app.page, ".sp-content", 8000);
+        await pause(app.page, 3500);
+        const early = READ_ON_OPEN.filter(p => getsOf(app.stub, p).length > 0);
+        expect("at open nothing reads a list a More screen draws", early.length === 0, JSON.stringify(early));
+        const twice = ["/api/clock/status", "/api/shift-sessions/sites", "/api/users/me/permissions", "/api/notifications/unread-count"].map(p => [p, getsOf(app.stub, p).length]).filter(x => x[1] !== 1);
+        expect("the clock status, Start Shift's sites, the permissions and the bell's count are each read once", twice.length === 0, JSON.stringify(twice));
+        const offered = await moreOffers(app.page);
+        const want = ["My company property", "App support", "Library"].map(w => say(w, language));
+        expect("More offers My company property, App support and the Library with no list read", want.every(w => offered.indexOf(w) !== -1) && READ_ON_OPEN.every(p => getsOf(app.stub, p).length === 0), JSON.stringify(offered));
+        expect("and offers no Workspace to a cleaner", offered.indexOf(say("Workspace", language)) === -1, JSON.stringify(offered));
+        await openTab(app.page, "property", language);
+        const held = await shows(app.page, "[data-property-item]", 6000);
+        expect("My company property reads its list as it opens and shows it", held && getsOf(app.stub, "/api/hr/property/mine").length === 1, getsOf(app.stub, "/api/hr/property/mine").length + " reads");
+        await spokenHere(app, language, expect);
+        await openTab(app.page, "support", language);
+        const tickets = await shows(app.page, "[data-support-ticket]", 6000);
+        expect("App support reads the tickets as it opens and shows them", tickets && getsOf(app.stub, "/api/support/tickets/mine").length === 1, getsOf(app.stub, "/api/support/tickets/mine").length + " reads");
+        await openTab(app.page, "library", language);
+        const folders = await shows(app.page, "[data-library-folder]", 6000);
+        expect("the Library reads its list as it opens and shows it", folders && getsOf(app.stub, "/api/library").length === 1, getsOf(app.stub, "/api/library").length + " reads");
+        await spokenHere(app, language, expect);
+        await openTab(app.page, "property", language);
+        await shows(app.page, "[data-property-item]", 6000);
+        await pause(app.page, 800);
+        expect("opened again, My company property reads its list again", getsOf(app.stub, "/api/hr/property/mine").length === 2, getsOf(app.stub, "/api/hr/property/mine").length + " reads");
+        expect("a cleaner, who holds no approve_supplies, never reads the supply requests", getsOf(app.stub, "/api/supplies/requests").length === 0, getsOf(app.stub, "/api/supplies/requests").length + " reads");
+      } finally { await app.context.close(); }
+      const sup = await open({ stubOptions: { person: ROUND1_SUPERVISOR, workspace: true, library: true } });
+      try {
+        await shows(sup.page, ".sp-content", 8000);
+        await pause(sup.page, 3500);
+        expect("a supervisor reads Findings to follow up once at open", getsOf(sup.stub, "/api/inspections/findings").length === 1, getsOf(sup.stub, "/api/inspections/findings").length + " reads");
+        const offered = await moreOffers(sup.page);
+        expect("More offers Workspace to a supervisor with no projects read", offered.indexOf(say("Workspace", language)) !== -1 && getsOf(sup.stub, "/api/workspace/projects").length === 0, JSON.stringify(offered));
+        await openTab(sup.page, "workspace", language);
+        await pause(sup.page, 1500);
+        const named = (await bodyText(sup.page)).indexOf("Invented project") !== -1;
+        expect("Workspace reads its projects as it opens and shows them", named && getsOf(sup.stub, "/api/workspace/projects").length === 1, getsOf(sup.stub, "/api/workspace/projects").length + " reads");
+        await spokenHere(sup, language, expect);
+      } finally { await sup.context.close(); }
+      const holder = await open({ stubOptions: { person: require("./stub").ORDER_HOLDER, supplyOrders: true } });
+      try {
+        await shows(holder.page, ".sp-content", 8000);
+        await pause(holder.page, 3500);
+        const offered = await moreOffers(holder.page);
+        expect("a holder of approve_supplies reads the supply requests at open, for Home's card and Approve supplies", getsOf(holder.stub, "/api/supplies/requests").length >= 1 && offered.indexOf(say("Approve supplies", language)) !== -1, getsOf(holder.stub, "/api/supplies/requests").length + " reads; " + JSON.stringify(offered));
+      } finally { await holder.context.close(); }
+    },
+  },
+  {
+    id: "listonopen",
+    label: "A list read as its screen opens (part 392): My company property with no signal says the list did not load, with Try again, and Try again reads it and shows it; App support says Loading... while its tickets are on their way",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { signatures: true, support: true } });
+      try {
+        await shows(app.page, ".sp-content", 8000);
+        await pause(app.page, 2500);
+        app.stub.state.drop["GET /api/hr/property/mine"] = { once: true };
+        await openTab(app.page, "property", language);
+        const fault = await shows(app.page, "[data-list-fault]", 6000);
+        const said = fault ? await app.page.evaluate(() => document.querySelector("[data-list-fault]").innerText) : "";
+        expect("with no signal it says the list did not load, with Try again", fault && has(said, say("This list did not load.", language)) && has(said, say("Try again", language)), said.slice(0, 200));
+        await spokenHere(app, language, expect);
+        await clickText(app.page, say("Try again", language));
+        const held = await shows(app.page, "[data-property-item]", 6000);
+        expect("Try again reads it and shows it", held && getsOf(app.stub, "/api/hr/property/mine").length === 2, getsOf(app.stub, "/api/hr/property/mine").length + " reads");
+        app.stub.state.holdMs["GET /api/support/tickets/mine"] = 4000;
+        await openTab(app.page, "support", language);
+        const waiting = await shows(app.page, "[data-list-loading]", 3000);
+        expect("App support says Loading... while its tickets are on their way", waiting && has(await bodyText(app.page), say("Loading...", language)), "");
+        const came = await shows(app.page, "[data-support-ticket]", 8000);
+        expect("and shows them once they come", came, "");
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART392_S1_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };

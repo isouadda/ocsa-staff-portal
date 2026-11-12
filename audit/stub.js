@@ -1989,6 +1989,9 @@ function makeState(opts) {
     // permissionsRoute false is an API from before Step 179, which answers
     // GET /api/users/me/permissions 404.
     permissionsRoute: o.permissionsRoute !== false,
+    // Part 392: features on the permissions answer (ocsa-api part 384,
+    // 5.7); false for an API from before it.
+    featuresRoute: o.featuresRoute !== false,
     // Phone alerts. key is the server's public key, null when it has none,
     // and "missing" for an API with no key route yet. settings is null for
     // an API whose settings route is not there yet, which answers 404.
@@ -4655,7 +4658,16 @@ function createStub(opts) {
       // a role.
       capabilities.approve_supplies = state.person.approveSupplies === true;
       if (state.person.fileMaintenance === true) capabilities.file_maintenance_requests = true;
-      return json(200, { role: state.person.role, capabilities: capabilities });
+      // Part 392 (ocsa-api part 384, 5.7, routes/users.js featuresOf):
+      // features, each whether the same person's list answers them, by
+      // the rule its route reads: clearances and discipline for an admin
+      // or a supervisor, the workspace for an office person (its routes'
+      // WS_OFFICE), the Library for anyone on staff where the stub serves
+      // one. featuresRoute false is an API from before part 384, which
+      // answers no features.
+      const management = state.person.role === "admin" || state.person.role === "supervisor";
+      const features = { clearances: management, discipline: management, workspace: !!state.workspace && WS_OFFICE.indexOf(state.person.role) !== -1, library: !!state.library && state.person.role !== "client_contact" };
+      return json(200, Object.assign({ role: state.person.role, capabilities: capabilities }, state.featuresRoute ? { features: features } : {}));
     }
     if (key === "GET /api/users/profile/me") return json(200, {
       user: Object.assign({}, state.person, { isTestAccount: state.person.isTestAccount === true, employeeId: "OCSA-0001", preferredLanguage: "English", addressLine1: "", city: "", state: "", zipCode: "", emergencyContactName: "", emergencyContactPhone: "", birthday: state.midnightDates ? "1990-08-14T00:00:00.000Z" : "1990-08-14" }),
