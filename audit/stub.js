@@ -1637,12 +1637,17 @@ const runOfShiftAt = (shift, ms) => runSoon([shift], ms) || runHolding([shift], 
 const runCurrent = (shifts, ms) => runHolding(shifts, ms) || runsNear(shifts, ms).filter(w => w.startsAt <= ms && ms - w.startsAt <= DAY).sort((a, b) => b.startsAt - a.startsAt)[0] || null;
 const runKeyOf = (w) => (w ? w.label.toLowerCase() + "|" + w.runDate : null);
 const shiftNameIn = (shift, lang) => (lang === "es" ? shift.es : lang === "fr" ? shift.fr : null) || shift.label;
-// The run as every answer carries it (runView).
-const runView = (w, lang) => (w ? { label: w.label, display: shiftNameIn(w.shift, lang), startsAt: iso(w.startsAt), endsAt: iso(w.endsAt), runDate: w.runDate } : null);
+// The run as every answer carries it (runView). Part 392 (ocsa-api part
+// 384, 5.1, helpers/shiftRuns.js runView): { id, label, display,
+// startsAt, endsAt, runDate }, id the shift_runs row's, null for a run no
+// session has joined yet (a window, which a read never writes); the
+// caller passes it.
+const runView = (w, lang, id) => (w ? { id: id || null, label: w.label, display: shiftNameIn(w.shift, lang), startsAt: iso(w.startsAt), endsAt: iso(w.endsAt), runDate: w.runDate } : null);
 // Part 383 (API part 378): a run's id. The API keeps a run as a
-// shift_runs row with a uuid, and answers it only as a check-off's
-// completion.shift_run_id; no read names it (runView carries none). The
-// stub makes one from the run's key, the same every time.
+// shift_runs row with a uuid, answered as a check-off's
+// completion.shift_run_id and, since part 384, on every read's shiftRun
+// once a session has joined the run. The stub makes one from the run's
+// key, the same every time.
 const RUN_IDS = new Map();
 const runIdOf = (w) => {
   if (!w) return null;
@@ -1919,6 +1924,15 @@ function makeState(opts) {
     // tasks.badShiftRun whatever they name.
     lastEnded: o.lastSession === "closed" ? { id: "sess-0", site: "site-north", startedAt: NOW.getTime() - 15 * 60 * 60 * 1000, endedAt: NOW.getTime() - 2 * 60 * 60 * 1000, byApi: true } : null,
     badShiftRun: Number(o.badShiftRun) || 0,
+    // Part 392: a walk named by its inspection, and the open one, on the
+    // safety walk reads (ocsa-api part 384, 5.2 and 5.3); false for an API
+    // from before part 384.
+    walkNames: o.walkNames !== false,
+    // Part 392: the runs a session has joined, by key, whose shiftRun
+    // carries its id (ocsa-api part 384, 5.1); runIds false is an API from
+    // before part 384, whose reads name no run's id.
+    joinedRuns: new Set(),
+    runIds: o.runIds !== false,
     // Part 383 (API part 378, its 8): an OCSA-FRM-015 filed on its own,
     // with no inspection, { siteId, at } (walkAlone); what POST
     // .../drop-safety took, by inspection id (drops); and a refusal code
@@ -1989,6 +2003,9 @@ function makeState(opts) {
     // permissionsRoute false is an API from before Step 179, which answers
     // GET /api/users/me/permissions 404.
     permissionsRoute: o.permissionsRoute !== false,
+    // Part 392: features on the permissions answer (ocsa-api part 384,
+    // 5.7); false for an API from before it.
+    featuresRoute: o.featuresRoute !== false,
     // Phone alerts. key is the server's public key, null when it has none,
     // and "missing" for an API with no key route yet. settings is null for
     // an API whose settings route is not there yet, which answers 404.
@@ -3726,6 +3743,15 @@ function createStub(opts) {
   // The stub's clock, which a case can move, and when a check was made. A
   // check with no time was made a minute before the clock.
   const clockNow = () => (state.now !== null ? state.now : NOW.getTime());
+  // Part 392: a run's id as a read answers it (ocsa-api part 384, 5.1):
+  // the session's own run and every run a session joined carry it, a
+  // window none has joined reads null, and an API from before part 384
+  // names none.
+  const runIdShown = (w) => {
+    if (!w || !state.runIds) return null;
+    if (state.run && runKeyOf(state.run) === runKeyOf(w)) state.joinedRuns.add(runKeyOf(w));
+    return state.joinedRuns.has(runKeyOf(w)) ? runIdOf(w) : null;
+  };
   // A capability the signed-in person holds, by their tier, the way GET
   // /api/users/me/permissions answers it.
   const holds = (cap) => { const tier = state.person.role === "admin" || state.person.role === "supervisor" ? state.person.role : "staff"; return (CAPABILITIES[cap] || []).indexOf(tier) !== -1; };
@@ -3818,14 +3844,32 @@ function createStub(opts) {
   // site: a done inspection's (its result's completed_at and
   // safety_response_id), the walk filed with this run's completion, or
   // one filed on its own.
+  // Part 392 (ocsa-api part 384, 5.2, helpers/inspectionSafety.js
+  // walkOf): it names the inspection it was walked on, inspection { id,
+  // templateName, scheduledDate }, null for a walk filed on its own;
+  // scheduledInspectionId stays beside it. walkNames false is an API from
+  // before part 384, which answers neither inspection nor openWalk.
   const lastWalkAt = (siteId) => {
     const walks = state.inspections.filter(i => String(i.site_id) === String(siteId) && i.status === "completed" && i.result && i.result.safety_response_id && i.result.completed_at)
-      .map(i => ({ at: i.result.completed_at, scheduledInspectionId: String(i.id), responseId: String(i.result.safety_response_id) }));
-    if (state.walkAlone && String(state.walkAlone.siteId) === String(siteId)) walks.push({ at: state.walkAlone.at, scheduledInspectionId: null, responseId: "frm-walk-alone" });
+      .map(i => ({ at: i.result.completed_at, scheduledInspectionId: String(i.id), responseId: String(i.result.safety_response_id), inspection: { id: String(i.id), templateName: i.template_name || null, scheduledDate: i.scheduled_date ? String(i.scheduled_date).slice(0, 10) : null } }));
+    if (state.walkAlone && String(state.walkAlone.siteId) === String(siteId)) walks.push({ at: state.walkAlone.at, scheduledInspectionId: null, responseId: "frm-walk-alone", inspection: null });
     const newest = walks.sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
     if (!newest) return null;
     const day = zoneDate(Date.parse(newest.at));
-    return { at: newest.at, day: day, scheduledInspectionId: newest.scheduledInspectionId, responseId: newest.responseId, thisMonth: day.slice(0, 7) === zoneDate(clockNow()).slice(0, 7) };
+    return Object.assign({ at: newest.at, day: day, scheduledInspectionId: newest.scheduledInspectionId, responseId: newest.responseId, thisMonth: day.slice(0, 7) === zoneDate(clockNow()).slice(0, 7) }, state.walkNames ? { inspection: newest.inspection } : {});
+  };
+  // Part 392 (ocsa-api part 384, 5.3, helpers/inspectionSafety.js
+  // openWalk): the inspection at the site this month, on or before today
+  // on the company's clock, neither completed nor cancelled, that carries
+  // the walk, the earliest first: { scheduledInspectionId, templateName,
+  // scheduledDate }, or null.
+  const openWalkAt = (siteId) => {
+    const today = zoneDate(clockNow());
+    const first = today.slice(0, 8) + "01";
+    const day = (i) => String(i.scheduled_date || "").slice(0, 10);
+    const hit = state.inspections.filter(i => !i.gone && String(i.site_id) === String(siteId) && i.with_safety !== false && i.withSafety !== false && i.status !== "completed" && i.status !== "cancelled" && day(i) >= first && day(i) <= today)
+      .sort((a, b) => day(a).localeCompare(day(b)) || String(a.created_at || "").localeCompare(String(b.created_at || "")) || String(a.id).localeCompare(String(b.id)))[0];
+    return hit ? { scheduledInspectionId: String(hit.id), templateName: hit.template_name || null, scheduledDate: day(hit) } : null;
   };
   // Part 383 (API part 378, its 7, helpers/inspectionFindings.js
   // ownersFor): every active staff member but test accounts and client
@@ -4019,7 +4063,7 @@ function createStub(opts) {
       const st = minutesIn(sh.start), en = minutesIn(sh.end);
       return { label: sh.label, displayLabel: shiftNameIn(sh, lang), suggested: !!state.run && state.run.label === sh.label, window: { opensAt: clockOf(st * 60 - 3600).slice(0, 5), startsAt: sh.start, endsAt: sh.end, crossesMidnight: en <= st }, blocks: b ? b.blocks : [] };
     });
-    return { id: "sess-1", siteId: state.site, startedAt: iso(state.sessionStartedAt), shiftLabel: shifts.length > 0 || named.length > 0 ? state.shiftLabel : null, shifts: shifts, shiftRun: runView(state.run, lang), endNote: null };
+    return { id: "sess-1", siteId: state.site, startedAt: iso(state.sessionStartedAt), shiftLabel: shifts.length > 0 || named.length > 0 ? state.shiftLabel : null, shifts: shifts, shiftRun: runView(state.run, lang, runIdShown(state.run)), endNote: null };
   };
   // Part 383 (API part 378, its 6.3 and 6.4): the session that ended, as
   // lastSession and beside End Shift's 409 carry it, its end note in the
@@ -4036,7 +4080,7 @@ function createStub(opts) {
     shift: Object.assign({ sessionId: "sess-1", id: "sess-1" }, OPEN_SHIFT[state.site], { clockInTime: iso(state.sessionStartedAt) }, modeOf(state.site) ? { checklistMode: modeOf(state.site) } : {}, Array.isArray(state.othersOnShift) ? { othersOnShift: state.othersOnShift.map(x => Object.assign({}, x)) } : {}),
     session: sessionOf(lang),
     tasks: progress(),
-    shiftRun: runView(state.run, lang),
+    shiftRun: runView(state.run, lang, runIdShown(state.run)),
   } : { clockedIn: false, shift: null, session: null, tasks: null, shiftRun: null, lastSession: (() => { const v = endedView(lang); return v && v.endedAt && Date.parse(v.endedAt) > clockNow() - DAY ? { id: v.id, siteName: v.siteName, startedAt: v.startedAt, endedAt: v.endedAt, endNote: v.endNote } : null; })() });
 
   // One site's list, asked for the way the request asks, with Step 118's
@@ -4072,7 +4116,7 @@ function createStub(opts) {
       const record = mode === "reference";
       // Part 375: the run the list reads, the last shift's check of a daily
       // item, and the item's own shifts, on every row.
-      return Object.assign(row, { period: x.period, dueToday: x.due, doneThisPeriod: record ? null : x.done, shownToday: x.shown, checkedToday: record ? null : x.checked, display: display }, mode ? { checklistMode: mode } : {}, { shiftRun: runView(x.run, lang), doneEarlier: record ? null : (x.earlier ? Object.assign({}, x.earlier, { display: (() => { const sh = namedOf(siteId).find(n => n.label === x.earlier.shiftLabel); return sh ? shiftNameIn(sh, lang) : x.earlier.shiftLabel; })() }) : null), shiftLabels: null }, state.rowsCarryDay ? { checklistDay: new Date(checklistDay(clockNow()) * DAY).toISOString().slice(0, 10) } : {});
+      return Object.assign(row, { period: x.period, dueToday: x.due, doneThisPeriod: record ? null : x.done, shownToday: x.shown, checkedToday: record ? null : x.checked, display: display }, mode ? { checklistMode: mode } : {}, { shiftRun: runView(x.run, lang, runIdShown(x.run)), doneEarlier: record ? null : (x.earlier ? Object.assign({}, x.earlier, { display: (() => { const sh = namedOf(siteId).find(n => n.label === x.earlier.shiftLabel); return sh ? shiftNameIn(sh, lang) : x.earlier.shiftLabel; })() }) : null), shiftLabels: null }, state.rowsCarryDay ? { checklistDay: new Date(checklistDay(clockNow()) * DAY).toISOString().slice(0, 10) } : {});
     });
   };
 
@@ -4655,7 +4699,16 @@ function createStub(opts) {
       // a role.
       capabilities.approve_supplies = state.person.approveSupplies === true;
       if (state.person.fileMaintenance === true) capabilities.file_maintenance_requests = true;
-      return json(200, { role: state.person.role, capabilities: capabilities });
+      // Part 392 (ocsa-api part 384, 5.7, routes/users.js featuresOf):
+      // features, each whether the same person's list answers them, by
+      // the rule its route reads: clearances and discipline for an admin
+      // or a supervisor, the workspace for an office person (its routes'
+      // WS_OFFICE), the Library for anyone on staff where the stub serves
+      // one. featuresRoute false is an API from before part 384, which
+      // answers no features.
+      const management = state.person.role === "admin" || state.person.role === "supervisor";
+      const features = { clearances: management, discipline: management, workspace: !!state.workspace && WS_OFFICE.indexOf(state.person.role) !== -1, library: !!state.library && state.person.role !== "client_contact" };
+      return json(200, Object.assign({ role: state.person.role, capabilities: capabilities }, state.featuresRoute ? { features: features } : {}));
     }
     if (key === "GET /api/users/profile/me") return json(200, {
       user: Object.assign({}, state.person, { isTestAccount: state.person.isTestAccount === true, employeeId: "OCSA-0001", preferredLanguage: "English", addressLine1: "", city: "", state: "", zipCode: "", emergencyContactName: "", emergencyContactPhone: "", birthday: state.midnightDates ? "1990-08-14T00:00:00.000Z" : "1990-08-14" }),
@@ -6457,7 +6510,7 @@ function createStub(opts) {
     if (key === "GET /api/inspections/safety-walks") {
       const siteId = new URLSearchParams(search || "").get("siteId") || "";
       if (!siteId) return json(400, { error: "Check the details and try again.", code: "inspections.badDetails", keys: ["siteId"] });
-      return json(200, { siteId: siteId, lastWalk: lastWalkAt(siteId) });
+      return json(200, Object.assign({ siteId: siteId, lastWalk: lastWalkAt(siteId) }, state.walkNames ? { openWalk: openWalkAt(siteId) } : {}));
     }
     // Part 383 (API part 378, its 8.2): an open inspection gives up its
     // safety walk once another at its site holds this month's: the
@@ -7001,7 +7054,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { runIdFor: runIdOf, FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

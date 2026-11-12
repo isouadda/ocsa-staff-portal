@@ -1732,6 +1732,115 @@ One journey, in English and Spanish, failing on the main of part 383:
 
 `photokept` and `phototurnedoff` read the same with one read.
 
+## A lighter opening (part 392, section 1)
+
+The stub's `GET /api/users/me/permissions` answers `features` as ocsa-api
+Round 13 builds it (part 384, 5.7, `routes/users.js featuresOf`):
+`{ clearances, discipline, workspace, library }`, each whether the same
+person's list answers them. Clearances and discipline are an admin's or
+a supervisor's, the workspace an office person's (`WS_OFFICE`, where the
+case serves the workspace), and the Library anyone's on staff where the
+case serves one. `featuresRoute: false` is an API from before part 384,
+which answers no `features`.
+
+At open the portal reads the first screen, the bar and More: the clock
+status, the bell's count, the permissions, the chats for Chat's count,
+and the reads behind Home's cards. Each list behind a More screen is read
+when that screen opens, and again each time it opens: My company property
+and App support for everyone, the Library and Workspace by `features`.
+Approve supplies is read at open only by a holder of `approve_supplies`,
+since the API's `canDecide` needs it. The clock status, Start Shift's
+sites and a supervisor's Findings to follow up are each read once.
+
+The browser sends `If-None-Match` itself on a list read again (no read
+sets a cache mode), so an unchanged list answers 304. The harness answers
+every route itself, which leaves the browser's cache out, so no case here
+sees a 304.
+
+Two journeys, in English and Spanish, each failing on the main of part
+388:
+
+- `lightopen`: a cleaner's open reads no Library, company property, App
+  support or supply request list, and the clock status, Start Shift's
+  sites, the permissions and the bell's count once each; More offers My
+  company property, App support and the Library with nothing read, and
+  no Workspace; each reads its list as it opens and again when it opens
+  again. A supervisor reads Findings to follow up once and Workspace's
+  projects only as it opens; a holder of `approve_supplies` reads the
+  supply requests at open.
+- `listonopen`: My company property opened with no signal says "This
+  list did not load." with Try again, and Try again reads it and shows
+  it; App support says Loading... while its tickets are on their way.
+
+The smoke check's More run reads the same: with the signature routes not
+answering, More offers My company property, read once as it opened; and
+someone without `approve_supplies` never reads the supply requests.
+
+## A run's id on the first tap (part 392, section 2)
+
+The stub's `shiftRun` carries `id` as ocsa-api Round 13 builds it (part
+384, 5.1, `helpers/shiftRuns.js runView`): `{ id, label, display,
+startsAt, endsAt, runDate }` on the clock status (top and session), every
+session answer and every row of `GET /api/sites/:id/tasks`. The id is the
+run's own (`runIdFor`, the same uuid a check-off's
+`completion.shift_run_id` names), for the session's run and every run a
+session joined (`state.joinedRuns`), and null for a window no session has
+joined. `runIds: false` is an API from before part 384, whose reads name
+no run's id. As on the API, a check naming the session's own run is never
+refused; one naming another run is checked as part 378 checks it.
+
+The phone sends `shiftRunId` from the run's id the status shows, else the
+list's for the same run, on every check, the first of a run and one kept
+with no signal included. With a null id it learns the id from the first
+check's answer, as before. An id the API refused (`tasks.badShiftRun`) is
+not used again.
+
+Two journeys, in English and Spanish, each failing on the main of part
+388:
+
+- `runfirsttap`: the run's first check, made with no signal and kept,
+  names the run's id the status shows; kept across a change of shift it
+  is sent after it with that id and lands in the evening run; the night
+  run's first check names the night run's id at once.
+- `runidrefused`: a check kept under the evening run's id and sent after
+  a change of shift, refused `tasks.badShiftRun`, is sent once more
+  without it and lands in the night run; the night run's first check
+  names its own id.
+
+`taprun` and `taprunrefused` (part 383) now run with `runIds: false`, the
+path for a run whose id no read names.
+
+## The walk by name (part 392, section 3)
+
+The stub's safety walk reads answer as ocsa-api Round 13 builds them
+(part 384, 5.2 and 5.3, `helpers/inspectionSafety.js`):
+
+- `lastWalk` on `GET /api/inspections/safety-walks?siteId=` and
+  `lastSafetyWalk` on `GET /api/inspections/scheduled/:id` carry
+  `inspection: { id, templateName, scheduledDate } | null`, null for a walk
+  filed on its own, with `scheduledInspectionId` beside it (`walkOf`).
+- `GET /api/inspections/safety-walks?siteId=` answers `{ siteId, lastWalk,
+  openWalk }`, `openWalk: { scheduledInspectionId, templateName,
+  scheduledDate } | null` the inspection at the site this month, on or
+  before today on the company's clock, neither completed nor cancelled,
+  that carries the walk, the earliest first (`openWalk`).
+- `walkNames: false` is an API from before part 384, which answers
+  neither.
+
+The walk says "Safety walk done on {inspection} at {time}" from
+`lastSafetyWalk.inspection.templateName`, with no read of the other
+inspection, and Start an inspection's switch reads the open one from
+`openWalk`, with no read of the site's scheduled list. An answer from
+before part 384 reads both as before.
+
+One journey, in English and Spanish, failing on the main of part 388:
+
+- `walkbyname`: the open walk at North Building says the safety walk was
+  done on the readiness check at 10:42 with no read of that inspection,
+  and Start an inspection at South Building names the open inspection
+  carrying the walk from the site's safety walk read alone, with no read
+  of `GET /api/inspections/scheduled?site_id=`.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

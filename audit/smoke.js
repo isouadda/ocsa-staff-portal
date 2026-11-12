@@ -410,10 +410,14 @@ async function cleaner(browser, language) {
     else if (await page.evaluate((w) => { const o = Array.from(document.querySelectorAll("div")).find(d => { const c = getComputedStyle(d); return c.position === "fixed" && c.zIndex === "400"; }); const b = o && Array.from(o.querySelectorAll("button")).find(x => x.innerText.trim() === w); if (b) b.click(); return !!b; }, say(language, "Close"))) await pause(page, 300);
   }
   check("every More item opens" + tag + ": " + items.join(", "), items.length > 0 && badMore.length === 0, badMore.join("; ") || "More holds nothing");
-  // Step 271: with the signature routes not answering, nothing new shows.
+  // Step 271: with the signature routes not answering, Home has no card to
+  // sign. Part 392: More offers My company property to everyone, and its
+  // list is read only when it opens, so each route was asked once: the
+  // requests at open, for Home, and the property as it opened above.
   await tapBar(page, 0);
-  const signAsked = app.stub.state.calls.filter(c => c.path.indexOf("/api/signatures") === 0 || c.path === "/api/hr/property/mine").length;
-  check("with the signature routes not answering, Home has no card to sign and More no My company property, though both were asked once" + tag, !(await page.$("[data-sign-card]")) && items.indexOf(say(language, "My company property")) === -1 && signAsked === 2, (await page.$("[data-sign-card]")) ? "Home shows a card" : items.indexOf(say(language, "My company property")) !== -1 ? "More offers My company property" : signAsked + " calls to the routes");
+  const signAsked = app.stub.state.calls.filter(c => c.path.indexOf("/api/signatures") === 0).length;
+  const propertyAsked = app.stub.state.calls.filter(c => c.path === "/api/hr/property/mine").length;
+  check("with the signature routes not answering, Home has no card to sign, and More offers My company property, read once as it opened" + tag, !(await page.$("[data-sign-card]")) && items.indexOf(say(language, "My company property")) !== -1 && signAsked === 1 && propertyAsked === 1, (await page.$("[data-sign-card]")) ? "Home shows a card" : items.indexOf(say(language, "My company property")) === -1 ? "More does not offer My company property" : signAsked + " calls to the requests, " + propertyAsked + " to the property");
 
   // A form from Forms.
   await tapMore(page, say(language, "Forms"));
@@ -2324,10 +2328,11 @@ async function supplyOrders(browser, language, width) {
   const other = await open({ supplyOrders: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, signedIn: true, width: width });
   let none = false;
   if (await waitFor(other.page, BAR_JS + ".length >= 5")) {
-    // The list is read, and, since it says canDecide of none, the
-    // permissions after it.
+    // Part 392: the permissions read at open say this person holds no
+    // approve_supplies, so the list is never read.
     for (let i = 0; i < 60 && !other.stub.state.calls.some(c => c.path === "/api/users/me/permissions"); i += 1) await pause(other.page, 100);
-    const asked = other.stub.state.calls.some(c => c.path === "/api/supplies/requests") && other.stub.state.calls.some(c => c.path === "/api/users/me/permissions");
+    await pause(other.page, 600);
+    const asked = !other.stub.state.calls.some(c => c.path === "/api/supplies/requests") && other.stub.state.calls.some(c => c.path === "/api/users/me/permissions");
     await pause(other.page, 200);
     const items = await openMore(other.page);
     await other.page.mouse.click(5, 5);

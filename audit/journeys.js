@@ -9807,9 +9807,9 @@ const PART383_S2_JOURNEYS = [
   },
   {
     id: "taprun",
-    label: "A tap names its run (API part 378, 6.6): the run's id is learned from the first check the API takes in it, a tap made then and kept on the phone across a change of shift is kept and sent after it with the run it showed, and lands in that run; the next shift's list reads it open",
+    label: "A tap names its run (API part 378, 6.6): where no read names the run's id (null, part 392), it is learned from the first check the API takes in it, a tap made then and kept on the phone across a change of shift is kept and sent after it with the run it showed, and lands in that run; the next shift's list reads it open",
     run: async (open, language, expect) => {
-      const app = await open({ stubOptions: { namedShifts: true, links: {}, completions: [] } });
+      const app = await open({ stubOptions: { namedShifts: true, links: {}, completions: [], runIds: false } });
       try {
         await openTab(app.page, "tasks", language);
         await shows(app.page, '[data-task-row="task-4"]', 8000);
@@ -9855,7 +9855,7 @@ const PART383_S2_JOURNEYS = [
     id: "taprunrefused",
     label: "A run the check could not belong to (API part 378, 6.6): a kept tap sent with its run and refused tasks.badShiftRun is sent once more without it, the same tap, and lands in the session's run",
     run: async (open, language, expect) => {
-      const app = await open({ stubOptions: { namedShifts: true, links: {}, completions: [], badShiftRun: 1 } });
+      const app = await open({ stubOptions: { namedShifts: true, links: {}, completions: [], badShiftRun: 1, runIds: false } });
       try {
         await openTab(app.page, "tasks", language);
         await shows(app.page, '[data-task-row="task-4"]', 8000);
@@ -10424,5 +10424,252 @@ const PART388_S3_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART388_S3_JOURNEYS);
+
+// --- Round 12 of the staff app (part 392), section 1 ----------------------
+//
+// A lighter opening (ocsa-api part 384, 6.2, the staff app's half): at
+// open the portal reads what the first screen and More draw, and each
+// list behind a More screen when that screen opens. Fails on the main of
+// part 388, which read the Library, company property, App support's
+// tickets, a non-holder's supply requests and an office person's
+// workspace projects at open, and read the clock status, Start Shift's
+// sites and a supervisor's findings twice.
+const getsOf = (stub, p) => stub.state.calls.filter(c => c.method === "GET" && c.path === p);
+// What opens on demand now, never at open.
+const READ_ON_OPEN = ["/api/library", "/api/hr/property/mine", "/api/support/tickets/mine", "/api/supplies/requests", "/api/workspace/projects"];
+// More, the bar's last button, and what it offers.
+const moreOffers = async (page) => {
+  await page.evaluate(() => {
+    const bar = Array.from(document.querySelectorAll("div")).find((el) => { const st = getComputedStyle(el); return st.position === "fixed" && st.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5; });
+    const b = bar && Array.from(bar.querySelectorAll(":scope > button")).pop();
+    if (b) b.click();
+  });
+  await pause(page, 1200);
+  const items = await page.evaluate(() => {
+    const grid = Array.from(document.querySelectorAll(".sp-more div")).find(d => getComputedStyle(d).display === "grid" && d.querySelectorAll(":scope > button").length >= 5);
+    return grid ? Array.from(grid.querySelectorAll(":scope > button")).map(x => x.textContent.trim().replace(/^(9\+|\d+)/, "")) : [];
+  });
+  await page.keyboard.press("Escape").catch(() => {});
+  await page.mouse.click(5, 5).catch(() => {});
+  await pause(page, 500);
+  return items;
+};
+const PART392_S1_JOURNEYS = [
+  {
+    id: "lightopen",
+    label: "A lighter opening (API part 384, 6.2): a cleaner's open reads no Library, company property, App support or supply request list, and the clock status and Start Shift's sites once; More offers My company property, App support and the Library by features with nothing read, and each reads its list when it opens, again each time; a supervisor reads the findings once and the workspace when Workspace opens; a holder of approve_supplies reads the supply requests at open",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { library: true, support: true, signatures: true, supplyOrders: true, workspace: true } });
+      try {
+        await shows(app.page, ".sp-content", 8000);
+        await pause(app.page, 3500);
+        const early = READ_ON_OPEN.filter(p => getsOf(app.stub, p).length > 0);
+        expect("at open nothing reads a list a More screen draws", early.length === 0, JSON.stringify(early));
+        const twice = ["/api/clock/status", "/api/shift-sessions/sites", "/api/users/me/permissions", "/api/notifications/unread-count"].map(p => [p, getsOf(app.stub, p).length]).filter(x => x[1] !== 1);
+        expect("the clock status, Start Shift's sites, the permissions and the bell's count are each read once", twice.length === 0, JSON.stringify(twice));
+        const offered = await moreOffers(app.page);
+        const want = ["My company property", "App support", "Library"].map(w => say(w, language));
+        expect("More offers My company property, App support and the Library with no list read", want.every(w => offered.indexOf(w) !== -1) && READ_ON_OPEN.every(p => getsOf(app.stub, p).length === 0), JSON.stringify(offered));
+        expect("and offers no Workspace to a cleaner", offered.indexOf(say("Workspace", language)) === -1, JSON.stringify(offered));
+        await openTab(app.page, "property", language);
+        const held = await shows(app.page, "[data-property-item]", 6000);
+        expect("My company property reads its list as it opens and shows it", held && getsOf(app.stub, "/api/hr/property/mine").length === 1, getsOf(app.stub, "/api/hr/property/mine").length + " reads");
+        await spokenHere(app, language, expect);
+        await openTab(app.page, "support", language);
+        const tickets = await shows(app.page, "[data-support-ticket]", 6000);
+        expect("App support reads the tickets as it opens and shows them", tickets && getsOf(app.stub, "/api/support/tickets/mine").length === 1, getsOf(app.stub, "/api/support/tickets/mine").length + " reads");
+        await openTab(app.page, "library", language);
+        const folders = await shows(app.page, "[data-library-folder]", 6000);
+        expect("the Library reads its list as it opens and shows it", folders && getsOf(app.stub, "/api/library").length === 1, getsOf(app.stub, "/api/library").length + " reads");
+        await spokenHere(app, language, expect);
+        await openTab(app.page, "property", language);
+        await shows(app.page, "[data-property-item]", 6000);
+        await pause(app.page, 800);
+        expect("opened again, My company property reads its list again", getsOf(app.stub, "/api/hr/property/mine").length === 2, getsOf(app.stub, "/api/hr/property/mine").length + " reads");
+        expect("a cleaner, who holds no approve_supplies, never reads the supply requests", getsOf(app.stub, "/api/supplies/requests").length === 0, getsOf(app.stub, "/api/supplies/requests").length + " reads");
+      } finally { await app.context.close(); }
+      const sup = await open({ stubOptions: { person: ROUND1_SUPERVISOR, workspace: true, library: true } });
+      try {
+        await shows(sup.page, ".sp-content", 8000);
+        await pause(sup.page, 3500);
+        expect("a supervisor reads Findings to follow up once at open", getsOf(sup.stub, "/api/inspections/findings").length === 1, getsOf(sup.stub, "/api/inspections/findings").length + " reads");
+        const offered = await moreOffers(sup.page);
+        expect("More offers Workspace to a supervisor with no projects read", offered.indexOf(say("Workspace", language)) !== -1 && getsOf(sup.stub, "/api/workspace/projects").length === 0, JSON.stringify(offered));
+        await openTab(sup.page, "workspace", language);
+        await pause(sup.page, 1500);
+        const named = (await bodyText(sup.page)).indexOf("Invented project") !== -1;
+        expect("Workspace reads its projects as it opens and shows them", named && getsOf(sup.stub, "/api/workspace/projects").length === 1, getsOf(sup.stub, "/api/workspace/projects").length + " reads");
+        await spokenHere(sup, language, expect);
+      } finally { await sup.context.close(); }
+      const holder = await open({ stubOptions: { person: require("./stub").ORDER_HOLDER, supplyOrders: true } });
+      try {
+        await shows(holder.page, ".sp-content", 8000);
+        await pause(holder.page, 3500);
+        const offered = await moreOffers(holder.page);
+        expect("a holder of approve_supplies reads the supply requests at open, for Home's card and Approve supplies", getsOf(holder.stub, "/api/supplies/requests").length >= 1 && offered.indexOf(say("Approve supplies", language)) !== -1, getsOf(holder.stub, "/api/supplies/requests").length + " reads; " + JSON.stringify(offered));
+      } finally { await holder.context.close(); }
+    },
+  },
+  {
+    id: "listonopen",
+    label: "A list read as its screen opens (part 392): My company property with no signal says the list did not load, with Try again, and Try again reads it and shows it; App support says Loading... while its tickets are on their way",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { signatures: true, support: true } });
+      try {
+        await shows(app.page, ".sp-content", 8000);
+        await pause(app.page, 2500);
+        app.stub.state.drop["GET /api/hr/property/mine"] = { once: true };
+        await openTab(app.page, "property", language);
+        const fault = await shows(app.page, "[data-list-fault]", 6000);
+        const said = fault ? await app.page.evaluate(() => document.querySelector("[data-list-fault]").innerText) : "";
+        expect("with no signal it says the list did not load, with Try again", fault && has(said, say("This list did not load.", language)) && has(said, say("Try again", language)), said.slice(0, 200));
+        await spokenHere(app, language, expect);
+        await clickText(app.page, say("Try again", language));
+        const held = await shows(app.page, "[data-property-item]", 6000);
+        expect("Try again reads it and shows it", held && getsOf(app.stub, "/api/hr/property/mine").length === 2, getsOf(app.stub, "/api/hr/property/mine").length + " reads");
+        app.stub.state.holdMs["GET /api/support/tickets/mine"] = 4000;
+        await openTab(app.page, "support", language);
+        const waiting = await shows(app.page, "[data-list-loading]", 3000);
+        expect("App support says Loading... while its tickets are on their way", waiting && has(await bodyText(app.page), say("Loading...", language)), "");
+        const came = await shows(app.page, "[data-support-ticket]", 8000);
+        expect("and shows them once they come", came, "");
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART392_S1_JOURNEYS);
+
+// --- Round 12 of the staff app (part 392), section 2 ----------------------
+//
+// A run's id on the first tap (ocsa-api part 384, 5.1): the status, every
+// session answer and every row of the list carry shiftRun.id, so the first
+// check of a run names it, the one kept with no signal included. Fails on
+// the main of part 388, which named a run only once a check in it had
+// come back, so a run's first tap, and one kept before that, went
+// without it.
+const statusRunId = (stub) => stub.state.calls.some(c => c.method === "GET" && c.path === "/api/clock/status") ? require("./stub").runIdFor(stub.state.run) : null;
+const PART392_S2_JOURNEYS = [
+  {
+    id: "runfirsttap",
+    label: "A run's id on the first tap (API part 384, 5.1): the first check of the run, made with no signal and kept on the phone, names the run's id the status shows; kept across a change of shift, it is sent after it with that id and lands in the run it was made in; the next check names it too",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { namedShifts: true, links: {}, completions: [] } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await shows(app.page, '[data-task-row="task-4"]', 8000);
+        await pause(app.page, 600);
+        const evening = app.stub.state.run;
+        const id = statusRunId(app.stub);
+        expect("the status names the evening run's id", !!evening && evening.label === "Evening shift" && typeof id === "string" && id.length === 36, JSON.stringify({ label: evening && evening.label, id }));
+        app.stub.state.drop["POST /api/clock/tasks/task-2/complete"] = { once: false };
+        await tapRow(app.page, language, itemName("task-2", language));
+        await pause(app.page, 900);
+        const kept = (await keptQueue(app.page)).find(x => x.taskId === "task-2") || null;
+        expect("the run's first check, kept with no signal, names the run's id", !!kept && kept.runId === id, JSON.stringify(kept));
+        await spokenHere(app, language, expect);
+        await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.textContent.trim() === w); if (b) b.click(); }, say("Change shift", language));
+        await pause(app.page, 900);
+        await pickShift(app.page, servedIn("Night shift", language));
+        await pause(app.page, 300);
+        await clickText(app.page, say("Use this shift", language));
+        await pause(app.page, 2500);
+        const patch = shiftChanges(app.stub)[0];
+        delete app.stub.state.drop["POST /api/clock/tasks/task-2/complete"];
+        await app.page.evaluate(() => window.dispatchEvent(new Event("online")));
+        await waitOn(app.page, () => { try { return JSON.parse(window.localStorage.getItem("ocsa-pending-checkoffs") || "[]").length === 0; } catch (e) { return false; } }, null, 8000);
+        await pause(app.page, 600);
+        const calls = app.stub.state.calls;
+        const twos = checkoffsOf(app.stub, "task-2").filter(c => patch && calls.indexOf(c) > calls.indexOf(patch));
+        const filed = app.stub.state.completions.filter(c => c.taskId === "task-2");
+        expect("sent after the change of shift with that id, it lands in the evening run", !!patch && twos.length === 1 && twos[0].body && twos[0].body.shiftRunId === id && filed.length === 1 && filed[0].run && filed[0].run.label === "Evening shift", JSON.stringify(twos.map(c => c.body)) + " filed in " + JSON.stringify(filed.map(c => (c.run ? c.run.label : "none"))));
+        await shows(app.page, '[data-task-row="task-4"]', 8000);
+        await pause(app.page, 600);
+        const night = statusRunId(app.stub);
+        await tapRow(app.page, language, itemName("task-4", language));
+        await pause(app.page, 1500);
+        const fours = checkoffsOf(app.stub, "task-4");
+        expect("the night run's first check names the night run's id at once", fours.length === 1 && !!night && night !== id && fours[0].body && fours[0].body.shiftRunId === night, JSON.stringify(fours.map(c => c.body)) + " night " + night);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "runidrefused",
+    label: "A run's id the API refuses (API part 378, 6.6, with part 384's id): the run's first check, kept with no signal under the status's run id and sent after a change of shift, refused tasks.badShiftRun, is sent once more without it, the same tap, and lands in the session's run; the new run's first check names the new run's id",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { namedShifts: true, links: {}, completions: [], badShiftRun: 1 } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await shows(app.page, '[data-task-row="task-4"]', 8000);
+        await pause(app.page, 600);
+        const id = statusRunId(app.stub);
+        app.stub.state.drop["POST /api/clock/tasks/task-4/complete"] = { once: false };
+        await tapRow(app.page, language, itemName("task-4", language));
+        await pause(app.page, 900);
+        await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.textContent.trim() === w); if (b) b.click(); }, say("Change shift", language));
+        await pause(app.page, 900);
+        await pickShift(app.page, servedIn("Night shift", language));
+        await pause(app.page, 300);
+        await clickText(app.page, say("Use this shift", language));
+        await pause(app.page, 2500);
+        const patch = shiftChanges(app.stub)[0];
+        delete app.stub.state.drop["POST /api/clock/tasks/task-4/complete"];
+        await app.page.evaluate(() => window.dispatchEvent(new Event("online")));
+        await waitOn(app.page, () => { try { return JSON.parse(window.localStorage.getItem("ocsa-pending-checkoffs") || "[]").length === 0; } catch (e) { return false; } }, null, 8000);
+        await pause(app.page, 600);
+        const calls = app.stub.state.calls;
+        const fours = checkoffsOf(app.stub, "task-4").filter(c => patch && calls.indexOf(c) > calls.indexOf(patch));
+        const filed = app.stub.state.completions.filter(c => c.taskId === "task-4");
+        expect("named with the status's run id and refused, the same tap is sent once more without it and lands in the session's run", fours.length === 2 && fours[0].body.shiftRunId === id && !Object.prototype.hasOwnProperty.call(fours[1].body || {}, "shiftRunId") && fours[0].body.clientId === fours[1].body.clientId && filed.length === 1 && filed[0].run && filed[0].run.label === "Night shift", JSON.stringify(fours.map(c => c.body)) + " filed in " + JSON.stringify(filed.map(c => (c.run ? c.run.label : "none"))));
+        await shows(app.page, '[data-task-row="task-2"]', 8000);
+        await pause(app.page, 600);
+        const night = statusRunId(app.stub);
+        await tapRow(app.page, language, itemName("task-2", language));
+        await pause(app.page, 1500);
+        const twos = checkoffsOf(app.stub, "task-2");
+        expect("the night run's first check names the night run's id", twos.length === 1 && !!night && night !== id && twos[0].body && twos[0].body.shiftRunId === night, JSON.stringify(twos.map(c => c.body)));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART392_S2_JOURNEYS);
+
+// --- Round 12 of the staff app (part 392), section 3 ----------------------
+//
+// The walk by name (ocsa-api part 384, 5.2 and 5.3): lastWalk and
+// lastSafetyWalk name the inspection they were walked on, and the site's
+// safety walk read answers the open one, openWalk. Fails on the main of
+// part 388, which read the other inspection again for its name and read
+// the site's whole scheduled list to find the open one.
+const OPEN_SOUTH = { id: "in-open-south", template_name: "Invented south evening check", site_id: "site-south", site_name: "South Building", scheduled_date: "2026-10-01", status: "scheduled", with_safety: true, items: [] };
+const PART392_S3_JOURNEYS = [
+  {
+    id: "walkbyname",
+    label: "The walk by name (API part 384, 5.2 and 5.3): an open walk at a site whose safety walk was done on another inspection this month says on which and at what time with no read of that inspection; Start an inspection at a site with an open inspection carrying the walk says which, from the site's safety walk read alone, with no read of the site's scheduled list",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true, startInspection: true, inspections: [DONE_NORTH, OPEN_SOUTH] } });
+      try {
+        await openTab(app.page, "inspect", language);
+        if (!(await openInspectionNamed(app, INSPECTION_W.template_name))) { expect("the walk opens", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        const done = await shows(app.page, '[data-walk-safety-done="' + DONE_NORTH.id + '"]', 6000);
+        const line = done ? await app.page.evaluate(() => document.querySelector("[data-walk-safety-done]").innerText.trim()) : "";
+        const lead = say("Safety walk done on {inspection} at {time}", language).split("{time}")[0].replace("{inspection}", DONE_NORTH.template_name);
+        const reads = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/inspections/scheduled/" + DONE_NORTH.id);
+        expect("the walk says the safety walk was done on the other inspection, by its name and time, with no read of that inspection", done && line.indexOf(lead) === 0 && /10:42/.test(line) && reads.length === 0, JSON.stringify({ line, reads: reads.length }));
+        await spokenHere(app, language, expect);
+        await tapBack(app.page, language);
+        await shows(app.page, "[data-inspect-start]", 8000);
+        if (!(await startSheetAt(app, "site-south"))) { expect("the sheet picks South Building", false, "no chip"); return; }
+        await switchSettled(app, "open");
+        const south = await startSwitch(app);
+        const lists = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/inspections/scheduled" && /site_id=/.test(c.search || ""));
+        const walks = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/inspections/safety-walks" && /siteId=site-south/.test(c.search || ""));
+        expect("at a site with an open inspection carrying the walk, the switch starts off and names it, from the site's safety walk read alone", south.on === "false" && south.kind === "open" && south.line === say("Safety walk on {inspection}, already started at this site", language).replace("{inspection}", OPEN_SOUTH.template_name) && walks.length === 1 && lists.length === 0, JSON.stringify({ south, walks: walks.length, lists: lists.length }));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART392_S3_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };
